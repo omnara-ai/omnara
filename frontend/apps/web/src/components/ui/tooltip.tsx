@@ -30,7 +30,7 @@ function TooltipTrigger({ ...props }: ComponentProps<typeof TooltipPrimitive.Tri
 
 function TooltipContent({
   className,
-  sideOffset = 0,
+  sideOffset = 6,
   children,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Content>) {
@@ -40,13 +40,39 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          'bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-(--radix-tooltip-content-transform-origin) z-50 w-fit text-balance rounded-md px-3 py-1.5 text-xs',
+          'text-popover-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-(--radix-tooltip-content-transform-origin) ring-sidebar-primary/25 pointer-events-none z-50 w-fit text-balance rounded-md bg-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))] px-3 py-1.5 text-xs shadow-xl shadow-black/40 ring-1',
           className,
         )}
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+        <TooltipPrimitive.Arrow asChild width={12} height={6}>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 30 10"
+            preserveAspectRatio="none"
+            className="overflow-visible"
+          >
+            <polygon
+              points="0,0 30,0 15,10"
+              className="fill-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))]"
+            />
+            <rect
+              x="0"
+              y="-1"
+              width="30"
+              height="2"
+              className="fill-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))]"
+            />
+            <path
+              d="M0 0 L15 10 L30 0"
+              vectorEffect="non-scaling-stroke"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="stroke-sidebar-primary/35 fill-none stroke-1"
+            />
+          </svg>
+        </TooltipPrimitive.Arrow>
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )

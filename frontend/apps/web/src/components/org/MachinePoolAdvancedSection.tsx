@@ -1,7 +1,6 @@
 import {
-  EnvOverlayEditor,
+  CombinedEnvOverlayEditor,
   OverridesCollapsible,
-  SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import { CheckboxField, FieldGroup } from '@/components/ui/field'
 
@@ -41,6 +40,18 @@ export function MachinePoolAdvancedSection({
             }}
           />
         )}
+        <MachinePoolInputField
+          id="mpool-delete-after-idle"
+          label="Delete after idle minutes"
+          type="number"
+          min="5"
+          step="1"
+          description="Leave empty for no pool default; values must be at least 5."
+          value={values.deleteAfterIdleMinutes}
+          onValueChange={(value) => {
+            setValue('deleteAfterIdleMinutes', value)
+          }}
+        />
         {!clusterManaged && (
           <MachinePoolInputField
             id="mpool-cwd"
@@ -52,19 +63,13 @@ export function MachinePoolAdvancedSection({
             }}
           />
         )}
-        <EnvOverlayEditor
-          label="Environment variables"
-          rows={values.envRows}
-          onRowsChange={(envRows) => {
-            setValue('envRows', envRows)
-          }}
-        />
-        <SecretEnvOverlayEditor
+        <CombinedEnvOverlayEditor
           orgId={orgId}
           enabled={enabled}
-          label="Secret environment variables"
-          rows={values.secretEnvRows}
-          onRowsChange={(secretEnvRows) => {
+          envRows={values.envRows}
+          secretEnvRows={values.secretEnvRows}
+          onChange={({ envRows, secretEnvRows }) => {
+            setValue('envRows', envRows)
             setValue('secretEnvRows', secretEnvRows)
           }}
         />

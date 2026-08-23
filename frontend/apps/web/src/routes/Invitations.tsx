@@ -1,11 +1,11 @@
 import { useMe, usePendingInvitations } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { MailCheck } from 'lucide-react'
 
 import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { AppShell } from '@/components/app-shell/AppShell'
 import { BrandMark } from '@/components/brand/OmnaraMark'
+import { MailCheck } from '@/components/icons'
 import { PendingInvitationList } from '@/components/invitations/PendingInvitationList'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'

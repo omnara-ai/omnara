@@ -99,6 +99,46 @@ func poolMachineDeletionClaimFromSQLC(row dbsqlc.ClaimPoolMachineDeletionRow) Po
 	}
 }
 
+func expiredIdlePoolMachineDeletionClaimFromSQLC(
+	row dbsqlc.ClaimExpiredIdlePoolMachineDeletionRow,
+) PoolMachineDeletionClaim {
+	return PoolMachineDeletionClaim{
+		Machine: machineRecordFromSQLC(
+			row.ID,
+			row.OrgID,
+			row.MachinePoolID,
+			row.SourceKind,
+			row.DisplayName,
+			row.Description,
+			row.Provider,
+			row.LifecycleState,
+			row.ProviderResourceID,
+			row.ProviderProvisionAttemptedAt,
+			row.ConnectionState,
+			row.LastObservedAt,
+			row.Cpu,
+			row.MemoryMb,
+			row.Cwd,
+			row.Env,
+			row.SecretEnv,
+			row.ProviderOptions,
+			row.IdempotencyKey,
+			row.LifecycleReasonCode,
+			row.LifecycleReasonMessage,
+			row.NextReconcileAfter,
+			row.ProvisionAttempts,
+			row.DeleteAttempts,
+			row.Metadata,
+			row.DeletedAt,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.LifecycleChangedAt,
+			row.LifecycleVersion,
+		),
+		CanFinalizeMissingProviderResource: row.CanFinalizeMissingProviderResource,
+	}
+}
+
 func providerRuntimeMismatchDeletionClaimFromSQLC(
 	row dbsqlc.ClaimProviderRuntimeMismatchDeletionRow,
 ) PoolMachineDeletionClaim {

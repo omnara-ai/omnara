@@ -12,6 +12,7 @@ var (
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
+	ErrAgentLaunchFailed             = errors.New("launch agent for integration target")
 	ErrRuntimeLockInactive           = errors.New("runtime lock is not active")
 	ErrToolCallInProgress            = errors.New("tool call is already in progress")
 	ErrInvalidToolCallDisposition    = errors.New("invalid tool call transaction disposition")

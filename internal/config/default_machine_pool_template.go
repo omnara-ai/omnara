@@ -35,6 +35,7 @@ type defaultMachinePoolTemplateFile struct {
 	MinMachineMemoryMB            *int                  `yaml:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int                  `yaml:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int                  `yaml:"max_machine_memory_mb"`
+	DeleteAfterIdleMinutes        *int                  `yaml:"delete_after_idle_minutes"`
 	Metadata                      resourcemeta.Metadata `yaml:"metadata"`
 }
 
@@ -246,6 +247,7 @@ func defaultMachinePoolTemplateFromFile(
 		MinMachineMemoryMB:            parsed.MinMachineMemoryMB,
 		MaxMachineCPU:                 parsed.MaxMachineCPU,
 		MaxMachineMemoryMB:            parsed.MaxMachineMemoryMB,
+		DeleteAfterIdleMinutes:        parsed.DeleteAfterIdleMinutes,
 		Metadata:                      parsed.Metadata,
 	}, nil
 }

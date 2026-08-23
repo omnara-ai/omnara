@@ -155,8 +155,9 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 			)
 
 			runToolCallID := fixture.toolCallID(t, ctx, runCall.ID)
+			var processLastActivityAtBefore time.Time
 			if test.processState == "exited" {
-				if _, err := fixture.Pool.Exec(
+				if err := fixture.Pool.QueryRow(
 					ctx,
 					`INSERT INTO processes(
 					   id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id,
@@ -165,11 +166,12 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					   state, source_started_at, source_ended_at, state_changed_at,
 					   exit_code, created_at, updated_at
 					 )
-					 VALUES (
-					   $1, $2, $3, $4, $5, $6, $7, $8, $9,
-					   'pipe', 'true', 'sh', '/',
-					   'exited', $9, $10, $10, 0, $9, $10
-					 )`,
+						 VALUES (
+						   $1, $2, $3, $4, $5, $6, $7, $8, $9,
+						   'pipe', 'true', 'sh', '/',
+						   'exited', $9, $10, $10, 0, $9, $10
+						 )
+						 RETURNING last_activity_at`,
 					processID,
 					toolsTestOrgID,
 					toolsTestProjectID,
@@ -180,7 +182,7 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 					binding.MachineID,
 					fixture.Now.Add(13*time.Second),
 					fixture.Now.Add(14*time.Second),
-				); err != nil {
+				).Scan(&processLastActivityAtBefore); err != nil {
 					t.Fatalf("seed exited process: %v", err)
 				}
 			} else {
@@ -237,6 +239,23 @@ func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {
 			}
 			if actionCount != 0 {
 				t.Fatalf("stop actions = %d, want 0", actionCount)
+			}
+			if test.processState == "exited" {
+				var processLastActivityAtAfter time.Time
+				if err := fixture.Pool.QueryRow(
+					ctx,
+					`SELECT last_activity_at FROM processes WHERE id = $1`,
+					processID,
+				).Scan(&processLastActivityAtAfter); err != nil {
+					t.Fatalf("load stopped process activity: %v", err)
+				}
+				if !processLastActivityAtAfter.After(processLastActivityAtBefore) {
+					t.Fatalf(
+						"stopped process activity = %s, want after %s",
+						processLastActivityAtAfter,
+						processLastActivityAtBefore,
+					)
+				}
 			}
 		})
 	}

@@ -1,8 +1,8 @@
 import { useDeleteSkill, useDeleteSkillGrant, useGrantSkillToProject } from '@omnara/react'
 import { ApiError, type ProjectSkillAccess, type Skill } from '@omnara/sdk'
-import { Ellipsis } from 'lucide-react'
 import { useState } from 'react'
 
+import { Ellipsis } from '@/components/icons'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
 import { Button } from '@/components/ui/button'
 import {

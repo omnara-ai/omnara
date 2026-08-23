@@ -741,7 +741,7 @@ func assertClusterPoolCaps(
 	}
 }
 
-func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing.T) {
+func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomically(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	defer pool.Close()
@@ -769,18 +769,26 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 	}
 	orgID := uuid.New()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		OrgID:          orgID,
-		UserID:         user.ID,
-		Name:           "Cluster Model Provider Org",
-		IdempotencyKey: "cluster-model-provider-org",
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template:        template,
-			CredentialValue: "sk-openrouter-org",
-		},
+		OrgID:                         orgID,
+		UserID:                        user.ID,
+		Name:                          "Cluster Model Provider Org",
+		IdempotencyKey:                "cluster-model-provider-org",
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create org for user: %v", err)
 	}
+	if _, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, template.Name); !storeerr.IsNotFound(err) {
+		t.Fatalf("get provider before post-commit provisioning error = %v, want not found", err)
+	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t,
+		ctx,
+		store,
+		created.Org.ID,
+		template,
+		"sk-openrouter-org",
+	)
 	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, template.Name)
 	if err != nil {
 		t.Fatalf("get default model provider: %v", err)
@@ -969,7 +977,7 @@ func TestCreateOrgForUserCreatesClusterManagedModelProviderAtomically(t *testing
 	}
 }
 
-func TestCreateOrgForUserRollsBackAllLocalStateWhenDefaultProviderMaterializationFails(t *testing.T) {
+func TestConflictingProviderSupersedesDefaultProviderProvisioning(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	defer pool.Close()
@@ -988,15 +996,16 @@ func TestCreateOrgForUserRollsBackAllLocalStateWhenDefaultProviderMaterializatio
 		BaseURL:              "https://openrouter.ai/api/v1",
 		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
 		Models: []modelstore.DefaultConfiguredModelTemplate{{
-			Name: "model-one", ProviderModelSlug: "example/model-one", ContextWindowTokens: 8192,
+			Name: "model-one", ProviderModelSlug: "example/model-one",
+			ContextWindowTokens: 8192, MaxOutputTokens: 1024,
 		}},
 	}
-	baseTemplate.Models[0].ProviderModelSlug = ""
-	_, err = store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		OrgID:          orgID,
-		UserID:         user.ID,
-		Name:           "Rollback Org",
-		IdempotencyKey: "default-provider-rollback",
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		OrgID:                         orgID,
+		UserID:                        user.ID,
+		Name:                          "Durable Provider Org",
+		IdempotencyKey:                "durable-default-provider",
+		ProvisionDefaultModelProvider: true,
 		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{
 			defaultMachinePoolTemplateWithDefaultMachineForTest(executionstore.DefaultMachinePoolTemplate{
 				Name:               "rollback-cluster-pool",
@@ -1013,32 +1022,55 @@ func TestCreateOrgForUserRollsBackAllLocalStateWhenDefaultProviderMaterializatio
 				DefaultMachineProviderOptions: json.RawMessage(`{}`),
 			}),
 		},
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: baseTemplate, CredentialValue: "sk-one",
-		},
 	})
-	if err == nil {
-		t.Fatal("create org error = nil, want invalid provider materialization failure")
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
 	}
-	if _, err := store.Identity().GetOrg(ctx, orgID); !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("get rolled-back org error = %v, want not found", err)
+	tenantCredential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: created.Org.ID, OwnerKind: secretstore.SecretOwnerOrg, Name: "tenant-provider-credential",
+		Material: secrets.GenericMaterial{Value: "tenant-value"}, Actor: userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create tenant credential: %v", err)
 	}
-	for table, query := range map[string]string{
-		"projects":               `SELECT count(*)::int FROM projects WHERE org_id = $1`,
-		"secrets":                `SELECT count(*)::int FROM secrets WHERE org_id = $1`,
-		"model_provider_configs": `SELECT count(*)::int FROM model_provider_configs WHERE org_id = $1`,
-		"configured_models":      `SELECT count(*)::int FROM configured_models WHERE org_id = $1`,
-		"project_model_grants":   `SELECT count(*)::int FROM project_model_grants WHERE org_id = $1`,
-		"machine_pools":          `SELECT count(*)::int FROM machine_pools WHERE org_id = $1`,
-		"machine_pool_grants":    `SELECT count(*)::int FROM project_machine_pool_grants WHERE org_id = $1`,
-	} {
-		var count int
-		if err := pool.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
-			t.Fatalf("count %s: %v", table, err)
-		}
-		if count != 0 {
-			t.Fatalf("%s rows after rollback = %d, want 0", table, count)
-		}
+	tenantProvider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID: created.Org.ID, Name: baseTemplate.Name, APIFormat: baseTemplate.APIFormat,
+		BaseURL: baseTemplate.BaseURL, CredentialSecretID: tenantCredential.ID,
+	})
+	if err != nil {
+		t.Fatalf("create conflicting tenant provider: %v", err)
+	}
+	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx)
+	if err != nil || !found {
+		t.Fatalf("claim provisioning: found=%t err=%v", found, err)
+	}
+	if err := store.Organizations().CompleteDefaultModelProviderProvisioning(
+		ctx,
+		orglifecycle.CompleteDefaultModelProviderProvisioningInput{
+			Claim:           claim,
+			Template:        baseTemplate,
+			CredentialValue: "sk-one",
+		},
+	); !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+		t.Fatalf("complete conflicting default provider error = %v, want superseded", err)
+	}
+	if persisted, err := store.Identity().GetOrg(ctx, orgID); err != nil || persisted.ID != created.Org.ID {
+		t.Fatalf("get preserved organization = %+v err=%v", persisted, err)
+	}
+	persistedProvider, err := store.Models().GetModelProviderConfigByName(ctx, orgID, baseTemplate.Name)
+	if err != nil || persistedProvider.ID != tenantProvider.ID {
+		t.Fatalf("get preserved tenant provider = %+v err=%v", persistedProvider, err)
+	}
+	var jobCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM default_model_provider_provisioning_jobs
+		WHERE organization_id = $1
+	`, orgID).Scan(&jobCount); err != nil {
+		t.Fatalf("count provisioning jobs: %v", err)
+	}
+	if jobCount != 0 {
+		t.Fatalf("provisioning jobs after provider conflict = %d, want 0", jobCount)
 	}
 }
 

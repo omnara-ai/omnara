@@ -1,10 +1,10 @@
 import { useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
-import { CircleAlert, PlusIcon, Sparkles, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { CircleAlert, PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -42,14 +42,7 @@ export function AgentConfigSkillsField({
   onSelectedIdsChange: (ids: string[]) => void
   onUnavailableIdsChange: (ids: string[]) => void
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const search = useTypeaheadSearch()
-  const skillsQuery = useProjectAvailableSkills(orgId, projectId, {
-    filters: search.filters,
-    sort: 'name',
-    pageSize: 25,
-  })
-  const loadedSkills = useInfiniteQueryItems(skillsQuery).map((access) => access.skill)
+  const [draftOpen, setDraftOpen] = useState(false)
 
   const [resolvedSkills, setResolvedSkills] = useState<ReadonlyMap<string, Skill>>(new Map())
   const skillById = (id: string) => resolvedSkills.get(id)
@@ -62,10 +55,9 @@ export function AgentConfigSkillsField({
   })
   const completeResolve = useCompleteInfiniteQueryItems(resolveQuery, unresolvedIds.length > 0)
   const selectedSet = new Set(selectedIds)
-  const resolvableNow = [
-    ...loadedSkills,
-    ...completeResolve.items.map((access) => access.skill),
-  ].filter((skill) => selectedSet.has(skill.id) && !resolvedSkills.has(skill.id))
+  const resolvableNow = completeResolve.items.flatMap(({ skill }) =>
+    selectedSet.has(skill.id) && !resolvedSkills.has(skill.id) ? [skill] : [],
+  )
   if (resolvableNow.length > 0) {
     const next = new Map(resolvedSkills)
     for (const skill of resolvableNow) next.set(skill.id, skill)
@@ -75,17 +67,13 @@ export function AgentConfigSkillsField({
   const danglingIds = completeResolve.isComplete
     ? unresolvedIds.filter((id) => !resolveInventoryIds.has(id))
     : []
-
-  const loadedSkillIds = new Set(loadedSkills.map((skill) => skill.id))
   const danglingIdSet = new Set(danglingIds)
+
   const selectedNames = new Set(
     selectedIds.flatMap((id) => {
       const skill = skillById(id)
       return skill ? [skill.name] : []
     }),
-  )
-  const available = loadedSkills.filter(
-    (skill) => !selectedSet.has(skill.id) && !selectedNames.has(skill.name),
   )
 
   const [unavailableIds, setUnavailableIds] = useState<ReadonlySet<string>>(new Set())
@@ -106,42 +94,36 @@ export function AgentConfigSkillsField({
     onUnavailableIdsChange(unavailableReportKey === '' ? [] : unavailableReportKey.split('\n'))
   }, [onUnavailableIdsChange, unavailableReportKey])
 
+  const selectSkill = (skill: Skill, replacedId?: string) => {
+    setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
+    if (replacedId === undefined) {
+      onSelectedIdsChange([...selectedIds, skill.id])
+      setDraftOpen(false)
+    } else {
+      onSelectedIdsChange(selectedIds.map((id) => (id === replacedId ? skill.id : id)))
+    }
+  }
+
   return (
-    <Field className="gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Skills</FieldLabel>
+    <AgentConfigSectionCard
+      title="Skills"
+      action={
         <Button
           type="button"
           size="icon"
-          variant="outline"
-          className="bg-muted/40 size-8"
+          variant="ghost"
+          className="text-muted-foreground size-8"
           aria-label="Add skill"
           onClick={() => {
-            setPickerOpen((open) => !open)
-            search.setSearch('')
+            setDraftOpen(true)
           }}
         >
           <PlusIcon />
         </Button>
-      </div>
-      {pickerOpen && (
-        <SkillCombobox
-          items={available}
-          value={null}
-          onValueChange={(skill) => {
-            if (!skill) return
-            setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
-            onSelectedIdsChange([...selectedIds, skill.id])
-            search.setSearch('')
-            setPickerOpen(false)
-          }}
-          search={search}
-          query={skillsQuery}
-          placeholder={skillsQuery.isPending ? 'Loading skills…' : 'Search skills…'}
-        />
-      )}
-      {selectedIds.length > 0 && (
-        <div className="space-y-2">
+      }
+    >
+      {draftOpen || selectedIds.length > 0 ? (
+        <div className="space-y-2 px-5 py-4">
           {selectedIds.map((id) => (
             <SelectedSkillRow
               key={id}
@@ -149,17 +131,89 @@ export function AgentConfigSkillsField({
               projectId={projectId}
               id={id}
               skill={skillById(id)}
-              listedNow={loadedSkillIds.has(id)}
               dangling={danglingIdSet.has(id)}
+              excludedIds={selectedSet}
+              excludedNames={selectedNames}
               onAvailabilityChange={reportAvailability}
+              onReplace={(skill) => {
+                selectSkill(skill, id)
+              }}
               onRemove={() => {
                 onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
               }}
             />
           ))}
+          {draftOpen && (
+            <SkillEntryRow
+              orgId={orgId}
+              projectId={projectId}
+              skill={null}
+              excludedIds={selectedSet}
+              excludedNames={selectedNames}
+              removeLabel="Remove skill entry"
+              onSelect={(skill) => {
+                selectSkill(skill)
+              }}
+              onRemove={() => {
+                setDraftOpen(false)
+              }}
+            />
+          )}
         </div>
-      )}
-    </Field>
+      ) : null}
+    </AgentConfigSectionCard>
+  )
+}
+
+function SkillEntryRow({
+  orgId,
+  projectId,
+  skill,
+  excludedIds,
+  excludedNames,
+  removeLabel,
+  onSelect,
+  onRemove,
+}: {
+  orgId: string
+  projectId: string
+  skill: Skill | null
+  excludedIds: ReadonlySet<string>
+  excludedNames: ReadonlySet<string>
+  removeLabel: string
+  onSelect: (skill: Skill) => void
+  onRemove: () => void
+}) {
+  const search = useTypeaheadSearch()
+  const query = useProjectAvailableSkills(orgId, projectId, {
+    filters: search.filters,
+    sort: 'name',
+    pageSize: 25,
+  })
+  const loadedSkills = useInfiniteQueryItems(query).map((access) => access.skill)
+  const items = loadedSkills.filter(
+    (candidate) =>
+      candidate.id === skill?.id ||
+      (!excludedIds.has(candidate.id) && !excludedNames.has(candidate.name)),
+  )
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <SkillCombobox
+          items={items}
+          value={skill}
+          onValueChange={(next) => {
+            if (next && next.id !== skill?.id) onSelect(next)
+          }}
+          search={search}
+          query={query}
+          placeholder={query.isPending ? 'Loading skills…' : 'Search skills…'}
+        />
+      </div>
+      <Button type="button" size="icon" variant="ghost" aria-label={removeLabel} onClick={onRemove}>
+        <Trash2Icon />
+      </Button>
+    </div>
   )
 }
 
@@ -168,30 +222,33 @@ function SelectedSkillRow({
   projectId,
   id,
   skill,
-  listedNow,
   dangling,
+  excludedIds,
+  excludedNames,
   onAvailabilityChange,
+  onReplace,
   onRemove,
 }: {
   orgId: string
   projectId: string
   id: string
   skill: Skill | undefined
-  listedNow: boolean
   dangling: boolean
+  excludedIds: ReadonlySet<string>
+  excludedNames: ReadonlySet<string>
   onAvailabilityChange: (id: string, available: boolean) => void
+  onReplace: (skill: Skill) => void
   onRemove: () => void
 }) {
   const lookupQuery = useProjectAvailableSkills(orgId, projectId, {
     filters: { name: exactNameGlob(skill?.name ?? '') },
     pageSize: 25,
-    enabled: skill !== undefined && !listedNow,
+    enabled: skill !== undefined,
   })
   const lookupItems = useInfiniteQueryItems(lookupQuery)
   const unavailable =
     dangling ||
     (skill !== undefined &&
-      !listedNow &&
       lookupQuery.isSuccess &&
       !lookupItems.some((access) => access.skill.id === id))
   useEffect(() => {
@@ -201,6 +258,20 @@ function SelectedSkillRow({
     }
   }, [id, onAvailabilityChange, unavailable])
 
+  if (skill && !unavailable) {
+    return (
+      <SkillEntryRow
+        orgId={orgId}
+        projectId={projectId}
+        skill={skill}
+        excludedIds={excludedIds}
+        excludedNames={excludedNames}
+        removeLabel={`Detach ${skill.name}`}
+        onSelect={onReplace}
+        onRemove={onRemove}
+      />
+    )
+  }
   return (
     <div
       className={
@@ -209,13 +280,11 @@ function SelectedSkillRow({
           : 'border-border bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-2.5'
       }
     >
-      <div className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-md">
-        {unavailable ? (
+      {unavailable && (
+        <div className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-md">
           <CircleAlert className="text-destructive size-4" />
-        ) : (
-          <Sparkles className="text-muted-foreground size-4" />
-        )}
-      </div>
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         {skill ? (
           <>
@@ -226,7 +295,7 @@ function SelectedSkillRow({
               </span>
             </div>
             <p className="text-muted-foreground truncate text-xs">
-              {unavailable ? 'Skill is no longer available to this project.' : skill.description}
+              Skill is no longer available to this project.
             </p>
           </>
         ) : (

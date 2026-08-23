@@ -31,3 +31,40 @@ func TestEntryRejectsReservedMCPNamespace(t *testing.T) {
 		t.Fatalf("validation error = %v, want reserved MCP tool namespace rejection", err)
 	}
 }
+
+func TestDefaultCatalogIncludesRuntimeDiscoveryGuidance(t *testing.T) {
+	catalog, err := Default()
+	if err != nil {
+		t.Fatalf("default catalog: %v", err)
+	}
+	checks := []struct {
+		name        string
+		description []string
+		schema      []string
+	}{
+		{
+			name:        ToolNameListMachines,
+			description: []string{"machine_ref", "availability"},
+		},
+		{name: ToolNameRunCommand, schema: []string{ToolNameListMachines}},
+		{name: ToolNameInspectMachine, schema: []string{ToolNameListMachines}},
+		{name: ToolNameListProcesses, description: []string{"process_id"}},
+		{name: ToolNameReadProcess, schema: []string{ToolNameListProcesses}},
+	}
+	for _, check := range checks {
+		entry, ok := catalog.Lookup(check.name)
+		if !ok {
+			t.Fatalf("%s missing from default catalog", check.name)
+		}
+		for _, needle := range check.description {
+			if !strings.Contains(entry.Description, needle) {
+				t.Fatalf("%s description does not contain %q: %s", check.name, needle, entry.Description)
+			}
+		}
+		for _, needle := range check.schema {
+			if !strings.Contains(string(entry.InputSchema), needle) {
+				t.Fatalf("%s schema does not contain %q: %s", check.name, needle, entry.InputSchema)
+			}
+		}
+	}
+}

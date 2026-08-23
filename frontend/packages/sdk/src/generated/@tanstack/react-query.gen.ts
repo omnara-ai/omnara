@@ -192,10 +192,10 @@ export const recordMachineFailureMutation = (options?: Partial<Options<RecordMac
  * Create organization
  *
  * Creates the organization and its local default resources atomically.
- * When supplied, the idempotency key determines the proposed organization
- * ID. Reusing it after a completed request returns the existing
- * organization without another hosted call. A failed retry uses the same
- * proposed ID. Without a key, each request is a fresh attempt.
+ * An idempotency key determines the proposed organization ID; replaying it
+ * returns the existing organization. Without a key, each request is a fresh
+ * attempt. Optional default-provider provisioning begins after commit and
+ * retries asynchronously without failing organization creation.
  *
  */
 export const createOrganizationMutation = (options?: Partial<Options<CreateOrganizationData>>): UseMutationOptions<CreateOrganizationResponse2, CreateOrganizationError, Options<CreateOrganizationData>> => {
@@ -3215,7 +3215,7 @@ export const getMachinePoolOptions = (options: Options<GetMachinePoolData>) => q
 /**
  * Update machine pool
  *
- * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, and provider-supported per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
+ * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, provider-supported per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes are rejected with 409 Conflict.
  */
 export const updateMachinePoolMutation = (options?: Partial<Options<UpdateMachinePoolData>>): UseMutationOptions<UpdateMachinePoolResponse, UpdateMachinePoolError, Options<UpdateMachinePoolData>> => {
     const mutationOptions: UseMutationOptions<UpdateMachinePoolResponse, UpdateMachinePoolError, Options<UpdateMachinePoolData>> = {

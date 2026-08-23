@@ -1,7 +1,7 @@
 import { useConnectMachine } from '@omnara/react'
-import { CheckIcon, CopyIcon } from 'lucide-react'
 import { type SyntheticEvent, useReducer } from 'react'
 
+import { CheckIcon, CopyIcon } from '@/components/icons'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
 import { Button } from '@/components/ui/button'
 import {

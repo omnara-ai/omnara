@@ -29,6 +29,7 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import { agentInputBacklogQueryKey } from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
 
 export type {
@@ -105,7 +106,7 @@ export class AgentChatSession {
   private pendingInput: { id: string; text: string } | null = null
   private lastFailedSend: { id: string; text: string } | null = null
   private error: Error | undefined
-  private errorSource: 'send' | 'model' | 'stream' | undefined
+  private errorSource: 'send' | 'stream' | undefined
 
   private data: AgentChatData = {
     events: [],
@@ -172,7 +173,10 @@ export class AgentChatSession {
         },
       })
       this.lastFailedSend = null
-      if (this.inputEchoLoaded(id)) this.clearPendingInput(id)
+      this.clearPendingInput(id)
+      void this.queryClient.invalidateQueries({
+        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
+      })
       void this.queryClient.invalidateQueries({
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
@@ -234,7 +238,7 @@ export class AgentChatSession {
     if (this.cursor == null || sequence <= this.cursor) return
     this.cursor = sequence
     this.events = [...this.events, event]
-    if (this.errorSource === 'model' || this.errorSource === 'stream') {
+    if (this.errorSource === 'stream') {
       this.error = undefined
       this.errorSource = undefined
     }
@@ -253,6 +257,11 @@ export class AgentChatSession {
       }
       void this.queryClient.invalidateQueries({
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
+      })
+    }
+    if (event.event_kind === 'agent_input' && event.input_kind === 'content') {
+      void this.queryClient.invalidateQueries({
+        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
       })
     }
     if (event.event_kind === 'model_output') {
@@ -274,19 +283,17 @@ export class AgentChatSession {
 
   private handleDelta(delta: ModelOutputDelta): void {
     if (this.completedCalls.has(delta.model_call_context_id)) return
+    if (this.errorSource === 'stream') {
+      this.error = undefined
+      this.errorSource = undefined
+    }
     if (delta.event.kind === 'error') {
       this.completedCalls.add(delta.model_call_context_id)
       this.deltas = this.deltas.filter(
         (candidate) => candidate.model_call_context_id !== delta.model_call_context_id,
       )
-      this.error = new Error(delta.event.error.message)
-      this.errorSource = 'model'
       this.notify()
       return
-    }
-    if (this.errorSource === 'model' || this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
     }
     this.deltas = [...this.deltas, delta]
     this.notify()
@@ -333,8 +340,8 @@ export class AgentChatSession {
           else if (parsed.kind === 'event') this.handleEvent(parsed.event)
         }
         if (streamError != null) {
-          this.handleStreamError(streamError.error)
           if (streamError.code !== 'service_unavailable') {
+            this.handleStreamError(streamError.error)
             this.disconnect()
             return
           }

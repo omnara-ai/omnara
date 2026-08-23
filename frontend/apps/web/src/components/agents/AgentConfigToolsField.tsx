@@ -1,6 +1,8 @@
 import type { ToolCatalog, ToolCatalogEntry, ToolPermissionSelection } from '@omnara/sdk'
-import { InfoIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useState } from 'react'
 
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -8,7 +10,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Field, FieldLabel } from '@/components/ui/field'
 import {
   Select,
   SelectContent,
@@ -24,6 +25,20 @@ export interface BasicTool {
 }
 
 const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const toolDescriptions: Record<string, string> = {
+  run_command: 'Run shell commands on an attached machine.',
+  write_process: 'Send input to a command that is still running.',
+  stop_process: 'Stop a command that is still running.',
+  read_process: 'Read output from a command, including after it finishes.',
+  list_processes: 'List commands and processes that are currently running.',
+  create_machine: 'Create another machine for the agent to use.',
+  delete_machine: 'Delete a machine created for the agent.',
+  list_machines: 'List the machines available to the agent.',
+  inspect_machine: 'View details about a machine available to the agent.',
+  ask_question: 'Ask the user a question and wait for their response.',
+  web_search: 'Search the public web for current information.',
+  web_fetch: 'Read the contents of a public webpage.',
+}
 
 export function AgentConfigToolsField({
   catalog,
@@ -42,71 +57,90 @@ export function AgentConfigToolsField({
   const availableTools = catalogTools.filter((entry) =>
     tools.every((tool) => tool.name !== entry.name),
   )
+  const [openDescription, setOpenDescription] = useState<string | null>(null)
 
   return (
-    <Field className="gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Tools</FieldLabel>
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="bg-muted/40 size-8"
-                disabled={availableTools.length === 0}
-                aria-label="Add tools"
+    <AgentConfigSectionCard
+      title="Tools"
+      action={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="text-muted-foreground size-8"
+              disabled={availableTools.length === 0}
+              aria-label="Add tools"
+            >
+              <PlusIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+            {availableTools.map((entry) => (
+              <DropdownMenuItem
+                key={entry.name}
+                onSelect={() => {
+                  onToolsChange([
+                    ...tools,
+                    {
+                      name: entry.name,
+                      permission: structuredClone(entry.default_permission),
+                    },
+                  ])
+                }}
               >
-                <PlusIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-              {availableTools.map((entry) => (
-                <DropdownMenuItem
-                  key={entry.name}
-                  onSelect={() => {
-                    onToolsChange([
-                      ...tools,
-                      {
-                        name: entry.name,
-                        permission: structuredClone(entry.default_permission),
-                      },
-                    ])
-                  }}
-                >
-                  {entry.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-      {visibleTools.length > 0 && (
-        <div className="border-border bg-muted/40 divide-y overflow-hidden rounded-xl border">
+                {entry.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    >
+      {visibleTools.length > 0 ? (
+        <div className="divide-y">
           {visibleTools.map((tool) => {
             const entry = catalogByName.get(tool.name)
+            const description = toolDescriptions[tool.name]
             return (
-              <div key={tool.name} className="flex items-center gap-3 px-3 py-2">
-                <div className="flex min-w-0 flex-1 items-center gap-1">
-                  <span className="truncate font-mono text-sm">{tool.name}</span>
-                  {entry?.description && (
-                    <Tooltip>
+              <div key={tool.name} className="flex items-center gap-3 px-5 py-2.5">
+                <div
+                  className="-my-2.5 flex min-w-0 flex-1 items-center self-stretch py-2.5"
+                  onPointerEnter={() => {
+                    setOpenDescription(tool.name)
+                  }}
+                  onPointerLeave={() => {
+                    setOpenDescription(null)
+                  }}
+                >
+                  {description ? (
+                    <Tooltip open={openDescription === tool.name}>
                       <TooltipTrigger asChild>
-                        <Button
+                        <button
                           type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="text-muted-foreground size-7 shrink-0"
+                          className="bg-muted block max-w-full cursor-default truncate rounded-md px-2 py-1 text-left font-mono text-xs outline-none focus-visible:ring-2"
                           aria-label={`About ${tool.name}`}
+                          onFocus={() => {
+                            setOpenDescription(tool.name)
+                          }}
+                          onBlur={() => {
+                            setOpenDescription(null)
+                          }}
                         >
-                          <InfoIcon className="size-4" />
-                        </Button>
+                          {tool.name}
+                        </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-sm">
-                        {entry.description}
+                      <TooltipContent
+                        side="right"
+                        className="max-w-sm px-4 py-2 text-sm leading-relaxed"
+                      >
+                        {description}
                       </TooltipContent>
                     </Tooltip>
+                  ) : (
+                    <span className="bg-muted truncate rounded-md px-2 py-1 font-mono text-xs">
+                      {tool.name}
+                    </span>
                   )}
                 </div>
                 <PermissionModeSelect
@@ -137,8 +171,8 @@ export function AgentConfigToolsField({
             )
           })}
         </div>
-      )}
-    </Field>
+      ) : null}
+    </AgentConfigSectionCard>
   )
 }
 

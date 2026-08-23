@@ -1,8 +1,8 @@
 import { useMe } from '@omnara/react'
 import { sessionLogout } from '@omnara/sdk/browser'
-import { ChevronsUpDown, CircleHelp, LogOut, Monitor, Moon, Sun } from 'lucide-react'
 import { useState } from 'react'
 
+import { ChevronsUpDown, CircleHelp, LogOut, Monitor, Moon, Sun } from '@/components/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,

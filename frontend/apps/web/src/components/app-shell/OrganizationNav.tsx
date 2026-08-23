@@ -1,6 +1,7 @@
 import { fetchWebConfig } from '@omnara/sdk/browser'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
+
 import {
   BrainCircuit,
   CreditCard,
@@ -10,8 +11,7 @@ import {
   Server,
   Sparkles,
   Users,
-} from 'lucide-react'
-
+} from '@/components/icons'
 import {
   SidebarGroup,
   SidebarGroupContent,

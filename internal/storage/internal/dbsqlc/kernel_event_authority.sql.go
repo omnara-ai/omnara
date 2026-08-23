@@ -885,7 +885,7 @@ func (q *Queries) InsertTypedAgentEvent(ctx context.Context, arg InsertTypedAgen
 	return i, err
 }
 
-const listContentBlocksForAgentInput = `-- name: ListContentBlocksForAgentInput :many
+const listContentBlocksForAgentInputs = `-- name: ListContentBlocksForAgentInputs :many
 SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
@@ -895,17 +895,17 @@ FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
   AND block.agent_id = $2
-  AND block.owner_agent_input_id = $3
-ORDER BY block.ordinal ASC, block.id ASC
+  AND block.owner_agent_input_id = ANY($3::uuid[])
+ORDER BY block.owner_agent_input_id ASC, block.ordinal ASC, block.id ASC
 `
 
-type ListContentBlocksForAgentInputParams struct {
-	ProjectID    uuid.UUID
-	AgentID      uuid.UUID
-	AgentInputID *uuid.UUID
+type ListContentBlocksForAgentInputsParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	AgentInputIds []uuid.UUID
 }
 
-type ListContentBlocksForAgentInputRow struct {
+type ListContentBlocksForAgentInputsRow struct {
 	ID                    uuid.UUID
 	ProjectID             uuid.UUID
 	AgentID               uuid.UUID
@@ -923,15 +923,15 @@ type ListContentBlocksForAgentInputRow struct {
 	CreatedAt             time.Time
 }
 
-func (q *Queries) ListContentBlocksForAgentInput(ctx context.Context, arg ListContentBlocksForAgentInputParams) ([]ListContentBlocksForAgentInputRow, error) {
-	rows, err := q.db.Query(ctx, listContentBlocksForAgentInput, arg.ProjectID, arg.AgentID, arg.AgentInputID)
+func (q *Queries) ListContentBlocksForAgentInputs(ctx context.Context, arg ListContentBlocksForAgentInputsParams) ([]ListContentBlocksForAgentInputsRow, error) {
+	rows, err := q.db.Query(ctx, listContentBlocksForAgentInputs, arg.ProjectID, arg.AgentID, arg.AgentInputIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListContentBlocksForAgentInputRow{}
+	items := []ListContentBlocksForAgentInputsRow{}
 	for rows.Next() {
-		var i ListContentBlocksForAgentInputRow
+		var i ListContentBlocksForAgentInputsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,

@@ -3,7 +3,6 @@ import { CredentialSecretField } from '@/components/secrets/CredentialSecretFiel
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { resourceNameInputMaxLength } from '@/lib/resource-name'
 
-import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
@@ -145,13 +144,6 @@ export function MachinePoolFields({
           }}
         />
       )}
-      <MachinePoolAdvancedSection
-        orgId={orgId}
-        enabled={enabled}
-        clusterManaged={clusterEdit}
-        values={values}
-        setValue={setValue}
-      />
       {!clusterEdit && (
         <CredentialSecretField
           key={values.provider}

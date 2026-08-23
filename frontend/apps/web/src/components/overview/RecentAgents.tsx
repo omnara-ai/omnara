@@ -1,8 +1,8 @@
 import type { OrgOverviewResponse, VisibleProject } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ChevronDownIcon, PlusIcon } from 'lucide-react'
 
 import { DataTable } from '@/components/data-table/DataTable'
+import { ChevronDownIcon, PlusIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

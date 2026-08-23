@@ -13,7 +13,6 @@ import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateModelProviderDialog } from '@/components/org/CreateModelProviderDialog'
 import { EditModelProviderDialog } from '@/components/org/EditModelProviderDialog'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -70,7 +69,7 @@ export function ModelProvidersSection() {
                 <span className="inline-flex max-w-full items-center gap-2">
                   <span className="truncate font-medium">{provider.name}</span>
                   {provider.management_kind === 'cluster' && (
-                    <Badge variant="secondary">cluster</Badge>
+                    <span className="text-muted-foreground">cluster</span>
                   )}
                 </span>
               ),

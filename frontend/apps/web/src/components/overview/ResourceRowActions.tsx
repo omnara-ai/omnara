@@ -1,5 +1,4 @@
-import { Ellipsis } from 'lucide-react'
-
+import { Ellipsis } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

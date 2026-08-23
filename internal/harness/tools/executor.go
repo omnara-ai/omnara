@@ -217,9 +217,15 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 	}
 	message := errorCode
 	body := map[string]any{"error": message, "error_code": errorCode}
+	if errors.Is(cause, ErrNoActiveAgentMachineBinding) {
+		body["error"] = "no executable machine is available"
+		body["error_code"] = ErrNoActiveAgentMachineBinding.Error()
+		body["next_action"] = toolcatalog.ToolNameListMachines
+	}
 	if errors.Is(cause, ErrMachineSelectionRequired) {
 		body["error"] = "machine_ref is required when multiple machines are available"
 		body["error_code"] = ErrMachineSelectionRequired.Error()
+		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)
 		if marshalErr != nil {
 			return machineUnavailableResult{}, marshalErr
@@ -229,6 +235,7 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 	if errors.Is(cause, ErrMachineRefUnavailable) {
 		body["error"] = "machine_ref is unavailable"
 		body["error_code"] = ErrMachineRefUnavailable.Error()
+		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)
 		if marshalErr != nil {
 			return machineUnavailableResult{}, marshalErr

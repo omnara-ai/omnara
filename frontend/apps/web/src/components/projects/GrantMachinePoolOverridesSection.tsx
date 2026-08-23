@@ -1,10 +1,9 @@
 import { type MachinePool } from '@omnara/sdk'
 
 import {
-  EnvOverlayEditor,
+  CombinedEnvOverlayEditor,
   OverridesCollapsible,
   ProviderOptionsOverrideFields,
-  SecretEnvOverlayEditor,
 } from '@/components/machines/MachineOverrideFields'
 import {
   isMachinePoolProvider,
@@ -39,7 +38,8 @@ export function PoolGrantOverridesCollapsible({
       <FieldGroup>
         <FieldDescription>
           Pool values are shown as placeholders. Fields left empty keep following the pool; values
-          you enter are stored as overrides for this grant.
+          you enter are stored as overrides for this grant. For idle deletion, 0 disables it at this
+          level and enabled values must be at least 5.
         </FieldDescription>
         <PoolGrantOverrideFields
           orgId={orgId}
@@ -60,6 +60,7 @@ function NumberField({
   label,
   value,
   placeholder,
+  min = 0,
   step = '1',
   onValueChange,
 }: {
@@ -67,6 +68,7 @@ function NumberField({
   label: string
   value: string
   placeholder?: string
+  min?: number
   step?: string
   onValueChange: (value: string) => void
 }) {
@@ -76,7 +78,7 @@ function NumberField({
       <Input
         id={id}
         type="number"
-        min={0}
+        min={min}
         step={step}
         value={value}
         placeholder={placeholder}
@@ -158,28 +160,29 @@ export function PoolGrantOverrideFields({
           />
         </Field>
       </div>
-      <EnvOverlayEditor
-        label="Environment variables"
-        description="Set on top of the pool's variables for machines from this grant."
-        rows={values.envRows}
-        onRowsChange={(envRows) => {
-          onChange({ ...values, envRows })
-        }}
-      />
-      <SecretEnvOverlayEditor
+      <CombinedEnvOverlayEditor
         orgId={orgId}
         projectId={projectId}
         enabled={enabled}
-        label="Secret environment variables"
-        description="Set on top of the pool's secret variables for machines from this grant."
-        rows={values.secretEnvRows}
-        onRowsChange={(secretEnvRows) => {
-          onChange({ ...values, secretEnvRows })
+        envRows={values.envRows}
+        secretEnvRows={values.secretEnvRows}
+        onChange={(rows) => {
+          onChange({ ...values, ...rows })
         }}
       />
       <Field>
         <FieldLabel>Limits</FieldLabel>
         <div className="grid gap-4 sm:grid-cols-3">
+          <NumberField
+            id={`${idPrefix}-delete-after-idle`}
+            label="Delete after idle minutes"
+            value={values.deleteAfterIdleMinutes}
+            placeholder={numberPlaceholder(pool.delete_after_idle_minutes)}
+            min={0}
+            onValueChange={(deleteAfterIdleMinutes) => {
+              onChange({ ...values, deleteAfterIdleMinutes })
+            }}
+          />
           <NumberField
             id={`${idPrefix}-max-machines`}
             label="Max machines"

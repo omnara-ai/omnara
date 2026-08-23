@@ -117,10 +117,10 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
  * Create organization
  *
  * Creates the organization and its local default resources atomically.
- * When supplied, the idempotency key determines the proposed organization
- * ID. Reusing it after a completed request returns the existing
- * organization without another hosted call. A failed retry uses the same
- * proposed ID. Without a key, each request is a fresh attempt.
+ * An idempotency key determines the proposed organization ID; replaying it
+ * returns the existing organization. Without a key, each request is a fresh
+ * attempt. Optional default-provider provisioning begins after commit and
+ * retries asynchronously without failing organization creation.
  *
  */
 export const createOrganization = <ThrowOnError extends boolean = true>(options: Options<CreateOrganizationData, ThrowOnError>): RequestResult<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError> => (options.client ?? client).post<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError>({
@@ -2796,7 +2796,7 @@ export const getMachinePool = <ThrowOnError extends boolean = true>(options: Opt
 /**
  * Update machine pool
  *
- * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, and provider-supported per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
+ * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, provider-supported per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes are rejected with 409 Conflict.
  */
 export const updateMachinePool = <ThrowOnError extends boolean = true>(options: Options<UpdateMachinePoolData, ThrowOnError>): RequestResult<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError> => (options.client ?? client).put<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zUpdateMachinePoolResponse, data),

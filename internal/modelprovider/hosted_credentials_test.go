@@ -80,28 +80,35 @@ func TestHTTPHostedCredentialProvisionerAcceptsAdditiveResponseFields(t *testing
 	}
 }
 
-func TestHTTPHostedCredentialProvisionerClassifiesOnlyConflictStatus(t *testing.T) {
+func TestHTTPHostedCredentialProvisionerClassifiesRetryStatuses(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		status       int
-		contentType  string
-		body         string
-		wantConflict bool
+		name        string
+		status      int
+		contentType string
+		body        string
+		wantError   error
 	}{
 		{
-			name:         "opaque conflict",
-			status:       http.StatusConflict,
-			contentType:  "text/plain",
-			body:         "private issuance state and sensitive-upstream-detail",
-			wantConflict: true,
+			name:        "pending",
+			status:      http.StatusAccepted,
+			contentType: "application/json",
+			body:        `{"status":"pending"}`,
+			wantError:   ErrHostedCredentialPending,
 		},
 		{
-			name:         "oversized opaque conflict",
-			status:       http.StatusConflict,
-			contentType:  "application/octet-stream",
-			body:         strings.Repeat("x", hostedCredentialMaxResponseBytes+1024),
-			wantConflict: true,
+			name:        "opaque conflict",
+			status:      http.StatusConflict,
+			contentType: "text/plain",
+			body:        "private issuance state and sensitive-upstream-detail",
+			wantError:   ErrHostedCredentialConflict,
+		},
+		{
+			name:        "oversized opaque conflict",
+			status:      http.StatusConflict,
+			contentType: "application/octet-stream",
+			body:        strings.Repeat("x", hostedCredentialMaxResponseBytes+1024),
+			wantError:   ErrHostedCredentialConflict,
 		},
 		{
 			name:        "bad request",
@@ -129,8 +136,12 @@ func TestHTTPHostedCredentialProvisionerClassifiesOnlyConflictStatus(t *testing.
 				BaseURL: server.URL, Token: testHostedAPIToken, HTTPClient: server.Client(),
 			}
 			_, err := provisioner.ProvisionHostedCredential(context.Background(), validHostedCredentialRequest())
-			if errors.Is(err, ErrHostedCredentialConflict) != test.wantConflict {
-				t.Fatalf("error = %v, conflict=%v want %v", err, errors.Is(err, ErrHostedCredentialConflict), test.wantConflict)
+			if test.wantError != nil && !errors.Is(err, test.wantError) {
+				t.Fatalf("error = %v, want %v", err, test.wantError)
+			}
+			if test.wantError == nil && (errors.Is(err, ErrHostedCredentialPending) ||
+				errors.Is(err, ErrHostedCredentialConflict)) {
+				t.Fatalf("error = %v, want unclassified HTTP error", err)
 			}
 			if err == nil || strings.Contains(err.Error(), test.body) ||
 				strings.Contains(err.Error(), "sensitive-upstream-detail") {
@@ -155,13 +166,6 @@ func TestHTTPHostedCredentialProvisionerRejectsUnsafeResponses(t *testing.T) {
 			contentType: "application/json",
 			body:        `{"error":"secret"}`,
 			wantError:   "HTTP 502",
-		},
-		{
-			name:        "accepted is not credential creation",
-			statusCode:  http.StatusAccepted,
-			contentType: "application/json",
-			body:        `{"credential_value":"secret"}`,
-			wantError:   "HTTP 202",
 		},
 		{
 			name:        "ok is not replayable credential creation",

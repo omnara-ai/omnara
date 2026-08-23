@@ -1,8 +1,8 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
-import { PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { PlusIcon } from '@/components/icons'
 import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
 import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'

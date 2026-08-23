@@ -9,18 +9,19 @@ import {
   useResolveAgentInteraction,
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { SettingsIcon } from 'lucide-react'
 import { type CSSProperties, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
+import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
 import { AgentInteractions } from '@/components/agents/AgentInteractions'
 import {
   AgentSidebar,
   AgentSidebarToggle,
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
+import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { SidebarProvider } from '@/components/ui/sidebar'
@@ -46,6 +47,7 @@ export function AgentView() {
         : false,
   })
   const agent = data.agent
+  const archived = agent.state === 'archived'
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
   const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
@@ -55,6 +57,7 @@ export function AgentView() {
   const canOperate = project?.access.can_operate ?? false
   const [configOpen, setConfigOpen] = useState(false)
   const configDirty = useRef(false)
+  const canSendNow = canOperate && interactions.data?.data.length === 0
 
   function closeConfig() {
     configDirty.current = false
@@ -141,24 +144,46 @@ export function AgentView() {
         )}
 
         <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">
-          <AgentInteractions
-            interactions={interactions.data?.data ?? []}
-            pending={resolveInteraction.isPending}
-            error={resolveInteraction.error}
-            loadError={
-              interactions.error != null ? errorMessage(interactions.error, 'Unknown error') : null
-            }
-            onResolve={resolve}
-            canOperate={canOperate}
-          />
-          {!configOpen && (
-            <AgentComposer
-              chat={chat}
-              cancelPending={cancelAgent.isPending}
-              cancelError={cancelAgent.error}
-              onCancel={() => cancelAgent.mutateAsync()}
+          {!archived && (
+            <AgentInteractions
+              interactions={interactions.data?.data ?? []}
+              pending={resolveInteraction.isPending}
+              error={resolveInteraction.error}
+              loadError={
+                interactions.error != null
+                  ? errorMessage(interactions.error, 'Unknown error')
+                  : null
+              }
+              onResolve={resolve}
               canOperate={canOperate}
             />
+          )}
+          {archived ? (
+            !configOpen && (
+              <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
+                <p className="text-sm font-medium">This agent is archived</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  You can view its conversation, but it can no longer receive messages.
+                </p>
+              </div>
+            )
+          ) : (
+            <div className={cn('min-w-0', configOpen && 'hidden')}>
+              <AgentInputQueue
+                scope={{ orgID: activeOrg.id, projectID: projectId, agentID: agentId }}
+                canOperate={canOperate}
+                canSendNow={canSendNow}
+              />
+              {!configOpen && (
+                <AgentComposer
+                  chat={chat}
+                  cancelPending={cancelAgent.isPending}
+                  cancelError={cancelAgent.error}
+                  onCancel={() => cancelAgent.mutateAsync()}
+                  canOperate={canOperate}
+                />
+              )}
+            </div>
           )}
         </div>
       </div>

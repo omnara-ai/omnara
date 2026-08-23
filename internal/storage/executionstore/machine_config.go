@@ -69,8 +69,9 @@ type MachineEnvironmentOverlay struct {
 }
 
 type MachineBindingConfig struct {
-	Cwd                string
-	EnvironmentOverlay MachineEnvironmentOverlay
+	Cwd                    string
+	EnvironmentOverlay     MachineEnvironmentOverlay
+	DeleteAfterIdleMinutes *int
 }
 
 type ResolvedPoolMachine struct {
@@ -236,8 +237,9 @@ func (s *Store) ResolvePoolMachineTx(
 		MachineCwd:         resolveMachineCwd(poolGrant.DefaultCwd, poolGrant.GrantDefaultCwd),
 		MachineEnvironment: machineEnv,
 		BindingConfig: MachineBindingConfig{
-			Cwd:                agentMachine.Cwd,
-			EnvironmentOverlay: bindingEnvironmentOverlay,
+			Cwd:                    agentMachine.Cwd,
+			EnvironmentOverlay:     bindingEnvironmentOverlay,
+			DeleteAfterIdleMinutes: agentMachine.DeleteAfterIdleMinutes,
 		},
 	}, nil
 }

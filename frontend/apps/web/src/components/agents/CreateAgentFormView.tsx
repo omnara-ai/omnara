@@ -195,83 +195,94 @@ export function CreateAgentFormView({
   return (
     <form
       noValidate
-      className="mx-auto flex w-full max-w-6xl flex-col gap-6"
+      className="flex h-full w-full flex-col"
       onSubmit={(event: SyntheticEvent<HTMLFormElement>) => {
         event.preventDefault()
         void submit('launch')
       }}
     >
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: activeOrg.name, to: '/' },
-          { id: 'project', label: project.name },
-          {
-            id: 'agents',
-            label: 'Agents',
-            to: '/projects/$projectId/agents',
-            params: { projectId },
-          },
-          { id: 'new-agent', label: 'New agent' },
-        ]}
-      />
-      <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
-        <div className="flex items-center gap-2">
-          {showBuilder && <AgentTemplateMenu disabled={!templatesReady} onApply={applyTemplate} />}
-          <PillTabs
-            value={mode.mode}
-            onValueChange={switchMode}
-            tabs={[
-              { value: 'builder', label: 'Builder' },
-              { value: 'yaml', label: 'YAML' },
+      {/* Negative margins offset the scroll container's p-6 so the scroll region and the pinned bar reach the pane edges. */}
+      <div className="-mx-6 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6">
+        <div className="flex min-h-full w-full flex-col gap-6 pb-6">
+          <PageBreadcrumb
+            items={[
+              { id: 'organization', label: activeOrg.name, to: '/' },
+              { id: 'project', label: project.name },
+              {
+                id: 'agents',
+                label: 'Agents',
+                to: '/projects/$projectId/agents',
+                params: { projectId },
+              },
+              { id: 'new-agent', label: 'New agent' },
             ]}
           />
+          <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-2">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
+              <p className="text-muted-foreground mt-0.5 text-sm">
+                Define a reusable agent profile for this project.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {showBuilder && (
+                <AgentTemplateMenu disabled={!templatesReady} onApply={applyTemplate} />
+              )}
+              <PillTabs
+                value={mode.mode}
+                onValueChange={switchMode}
+                tabs={[
+                  { value: 'builder', label: 'Builder' },
+                  { value: 'yaml', label: 'YAML' },
+                ]}
+              />
+            </div>
+          </div>
+
+          <FieldGroup className="mx-auto w-full max-w-3xl flex-1 gap-8">
+            <div className={cn(showBuilder && 'grid gap-6 sm:grid-cols-2')}>
+              <Field>
+                <RequiredFieldLabel htmlFor="agent-config-name">Name</RequiredFieldLabel>
+                <Input
+                  id="agent-config-name"
+                  required
+                  maxLength={resourceNameInputMaxLength}
+                  value={draft.name}
+                  placeholder="Demo research agent"
+                  className={cn(!showBuilder && 'max-w-md')}
+                  onChange={(event) => {
+                    setDraft((prev) => ({ ...prev, name: event.target.value }))
+                  }}
+                />
+                <ResourceNameFieldError value={draft.name} />
+              </Field>
+              {showBuilder && (
+                <AgentConfigModelField
+                  orgId={activeOrg.id}
+                  projectId={projectId}
+                  value={form.model}
+                  onChange={form.setModel}
+                  onUnavailableChange={form.reportModelUnavailable}
+                />
+              )}
+            </div>
+            <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
+              <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
+            </div>
+            {!showBuilder && (
+              <AgentConfigYamlField
+                id="agent-yaml"
+                value={yaml}
+                className="h-auto min-h-[24rem] flex-1"
+                onChange={(value) => {
+                  dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
+                }}
+              />
+            )}
+          </FieldGroup>
         </div>
       </div>
-
-      <FieldGroup className="mx-auto w-full max-w-3xl gap-8">
-        <div className={cn(showBuilder && 'grid gap-6 sm:grid-cols-2')}>
-          <Field>
-            <RequiredFieldLabel htmlFor="agent-config-name">Name</RequiredFieldLabel>
-            <Input
-              id="agent-config-name"
-              required
-              maxLength={resourceNameInputMaxLength}
-              value={draft.name}
-              placeholder="Demo research agent"
-              className={cn(!showBuilder && 'max-w-md')}
-              onChange={(event) => {
-                setDraft((prev) => ({ ...prev, name: event.target.value }))
-              }}
-            />
-            <ResourceNameFieldError value={draft.name} />
-          </Field>
-          {showBuilder && (
-            <AgentConfigModelField
-              orgId={activeOrg.id}
-              projectId={projectId}
-              value={form.model}
-              onChange={form.setModel}
-              onUnavailableChange={form.reportModelUnavailable}
-            />
-          )}
-        </div>
-        <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
-          <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
-        </div>
-        {!showBuilder && (
-          <AgentConfigYamlField
-            id="agent-yaml"
-            value={yaml}
-            className="h-[28rem]"
-            onChange={(value) => {
-              dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
-            }}
-          />
-        )}
-      </FieldGroup>
-      {/* -bottom-6 offsets the scroll container's p-6 so the bar sits flush with the viewport edge. */}
-      <div className="bg-background sticky -bottom-6 z-10 -mb-6 flex items-center justify-between gap-4 border-t py-4">
+      <div className="bg-sidebar -mx-6 -mb-6 flex items-center justify-between gap-4 border-t px-8 py-3.5">
         <Button
           type="button"
           variant="ghost"

@@ -1876,6 +1876,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
+    delete_after_idle_minutes: z.int().gte(5).lte(2147483647).optional(),
     metadata: zMachineMetadata.optional()
 });
 
@@ -1923,6 +1924,7 @@ export const zUpdateMachinePoolRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
+    delete_after_idle_minutes: z.int().gte(5).lte(2147483647).nullish(),
     metadata: zMachineMetadata.optional()
 });
 
@@ -1955,6 +1957,7 @@ export const zMachinePool = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
+    delete_after_idle_minutes: z.int().gte(5).lte(2147483647).nullable(),
     metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp,
@@ -2128,6 +2131,10 @@ export const zProjectMachinePoolGrant = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullable(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullable(),
+    delete_after_idle_minutes: z.union([
+        z.literal(0),
+        z.int().gte(5).lte(2147483647)
+    ]).nullable(),
     metadata: zMetadata,
     created_at: zTimestamp,
     updated_at: zTimestamp
@@ -2149,6 +2156,10 @@ export const zCreateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).optional(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).optional(),
+    delete_after_idle_minutes: z.union([
+        z.literal(0),
+        z.int().gte(5).lte(2147483647)
+    ]).optional(),
     metadata: zMetadata.optional()
 });
 
@@ -2170,6 +2181,10 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
     min_machine_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
     max_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     max_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
+    delete_after_idle_minutes: z.union([
+        z.literal(0),
+        z.int().gte(5).lte(2147483647)
+    ]).nullish(),
     metadata: zMetadata.optional()
 });
 

@@ -35,6 +35,7 @@ type AgentInputRecord struct {
 	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
 	RejectedReason      string                 `json:"rejected_reason,omitempty"`
 	Metadata            json.RawMessage        `json:"metadata"`
+	ContentBlocks       json.RawMessage        `json:"-"`
 }
 
 type AgentInputQueueCursor struct {

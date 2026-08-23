@@ -1,13 +1,14 @@
 import type { ToolPermissionProfile } from '@omnara/sdk'
-import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
   type BasicMcpServer,
   type McpAuthType,
   mcpServerNameError,
   mcpServerNameMaxLength,
 } from '@/components/agents/useAgentBuilderForm'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Field,
@@ -69,14 +70,14 @@ export function AgentConfigMcpServersField({
   }
 
   return (
-    <Field className="gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>MCP servers</FieldLabel>
+    <AgentConfigSectionCard
+      title="MCP servers"
+      action={
         <Button
           type="button"
           size="icon"
-          variant="outline"
-          className="bg-muted/40 size-8"
+          variant="ghost"
+          className="text-muted-foreground size-8"
           disabled={permissionProfile == null}
           aria-label="Add server"
           onClick={() => {
@@ -87,9 +88,10 @@ export function AgentConfigMcpServersField({
         >
           <PlusIcon />
         </Button>
-      </div>
-      {servers.length > 0 && (
-        <div className="space-y-3">
+      }
+    >
+      {servers.length > 0 ? (
+        <div className="divide-y">
           {servers.map((server) => {
             const duplicateName = servers.some(
               (candidate) => candidate.id !== server.id && candidate.name === server.name,
@@ -98,10 +100,7 @@ export function AgentConfigMcpServersField({
               mcpServerNameError(server.name) ??
               (duplicateName ? 'Name must be unique within this configuration.' : undefined)
             return (
-              <div
-                key={server.id}
-                className="border-border bg-muted/40 space-y-4 rounded-lg border p-4"
-              >
+              <div key={server.id} className="space-y-4 px-5 py-4">
                 <div className="grid gap-4 sm:grid-cols-[minmax(8rem,14rem)_1fr_auto]">
                   <Field data-invalid={nameError !== undefined}>
                     <RequiredFieldLabel htmlFor={`${server.id}-name`}>Name</RequiredFieldLabel>
@@ -279,8 +278,8 @@ export function AgentConfigMcpServersField({
             )
           })}
         </div>
-      )}
-    </Field>
+      ) : null}
+    </AgentConfigSectionCard>
   )
 }
 

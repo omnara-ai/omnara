@@ -29,6 +29,7 @@ const grant = {
   min_machine_memory_mb: null,
   max_machine_cpu: null,
   max_machine_memory_mb: 128,
+  delete_after_idle_minutes: 45,
 } as ProjectMachinePoolGrant
 
 describe('project grant memory inputs', () => {
@@ -43,12 +44,14 @@ describe('project grant memory inputs', () => {
       maxTotalMemoryGb: '0',
       minMachineMemoryGb: '',
       maxMachineMemoryGb: '0.13',
+      deleteAfterIdleMinutes: '45',
     })
     expect(poolGrantUpdateRequest(pool, grant, draft)).toMatchObject({
       default_machine_memory_mb: 9000,
       max_total_memory_mb: 0,
       min_machine_memory_mb: null,
       max_machine_memory_mb: 128,
+      delete_after_idle_minutes: 45,
     })
 
     expect(
@@ -56,10 +59,12 @@ describe('project grant memory inputs', () => {
         ...draft,
         memoryGb: '',
         maxMachineMemoryGb: '1.5',
+        deleteAfterIdleMinutes: '',
       }),
     ).toMatchObject({
       default_machine_memory_mb: null,
       max_machine_memory_mb: 1536,
+      delete_after_idle_minutes: null,
     })
   })
 
@@ -69,10 +74,12 @@ describe('project grant memory inputs', () => {
         ...emptyPoolGrantDraft(),
         memoryGb: '1.5',
         maxTotalMemoryGb: '0',
+        deleteAfterIdleMinutes: '30',
       }),
     ).toMatchObject({
       default_machine_memory_mb: 1536,
       max_total_memory_mb: 0,
+      delete_after_idle_minutes: 30,
     })
   })
 })

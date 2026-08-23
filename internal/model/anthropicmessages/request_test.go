@@ -580,9 +580,6 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-			ActiveProcesses: []modelcontext.ActiveProcessRef{
-				{ProcessID: "prc_1", State: "running", CommandLabel: "changing suffix"},
-			},
 			IntegrationTargets: []modelcontext.IntegrationTargetRef{
 				{
 					TargetRef:       "slack-abcd",
@@ -629,8 +626,7 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 	}
 	system := string(payload.System)
 	if strings.Contains(system, "stable summary") ||
-		!strings.Contains(system, "context_checkpoint") ||
-		strings.Contains(system, "Active execution observations") {
+		!strings.Contains(system, "context_checkpoint") {
 		t.Fatalf("expected only fixed checkpoint guidance in the cached system prefix: %s", system)
 	}
 	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
@@ -640,13 +636,12 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
 		t.Fatalf("expected integration target refs without durable ids: %s", system)
 	}
-	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 3 {
-		t.Fatalf("messages = %+v, want checkpoint/history/active-work blocks", payload.Messages)
+	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 2 {
+		t.Fatalf("messages = %+v, want checkpoint/history blocks", payload.Messages)
 	}
 	blocks := payload.Messages[0].Content
 	if !strings.Contains(blocks[0].Text, "stable summary") || blocks[0].CacheControl == nil ||
-		!strings.Contains(blocks[1].Text, "changing user suffix") || blocks[1].CacheControl == nil ||
-		!strings.Contains(blocks[2].Text, "active_runtime_context") || blocks[2].CacheControl != nil {
+		!strings.Contains(blocks[1].Text, "changing user suffix") || blocks[1].CacheControl == nil {
 		t.Fatalf("cache boundaries are not on the stable system, checkpoint, and history tail: %s", prepared.Body)
 	}
 }

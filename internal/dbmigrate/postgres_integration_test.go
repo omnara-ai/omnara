@@ -266,8 +266,8 @@ func TestResourceNameMigrationRequiresUnrepairableExistingRowsToBeValid(t *testi
 			t.Fatalf("resource-name migration error included truncated ID %s: %v", omittedID, err)
 		}
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 23 {
-		t.Fatalf("migration version after rejected resource name = %d, want 23", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 25 {
+		t.Fatalf("migration version after rejected resource name = %d, want 25", got)
 	}
 	for _, orgID := range orgIDs {
 		if _, err := pool.Exec(ctx, `UPDATE orgs SET name = 'valid' WHERE id = $1`, orgID); err != nil {
@@ -321,8 +321,8 @@ func TestResourceNameMigrationRejectsRepairCollisions(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "projects_active_name_idx") {
 		t.Fatalf("resource-name collision error = %v", err)
 	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 22 {
-		t.Fatalf("migration version after repair collision = %d, want 22", got)
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 24 {
+		t.Fatalf("migration version after repair collision = %d, want 24", got)
 	}
 	var legacyNameCount int
 	if err := pool.QueryRow(

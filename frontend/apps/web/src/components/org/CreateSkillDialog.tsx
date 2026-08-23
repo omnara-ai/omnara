@@ -1,8 +1,8 @@
 import { useCreateSkill } from '@omnara/react'
 import type { SkillOwnerInput } from '@omnara/sdk'
-import { FileArchive } from 'lucide-react'
 import { type SyntheticEvent, useId, useState } from 'react'
 
+import { FileArchive } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,

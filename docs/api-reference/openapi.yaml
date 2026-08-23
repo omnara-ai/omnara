@@ -268,10 +268,10 @@ paths:
       summary: Create organization
       description: |
         Creates the organization and its local default resources atomically.
-        When supplied, the idempotency key determines the proposed organization
-        ID. Reusing it after a completed request returns the existing
-        organization without another hosted call. A failed retry uses the same
-        proposed ID. Without a key, each request is a fresh attempt.
+        An idempotency key determines the proposed organization ID; replaying it
+        returns the existing organization. Without a key, each request is a fresh
+        attempt. Optional default-provider provisioning begins after commit and
+        retries asynchronously without failing organization creation.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5645,8 +5645,9 @@ paths:
       summary: Update machine pool
       description: >-
         Tenant-managed pools support every request field. Cluster-managed pools only allow changes to
-        default CPU and memory, environment and secret environment variables, and provider-supported
-        per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
+        default CPU and memory, environment and secret environment variables, provider-supported
+        per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes
+        are rejected with 409 Conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -10280,6 +10281,12 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
+          type: integer
+          format: int32
+          minimum: 5
+          maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
@@ -10358,12 +10365,18 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
+          type: [integer, "null"]
+          format: int32
+          minimum: 5
+          maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -10444,6 +10457,12 @@ components:
           type: [integer, "null"]
           format: int32
           minimum: 1
+          maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
+          type: [integer, "null"]
+          format: int32
+          minimum: 5
           maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
@@ -10801,7 +10820,7 @@ components:
     ProjectMachinePoolGrant:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ProjectMachinePoolGrantID'
@@ -10874,6 +10893,18 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -10950,6 +10981,17 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
     UpdateProjectMachinePoolGrantRequest:
@@ -11022,6 +11064,18 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
     ListProjectMachinePoolGrantsResponse:

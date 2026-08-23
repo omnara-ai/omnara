@@ -2710,6 +2710,214 @@ func TestSlackEventsLaunchesWithoutExplicitIntegrationSendTool(
 	}
 }
 
+func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	postedMessages := make(chan map[string]any, 1)
+	slackServer := httptest.NewServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oauth.v2.access":
+				writeJSON(
+					w,
+					http.StatusOK,
+					slackOAuthTestResponse("xoxb-events-token"),
+				)
+			case "/users.info":
+				writeSlackLookupTestResponse(t, w, r)
+			case "/chat.postMessage":
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode slack launch failure message: %v", err)
+				}
+				postedMessages <- payload
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok":      true,
+					"channel": "C123",
+					"ts":      "222.333",
+				})
+			default:
+				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+			}
+		}),
+	)
+	defer slackServer.Close()
+	fixture := newSlackEventsIntegrationFixture(
+		t,
+		ctx,
+		pool,
+		slackServer,
+		"slack-events-launch-failure",
+	)
+
+	one := 1
+	memoryMB := 1024
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin launch failure pool setup: %v", err)
+	}
+	if err := fixture.Project.Store.Execution().ProvisionOrganizationDefaultsTx(
+		ctx,
+		tx,
+		fixture.Project.OrgUUID,
+		fixture.Project.ProjectUUID,
+		[]executionstore.DefaultMachinePoolTemplate{{
+			Name:                          "Slack Launch Failure Pool",
+			Provider:                      "unikraft",
+			ProviderAuthEnvVar:            "TEST_UNIKRAFT_TOKEN",
+			DefaultMachineCPU:             &one,
+			DefaultMachineMemoryMB:        &memoryMB,
+			DefaultMachineEnv:             json.RawMessage(`{}`),
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test","metro":"sfo"}`),
+			MaxTotalMachines:              0,
+			MaxTotalCPU:                   &one,
+			MaxTotalMemoryMB:              &memoryMB,
+			MaxMachineCPU:                 &one,
+			MaxMachineMemoryMB:            &memoryMB,
+		}},
+	); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("provision launch failure pool: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit launch failure pool setup: %v", err)
+	}
+
+	profileID, err := publicid.Encode(
+		publicid.KindAgentProfile,
+		fixture.Install.AgentProfileID,
+	)
+	if err != nil {
+		t.Fatalf("encode profile id: %v", err)
+	}
+	profile, err := fixture.Project.Store.Execution().GetAgentProfile(
+		ctx,
+		fixture.Project.ProjectUUID,
+		fixture.Install.AgentProfileID,
+	)
+	if err != nil {
+		t.Fatalf("get agent profile: %v", err)
+	}
+	currentConfigID, err := publicid.Encode(
+		publicid.KindAgentConfig,
+		profile.CurrentConfigID,
+	)
+	if err != nil {
+		t.Fatalf("encode current config id: %v", err)
+	}
+	sourceYAML := "instruction: Help the user make progress.\n" +
+		"model:\n" +
+		"  provider_config: openai-prod\n" +
+		"  name: gpt-test\n" +
+		"machine_sources:\n" +
+		"  - machine_pool_name: Slack Launch Failure Pool\n" +
+		"    max_machines: 1\n" +
+		"    initial_num_machines: 1\n" +
+		"tools:\n" +
+		"  send_integration_message: {}\n"
+	config := createPublicHTTPAgentConfig(
+		t,
+		fixture.Handler,
+		fixture.Project,
+		"slack-events-launch-failure",
+		"yaml",
+		sourceYAML,
+		fixture.Project.AdminToken,
+		http.StatusCreated,
+	)
+	requestJSONWithHeaders(
+		t,
+		fixture.Handler,
+		http.MethodPost,
+		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
+		`{"config":"`+config["id"].(string)+`","expected_current_config_id":"`+currentConfigID+`"}`,
+		"idem-slack-events-launch-failure-config",
+		http.StatusOK,
+		authHeaders(fixture.Project.AdminToken),
+	)
+
+	assertLaunchFailure := func(eventID, threadTS string) {
+		t.Helper()
+		body := fmt.Sprintf(
+			`{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"%s","authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> run","channel":"C123","channel_type":"channel","ts":"%s","team":"T123"}}`,
+			eventID,
+			threadTS,
+		)
+		response := requestJSONWithHeaders(
+			t,
+			fixture.Handler,
+			http.MethodPost,
+			integrationEventsPath,
+			body,
+			"",
+			http.StatusOK,
+			unitSlackSignedHeaders(body, "signing-secret"),
+		)
+		if response["ok"] != "launch_failed" {
+			t.Fatalf("response=%v want launch_failed", response)
+		}
+		select {
+		case message := <-postedMessages:
+			if message["channel"] != "C123" || message["thread_ts"] != threadTS ||
+				message["text"] != slack.AgentRequestFailureMessage {
+				t.Fatalf("slack launch failure message=%v", message)
+			}
+			if _, ok := message["metadata"]; ok {
+				t.Fatalf("slack launch failure message contains agent metadata: %v", message)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for Slack launch failure message")
+		}
+		providerRef := "C123:" + threadTS
+		if _, err := fixture.Project.Store.Integrations().GetIntegrationTargetByProviderRef(
+			ctx,
+			fixture.Project.ProjectUUID,
+			fixture.Install.ID,
+			providerRef,
+		); !storeerr.IsNotFound(err) {
+			t.Fatalf("launch failure integration target err=%v want not found", err)
+		}
+		var agentCount int
+		idempotencyKey := "integration:" + fixture.Install.Provider + ":" +
+			fixture.Install.ID.String() + ":" + providerRef
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agents WHERE project_id = $1 AND idempotency_key = $2`,
+			fixture.Project.ProjectUUID,
+			idempotencyKey,
+		).Scan(&agentCount); err != nil {
+			t.Fatalf("count failed launch agents: %v", err)
+		}
+		if agentCount != 0 {
+			t.Fatalf("failed launch agent count=%d want 0", agentCount)
+		}
+	}
+
+	assertLaunchFailure("Ev-launch-capacity-failure", "111.444")
+	result, err := pool.Exec(ctx, `
+UPDATE machine_pools
+SET max_total_machines = 1,
+    updated_at = transaction_timestamp()
+WHERE org_id = $1 AND name = 'Slack Launch Failure Pool'
+`, fixture.Project.OrgUUID)
+	if err != nil {
+		t.Fatalf("open launch failure pool capacity: %v", err)
+	}
+	if result.RowsAffected() != 1 {
+		t.Fatalf("updated launch failure pools=%d want 1", result.RowsAffected())
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO org_managed_work_admission(org_id, new_managed_work_allowed)
+VALUES ($1, false)
+ON CONFLICT (org_id) DO UPDATE
+SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
+`, fixture.Project.OrgUUID); err != nil {
+		t.Fatalf("disable managed work admission: %v", err)
+	}
+	assertLaunchFailure("Ev-launch-admission-failure", "111.445")
+}
+
 func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 	t *testing.T,
 ) {

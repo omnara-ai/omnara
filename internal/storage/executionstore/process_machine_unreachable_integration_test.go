@@ -1112,6 +1112,12 @@ func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) 
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
+	var activityBefore time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&activityBefore); err != nil {
+		t.Fatalf("load queued process activity: %v", err)
+	}
 	expireDaemonRuntimeForTest(t, ctx, fixture)
 	if records, err := fixture.Store.Execution().EndExpiredDaemonRuntimes(
 		ctx,
@@ -1132,6 +1138,15 @@ func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) 
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable queued process expiry count=%d err=%v", expired, err)
+	}
+	var activityAfter time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&activityAfter); err != nil {
+		t.Fatalf("load failed queued process activity: %v", err)
+	}
+	if !activityAfter.Equal(activityBefore) {
+		t.Fatalf("queued process activity after housekeeping failure = %s, want unchanged at %s", activityAfter, activityBefore)
 	}
 	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
 	if err != nil {

@@ -28,6 +28,27 @@ machine_sources:
 	}
 }
 
+func TestParseSourceValidatesIdleDeletionMinutes(t *testing.T) {
+	for _, test := range []struct {
+		minutes int
+		valid   bool
+	}{
+		{minutes: 0, valid: true},
+		{minutes: 4, valid: false},
+		{minutes: 5, valid: true},
+	} {
+		source := validAgentSource(fmt.Sprintf(`
+machine_sources:
+  - machine_pool_name: Build Pool
+    delete_after_idle_minutes: %d
+`, test.minutes))
+		_, err := ParseSource(SourceFormatYAML, []byte(source))
+		if (err == nil) != test.valid {
+			t.Fatalf("delete_after_idle_minutes %d error = %v, valid = %v", test.minutes, err, test.valid)
+		}
+	}
+}
+
 func TestParseSourceRejectsInvalidResourceNameReferences(t *testing.T) {
 	tests := []struct {
 		name   string

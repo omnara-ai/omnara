@@ -4,9 +4,9 @@ import {
   type DeviceAuthPending,
   pendingDeviceAuth,
 } from '@omnara/sdk/browser'
-import { Check, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { Check, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'

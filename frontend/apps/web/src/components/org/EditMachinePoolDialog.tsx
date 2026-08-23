@@ -14,6 +14,7 @@ import {
 import { FieldGroup } from '@/components/ui/field'
 import { errorMessage } from '@/lib/submit-status'
 
+import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolFormFromPool,
   machinePoolFormValid,
@@ -82,6 +83,13 @@ export function EditMachinePoolDialog({
                 orgId={orgId}
                 enabled={open}
                 mode={mode}
+                values={values}
+                setValue={setValue}
+              />
+              <MachinePoolAdvancedSection
+                orgId={orgId}
+                enabled={open}
+                clusterManaged={mode === 'cluster-edit'}
                 values={values}
                 setValue={setValue}
               />

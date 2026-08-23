@@ -53,6 +53,7 @@ type AgentConfigMachineSource struct {
 	MachinePoolName               string                     `json:"machine_pool_name,omitempty"`
 	MaxMachines                   *int                       `json:"max_machines,omitempty"`
 	InitialNumMachines            *int                       `json:"initial_num_machines,omitempty"`
+	DeleteAfterIdleMinutes        *int                       `json:"delete_after_idle_minutes,omitempty"`
 	Cwd                           string                     `json:"cwd,omitempty"`
 	MachineCPU                    *int                       `json:"machine_cpu,omitempty"`
 	MachineMemoryMB               *int                       `json:"machine_memory_mb,omitempty"`
@@ -286,6 +287,13 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.Prop("machine_pool_name", resourceNameReferenceSchema()),
 				kjsonschema.Prop("max_machines", kjsonschema.Integer(kjsonschema.Min(0))),
 				kjsonschema.Prop("initial_num_machines", kjsonschema.Integer(kjsonschema.Min(0))),
+				kjsonschema.Prop(
+					"delete_after_idle_minutes",
+					kjsonschema.AnyOf(
+						kjsonschema.Const(0),
+						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
+					),
+				),
 				kjsonschema.Prop("cwd", kjsonschema.String()),
 				kjsonschema.Prop(
 					"machine_cpu",

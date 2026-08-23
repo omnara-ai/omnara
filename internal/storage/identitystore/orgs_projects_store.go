@@ -201,13 +201,6 @@ func (s *Store) ProvisionOrganizationTx(
 	}, nil
 }
 
-func (s *Store) PreflightOrgCreationCapacity(ctx context.Context, userID ID) error {
-	if isNilID(userID) {
-		return errors.New("user id is required")
-	}
-	return checkOrgCreationCapacity(ctx, s.q, userID)
-}
-
 func (s *Store) CreateProjectForPrincipal(
 	ctx context.Context,
 	input CreateProjectForPrincipalInput,

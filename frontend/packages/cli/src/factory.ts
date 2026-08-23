@@ -21,6 +21,11 @@ type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseL
     : never
   : never
 
+export interface TransformBodyContext {
+  client: OmnaraClient
+  path: Record<string, unknown>
+}
+
 export interface OperationSpec<Response = never, ParsedBody = never> {
   type: 'op'
   verb: string
@@ -29,7 +34,7 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
   path?: z.ZodObject<z.ZodRawShape>
   query?: z.ZodObject<z.ZodRawShape>
   body?: z.ZodType
-  transformBody?: (body: ParsedBody) => unknown
+  transformBody?: (body: ParsedBody, context: TransformBodyContext) => unknown
   positional?: string[]
   format: OutputFormat<Response>
 }
@@ -349,7 +354,12 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
           options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
         const body = deepMerge(base, collectFlagValues(bodyFlags, options))
         const parsed = parseWithSchema(spec.body, body, 'request body')
-        input.body = spec.transformBody ? await spec.transformBody(parsed as never) : parsed
+        input.body = spec.transformBody
+          ? await spec.transformBody(parsed as never, {
+              client: config.client,
+              path: input.path ?? {},
+            })
+          : parsed
       }
       const data = await callOperation(spec, input)
       if (options.json === true) {

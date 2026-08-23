@@ -16,7 +16,7 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
 <Tab title="Console">
   1. Under **Models** in the sidebar, click **New provider**. Pick a provider and name it. This guide uses OpenAI with the name `openai-prod`.
   2. Create the credential secret inline (**New secret**) with your provider API key, then click **Add provider**.
-  3. In the **Add models** step, select `gpt-5.6` and create it. Models added this way are prefixed with the provider name, so it lands under **Configured models** as `openai-prod - gpt-5.6`.
+  3. In the **Add models** step, select `gpt-5.6` and create it. The detected slug is used as its configured name, so it lands under **Configured models** as `gpt-5.6`.
   4. Grant the model to your project: on the model's row, click **Grant to project** and pick your project.
 </Tab>
 <Tab title="API">
@@ -39,7 +39,7 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
         information, cite sources, and ask for clarification when needed.
       model:
         provider_config: openai-prod
-        name: openai-prod - gpt-5.6
+        name: gpt-5.6
       tools:
         web_search: {}
         web_fetch: {}
@@ -114,14 +114,14 @@ Omnara is model-agnostic: you bring a provider API key, and agents use the model
         information, cite sources, and ask for clarification when needed.
       model:
         provider_config: openai-prod
-        name: openai-prod - gpt-5.6
+        name: gpt-5.6
       tools:
         web_search: {}
         web_fetch: {}
         ask_question: {}
       ```
 
-      `model.name` must match a configured model exactly — this guide uses the console-created name `openai-prod - gpt-5.6`; substitute yours if it differs.
+      `model.name` must match a configured model exactly — this guide uses the console-created name `gpt-5.6`; substitute yours if it differs.
 
       Create the config and save its ID:
 
