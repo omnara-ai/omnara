@@ -18,13 +18,26 @@ type Dispatch = (options?: Record<string, unknown>) => unknown
 // reserve the `client` init key). Drop the key before dispatch.
 // TODO: remove once hey-api/hey-api#4177 is fixed and regenerated.
 function stripClientSelector(client: OmnaraClient): void {
-  const strip = (dispatch: Dispatch): Dispatch => (options) => {
-    if (options == null || !('client' in options)) return dispatch(options)
-    const rest = { ...options }
-    delete rest.client
-    return dispatch(rest)
-  }
-  const methods = ['connect', 'delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'request', 'trace'] as const
+  const strip =
+    (dispatch: Dispatch): Dispatch =>
+    (options) => {
+      if (options == null || !('client' in options)) return dispatch(options)
+      const rest = { ...options }
+      delete rest.client
+      return dispatch(rest)
+    }
+  const methods = [
+    'connect',
+    'delete',
+    'get',
+    'head',
+    'options',
+    'patch',
+    'post',
+    'put',
+    'request',
+    'trace',
+  ] as const
   const dispatches = client as unknown as Record<(typeof methods)[number], Dispatch>
   for (const method of methods) {
     dispatches[method] = strip(dispatches[method])
