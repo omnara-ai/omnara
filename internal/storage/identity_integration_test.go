@@ -3657,7 +3657,19 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newSecretIntegrationStore(pool)
-	existing := mustCreateIdentityUser(t, ctx, store, "same-email@example.com", "Existing")
+	const (
+		unicodeEmail   = "same-email@bücher.example"
+		canonicalEmail = "same-email@xn--bcher-kva.example"
+	)
+	existing := mustCreateIdentityUser(t, ctx, store, unicodeEmail, "Existing")
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE user_emails SET normalized_email = $1 WHERE user_id = $2`,
+		unicodeEmail,
+		existing.ID,
+	); err != nil {
+		t.Fatalf("seed legacy normalized email: %v", err)
+	}
 	connector, err := store.Identity().UpsertAuthConnector(
 		ctx,
 		identitystore.CreateAuthConnectorInput{
@@ -3682,7 +3694,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://idp.example.com",
 			Subject:         "subject-1",
-			Email:           "same-email@example.com",
+			Email:           canonicalEmail,
 			EmailVerified:   true,
 			DisplayName:     "OIDC User",
 		},
@@ -3700,7 +3712,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list resolved user emails: %v", err)
 	}
-	if len(emails) != 1 || emails[0].Email != "same-email@example.com" {
+	if len(emails) != 1 || emails[0].Email != unicodeEmail {
 		t.Fatalf("resolved user emails = %+v, want existing verified email", emails)
 	}
 	replayed, err := resolveAuthIdentitySessionForTest(
@@ -3729,7 +3741,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://other-idp.example.com",
 			Subject:         "subject-1",
-			Email:           "same-email@example.com",
+			Email:           unicodeEmail,
 			EmailVerified:   true,
 			DisplayName:     "OIDC User",
 		},
@@ -3746,7 +3758,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://idp.example.com",
 			Subject:         "subject-2",
-			Email:           "same-email@example.com",
+			Email:           canonicalEmail,
 			EmailVerified:   true,
 			DisplayName:     "Second OIDC User",
 		},
@@ -3940,8 +3952,8 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	results := make(chan result, 2)
 	start := make(chan struct{})
 	for _, input := range []identitystore.ResolveAuthIdentityInput{
-		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@example.com", EmailVerified: true, DisplayName: "Race A"},
-		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@example.com", EmailVerified: true, DisplayName: "Race B"},
+		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@bücher.example", EmailVerified: true, DisplayName: "Race A"},
+		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@xn--bcher-kva.example", EmailVerified: true, DisplayName: "Race B"},
 	} {
 		input := input
 		go func() {
@@ -3963,7 +3975,7 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&userCount); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'race@example.com' AND verified_at IS NOT NULL`).
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'race@xn--bcher-kva.example' AND verified_at IS NOT NULL`).
 		Scan(&emailCount); err != nil {
 		t.Fatalf("count verified race emails: %v", err)
 	}
