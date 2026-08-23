@@ -7,7 +7,7 @@ import (
 )
 
 func NormalizeEmail(email string) string {
-	normalized := strings.ToLower(strings.TrimSpace(email))
+	normalized := legacyNormalizedEmail(email)
 	local, domain, ok := splitEmail(normalized)
 	if !ok {
 		return normalized
@@ -21,7 +21,7 @@ func NormalizeEmail(email string) string {
 
 // Include forms that may have been stored before domains were converted to IDNA ASCII.
 func normalizedEmailLookupKeys(email string) []string {
-	legacy := strings.ToLower(strings.TrimSpace(email))
+	legacy := legacyNormalizedEmail(email)
 	canonical := NormalizeEmail(email)
 	keys := []string{canonical}
 	if legacy != canonical {
@@ -42,6 +42,10 @@ func normalizedEmailLookupKeys(email string) []string {
 		}
 	}
 	return append(keys, unicodeKey)
+}
+
+func legacyNormalizedEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func splitEmail(email string) (string, string, bool) {

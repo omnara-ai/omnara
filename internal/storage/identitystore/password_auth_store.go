@@ -312,11 +312,11 @@ func (s *Store) AuthenticatePasswordAndCreateSession(
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("load password credential: %w", err)
 	}
-	if len(logins) != 1 {
+	login, found := selectPasswordLogin(logins, input.Email)
+	if !found {
 		authn.EqualizePasswordVerifyTiming(input.Password)
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
-	login := logins[0]
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin password login: %w", err)
@@ -412,10 +412,10 @@ func (s *Store) StartPasswordReset(
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("load reset credential: %w", err)
 	}
-	if len(logins) != 1 {
+	row, ok := selectPasswordLogin(logins, input.Email)
+	if !ok {
 		return PasswordResetStartRecord{Email: input.Email}, nil
 	}
-	row := logins[0]
 	token, err := randomTokenPart(32)
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("generate password reset token: %w", err)
@@ -453,6 +453,31 @@ func (s *Store) StartPasswordReset(
 		return PasswordResetStartRecord{}, fmt.Errorf("commit password reset request: %w", err)
 	}
 	return PasswordResetStartRecord{Email: row.Email, Token: token, Found: true}, nil
+}
+
+func selectPasswordLogin(
+	logins []dbsqlc.ListPasswordLoginsByVerifiedEmailsRow,
+	email string,
+) (dbsqlc.ListPasswordLoginsByVerifiedEmailsRow, bool) {
+	if len(logins) == 0 {
+		return dbsqlc.ListPasswordLoginsByVerifiedEmailsRow{}, false
+	}
+	if len(logins) == 1 {
+		return logins[0], true
+	}
+	legacy := legacyNormalizedEmail(email)
+	for _, login := range logins {
+		if login.NormalizedEmail == legacy {
+			return login, true
+		}
+	}
+	first := logins[0]
+	for _, login := range logins[1:] {
+		if login.UserID != first.UserID {
+			return dbsqlc.ListPasswordLoginsByVerifiedEmailsRow{}, false
+		}
+	}
+	return first, true
 }
 
 func (s *Store) CompletePasswordReset(ctx context.Context, input CompletePasswordResetInput) (UserRecord, error) {
