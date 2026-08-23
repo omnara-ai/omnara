@@ -163,7 +163,7 @@ func pendingOrgInvitationRecordFromSQLC(
 }
 
 func consumedOrgInvitationRecordFromSQLC(
-	row dbsqlc.ConsumeOrgInvitationForEmailRow,
+	row dbsqlc.ConsumeOrgInvitationForEmailsRow,
 ) OrgInvitationWithOrgNameRecord {
 	return OrgInvitationWithOrgNameRecord{
 		OrgInvitationRecord: OrgInvitationRecord{

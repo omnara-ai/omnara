@@ -31,20 +31,28 @@ func (s *Store) CreateOrgInvitation(
 		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
 	}
 	normalizedEmail := NormalizeEmail(input.Email)
+	lookupKeys := normalizedEmailLookupKeys(input.Email)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("begin create org invitation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	emailUser, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
+	emailUsers, err := qtx.ListVerifiedUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.ListVerifiedUserEmailsByNormalizedEmailsParams{NormalizedEmails: lookupKeys},
 	)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("check invite target email: %w", err)
 	}
-	if err == nil {
+	if len(emailUsers) > 1 {
+		return OrgInvitationRecord{}, storeerr.Tag(
+			storeerr.ErrConflict,
+			errors.New("email belongs to multiple users"),
+		)
+	}
+	if len(emailUsers) == 1 {
+		emailUser := emailUsers[0]
 		if _, err := qtx.GetOrgAuthorizationRole(
 			ctx,
 			dbsqlc.GetOrgAuthorizationRoleParams{OrgID: input.OrgID, UserID: emailUser.UserID},
@@ -60,14 +68,24 @@ func (s *Store) CreateOrgInvitation(
 			return OrgInvitationRecord{}, fmt.Errorf("check existing org member: %w", err)
 		}
 	}
-	existing, err := qtx.GetPendingOrgInvitationByEmail(
+	existingInvitations, err := qtx.ListPendingOrgInvitationsByEmails(
 		ctx,
-		dbsqlc.GetPendingOrgInvitationByEmailParams{
-			OrgID:           input.OrgID,
-			NormalizedEmail: normalizedEmail,
+		dbsqlc.ListPendingOrgInvitationsByEmailsParams{
+			OrgID:            input.OrgID,
+			NormalizedEmails: lookupKeys,
 		},
 	)
-	if err == nil {
+	if err != nil {
+		return OrgInvitationRecord{}, fmt.Errorf("load pending org invitation: %w", err)
+	}
+	if len(existingInvitations) > 1 {
+		return OrgInvitationRecord{}, storeerr.Tag(
+			storeerr.ErrConflict,
+			errors.New("multiple equivalent pending invitations exist"),
+		)
+	}
+	if len(existingInvitations) == 1 {
+		existing := existingInvitations[0]
 		if existing.OrgRole != input.Role {
 			return OrgInvitationRecord{}, storeerr.Tag(
 				storeerr.ErrConflict,
@@ -75,9 +93,6 @@ func (s *Store) CreateOrgInvitation(
 			)
 		}
 		return orgInvitationRecordFromSQLC(existing), nil
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return OrgInvitationRecord{}, fmt.Errorf("load pending org invitation: %w", err)
 	}
 	row, err := qtx.CreateOrgInvitation(
 		ctx,
@@ -199,9 +214,16 @@ func (s *Store) ListPendingOrgInvitationsForUser(
 	if err != nil {
 		return ListPendingOrgInvitationsForUserResult{}, fmt.Errorf("list verified emails: %w", err)
 	}
-	emails := make([]string, 0, len(emailRows))
+	emails := make([]string, 0, len(emailRows)*2)
+	seen := make(map[string]struct{}, len(emailRows)*2)
 	for _, email := range emailRows {
-		emails = append(emails, email.NormalizedEmail)
+		for _, key := range normalizedEmailLookupKeys(email.Email) {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			emails = append(emails, key)
+		}
 	}
 	if len(emails) == 0 {
 		return ListPendingOrgInvitationsForUserResult{Invitations: []OrgInvitationWithOrgNameRecord{}}, nil
@@ -303,27 +325,26 @@ func (s *Store) answerOrgInvitation(
 		}
 		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("lock invited user: %w", err)
 	}
-	var answered dbsqlc.ConsumeOrgInvitationForEmailRow
-	var matched bool
-	var answerErr error
+	emails := make([]string, 0, len(emailRows)*2)
+	seen := make(map[string]struct{}, len(emailRows)*2)
 	for _, email := range emailRows {
-		answered, answerErr = qtx.ConsumeOrgInvitationForEmail(
-			ctx,
-			dbsqlc.ConsumeOrgInvitationForEmailParams{
-				ID:              id,
-				NormalizedEmail: email.NormalizedEmail,
-			},
-		)
-		if answerErr == nil {
-			matched = true
-			break
-		}
-		if !errors.Is(answerErr, pgx.ErrNoRows) {
-			return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("answer org invitation: %w", answerErr)
+		for _, key := range normalizedEmailLookupKeys(email.Email) {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			emails = append(emails, key)
 		}
 	}
-	if !matched {
+	answered, err := qtx.ConsumeOrgInvitationForEmails(
+		ctx,
+		dbsqlc.ConsumeOrgInvitationForEmailsParams{ID: id, NormalizedEmails: emails},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("answer org invitation: %w", err)
 	}
 	if accept {
 		orgActive, err := qtx.OrgExistsActive(ctx, dbsqlc.OrgExistsActiveParams{ID: answered.OrgID})

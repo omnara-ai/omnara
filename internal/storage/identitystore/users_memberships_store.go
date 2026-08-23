@@ -34,13 +34,14 @@ func (s *Store) CreateUserEmail(
 	if input.Email == "" {
 		return UserEmailRecord{}, errors.New("email is required")
 	}
-	if input.NormalizedEmail == "" {
+	normalizedEmail := NormalizeEmail(input.Email)
+	if normalizedEmail == "" {
 		return UserEmailRecord{}, errors.New("normalized email is required")
 	}
 	row, err := s.q.CreateUserEmail(ctx, dbsqlc.CreateUserEmailParams{
 		UserID:          input.UserID,
 		Email:           input.Email,
-		NormalizedEmail: input.NormalizedEmail,
+		NormalizedEmail: normalizedEmail,
 		Verified:        input.Verified,
 		IsPrimary:       input.IsPrimary,
 	})
@@ -51,10 +52,6 @@ func (s *Store) CreateUserEmail(
 		return UserEmailRecord{}, fmt.Errorf("create user email: %w", err)
 	}
 	return userEmailRecordFromSQLC(row), nil
-}
-
-func NormalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func isValidProjectRole(role string) bool {
@@ -180,9 +177,10 @@ func (s *Store) resolveAuthIdentityUser(
 	if emailTrustPolicy != AuthConnectorEmailTrustPolicyVerifiedEmail {
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
-	if err := qtx.LockNormalizedEmailKey(
+	lookupKeys := normalizedEmailLookupKeys(input.Email)
+	if _, err := qtx.LockNormalizedEmailKeys(
 		ctx,
-		dbsqlc.LockNormalizedEmailKeyParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.LockNormalizedEmailKeysParams{NormalizedEmails: lookupKeys},
 	); err != nil {
 		return UserRecord{}, fmt.Errorf("lock auth identity email key: %w", err)
 	}
@@ -208,17 +206,24 @@ func (s *Store) resolveAuthIdentityUser(
 	) {
 		return UserRecord{}, fmt.Errorf("reload auth identity: %w", err)
 	}
-	if _, err := qtx.LockUserEmailsByNormalizedEmail(
+	if _, err := qtx.LockUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.LockUserEmailsByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.LockUserEmailsByNormalizedEmailsParams{NormalizedEmails: lookupKeys},
 	); err != nil {
 		return UserRecord{}, fmt.Errorf("lock auth identity email rows: %w", err)
 	}
-	existingEmail, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
+	existingEmails, err := qtx.ListVerifiedUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.ListVerifiedUserEmailsByNormalizedEmailsParams{NormalizedEmails: lookupKeys},
 	)
-	if err == nil {
+	if err != nil {
+		return UserRecord{}, fmt.Errorf("load verified email: %w", err)
+	}
+	if len(existingEmails) > 1 {
+		return UserRecord{}, storeerr.ErrUnauthorized
+	}
+	if len(existingEmails) == 1 {
+		existingEmail := existingEmails[0]
 		user, err := qtx.GetUser(ctx, dbsqlc.GetUserParams{ID: existingEmail.UserID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserRecord{}, storeerr.ErrUnauthorized
@@ -251,8 +256,6 @@ func (s *Store) resolveAuthIdentityUser(
 			csrfToken,
 			sessionTTL,
 		)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return UserRecord{}, fmt.Errorf("load verified email: %w", err)
 	}
 	user, err := qtx.CreateUser(ctx, dbsqlc.CreateUserParams{DisplayName: input.DisplayName})
 	if err != nil {

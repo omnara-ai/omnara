@@ -39,16 +39,17 @@ func (s *Store) StartPasswordSignup(
 		return PasswordSignupStartRecord{}, errors.New("email is required")
 	}
 	normalizedEmail := NormalizeEmail(input.Email)
-	if _, err := s.q.GetVerifiedUserEmailByNormalizedEmail(
+	verifiedEmails, err := s.q.ListVerifiedUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
-	); err == nil {
-		return PasswordSignupStartRecord{EmailAlreadyVerified: true}, nil
-	} else if !errors.Is(
-		err,
-		pgx.ErrNoRows,
-	) {
+		dbsqlc.ListVerifiedUserEmailsByNormalizedEmailsParams{
+			NormalizedEmails: normalizedEmailLookupKeys(input.Email),
+		},
+	)
+	if err != nil {
 		return PasswordSignupStartRecord{}, fmt.Errorf("load verified email: %w", err)
+	}
+	if len(verifiedEmails) > 0 {
+		return PasswordSignupStartRecord{EmailAlreadyVerified: true}, nil
 	}
 	token, err := randomTokenPart(32)
 	if err != nil {
@@ -189,23 +190,34 @@ func (s *Store) CompletePasswordSignup(
 	if token.UserEmailID == nil || token.Email == nil || token.NormalizedEmail == nil {
 		return CompletePasswordSignupRecord{}, fmt.Errorf("email verification token missing email")
 	}
-	if err := qtx.LockNormalizedEmailKey(
+	lookupKeys := normalizedEmailLookupKeys(*token.Email)
+	if _, err := qtx.LockNormalizedEmailKeys(
 		ctx,
-		dbsqlc.LockNormalizedEmailKeyParams{NormalizedEmail: *token.NormalizedEmail},
+		dbsqlc.LockNormalizedEmailKeysParams{NormalizedEmails: lookupKeys},
 	); err != nil {
 		return CompletePasswordSignupRecord{}, fmt.Errorf("lock signup email key: %w", err)
 	}
-	if _, err := qtx.LockUserEmailsByNormalizedEmail(
+	if _, err := qtx.LockUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.LockUserEmailsByNormalizedEmailParams{NormalizedEmail: *token.NormalizedEmail},
+		dbsqlc.LockUserEmailsByNormalizedEmailsParams{NormalizedEmails: lookupKeys},
 	); err != nil {
 		return CompletePasswordSignupRecord{}, fmt.Errorf("lock matching emails: %w", err)
 	}
-	existing, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
+	existingEmails, err := qtx.ListVerifiedUserEmailsByNormalizedEmails(
 		ctx,
-		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: *token.NormalizedEmail},
+		dbsqlc.ListVerifiedUserEmailsByNormalizedEmailsParams{NormalizedEmails: lookupKeys},
 	)
-	if err == nil && existing.ID != *token.UserEmailID {
+	if err != nil {
+		return CompletePasswordSignupRecord{}, fmt.Errorf("load verified email: %w", err)
+	}
+	var anotherVerified bool
+	for _, existing := range existingEmails {
+		if existing.ID != *token.UserEmailID {
+			anotherVerified = true
+			break
+		}
+	}
+	if anotherVerified {
 		consumed, err := qtx.ConsumeUserAuthToken(
 			ctx,
 			dbsqlc.ConsumeUserAuthTokenParams{ID: token.ID},
@@ -220,9 +232,6 @@ func (s *Store) CompletePasswordSignup(
 			return CompletePasswordSignupRecord{}, fmt.Errorf("commit losing password signup: %w", err)
 		}
 		return CompletePasswordSignupRecord{}, nil
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return CompletePasswordSignupRecord{}, fmt.Errorf("load verified email: %w", err)
 	}
 	if _, err := qtx.VerifyUserEmail(
 		ctx,
@@ -294,17 +303,20 @@ func (s *Store) AuthenticatePasswordAndCreateSession(
 		authn.EqualizePasswordVerifyTiming(input.Password)
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
-	login, err := s.q.GetPasswordLoginByVerifiedEmail(
+	logins, err := s.q.ListPasswordLoginsByVerifiedEmails(
 		ctx,
-		dbsqlc.GetPasswordLoginByVerifiedEmailParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.ListPasswordLoginsByVerifiedEmailsParams{
+			NormalizedEmails: normalizedEmailLookupKeys(input.Email),
+		},
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		authn.EqualizePasswordVerifyTiming(input.Password)
-		return UserRecord{}, storeerr.ErrUnauthorized
-	}
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("load password credential: %w", err)
 	}
+	if len(logins) != 1 {
+		authn.EqualizePasswordVerifyTiming(input.Password)
+		return UserRecord{}, storeerr.ErrUnauthorized
+	}
+	login := logins[0]
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin password login: %w", err)
@@ -391,16 +403,19 @@ func (s *Store) StartPasswordReset(
 	if normalizedEmail == "" {
 		return PasswordResetStartRecord{}, nil
 	}
-	row, err := s.q.GetPasswordLoginByVerifiedEmail(
+	logins, err := s.q.ListPasswordLoginsByVerifiedEmails(
 		ctx,
-		dbsqlc.GetPasswordLoginByVerifiedEmailParams{NormalizedEmail: normalizedEmail},
+		dbsqlc.ListPasswordLoginsByVerifiedEmailsParams{
+			NormalizedEmails: normalizedEmailLookupKeys(input.Email),
+		},
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PasswordResetStartRecord{Email: input.Email}, nil
-	}
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("load reset credential: %w", err)
 	}
+	if len(logins) != 1 {
+		return PasswordResetStartRecord{Email: input.Email}, nil
+	}
+	row := logins[0]
 	token, err := randomTokenPart(32)
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("generate password reset token: %w", err)

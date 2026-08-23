@@ -422,20 +422,24 @@ VALUES (
 )
 RETURNING id, user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at;
 
--- name: GetVerifiedUserEmailByNormalizedEmail :one
+-- name: ListVerifiedUserEmailsByNormalizedEmails :many
 SELECT id, user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at
 FROM user_emails
-WHERE normalized_email = sqlc.arg(normalized_email) AND verified_at IS NOT NULL;
+WHERE normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
+  AND verified_at IS NOT NULL
+ORDER BY id;
 
--- name: LockUserEmailsByNormalizedEmail :many
+-- name: LockUserEmailsByNormalizedEmails :many
 SELECT id
 FROM user_emails
-WHERE normalized_email = sqlc.arg(normalized_email)
+WHERE normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
 ORDER BY id
 FOR UPDATE;
 
--- name: LockNormalizedEmailKey :exec
-SELECT pg_advisory_xact_lock(hashtext(sqlc.arg(normalized_email)::text));
+-- name: LockNormalizedEmailKeys :many
+SELECT pg_advisory_xact_lock(hashtext(email_key))::text AS locked
+FROM unnest(sqlc.arg(normalized_emails)::text[]) AS keys(email_key)
+ORDER BY email_key;
 
 -- name: VerifyUserEmail :one
 UPDATE user_emails
@@ -479,7 +483,7 @@ SET password_hash = sqlc.arg(password_hash),
 WHERE user_id = sqlc.arg(user_id)
   AND password_hash = sqlc.arg(previous_password_hash);
 
--- name: GetPasswordLoginByVerifiedEmail :one
+-- name: ListPasswordLoginsByVerifiedEmails :many
 SELECT users.id AS user_id,
        users.display_name,
        users.created_at AS user_created_at,
@@ -492,10 +496,10 @@ SELECT users.id AS user_id,
 FROM user_emails
 JOIN users ON users.id = user_emails.user_id
 JOIN user_credentials ON user_credentials.user_id = users.id
-WHERE user_emails.normalized_email = sqlc.arg(normalized_email)
+WHERE user_emails.normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
   AND user_emails.verified_at IS NOT NULL
   AND users.deleted_at IS NULL
-LIMIT 1;
+ORDER BY user_emails.id;
 
 -- name: GetPasswordCredentialByUserForUpdate :one
 SELECT users.id AS user_id,
@@ -1150,11 +1154,12 @@ INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_a
 VALUES (sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role), statement_timestamp())
 RETURNING id, org_id, email, normalized_email, org_role, created_at;
 
--- name: GetPendingOrgInvitationByEmail :one
+-- name: ListPendingOrgInvitationsByEmails :many
 SELECT id, org_id, email, normalized_email, org_role, created_at
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
-  AND normalized_email = sqlc.arg(normalized_email);
+  AND normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
+ORDER BY id;
 
 -- name: ListPendingOrgInvitationsForEmails :many
 SELECT invitation.id,
@@ -1185,11 +1190,11 @@ WHERE org_id = sqlc.arg(org_id)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: ConsumeOrgInvitationForEmail :one
+-- name: ConsumeOrgInvitationForEmails :one
 WITH consumed AS (
   DELETE FROM org_invitations
   WHERE org_invitations.id = sqlc.arg(id)
-    AND org_invitations.normalized_email = sqlc.arg(normalized_email)
+    AND org_invitations.normalized_email = ANY(sqlc.arg(normalized_emails)::text[])
   RETURNING id, org_id, email, normalized_email, org_role, created_at
 )
 SELECT consumed.id,

@@ -308,11 +308,11 @@ func (q *Queries) ConsumeAuthDeviceFlow(ctx context.Context, arg ConsumeAuthDevi
 	return result.RowsAffected(), nil
 }
 
-const consumeOrgInvitationForEmail = `-- name: ConsumeOrgInvitationForEmail :one
+const consumeOrgInvitationForEmails = `-- name: ConsumeOrgInvitationForEmails :one
 WITH consumed AS (
   DELETE FROM org_invitations
   WHERE org_invitations.id = $1
-    AND org_invitations.normalized_email = $2
+    AND org_invitations.normalized_email = ANY($2::text[])
   RETURNING id, org_id, email, normalized_email, org_role, created_at
 )
 SELECT consumed.id,
@@ -326,12 +326,12 @@ FROM consumed
 JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL
 `
 
-type ConsumeOrgInvitationForEmailParams struct {
-	ID              uuid.UUID
-	NormalizedEmail string
+type ConsumeOrgInvitationForEmailsParams struct {
+	ID               uuid.UUID
+	NormalizedEmails []string
 }
 
-type ConsumeOrgInvitationForEmailRow struct {
+type ConsumeOrgInvitationForEmailsRow struct {
 	ID              uuid.UUID
 	OrgID           uuid.UUID
 	OrgName         string
@@ -341,9 +341,9 @@ type ConsumeOrgInvitationForEmailRow struct {
 	CreatedAt       time.Time
 }
 
-func (q *Queries) ConsumeOrgInvitationForEmail(ctx context.Context, arg ConsumeOrgInvitationForEmailParams) (ConsumeOrgInvitationForEmailRow, error) {
-	row := q.db.QueryRow(ctx, consumeOrgInvitationForEmail, arg.ID, arg.NormalizedEmail)
-	var i ConsumeOrgInvitationForEmailRow
+func (q *Queries) ConsumeOrgInvitationForEmails(ctx context.Context, arg ConsumeOrgInvitationForEmailsParams) (ConsumeOrgInvitationForEmailsRow, error) {
+	row := q.db.QueryRow(ctx, consumeOrgInvitationForEmails, arg.ID, arg.NormalizedEmails)
+	var i ConsumeOrgInvitationForEmailsRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -2486,84 +2486,6 @@ func (q *Queries) GetPasswordCredentialByUserForUpdate(ctx context.Context, arg 
 	return i, err
 }
 
-const getPasswordLoginByVerifiedEmail = `-- name: GetPasswordLoginByVerifiedEmail :one
-SELECT users.id AS user_id,
-       users.display_name,
-       users.created_at AS user_created_at,
-       users.updated_at AS user_updated_at,
-       user_emails.id AS user_email_id,
-       user_emails.email,
-       user_emails.normalized_email,
-       user_emails.verified_at,
-       user_credentials.password_hash
-FROM user_emails
-JOIN users ON users.id = user_emails.user_id
-JOIN user_credentials ON user_credentials.user_id = users.id
-WHERE user_emails.normalized_email = $1
-  AND user_emails.verified_at IS NOT NULL
-  AND users.deleted_at IS NULL
-LIMIT 1
-`
-
-type GetPasswordLoginByVerifiedEmailParams struct {
-	NormalizedEmail string
-}
-
-type GetPasswordLoginByVerifiedEmailRow struct {
-	UserID          uuid.UUID
-	DisplayName     string
-	UserCreatedAt   time.Time
-	UserUpdatedAt   time.Time
-	UserEmailID     uuid.UUID
-	Email           string
-	NormalizedEmail string
-	VerifiedAt      *time.Time
-	PasswordHash    string
-}
-
-func (q *Queries) GetPasswordLoginByVerifiedEmail(ctx context.Context, arg GetPasswordLoginByVerifiedEmailParams) (GetPasswordLoginByVerifiedEmailRow, error) {
-	row := q.db.QueryRow(ctx, getPasswordLoginByVerifiedEmail, arg.NormalizedEmail)
-	var i GetPasswordLoginByVerifiedEmailRow
-	err := row.Scan(
-		&i.UserID,
-		&i.DisplayName,
-		&i.UserCreatedAt,
-		&i.UserUpdatedAt,
-		&i.UserEmailID,
-		&i.Email,
-		&i.NormalizedEmail,
-		&i.VerifiedAt,
-		&i.PasswordHash,
-	)
-	return i, err
-}
-
-const getPendingOrgInvitationByEmail = `-- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
-FROM org_invitations
-WHERE org_id = $1
-  AND normalized_email = $2
-`
-
-type GetPendingOrgInvitationByEmailParams struct {
-	OrgID           uuid.UUID
-	NormalizedEmail string
-}
-
-func (q *Queries) GetPendingOrgInvitationByEmail(ctx context.Context, arg GetPendingOrgInvitationByEmailParams) (OrgInvitation, error) {
-	row := q.db.QueryRow(ctx, getPendingOrgInvitationByEmail, arg.OrgID, arg.NormalizedEmail)
-	var i OrgInvitation
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.Email,
-		&i.NormalizedEmail,
-		&i.OrgRole,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getProject = `-- name: GetProject :one
 SELECT id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 FROM projects
@@ -2678,32 +2600,6 @@ func (q *Queries) GetUserAuthIdentity(ctx context.Context, arg GetUserAuthIdenti
 		&i.EmailAtLink,
 		&i.EmailVerified,
 		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getVerifiedUserEmailByNormalizedEmail = `-- name: GetVerifiedUserEmailByNormalizedEmail :one
-SELECT id, user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at
-FROM user_emails
-WHERE normalized_email = $1 AND verified_at IS NOT NULL
-`
-
-type GetVerifiedUserEmailByNormalizedEmailParams struct {
-	NormalizedEmail string
-}
-
-func (q *Queries) GetVerifiedUserEmailByNormalizedEmail(ctx context.Context, arg GetVerifiedUserEmailByNormalizedEmailParams) (UserEmail, error) {
-	row := q.db.QueryRow(ctx, getVerifiedUserEmailByNormalizedEmail, arg.NormalizedEmail)
-	var i UserEmail
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Email,
-		&i.NormalizedEmail,
-		&i.VerifiedAt,
-		&i.IsPrimary,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -3067,6 +2963,111 @@ func (q *Queries) ListOrgMembershipsForUser(ctx context.Context, arg ListOrgMemb
 			&i.ID,
 			&i.Name,
 			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPasswordLoginsByVerifiedEmails = `-- name: ListPasswordLoginsByVerifiedEmails :many
+SELECT users.id AS user_id,
+       users.display_name,
+       users.created_at AS user_created_at,
+       users.updated_at AS user_updated_at,
+       user_emails.id AS user_email_id,
+       user_emails.email,
+       user_emails.normalized_email,
+       user_emails.verified_at,
+       user_credentials.password_hash
+FROM user_emails
+JOIN users ON users.id = user_emails.user_id
+JOIN user_credentials ON user_credentials.user_id = users.id
+WHERE user_emails.normalized_email = ANY($1::text[])
+  AND user_emails.verified_at IS NOT NULL
+  AND users.deleted_at IS NULL
+ORDER BY user_emails.id
+`
+
+type ListPasswordLoginsByVerifiedEmailsParams struct {
+	NormalizedEmails []string
+}
+
+type ListPasswordLoginsByVerifiedEmailsRow struct {
+	UserID          uuid.UUID
+	DisplayName     string
+	UserCreatedAt   time.Time
+	UserUpdatedAt   time.Time
+	UserEmailID     uuid.UUID
+	Email           string
+	NormalizedEmail string
+	VerifiedAt      *time.Time
+	PasswordHash    string
+}
+
+func (q *Queries) ListPasswordLoginsByVerifiedEmails(ctx context.Context, arg ListPasswordLoginsByVerifiedEmailsParams) ([]ListPasswordLoginsByVerifiedEmailsRow, error) {
+	rows, err := q.db.Query(ctx, listPasswordLoginsByVerifiedEmails, arg.NormalizedEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPasswordLoginsByVerifiedEmailsRow{}
+	for rows.Next() {
+		var i ListPasswordLoginsByVerifiedEmailsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.DisplayName,
+			&i.UserCreatedAt,
+			&i.UserUpdatedAt,
+			&i.UserEmailID,
+			&i.Email,
+			&i.NormalizedEmail,
+			&i.VerifiedAt,
+			&i.PasswordHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingOrgInvitationsByEmails = `-- name: ListPendingOrgInvitationsByEmails :many
+SELECT id, org_id, email, normalized_email, org_role, created_at
+FROM org_invitations
+WHERE org_id = $1
+  AND normalized_email = ANY($2::text[])
+ORDER BY id
+`
+
+type ListPendingOrgInvitationsByEmailsParams struct {
+	OrgID            uuid.UUID
+	NormalizedEmails []string
+}
+
+func (q *Queries) ListPendingOrgInvitationsByEmails(ctx context.Context, arg ListPendingOrgInvitationsByEmailsParams) ([]OrgInvitation, error) {
+	rows, err := q.db.Query(ctx, listPendingOrgInvitationsByEmails, arg.OrgID, arg.NormalizedEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrgInvitation{}
+	for rows.Next() {
+		var i OrgInvitation
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Email,
+			&i.NormalizedEmail,
+			&i.OrgRole,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -3475,6 +3476,47 @@ func (q *Queries) ListUserOwnedSkillsForUser(ctx context.Context, arg ListUserOw
 	return items, nil
 }
 
+const listVerifiedUserEmailsByNormalizedEmails = `-- name: ListVerifiedUserEmailsByNormalizedEmails :many
+SELECT id, user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at
+FROM user_emails
+WHERE normalized_email = ANY($1::text[])
+  AND verified_at IS NOT NULL
+ORDER BY id
+`
+
+type ListVerifiedUserEmailsByNormalizedEmailsParams struct {
+	NormalizedEmails []string
+}
+
+func (q *Queries) ListVerifiedUserEmailsByNormalizedEmails(ctx context.Context, arg ListVerifiedUserEmailsByNormalizedEmailsParams) ([]UserEmail, error) {
+	rows, err := q.db.Query(ctx, listVerifiedUserEmailsByNormalizedEmails, arg.NormalizedEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserEmail{}
+	for rows.Next() {
+		var i UserEmail
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Email,
+			&i.NormalizedEmail,
+			&i.VerifiedAt,
+			&i.IsPrimary,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVerifiedUserEmailsByUser = `-- name: ListVerifiedUserEmailsByUser :many
 SELECT id, user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at
 FROM user_emails
@@ -3601,17 +3643,34 @@ func (q *Queries) ListVisibleProjectRolesForPrincipal(ctx context.Context, arg L
 	return items, nil
 }
 
-const lockNormalizedEmailKey = `-- name: LockNormalizedEmailKey :exec
-SELECT pg_advisory_xact_lock(hashtext($1::text))
+const lockNormalizedEmailKeys = `-- name: LockNormalizedEmailKeys :many
+SELECT pg_advisory_xact_lock(hashtext(email_key))::text AS locked
+FROM unnest($1::text[]) AS keys(email_key)
+ORDER BY email_key
 `
 
-type LockNormalizedEmailKeyParams struct {
-	NormalizedEmail string
+type LockNormalizedEmailKeysParams struct {
+	NormalizedEmails []string
 }
 
-func (q *Queries) LockNormalizedEmailKey(ctx context.Context, arg LockNormalizedEmailKeyParams) error {
-	_, err := q.db.Exec(ctx, lockNormalizedEmailKey, arg.NormalizedEmail)
-	return err
+func (q *Queries) LockNormalizedEmailKeys(ctx context.Context, arg LockNormalizedEmailKeysParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, lockNormalizedEmailKeys, arg.NormalizedEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var locked string
+		if err := rows.Scan(&locked); err != nil {
+			return nil, err
+		}
+		items = append(items, locked)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockOrg = `-- name: LockOrg :one
@@ -3632,20 +3691,20 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	return id, err
 }
 
-const lockUserEmailsByNormalizedEmail = `-- name: LockUserEmailsByNormalizedEmail :many
+const lockUserEmailsByNormalizedEmails = `-- name: LockUserEmailsByNormalizedEmails :many
 SELECT id
 FROM user_emails
-WHERE normalized_email = $1
+WHERE normalized_email = ANY($1::text[])
 ORDER BY id
 FOR UPDATE
 `
 
-type LockUserEmailsByNormalizedEmailParams struct {
-	NormalizedEmail string
+type LockUserEmailsByNormalizedEmailsParams struct {
+	NormalizedEmails []string
 }
 
-func (q *Queries) LockUserEmailsByNormalizedEmail(ctx context.Context, arg LockUserEmailsByNormalizedEmailParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockUserEmailsByNormalizedEmail, arg.NormalizedEmail)
+func (q *Queries) LockUserEmailsByNormalizedEmails(ctx context.Context, arg LockUserEmailsByNormalizedEmailsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockUserEmailsByNormalizedEmails, arg.NormalizedEmails)
 	if err != nil {
 		return nil, err
 	}

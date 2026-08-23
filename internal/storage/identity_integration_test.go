@@ -3102,6 +3102,69 @@ func TestOrgInvitationAcceptDoesNotChangeExistingMembership(t *testing.T) {
 	}
 }
 
+func TestOrgInvitationCanonicalizesInternationalizedDomain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+	seedDefaultProject(t, ctx, store)
+
+	const (
+		unicodeEmail   = "Invitee@BÜCHER.example"
+		canonicalEmail = "invitee@xn--bcher-kva.example"
+		legacyEmail    = "invitee@bücher.example"
+	)
+	user := mustCreateIdentityUser(t, ctx, store, unicodeEmail, "Invitee")
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE user_emails SET normalized_email = $1 WHERE user_id = $2`,
+		legacyEmail,
+		user.ID,
+	); err != nil {
+		t.Fatalf("seed legacy normalized email: %v", err)
+	}
+	invite, err := store.Identity().CreateOrgInvitation(
+		ctx,
+		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: canonicalEmail, Role: "member"},
+	)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+	if invite.NormalizedEmail != canonicalEmail {
+		t.Fatalf("invitation normalized email = %q, want %q", invite.NormalizedEmail, canonicalEmail)
+	}
+	replayed, err := store.Identity().CreateOrgInvitation(
+		ctx,
+		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: unicodeEmail, Role: "member"},
+	)
+	if err != nil {
+		t.Fatalf("replay invitation: %v", err)
+	}
+	if replayed.ID != invite.ID {
+		t.Fatalf("replayed invitation = %s, want %s", replayed.ID, invite.ID)
+	}
+	pending, err := store.Identity().ListPendingOrgInvitationsForUser(
+		ctx,
+		identitystore.ListPendingOrgInvitationsForUserInput{UserID: user.ID, Limit: 10},
+	)
+	if err != nil {
+		t.Fatalf("list pending invitations: %v", err)
+	}
+	if len(pending.Invitations) != 1 || pending.Invitations[0].ID != invite.ID {
+		t.Fatalf("pending invitations = %+v, want %s", pending.Invitations, invite.ID)
+	}
+	accepted, err := store.Identity().AcceptOrgInvitation(
+		ctx,
+		identitystore.AcceptOrgInvitationInput{ID: invite.ID, UserID: user.ID},
+	)
+	if err != nil {
+		t.Fatalf("accept invitation: %v", err)
+	}
+	if accepted.ID != invite.ID {
+		t.Fatalf("accepted invitation = %s, want %s", accepted.ID, invite.ID)
+	}
+}
+
 func TestListOrgInvitationsPaginatesConsumedInvitesAway(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -4886,6 +4949,89 @@ func TestPasswordSignupAllowsDuplicateUnverifiedAndFirstVerificationWins(t *test
 	}
 }
 
+func TestPasswordSignupCanonicalizesInternationalizedDomain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+
+	const (
+		unicodeEmail   = "User@BÜCHER.example"
+		canonicalEmail = "user@xn--bcher-kva.example"
+		legacyEmail    = "user@bücher.example"
+		password       = "correct horse battery staple"
+	)
+	start, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: unicodeEmail},
+	)
+	if err != nil {
+		t.Fatalf("start signup: %v", err)
+	}
+	if start.Email.NormalizedEmail != canonicalEmail {
+		t.Fatalf("normalized email = %q, want %q", start.Email.NormalizedEmail, canonicalEmail)
+	}
+	competing, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: canonicalEmail},
+	)
+	if err != nil {
+		t.Fatalf("start equivalent signup: %v", err)
+	}
+	if competing.Email.NormalizedEmail != canonicalEmail {
+		t.Fatalf("equivalent normalized email = %q, want %q", competing.Email.NormalizedEmail, canonicalEmail)
+	}
+	passwordHash, err := authn.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	completed, err := store.Identity().CompletePasswordSignup(
+		ctx,
+		identitystore.CompletePasswordSignupInput{Token: start.Token, PasswordHash: passwordHash},
+	)
+	if err != nil || !completed.Verified {
+		t.Fatalf("complete signup: record=%+v err=%v", completed, err)
+	}
+	losing, err := store.Identity().CompletePasswordSignup(
+		ctx,
+		identitystore.CompletePasswordSignupInput{Token: competing.Token, PasswordHash: passwordHash},
+	)
+	if err != nil {
+		t.Fatalf("complete equivalent signup: %v", err)
+	}
+	if losing.Verified {
+		t.Fatalf("equivalent signup unexpectedly verified: %+v", losing)
+	}
+
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE user_emails SET normalized_email = $1 WHERE id = $2`,
+		legacyEmail,
+		start.Email.ID,
+	); err != nil {
+		t.Fatalf("seed legacy normalized email: %v", err)
+	}
+	for _, email := range []string{unicodeEmail, canonicalEmail} {
+		user, err := authenticatePasswordForTest(t, ctx, store, email, password)
+		if err != nil {
+			t.Fatalf("authenticate %q: %v", email, err)
+		}
+		if user.ID != completed.User.ID {
+			t.Fatalf("authenticate %q user = %s, want %s", email, user.ID, completed.User.ID)
+		}
+	}
+	replay, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: canonicalEmail},
+	)
+	if err != nil {
+		t.Fatalf("repeat signup: %v", err)
+	}
+	if !replay.EmailAlreadyVerified {
+		t.Fatalf("repeat signup = %+v, want existing verified identity", replay)
+	}
+}
+
 func TestPasswordSignupRejectsExpiryAfterTokenLockWait(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -5000,13 +5146,16 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 
-	first, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "race-signup@example.com"})
+	first, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: "race-signup@bücher.example"},
+	)
 	if err != nil {
 		t.Fatalf("start first signup: %v", err)
 	}
 	second, err := store.Identity().StartPasswordSignup(
 		ctx,
-		identitystore.PasswordSignupStartInput{Email: "race-signup@example.com"},
+		identitystore.PasswordSignupStartInput{Email: "race-signup@xn--bcher-kva.example"},
 	)
 	if err != nil {
 		t.Fatalf("start second signup: %v", err)
@@ -5103,7 +5252,7 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"race-signup@example.com",
+		"race-signup@bücher.example",
 		winningPassword,
 	); err != nil {
 		t.Fatalf("authenticate winning password: %v", err)
