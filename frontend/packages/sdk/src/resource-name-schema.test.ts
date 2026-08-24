@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  zAgentName,
-  zCreateMachineDaemonTokenRequest,
-  zResourceName,
-} from './generated/zod.gen'
+import { zAgentName, zCreateMachineDaemonTokenRequest, zResourceName } from './generated/zod.gen'
 
 describe('generated ResourceName schema', () => {
   it('counts Unicode code points rather than UTF-16 code units', () => {
