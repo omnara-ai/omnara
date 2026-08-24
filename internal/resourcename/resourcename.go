@@ -11,19 +11,11 @@ import (
 const MaxCodePoints = 64
 
 func CanonicalizeRequired(field, value string) (string, error) {
-	return canonicalizeWithMax(field, value, MaxCodePoints, true)
+	return canonicalize(field, value, true)
 }
 
 func CanonicalizeAllowEmpty(field, value string) (string, error) {
-	return canonicalizeWithMax(field, value, MaxCodePoints, false)
-}
-
-func CanonicalizeRequiredWithMax(field, value string, maxCodePoints int) (string, error) {
-	return canonicalizeWithMax(field, value, maxCodePoints, true)
-}
-
-func CanonicalizeAllowEmptyWithMax(field, value string, maxCodePoints int) (string, error) {
-	return canonicalizeWithMax(field, value, maxCodePoints, false)
+	return canonicalize(field, value, false)
 }
 
 func ValidateCanonicalRequired(field, value string) error {
@@ -37,7 +29,7 @@ func ValidateCanonicalRequired(field, value string) error {
 	return nil
 }
 
-func canonicalizeWithMax(field, value string, maxCodePoints int, required bool) (string, error) {
+func canonicalize(field, value string, required bool) (string, error) {
 	if !utf8.ValidString(value) {
 		return "", fmt.Errorf("%s must be valid UTF-8", field)
 	}
@@ -45,15 +37,15 @@ func canonicalizeWithMax(field, value string, maxCodePoints int, required bool) 
 	if required && value == "" {
 		return "", fmt.Errorf("%s is required", field)
 	}
-	if err := validateNormalizedWithMax(field, value, maxCodePoints); err != nil {
+	if err := validateNormalized(field, value); err != nil {
 		return "", err
 	}
 	return value, nil
 }
 
-func validateNormalizedWithMax(field, value string, maxCodePoints int) error {
-	if utf8.RuneCountInString(value) > maxCodePoints {
-		return fmt.Errorf("%s cannot exceed %d Unicode characters", field, maxCodePoints)
+func validateNormalized(field, value string) error {
+	if utf8.RuneCountInString(value) > MaxCodePoints {
+		return fmt.Errorf("%s cannot exceed %d Unicode characters", field, MaxCodePoints)
 	}
 	if value != "" {
 		first, _ := utf8.DecodeRuneInString(value)

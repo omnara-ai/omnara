@@ -4312,7 +4312,7 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
 		VALUES ('device-schema-long-client', 'device-schema-long-client-user', $1, 'token', $2, $3)
-	`, strings.Repeat("a", 129), now, now.Add(time.Hour)); !isCheckViolation(err) {
+	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long client name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -4357,7 +4357,10 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	if _, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: strings.Repeat("a", 129), TokenName: "CLI token"},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientName: strings.Repeat("a", resourcename.MaxCodePoints+1),
+			TokenName:  "CLI token",
+		},
 	); !errors.Is(
 		err,
 		storeerr.ErrInvalidDeviceAuthFlow,

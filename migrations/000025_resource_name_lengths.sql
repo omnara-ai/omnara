@@ -51,25 +51,19 @@ $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION resource_name_is_valid_with_max_v1(
-    candidate text,
-    allow_empty boolean,
-    max_code_points integer
-) RETURNS boolean
+CREATE FUNCTION resource_name_is_valid_v1(candidate text, allow_empty boolean) RETURNS boolean
 LANGUAGE sql IMMUTABLE
 BEGIN ATOMIC
     SELECT candidate IS NOT NULL
         AND (allow_empty OR candidate <> '')
-        AND max_code_points IS NOT NULL
-        AND max_code_points > 0
         AND candidate IS NFC NORMALIZED
-        AND char_length(candidate) <= max_code_points
+        AND char_length(candidate) <= 64
         AND candidate = btrim(candidate, ' ')
         AND NOT EXISTS (
             SELECT 1
             FROM generate_series(
                 1,
-                least(char_length(candidate), max_code_points)
+                least(char_length(candidate), 64)
             ) AS positions(position)
             WHERE resource_name_codepoint_is_forbidden_v1(
                 ascii(substr(candidate, positions.position, 1))
@@ -79,20 +73,12 @@ END;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION resource_name_is_valid_v1(candidate text, allow_empty boolean) RETURNS boolean
-LANGUAGE sql IMMUTABLE
-BEGIN ATOMIC
-    SELECT resource_name_is_valid_with_max_v1(candidate, allow_empty, 64);
-END;
--- +goose StatementEnd
-
--- +goose StatementBegin
-CREATE FUNCTION resource_name_repair(candidate text, max_code_points integer) RETURNS text AS $$
+CREATE FUNCTION resource_name_repair(candidate text) RETURNS text AS $$
     WITH whitespace(characters) AS (
         VALUES (U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')
     )
     SELECT btrim(
-        left(normalize(btrim(candidate, characters), NFC), max_code_points),
+        left(normalize(btrim(candidate, characters), NFC), 64),
         characters
     )
     FROM whitespace;
@@ -101,86 +87,86 @@ $$ LANGUAGE sql IMMUTABLE;
 
 -- Run this hard-cutover migration with application writers stopped.
 UPDATE orgs
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE projects
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE personal_access_tokens
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE auth_device_flows
-SET client_name = resource_name_repair(client_name, 128)
-WHERE client_name IS DISTINCT FROM resource_name_repair(client_name, 128)
-  AND resource_name_is_valid_with_max_v1(resource_name_repair(client_name, 128), false, 128);
+SET client_name = resource_name_repair(client_name)
+WHERE client_name IS DISTINCT FROM resource_name_repair(client_name)
+  AND resource_name_is_valid_v1(resource_name_repair(client_name), false);
 
 UPDATE auth_device_flows
-SET token_name = resource_name_repair(token_name, 64)
-WHERE token_name IS DISTINCT FROM resource_name_repair(token_name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(token_name, 64), false);
+SET token_name = resource_name_repair(token_name)
+WHERE token_name IS DISTINCT FROM resource_name_repair(token_name)
+  AND resource_name_is_valid_v1(resource_name_repair(token_name), false);
 
 UPDATE org_api_keys
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE secrets
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE model_provider_configs
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE configured_models
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE agent_profiles
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE agents
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), true);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), true);
 
 UPDATE machine_pools
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE machines
-SET display_name = resource_name_repair(display_name, 64)
-WHERE display_name IS DISTINCT FROM resource_name_repair(display_name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(display_name, 64), false);
+SET display_name = resource_name_repair(display_name)
+WHERE display_name IS DISTINCT FROM resource_name_repair(display_name)
+  AND resource_name_is_valid_v1(resource_name_repair(display_name), false);
 
 UPDATE machine_daemon_tokens
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
 UPDATE cron_triggers
-SET name = resource_name_repair(name, 64)
-WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
-  AND resource_name_is_valid_v1(resource_name_repair(name, 64), false);
+SET name = resource_name_repair(name)
+WHERE name IS DISTINCT FROM resource_name_repair(name)
+  AND resource_name_is_valid_v1(resource_name_repair(name), false);
 
-DROP FUNCTION resource_name_repair(text, integer);
+DROP FUNCTION resource_name_repair(text);
 
 ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_is_valid_v1(name, false));
 ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_is_valid_v1(name, false));
 ALTER TABLE personal_access_tokens ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_is_valid_with_max_v1(client_name, false, 128));
+ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_is_valid_v1(client_name, false));
 ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_is_valid_v1(token_name, false));
 ALTER TABLE org_api_keys ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_is_valid_v1(name, false));
 ALTER TABLE secrets ADD CONSTRAINT secrets_name_policy CHECK (resource_name_is_valid_v1(name, false));

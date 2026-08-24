@@ -15,10 +15,9 @@ import (
 )
 
 const (
-	DeviceAuthFlowTTL            = 15 * time.Minute
-	DeviceAuthPollInterval       = 5 * time.Second
-	DeviceAuthClientNameMaxRunes = 128
-	deviceAuthCodeAttempts       = 5
+	DeviceAuthFlowTTL      = 15 * time.Minute
+	DeviceAuthPollInterval = 5 * time.Second
+	deviceAuthCodeAttempts = 5
 )
 
 func (s *Store) StartDeviceAuthFlow(
@@ -34,9 +33,9 @@ func (s *Store) StartDeviceAuthFlow(
 		tokenName = "Device login"
 	}
 	var err error
-	clientName, err = normalizeDeviceAuthClientName(clientName)
+	clientName, err = resourcename.CanonicalizeRequired("client_name", clientName)
 	if err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	tokenName, err = resourcename.CanonicalizeRequired("token_name", tokenName)
 	if err != nil {
@@ -304,14 +303,6 @@ func (s *Store) PollDeviceAuthFlow(
 		Token:    preparedToken.token,
 		Interval: DeviceAuthPollInterval,
 	}, nil
-}
-
-func normalizeDeviceAuthClientName(value string) (string, error) {
-	normalized, err := resourcename.CanonicalizeRequiredWithMax("client_name", value, DeviceAuthClientNameMaxRunes)
-	if err != nil {
-		return "", storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
-	}
-	return normalized, nil
 }
 
 func NormalizeDeviceUserCode(code string) string {

@@ -107,49 +107,44 @@ ORDER BY codepoint
 	tests := []struct {
 		value      string
 		allowEmpty bool
-		max        int
 	}{
-		{value: "", max: resourcename.MaxCodePoints},
-		{value: "", allowEmpty: true, max: resourcename.MaxCodePoints},
-		{value: "Studio  54", max: resourcename.MaxCodePoints},
-		{value: "Café", max: resourcename.MaxCodePoints},
-		{value: "Cafe\u0301", max: resourcename.MaxCodePoints},
-		{value: "研究開発 شركة برمجيات", max: resourcename.MaxCodePoints},
-		{value: "🚀 Lab", max: resourcename.MaxCodePoints},
-		{value: strings.Repeat("界", resourcename.MaxCodePoints), max: resourcename.MaxCodePoints},
-		{value: strings.Repeat("界", resourcename.MaxCodePoints+1), max: resourcename.MaxCodePoints},
-		{value: " Acme", max: resourcename.MaxCodePoints},
-		{value: "Acme ", max: resourcename.MaxCodePoints},
-		{value: "\u00a0Acme", max: resourcename.MaxCodePoints},
-		{value: "Acme\u00a0Labs", max: resourcename.MaxCodePoints},
-		{value: "Acme\u200dLabs", max: resourcename.MaxCodePoints},
-		{value: "Acme\u202eLabs", max: resourcename.MaxCodePoints},
-		{value: strings.Repeat("a", 128), max: 128},
-		{value: strings.Repeat("a", 129), max: 128},
+		{value: ""},
+		{value: "", allowEmpty: true},
+		{value: "Studio  54"},
+		{value: "Café"},
+		{value: "Cafe\u0301"},
+		{value: "研究開発 شركة برمجيات"},
+		{value: "🚀 Lab"},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints)},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints+1)},
+		{value: " Acme"},
+		{value: "Acme "},
+		{value: "\u00a0Acme"},
+		{value: "Acme\u00a0Labs"},
+		{value: "Acme\u200dLabs"},
+		{value: "Acme\u202eLabs"},
 	}
 	for _, test := range tests {
-		canonicalize := resourcename.CanonicalizeRequiredWithMax
+		canonicalize := resourcename.CanonicalizeRequired
 		if test.allowEmpty {
-			canonicalize = resourcename.CanonicalizeAllowEmptyWithMax
+			canonicalize = resourcename.CanonicalizeAllowEmpty
 		}
-		normalized, validationErr := canonicalize("name", test.value, test.max)
+		normalized, validationErr := canonicalize("name", test.value)
 		want := (test.allowEmpty || test.value != "") && validationErr == nil && normalized == test.value
 		var got bool
 		if err := pool.QueryRow(
 			ctx,
-			`SELECT resource_name_is_valid_with_max_v1($1, $2, $3)`,
+			`SELECT resource_name_is_valid_v1($1, $2)`,
 			test.value,
 			test.allowEmpty,
-			test.max,
 		).Scan(&got); err != nil {
 			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
 		}
 		if got != want {
 			t.Errorf(
-				"PostgreSQL resource-name validity for %q (allow_empty=%t, max=%d) = %t, want %t",
+				"PostgreSQL resource-name validity for %q (allow_empty=%t) = %t, want %t",
 				test.value,
 				test.allowEmpty,
-				test.max,
 				got,
 				want,
 			)
