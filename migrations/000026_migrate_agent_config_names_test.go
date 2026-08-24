@@ -111,7 +111,6 @@ func TestMigrateAgentConfigJSONSourceRemovesOnlyTopLevelName(t *testing.T) {
 func TestMigrateAgentConfigSourceFailsClosedOnInvalidResourceReferences(t *testing.T) {
 	tests := map[string]string{
 		"boundary whitespace": " Provider ",
-		"non-NFC":             "Cafe\u0301",
 		"over limit":          strings.Repeat("x", agentConfigNameMigrationMaxCodePoints+1),
 		"invisible":           "Build\u00a0Pool",
 	}
@@ -133,6 +132,19 @@ func TestMigrateAgentConfigSourceFailsClosedOnInvalidResourceReferences(t *testi
 				t.Fatalf("resource reference error = %v", err)
 			}
 		})
+	}
+}
+
+func TestMigrateAgentConfigYAMLSourcePreservesDecomposedResourceReferences(t *testing.T) {
+	provider := strings.Repeat("e\u0301", agentConfigNameMigrationMaxCodePoints)
+	raw := []byte("name: Legacy\ninstruction: Test\nmodel:\n  provider_config: " + provider + "\n  name: Model\n")
+	want := raw[len("name: Legacy\n"):]
+	got, changed, err := migrateAgentConfigSource(agentConfigNameMigrationSourceFormatYAML, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || !bytes.Equal(got, want) {
+		t.Fatalf("migrated source = %q, changed=%t, want %q", got, changed, want)
 	}
 }
 

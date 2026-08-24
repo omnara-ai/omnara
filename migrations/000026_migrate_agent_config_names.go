@@ -580,14 +580,12 @@ func validateAgentConfigNameMigrationSourceReferences(root map[string]any) error
 }
 
 func validateAgentConfigNameMigrationResourceName(field, value string) error {
-	if value == "" {
-		return fmt.Errorf("%s is required", field)
-	}
 	if !utf8.ValidString(value) {
 		return fmt.Errorf("%s must be valid UTF-8", field)
 	}
-	if !norm.NFC.IsNormalString(value) {
-		return fmt.Errorf("%s must use Unicode NFC normalization", field)
+	value = norm.NFC.String(value)
+	if value == "" {
+		return fmt.Errorf("%s is required", field)
 	}
 	if utf8.RuneCountInString(value) > agentConfigNameMigrationMaxCodePoints {
 		return fmt.Errorf(
