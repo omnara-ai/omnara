@@ -21,7 +21,6 @@ type migrationSet struct {
 	allowGo          bool
 }
 
-// The registry evolves; numbered migration implementations remain release-frozen.
 const goMigrationRegistryPath = "migrations/go_migrations.go"
 
 var migrationSets = []migrationSet{
