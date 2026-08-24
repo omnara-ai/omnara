@@ -133,7 +133,7 @@ ORDER BY codepoint
 	for _, test := range tests {
 		canonicalize := resourcename.CanonicalizeRequiredWithMax
 		if test.allowEmpty {
-			canonicalize = resourcename.CanonicalizeOptionalWithMax
+			canonicalize = resourcename.CanonicalizeAllowEmptyWithMax
 		}
 		normalized, validationErr := canonicalize("name", test.value, test.max)
 		want := (test.allowEmpty || test.value != "") && validationErr == nil && normalized == test.value

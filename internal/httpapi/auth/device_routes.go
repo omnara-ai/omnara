@@ -30,7 +30,7 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
-	clientName, err := resourcename.CanonicalizeOptionalWithMax(
+	clientName, err := resourcename.CanonicalizeAllowEmptyWithMax(
 		"client_name",
 		body.ClientName,
 		identitystore.DeviceAuthClientNameMaxRunes,
@@ -40,7 +40,7 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.ClientName = clientName
-	tokenName, err := resourcename.CanonicalizeOptional("token_name", body.TokenName)
+	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", body.TokenName)
 	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return

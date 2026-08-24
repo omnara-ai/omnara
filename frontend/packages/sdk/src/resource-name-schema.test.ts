@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { zDefaultableResourceName, zResourceName } from './generated/zod.gen'
+import {
+  zAgentName,
+  zCreateMachineDaemonTokenRequest,
+  zResourceName,
+} from './generated/zod.gen'
 
 describe('generated ResourceName schema', () => {
   it('counts Unicode code points rather than UTF-16 code units', () => {
@@ -34,11 +38,16 @@ describe('generated ResourceName schema', () => {
   })
 })
 
-describe('generated DefaultableResourceName schema', () => {
-  it('allows the empty default sentinel and otherwise applies ResourceName', () => {
-    expect(zDefaultableResourceName.safeParse('').success).toBe(true)
-    expect(zDefaultableResourceName.safeParse('😀'.repeat(64)).success).toBe(true)
-    expect(zDefaultableResourceName.safeParse(' invalid').success).toBe(false)
-    expect(zDefaultableResourceName.parse('Cafe\u0301')).toBe('Café')
+describe('generated AgentName schema', () => {
+  it('allows an unnamed agent and otherwise applies ResourceName', () => {
+    expect(zAgentName.safeParse('').success).toBe(true)
+    expect(zAgentName.safeParse('😀'.repeat(64)).success).toBe(true)
+    expect(zAgentName.safeParse(' invalid').success).toBe(false)
+    expect(zAgentName.parse('Cafe\u0301')).toBe('Café')
+  })
+
+  it('does not make other optional resource names empty', () => {
+    expect(zCreateMachineDaemonTokenRequest.safeParse({}).success).toBe(true)
+    expect(zCreateMachineDaemonTokenRequest.safeParse({ name: '' }).success).toBe(false)
   })
 })

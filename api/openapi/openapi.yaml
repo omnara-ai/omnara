@@ -6529,11 +6529,11 @@ components:
       maxLength: 64
       x-unicode-normalization: NFC
       description: Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-    DefaultableResourceName:
+    AgentName:
       type: string
       maxLength: 64
       x-unicode-normalization: NFC
-      description: Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
+      description: Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
     SkillName:
       type: string
       minLength: 1
@@ -8167,8 +8167,8 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
         name:
-          $ref: '#/components/schemas/DefaultableResourceName'
-          description: Agent name. Empty defaults to the profile name.
+          $ref: '#/components/schemas/AgentName'
+          description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
     Agent:
@@ -8188,8 +8188,7 @@ components:
           type: string
           enum: [active, archived]
         name:
-          $ref: '#/components/schemas/DefaultableResourceName'
-          description: Agent name. Only explicitly unnamed agents are empty.
+          $ref: '#/components/schemas/AgentName'
         integration_target:
           $ref: '#/components/schemas/IntegrationTarget'
         current_config_id:
@@ -11123,8 +11122,8 @@ components:
       additionalProperties: false
       properties:
         name:
-          $ref: '#/components/schemas/DefaultableResourceName'
-          description: Optional token name subject to the ResourceName character policy when non-empty; omitted or empty values default to daemon.
+          $ref: '#/components/schemas/ResourceName'
+          description: Optional token name. Omitted values default to daemon.
         metadata:
           $ref: '#/components/schemas/Metadata'
     MachineDaemonToken:

@@ -10,9 +10,9 @@ export type ClientOptions = {
 export type ResourceName = string;
 
 /**
- * Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
+ * Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
  */
-export type DefaultableResourceName = string;
+export type AgentName = string;
 
 /**
  * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
@@ -1060,9 +1060,9 @@ export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
     /**
-     * Agent name. Empty defaults to the profile name.
+     * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
-    name?: DefaultableResourceName;
+    name?: AgentName;
     message?: string;
 };
 
@@ -1072,10 +1072,7 @@ export type Agent = {
     project_id: ProjectId;
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
-    /**
-     * Agent name. Only explicitly unnamed agents are empty.
-     */
-    name: DefaultableResourceName;
+    name: AgentName;
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
@@ -2618,9 +2615,9 @@ export type MachinePoolSummary = {
 
 export type CreateMachineDaemonTokenRequest = {
     /**
-     * Optional token name subject to the ResourceName character policy when non-empty; omitted or empty values default to daemon.
+     * Optional token name. Omitted values default to daemon.
      */
-    name?: DefaultableResourceName;
+    name?: ResourceName;
     metadata?: Metadata;
 };
 

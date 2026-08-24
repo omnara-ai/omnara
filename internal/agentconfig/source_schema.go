@@ -141,7 +141,7 @@ func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
 	}
 	source.Model.Name = modelName
 	for index := range source.MachineSources {
-		machineName, err := resourcename.CanonicalizeOptional(
+		machineName, err := resourcename.CanonicalizeAllowEmpty(
 			fmt.Sprintf("machine_sources[%d].machine_name", index),
 			source.MachineSources[index].MachineName,
 		)
@@ -149,7 +149,7 @@ func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
 			return err
 		}
 		source.MachineSources[index].MachineName = machineName
-		machinePoolName, err := resourcename.CanonicalizeOptional(
+		machinePoolName, err := resourcename.CanonicalizeAllowEmpty(
 			fmt.Sprintf("machine_sources[%d].machine_pool_name", index),
 			source.MachineSources[index].MachinePoolName,
 		)

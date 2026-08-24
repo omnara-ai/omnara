@@ -797,16 +797,12 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	name := ""
-	if request.Body.Name != nil {
-		name = *request.Body.Name
-	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
 		LaunchedBy:     principal,
-		Name:           name,
+		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	})

@@ -10,7 +10,7 @@ import (
 
 func TestLaunchAgentNamePreservesValidProfileName(t *testing.T) {
 	profile := &AgentProfileRecord{ID: uuid.New(), Name: "Research profile"}
-	got, err := launchAgentName("", profile)
+	got, err := launchAgentName(nil, profile)
 	if err != nil {
 		t.Fatalf("launchAgentName: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestLaunchAgentNamePreservesValidProfileName(t *testing.T) {
 
 func TestLaunchAgentNameRejectsInvalidProfileName(t *testing.T) {
 	profile := &AgentProfileRecord{ID: uuid.New(), Name: " legacy profile "}
-	if _, err := launchAgentName("", profile); err == nil || !strings.Contains(err.Error(), "whitespace") {
+	if _, err := launchAgentName(nil, profile); err == nil || !strings.Contains(err.Error(), "whitespace") {
 		t.Fatalf("launchAgentName error = %v, want whitespace rejection", err)
 	}
 }

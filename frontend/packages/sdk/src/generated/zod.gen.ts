@@ -28,9 +28,9 @@ export const zResourceName = z
     });
 
 /**
- * Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
+ * Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
  */
-export const zDefaultableResourceName = z
+export const zAgentName = z
     .string()
     .transform((value) => value.normalize('NFC'))
     .refine((value) => value === '' || Array.from(value).length <= 64, {
@@ -847,7 +847,7 @@ export const zListCronTriggersResponse = z.object({
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId,
-    name: zDefaultableResourceName.optional(),
+    name: zAgentName.optional(),
     message: z.string().optional()
 });
 
@@ -870,7 +870,7 @@ export const zAgent = z.object({
     project_id: zProjectId,
     agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
-    name: zDefaultableResourceName,
+    name: zAgentName,
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
@@ -2206,7 +2206,7 @@ export const zListProjectMachinePoolGrantsResponse = z.object({
 });
 
 export const zCreateMachineDaemonTokenRequest = z.object({
-    name: zDefaultableResourceName.optional(),
+    name: zResourceName.optional(),
     metadata: zMetadata.optional()
 });
 

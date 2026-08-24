@@ -49,7 +49,7 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zCreateAgentPath,
         body: zConfigAttachment.extend({
           profile: schemas.zAgentProfileId.optional(),
-          name: schemas.zDefaultableResourceName.optional(),
+          name: schemas.zAgentName.optional(),
           message: z.string().optional(),
         }),
         transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({

@@ -33,16 +33,16 @@ const replacement = `export const zResourceName = z
 if (generated.split(original).length !== 2) {
   throw new Error('expected exactly one generated ResourceName Zod schema')
 }
-const defaultableOriginal = 'export const zDefaultableResourceName = z.string().max(64);'
-const defaultableReplacement = replacement
-  .replace('zResourceName', 'zDefaultableResourceName')
+const agentNameOriginal = 'export const zAgentName = z.string().max(64);'
+const agentNameReplacement = replacement
+  .replace('zResourceName', 'zAgentName')
   .replace('    .min(1)\n', '')
   .replaceAll('    .refine((value) => ', "    .refine((value) => value === '' || ")
 
-if (generated.split(defaultableOriginal).length !== 2) {
-  throw new Error('expected exactly one generated DefaultableResourceName Zod schema')
+if (generated.split(agentNameOriginal).length !== 2) {
+  throw new Error('expected exactly one generated AgentName Zod schema')
 }
 writeFileSync(
   zodPath,
-  generated.replace(defaultableOriginal, defaultableReplacement).replace(original, replacement),
+  generated.replace(agentNameOriginal, agentNameReplacement).replace(original, replacement),
 )

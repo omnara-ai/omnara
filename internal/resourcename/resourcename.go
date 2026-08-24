@@ -14,7 +14,7 @@ func CanonicalizeRequired(field, value string) (string, error) {
 	return canonicalizeWithMax(field, value, MaxCodePoints, true)
 }
 
-func CanonicalizeOptional(field, value string) (string, error) {
+func CanonicalizeAllowEmpty(field, value string) (string, error) {
 	return canonicalizeWithMax(field, value, MaxCodePoints, false)
 }
 
@@ -22,7 +22,7 @@ func CanonicalizeRequiredWithMax(field, value string, maxCodePoints int) (string
 	return canonicalizeWithMax(field, value, maxCodePoints, true)
 }
 
-func CanonicalizeOptionalWithMax(field, value string, maxCodePoints int) (string, error) {
+func CanonicalizeAllowEmptyWithMax(field, value string, maxCodePoints int) (string, error) {
 	return canonicalizeWithMax(field, value, maxCodePoints, false)
 }
 

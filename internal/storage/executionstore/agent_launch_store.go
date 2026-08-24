@@ -19,7 +19,7 @@ type LaunchAgentInput struct {
 	ProfileID     ID
 	AgentConfigID ID
 	LaunchedBy    identitystore.PrincipalRecord
-	Name          string
+	Name          *string
 	Message       string
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
@@ -50,11 +50,13 @@ func (s *Store) LaunchAgent(
 			"project, agent config, and launching principal are required",
 		)
 	}
-	normalizedName, err := resourcename.CanonicalizeOptional("agent name", input.Name)
-	if err != nil {
-		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+	if input.Name != nil {
+		name, err := resourcename.CanonicalizeAllowEmpty("agent name", *input.Name)
+		if err != nil {
+			return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+		}
+		input.Name = &name
 	}
-	input.Name = normalizedName
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -336,11 +338,14 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(name string, profile *AgentProfileRecord) (string, error) {
-	if name == "" && profile != nil {
-		name = profile.Name
+func launchAgentName(name *string, profile *AgentProfileRecord) (string, error) {
+	if name != nil {
+		return *name, nil
 	}
-	return resourcename.CanonicalizeOptional("agent name", name)
+	if profile != nil {
+		return resourcename.CanonicalizeRequired("agent name", profile.Name)
+	}
+	return "", nil
 }
 
 func createAgentMCPConnectionsTx(

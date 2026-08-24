@@ -586,7 +586,7 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 		body = *request.Body
 	}
 	name := "daemon"
-	if body.Name != nil && *body.Name != "" {
+	if body.Name != nil {
 		name = *body.Name
 	}
 	metadata := body.Metadata

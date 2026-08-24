@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestCanonicalizeOptional(t *testing.T) {
+func TestCanonicalizeAllowEmpty(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
@@ -43,15 +43,15 @@ func TestCanonicalizeOptional(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := CanonicalizeOptional("name", tt.value)
+			_, err := CanonicalizeAllowEmpty("name", tt.value)
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Fatalf("CanonicalizeOptional(%q): %v", tt.value, err)
+					t.Fatalf("CanonicalizeAllowEmpty(%q): %v", tt.value, err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("CanonicalizeOptional(%q) error = %v, want containing %q", tt.value, err, tt.wantErr)
+				t.Fatalf("CanonicalizeAllowEmpty(%q) error = %v, want containing %q", tt.value, err, tt.wantErr)
 			}
 		})
 	}

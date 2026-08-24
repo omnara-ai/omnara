@@ -376,6 +376,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 			"CreateAgentProfileRequest.name",
 			"CreateConfiguredModelRequest.name",
 			"CreateCronTriggerRequest.name",
+			"CreateMachineDaemonTokenRequest.name",
 			"CreateMachinePoolRequestBase.name",
 			"CreateMachineRequest.display_name",
 			"CreateModelProviderConfigRequest.name",
@@ -407,10 +408,9 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 			"UpdateOrgAPIKeyRequest.name",
 			"UpdateSecretRequest.name",
 		},
-		"#/components/schemas/DefaultableResourceName": {
+		"#/components/schemas/AgentName": {
 			"Agent.name",
 			"CreateAgentRequest.name",
-			"CreateMachineDaemonTokenRequest.name",
 		},
 		"#/components/schemas/SkillName": {
 			"Skill.name",
@@ -819,6 +819,46 @@ func TestOpenAPIRequestValidatorRejectsSchemaViolations(t *testing.T) {
 	}
 	if response["error"] == "" {
 		t.Fatalf("expected validation error body, got %+v", response)
+	}
+}
+
+func TestOpenAPIRequestValidatorAllowsOnlyAgentNamesToBeEmpty(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
+	projectID := testPublicID(t, publicid.KindProject, httpTestProjectID)
+	machineID := testPublicID(t, publicid.KindMachine, testHTTPID(42))
+	configID := testPublicID(t, publicid.KindAgentConfig, testHTTPID(43))
+	tests := []struct {
+		name string
+		path string
+		body string
+		want int
+	}{
+		{
+			name: "agent",
+			path: "/api/v1/orgs/" + orgID + "/projects/" + projectID + "/agents",
+			body: `{"config":"` + configID + `","name":""}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "machine daemon token",
+			path: "/api/v1/orgs/" + orgID + "/machines/" + machineID + "/daemon-tokens",
+			body: `{"name":""}`,
+			want: http.StatusBadRequest,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != test.want {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.want, rec.Body.String())
+			}
+		})
 	}
 }
 
