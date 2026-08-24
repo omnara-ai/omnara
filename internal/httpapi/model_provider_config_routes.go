@@ -155,9 +155,6 @@ func createConfiguredModelInputFromOpenAPI(
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
-	if body.Name == "" {
-		return errors.New("name is required")
-	}
 	if body.Preset == nil && body.ApiFormat == nil {
 		return errors.New("api_format is required unless preset is provided")
 	}

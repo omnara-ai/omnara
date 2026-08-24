@@ -37,7 +37,7 @@ export default defineConfig({
           }
           const regexTest = (pattern: string, value: string) =>
             ctx.$(ctx.$.regexp(pattern, 'u')).attr('test').call(value)
-          const not = (value: Expression) => ctx.$.not(value).not()
+          const not = (value: Expression) => ctx.$.not(value)
 
           if (ctx.schema.maxLength !== undefined) {
             refine(
