@@ -24,9 +24,11 @@ func (s *Store) CreateAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("agent profile name is required")
 	}
-	if err := resourcename.Validate("agent profile name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("agent profile name", input.Name)
+	if err != nil {
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	if isNilID(input.CurrentConfigID) {
 		return AgentProfileRecord{}, errors.New("current config is required")
 	}
@@ -230,9 +232,11 @@ func (s *Store) RenameAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("name is required")
 	}
-	if err := resourcename.Validate("agent profile name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("agent profile name", input.Name)
+	if err != nil {
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin rename agent profile: %w", err)

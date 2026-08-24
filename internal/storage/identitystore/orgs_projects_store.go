@@ -59,9 +59,11 @@ func (s *Store) ProvisionOrganizationTx(
 	if input.Name == "" {
 		return CreateOrgForUserRecord{}, errors.New("org name is required")
 	}
-	if err := resourcename.Validate("org name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("org name", input.Name)
+	if err != nil {
 		return CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -214,9 +216,11 @@ func (s *Store) CreateProjectForPrincipal(
 	if input.Name == "" {
 		return ProjectRecord{}, errors.New("project name is required")
 	}
-	if err := resourcename.Validate("project name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("project name", input.Name)
+	if err != nil {
 		return ProjectRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectRecord{}, fmt.Errorf("begin create project: %w", err)

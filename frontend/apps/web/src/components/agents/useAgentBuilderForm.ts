@@ -21,7 +21,7 @@ import {
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
-import { resourceNameValid } from '@/lib/resource-name'
+import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -271,12 +271,13 @@ function applyToDocument(
 
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
-  const providerConfig = config.providerConfig
-  if (providerConfig !== (baseline?.providerConfig ?? '')) {
+  const providerConfig = normalizeResourceName(config.providerConfig)
+  if (providerConfig !== normalizeResourceName(baseline?.providerConfig ?? '')) {
     set(['model', 'provider_config'], providerConfig)
   }
-  const modelName = config.modelName
-  if (modelName !== (baseline?.modelName ?? '')) set(['model', 'name'], modelName)
+  const modelName = normalizeResourceName(config.modelName)
+  if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
+    set(['model', 'name'], modelName)
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
@@ -361,7 +362,7 @@ function applySkills(
 function machineSourceComparable(source: BasicMachineSource) {
   return {
     kind: source.kind,
-    name: source.name,
+    name: normalizeResourceName(source.name),
     cwd: source.defaultCwd.trim(),
     initialNumMachines: source.initialNumMachines,
     maxMachines: source.maxMachines,
@@ -393,8 +394,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function machineSourceWire(source: BasicMachineSource): Record<string, unknown> {
   const wire: Record<string, unknown> = {}
+  const name = normalizeResourceName(source.name)
   if (source.kind === 'pool') {
-    wire.machine_pool_name = source.name
+    wire.machine_pool_name = name
     if (source.initialNumMachines !== '') {
       wire.initial_num_machines = Number(source.initialNumMachines)
     }
@@ -409,7 +411,7 @@ function machineSourceWire(source: BasicMachineSource): Record<string, unknown> 
       : undefined
     if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
   } else {
-    wire.machine_name = source.name
+    wire.machine_name = name
   }
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
   const envOverlay = envOverlayFromRows(source.envRows)

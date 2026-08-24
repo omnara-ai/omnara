@@ -9,7 +9,12 @@ export const resourceNameInputMaxLength = 2 * resourceNameMaxCodePoints
 const whitespacePattern = /\p{White_Space}/u
 const unsupportedCharacterPattern = /[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u
 
+export function normalizeResourceName(value: string) {
+  return value.normalize('NFC')
+}
+
 export function resourceNameError(value: string, fieldLabel = 'Name'): string | undefined {
+  value = normalizeResourceName(value)
   if (value === '') return `${fieldLabel} is required.`
 
   const codePoints = Array.from(value)
@@ -43,10 +48,12 @@ export function resourceNameValid(value: string) {
 }
 
 export function resourceNameSuggestion(preferredValues: readonly string[], fallback: string) {
+  fallback = normalizeResourceName(fallback)
   if (!resourceNameValid(fallback)) throw new Error('resource name suggestion fallback is invalid')
 
   for (const value of preferredValues) {
-    if (resourceNameValid(value)) return value
+    const normalized = normalizeResourceName(value)
+    if (resourceNameValid(normalized)) return normalized
   }
   if (preferredValues.length === 0) return fallback
 
@@ -64,6 +71,8 @@ export function resourceNameSuggestion(preferredValues: readonly string[], fallb
 }
 
 function hashedResourceNameSuggestion(prefixSource: string, identitySource: string) {
+  prefixSource = normalizeResourceName(prefixSource)
+  identitySource = normalizeResourceName(identitySource)
   const suffix = `-${resourceNameHash(identitySource)}`
   const prefix = Array.from(prefixSource)
     .slice(0, resourceNameMaxCodePoints - Array.from(suffix).length)

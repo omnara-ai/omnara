@@ -62,6 +62,7 @@ BEGIN ATOMIC
         AND (allow_empty OR candidate <> '')
         AND max_code_points IS NOT NULL
         AND max_code_points > 0
+        AND candidate IS NFC NORMALIZED
         AND char_length(candidate) <= max_code_points
         AND octet_length(candidate) <= 4 * max_code_points
         AND candidate = btrim(candidate, ' ')
@@ -91,13 +92,172 @@ CREATE FUNCTION resource_name_repair(candidate text, max_code_points integer) RE
     WITH whitespace(characters) AS (
         VALUES (U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')
     )
-    SELECT btrim(left(btrim(candidate, characters), max_code_points), characters)
+    SELECT btrim(
+        left(normalize(btrim(candidate, characters), NFC), max_code_points),
+        characters
+    )
     FROM whitespace;
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
--- This one-time repair matches Go strings.TrimSpace, truncates by code point, then trims again.
+-- This one-time repair trims, normalizes to NFC, truncates by code point, then trims again.
 -- Only fully valid results are written; run the hard-cutover migration with application writers stopped.
+-- +goose StatementBegin
+DO $$
+DECLARE
+    collision_count bigint;
+    detail text;
+BEGIN
+    WITH projected(table_name, resource_id, uniqueness_scope, projected_name) AS (
+        SELECT
+            'projects',
+            id::text,
+            org_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM projects
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'org_api_keys',
+            id::text,
+            org_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM org_api_keys
+        WHERE revoked_at IS NULL
+        UNION ALL
+        SELECT
+            'secrets',
+            id::text,
+            concat_ws(':', org_id::text, owner_kind, owner_project_id::text, owner_user_id::text),
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM secrets
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'model_provider_configs',
+            id::text,
+            org_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM model_provider_configs
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'configured_models',
+            id::text,
+            model_provider_config_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM configured_models
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'agent_profiles',
+            id::text,
+            project_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM agent_profiles
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'machine_pools',
+            id::text,
+            org_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM machine_pools
+        WHERE deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'machines',
+            id::text,
+            org_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(display_name, 64), false)
+                    THEN resource_name_repair(display_name, 64)
+                ELSE display_name
+            END
+        FROM machines
+        WHERE source_kind = 'byo' AND deleted_at IS NULL
+        UNION ALL
+        SELECT
+            'cron_triggers',
+            id::text,
+            project_id::text,
+            CASE
+                WHEN resource_name_is_valid(resource_name_repair(name, 64), false)
+                    THEN resource_name_repair(name, 64)
+                ELSE name
+            END
+        FROM cron_triggers
+        WHERE deleted_at IS NULL
+    ),
+    collision_groups AS (
+        SELECT table_name, uniqueness_scope, projected_name
+        FROM projected
+        GROUP BY table_name, uniqueness_scope, projected_name
+        HAVING count(*) > 1
+    ),
+    collisions AS (
+        SELECT projected.table_name, projected.resource_id
+        FROM projected
+        JOIN collision_groups USING (table_name, uniqueness_scope, projected_name)
+    ),
+    ranked AS (
+        SELECT
+            table_name,
+            resource_id,
+            row_number() OVER (ORDER BY table_name, resource_id) AS ordinal,
+            count(*) OVER () AS total
+        FROM collisions
+    )
+    SELECT
+        coalesce(max(total), 0),
+        string_agg(
+            format('%s/%s', table_name, resource_id),
+            ', ' ORDER BY ordinal
+        ) FILTER (WHERE ordinal <= 20)
+    INTO collision_count, detail
+    FROM ranked;
+
+    IF collision_count > 0 THEN
+        IF collision_count > 20 THEN
+            detail := detail || format(', and %s more', collision_count - 20);
+        END IF;
+        RAISE EXCEPTION 'resource-name migration blocked; canonicalization would collide for % rows: %',
+            collision_count,
+            detail
+            USING ERRCODE = 'unique_violation';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
+
 UPDATE orgs
 SET name = resource_name_repair(name, 64)
 WHERE name IS DISTINCT FROM resource_name_repair(name, 64)

@@ -158,6 +158,8 @@ func TestResourceNameMigrationRepairsExistingBoundaryWhitespaceAndLength(t *test
 		tests = append(tests, repairTest{input: string(codepoint) + name + string(codepoint), want: name})
 	}
 	tests = append(tests,
+		repairTest{input: "Cafe\u0301", want: "Café"},
+		repairTest{input: strings.Repeat("e\u0301", 64), want: strings.Repeat("é", 64)},
 		repairTest{input: strings.Repeat("界", 70), want: strings.Repeat("界", 64)},
 		repairTest{input: strings.Repeat("x", 63) + " " + strings.Repeat("y", 5), want: strings.Repeat("x", 63)},
 		repairTest{input: strings.Repeat("x", 63) + "\u00a0" + strings.Repeat("y", 5), want: strings.Repeat("x", 63)},
@@ -330,20 +332,30 @@ func TestResourceNameMigrationRejectsRepairCollisions(t *testing.T) {
 	).Scan(&orgID); err != nil {
 		t.Fatalf("insert collision organization: %v", err)
 	}
-	for _, name := range []string{"Project", " Project"} {
-		if _, err := pool.Exec(
+	projectIDs := make([]string, 0, 2)
+	for _, name := range []string{"Café", "Cafe\u0301"} {
+		var projectID string
+		if err := pool.QueryRow(
 			ctx,
 			`INSERT INTO projects(org_id, name, created_at, updated_at)
-			 VALUES ($1, $2, now(), now())`,
+			 VALUES ($1, $2, now(), now())
+			 RETURNING id`,
 			orgID,
 			name,
-		); err != nil {
+		).Scan(&projectID); err != nil {
 			t.Fatalf("insert collision project %q: %v", name, err)
 		}
+		projectIDs = append(projectIDs, projectID)
 	}
 	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
-	if err == nil || !strings.Contains(err.Error(), "projects_active_name_idx") {
-		t.Fatalf("resource-name collision error = %v", err)
+	for _, want := range []string{
+		"canonicalization would collide",
+		"projects/" + projectIDs[0],
+		"projects/" + projectIDs[1],
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("resource-name collision error = %v, want %q", err, want)
+		}
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 24 {
 		t.Fatalf("migration version after repair collision = %d, want 24", got)
@@ -351,7 +363,7 @@ func TestResourceNameMigrationRejectsRepairCollisions(t *testing.T) {
 	var legacyNameCount int
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT count(*) FROM projects WHERE org_id = $1 AND name = ' Project'`,
+		`SELECT count(*) FROM projects WHERE org_id = $1 AND name = 'Cafe' || U&'\0301'`,
 		orgID,
 	).Scan(&legacyNameCount); err != nil {
 		t.Fatalf("count legacy collision name: %v", err)
@@ -436,8 +448,8 @@ INSERT INTO agent_configs(
 name: Legacy Agent
 instruction: Test migration preflight.
 model:
-  provider_config: " Provider "
-  name: " Model "
+  provider_config: " Café "
+  name: " Modél "
 `
 	const legacyCompiledDefinition = `{"name":"legacy-agent-name"}`
 	legacyDefinitionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCompiledDefinition)))
@@ -563,7 +575,7 @@ INSERT INTO agent_configs(
 	if err != nil {
 		t.Fatalf("parse migrated legacy agent config source: %v", err)
 	}
-	if parsed.Model.ProviderConfig != "Provider" || parsed.Model.Name != "Model" {
+	if parsed.Model.ProviderConfig != "Café" || parsed.Model.Name != "Modél" {
 		t.Fatalf("migrated model references = %+v", parsed.Model)
 	}
 	if migratedSourceHash != fmt.Sprintf("%x", sha256.Sum256([]byte(migratedSource))) {
@@ -838,6 +850,8 @@ ORDER BY codepoint
 		{value: "", max: resourcename.MaxCodePoints},
 		{value: "", allowEmpty: true, max: resourcename.MaxCodePoints},
 		{value: "Studio  54", max: resourcename.MaxCodePoints},
+		{value: "Café", max: resourcename.MaxCodePoints},
+		{value: "Cafe\u0301", max: resourcename.MaxCodePoints},
 		{value: "研究開発 شركة برمجيات", max: resourcename.MaxCodePoints},
 		{value: "🚀 Lab", max: resourcename.MaxCodePoints},
 		{value: strings.Repeat("界", resourcename.MaxCodePoints), max: resourcename.MaxCodePoints},
@@ -852,8 +866,8 @@ ORDER BY codepoint
 		{value: strings.Repeat("a", 129), max: 128},
 	}
 	for _, test := range tests {
-		want := (test.allowEmpty || test.value != "") &&
-			resourcename.ValidateWithMax("name", test.value, test.max) == nil
+		normalized, validationErr := resourcename.NormalizeWithMax("name", test.value, test.max)
+		want := (test.allowEmpty || test.value != "") && validationErr == nil && normalized == test.value
 		var got bool
 		if err := pool.QueryRow(
 			ctx,

@@ -57,9 +57,11 @@ func prepareBYOMachineDaemonTokenCreate(
 			"org, machine, and name are required",
 		)
 	}
-	if err := resourcename.Validate("machine daemon token name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("machine daemon token name", input.Name)
+	if err != nil {
 		return preparedBYOMachineDaemonTokenCreate{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	metadata, err := metadataColumn(input.Metadata, "daemon token metadata")
 	if err != nil {
 		return preparedBYOMachineDaemonTokenCreate{}, err
@@ -147,9 +149,11 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 			"org, machine, and token name are required",
 		)
 	}
-	if err := resourcename.Validate("machine daemon token name", input.TokenName); err != nil {
+	normalizedName, err := resourcename.Normalize("machine daemon token name", input.TokenName)
+	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, storeerr.InvalidRequest(err)
 	}
+	input.TokenName = normalizedName
 	if input.ProvisionAttempt <= 0 {
 		return PoolMachineProviderProvisioningStart{}, errors.New("provision attempt is required")
 	}

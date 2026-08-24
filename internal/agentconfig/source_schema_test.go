@@ -103,6 +103,27 @@ machine_sources:
 	}
 }
 
+func TestParseSourceNormalizesResourceNameReferencesBeforeLengthValidation(t *testing.T) {
+	decomposed := strings.Repeat("e\u0301", 64)
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  provider_config: %q
+  name: %q
+machine_sources:
+  - machine_pool_name: %q
+`, decomposed, "Cafe\u0301", "Build Cafe\u0301")
+	parsed, err := ParseSource(SourceFormatYAML, []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Model.ProviderConfig != strings.Repeat("é", 64) ||
+		parsed.Model.Name != "Café" ||
+		parsed.MachineSources[0].MachinePoolName != "Build Café" {
+		t.Fatalf("normalized references = %+v", parsed)
+	}
+}
+
 func TestParseSourceRejectsUnknownFieldsWithJSONSchema(t *testing.T) {
 	for name, source := range map[string]string{
 		"top_level": `

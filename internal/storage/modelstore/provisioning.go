@@ -54,6 +54,18 @@ func PrepareDefaultModelProviderTemplate(
 	template DefaultModelProviderTemplate,
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
+	var err error
+	template.Name, err = resourcename.Normalize("model provider config name", template.Name)
+	if err != nil {
+		return DefaultModelProviderTemplate{}, err
+	}
+	template.CredentialSecretName, err = resourcename.Normalize(
+		"credential secret name",
+		template.CredentialSecretName,
+	)
+	if err != nil {
+		return DefaultModelProviderTemplate{}, err
+	}
 	template.Provisioner = strings.TrimSpace(template.Provisioner)
 	template.APIFormat = modelprotocol.APIFormat(strings.TrimSpace(string(template.APIFormat)))
 	template.APIVariant = modelprotocol.APIVariant(strings.TrimSpace(string(template.APIVariant)))
@@ -76,6 +88,13 @@ func PrepareDefaultModelProviderTemplate(
 	)
 	for i := range template.Models {
 		template.Models[i] = normalizeDefaultConfiguredModelTemplate(template.Models[i])
+		template.Models[i].Name, err = resourcename.Normalize(
+			"configured model name",
+			template.Models[i].Name,
+		)
+		if err != nil {
+			return DefaultModelProviderTemplate{}, err
+		}
 	}
 	if err := validatePreparedDefaultModelProviderTemplate(template); err != nil {
 		return DefaultModelProviderTemplate{}, err

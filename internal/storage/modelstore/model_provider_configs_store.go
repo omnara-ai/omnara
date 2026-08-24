@@ -79,13 +79,14 @@ func (s *Store) createModelProviderConfigTx(
 		isNilID(input.CredentialSecretID) {
 		return ModelProviderConfigRecord{}, errors.New("org, name, API format, base url, and credential secret are required")
 	}
-	if err := resourcename.Validate("model provider config name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("model provider config name", input.Name)
+	if err != nil {
 		return ModelProviderConfigRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	if err := validateModelProviderAPIFormat(input.APIFormat); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	var err error
 	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
@@ -183,7 +184,14 @@ func (s *Store) GetModelProviderConfigByName(
 	orgID ID,
 	name string,
 ) (ModelProviderConfigRecord, error) {
-	row, err := s.q.GetModelProviderConfigByName(ctx, dbsqlc.GetModelProviderConfigByNameParams{OrgID: orgID, Name: name})
+	normalizedName, err := resourcename.Normalize("model provider config name", name)
+	if err != nil {
+		return ModelProviderConfigRecord{}, storeerr.InvalidRequest(err)
+	}
+	row, err := s.q.GetModelProviderConfigByName(
+		ctx,
+		dbsqlc.GetModelProviderConfigByNameParams{OrgID: orgID, Name: normalizedName},
+	)
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config by name: %w", err)
 	}

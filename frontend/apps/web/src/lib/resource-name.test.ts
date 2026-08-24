@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  normalizeResourceName,
   resourceNameError,
   resourceNameMaxCodePoints,
   resourceNameSuggestion,
@@ -20,6 +21,12 @@ describe('resource names', () => {
     expect(resourceNameError('界'.repeat(resourceNameMaxCodePoints + 1))).toContain(
       `${resourceNameMaxCodePoints} Unicode characters`,
     )
+  })
+
+  it('canonicalizes equivalent Unicode spellings to NFC', () => {
+    expect(normalizeResourceName('Cafe\u0301')).toBe('Café')
+    expect(resourceNameValid('e\u0301'.repeat(resourceNameMaxCodePoints))).toBe(true)
+    expect(resourceNameSuggestion(['Cafe\u0301'], 'Fallback')).toBe('Café')
   })
 
   it.each([

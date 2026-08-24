@@ -822,6 +822,82 @@ func TestOpenAPIRequestValidatorRejectsSchemaViolations(t *testing.T) {
 	}
 }
 
+func TestOpenAPIRequestValidatorNormalizesResourceNamesBeforeValidation(t *testing.T) {
+	validator, err := newOpenAPIRequestValidator()
+	if err != nil {
+		t.Fatalf("create openapi request validator: %v", err)
+	}
+	decomposed := strings.Repeat("e\u0301", resourcename.MaxCodePoints)
+	canonical := strings.Repeat("é", resourcename.MaxCodePoints)
+	body, err := json.Marshal(map[string]string{"name": decomposed})
+	if err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	var received map[string]string
+	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decode normalized request: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if received["name"] != canonical {
+		t.Fatalf("request name = %q, want NFC value", received["name"])
+	}
+}
+
+func TestOpenAPIRequestValidatorDoesNotNormalizeUnrelatedStrings(t *testing.T) {
+	validator, err := newOpenAPIRequestValidator()
+	if err != nil {
+		t.Fatalf("create openapi request validator: %v", err)
+	}
+	decomposed := "Cafe\u0301"
+	body, err := json.Marshal(map[string]string{
+		"config":  testPublicID(t, publicid.KindAgentConfig, testHTTPID(41)),
+		"name":    decomposed,
+		"message": decomposed,
+	})
+	if err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+	var received map[string]string
+	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decode normalized request: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
+	projectID := testPublicID(t, publicid.KindProject, httpTestProjectID)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/orgs/"+orgID+"/projects/"+projectID+"/agents",
+		bytes.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if received["name"] != "Café" {
+		t.Fatalf("request name = %q, want NFC value", received["name"])
+	}
+	if received["message"] != decomposed {
+		t.Fatalf("request message = %q, want original value", received["message"])
+	}
+}
+
 func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 	handler := newOpenAPIValidatorTestHandler(t)
 	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)

@@ -50,9 +50,11 @@ func (s *Store) LaunchAgent(
 			"project, agent config, and launching principal are required",
 		)
 	}
-	if err := resourcename.Validate("agent name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("agent name", input.Name)
+	if err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -338,10 +340,7 @@ func launchAgentName(name string, profile *AgentProfileRecord) (string, error) {
 	if name == "" && profile != nil {
 		name = profile.Name
 	}
-	if err := resourcename.Validate("agent name", name); err != nil {
-		return "", err
-	}
-	return name, nil
+	return resourcename.Normalize("agent name", name)
 }
 
 func createAgentMCPConnectionsTx(

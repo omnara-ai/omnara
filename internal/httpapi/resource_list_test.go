@@ -15,12 +15,13 @@ func TestResourceNameGlobToLike(t *testing.T) {
 		input, want string
 		wantErr     bool
 	}{
-		"exact":            {input: "worker", want: "worker"},
-		"wildcards":        {input: "work?r*", want: "work_r%"},
-		"like literals":    {input: `a%_b`, want: `a\%\_b`},
-		"escaped wildcard": {input: `work\*`, want: "work*"},
-		"only wildcards":   {input: "*?", wantErr: true},
-		"bad escape":       {input: `a\x`, wantErr: true},
+		"exact":             {input: "worker", want: "worker"},
+		"wildcards":         {input: "work?r*", want: "work_r%"},
+		"like literals":     {input: `a%_b`, want: `a\%\_b`},
+		"escaped wildcard":  {input: `work\*`, want: "work*"},
+		"canonical Unicode": {input: "Cafe\u0301*", want: "Café%"},
+		"only wildcards":    {input: "*?", wantErr: true},
+		"bad escape":        {input: `a\x`, wantErr: true},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {

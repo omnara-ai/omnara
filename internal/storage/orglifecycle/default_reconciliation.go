@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -36,11 +37,15 @@ func (s *Service) ReconcileDefaults(
 			orgIDs = append(orgIDs, orgID)
 		}
 	}
-	for _, template := range input.DefaultMachinePools {
+	for index, template := range input.DefaultMachinePools {
 		if err := s.execution.ValidateDefaultMachinePoolTemplate(template); err != nil {
 			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
 		}
-		name := template.Name
+		name, err := resourcename.Normalize("machine pool name", template.Name)
+		if err != nil {
+			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
+		}
+		input.DefaultMachinePools[index].Name = name
 		rows, err := s.q.ListClusterManagedMachinePoolsByName(
 			ctx,
 			dbsqlc.ListClusterManagedMachinePoolsByNameParams{Name: name},

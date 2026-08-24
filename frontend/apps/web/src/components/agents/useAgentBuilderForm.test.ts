@@ -576,18 +576,18 @@ describe('basic agent config names', () => {
     expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
   })
 
-  it('preserves accepted resource names exactly', () => {
+  it('preserves accepted resource names except for NFC canonicalization', () => {
     const config = {
       ...fullConfig,
-      providerConfig: 'Production OpenAI',
-      modelName: 'GPT 5',
+      providerConfig: 'Production Cafe\u0301',
+      modelName: 'Mode\u0301l 5',
       machineSources: fullConfig.machineSources.map((source, index) =>
-        index === 0 ? { ...source, name: 'Primary  Pool' } : source,
+        index === 0 ? { ...source, name: 'Primary Cafe\u0301  Pool' } : source,
       ),
     }
     const roundTripped = mustDeserialize(applyToSource('', config))
-    expect(roundTripped.providerConfig).toBe('Production OpenAI')
-    expect(roundTripped.modelName).toBe('GPT 5')
-    expect(roundTripped.machineSources[0]?.name).toBe('Primary  Pool')
+    expect(roundTripped.providerConfig).toBe('Production Café')
+    expect(roundTripped.modelName).toBe('Modél 5')
+    expect(roundTripped.machineSources[0]?.name).toBe('Primary Café  Pool')
   })
 })

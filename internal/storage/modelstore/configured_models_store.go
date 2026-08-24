@@ -80,9 +80,11 @@ func (s *Store) createConfiguredModelTx(
 			"org, provider config, configured model name, and provider model slug are required",
 		)
 	}
-	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	if input.MaxOutputTokens <= 0 {
 		return ConfiguredModelRecord{}, fmt.Errorf(
 			"max_output_tokens must be positive: %w",
@@ -209,9 +211,11 @@ func (s *Store) PatchConfiguredModel(
 		if update.Name == "" {
 			return ConfiguredModelRecord{}, errors.New("configured model name is required")
 		}
-		if err := resourcename.Validate("configured model name", update.Name); err != nil {
+		normalizedName, err := resourcename.Normalize("configured model name", update.Name)
+		if err != nil {
 			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 		}
+		update.Name = normalizedName
 		record := current
 		if input.Name != nil && update.Name != current.Name {
 			renamed, err := renameConfiguredModelTx(ctx, qtx, update)
@@ -311,9 +315,11 @@ func updateConfiguredModelTx(
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
-	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	if input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New("provider model slug is required")
 	}
@@ -375,9 +381,11 @@ func renameConfiguredModelTx(
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
-	if err := resourcename.Validate("configured model name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
+	input.Name = normalizedName
 	row, err := qtx.RenameConfiguredModel(
 		ctx,
 		dbsqlc.RenameConfiguredModelParams{
@@ -507,9 +515,15 @@ func (s *Store) GetConfiguredModelByName(
 	orgID, providerConfigID ID,
 	name string,
 ) (ConfiguredModelRecord, error) {
+	normalizedName, err := resourcename.Normalize("configured model name", name)
+	if err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+	}
 	row, err := s.q.GetConfiguredModelByName(
 		ctx,
-		dbsqlc.GetConfiguredModelByNameParams{OrgID: orgID, ModelProviderConfigID: providerConfigID, Name: name},
+		dbsqlc.GetConfiguredModelByNameParams{
+			OrgID: orgID, ModelProviderConfigID: providerConfigID, Name: normalizedName,
+		},
 	)
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)

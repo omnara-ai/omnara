@@ -31,6 +31,11 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	ctx context.Context,
 	input CreateOrgAPIKeyInput,
 ) (CreatedOrgAPIKey, error) {
+	normalizedName, err := resourcename.Normalize("org api key name", input.Name)
+	if err != nil {
+		return CreatedOrgAPIKey{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	tokenID, token, err := prepareOrgAPIKeyInput(input)
 	if err != nil {
 		return CreatedOrgAPIKey{}, err
@@ -271,8 +276,12 @@ func (s *Store) UpdateOrgAPIKey(
 	if effectiveName == "" {
 		return OrgAPIKeyRecord{}, errors.New("org api key name is required")
 	}
-	if err := resourcename.Validate("org api key name", effectiveName); err != nil {
+	normalizedName, err := resourcename.Normalize("org api key name", effectiveName)
+	if err != nil {
 		return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
+	}
+	if input.Name != "" {
+		input.Name = normalizedName
 	}
 	var row dbsqlc.OrgApiKey
 	if input.Name != "" {

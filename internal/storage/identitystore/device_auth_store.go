@@ -33,10 +33,13 @@ func (s *Store) StartDeviceAuthFlow(
 	if tokenName == "" {
 		tokenName = "Device login"
 	}
-	if err := validateDeviceAuthClientName(clientName); err != nil {
+	var err error
+	clientName, err = normalizeDeviceAuthClientName(clientName)
+	if err != nil {
 		return DeviceAuthFlowStartRecord{}, err
 	}
-	if err := resourcename.Validate("token_name", tokenName); err != nil {
+	tokenName, err = resourcename.Normalize("token_name", tokenName)
+	if err != nil {
 		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	var deviceCode string
@@ -303,11 +306,12 @@ func (s *Store) PollDeviceAuthFlow(
 	}, nil
 }
 
-func validateDeviceAuthClientName(value string) error {
-	if err := resourcename.ValidateWithMax("client_name", value, DeviceAuthClientNameMaxRunes); err != nil {
-		return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
+func normalizeDeviceAuthClientName(value string) (string, error) {
+	normalized, err := resourcename.NormalizeWithMax("client_name", value, DeviceAuthClientNameMaxRunes)
+	if err != nil {
+		return "", storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
-	return nil
+	return normalized, nil
 }
 
 func NormalizeDeviceUserCode(code string) string {

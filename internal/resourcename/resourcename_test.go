@@ -17,7 +17,7 @@ func TestValidate(t *testing.T) {
 		{name: "emoji", value: "🚀 Lab"},
 		{name: "ordinary punctuation", value: "R&D (West)"},
 		{name: "punctuation only", value: ".!?"},
-		{name: "decomposed Unicode preserved", value: "Cafe\u0301"},
+		{name: "decomposed Unicode accepted", value: "Cafe\u0301"},
 		{name: "at code point limit", value: strings.Repeat("界", MaxCodePoints)},
 		{
 			name:    "above code point limit",
@@ -54,6 +54,25 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("Validate(%q) error = %v, want containing %q", tt.value, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestNormalizeCanonicalizesBeforeValidation(t *testing.T) {
+	got, err := Normalize("name", "Cafe\u0301")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Café" {
+		t.Fatalf("Normalize() = %q, want NFC Café", got)
+	}
+
+	decomposedAtRawLimit := strings.Repeat("e\u0301", MaxCodePoints/2) + strings.Repeat("x", MaxCodePoints/2)
+	got, err = Normalize("name", decomposedAtRawLimit)
+	if err != nil {
+		t.Fatalf("Normalize() must validate after NFC: %v", err)
+	}
+	if runeCount := len([]rune(got)); runeCount != MaxCodePoints {
+		t.Fatalf("normalized code points = %d, want %d", runeCount, MaxCodePoints)
 	}
 }
 

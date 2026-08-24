@@ -282,7 +282,7 @@ func ValidateDefaultMachinePoolTemplate(
 	if input.Name == "" {
 		return errors.New("name is required")
 	}
-	if err := resourcename.Validate("machine pool name", input.Name); err != nil {
+	if _, err := resourcename.Normalize("machine pool name", input.Name); err != nil {
 		return err
 	}
 	defaults, err := prepareMachinePoolConfigInput(&input)
@@ -419,9 +419,11 @@ func prepareMachinePoolCreateInput(
 	if isNilID(input.OrgID) || input.Name == "" || input.Provider == "" {
 		return machinePoolDefaults{}, errors.New("org, name, and provider are required")
 	}
-	if err := resourcename.Validate("machine pool name", input.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("machine pool name", input.Name)
+	if err != nil {
 		return machinePoolDefaults{}, err
 	}
+	input.Name = normalizedName
 	switch input.ManagementKind {
 	case management.Tenant:
 	case management.Cluster:
@@ -750,9 +752,11 @@ func (s *Store) UpdateMachinePool(
 	if merged.Name == "" {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
 	}
-	if err := resourcename.Validate("machine pool name", merged.Name); err != nil {
+	normalizedName, err := resourcename.Normalize("machine pool name", merged.Name)
+	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
+	merged.Name = normalizedName
 	poolDefaults, err := prepareMachinePoolConfigInput(&merged)
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)

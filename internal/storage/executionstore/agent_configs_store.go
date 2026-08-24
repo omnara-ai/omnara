@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -555,9 +556,13 @@ func (s *Store) ResolveAgentConfigMachineName(ctx context.Context, projectID ID,
 	if isNilID(projectID) || machineName == "" {
 		return NilID, errors.New("project and machine name are required")
 	}
+	normalizedName, err := resourcename.Normalize("machine name", machineName)
+	if err != nil {
+		return NilID, storeerr.InvalidRequest(err)
+	}
 	row, err := s.q.GetActiveProjectMachineGrantForMachineName(
 		ctx,
-		dbsqlc.GetActiveProjectMachineGrantForMachineNameParams{ProjectID: projectID, MachineName: machineName},
+		dbsqlc.GetActiveProjectMachineGrantForMachineNameParams{ProjectID: projectID, MachineName: normalizedName},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return NilID, storeerr.ErrNotFound

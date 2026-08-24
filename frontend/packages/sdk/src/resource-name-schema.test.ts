@@ -8,6 +8,13 @@ describe('generated ResourceName schema', () => {
     expect(zResourceName.safeParse('界'.repeat(65)).success).toBe(false)
   })
 
+  it('normalizes to NFC before applying the length policy', () => {
+    const decomposed = 'e\u0301'.repeat(64)
+    const result = zResourceName.safeParse(decomposed)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data).toBe('é'.repeat(64))
+  })
+
   it.each([
     ' Acme',
     'Acme ',
@@ -32,5 +39,6 @@ describe('generated DefaultableResourceName schema', () => {
     expect(zDefaultableResourceName.safeParse('').success).toBe(true)
     expect(zDefaultableResourceName.safeParse('😀'.repeat(64)).success).toBe(true)
     expect(zDefaultableResourceName.safeParse(' invalid').success).toBe(false)
+    expect(zDefaultableResourceName.parse('Cafe\u0301')).toBe('Café')
   })
 })

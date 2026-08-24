@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
 func TestAgentConfigNameMigrationMetadata(t *testing.T) {
@@ -66,7 +64,7 @@ func TestMigrateAgentConfigYAMLSourceRemovesOnlyTopLevelName(t *testing.T) {
 			if string(got) != test.want {
 				t.Fatalf("migrated source = %q, want %q", got, test.want)
 			}
-			if _, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, got); err != nil {
+			if err := validateAgentConfigNameMigrationSource(agentConfigNameMigrationSourceFormatYAML, got); err != nil {
 				t.Fatalf("parse migrated source: %v", err)
 			}
 		})
@@ -77,12 +75,12 @@ func TestMigrateAgentConfigSourceRepairsResourceReferences(t *testing.T) {
 	overlong := strings.Repeat("x", 65)
 	tests := []struct {
 		name   string
-		format agentconfig.SourceFormat
+		format agentConfigNameMigrationSourceFormat
 		raw    string
 	}{
 		{
 			name:   "yaml",
-			format: agentconfig.SourceFormatYAML,
+			format: agentConfigNameMigrationSourceFormatYAML,
 			raw: "instruction: Test\nmodel:\n" +
 				"  provider_config: ' Provider '\n" +
 				"  name: '" + overlong + "'\n" +
@@ -90,7 +88,7 @@ func TestMigrateAgentConfigSourceRepairsResourceReferences(t *testing.T) {
 		},
 		{
 			name:   "json",
-			format: agentconfig.SourceFormatJSON,
+			format: agentConfigNameMigrationSourceFormatJSON,
 			raw: `{"name":"Legacy Agent","instruction":"Test","model":` +
 				`{"provider_config":" Provider ","name":"` + overlong + `"},` +
 				`"machine_sources":[{"machine_pool_name":" Pool "}]}`,
@@ -105,16 +103,43 @@ func TestMigrateAgentConfigSourceRepairsResourceReferences(t *testing.T) {
 			if !changed {
 				t.Fatal("invalid references were not changed")
 			}
-			parsed, err := agentconfig.ParseSource(test.format, got)
-			if err != nil {
+			if err := validateAgentConfigNameMigrationSource(test.format, got); err != nil {
 				t.Fatalf("parse migrated source: %v", err)
 			}
+			parsed := parseAgentConfigNameMigrationSourceReferences(t, test.format, got)
 			if parsed.Model.ProviderConfig != "Provider" ||
 				parsed.Model.Name != strings.Repeat("x", 64) ||
 				parsed.MachineSources[0].MachinePoolName != "Pool" {
 				t.Fatalf("migrated references = %+v", parsed)
 			}
 		})
+	}
+}
+
+func TestRepairResourceReferenceNormalizesBeforeTruncating(t *testing.T) {
+	decomposed := strings.Repeat("e\u0301", agentConfigNameMigrationMaxCodePoints)
+	want := strings.Repeat("é", agentConfigNameMigrationMaxCodePoints)
+	if got := repairResourceReference(decomposed); got != want {
+		t.Fatalf("repaired reference = %q, want %q", got, want)
+	}
+}
+
+func TestMigrateAgentConfigYAMLSourceNormalizesMergedResourceReference(t *testing.T) {
+	raw := []byte("instruction: Test\nmodel:\n  <<: {provider_config: \"Provider Cafe\u0301\"}\n  name: Model\n")
+	got, changed, err := migrateAgentConfigYAMLSource(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || bytes.Contains(got, []byte("Cafe\u0301")) {
+		t.Fatalf("merged resource reference was not normalized: changed=%t source=%q", changed, got)
+	}
+	parsed := parseAgentConfigNameMigrationSourceReferences(
+		t,
+		agentConfigNameMigrationSourceFormatYAML,
+		got,
+	)
+	if parsed.Model.ProviderConfig != "Provider Café" {
+		t.Fatalf("provider config = %q, want NFC value", parsed.Model.ProviderConfig)
 	}
 }
 
@@ -180,22 +205,29 @@ machine_sources:
 	if !changed {
 		t.Fatal("legacy source was not changed")
 	}
-	gotParsed, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, got)
+	gotParsed, err := agentConfigNameMigrationSourceJSON(agentConfigNameMigrationSourceFormatYAML, got)
 	if err != nil {
 		t.Fatalf("parse migrated source: %v", err)
 	}
-	wantParsed, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, wantSource)
+	wantParsed, err := agentConfigNameMigrationSourceJSON(agentConfigNameMigrationSourceFormatYAML, wantSource)
 	if err != nil {
 		t.Fatalf("parse expected source: %v", err)
 	}
-	if !reflect.DeepEqual(gotParsed, wantParsed) {
+	var gotValue, wantValue any
+	if err := json.Unmarshal(gotParsed, &gotValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wantParsed, &wantValue); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
 		t.Fatalf("migrated source changed untouched semantics\n got: %+v\nwant: %+v", gotParsed, wantParsed)
 	}
 }
 
 func TestMigrateAgentConfigSourcePreservesCurrentInput(t *testing.T) {
 	raw := []byte("instruction: Test\nmodel: {provider_config: Provider, name: Model}\n")
-	got, changed, err := migrateAgentConfigSource(agentconfig.SourceFormatYAML, raw)
+	got, changed, err := migrateAgentConfigSource(agentConfigNameMigrationSourceFormatYAML, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +247,7 @@ func TestMigrateStoredAgentConfigRemovesLegacyNameAndRehashes(t *testing.T) {
 		sourceHash:              hashBytes([]byte(source)),
 		definition:              compiled,
 		compiledDefinition:      compiled,
-		compilerVersion:         agentconfig.CompilerVersion,
+		compilerVersion:         agentConfigNameMigrationCompilerVersion,
 		effectiveDefinitionHash: "legacy-definition-hash",
 	})
 	if err != nil {
@@ -242,6 +274,23 @@ func TestMigrateStoredAgentConfigRemovesLegacyNameAndRehashes(t *testing.T) {
 			t.Fatalf("migrated %s retained top-level name", field)
 		}
 	}
+}
+
+func parseAgentConfigNameMigrationSourceReferences(
+	t *testing.T,
+	format agentConfigNameMigrationSourceFormat,
+	raw []byte,
+) agentConfigNameMigrationSourceReferences {
+	t.Helper()
+	jsonSource, err := agentConfigNameMigrationSourceJSON(format, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed agentConfigNameMigrationSourceReferences
+	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }
 
 func TestMigrateStoredAgentConfigRejectsSourceHashMismatch(t *testing.T) {

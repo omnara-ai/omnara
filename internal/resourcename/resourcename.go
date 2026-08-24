@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -11,15 +13,34 @@ const (
 	MaxUTF8Bytes  = 4 * MaxCodePoints
 )
 
-// Validate permits empty values; callers enforce requiredness.
+// Normalize permits empty values; callers enforce requiredness.
+func Normalize(field, value string) (string, error) {
+	return NormalizeWithMax(field, value, MaxCodePoints)
+}
+
+func NormalizeWithMax(field, value string, maxCodePoints int) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", fmt.Errorf("%s must be valid UTF-8", field)
+	}
+	value = norm.NFC.String(value)
+	if err := validateNormalizedWithMax(field, value, maxCodePoints); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// Validate permits empty values; callers enforce requiredness. Callers that persist or
+// resolve a name must use Normalize so they retain the canonical value.
 func Validate(field, value string) error {
 	return ValidateWithMax(field, value, MaxCodePoints)
 }
 
 func ValidateWithMax(field, value string, maxCodePoints int) error {
-	if !utf8.ValidString(value) {
-		return fmt.Errorf("%s must be valid UTF-8", field)
-	}
+	_, err := NormalizeWithMax(field, value, maxCodePoints)
+	return err
+}
+
+func validateNormalizedWithMax(field, value string, maxCodePoints int) error {
 	if utf8.RuneCountInString(value) > maxCodePoints {
 		return fmt.Errorf("%s cannot exceed %d Unicode characters", field, maxCodePoints)
 	}

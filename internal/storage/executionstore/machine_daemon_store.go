@@ -269,9 +269,11 @@ func prepareDaemonMachineCreate(
 			"org and display name are required",
 		)
 	}
-	if err := resourcename.Validate("machine display name", input.DisplayName); err != nil {
+	normalizedName, err := resourcename.Normalize("machine display name", input.DisplayName)
+	if err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
 	}
+	input.DisplayName = normalizedName
 	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, fmt.Errorf(
 			"machine metadata: %w",

@@ -11,6 +11,7 @@ const original = 'export const zResourceName = z.string().min(1).max(64);'
 const replacement = `export const zResourceName = z
     .string()
     .min(1)
+    .transform((value) => value.normalize('NFC'))
     .refine((value) => Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
     })
@@ -39,7 +40,7 @@ const defaultableOriginal = 'export const zDefaultableResourceName = z.string().
 const defaultableReplacement = replacement
   .replace('zResourceName', 'zDefaultableResourceName')
   .replace('    .min(1)\n', '')
-  .replaceAll('(value) => ', "(value) => value === '' || ")
+  .replaceAll('    .refine((value) => ', "    .refine((value) => value === '' || ")
 
 if (generated.split(defaultableOriginal).length !== 2) {
   throw new Error('expected exactly one generated DefaultableResourceName Zod schema')

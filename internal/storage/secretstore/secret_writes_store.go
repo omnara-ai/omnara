@@ -94,9 +94,11 @@ func (s *Store) createSecretTx(
 	qtx *dbsqlc.Queries,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
-	if err := validateSecretName(input.Name); err != nil {
+	normalizedName, err := normalizeSecretName(input.Name)
+	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
+	input.Name = normalizedName
 	material, err := secrets.CanonicalizeMaterial(input.Material)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
@@ -257,9 +259,11 @@ func (s *Store) UpdateSecretMetadata(
 	if err := s.authorizeSecretManage(ctx, current, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
-	if err := validateSecretName(input.Name); err != nil {
+	normalizedName, err := normalizeSecretName(input.Name)
+	if err != nil {
 		return SecretRecord{}, err
 	}
+	input.Name = normalizedName
 	row, err := qtx.UpdateSecretMetadata(
 		ctx,
 		dbsqlc.UpdateSecretMetadataParams{
@@ -473,9 +477,11 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 		isNilID(input.Actor.ID) {
 		return invalidSecretRequest("org, owner kind, material, and actor are required")
 	}
-	if err := validateSecretName(input.Name); err != nil {
+	normalizedName, err := normalizeSecretName(input.Name)
+	if err != nil {
 		return err
 	}
+	input.Name = normalizedName
 	if err := management.Validate(input.ManagementKind); err != nil {
 		return invalidSecretRequest("%v", err)
 	}
@@ -484,14 +490,15 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 	}, input.Actor)
 }
 
-func validateSecretName(name string) error {
+func normalizeSecretName(name string) (string, error) {
 	if name == "" {
-		return invalidSecretName("secret name is required")
+		return "", invalidSecretName("secret name is required")
 	}
-	if err := resourcename.Validate("secret name", name); err != nil {
-		return invalidSecretName("%v", err)
+	normalizedName, err := resourcename.Normalize("secret name", name)
+	if err != nil {
+		return "", invalidSecretName("%v", err)
 	}
-	return nil
+	return normalizedName, nil
 }
 
 func newSecretUUID() (ID, error) {

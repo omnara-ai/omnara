@@ -3,11 +3,12 @@
 import * as z from 'zod';
 
 /**
- * Human-facing name preserved exactly (1-64 Unicode code points, at most 256 UTF-8 bytes); rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
+ * Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points, at most 256 UTF-8 bytes); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
  */
 export const zResourceName = z
     .string()
     .min(1)
+    .transform((value) => value.normalize('NFC'))
     .refine((value) => Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
     })
@@ -34,6 +35,7 @@ export const zResourceName = z
  */
 export const zDefaultableResourceName = z
     .string()
+    .transform((value) => value.normalize('NFC'))
     .refine((value) => value === '' || Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
     })

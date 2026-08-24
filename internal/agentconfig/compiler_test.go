@@ -79,6 +79,52 @@ tools:
 	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
 }
 
+func TestCompileStoresNFCNormalizedResourceReferences(t *testing.T) {
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  provider_config: %q
+  name: %q
+`, "Provider Cafe\u0301", "Model Cafe\u0301")
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Model.ProviderConfig != "Provider Café" || parsed.Model.Name != "Model Café" {
+		t.Fatalf("stored source references = %+v", parsed.Model)
+	}
+	if strings.Contains(result.Source, "Cafe\u0301") {
+		t.Fatalf("stored source retained decomposed references: %q", result.Source)
+	}
+}
+
+func TestCompileStoresNFCNormalizedMergedYAMLResourceReferences(t *testing.T) {
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  <<: {provider_config: %q}
+  name: Model
+`, "Provider Cafe\u0301")
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Source, "Cafe\u0301") {
+		t.Fatalf("stored source retained decomposed merged reference: %q", result.Source)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Model.ProviderConfig != "Provider Café" {
+		t.Fatalf("stored provider config = %q, want NFC value", parsed.Model.ProviderConfig)
+	}
+}
+
 func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) {
 	catalog, err := toolcatalog.Default()
 	if err != nil {
