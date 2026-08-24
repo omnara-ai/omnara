@@ -614,7 +614,7 @@ func failMachineTransactionForStorageError(
 	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
 		return failMachineTransactionWithMessage(
 			storeerr.ManagedWorkAdmissionDeniedCode,
-			managedWorkAdmissionDeniedMessage,
+			storeerr.InsufficientOmnaraCreditsMessage,
 			cause,
 			false,
 		)

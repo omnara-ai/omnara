@@ -4,10 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 import { Streamdown } from 'streamdown'
 
 import { AgentAttachment } from '@/components/agents/AgentAttachment'
+import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
+import {
+  isInsufficientCreditsModelError,
+  isInsufficientCreditsToolError,
+} from '@/lib/insufficient-credits'
 
 function ActorLabel({
   actorID,
@@ -110,16 +115,25 @@ export function AgentChatMessage({
   currentActorId,
   orgID,
   projectID,
+  insufficientCredits,
 }: {
   message: OmnaraUIMessage
   currentActorId?: string
   orgID: string
   projectID: string
+  insufficientCredits?: { billingHref?: string }
 }) {
   const metadata = message.metadata
   const mine =
     message.role === 'user' &&
     (metadata == null || (metadata.actorId != null && metadata.actorId === currentActorId))
+  const showInsufficientCredits =
+    insufficientCredits != null &&
+    message.parts.some(
+      (part) =>
+        (part.type === 'data-model-error' && isInsufficientCreditsModelError(part.data.text)) ||
+        (part.type === 'dynamic-tool' && isInsufficientCreditsToolError(part.toolErrorCode)),
+    )
 
   return (
     <Message align={mine ? 'end' : 'start'}>
@@ -172,6 +186,9 @@ export function AgentChatMessage({
             return <AgentConfigDivider key={part.id} action={part.data.action} />
           }
           if (part.type === 'data-model-error') {
+            if (showInsufficientCredits && isInsufficientCreditsModelError(part.data.text)) {
+              return null
+            }
             return (
               <Bubble key={part.id} align="start" variant="destructive">
                 <BubbleContent className="whitespace-pre-wrap">{part.data.text}</BubbleContent>
@@ -184,6 +201,13 @@ export function AgentChatMessage({
           if (part.type === 'dynamic-tool') return <ToolPart key={part.id} part={part} />
           return null
         })}
+        {showInsufficientCredits && (
+          <Bubble align="start" variant="destructive">
+            <BubbleContent className="whitespace-pre-wrap">
+              <InsufficientCreditsMessage billingHref={insufficientCredits.billingHref} />
+            </BubbleContent>
+          </Bubble>
+        )}
       </MessageContent>
     </Message>
   )

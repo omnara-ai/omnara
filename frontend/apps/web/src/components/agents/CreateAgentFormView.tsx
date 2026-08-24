@@ -4,7 +4,8 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
+import type { ApiError } from '@omnara/sdk'
+import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
@@ -25,6 +26,7 @@ import {
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
+import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import {
@@ -38,11 +40,13 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
+import { useWebConfig } from '@/lib/web-config'
 
 type SubmitAction = 'profile' | 'launch'
 
@@ -76,6 +80,7 @@ export function CreateAgentFormView({
   const createAgentProfile = useCreateAgentProfile(activeOrg.id, projectId)
   const updateAgentProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const createAgent = useCreateAgent(activeOrg.id, projectId)
+  const { data: webConfig } = useWebConfig()
   const navigate = useNavigate()
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
@@ -87,6 +92,7 @@ export function CreateAgentFormView({
     status: idle,
   }))
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
+  const [launchError, setLaunchError] = useState<ApiError>()
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session, setSession] = useState(() => createBasicConfigSession(''))
   const form = useAgentBuilderForm(
@@ -142,6 +148,7 @@ export function CreateAgentFormView({
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
+    setLaunchError(undefined)
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
     const name = draft.name
@@ -184,6 +191,9 @@ export function CreateAgentFormView({
     if (result.ok) {
       setDraft((prev) => ({ ...prev, status: idle }))
     } else {
+      if (action === 'launch' && isInsufficientCreditsError(result.error)) {
+        setLaunchError(result.error)
+      }
       const status = submitError(
         result.error,
         action === 'launch' ? 'Could not create agent' : 'Could not create profile',
@@ -301,9 +311,13 @@ export function CreateAgentFormView({
           Cancel
         </Button>
         <div className="flex items-center gap-4">
-          {errorMessage && (
+          {launchError && webConfig?.billingURL ? (
+            <p className="text-destructive whitespace-pre-wrap text-sm" role="alert">
+              <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
+            </p>
+          ) : errorMessage ? (
             <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
-          )}
+          ) : null}
           <Button
             type="button"
             variant="outline"

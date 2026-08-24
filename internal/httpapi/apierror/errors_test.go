@@ -126,7 +126,7 @@ func TestFromErrorHidesOpaqueSentinelDetail(t *testing.T) {
 		"operator policy detail: %w",
 		storeerr.ErrManagedWorkAdmissionDenied,
 	))
-	if admission.Message != "new managed work is temporarily unavailable" {
+	if admission.Message != "Insufficient Omnara credits." {
 		t.Fatalf("managed admission message = %q, want opaque base message", admission.Message)
 	}
 }

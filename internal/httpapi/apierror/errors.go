@@ -35,7 +35,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeStateTransitionConflict: {http.StatusConflict, "state transition conflict"},
 	openapi.ErrorCodeManagedWorkAdmissionDenied: {
 		http.StatusConflict,
-		"new managed work is temporarily unavailable",
+		storeerr.InsufficientOmnaraCreditsMessage,
 	},
 	openapi.ErrorCodeDaemonRuntimeUnregistered: {
 		http.StatusGone,

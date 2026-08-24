@@ -12,6 +12,7 @@ import {
   MessageScrollerViewport,
 } from '@/components/ui/message-scroller'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useWebConfig } from '@/lib/web-config'
 
 export function AgentConversation({
   chat,
@@ -24,6 +25,11 @@ export function AgentConversation({
   orgID: string
   projectID: string
 }) {
+  const { data: webConfig } = useWebConfig()
+  const insufficientCredits = webConfig?.billingURL
+    ? { billingHref: webConfig.billingHref }
+    : undefined
+
   return (
     <MessageScrollerProvider>
       <MessageScroller>
@@ -78,6 +84,7 @@ export function AgentConversation({
                       currentActorId={currentActorId}
                       orgID={orgID}
                       projectID={projectID}
+                      insufficientCredits={insufficientCredits}
                     />
                   </MessageScrollerItem>
                 ))}
