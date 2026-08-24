@@ -75,14 +75,13 @@ export function providerSecretName(provider: ModelProviderOption) {
 }
 
 export function configuredModelRequestForDiscoveredModel(
-  providerName: string,
   model: DiscoveredProviderModel,
 ): CreateConfiguredModelRequest {
   if (model.context_window_tokens === undefined || model.context_window_tokens < 2) {
     throw new Error(`No context window was reported for ${model.slug}`)
   }
   return {
-    name: configuredModelSuggestedName(providerName, model.slug),
+    name: configuredModelSuggestedName(model.slug),
     provider_model_slug: model.slug,
     context_window_tokens: model.context_window_tokens,
     ...(model.max_output_tokens === undefined

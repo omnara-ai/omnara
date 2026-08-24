@@ -23,24 +23,16 @@ export function resourceNameValid(value: string) {
   return zResourceName.safeParse(value).success
 }
 
-export function resourceNameSuggestion(preferredValues: readonly string[], fallback: string) {
+export function resourceNameSuggestion(value: string, fallback: string) {
+  value = normalizeResourceName(value)
   fallback = normalizeResourceName(fallback)
   if (!resourceNameValid(fallback)) throw new Error('resource name suggestion fallback is invalid')
 
-  for (const value of preferredValues) {
-    const normalized = normalizeResourceName(value)
-    if (resourceNameValid(normalized)) return normalized
-  }
-  if (preferredValues.length === 0) return fallback
-
-  for (let index = preferredValues.length - 1; index >= 0; index -= 1) {
-    const value = preferredValues[index]
-    if (value === undefined) continue
-    const shortened = hashedResourceNameSuggestion(value, value)
-    if (shortened !== undefined) return shortened
-  }
-  const identity = preferredValues.at(-1) ?? fallback
-  const safeFallback = hashedResourceNameSuggestion(fallback, identity)
+  if (resourceNameValid(value)) return value
+  if (value === '') return fallback
+  const shortened = hashedResourceNameSuggestion(value, value)
+  if (shortened !== undefined) return shortened
+  const safeFallback = hashedResourceNameSuggestion(fallback, value)
   if (safeFallback === undefined)
     throw new Error('could not generate a safe resource name suggestion')
   return safeFallback

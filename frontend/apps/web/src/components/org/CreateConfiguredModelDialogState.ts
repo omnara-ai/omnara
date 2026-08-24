@@ -30,25 +30,21 @@ type DiscoveredModelPrefillField =
   | 'maxOutputTokens'
   | 'defaultMaxOutputTokens'
 
-export function configuredModelSuggestedName(providerName: string, providerModelSlug: string) {
-  return resourceNameSuggestion(
-    [`${providerName} - ${providerModelSlug}`, providerModelSlug],
-    'Configured model',
-  )
+export function configuredModelSuggestedName(providerModelSlug: string) {
+  return resourceNameSuggestion(providerModelSlug, 'Configured model')
 }
 
-function isGeneratedName(providerName: string, values: ConfiguredModelFormValues) {
-  return values.name === configuredModelSuggestedName(providerName, values.providerModelSlug)
+function isGeneratedName(values: ConfiguredModelFormValues) {
+  return values.name === configuredModelSuggestedName(values.providerModelSlug)
 }
 
 export function discoveredModelPrefill(
-  providerName: string | undefined,
   values: ConfiguredModelFormValues,
   model: DiscoveredProviderModel,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (providerName !== undefined && (values.name === '' || isGeneratedName(providerName, values))) {
-    updates.push(['name', configuredModelSuggestedName(providerName, model.slug)])
+  if (values.name === '' || isGeneratedName(values)) {
+    updates.push(['name', configuredModelSuggestedName(model.slug)])
   }
   updates.push([
     'contextWindowTokens',
@@ -69,7 +65,6 @@ export function discoveredModelPrefill(
 }
 
 export function providerChangeReset(
-  previousProviderName: string | undefined,
   values: ConfiguredModelFormValues,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [
@@ -78,7 +73,7 @@ export function providerChangeReset(
     ['maxOutputTokens', ''],
     ['defaultMaxOutputTokens', ''],
   ]
-  if (previousProviderName !== undefined && isGeneratedName(previousProviderName, values)) {
+  if (isGeneratedName(values)) {
     updates.push(['name', ''])
   }
   return updates

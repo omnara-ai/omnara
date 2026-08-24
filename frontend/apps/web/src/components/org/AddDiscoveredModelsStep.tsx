@@ -70,7 +70,6 @@ export function AddDiscoveredModelsStep({
           createConfiguredModel.mutateAsync({
             modelProviderConfigID: provider.id,
             ...configuredModelRequestForDiscoveredModel(
-              provider.name,
               creatableModels.find((model) => model.slug === slug) ?? { slug },
             ),
           }),
@@ -112,10 +111,9 @@ export function AddDiscoveredModelsStep({
       <DialogHeader>
         <DialogTitle>Add models</DialogTitle>
         <DialogDescription>
-          Create model configurations for {provider.name}. Provider-reported token limits are used
-          when available and can be edited later. Model names use the provider and model slug when
-          they fit; longer or unsupported provider-reported names are shortened to a stable,
-          model-specific name.
+          Create model configurations for {provider.name}. Discovered slugs are used as model names
+          when valid, and provider-reported token limits are used when available. Both can be edited
+          later.
         </DialogDescription>
       </DialogHeader>
       <FieldGroup>
