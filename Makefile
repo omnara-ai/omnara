@@ -173,12 +173,9 @@ migration-fix:
 		done; \
 	done
 
-# Validate SQL files directly because goose validate only understands init-registered Go migrations.
 migration-check:
+	$(GOOSE) -env=none -dir internal/machinedaemon/statedb/migrations validate
 	@for dir in $(MIGRATION_DIRS); do \
-		for migration in "$$dir"/*.sql; do \
-			$(GOOSE) -env=none -dir "$$migration" validate || exit $$?; \
-		done; \
 		if down_annotations="$$(grep -niE '^[[:space:]]*--.*[+]goose.*down.*$$' "$$dir"/*.sql)"; then \
 			printf '%s\n' "$$down_annotations"; \
 			printf '%s contains a Down migration; committed migrations are forward-only\n' "$$dir"; \
