@@ -158,7 +158,7 @@ type ResolvedModelSelection struct {
 }
 
 func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, error) {
-	source, err := parseSource(format, raw)
+	source, err := ParseSource(format, raw)
 	if err != nil {
 		return Result{}, err
 	}

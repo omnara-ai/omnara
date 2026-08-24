@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
-	"golang.org/x/text/unicode/norm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -93,10 +92,6 @@ type AgentConfigMCPToolSource struct {
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
-	return parseSource(format, raw)
-}
-
-func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return AgentConfigSource{}, errors.New("agent config source is required")
 	}
@@ -104,7 +99,7 @@ func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	if err != nil {
 		return AgentConfigSource{}, err
 	}
-	jsonSource, err = normalizeSourceResourceReferences(jsonSource)
+	jsonSource, err = canonicalizeSourceResourceReferences(jsonSource)
 	if err != nil {
 		return AgentConfigSource{}, err
 	}
@@ -123,45 +118,10 @@ func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
 		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
 	}
-	if err := normalizeParsedSourceResourceNames(&parsed); err != nil {
-		return AgentConfigSource{}, err
-	}
 	return parsed, nil
 }
 
-func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
-	providerConfig, err := resourcename.CanonicalizeRequired("model.provider_config", source.Model.ProviderConfig)
-	if err != nil {
-		return err
-	}
-	source.Model.ProviderConfig = providerConfig
-	modelName, err := resourcename.CanonicalizeRequired("model.name", source.Model.Name)
-	if err != nil {
-		return err
-	}
-	source.Model.Name = modelName
-	for index := range source.MachineSources {
-		machineName, err := resourcename.CanonicalizeAllowEmpty(
-			fmt.Sprintf("machine_sources[%d].machine_name", index),
-			source.MachineSources[index].MachineName,
-		)
-		if err != nil {
-			return err
-		}
-		source.MachineSources[index].MachineName = machineName
-		machinePoolName, err := resourcename.CanonicalizeAllowEmpty(
-			fmt.Sprintf("machine_sources[%d].machine_pool_name", index),
-			source.MachineSources[index].MachinePoolName,
-		)
-		if err != nil {
-			return err
-		}
-		source.MachineSources[index].MachinePoolName = machinePoolName
-	}
-	return nil
-}
-
-func normalizeSourceResourceReferences(raw []byte) ([]byte, error) {
+func canonicalizeSourceResourceReferences(raw []byte) ([]byte, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -176,46 +136,62 @@ func normalizeSourceResourceReferences(raw []byte) ([]byte, error) {
 		return nil, fmt.Errorf("parse agent config JSON: %w", err)
 	}
 	root, ok := value.(map[string]any)
-	if !ok || !normalizeJSONResourceReferences(root) {
+	if !ok {
+		return raw, nil
+	}
+	changed, err := canonicalizeJSONResourceReferences(root)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
 		return raw, nil
 	}
 	normalized, err := json.Marshal(root)
 	if err != nil {
-		return nil, fmt.Errorf("encode normalized agent config JSON: %w", err)
+		return nil, fmt.Errorf("encode canonical agent config JSON: %w", err)
 	}
 	return normalized, nil
 }
 
-func normalizeJSONResourceReferences(root map[string]any) bool {
+func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 	changed := false
+	canonicalize := func(object map[string]any, key, field string) error {
+		value, ok := object[key].(string)
+		if !ok {
+			return nil
+		}
+		canonical, err := resourcename.CanonicalizeRequired(field, value)
+		if err != nil {
+			return err
+		}
+		if canonical != value {
+			object[key] = canonical
+			changed = true
+		}
+		return nil
+	}
 	if model, ok := root["model"].(map[string]any); ok {
-		changed = normalizeJSONResourceReference(model, "provider_config") || changed
-		changed = normalizeJSONResourceReference(model, "name") || changed
+		for _, key := range []string{"provider_config", "name"} {
+			if err := canonicalize(model, key, "model."+key); err != nil {
+				return false, err
+			}
+		}
 	}
 	if machineSources, ok := root["machine_sources"].([]any); ok {
-		for _, value := range machineSources {
+		for index, value := range machineSources {
 			machine, ok := value.(map[string]any)
 			if !ok {
 				continue
 			}
-			changed = normalizeJSONResourceReference(machine, "machine_name") || changed
-			changed = normalizeJSONResourceReference(machine, "machine_pool_name") || changed
+			for _, key := range []string{"machine_name", "machine_pool_name"} {
+				field := fmt.Sprintf("machine_sources[%d].%s", index, key)
+				if err := canonicalize(machine, key, field); err != nil {
+					return false, err
+				}
+			}
 		}
 	}
-	return changed
-}
-
-func normalizeJSONResourceReference(object map[string]any, key string) bool {
-	value, ok := object[key].(string)
-	if !ok {
-		return false
-	}
-	normalized := norm.NFC.String(value)
-	if normalized == value {
-		return false
-	}
-	object[key] = normalized
-	return true
+	return changed, nil
 }
 
 func sourceJSON(format SourceFormat, raw []byte) ([]byte, error) {

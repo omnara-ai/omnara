@@ -73,7 +73,7 @@ model:
   provider_config: openai-prod
   name: "gpt-test "
 `,
-			want: "/model/name",
+			want: "model.name",
 		},
 		{
 			name: "machine boundary whitespace",
