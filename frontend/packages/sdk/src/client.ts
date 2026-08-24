@@ -38,14 +38,12 @@ function stripClientSelector(client: OmnaraClient): void {
     'request',
     'trace',
   ] as const
-  const dispatches = client as unknown as Record<(typeof methods)[number], Dispatch>
-  for (const method of methods) {
-    dispatches[method] = strip(dispatches[method])
+  const wrap = (target: object) => {
+    const dispatches = target as Partial<Record<(typeof methods)[number], Dispatch>>
+    for (const method of methods) dispatches[method] &&= strip(dispatches[method])
   }
-  const sse = client.sse as unknown as Record<string, Dispatch>
-  for (const [method, dispatch] of Object.entries(sse)) {
-    sse[method] = strip(dispatch)
-  }
+  wrap(client)
+  wrap(client.sse)
 }
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
