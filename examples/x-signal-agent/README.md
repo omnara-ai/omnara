@@ -28,6 +28,11 @@ cd examples/x-signal-agent
 cp .env.example .env      # set OMNARA_API_KEY and X_BEARER_TOKEN
 ```
 
+Deno is only needed to run the notebook (it provides the TypeScript Jupyter
+kernel and fetches `@omnara/sdk` with no install step). The SDK itself works
+on Node and Bun too — you can copy the cells into a plain script if you
+prefer.
+
 Open `demo.ipynb` (VS Code, Cursor, or `jupyter lab`), pick the **Deno**
 kernel, and run top to bottom. One cell holds the topic and the X search
 query — edit those two lines to point the agent at whatever you want to
