@@ -60,7 +60,9 @@ func upMigrateAgentConfigNames(ctx context.Context, tx *sql.Tx) error {
 			compiled_definition::text,
 			effective_definition_hash
 		FROM agent_configs
-		WHERE definition ? 'name' OR compiled_definition ? 'name'
+		WHERE definition ? 'name'
+		   OR compiled_definition ? 'name'
+		   OR (source_format = 'yaml' AND source ~ E'(^|\\n)name:[^\\r\\n]*(\\r?\\n|$)')
 		ORDER BY id`)
 	if err != nil {
 		return fmt.Errorf("list legacy stored agent configs: %w", err)
