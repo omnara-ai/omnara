@@ -3,6 +3,7 @@ Resource-name policy: POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profi
 Resource-name policy: PATCH /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID} the `name` request property's minLength was increased from `0` to `1`
 Resource-name policy: POST /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers the `name` request property's minLength was increased from `0` to `1`
 Resource-name policy: PATCH /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID} the `name` request property's minLength was increased from `0` to `1`
+Resource-name policy: POST /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens the `name` request property's minLength was increased from `0` to `1`
 Skill identifier contract: GET /api/v1/orgs/{orgID}/projects/{projectID}/skills the `data/items/skill/name` response's property pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` was added for the status `200`
 Skill identifier contract: GET /api/v1/orgs/{orgID}/skills the `data/items/name` response's property pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` was added for the status `200`
 Skill identifier contract: POST /api/v1/orgs/{orgID}/skills the `name` response's property pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` was added for the status `201`
