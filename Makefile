@@ -64,7 +64,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
-	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
+	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync run-mcp-registry \
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
@@ -421,6 +421,15 @@ run-worker:
 
 run-maintenance:
 	@$(call RUN_SERVICE,maintenance)
+
+MCP_REGISTRY_DB ?= $(REPO_ROOT)/tmp/mcp-registry.sqlite
+
+mcp-registry-sync: ## Scrape the public MCP registry into a local sqlite snapshot
+	mkdir -p tmp
+	OMNARA_MCP_REGISTRY_DB_PATH=$(MCP_REGISTRY_DB) $(GO) run ./cmd/mcp-registry sync
+
+run-mcp-registry: ## Serve the local MCP registry snapshot (run mcp-registry-sync first)
+	OMNARA_MCP_REGISTRY_DB_PATH=$(MCP_REGISTRY_DB) $(GO) run ./cmd/mcp-registry serve
 
 test-service-e2e: db-up ## Run deterministic service end-to-end tests
 	@tests="$$( $(GO) test -tags='integration servicee2e' -list '^Test' ./internal/e2e \

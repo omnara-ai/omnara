@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -383,6 +384,13 @@ func apiOptions(
 	}
 	if serveWeb {
 		opts = append(opts, httpapi.WithWebAssets(assets))
+	}
+	if cfg.MCPRegistryURL != "" {
+		registryClient, err := mcpregistry.NewClient(cfg.MCPRegistryURL, operatorHTTPClient)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, httpapi.WithMCPRegistryClient(registryClient))
 	}
 	if cfg.AllowInsecureDev {
 		opts = append(opts,

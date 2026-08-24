@@ -15,6 +15,7 @@ import (
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -63,6 +64,7 @@ type Server struct {
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
+	mcpRegistry                         *mcpregistry.Client
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
@@ -203,6 +205,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
+	}
+}
+
+func WithMCPRegistryClient(client *mcpregistry.Client) Option {
+	return func(s *Server) {
+		s.mcpRegistry = client
 	}
 }
 

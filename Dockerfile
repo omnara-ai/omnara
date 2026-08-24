@@ -38,6 +38,13 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-maintenance ./cmd/maintenance
 
+FROM go-base AS mcp-registry-build
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-mcp-registry ./cmd/mcp-registry \
+    && CGO_ENABLED=0 go build -trimpath -o /tmp/omnara-mcp-registry-host ./cmd/mcp-registry \
+    && OMNARA_MCP_REGISTRY_DB_PATH=/out/mcp-registry.sqlite /tmp/omnara-mcp-registry-host sync
+
 FROM go-base AS migrations-build
 ARG TARGETOS
 ARG TARGETARCH
@@ -58,6 +65,13 @@ ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 FROM runtime AS maintenance
 COPY --from=maintenance-build /out/omnara-maintenance /usr/local/bin/omnara-maintenance
 ENTRYPOINT ["/usr/local/bin/omnara-maintenance"]
+
+FROM runtime AS mcp-registry
+ENV OMNARA_MCP_REGISTRY_DB_PATH=/app/mcp-registry.sqlite
+COPY --from=mcp-registry-build /out/omnara-mcp-registry /usr/local/bin/omnara-mcp-registry
+COPY --from=mcp-registry-build --chown=nonroot:nonroot /out/mcp-registry.sqlite /app/mcp-registry.sqlite
+ENTRYPOINT ["/usr/local/bin/omnara-mcp-registry"]
+CMD ["serve"]
 
 FROM runtime AS migrations
 ENV OMNARA_MIGRATIONS_DIR=/app/migrations

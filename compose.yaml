@@ -103,6 +103,7 @@ services:
       OMNARA_TRUSTED_PROXY_CIDRS: ${OMNARA_TRUSTED_PROXY_CIDRS:-}
       OMNARA_BILLING_URL: ${OMNARA_BILLING_URL:-}
       OMNARA_DAEMON_RELEASE_URL: ${OMNARA_DAEMON_RELEASE_URL:-https://github.com/omnara-ai/omnara/releases/download/omnarad-stable}
+      OMNARA_MCP_REGISTRY_URL: http://mcp-registry:8090
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -110,6 +111,15 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      mcp-registry:
+        condition: service_started
+    restart: unless-stopped
+
+  mcp-registry:
+    profiles: ["app"]
+    image: ghcr.io/omnara-ai/omnara-mcp-registry:${OMNARA_RELEASE:-latest}
+    environment:
+      OMNARA_MCP_REGISTRY_ADDR: ":8090"
     restart: unless-stopped
 
   worker:

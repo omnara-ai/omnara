@@ -1,3 +1,4 @@
+import { useServerInfo } from '@omnara/react'
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
@@ -16,9 +17,10 @@ import {
   type BasicMcpServer,
   type McpAuthType,
   mcpServerNameError,
-  mcpServerNameMaxLength,
 } from '@/components/agents/useAgentBuilderForm'
 import { KeyRound, PlusIcon, Trash2Icon } from '@/components/icons'
+import { registryServerLabel } from '@/components/mcp/mcpRegistry'
+import { McpServerIdentityGroup } from '@/components/mcp/McpServerIdentityGroup'
 import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -122,48 +124,16 @@ export function AgentConfigMcpServersField({
               (duplicateName ? 'Name must be unique within this configuration.' : undefined)
             return (
               <div key={server.id} className="space-y-4 px-5 py-4">
-                <div className="grid gap-4 sm:grid-cols-[minmax(8rem,14rem)_1fr_auto]">
-                  <Field data-invalid={nameError !== undefined}>
-                    <RequiredFieldLabel htmlFor={`${server.id}-name`}>Name</RequiredFieldLabel>
-                    <Input
-                      id={`${server.id}-name`}
-                      required
-                      maxLength={mcpServerNameMaxLength}
-                      aria-invalid={nameError !== undefined}
-                      value={server.name}
-                      placeholder="github"
-                      onChange={(event) => {
-                        updateServer(server.id, { name: event.target.value })
-                      }}
-                    />
-                    <FieldError>{nameError}</FieldError>
-                  </Field>
-                  <Field>
-                    <RequiredFieldLabel htmlFor={`${server.id}-url`}>URL</RequiredFieldLabel>
-                    <Input
-                      id={`${server.id}-url`}
-                      required
-                      value={server.url}
-                      placeholder="https://example.com/mcp"
-                      onChange={(event) => {
-                        updateServer(server.id, { url: event.target.value, secretId: '' })
-                      }}
-                    />
-                  </Field>
-                  <div className="hidden items-end sm:flex">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Remove MCP server"
-                      onClick={() => {
-                        onServersChange(servers.filter((candidate) => candidate.id !== server.id))
-                      }}
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </div>
-                </div>
+                <McpServerIdentityFields
+                  server={server}
+                  nameError={nameError}
+                  onChange={(patch) => {
+                    updateServer(server.id, patch)
+                  }}
+                  onRemove={() => {
+                    onServersChange(servers.filter((candidate) => candidate.id !== server.id))
+                  }}
+                />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel>Tool permission</FieldLabel>
@@ -396,4 +366,57 @@ function McpServerSecretField({
 
 function permissionModeLabel(profile: ToolPermissionProfile | undefined, value?: string) {
   return profile?.permission_modes.find((mode) => mode.name === value)?.label ?? value ?? ''
+}
+
+function McpServerIdentityFields({
+  server,
+  nameError,
+  onChange,
+  onRemove,
+}: {
+  server: BasicMcpServer
+  nameError: string | undefined
+  onChange: (patch: Partial<BasicMcpServer>) => void
+  onRemove: () => void
+}) {
+  const info = useServerInfo(server.url)
+  const registryServer = info.data ?? null
+  return (
+    <Field data-invalid={nameError !== undefined}>
+      <RequiredFieldLabel htmlFor={`${server.id}-name`}>Server</RequiredFieldLabel>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <McpServerIdentityGroup
+            idPrefix={server.id}
+            name={server.name}
+            nameInvalid={nameError !== undefined}
+            url={server.url}
+            onChange={(patch) => {
+              onChange({
+                ...(patch.name === undefined ? {} : { name: patch.name }),
+                ...(patch.url === server.url ? {} : { url: patch.url, secretId: '' }),
+              })
+            }}
+          />
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="hidden shrink-0 sm:inline-flex"
+          aria-label="Remove MCP server"
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+        </Button>
+      </div>
+      {registryServer && (
+        <FieldDescription className="truncate">
+          {registryServerLabel(registryServer)}
+          {registryServer.description ? ` — ${registryServer.description}` : ''}
+        </FieldDescription>
+      )}
+      <FieldError>{nameError}</FieldError>
+    </Field>
+  )
 }
