@@ -1,0 +1,21 @@
+```yaml
+version: v1
+instruction: |
+  You are an engineering assistant. Use your machine to run
+  commands. Use web search to find current information. Ask a
+  question when a task is not clear.
+model:
+  provider_config: omnara-openrouter
+  name: anthropic/claude-fable-5
+tools:
+  run_command: {}
+  read_process: {}
+  list_processes: {}
+  list_machines: {}
+  inspect_machine: {}
+  web_search: {}
+  web_fetch: {}
+  ask_question: {}
+machine_sources:
+  - machine_pool_name: default-pool
+```

@@ -1,0 +1,42 @@
+<CodeGroup>
+```bash CLI
+npx omnara grant models list
+npx omnara grant pools list
+
+npx omnara model-providers list
+npx omnara models list {model-provider-config-id} # IDs from: omnara model-providers list
+npx omnara pools list
+
+npx omnara grant models add --configured-model-id mdl_... # selected model ID
+npx omnara grant pools add --machine-pool-id mpo_... # selected machine pool ID
+```
+
+```bash REST
+# IDs from: GET /orgs/$ORG/model-provider-configs/$PROVIDER/models
+#           GET /orgs/$ORG/machine-pools
+curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/model-grants" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"configured_model_id": "mdl_..."}'
+
+curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/machine-pool-grants" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"machine_pool_id": "mpo_..."}'
+```
+
+```typescript SDK
+// IDs from: sdk.listConfiguredModels and sdk.listMachinePools
+await sdk.createProjectModelGrant({
+  client,
+  path: { orgID, projectID },
+  body: { configured_model_id: 'mdl_...' },
+})
+
+await sdk.createProjectMachinePoolGrant({
+  client,
+  path: { orgID, projectID },
+  body: { machine_pool_id: 'mpo_...' },
+})
+```
+</CodeGroup>
