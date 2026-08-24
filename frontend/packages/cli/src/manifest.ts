@@ -11,7 +11,7 @@ import {
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
-import { runMachineCreate, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
+import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
@@ -337,17 +337,18 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zGetMachinePath,
       }),
-      flowOp({
+      op({
         verb: 'create',
         summary: 'Create a machine with a daemon token and show how to install omnarad',
-        path: schemas.zCreateMachinePath,
-        body: zMachineSetupBody,
-        run: runMachineCreate,
+        fn: sdk.connectByoMachine,
+        format: formatMachineSetup,
+        path: schemas.zConnectByoMachinePath,
+        body: schemas.zConnectByoMachineBody,
       }),
       flowOp({
         verb: 'create-local',
         summary: 'Create a machine and install omnarad on this machine',
-        path: schemas.zCreateMachinePath,
+        path: schemas.zConnectByoMachinePath,
         body: zMachineSetupBody,
         run: runMachineCreateLocal,
       }),

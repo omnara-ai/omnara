@@ -265,7 +265,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationConnectBYOMachine:          browserSessionPolicy(orgScope(identitystore.OrgActionManage)),
+	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),

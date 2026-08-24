@@ -1985,7 +1985,13 @@ export const zCreateMachineRequest = z.object({
 
 export const zConnectByoMachineRequest = z.object({
     display_name: zResourceName,
-    project_ids: z.array(zProjectId).max(100)
+    description: z.string().optional(),
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    secret_env: z.record(z.string(), zSecretId).optional(),
+    metadata: zMachineMetadata.optional(),
+    project_ids: z.array(zProjectId).max(100).optional(),
+    token_name: z.string().min(1).optional()
 });
 
 export const zUpdateMachineRequest = z.object({

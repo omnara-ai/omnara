@@ -1,70 +1,92 @@
 import { spawn } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
-import { type Machine, sdk } from '@omnara/sdk'
-import { zCreateMachineRequest } from '@omnara/sdk/zod'
+import { type ConnectByoMachineResponse, sdk } from '@omnara/sdk'
+import { zConnectByoMachineRequest } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import type { FlowContext } from './factory.ts'
+import type { OutputFormat } from './format.ts'
+import { CliInputError } from './output.ts'
+import type { FlowReporter } from './reporter.ts'
 
-export const zMachineSetupBody = zCreateMachineRequest.extend({
-  token_name: z.string().optional().describe('name for the machine daemon token'),
-})
+export const zMachineSetupBody = zConnectByoMachineRequest
 
 type MachineSetupBody = z.output<typeof zMachineSetupBody>
 type MachineSetupContext = FlowContext<{ orgID: string }, MachineSetupBody>
 
-interface MachineWithToken {
-  machine: Machine
-  token: string
+async function connectMachine(context: MachineSetupContext): Promise<ConnectByoMachineResponse> {
+  const { client, path, body, report } = context
+  report.start('Creating machine with a daemon token')
+  const { data } = await sdk.connectByoMachine({ client, path, body })
+  report.stop(`Machine created: ${data.machine.id}`)
+  if (data.project_grants.length > 0) {
+    report.info(`Granted to ${data.project_grants.length} project(s)`)
+  }
+  return data
 }
 
-async function createMachineWithDaemonToken(
-  context: MachineSetupContext,
-): Promise<MachineWithToken> {
-  const { client, path, body, report } = context
-  const { token_name, ...machineBody } = body
-  report.start('Creating machine')
-  const { data: machine } = await sdk.createMachine({ client, path, body: machineBody })
-  report.stop(`Machine created: ${machine.id}`)
-  report.start('Creating machine daemon token')
-  let created
-  try {
-    ;({ data: created } = await sdk.createByoMachineDaemonToken({
-      client,
-      path: { orgID: path.orgID, machineID: machine.id },
-      body: { name: token_name },
-    }))
-  } catch (error) {
-    report.fail(`could not create a daemon token for machine ${machine.id}`)
-    throw error
-  }
-  report.stop('Machine daemon token created')
-  return { machine, token: created.token }
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
 function installCommand(baseUrl: string): string {
-  return `curl -fsSL ${baseUrl}/install/omnarad.sh | sh`
+  return `curl -fsSL ${shellQuote(`${baseUrl}/install/omnarad.sh`)} | sh`
 }
 
-export async function runMachineCreate(context: MachineSetupContext): Promise<void> {
-  const { report, baseUrl } = context
-  const { machine, token } = await createMachineWithDaemonToken(context)
-  report.info(`Machine ID: ${machine.id}`)
-  report.info(`Machine daemon token (shown only once):\n${token}`)
-  report.url(
-    'Run this on the machine, then paste the machine token when prompted',
-    installCommand(baseUrl),
-  )
-  report.done()
+export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
+  response,
+  { baseUrl },
+) => ({
+  value: {
+    ...response,
+    install_command: `${installCommand(baseUrl)}  (paste the token when prompted)`,
+  },
+})
+
+const daemonConfigFileName = 'daemon.json'
+
+const zDaemonConfigFile = z.looseObject({
+  machine_id: z.string().optional(),
+  api_url: z.string().optional(),
+})
+
+function describeExistingDaemon(): string | undefined {
+  const home = process.env.OMNARA_HOME ?? join(homedir(), '.omnarad')
+  const configPath = join(home, daemonConfigFileName)
+  if (!existsSync(configPath)) return undefined
+  try {
+    const config = zDaemonConfigFile.parse(JSON.parse(readFileSync(configPath, 'utf8')))
+    const details = [
+      ...(config.machine_id === undefined ? [] : [`machine ${config.machine_id}`]),
+      ...(config.api_url === undefined ? [] : [`API ${config.api_url}`]),
+    ]
+    return details.length === 0 ? configPath : `${configPath} (${details.join(', ')})`
+  } catch {
+    return configPath
+  }
 }
 
 export async function runMachineCreateLocal(context: MachineSetupContext): Promise<void> {
   const { report, baseUrl } = context
-  const { machine, token } = await createMachineWithDaemonToken(context)
+  const existing = describeExistingDaemon()
+  if (existing !== undefined) {
+    report.warn(`omnarad is already configured on this computer: ${existing}`)
+    report.info(
+      [
+        'Nothing was created. Check the daemon with: omnarad status, or start it with: omnarad restart',
+        'To connect this computer as a new machine, run: omnarad uninstall, then re-run this command',
+      ].join('\n'),
+    )
+    throw new CliInputError('omnarad is already installed on this machine')
+  }
+  const { machine, token } = await connectMachine(context)
   report.info(`Machine ID: ${machine.id}`)
   report.start('Installing omnarad on this machine')
   try {
-    await runInstaller(baseUrl, token)
+    await runInstaller(report, baseUrl, token, machine.id)
   } catch (error) {
     report.fail('omnarad installation failed')
     report.info(`Machine daemon token (shown only once):\n${token}`)
@@ -74,40 +96,74 @@ export async function runMachineCreateLocal(context: MachineSetupContext): Promi
     )
     throw error
   }
-  report.stop('omnarad installed and running')
-  report.info(
-    [
-      'omnarad is installed and connected to Omnara as this machine.',
-      'Manage the daemon with: omnarad status | stop | restart | uninstall',
-      `Let agents in a project use this machine with: omnara grant machines add --machine-id ${machine.id}`,
-    ].join('\n'),
-  )
   report.done()
 }
 
-function runInstaller(baseUrl: string, token: string): Promise<void> {
+function daemonGuidance(machineId: string): string {
+  return [
+    'omnarad is connected to Omnara as this machine.',
+    'Manage the daemon with: omnarad status | stop | restart | uninstall',
+    `Let agents in a project use this machine with: omnara grant machines add --machine-id ${machineId}`,
+  ].join('\n')
+}
+
+const NO_SERVICE_MARKER = 'no launchd/systemd user service manager is available'
+
+function runInstaller(
+  report: FlowReporter,
+  baseUrl: string,
+  token: string,
+  machineId: string,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const script = [
       'installer=$(mktemp)',
       'trap \'rm -f "$installer"\' EXIT',
-      'curl -fsSL "$OMNARA_API_URL/install/omnarad.sh" -o "$installer"',
+      'curl -qfsSL --connect-timeout 10 -m 60 --max-redirs 5 --max-filesize 1048576' +
+        ' --proto \'=http,https\' --proto-redir \'=https\'' +
+        ' -o "$installer" "$OMNARA_API_URL/install/omnarad.sh"',
       'sh "$installer"',
     ].join(' && ')
     const child = spawn('/bin/sh', ['-c', script], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, OMNARA_API_URL: baseUrl, OMNARA_MACHINE_TOKEN: token },
     })
-    const output: Buffer[] = []
-    child.stdout.on('data', (chunk: Buffer) => output.push(chunk))
-    child.stderr.on('data', (chunk: Buffer) => output.push(chunk))
+    const captured: Buffer[] = []
+    let foreground = false
+    const enterForeground = () => {
+      foreground = true
+      report.stop('omnarad installed')
+      report.info(daemonGuidance(machineId))
+      report.info(
+        `No launchd/systemd user service manager is available, so omnarad was started in the foreground (pid ${child.pid}).\n` +
+          'Its logs stream below; press Ctrl-C to stop the daemon, and run omnarad start to launch it again.',
+      )
+    }
+    const consume = (stream: NodeJS.WriteStream) => (chunk: Buffer) => {
+      if (foreground) {
+        stream.write(chunk)
+        return
+      }
+      captured.push(chunk)
+      if (Buffer.concat(captured).toString().includes(NO_SERVICE_MARKER)) enterForeground()
+    }
+    child.stdout.on('data', consume(process.stdout))
+    child.stderr.on('data', consume(process.stderr))
     child.on('error', (error) => {
       reject(new Error(`could not run the omnarad installer: ${error.message}`))
     })
     child.on('exit', (code, signal) => {
-      if (code === 0) resolve()
-      else {
+      if (code === 0) {
+        if (foreground) {
+          report.info('omnarad stopped')
+        } else {
+          report.stop('omnarad installed and started as a background service')
+          report.info(daemonGuidance(machineId))
+        }
+        resolve()
+      } else {
         const reason = signal === null ? `exit code ${code}` : `signal ${signal}`
-        const log = Buffer.concat(output).toString().trim()
+        const log = Buffer.concat(captured).toString().trim()
         reject(new Error(`omnarad installer failed (${reason})${log === '' ? '' : `\n${log}`}`))
       }
     })

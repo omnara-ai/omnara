@@ -369,7 +369,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
         renderResult(data, true)
         return
       }
-      const formatted = spec.format(data as never)
+      const formatted = spec.format(data as never, { baseUrl: config.baseUrl })
       renderResult(formatted.value, false, { columns: formatted.columns })
     })
   })

@@ -4767,6 +4767,7 @@ paths:
       tags: [Machines]
       summary: Connect a BYO machine
       security:
+        - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
       requestBody:
@@ -10625,16 +10626,33 @@ components:
     ConnectBYOMachineRequest:
       type: object
       additionalProperties: false
-      required: [display_name, project_ids]
+      required: [display_name]
       properties:
         display_name:
           $ref: '#/components/schemas/ResourceName'
+        description:
+          type: string
+        cwd:
+          type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        secret_env:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
+        metadata:
+          $ref: '#/components/schemas/MachineMetadata'
         project_ids:
           type: array
           maxItems: 100
           uniqueItems: true
           items:
             $ref: '#/components/schemas/ProjectID'
+        token_name:
+          type: string
+          minLength: 1
     ConnectBYOMachineResponse:
       type: object
       additionalProperties: false
