@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// ErrInvalidSkillName marks validation detail safe to return publicly.
 var ErrInvalidSkillName = errors.New("invalid skill name")
 
 const (
