@@ -59,7 +59,7 @@ func (s *Store) ProvisionOrganizationTx(
 	if input.Name == "" {
 		return CreateOrgForUserRecord{}, errors.New("org name is required")
 	}
-	normalizedName, err := resourcename.Normalize("org name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("org name", input.Name)
 	if err != nil {
 		return CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -216,7 +216,7 @@ func (s *Store) CreateProjectForPrincipal(
 	if input.Name == "" {
 		return ProjectRecord{}, errors.New("project name is required")
 	}
-	normalizedName, err := resourcename.Normalize("project name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("project name", input.Name)
 	if err != nil {
 		return ProjectRecord{}, storeerr.InvalidRequest(err)
 	}

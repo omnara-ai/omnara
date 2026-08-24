@@ -494,7 +494,7 @@ func normalizeSecretName(name string) (string, error) {
 	if name == "" {
 		return "", invalidSecretName("secret name is required")
 	}
-	normalizedName, err := resourcename.Normalize("secret name", name)
+	normalizedName, err := resourcename.CanonicalizeRequired("secret name", name)
 	if err != nil {
 		return "", invalidSecretName("%v", err)
 	}

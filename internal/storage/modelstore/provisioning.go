@@ -55,11 +55,11 @@ func PrepareDefaultModelProviderTemplate(
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
 	var err error
-	template.Name, err = resourcename.Normalize("model provider config name", template.Name)
+	template.Name, err = resourcename.CanonicalizeRequired("model provider config name", template.Name)
 	if err != nil {
 		return DefaultModelProviderTemplate{}, err
 	}
-	template.CredentialSecretName, err = resourcename.Normalize(
+	template.CredentialSecretName, err = resourcename.CanonicalizeRequired(
 		"credential secret name",
 		template.CredentialSecretName,
 	)
@@ -88,7 +88,7 @@ func PrepareDefaultModelProviderTemplate(
 	)
 	for i := range template.Models {
 		template.Models[i] = normalizeDefaultConfiguredModelTemplate(template.Models[i])
-		template.Models[i].Name, err = resourcename.Normalize(
+		template.Models[i].Name, err = resourcename.CanonicalizeRequired(
 			"configured model name",
 			template.Models[i].Name,
 		)
@@ -117,14 +117,8 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	if template.Name == "" {
 		return errors.New("name is required")
 	}
-	if err := resourcename.Validate("model provider config name", template.Name); err != nil {
-		return err
-	}
 	if template.CredentialSecretName == "" {
 		return errors.New("credential secret name is required")
-	}
-	if err := resourcename.Validate("credential secret name", template.CredentialSecretName); err != nil {
-		return err
 	}
 	if len(template.Models) == 0 {
 		return errors.New("at least one model is required")
@@ -152,9 +146,6 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	for _, model := range template.Models {
 		if model.Name == "" || model.ProviderModelSlug == "" {
 			return errors.New("model name and provider model slug are required")
-		}
-		if err := resourcename.Validate("configured model name", model.Name); err != nil {
-			return err
 		}
 		if _, ok := seen[model.Name]; ok {
 			return fmt.Errorf("model name %q is duplicated", model.Name)

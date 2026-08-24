@@ -57,7 +57,7 @@ func prepareBYOMachineDaemonTokenCreate(
 			"org, machine, and name are required",
 		)
 	}
-	normalizedName, err := resourcename.Normalize("machine daemon token name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine daemon token name", input.Name)
 	if err != nil {
 		return preparedBYOMachineDaemonTokenCreate{}, storeerr.InvalidRequest(err)
 	}
@@ -149,7 +149,7 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 			"org, machine, and token name are required",
 		)
 	}
-	normalizedName, err := resourcename.Normalize("machine daemon token name", input.TokenName)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine daemon token name", input.TokenName)
 	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, storeerr.InvalidRequest(err)
 	}

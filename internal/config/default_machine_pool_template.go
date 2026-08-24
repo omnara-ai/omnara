@@ -92,7 +92,7 @@ func defaultMachinePoolTemplateFromFile(
 			label,
 		)
 	}
-	normalizedName, err := resourcename.Normalize("machine pool name", parsed.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", parsed.Name)
 	if err != nil {
 		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf(
 			"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES %s.name: %w",

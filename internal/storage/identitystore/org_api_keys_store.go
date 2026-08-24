@@ -31,7 +31,7 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	ctx context.Context,
 	input CreateOrgAPIKeyInput,
 ) (CreatedOrgAPIKey, error) {
-	normalizedName, err := resourcename.Normalize("org api key name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("org api key name", input.Name)
 	if err != nil {
 		return CreatedOrgAPIKey{}, storeerr.InvalidRequest(err)
 	}
@@ -114,7 +114,7 @@ func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	if input.Name == "" {
 		return "", "", errors.New("org api key name is required")
 	}
-	if err := resourcename.Validate("org api key name", input.Name); err != nil {
+	if err := resourcename.ValidateCanonicalRequired("org api key name", input.Name); err != nil {
 		return "", "", storeerr.InvalidRequest(err)
 	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
@@ -276,7 +276,7 @@ func (s *Store) UpdateOrgAPIKey(
 	if effectiveName == "" {
 		return OrgAPIKeyRecord{}, errors.New("org api key name is required")
 	}
-	normalizedName, err := resourcename.Normalize("org api key name", effectiveName)
+	normalizedName, err := resourcename.CanonicalizeRequired("org api key name", effectiveName)
 	if err != nil {
 		return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
 	}

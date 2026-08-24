@@ -66,9 +66,11 @@ func (s strictOpenAPIServer) CreateOrganization(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	if err := resourcename.Validate("organization name", request.Body.Name); err != nil {
+	canonicalName, err := resourcename.CanonicalizeRequired("organization name", request.Body.Name)
+	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	request.Body.Name = canonicalName
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey

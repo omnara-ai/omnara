@@ -93,56 +93,55 @@ type AgentConfigMCPToolSource struct {
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
-	parsed, _, err := parseSource(format, raw)
-	return parsed, err
+	return parseSource(format, raw)
 }
 
-func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, []byte, error) {
+func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return AgentConfigSource{}, nil, errors.New("agent config source is required")
+		return AgentConfigSource{}, errors.New("agent config source is required")
 	}
-	normalizedRaw, err := normalizeSourceResourceReferences(format, raw)
+	jsonSource, err := sourceJSON(format, raw)
 	if err != nil {
-		return AgentConfigSource{}, nil, err
+		return AgentConfigSource{}, err
 	}
-	jsonSource, err := sourceJSON(format, normalizedRaw)
+	jsonSource, err = normalizeSourceResourceReferences(jsonSource)
 	if err != nil {
-		return AgentConfigSource{}, nil, err
+		return AgentConfigSource{}, err
 	}
 	schema, err := compiledSourceSchema()
 	if err != nil {
-		return AgentConfigSource{}, nil, err
+		return AgentConfigSource{}, err
 	}
 	result := schema.Validate(jsonSource)
 	if !result.IsValid() {
-		return AgentConfigSource{}, nil, fmt.Errorf(
+		return AgentConfigSource{}, fmt.Errorf(
 			"agent config source does not match JSON schema: %s",
 			validationErrors(result),
 		)
 	}
 	var parsed AgentConfigSource
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
-		return AgentConfigSource{}, nil, fmt.Errorf("decode agent config source: %w", err)
+		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
 	}
 	if err := normalizeParsedSourceResourceNames(&parsed); err != nil {
-		return AgentConfigSource{}, nil, err
+		return AgentConfigSource{}, err
 	}
-	return parsed, normalizedRaw, nil
+	return parsed, nil
 }
 
 func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
-	providerConfig, err := resourcename.Normalize("model.provider_config", source.Model.ProviderConfig)
+	providerConfig, err := resourcename.CanonicalizeRequired("model.provider_config", source.Model.ProviderConfig)
 	if err != nil {
 		return err
 	}
 	source.Model.ProviderConfig = providerConfig
-	modelName, err := resourcename.Normalize("model.name", source.Model.Name)
+	modelName, err := resourcename.CanonicalizeRequired("model.name", source.Model.Name)
 	if err != nil {
 		return err
 	}
 	source.Model.Name = modelName
 	for index := range source.MachineSources {
-		machineName, err := resourcename.Normalize(
+		machineName, err := resourcename.CanonicalizeOptional(
 			fmt.Sprintf("machine_sources[%d].machine_name", index),
 			source.MachineSources[index].MachineName,
 		)
@@ -150,7 +149,7 @@ func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
 			return err
 		}
 		source.MachineSources[index].MachineName = machineName
-		machinePoolName, err := resourcename.Normalize(
+		machinePoolName, err := resourcename.CanonicalizeOptional(
 			fmt.Sprintf("machine_sources[%d].machine_pool_name", index),
 			source.MachineSources[index].MachinePoolName,
 		)
@@ -162,18 +161,7 @@ func normalizeParsedSourceResourceNames(source *AgentConfigSource) error {
 	return nil
 }
 
-func normalizeSourceResourceReferences(format SourceFormat, raw []byte) ([]byte, error) {
-	switch format {
-	case SourceFormatJSON:
-		return normalizeJSONSourceResourceReferences(raw)
-	case SourceFormatYAML:
-		return normalizeYAMLSourceResourceReferences(raw)
-	default:
-		return nil, fmt.Errorf("unsupported agent config source format %q", format)
-	}
-}
-
-func normalizeJSONSourceResourceReferences(raw []byte) ([]byte, error) {
+func normalizeSourceResourceReferences(raw []byte) ([]byte, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -227,112 +215,6 @@ func normalizeJSONResourceReference(object map[string]any, key string) bool {
 		return false
 	}
 	object[key] = normalized
-	return true
-}
-
-func normalizeYAMLSourceResourceReferences(raw []byte) ([]byte, error) {
-	var document yaml.Node
-	decoder := yaml.NewDecoder(bytes.NewReader(raw))
-	if err := decoder.Decode(&document); err != nil {
-		return nil, fmt.Errorf("parse agent config YAML: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("parse agent config YAML: trailing document")
-		}
-		return nil, fmt.Errorf("parse agent config YAML: %w", err)
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return raw, nil
-	}
-	root := document.Content[0]
-	changed := false
-	if model := sourceYAMLMappingValue(root, "model"); model != nil && model.Kind == yaml.MappingNode {
-		changed = normalizeYAMLResourceReference(model, "provider_config") || changed
-		changed = normalizeYAMLResourceReference(model, "name") || changed
-	}
-	machineSources := sourceYAMLMappingValue(root, "machine_sources")
-	if machineSources != nil && machineSources.Kind == yaml.SequenceNode {
-		for _, candidate := range machineSources.Content {
-			machine := sourceYAMLDereference(candidate)
-			if machine == nil || machine.Kind != yaml.MappingNode {
-				continue
-			}
-			changed = normalizeYAMLResourceReference(machine, "machine_name") || changed
-			changed = normalizeYAMLResourceReference(machine, "machine_pool_name") || changed
-		}
-	}
-	if !changed {
-		return raw, nil
-	}
-	var normalized bytes.Buffer
-	encoder := yaml.NewEncoder(&normalized)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&document); err != nil {
-		return nil, fmt.Errorf("encode normalized agent config YAML: %w", err)
-	}
-	if err := encoder.Close(); err != nil {
-		return nil, fmt.Errorf("finish normalized agent config YAML: %w", err)
-	}
-	return normalized.Bytes(), nil
-}
-
-func sourceYAMLMappingValue(mapping *yaml.Node, key string) *yaml.Node {
-	return sourceYAMLMappingValueSeen(mapping, key, make(map[*yaml.Node]bool))
-}
-
-func sourceYAMLMappingValueSeen(mapping *yaml.Node, key string, seen map[*yaml.Node]bool) *yaml.Node {
-	mapping = sourceYAMLDereference(mapping)
-	if mapping == nil || mapping.Kind != yaml.MappingNode || seen[mapping] {
-		return nil
-	}
-	seen[mapping] = true
-	for index := 0; index+1 < len(mapping.Content); index += 2 {
-		if mapping.Content[index].Value == key && key != "<<" {
-			return sourceYAMLDereference(mapping.Content[index+1])
-		}
-	}
-	for index := 0; index+1 < len(mapping.Content); index += 2 {
-		if mapping.Content[index].Value != "<<" {
-			continue
-		}
-		merge := sourceYAMLDereference(mapping.Content[index+1])
-		if merge == nil {
-			continue
-		}
-		if merge.Kind == yaml.SequenceNode {
-			for _, candidate := range merge.Content {
-				if value := sourceYAMLMappingValueSeen(candidate, key, seen); value != nil {
-					return value
-				}
-			}
-			continue
-		}
-		if value := sourceYAMLMappingValueSeen(merge, key, seen); value != nil {
-			return value
-		}
-	}
-	return nil
-}
-
-func sourceYAMLDereference(node *yaml.Node) *yaml.Node {
-	for node != nil && node.Kind == yaml.AliasNode {
-		node = node.Alias
-	}
-	return node
-}
-
-func normalizeYAMLResourceReference(mapping *yaml.Node, key string) bool {
-	value := sourceYAMLMappingValue(mapping, key)
-	if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
-		return false
-	}
-	normalized := norm.NFC.String(value.Value)
-	if normalized == value.Value {
-		return false
-	}
-	value.Value = normalized
 	return true
 }
 

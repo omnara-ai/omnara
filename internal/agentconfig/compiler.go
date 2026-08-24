@@ -158,7 +158,7 @@ type ResolvedModelSelection struct {
 }
 
 func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, error) {
-	source, normalizedRaw, err := parseSource(format, raw)
+	source, err := parseSource(format, raw)
 	if err != nil {
 		return Result{}, err
 	}
@@ -176,7 +176,7 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 		Compiled:        compiled,
 		CanonicalJSON:   canonical,
 		Hash:            hex.EncodeToString(sum[:]),
-		Source:          string(normalizedRaw),
+		Source:          string(raw),
 		SourceFormat:    format,
 		CompilerVersion: CompilerVersion,
 	}, nil

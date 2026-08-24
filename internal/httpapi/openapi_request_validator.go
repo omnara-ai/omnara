@@ -128,16 +128,14 @@ func normalizeOpenAPIValue(value any, schemaRef *openapi3.SchemaRef, depth int) 
 		return normalized, normalized != text, nil
 	}
 	changed := false
-	for _, composed := range [][]*openapi3.SchemaRef{schema.AllOf, schema.AnyOf, schema.OneOf} {
-		for _, nested := range composed {
-			var nestedChanged bool
-			var err error
-			value, nestedChanged, err = normalizeOpenAPIValue(value, nested, depth+1)
-			if err != nil {
-				return nil, false, err
-			}
-			changed = nestedChanged || changed
+	for _, nested := range schema.AllOf {
+		var nestedChanged bool
+		var err error
+		value, nestedChanged, err = normalizeOpenAPIValue(value, nested, depth+1)
+		if err != nil {
+			return nil, false, err
 		}
+		changed = nestedChanged || changed
 	}
 	switch typed := value.(type) {
 	case map[string]any:

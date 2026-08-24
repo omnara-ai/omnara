@@ -41,7 +41,7 @@ func (s *Service) ReconcileDefaults(
 		if err := s.execution.ValidateDefaultMachinePoolTemplate(template); err != nil {
 			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
 		}
-		name, err := resourcename.Normalize("machine pool name", template.Name)
+		name, err := resourcename.CanonicalizeRequired("machine pool name", template.Name)
 		if err != nil {
 			return ReconcileDefaultsResult{}, fmt.Errorf("default machine pool: %w", err)
 		}

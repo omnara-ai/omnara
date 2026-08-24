@@ -164,10 +164,11 @@ func (s strictOpenAPIServer) UpdateOrgAPIKey(
 		ActorPrincipal: principal,
 	}
 	if request.Body.Name != nil {
-		if err := resourcename.Validate("org api key name", *request.Body.Name); err != nil {
+		canonicalName, err := resourcename.CanonicalizeRequired("org api key name", *request.Body.Name)
+		if err != nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		}
-		input.Name = *request.Body.Name
+		input.Name = canonicalName
 	}
 	if request.Body.OrgRole != nil {
 		input.OrgRole = string(*request.Body.OrgRole)

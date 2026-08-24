@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidate(t *testing.T) {
+func TestCanonicalizeOptional(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
@@ -43,42 +43,58 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := Validate("name", tt.value)
+			_, err := CanonicalizeOptional("name", tt.value)
 			if tt.wantErr == "" {
 				if err != nil {
-					t.Fatalf("Validate(%q): %v", tt.value, err)
+					t.Fatalf("CanonicalizeOptional(%q): %v", tt.value, err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("Validate(%q) error = %v, want containing %q", tt.value, err, tt.wantErr)
+				t.Fatalf("CanonicalizeOptional(%q) error = %v, want containing %q", tt.value, err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestNormalizeCanonicalizesBeforeValidation(t *testing.T) {
-	got, err := Normalize("name", "Cafe\u0301")
+func TestCanonicalizeRequiredRejectsEmpty(t *testing.T) {
+	if _, err := CanonicalizeRequired("name", ""); err == nil || !strings.Contains(err.Error(), "is required") {
+		t.Fatalf("CanonicalizeRequired empty error = %v", err)
+	}
+}
+
+func TestCanonicalizeRequiredNormalizesBeforeValidation(t *testing.T) {
+	got, err := CanonicalizeRequired("name", "Cafe\u0301")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "Café" {
-		t.Fatalf("Normalize() = %q, want NFC Café", got)
+		t.Fatalf("CanonicalizeRequired() = %q, want NFC Café", got)
 	}
 
 	decomposedAtRawLimit := strings.Repeat("e\u0301", MaxCodePoints/2) + strings.Repeat("x", MaxCodePoints/2)
-	got, err = Normalize("name", decomposedAtRawLimit)
+	got, err = CanonicalizeRequired("name", decomposedAtRawLimit)
 	if err != nil {
-		t.Fatalf("Normalize() must validate after NFC: %v", err)
+		t.Fatalf("CanonicalizeRequired() must validate after NFC: %v", err)
 	}
 	if runeCount := len([]rune(got)); runeCount != MaxCodePoints {
 		t.Fatalf("normalized code points = %d, want %d", runeCount, MaxCodePoints)
 	}
 }
 
-func TestValidateWithMaxUsesMatchingUTF8ByteCeiling(t *testing.T) {
+func TestValidateCanonicalRequiredRejectsDecomposedInput(t *testing.T) {
+	if err := ValidateCanonicalRequired("name", "Cafe\u0301"); err == nil ||
+		!strings.Contains(err.Error(), "must use Unicode NFC normalization") {
+		t.Fatalf("ValidateCanonicalRequired decomposed error = %v", err)
+	}
+	if err := ValidateCanonicalRequired("name", "Café"); err != nil {
+		t.Fatalf("ValidateCanonicalRequired NFC: %v", err)
+	}
+}
+
+func TestCanonicalizeRequiredWithMaxUsesMatchingUTF8ByteCeiling(t *testing.T) {
 	const maxCodePoints = 2
-	if err := ValidateWithMax("name", "😀😀", maxCodePoints); err != nil {
-		t.Fatalf("ValidateWithMax at UTF-8 byte ceiling: %v", err)
+	if _, err := CanonicalizeRequiredWithMax("name", "😀😀", maxCodePoints); err != nil {
+		t.Fatalf("CanonicalizeRequiredWithMax at UTF-8 byte ceiling: %v", err)
 	}
 }

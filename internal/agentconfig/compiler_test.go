@@ -79,7 +79,7 @@ tools:
 	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
 }
 
-func TestCompileStoresNFCNormalizedResourceReferences(t *testing.T) {
+func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
 	source := fmt.Sprintf(`
 instruction: Help the user make progress.
 model:
@@ -95,14 +95,14 @@ model:
 		t.Fatal(err)
 	}
 	if parsed.Model.ProviderConfig != "Provider Café" || parsed.Model.Name != "Model Café" {
-		t.Fatalf("stored source references = %+v", parsed.Model)
+		t.Fatalf("parsed source references = %+v", parsed.Model)
 	}
-	if strings.Contains(result.Source, "Cafe\u0301") {
-		t.Fatalf("stored source retained decomposed references: %q", result.Source)
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 }
 
-func TestCompileStoresNFCNormalizedMergedYAMLResourceReferences(t *testing.T) {
+func TestCompileCanonicalizesMergedYAMLResourceReferencesWithoutRewritingSource(t *testing.T) {
 	source := fmt.Sprintf(`
 instruction: Help the user make progress.
 model:
@@ -113,8 +113,8 @@ model:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(result.Source, "Cafe\u0301") {
-		t.Fatalf("stored source retained decomposed merged reference: %q", result.Source)
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
 	if err != nil {
@@ -122,6 +122,32 @@ model:
 	}
 	if parsed.Model.ProviderConfig != "Provider Café" {
 		t.Fatalf("stored provider config = %q, want NFC value", parsed.Model.ProviderConfig)
+	}
+}
+
+func TestCompileDoesNotMutateYAMLAliasTargets(t *testing.T) {
+	decomposed := "Cafe\u0301"
+	source := fmt.Sprintf(`instruction: &shared %q
+model:
+  provider_config: *shared
+  name: Model
+`, decomposed)
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Instruction != decomposed {
+		t.Fatalf("instruction = %q, want original alias target %q", parsed.Instruction, decomposed)
+	}
+	if parsed.Model.ProviderConfig != "Café" {
+		t.Fatalf("provider config = %q, want NFC value", parsed.Model.ProviderConfig)
 	}
 }
 

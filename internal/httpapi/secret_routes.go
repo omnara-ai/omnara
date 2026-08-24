@@ -493,10 +493,11 @@ func (s strictOpenAPIServer) UpdateSecret(
 		if *request.Body.Name == "" {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name cannot be empty")
 		}
-		if err := resourcename.Validate("secret name", *request.Body.Name); err != nil {
+		canonicalName, err := resourcename.CanonicalizeRequired("secret name", *request.Body.Name)
+		if err != nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		}
-		name = *request.Body.Name
+		name = canonicalName
 	}
 	if request.Body.Metadata != nil {
 		metadata = request.Body.Metadata

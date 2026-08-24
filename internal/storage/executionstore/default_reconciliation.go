@@ -19,7 +19,7 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 	qtx := s.q.WithTx(tx)
 	var changes []string
 	for _, template := range templates {
-		name, err := resourcename.Normalize("machine pool name", template.Name)
+		name, err := resourcename.CanonicalizeRequired("machine pool name", template.Name)
 		if err != nil {
 			return nil, fmt.Errorf("default machine pool: %w", err)
 		}

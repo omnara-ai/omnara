@@ -556,7 +556,7 @@ func (s *Store) ResolveAgentConfigMachineName(ctx context.Context, projectID ID,
 	if isNilID(projectID) || machineName == "" {
 		return NilID, errors.New("project and machine name are required")
 	}
-	normalizedName, err := resourcename.Normalize("machine name", machineName)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine name", machineName)
 	if err != nil {
 		return NilID, storeerr.InvalidRequest(err)
 	}

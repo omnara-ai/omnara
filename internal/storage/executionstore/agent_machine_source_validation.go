@@ -58,7 +58,7 @@ func resolveMachinePoolName(
 	if machinePoolName == "" {
 		return NilID, false, nil
 	}
-	normalizedName, err := resourcename.Normalize("machine pool name", machinePoolName)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", machinePoolName)
 	if err != nil {
 		return NilID, false, err
 	}

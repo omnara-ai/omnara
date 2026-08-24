@@ -30,18 +30,22 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
-	if err := resourcename.ValidateWithMax(
+	clientName, err := resourcename.CanonicalizeOptionalWithMax(
 		"client_name",
 		body.ClientName,
 		identitystore.DeviceAuthClientNameMaxRunes,
-	); err != nil {
+	)
+	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
-	if err := resourcename.Validate("token_name", body.TokenName); err != nil {
+	body.ClientName = clientName
+	tokenName, err := resourcename.CanonicalizeOptional("token_name", body.TokenName)
+	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
+	body.TokenName = tokenName
 	if !h.requireAuthRateLimits(
 		w,
 		r,

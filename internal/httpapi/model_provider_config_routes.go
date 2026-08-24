@@ -158,7 +158,7 @@ func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProvide
 	if body.Name == "" {
 		return errors.New("name is required")
 	}
-	if err := resourcename.Validate("model provider config name", body.Name); err != nil {
+	if err := resourcename.ValidateCanonicalRequired("model provider config name", body.Name); err != nil {
 		return err
 	}
 	if body.Preset == nil && body.ApiFormat == nil {
@@ -273,6 +273,11 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
 	body := *request.Body
+	canonicalName, err := resourcename.CanonicalizeRequired("model provider config name", body.Name)
+	if err != nil {
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
+	}
+	body.Name = canonicalName
 	if err := validateCreateModelProviderConfigRequest(body); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -672,10 +677,11 @@ func patchConfiguredModelInput(
 		ID:                    configuredModelID,
 	}
 	if body.Name != nil {
-		if err := resourcename.Validate("configured model name", *body.Name); err != nil {
+		canonicalName, err := resourcename.CanonicalizeRequired("configured model name", *body.Name)
+		if err != nil {
 			return modelstore.PatchConfiguredModelInput{}, err
 		}
-		input.Name = body.Name
+		input.Name = &canonicalName
 	}
 	if body.ProviderModelSlug != nil {
 		input.ProviderModelSlug = body.ProviderModelSlug

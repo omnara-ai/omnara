@@ -79,7 +79,7 @@ func (s *Store) createModelProviderConfigTx(
 		isNilID(input.CredentialSecretID) {
 		return ModelProviderConfigRecord{}, errors.New("org, name, API format, base url, and credential secret are required")
 	}
-	normalizedName, err := resourcename.Normalize("model provider config name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("model provider config name", input.Name)
 	if err != nil {
 		return ModelProviderConfigRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -184,7 +184,7 @@ func (s *Store) GetModelProviderConfigByName(
 	orgID ID,
 	name string,
 ) (ModelProviderConfigRecord, error) {
-	normalizedName, err := resourcename.Normalize("model provider config name", name)
+	normalizedName, err := resourcename.CanonicalizeRequired("model provider config name", name)
 	if err != nil {
 		return ModelProviderConfigRecord{}, storeerr.InvalidRequest(err)
 	}

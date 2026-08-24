@@ -24,7 +24,7 @@ func (s *Store) CreateAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("agent profile name is required")
 	}
-	normalizedName, err := resourcename.Normalize("agent profile name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", input.Name)
 	if err != nil {
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -232,7 +232,7 @@ func (s *Store) RenameAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("name is required")
 	}
-	normalizedName, err := resourcename.Normalize("agent profile name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", input.Name)
 	if err != nil {
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}

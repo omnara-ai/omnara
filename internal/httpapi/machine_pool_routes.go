@@ -161,9 +161,11 @@ func (s strictOpenAPIServer) createMachinePool(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	if err := resourcename.Validate("machine pool name", request.Body.Name); err != nil {
+	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", request.Body.Name)
+	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	request.Body.Name = canonicalName
 	description := ""
 	if request.Body.Description != nil {
 		description = *request.Body.Description
@@ -283,9 +285,11 @@ func (s strictOpenAPIServer) updateMachinePool(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
 	if request.Body.Name != nil {
-		if err := resourcename.Validate("machine pool name", *request.Body.Name); err != nil {
+		canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", *request.Body.Name)
+		if err != nil {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		}
+		request.Body.Name = &canonicalName
 	}
 	poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, request.PoolID)
 	if !ok {

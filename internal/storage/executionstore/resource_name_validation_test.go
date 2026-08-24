@@ -38,7 +38,7 @@ func TestPoolMachineDisplayNameStaysWithinResourceNameLimit(t *testing.T) {
 	if got := len([]rune(displayName)); got != resourcename.MaxCodePoints {
 		t.Fatalf("pool machine display name length = %d, want %d", got, resourcename.MaxCodePoints)
 	}
-	if err := resourcename.Validate("machine display name", displayName); err != nil {
+	if _, err := resourcename.CanonicalizeRequired("machine display name", displayName); err != nil {
 		t.Fatalf("pool machine display name is invalid: %v", err)
 	}
 }
@@ -49,7 +49,7 @@ func TestPoolMachineDisplayNameDoesNotCreateTrailingSpaceWhenTruncated(t *testin
 	if strings.HasSuffix(displayName, " ") {
 		t.Fatalf("pool machine display name %q has a trailing space", displayName)
 	}
-	if err := resourcename.Validate("machine display name", displayName); err != nil {
+	if _, err := resourcename.CanonicalizeRequired("machine display name", displayName); err != nil {
 		t.Fatalf("pool machine display name is invalid: %v", err)
 	}
 }

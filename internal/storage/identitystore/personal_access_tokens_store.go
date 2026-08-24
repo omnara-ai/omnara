@@ -57,7 +57,7 @@ func preparePersonalAccessTokenInput(input CreatePersonalAccessTokenInput) (prep
 	if input.Name == "" {
 		return preparedPersonalAccessToken{}, errors.New("personal access token name is required")
 	}
-	normalizedName, err := resourcename.Normalize("personal access token name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("personal access token name", input.Name)
 	if err != nil {
 		return preparedPersonalAccessToken{}, storeerr.InvalidRequest(err)
 	}

@@ -269,7 +269,7 @@ func prepareDaemonMachineCreate(
 			"org and display name are required",
 		)
 	}
-	normalizedName, err := resourcename.Normalize("machine display name", input.DisplayName)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine display name", input.DisplayName)
 	if err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
 	}

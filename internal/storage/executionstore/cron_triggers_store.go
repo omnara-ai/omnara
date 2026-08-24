@@ -85,7 +85,7 @@ func (s *Store) CreateCronTrigger(
 	if input.Name == "" {
 		return CronTriggerRecord{}, errors.New("cron trigger name is required")
 	}
-	normalizedName, err := resourcename.Normalize("cron trigger name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", input.Name)
 	if err != nil {
 		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -286,7 +286,7 @@ func (s *Store) UpdateCronTrigger(
 	if record.Name == "" {
 		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("cron trigger name is required"))
 	}
-	normalizedName, err := resourcename.Normalize("cron trigger name", record.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", record.Name)
 	if err != nil {
 		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
 	}

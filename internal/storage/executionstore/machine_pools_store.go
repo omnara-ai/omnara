@@ -282,9 +282,11 @@ func ValidateDefaultMachinePoolTemplate(
 	if input.Name == "" {
 		return errors.New("name is required")
 	}
-	if _, err := resourcename.Normalize("machine pool name", input.Name); err != nil {
+	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
+	if err != nil {
 		return err
 	}
+	input.Name = canonicalName
 	defaults, err := prepareMachinePoolConfigInput(&input)
 	if err != nil {
 		return err
@@ -419,7 +421,7 @@ func prepareMachinePoolCreateInput(
 	if isNilID(input.OrgID) || input.Name == "" || input.Provider == "" {
 		return machinePoolDefaults{}, errors.New("org, name, and provider are required")
 	}
-	normalizedName, err := resourcename.Normalize("machine pool name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
 	if err != nil {
 		return machinePoolDefaults{}, err
 	}
@@ -752,7 +754,7 @@ func (s *Store) UpdateMachinePool(
 	if merged.Name == "" {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
 	}
-	normalizedName, err := resourcename.Normalize("machine pool name", merged.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", merged.Name)
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}

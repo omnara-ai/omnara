@@ -50,7 +50,7 @@ func (s *Store) LaunchAgent(
 			"project, agent config, and launching principal are required",
 		)
 	}
-	normalizedName, err := resourcename.Normalize("agent name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeOptional("agent name", input.Name)
 	if err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
 	}
@@ -340,7 +340,7 @@ func launchAgentName(name string, profile *AgentProfileRecord) (string, error) {
 	if name == "" && profile != nil {
 		name = profile.Name
 	}
-	return resourcename.Normalize("agent name", name)
+	return resourcename.CanonicalizeOptional("agent name", name)
 }
 
 func createAgentMCPConnectionsTx(

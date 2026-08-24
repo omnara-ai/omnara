@@ -13,31 +13,45 @@ const (
 	MaxUTF8Bytes  = 4 * MaxCodePoints
 )
 
-// Normalize permits empty values; callers enforce requiredness.
-func Normalize(field, value string) (string, error) {
-	return NormalizeWithMax(field, value, MaxCodePoints)
+func CanonicalizeRequired(field, value string) (string, error) {
+	return canonicalizeWithMax(field, value, MaxCodePoints, true)
 }
 
-func NormalizeWithMax(field, value string, maxCodePoints int) (string, error) {
+func CanonicalizeOptional(field, value string) (string, error) {
+	return canonicalizeWithMax(field, value, MaxCodePoints, false)
+}
+
+func CanonicalizeRequiredWithMax(field, value string, maxCodePoints int) (string, error) {
+	return canonicalizeWithMax(field, value, maxCodePoints, true)
+}
+
+func CanonicalizeOptionalWithMax(field, value string, maxCodePoints int) (string, error) {
+	return canonicalizeWithMax(field, value, maxCodePoints, false)
+}
+
+func ValidateCanonicalRequired(field, value string) error {
+	canonical, err := CanonicalizeRequired(field, value)
+	if err != nil {
+		return err
+	}
+	if canonical != value {
+		return fmt.Errorf("%s must use Unicode NFC normalization", field)
+	}
+	return nil
+}
+
+func canonicalizeWithMax(field, value string, maxCodePoints int, required bool) (string, error) {
 	if !utf8.ValidString(value) {
 		return "", fmt.Errorf("%s must be valid UTF-8", field)
 	}
 	value = norm.NFC.String(value)
+	if required && value == "" {
+		return "", fmt.Errorf("%s is required", field)
+	}
 	if err := validateNormalizedWithMax(field, value, maxCodePoints); err != nil {
 		return "", err
 	}
 	return value, nil
-}
-
-// Validate permits empty values; callers enforce requiredness. Callers that persist or
-// resolve a name must use Normalize so they retain the canonical value.
-func Validate(field, value string) error {
-	return ValidateWithMax(field, value, MaxCodePoints)
-}
-
-func ValidateWithMax(field, value string, maxCodePoints int) error {
-	_, err := NormalizeWithMax(field, value, maxCodePoints)
-	return err
 }
 
 func validateNormalizedWithMax(field, value string, maxCodePoints int) error {

@@ -80,7 +80,7 @@ func (s *Store) createConfiguredModelTx(
 			"org, provider config, configured model name, and provider model slug are required",
 		)
 	}
-	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
 	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -211,7 +211,7 @@ func (s *Store) PatchConfiguredModel(
 		if update.Name == "" {
 			return ConfiguredModelRecord{}, errors.New("configured model name is required")
 		}
-		normalizedName, err := resourcename.Normalize("configured model name", update.Name)
+		normalizedName, err := resourcename.CanonicalizeRequired("configured model name", update.Name)
 		if err != nil {
 			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 		}
@@ -315,7 +315,7 @@ func updateConfiguredModelTx(
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
-	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
 	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -381,7 +381,7 @@ func renameConfiguredModelTx(
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
-	normalizedName, err := resourcename.Normalize("configured model name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
 	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -515,7 +515,7 @@ func (s *Store) GetConfiguredModelByName(
 	orgID, providerConfigID ID,
 	name string,
 ) (ConfiguredModelRecord, error) {
-	normalizedName, err := resourcename.Normalize("configured model name", name)
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", name)
 	if err != nil {
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
