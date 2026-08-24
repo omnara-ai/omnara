@@ -99,8 +99,7 @@ CREATE FUNCTION resource_name_repair(candidate text, max_code_points integer) RE
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
--- This one-time repair trims, normalizes to NFC, truncates by code point, then trims again.
--- Only fully valid results are written; run the hard-cutover migration with application writers stopped.
+-- Run this hard-cutover migration with application writers stopped.
 UPDATE orgs
 SET name = resource_name_repair(name, 64)
 WHERE name IS DISTINCT FROM resource_name_repair(name, 64)
