@@ -16,24 +16,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	AgentConfigNameMigrationFile    = "000026_migrate_agent_config_names.go"
-	AgentConfigNameMigrationVersion = 26
-)
+const agentConfigNameMigrationVersion = 26
 
-// Goose discovers Go migrations through registration; dbmigrate uses the scoped constructor below.
-func init() {
-	goose.AddMigrationContext(upMigrateAgentConfigNames, nil)
-}
-
-func NewAgentConfigNameMigration() *goose.Migration {
-	migration := goose.NewGoMigration(
-		AgentConfigNameMigrationVersion,
+func newAgentConfigNameMigration() *goose.Migration {
+	return goose.NewGoMigration(
+		agentConfigNameMigrationVersion,
 		&goose.GoFunc{RunTx: upMigrateAgentConfigNames},
 		nil,
 	)
-	migration.Source = AgentConfigNameMigrationFile
-	return migration
 }
 
 type storedAgentConfig struct {

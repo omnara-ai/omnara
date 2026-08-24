@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
@@ -34,11 +35,7 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("idempotent migration replay: %v", err)
 	}
 
@@ -767,7 +764,7 @@ RETURNING id::text
 		t.Fatal(err)
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 14 database: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
@@ -835,7 +832,7 @@ WHERE id = $1
 		t.Fatal("grant minimum above maximum unexpectedly succeeded")
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("replay upgraded populated database: %v", err)
 	}
 }
@@ -958,7 +955,7 @@ FROM configured_model
 		t.Fatal(err)
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 19 database: %v", err)
 	}
 	var backfilled string
@@ -1002,11 +999,7 @@ func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	config.RuntimeParams["search_path"] = "agents,extensions"
 	db := stdlib.OpenDB(*config)
 	defer func() { _ = db.Close() }()
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("migrate with configured pg_trgm schema: %v", err)
 	}
 
@@ -1067,11 +1060,7 @@ func TestPostgresMigrationsInstallPgTrgmInProductSchema(t *testing.T) {
 	config.RuntimeParams["search_path"] = "agents"
 	db := stdlib.OpenDB(*config)
 	defer func() { _ = db.Close() }()
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("migrate without public schema: %v", err)
 	}
 
@@ -1201,7 +1190,7 @@ func TestPostgresRejectsNewerDatabaseVersion(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	err := applyProductionPostgresMigrations(ctx, db)
 	if err == nil || !strings.Contains(err.Error(), "newer than binary target") {
 		t.Fatalf("newer database migration error = %v", err)
 	}
@@ -1281,6 +1270,15 @@ func openPostgresMigrationTestDB(
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
 	return pool, db
+}
+
+func applyProductionPostgresMigrations(ctx context.Context, db *sql.DB) error {
+	return dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		os.DirFS("../../migrations"),
+		schemamigrations.GoMigrations()...,
+	)
 }
 
 func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
@@ -1371,6 +1369,13 @@ func productionMigrationFiles() ([]string, error) {
 }
 
 func isProductionMigrationFile(name string) bool {
+	version, _, found := strings.Cut(name, "_")
+	if !found || len(version) != 6 {
+		return false
+	}
+	if _, err := strconv.ParseUint(version, 10, 64); err != nil {
+		return false
+	}
 	extension := filepath.Ext(name)
 	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(name, "_test.go")
 }

@@ -21,6 +21,8 @@ type migrationSet struct {
 	allowGo          bool
 }
 
+const goMigrationRegistryPath = "migrations/go_migrations.go"
+
 var migrationSets = []migrationSet{
 	{
 		directory:        "internal/machinedaemon/statedb/migrations",
@@ -278,13 +280,14 @@ func (snapshot worktreeSnapshot) listMigrations(directory string) ([]string, err
 	}
 	var files []string
 	for _, entry := range entries {
-		if !isMigrationFile(entry.Name()) {
+		filePath := path.Join(directory, entry.Name())
+		if !isMigrationFile(filePath) {
 			continue
 		}
 		if entry.Type()&fs.ModeSymlink != 0 || !entry.Type().IsRegular() {
 			return nil, fmt.Errorf("%s/%s must be a regular file", directory, entry.Name())
 		}
-		files = append(files, path.Join(directory, entry.Name()))
+		files = append(files, filePath)
 	}
 	sort.Strings(files)
 	return files, nil
@@ -341,6 +344,9 @@ func (snapshot gitSnapshot) listMigrations(directory string) ([]string, error) {
 }
 
 func isMigrationFile(filePath string) bool {
+	if filePath == goMigrationRegistryPath {
+		return false
+	}
 	extension := path.Ext(filePath)
 	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(filePath, "_test.go")
 }

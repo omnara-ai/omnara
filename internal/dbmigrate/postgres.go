@@ -3,7 +3,6 @@ package dbmigrate
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io/fs"
 	"time"
@@ -11,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	schemamigrations "github.com/omnara-ai/omnara/migrations"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 )
@@ -23,10 +21,6 @@ const (
 	defaultLockTimeout      = "30s"
 	defaultStatementTimeout = "15min"
 	migrationUnlockTimeout  = 5 * time.Second
-
-	agentConfigNameMigrationFile    = schemamigrations.AgentConfigNameMigrationFile
-	agentConfigNameMigrationVersion = schemamigrations.AgentConfigNameMigrationVersion
-	resourceNameMigrationVersion    = 25
 )
 
 // RunPostgres applies migrations over a direct connection; transaction poolers
@@ -36,6 +30,7 @@ func RunPostgres(
 	databaseURL string,
 	migrations fs.FS,
 	timeout time.Duration,
+	goMigrations ...*goose.Migration,
 ) error {
 	if timeout <= 0 {
 		return fmt.Errorf("migration timeout must be positive")
@@ -49,7 +44,7 @@ func RunPostgres(
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := ApplyPostgres(migrationCtx, db, migrations); err != nil {
+	if err := ApplyPostgres(migrationCtx, db, migrations, goMigrations...); err != nil {
 		return fmt.Errorf("run PostgreSQL migrations with %s timeout: %w", timeout, err)
 	}
 	return nil
@@ -87,6 +82,7 @@ func ApplyPostgres(
 	ctx context.Context,
 	db *sql.DB,
 	migrations fs.FS,
+	goMigrations ...*goose.Migration,
 ) error {
 	if err := requirePostgresCapabilities(ctx, db); err != nil {
 		return err
@@ -102,25 +98,13 @@ func ApplyPostgres(
 		delegate: locker,
 		timeout:  migrationUnlockTimeout,
 	}
-	providerOptions := []goose.ProviderOption{
-		goose.WithSessionLocker(boundedLocker),
-		goose.WithDisableGlobalRegistry(true),
-	}
-	registerAgentConfigNames, err := shouldRegisterAgentConfigNameMigration(migrations)
-	if err != nil {
-		return err
-	}
-	if registerAgentConfigNames {
-		providerOptions = append(
-			providerOptions,
-			goose.WithGoMigrations(schemamigrations.NewAgentConfigNameMigration()),
-		)
-	}
 	provider, err := goose.NewProvider(
 		goose.DialectPostgres,
 		db,
 		migrations,
-		providerOptions...,
+		goose.WithSessionLocker(boundedLocker),
+		goose.WithDisableGlobalRegistry(true),
+		goose.WithGoMigrations(goMigrations...),
 	)
 	if err != nil {
 		return fmt.Errorf("create PostgreSQL migration provider: %w", err)
@@ -131,13 +115,6 @@ func ApplyPostgres(
 	}
 	if current > target {
 		return newerDatabaseVersionError(current, target)
-	}
-	if err := validateAgentConfigNameMigrationPresence(
-		registerAgentConfigNames,
-		current,
-		target,
-	); err != nil {
-		return err
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("apply PostgreSQL migrations: %w", err)
@@ -159,33 +136,8 @@ func ApplyPostgres(
 	return nil
 }
 
-func shouldRegisterAgentConfigNameMigration(migrations fs.FS) (bool, error) {
-	info, err := fs.Stat(migrations, agentConfigNameMigrationFile)
-	if err == nil {
-		if !info.Mode().IsRegular() {
-			return false, fmt.Errorf("%s must be a regular file", agentConfigNameMigrationFile)
-		}
-		return true, nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("locate agent config name migration: %w", err)
-	}
-	return false, nil
-}
-
-func validateAgentConfigNameMigrationPresence(present bool, current, target int64) error {
-	if !present && current < agentConfigNameMigrationVersion && target >= resourceNameMigrationVersion {
-		return fmt.Errorf(
-			"PostgreSQL migration target %d requires missing %s",
-			target,
-			agentConfigNameMigrationFile,
-		)
-	}
-	return nil
-}
-
 // Goose removes cancellation before SessionUnlock; restore a deadline so cleanup cannot hang.
-// See https://github.com/pressly/goose/blob/v3.27.2/provider_run.go#L300-L306.
+// See https://github.com/pressly/goose/blob/v3.27.3/provider_run.go#L300-L306.
 type deadlineSessionLocker struct {
 	delegate lock.SessionLocker
 	timeout  time.Duration

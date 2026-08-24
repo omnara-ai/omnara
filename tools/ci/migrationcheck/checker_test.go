@@ -47,6 +47,13 @@ func TestCheckSnapshotRejectsInvalidMigrationTrees(t *testing.T) {
 			want: "does not use NNNNNN_name.sql",
 		},
 		{
+			name: "unversioned server Go helper",
+			mutate: func(source memorySnapshot) {
+				source["migrations/helper.go"] = []byte("helper")
+			},
+			want: "does not use NNNNNN_name.go",
+		},
+		{
 			name: "noncanonical daemon filename",
 			mutate: func(source memorySnapshot) {
 				delete(source, "internal/machinedaemon/statedb/migrations/000001_initial.sql")
@@ -74,8 +81,9 @@ func TestCheckSnapshotAcceptsServerGoMigration(t *testing.T) {
 	}
 }
 
-func TestCheckSnapshotIgnoresGoMigrationTests(t *testing.T) {
+func TestCheckSnapshotIgnoresGoSupportFiles(t *testing.T) {
 	source := validMemorySnapshot()
+	source[goMigrationRegistryPath] = []byte("Go migration registry")
 	source["migrations/000001_initial_test.go"] = []byte("migration tests")
 	source["internal/machinedaemon/statedb/migrations/000001_initial_test.go"] = []byte("migration tests")
 	if err := checkSnapshot(source); err != nil {

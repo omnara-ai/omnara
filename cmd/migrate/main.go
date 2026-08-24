@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 func main() {
@@ -33,6 +34,7 @@ func main() {
 		cfg.DatabaseURL,
 		os.DirFS(cfg.MigrationsDir),
 		cfg.MigrationTimeout,
+		schemamigrations.GoMigrations()...,
 	); err != nil {
 		logger.Error("apply migrations", "error", err)
 		os.Exit(1)

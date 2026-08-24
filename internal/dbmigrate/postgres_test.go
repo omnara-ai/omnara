@@ -17,69 +17,6 @@ func TestRunPostgresRequiresPositiveTimeout(t *testing.T) {
 	}
 }
 
-func TestAgentConfigNameMigrationRegistrationFailsClosed(t *testing.T) {
-	tests := []struct {
-		name         string
-		migrations   fstest.MapFS
-		wantRegister bool
-	}{
-		{
-			name: "migration present",
-			migrations: fstest.MapFS{
-				agentConfigNameMigrationFile: &fstest.MapFile{},
-			},
-			wantRegister: true,
-		},
-		{
-			name: "truncated migration set",
-			migrations: fstest.MapFS{
-				"000025_resource_name_lengths.sql": &fstest.MapFile{},
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := shouldRegisterAgentConfigNameMigration(test.migrations)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != test.wantRegister {
-				t.Fatalf("register migration = %t, want %t", got, test.wantRegister)
-			}
-		})
-	}
-}
-
-func TestAgentConfigNameMigrationPresenceFailsClosed(t *testing.T) {
-	tests := []struct {
-		name    string
-		present bool
-		current int64
-		target  int64
-		wantErr bool
-	}{
-		{name: "present", present: true, current: 25, target: 26},
-		{name: "truncated set", current: 20, target: 24},
-		{name: "already applied", current: 26, target: 27},
-		{name: "missing before target", current: 24, target: 25, wantErr: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := validateAgentConfigNameMigrationPresence(
-				test.present,
-				test.current,
-				test.target,
-			)
-			if (err != nil) != test.wantErr {
-				t.Fatalf("presence error = %v, want error %t", err, test.wantErr)
-			}
-			if err != nil && !strings.Contains(err.Error(), agentConfigNameMigrationFile) {
-				t.Fatalf("presence error = %v, want required migration filename", err)
-			}
-		})
-	}
-}
-
 func TestValidatePostgresVersion(t *testing.T) {
 	if err := validatePostgresVersion(180000); err != nil {
 		t.Fatalf("validate PostgreSQL 18: %v", err)
