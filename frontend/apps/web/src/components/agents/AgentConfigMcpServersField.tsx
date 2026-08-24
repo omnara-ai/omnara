@@ -1,14 +1,24 @@
-import type { ToolPermissionProfile } from '@omnara/sdk'
+import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
+import { useState } from 'react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
+import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
+  defaultMcpSecretName,
+  isMcpOAuthLoginUrl,
+  useMcpOAuthLogin,
+} from '@/components/agents/mcpOAuthLogin'
+import { savePendingMcpBuilderOAuth } from '@/components/agents/pendingMcpBuilderOAuth'
+import {
+  type BasicConfig,
   type BasicMcpServer,
   type McpAuthType,
   mcpServerNameError,
   mcpServerNameMaxLength,
 } from '@/components/agents/useAgentBuilderForm'
-import { PlusIcon, Trash2Icon } from '@/components/icons'
+import { KeyRound, PlusIcon, Trash2Icon } from '@/components/icons'
+import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
 import { Button } from '@/components/ui/button'
 import {
   Field,
@@ -25,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { errorMessage } from '@/lib/submit-status'
 
 const awsSigningFields = [
   { key: 'service', label: 'Signing service' },
@@ -58,12 +69,16 @@ export function AgentConfigMcpServersField({
   permissionProfile,
   servers,
   onServersChange,
+  builderDraft,
+  agentName = null,
 }: {
   orgId: string
   projectId: string
   permissionProfile?: ToolPermissionProfile
   servers: BasicMcpServer[]
   onServersChange: (servers: BasicMcpServer[]) => void
+  builderDraft: BasicConfig
+  agentName?: string | null
 }) {
   function updateServer(id: string, patch: Partial<BasicMcpServer>) {
     onServersChange(servers.map((server) => (server.id === id ? { ...server, ...patch } : server)))
@@ -222,28 +237,23 @@ export function AgentConfigMcpServersField({
                     </Select>
                   </Field>
                   {server.authType !== 'none' && (
-                    <Field>
-                      <RequiredFieldLabel htmlFor={`${server.id}-secret`}>
-                        Secret
-                      </RequiredFieldLabel>
-                      <AgentConfigMcpSecretCombobox
-                        id={`${server.id}-secret`}
-                        required
-                        orgId={orgId}
-                        projectId={projectId}
-                        server={server}
-                        onChange={(secretId) => {
-                          updateServer(server.id, { secretId })
-                        }}
-                      />
-                      <FieldDescription>
-                        {server.authType === 'oauth'
-                          ? 'OAuth token sets whose MCP URL matches this server URL.'
-                          : server.authType === 'sigv4'
-                            ? 'AWS credentials visible to this project.'
-                            : 'Any generic secret visible to this project.'}
-                      </FieldDescription>
-                    </Field>
+                    <McpServerSecretField
+                      key={server.authType}
+                      orgId={orgId}
+                      projectId={projectId}
+                      server={server}
+                      onSecretChange={(secretId) => {
+                        updateServer(server.id, { secretId })
+                      }}
+                      onBeforeOAuthRedirect={() => {
+                        savePendingMcpBuilderOAuth({
+                          returnPath: window.location.pathname,
+                          serverId: server.id,
+                          agentName,
+                          draft: builderDraft,
+                        })
+                      }}
+                    />
                   )}
                   {server.authType === 'sigv4' &&
                     awsSigningFields.map((field) => (
@@ -279,7 +289,99 @@ export function AgentConfigMcpServersField({
           })}
         </div>
       ) : null}
+      <McpOAuthOutcomeDialog />
     </AgentConfigSectionCard>
+  )
+}
+
+function McpServerSecretField({
+  orgId,
+  projectId,
+  server,
+  onSecretChange,
+  onBeforeOAuthRedirect,
+}: {
+  orgId: string
+  projectId: string
+  server: BasicMcpServer
+  onSecretChange: (secretId: string) => void
+  onBeforeOAuthRedirect: () => void
+}) {
+  const login = useMcpOAuthLogin({
+    orgId,
+    projectId,
+    server,
+    onBeforeRedirect: onBeforeOAuthRedirect,
+  })
+  const [dialog, setDialog] = useState<{ error: string } | null>(null)
+  const [createdSecret, setCreatedSecret] = useState<Secret>()
+  const mcpUrl = server.url.trim()
+  const addSecret = {
+    label: server.authType === 'oauth' ? 'Add secret (advanced)' : 'Add secret',
+    icon: <PlusIcon className="size-4 shrink-0" />,
+    onSelect: () => {
+      setDialog({ error: '' })
+    },
+  }
+  const actions =
+    server.authType === 'oauth'
+      ? [
+          {
+            label: `Login to ${mcpUrl || 'MCP server'}`,
+            icon: <KeyRound className="size-4 shrink-0" />,
+            disabled: !isMcpOAuthLoginUrl(mcpUrl) || login.pending,
+            onSelect: () => {
+              login.start({ name: defaultMcpSecretName(server) }).catch((error: unknown) => {
+                setDialog({ error: errorMessage(error, 'Could not start login') })
+              })
+            },
+          },
+          addSecret,
+        ]
+      : server.authType === 'bearer'
+        ? [addSecret]
+        : []
+
+  return (
+    <Field>
+      <RequiredFieldLabel htmlFor={`${server.id}-secret`}>Secret</RequiredFieldLabel>
+      <AgentConfigMcpSecretCombobox
+        id={`${server.id}-secret`}
+        required
+        orgId={orgId}
+        projectId={projectId}
+        server={server}
+        knownSecret={createdSecret}
+        onChange={onSecretChange}
+        actions={actions}
+      />
+      <FieldDescription>
+        {login.pending
+          ? 'Starting login…'
+          : server.authType === 'oauth'
+            ? 'OAuth token sets whose MCP URL matches this server URL.'
+            : server.authType === 'sigv4'
+              ? 'AWS credentials visible to this project.'
+              : 'Any generic secret visible to this project.'}
+      </FieldDescription>
+      {dialog && (
+        <AgentConfigMcpSecretDialog
+          orgId={orgId}
+          projectId={projectId}
+          server={server}
+          initialError={dialog.error}
+          onClose={() => {
+            setDialog(null)
+          }}
+          onCreated={(secret) => {
+            setCreatedSecret(secret)
+            setDialog(null)
+            onSecretChange(secret.id)
+          }}
+          onBeforeOAuthRedirect={onBeforeOAuthRedirect}
+        />
+      )}
+    </Field>
   )
 }
 

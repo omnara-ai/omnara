@@ -21,6 +21,7 @@ import {
   AgentSidebarToggle,
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
+import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -55,7 +56,7 @@ export function AgentView() {
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
-  const [configOpen, setConfigOpen] = useState(false)
+  const [configOpen, setConfigOpen] = useState(hasPendingMcpBuilderOAuthOutcome)
   const configDirty = useRef(false)
   const canSendNow = canOperate && interactions.data?.data.length === 0
 

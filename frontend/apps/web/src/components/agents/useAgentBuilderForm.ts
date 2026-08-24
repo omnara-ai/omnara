@@ -132,6 +132,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
   }
 
   return {
+    draft,
     yaml: session.apply(draft),
     blocked,
     reset: (config: BasicConfig | null) => {

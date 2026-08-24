@@ -25,6 +25,7 @@ import {
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
+import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import {
   type BasicConfig,
@@ -80,8 +81,9 @@ export function CreateAgentFormView({
     agentConfigModeReducer,
     initialAgentConfigModeState('builder'),
   )
+  const [restored] = useState(takeMcpBuilderOAuthRestore)
   const [draft, setDraft] = useState<CreateAgentDraft>(() => ({
-    name: initialTemplate?.name ?? '',
+    name: restored?.agentName ?? initialTemplate?.name ?? '',
     status: idle,
   }))
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
@@ -89,9 +91,10 @@ export function CreateAgentFormView({
   const [session, setSession] = useState(() => createBasicConfigSession(''))
   const form = useAgentBuilderForm(
     session,
-    initialTemplate
-      ? templateBasicConfig(initialTemplate)
-      : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) },
+    restored?.draft ??
+      (initialTemplate
+        ? templateBasicConfig(initialTemplate)
+        : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) }),
   )
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
@@ -266,7 +269,12 @@ export function CreateAgentFormView({
               )}
             </div>
             <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
-              <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
+              <AgentConfigBasicForm
+                orgId={activeOrg.id}
+                projectId={projectId}
+                form={form}
+                agentName={draft.name}
+              />
             </div>
             {!showBuilder && (
               <AgentConfigYamlField

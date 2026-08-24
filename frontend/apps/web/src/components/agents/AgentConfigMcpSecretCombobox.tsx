@@ -1,5 +1,6 @@
 import { useProjectAvailableSecret, useProjectAvailableSecrets } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
+import type { ReactNode } from 'react'
 
 import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
@@ -19,6 +20,8 @@ export function AgentConfigMcpSecretCombobox({
   projectId,
   server,
   onChange,
+  actions = [],
+  knownSecret,
 }: {
   id?: string
   required?: boolean
@@ -26,6 +29,8 @@ export function AgentConfigMcpSecretCombobox({
   projectId: string
   server: BasicMcpServer
   onChange: (secretId: string) => void
+  actions?: { label: string; icon: ReactNode; onSelect: () => void; disabled?: boolean }[]
+  knownSecret?: Secret
 }) {
   const search = useTypeaheadSearch()
   const oauth = server.authType === 'oauth'
@@ -34,23 +39,30 @@ export function AgentConfigMcpSecretCombobox({
     : server.authType === 'sigv4'
       ? 'aws_credentials'
       : 'generic'
+  const mcpUrl = server.url.trim()
+  const matchesServer = (secret: Secret) =>
+    secret.kind === secretKind && (!oauth || secret.metadata.mcp_url === mcpUrl)
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
     filters: {
       ...search.filters,
       kind: secretKind,
-      ...(oauth ? { metadata: { mcp_url: server.url.trim() } } : {}),
+      ...(oauth ? { metadata: { mcp_url: mcpUrl } } : {}),
     },
     sort: 'name',
     pageSize: 25,
   })
-  const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
+  const listedSecrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
+  const secrets =
+    knownSecret &&
+    matchesServer(knownSecret) &&
+    !listedSecrets.some((secret) => secret.id === knownSecret.id)
+      ? [knownSecret, ...listedSecrets]
+      : listedSecrets
   const selectedSecretQuery = useProjectAvailableSecret(orgId, projectId, server.secretId)
   const resolvedSecret = selectedSecretQuery.data?.secret
   const selectedSecret =
     secrets.find((secret) => secret.id === server.secretId) ??
-    (resolvedSecret?.id === server.secretId &&
-    resolvedSecret.kind === secretKind &&
-    (!oauth || resolvedSecret.metadata.mcp_url === server.url.trim())
+    (resolvedSecret?.id === server.secretId && matchesServer(resolvedSecret)
       ? resolvedSecret
       : null)
 
@@ -72,6 +84,24 @@ export function AgentConfigMcpSecretCombobox({
           : server.authType === 'sigv4'
             ? 'No AWS credentials in this project.'
             : 'No generic secrets in this project.'
+      }
+      action={
+        actions.length > 0 && (
+          <>
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                disabled={action.disabled}
+                className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none disabled:opacity-50"
+                onClick={action.onSelect}
+              >
+                {action.icon}
+                <span className="truncate">{action.label}</span>
+              </button>
+            ))}
+          </>
+        )
       }
     />
   )
