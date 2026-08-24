@@ -178,7 +178,7 @@ func TestDefaultModelProviderProvisioningDoesNotClaimConfiguredSecretName(t *tes
 	if err != nil {
 		t.Fatalf("get default provider credential: %v", err)
 	}
-	if !strings.HasPrefix(credential.Name, strings.Repeat("界", 27)+"-") ||
+	if !strings.HasPrefix(credential.Name, strings.Repeat("界", 41)+"-") ||
 		len([]rune(credential.Name)) != 64 {
 		t.Fatalf("credential name = %q, want generated suffix", credential.Name)
 	}

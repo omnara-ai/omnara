@@ -2,6 +2,7 @@ package orglifecycle
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -229,7 +230,7 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 }
 
 func defaultModelProviderCredentialName(base string, id uuid.UUID) string {
-	suffix := "-" + id.String()
+	suffix := "-" + base64.RawURLEncoding.EncodeToString(id[:])
 	prefixRunes := []rune(base)
 	maximumPrefix := resourcename.MaxCodePoints - len([]rune(suffix))
 	prefix := strings.TrimRight(string(prefixRunes[:min(len(prefixRunes), maximumPrefix)]), " ")
