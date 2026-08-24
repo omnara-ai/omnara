@@ -51,25 +51,23 @@ $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION resource_name_is_valid_v1(candidate text, allow_empty boolean) RETURNS boolean
+CREATE FUNCTION resource_name_is_valid_v1(candidate text) RETURNS boolean
 LANGUAGE sql IMMUTABLE
-BEGIN ATOMIC
-    SELECT candidate IS NOT NULL
-        AND (allow_empty OR candidate <> '')
-        AND candidate IS NFC NORMALIZED
-        AND char_length(candidate) <= 64
-        AND candidate = btrim(candidate, ' ')
-        AND NOT EXISTS (
-            SELECT 1
-            FROM generate_series(
-                1,
-                least(char_length(candidate), 64)
-            ) AS positions(position)
-            WHERE resource_name_codepoint_is_forbidden_v1(
-                ascii(substr(candidate, positions.position, 1))
-            )
-        );
-END;
+RETURN candidate IS NOT NULL
+    AND candidate <> ''
+    AND candidate IS NFC NORMALIZED
+    AND char_length(candidate) <= 64
+    AND candidate = btrim(candidate, ' ')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM generate_series(
+            1,
+            least(char_length(candidate), 64)
+        ) AS positions(position)
+        WHERE resource_name_codepoint_is_forbidden_v1(
+            ascii(substr(candidate, positions.position, 1))
+        )
+    );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -89,96 +87,56 @@ $$ LANGUAGE sql IMMUTABLE;
 UPDATE orgs
 SET name = resource_name_repair(name)
 WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE projects
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE personal_access_tokens
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE auth_device_flows
-SET client_name = resource_name_repair(client_name)
-WHERE client_name IS DISTINCT FROM resource_name_repair(client_name)
-  AND resource_name_is_valid_v1(resource_name_repair(client_name), false);
-
-UPDATE auth_device_flows
-SET token_name = resource_name_repair(token_name)
-WHERE token_name IS DISTINCT FROM resource_name_repair(token_name)
-  AND resource_name_is_valid_v1(resource_name_repair(token_name), false);
-
-UPDATE org_api_keys
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE secrets
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE model_provider_configs
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE configured_models
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE agent_profiles
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
+  AND resource_name_is_valid_v1(resource_name_repair(name));
 
 UPDATE agents
 SET name = resource_name_repair(name)
 WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), true);
-
-UPDATE machine_pools
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE machines
-SET display_name = resource_name_repair(display_name)
-WHERE display_name IS DISTINCT FROM resource_name_repair(display_name)
-  AND resource_name_is_valid_v1(resource_name_repair(display_name), false);
-
-UPDATE machine_daemon_tokens
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
-
-UPDATE cron_triggers
-SET name = resource_name_repair(name)
-WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_is_valid_v1(resource_name_repair(name), false);
+  AND (
+      resource_name_repair(name) = ''
+      OR resource_name_is_valid_v1(resource_name_repair(name))
+  );
 
 DROP FUNCTION resource_name_repair(text);
 
-ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE personal_access_tokens ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_is_valid_v1(client_name, false));
-ALTER TABLE auth_device_flows ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_is_valid_v1(token_name, false));
-ALTER TABLE org_api_keys ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE secrets ADD CONSTRAINT secrets_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE model_provider_configs ADD CONSTRAINT model_provider_configs_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE configured_models ADD CONSTRAINT configured_models_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE agent_profiles ADD CONSTRAINT agent_profiles_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (resource_name_is_valid_v1(name, true));
-ALTER TABLE machine_pools ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE machines ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_is_valid_v1(display_name, false));
-ALTER TABLE machines ALTER COLUMN display_name DROP DEFAULT;
-ALTER TABLE machine_daemon_tokens ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_is_valid_v1(name, false));
-ALTER TABLE cron_triggers ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_is_valid_v1(name, false));
+ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE personal_access_tokens
+    DROP CONSTRAINT personal_access_tokens_name_check,
+    ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE auth_device_flows
+    DROP CONSTRAINT auth_device_flows_client_name_check,
+    DROP CONSTRAINT auth_device_flows_token_name_check,
+    ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_is_valid_v1(client_name)),
+    ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_is_valid_v1(token_name));
+ALTER TABLE org_api_keys
+    DROP CONSTRAINT org_api_keys_name_check,
+    ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE secrets
+    DROP CONSTRAINT secrets_name_check,
+    ADD CONSTRAINT secrets_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE model_provider_configs
+    DROP CONSTRAINT model_provider_configs_name_check,
+    ADD CONSTRAINT model_provider_configs_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE configured_models
+    DROP CONSTRAINT configured_models_name_check,
+    ADD CONSTRAINT configured_models_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE agent_profiles
+    DROP CONSTRAINT agent_profiles_name_check,
+    ADD CONSTRAINT agent_profiles_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (name = '' OR resource_name_is_valid_v1(name));
+ALTER TABLE machine_pools
+    DROP CONSTRAINT machine_pools_name_check,
+    ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE machines
+    ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_is_valid_v1(display_name)),
+    ALTER COLUMN display_name DROP DEFAULT;
+ALTER TABLE machine_daemon_tokens
+    DROP CONSTRAINT machine_daemon_tokens_name_check,
+    ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_is_valid_v1(name));
+ALTER TABLE cron_triggers
+    DROP CONSTRAINT cron_triggers_name_check,
+    ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_is_valid_v1(name));
 
 -- +goose StatementBegin
 CREATE FUNCTION skill_name_is_valid_v1(candidate text) RETURNS boolean AS $$
@@ -188,4 +146,6 @@ CREATE FUNCTION skill_name_is_valid_v1(candidate text) RETURNS boolean AS $$
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 
-ALTER TABLE skills ADD CONSTRAINT skills_name_policy CHECK (skill_name_is_valid_v1(name));
+ALTER TABLE skills
+    DROP CONSTRAINT skills_name_check,
+    ADD CONSTRAINT skills_name_policy CHECK (skill_name_is_valid_v1(name));

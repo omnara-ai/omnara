@@ -105,11 +105,9 @@ ORDER BY codepoint
 	}
 
 	tests := []struct {
-		value      string
-		allowEmpty bool
+		value string
 	}{
 		{value: ""},
-		{value: "", allowEmpty: true},
 		{value: "Studio  54"},
 		{value: "Café"},
 		{value: "Cafe\u0301"},
@@ -125,26 +123,20 @@ ORDER BY codepoint
 		{value: "Acme\u202eLabs"},
 	}
 	for _, test := range tests {
-		canonicalize := resourcename.CanonicalizeRequired
-		if test.allowEmpty {
-			canonicalize = resourcename.CanonicalizeAllowEmpty
-		}
-		normalized, validationErr := canonicalize("name", test.value)
-		want := (test.allowEmpty || test.value != "") && validationErr == nil && normalized == test.value
+		normalized, validationErr := resourcename.CanonicalizeRequired("name", test.value)
+		want := validationErr == nil && normalized == test.value
 		var got bool
 		if err := pool.QueryRow(
 			ctx,
-			`SELECT resource_name_is_valid_v1($1, $2)`,
+			`SELECT resource_name_is_valid_v1($1)`,
 			test.value,
-			test.allowEmpty,
 		).Scan(&got); err != nil {
 			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
 		}
 		if got != want {
 			t.Errorf(
-				"PostgreSQL resource-name validity for %q (allow_empty=%t) = %t, want %t",
+				"PostgreSQL resource-name validity for %q = %t, want %t",
 				test.value,
-				test.allowEmpty,
 				got,
 				want,
 			)
@@ -153,7 +145,7 @@ ORDER BY codepoint
 	var maxValid, overMaxValid bool
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT resource_name_is_valid_v1($1, false), resource_name_is_valid_v1($2, false)`,
+		`SELECT resource_name_is_valid_v1($1), resource_name_is_valid_v1($2)`,
 		strings.Repeat("x", resourcename.MaxCodePoints),
 		strings.Repeat("x", resourcename.MaxCodePoints+1),
 	).Scan(&maxValid, &overMaxValid); err != nil {
