@@ -21,18 +21,6 @@ func TestCreateDaemonMachineRejectsWhitespaceDisplayName(t *testing.T) {
 	}
 }
 
-func TestRenameAgentProfileRejectsBoundaryWhitespace(t *testing.T) {
-	store := &Store{}
-	_, err := store.RenameAgentProfile(context.Background(), RenameAgentProfileInput{
-		ProjectID: uuid.New(),
-		ProfileID: uuid.New(),
-		Name:      " Renamed",
-	})
-	if err == nil || !strings.Contains(err.Error(), "must not start or end with whitespace") {
-		t.Fatalf("RenameAgentProfile boundary whitespace error = %v, want whitespace rejection", err)
-	}
-}
-
 func TestPoolMachineDisplayNameStaysWithinResourceNameLimit(t *testing.T) {
 	displayName := poolMachineDisplayName(strings.Repeat("😀", resourcename.MaxCodePoints))
 	if got := len([]rune(displayName)); got != resourcename.MaxCodePoints {

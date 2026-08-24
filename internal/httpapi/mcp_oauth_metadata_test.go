@@ -14,7 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-func TestStartMCPOAuthRejectsInvalidSecretNameBeforeStartingFlow(t *testing.T) {
+func TestStartMCPOAuthRejectsInvalidProspectiveSecretName(t *testing.T) {
 	server := strictOpenAPIServer{server: &Server{}}
 	_, apiErr, err := server.startMCPOAuth(
 		context.Background(),

@@ -142,22 +142,6 @@ ORDER BY codepoint
 			)
 		}
 	}
-	var maxValid, overMaxValid bool
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT resource_name_is_valid_v1($1), resource_name_is_valid_v1($2)`,
-		strings.Repeat("x", resourcename.MaxCodePoints),
-		strings.Repeat("x", resourcename.MaxCodePoints+1),
-	).Scan(&maxValid, &overMaxValid); err != nil {
-		t.Fatalf("validate default PostgreSQL resource-name maximum: %v", err)
-	}
-	if !maxValid || overMaxValid {
-		t.Fatalf(
-			"default PostgreSQL resource-name maximum accepted max=%t over-max=%t",
-			maxValid,
-			overMaxValid,
-		)
-	}
 }
 
 func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {

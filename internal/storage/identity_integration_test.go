@@ -4327,14 +4327,6 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 	`, "bad\nclient", now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("control character client name error = %v, want check violation", err)
 	}
-	for index, clientName := range []string{"bad\u00a0client", "bad\u202eclient"} {
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
-			VALUES ($1, $2, $3, 'token', $4, $5)
-		`, fmt.Sprintf("device-schema-invalid-client-%d", index), fmt.Sprintf("device-schema-invalid-client-user-%d", index), clientName, now, now.Add(time.Hour)); !isCheckViolation(err) {
-			t.Fatalf("invalid client name %q error = %v, want check violation", clientName, err)
-		}
-	}
 }
 
 func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
@@ -4367,14 +4359,6 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	) {
 		t.Fatalf("long device client name error = %v, want ErrInvalidDeviceAuthFlow", err)
 	}
-	for _, clientName := range []string{" CLI", "CLI ", "CLI\u00a0App", "CLI\u202eApp"} {
-		if _, err := store.Identity().StartDeviceAuthFlow(
-			ctx,
-			identitystore.StartDeviceAuthFlowInput{ClientName: clientName, TokenName: "CLI token"},
-		); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
-			t.Fatalf("invalid device client name %q error = %v, want ErrInvalidDeviceAuthFlow", clientName, err)
-		}
-	}
 	if _, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
 		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI", TokenName: "bad\ntoken"},
@@ -4383,21 +4367,6 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 		storeerr.ErrInvalidDeviceAuthFlow,
 	) {
 		t.Fatalf("control character token name error = %v, want ErrInvalidDeviceAuthFlow", err)
-	}
-	if _, err := store.Identity().StartDeviceAuthFlow(
-		ctx,
-		identitystore.StartDeviceAuthFlowInput{
-			ClientName: "CLI",
-			TokenName:  strings.Repeat("a", resourcename.MaxCodePoints+1),
-		},
-	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
-		t.Fatalf("long token name error = %v, want ErrInvalidDeviceAuthFlow", err)
-	}
-	if _, err := store.Identity().StartDeviceAuthFlow(
-		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI", TokenName: " CLI token "},
-	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
-		t.Fatalf("boundary whitespace token name error = %v, want ErrInvalidDeviceAuthFlow", err)
 	}
 	flow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,

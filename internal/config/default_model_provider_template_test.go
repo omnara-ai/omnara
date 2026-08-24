@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -220,60 +221,49 @@ models:
 
 func TestLoadDefaultModelProviderTemplateRejectsBoundaryWhitespaceNames(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
-		want string
+		name           string
+		providerName   string
+		credentialName string
+		modelName      string
+		want           string
 	}{
 		{
-			name: "provider config name",
-			body: `
-provisioner: openrouter
-name: " omnara-openrouter"
-credential_secret_name: omnara-openrouter-key
-api_format: openai-chat-completions
-base_url: https://openrouter.ai/api/v1
-models:
-  - name: glm-4.6
-    provider_model_slug: z-ai/glm-4.6
-    context_window_tokens: 128000
-`,
-			want: "model provider config name must not start or end with whitespace",
+			name:           "provider config name",
+			providerName:   " omnara-openrouter",
+			credentialName: "omnara-openrouter-key",
+			modelName:      "glm-4.6",
+			want:           "model provider config name must not start or end with whitespace",
 		},
 		{
-			name: "credential secret name",
-			body: `
-provisioner: openrouter
-name: omnara-openrouter
-credential_secret_name: "omnara-openrouter-key "
-api_format: openai-chat-completions
-base_url: https://openrouter.ai/api/v1
-models:
-  - name: glm-4.6
-    provider_model_slug: z-ai/glm-4.6
-    context_window_tokens: 128000
-`,
-			want: "credential secret name must not start or end with whitespace",
+			name:           "credential secret name",
+			providerName:   "omnara-openrouter",
+			credentialName: "omnara-openrouter-key ",
+			modelName:      "glm-4.6",
+			want:           "credential secret name must not start or end with whitespace",
 		},
 		{
-			name: "configured model name",
-			body: `
-provisioner: openrouter
-name: omnara-openrouter
-credential_secret_name: omnara-openrouter-key
-api_format: openai-chat-completions
-base_url: https://openrouter.ai/api/v1
-models:
-  - name: " glm-4.6"
-    provider_model_slug: z-ai/glm-4.6
-    context_window_tokens: 128000
-`,
-			want: "configured model name must not start or end with whitespace",
+			name:           "configured model name",
+			providerName:   "omnara-openrouter",
+			credentialName: "omnara-openrouter-key",
+			modelName:      " glm-4.6",
+			want:           "configured model name must not start or end with whitespace",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := writeDefaultModelProviderTemplateTestFile(t, tt.body)
+			body := fmt.Sprintf(`
+provisioner: openrouter
+name: %q
+credential_secret_name: %q
+api_format: openai-chat-completions
+base_url: https://openrouter.ai/api/v1
+models:
+  - name: %q
+    provider_model_slug: z-ai/glm-4.6
+    context_window_tokens: 128000
+`, tt.providerName, tt.credentialName, tt.modelName)
+			path := writeDefaultModelProviderTemplateTestFile(t, body)
 			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 			t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
 			_, err := Load()
