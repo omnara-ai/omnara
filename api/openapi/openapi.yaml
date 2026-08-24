@@ -6527,12 +6527,12 @@ components:
       type: string
       minLength: 1
       maxLength: 64
-      x-unicode-normalization: NFC
+      x-omnara-unicode-normalization: NFC
       description: Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
     AgentName:
       type: string
       maxLength: 64
-      x-unicode-normalization: NFC
+      x-omnara-unicode-normalization: NFC
       description: Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
     SkillName:
       type: string

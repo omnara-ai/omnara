@@ -22,7 +22,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const openAPIUnicodeNormalizationExtension = "x-unicode-normalization"
+const openAPIUnicodeNormalizationExtension = "x-omnara-unicode-normalization"
 
 func newOpenAPIRequestValidator() (middleware, error) {
 	openapi3.SchemaErrorDetailsDisabled = true
