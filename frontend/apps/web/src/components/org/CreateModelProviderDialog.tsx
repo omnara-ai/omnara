@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { resourceNameInputMaxLength } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
@@ -185,7 +184,6 @@ export function CreateModelProviderDialog({
                     <Input
                       id="mp-name"
                       required
-                      maxLength={resourceNameInputMaxLength}
                       value={values.name}
                       placeholder={`Production ${provider.label}`}
                       onChange={(event) => {

@@ -18,17 +18,6 @@ func CanonicalizeAllowEmpty(field, value string) (string, error) {
 	return canonicalize(field, value, false)
 }
 
-func ValidateCanonicalRequired(field, value string) error {
-	canonical, err := CanonicalizeRequired(field, value)
-	if err != nil {
-		return err
-	}
-	if canonical != value {
-		return fmt.Errorf("%s must use Unicode NFC normalization", field)
-	}
-	return nil
-}
-
 func canonicalize(field, value string, required bool) (string, error) {
 	if !utf8.ValidString(value) {
 		return "", fmt.Errorf("%s must be valid UTF-8", field)

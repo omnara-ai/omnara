@@ -13,7 +13,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 function optionalNumber(value: string) {
@@ -80,7 +80,6 @@ export function EditConfiguredModelDialog({
                 <Field>
                   <FieldLabel>Name</FieldLabel>
                   <Input
-                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)

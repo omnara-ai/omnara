@@ -175,6 +175,9 @@ migration-fix:
 
 migration-check:
 	$(GOOSE) -env=none -dir internal/machinedaemon/statedb/migrations validate
+	@for migration in migrations/*.sql; do \
+		$(GOOSE) -env=none -dir "$$migration" validate || exit $$?; \
+	done
 	@for dir in $(MIGRATION_DIRS); do \
 		if down_annotations="$$(grep -niE '^[[:space:]]*--.*[+]goose.*down.*$$' "$$dir"/*.sql)"; then \
 			printf '%s\n' "$$down_annotations"; \

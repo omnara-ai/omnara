@@ -2,9 +2,6 @@ import { zResourceName } from '@omnara/sdk/zod'
 
 export const resourceNameMaxCodePoints = 64
 
-// HTML maxlength counts UTF-16 code units, so allow two per code point.
-export const resourceNameInputMaxLength = 2 * resourceNameMaxCodePoints
-
 export function normalizeResourceName(value: string) {
   return value.normalize('NFC')
 }

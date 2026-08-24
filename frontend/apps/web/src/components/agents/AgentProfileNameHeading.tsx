@@ -6,7 +6,7 @@ import { CheckIcon, PencilIcon, XIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 
 export function AgentProfileNameHeading({
   orgId,
@@ -58,7 +58,6 @@ export function AgentProfileNameHeading({
               // eslint-disable-next-line jsx-a11y/no-autofocus -- focus follows the user's explicit edit action
               autoFocus
               aria-label="Profile name"
-              maxLength={resourceNameInputMaxLength}
               required
               value={nameDraft}
               className="border-border focus-visible:border-border -mx-1 h-auto w-96 rounded-none border-0 border-b px-1 py-0 text-2xl font-bold tracking-tight shadow-none focus-visible:ring-0 md:text-2xl dark:bg-transparent"

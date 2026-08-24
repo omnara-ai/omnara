@@ -37,7 +37,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -246,7 +246,6 @@ export function CreateAgentFormView({
                 <Input
                   id="agent-config-name"
                   required
-                  maxLength={resourceNameInputMaxLength}
                   value={draft.name}
                   placeholder="Demo research agent"
                   className={cn(!showBuilder && 'max-w-md')}

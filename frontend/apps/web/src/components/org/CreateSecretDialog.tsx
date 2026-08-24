@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
@@ -140,7 +140,6 @@ export function CreateSecretDialog({
               <Input
                 id="secret-name"
                 required
-                maxLength={resourceNameInputMaxLength}
                 value={state.name}
                 autoComplete="off"
                 placeholder="openai-prod"

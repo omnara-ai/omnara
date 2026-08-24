@@ -97,10 +97,7 @@ func (s *Store) LaunchAgent(
 		}
 		profile = &record
 	}
-	agentName, err := launchAgentName(input.Name, profile)
-	if err != nil {
-		return LaunchAgentResult{}, storeerr.InvalidRequest(err)
-	}
+	agentName := launchAgentName(input.Name, profile)
 	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -338,14 +335,14 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(name *string, profile *AgentProfileRecord) (string, error) {
+func launchAgentName(name *string, profile *AgentProfileRecord) string {
 	if name != nil {
-		return *name, nil
+		return *name
 	}
 	if profile != nil {
-		return resourcename.CanonicalizeRequired("agent name", profile.Name)
+		return profile.Name
 	}
-	return "", nil
+	return ""
 }
 
 func createAgentMCPConnectionsTx(

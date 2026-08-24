@@ -21,7 +21,6 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
-import { resourceNameInputMaxLength } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 import { ConfiguredModelAdvancedFields } from './ConfiguredModelAdvancedFields'
@@ -157,7 +156,6 @@ export function CreateConfiguredModelDialog({
                   <Input
                     id="cm-name"
                     required
-                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     placeholder="gpt-5.5"
                     onChange={(event) => {

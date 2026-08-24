@@ -15,7 +15,7 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const ORG_ROLES = ['member', 'admin'] as const
@@ -82,7 +82,6 @@ export function CreateOrgApiKeyDialog({
                   <Input
                     id="org-api-key-name"
                     required
-                    maxLength={resourceNameInputMaxLength}
                     value={name}
                     placeholder="CI deployments"
                     autoComplete="off"

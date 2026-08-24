@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 export function CredentialSecretField({
@@ -121,7 +121,6 @@ function InlineNewSecretFields({
             <FieldLabel htmlFor="credential-secret-name">Secret name</FieldLabel>
             <Input
               id="credential-secret-name"
-              maxLength={resourceNameInputMaxLength}
               value={name}
               autoComplete="off"
               placeholder="api-key"

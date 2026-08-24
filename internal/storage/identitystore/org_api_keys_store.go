@@ -114,9 +114,6 @@ func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	if input.Name == "" {
 		return "", "", errors.New("org api key name is required")
 	}
-	if err := resourcename.ValidateCanonicalRequired("org api key name", input.Name); err != nil {
-		return "", "", storeerr.InvalidRequest(err)
-	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
 	}

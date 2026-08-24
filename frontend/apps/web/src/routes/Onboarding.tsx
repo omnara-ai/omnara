@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 type OnboardingAction = { kind: 'idle' } | { kind: 'creating' } | { kind: 'error'; message: string }
@@ -95,7 +95,6 @@ export function Onboarding() {
                   <Input
                     id="org-name"
                     required
-                    maxLength={resourceNameInputMaxLength}
                     value={state.name}
                     autoComplete="organization"
                     placeholder="Acme Inc."

@@ -15,7 +15,7 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 /**
@@ -132,7 +132,6 @@ export function ConnectMachineDialog({
                 <Input
                   id="machine-name"
                   required
-                  maxLength={resourceNameInputMaxLength}
                   value={state.name}
                   placeholder="my-macbook"
                   onChange={(event) => {

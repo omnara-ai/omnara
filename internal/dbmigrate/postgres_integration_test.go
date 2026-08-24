@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
@@ -61,7 +62,7 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
-func TestPostgresResourceNamePolicyMatchesGo(t *testing.T) {
+func TestPostgresNamePoliciesMatchGo(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -140,6 +141,25 @@ ORDER BY codepoint
 				got,
 				want,
 			)
+		}
+	}
+
+	skillNames := []string{
+		"deploy",
+		"deploy-api",
+		"Deploy",
+		"deploy_api",
+		"café",
+		strings.Repeat("a", skills.MaxSkillNameChars+1),
+	}
+	for _, name := range skillNames {
+		want := skills.ValidateName(name) == nil
+		var got bool
+		if err := pool.QueryRow(ctx, `SELECT skill_name_is_valid_v1($1)`, name).Scan(&got); err != nil {
+			t.Fatalf("validate skill name %q in PostgreSQL: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("PostgreSQL skill-name validity for %q = %t, want %t", name, got, want)
 		}
 	}
 }

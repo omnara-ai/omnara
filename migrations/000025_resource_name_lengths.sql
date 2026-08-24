@@ -142,7 +142,7 @@ ALTER TABLE cron_triggers
 CREATE FUNCTION skill_name_is_valid_v1(candidate text) RETURNS boolean AS $$
     SELECT candidate IS NOT NULL
         AND char_length(candidate) BETWEEN 1 AND 64
-        AND candidate ~ '^[a-z0-9]+(-[a-z0-9]+)*$';
+        AND (candidate COLLATE "C") ~ '^[a-z0-9]+(-[a-z0-9]+)*$';
 $$ LANGUAGE sql IMMUTABLE;
 -- +goose StatementEnd
 

@@ -36,7 +36,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
-import { resourceNameInputMaxLength, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const nextFireFormatter = new Intl.DateTimeFormat(undefined, {
@@ -301,7 +301,6 @@ export function CreateCronTriggerDialog({
                   <Input
                     id="cron-trigger-name"
                     required
-                    maxLength={resourceNameInputMaxLength}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)

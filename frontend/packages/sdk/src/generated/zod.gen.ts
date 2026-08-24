@@ -5,51 +5,12 @@ import * as z from 'zod';
 /**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
  */
-export const zResourceName = z
-    .string()
-    .min(1)
-    .transform((value) => value.normalize('NFC'))
-    .refine((value) => Array.from(value).length <= 64, {
-        message: 'Resource name cannot exceed 64 Unicode characters'
-    })
-    .refine((value) => !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
-        message: 'Resource name must not start or end with whitespace'
-    })
-    .refine((value) => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u.test(value), {
-        message: 'Resource name contains an unsupported invisible, control, or format character'
-    })
-    .refine((value) => !value.includes('\ufffd'), {
-        message: 'Resource name contains the Unicode replacement character'
-    })
-    .refine((value) => !Array.from(value).some(
-        (character) => character !== ' ' && /\p{White_Space}/u.test(character)
-    ), {
-        message: 'Resource name may only use ordinary spaces'
-    });
+export const zResourceName = z.string().min(1).transform(value => value.normalize('NFC')).refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).refine(value => !/^\p{White_Space}|\p{White_Space}$/u.test(value), { message: 'Resource name must not start or end with whitespace' }).refine(value => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}⠀]/u.test(value), { message: 'Resource name contains an unsupported invisible, control, or format character' }).refine(value => !value.includes('�'), { message: 'Resource name contains the Unicode replacement character' }).refine(value => !Array.from(value).some(character => character !== ' ' && /\p{White_Space}/u.test(character)), { message: 'Resource name may only use ordinary spaces' });
 
 /**
  * Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
  */
-export const zAgentName = z
-    .string()
-    .transform((value) => value.normalize('NFC'))
-    .refine((value) => value === '' || Array.from(value).length <= 64, {
-        message: 'Resource name cannot exceed 64 Unicode characters'
-    })
-    .refine((value) => value === '' || !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
-        message: 'Resource name must not start or end with whitespace'
-    })
-    .refine((value) => value === '' || !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u.test(value), {
-        message: 'Resource name contains an unsupported invisible, control, or format character'
-    })
-    .refine((value) => value === '' || !value.includes('\ufffd'), {
-        message: 'Resource name contains the Unicode replacement character'
-    })
-    .refine((value) => value === '' || !Array.from(value).some(
-        (character) => character !== ' ' && /\p{White_Space}/u.test(character)
-    ), {
-        message: 'Resource name may only use ordinary spaces'
-    });
+export const zAgentName = z.string().transform(value => value.normalize('NFC')).refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).refine(value => !/^\p{White_Space}|\p{White_Space}$/u.test(value), { message: 'Resource name must not start or end with whitespace' }).refine(value => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}⠀]/u.test(value), { message: 'Resource name contains an unsupported invisible, control, or format character' }).refine(value => !value.includes('�'), { message: 'Resource name contains the Unicode replacement character' }).refine(value => !Array.from(value).some(character => character !== ' ' && /\p{White_Space}/u.test(character)), { message: 'Resource name may only use ordinary spaces' });
 
 /**
  * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.

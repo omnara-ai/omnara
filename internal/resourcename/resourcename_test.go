@@ -81,13 +81,3 @@ func TestCanonicalizeRequiredNormalizesBeforeValidation(t *testing.T) {
 		t.Fatalf("normalized code points = %d, want %d", runeCount, MaxCodePoints)
 	}
 }
-
-func TestValidateCanonicalRequiredRejectsDecomposedInput(t *testing.T) {
-	if err := ValidateCanonicalRequired("name", "Cafe\u0301"); err == nil ||
-		!strings.Contains(err.Error(), "must use Unicode NFC normalization") {
-		t.Fatalf("ValidateCanonicalRequired decomposed error = %v", err)
-	}
-	if err := ValidateCanonicalRequired("name", "Café"); err != nil {
-		t.Fatalf("ValidateCanonicalRequired NFC: %v", err)
-	}
-}
