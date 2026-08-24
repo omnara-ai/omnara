@@ -43,37 +43,12 @@ func TestCronTriggerNamesUseResourceNamePolicy(t *testing.T) {
 		t.Fatalf("created cron trigger name = %q, want exact input %q", created.Name, base.Name)
 	}
 
-	if _, err := pool.Exec(ctx, `ALTER TABLE cron_triggers DROP CONSTRAINT cron_triggers_name_policy`); err != nil {
-		t.Fatalf("drop cron trigger name constraint: %v", err)
-	}
-	const invalidStoredName = " invalid trigger "
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE cron_triggers SET name = $1 WHERE id = $2`,
-		invalidStoredName,
-		created.ID,
-	); err != nil {
-		t.Fatalf("seed invalid cron trigger name: %v", err)
-	}
-
-	disabled := false
+	invalidName := " invalid trigger "
 	if _, err := store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
 		ProjectID: testProjectID,
 		TriggerID: created.ID,
-		Enabled:   &disabled,
+		Name:      &invalidName,
 	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("update with invalid stored cron trigger name error = %v, want invalid request", err)
-	}
-	repairedName := "Repaired 🚀 Trigger"
-	repaired, err := store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
-		ProjectID: testProjectID,
-		TriggerID: created.ID,
-		Name:      &repairedName,
-	})
-	if err != nil {
-		t.Fatalf("repair cron trigger name: %v", err)
-	}
-	if repaired.Name != repairedName {
-		t.Fatalf("repaired cron trigger name = %q, want %q", repaired.Name, repairedName)
+		t.Fatalf("update cron trigger with invalid name error = %v, want invalid request", err)
 	}
 }

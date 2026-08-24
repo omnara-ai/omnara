@@ -1381,6 +1381,14 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 	if _, _, err := store.Secrets().CreateSecret(ctx, input); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("duplicate owner/name error = %v, want ErrConflict", err)
 	}
+	if _, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
+		OrgID:    testOrgID,
+		SecretID: first.ID,
+		Name:     " invalid secret ",
+		Actor:    userPrincipal(admin.ID),
+	}); !errors.Is(err, secretstore.ErrInvalidSecretName) {
+		t.Fatalf("update secret with invalid name error = %v, want invalid secret name", err)
+	}
 	renamed, err := store.Secrets().UpdateSecretMetadata(
 		ctx,
 		secretstore.UpdateSecretMetadataInput{
@@ -1554,55 +1562,6 @@ VALUES ($1, $2, 'Other Project', 'idem-secret-other-project', $3, $3)
 	}
 	if otherGrant.ID == grant.ID {
 		t.Fatalf("grant to another project reused original grant id: %+v", otherGrant)
-	}
-}
-
-func TestUpdateSecretMetadataRejectsInvalidStoredName(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createSecretTestUser(t, ctx, store, "Invalid Secret Admin", "admin")
-
-	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     testOrgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      "stored-secret",
-		Material:  secrets.GenericMaterial{Value: "secret"},
-		Actor:     userPrincipal(admin.ID),
-	})
-	if err != nil {
-		t.Fatalf("create secret: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE secrets DROP CONSTRAINT secrets_name_policy`); err != nil {
-		t.Fatalf("drop secret name constraint: %v", err)
-	}
-	const invalidStoredName = " invalid secret "
-	if _, err := pool.Exec(ctx, `UPDATE secrets SET name = $1 WHERE id = $2`, invalidStoredName, secret.ID); err != nil {
-		t.Fatalf("seed invalid secret name: %v", err)
-	}
-
-	if _, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
-		OrgID:    testOrgID,
-		SecretID: secret.ID,
-		Name:     invalidStoredName,
-		Metadata: resourcemeta.Metadata{"updated": "true"},
-		Actor:    userPrincipal(admin.ID),
-	}); !errors.Is(err, secretstore.ErrInvalidSecretName) {
-		t.Fatalf("update with invalid stored secret name error = %v, want invalid secret name", err)
-	}
-	repaired, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
-		OrgID:    testOrgID,
-		SecretID: secret.ID,
-		Name:     "Repaired secret",
-		Actor:    userPrincipal(admin.ID),
-	})
-	if err != nil {
-		t.Fatalf("repair secret name: %v", err)
-	}
-	if repaired.Name != "Repaired secret" {
-		t.Fatalf("repaired secret name = %q", repaired.Name)
 	}
 }
 

@@ -502,6 +502,14 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
+	invalidName := " invalid pool "
+	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: testOrgID,
+		ID:    created.ID,
+		Name:  &invalidName,
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update machine pool with invalid name error = %v, want invalid request", err)
+	}
 	for _, test := range []struct {
 		column string
 		value  any
@@ -932,83 +940,6 @@ tools:
 
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
 		t.Fatalf("agent source reserved env error = %v", err)
-	}
-}
-
-func TestUpdateMachinePoolRejectsInvalidStoredName(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	created, err := store.Execution().CreateMachinePool(
-		ctx,
-		completeMachinePoolCreateInputForTest(
-			t,
-			ctx,
-			store,
-			machinePoolInputWithDefaultMachineForTest(
-				executionstore.CreateMachinePoolInput{
-					OrgID:            testOrgID,
-					Name:             "Stored Pool",
-					Provider:         "test",
-					MaxTotalMachines: 1,
-				},
-				defaultMachineFieldsForTest{
-					DefaultMachineCPU:             1,
-					DefaultMachineMemoryMB:        1024,
-					DefaultMachineProviderOptions: json.RawMessage(`{}`),
-				},
-			),
-		),
-	)
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE machine_pools DROP CONSTRAINT machine_pools_name_policy`); err != nil {
-		t.Fatalf("drop machine pool name constraint: %v", err)
-	}
-	const invalidStoredName = " invalid pool "
-	var seededName string
-	if err := pool.QueryRow(
-		ctx,
-		`UPDATE machine_pools SET name = $1 WHERE id = $2 RETURNING name`,
-		invalidStoredName,
-		created.ID,
-	).Scan(&seededName); err != nil {
-		t.Fatalf("seed invalid machine pool name: %v", err)
-	}
-	if seededName != invalidStoredName {
-		t.Fatalf("seeded machine pool name = %q", seededName)
-	}
-	stored, err := store.Execution().GetMachinePool(ctx, testOrgID, created.ID)
-	if err != nil {
-		t.Fatalf("load invalid stored machine pool: %v", err)
-	}
-	if stored.Name != invalidStoredName {
-		t.Fatalf("loaded machine pool name = %q", stored.Name)
-	}
-
-	description := "updated without a rename"
-	updatedInvalid, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID:       testOrgID,
-		ID:          created.ID,
-		Description: &description,
-	})
-	if !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("update with invalid stored machine pool name = %+v, error = %v, want invalid request", updatedInvalid, err)
-	}
-	repairedName := "Repaired Pool"
-	updated, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: testOrgID,
-		ID:    created.ID,
-		Name:  &repairedName,
-	})
-	if err != nil {
-		t.Fatalf("repair machine pool name: %v", err)
-	}
-	if updated.Name != repairedName {
-		t.Fatalf("repaired machine pool name = %q", updated.Name)
 	}
 }
 

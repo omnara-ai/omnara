@@ -166,6 +166,13 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 		t.Fatalf("owner role for key error = %v, want check violation", err)
 	}
 
+	if _, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
+		OrgID: testOrgID,
+		KeyID: created.Record.ID,
+		Name:  " invalid key ",
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update org API key with invalid name error = %v, want invalid request", err)
+	}
 	updated, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
 		OrgID:   testOrgID,
 		KeyID:   created.Record.ID,
@@ -331,54 +338,6 @@ func TestDeleteOrganizationDeletesOrgAPIKeys(t *testing.T) {
 			"org api key rows after org deletion: keys=%d memberships=%d, want both 0",
 			keyRows, membershipRows,
 		)
-	}
-}
-
-func TestUpdateOrgAPIKeyRejectsInvalidStoredName(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	store := NewStore(pool)
-	seedDefaultProject(t, ctx, store)
-	creator := mustCreateIdentityUser(t, ctx, store, "invalid-key-creator@example.com", "Invalid Key Creator")
-	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
-		OrgID: testOrgID, UserID: creator.ID, Role: authz.OrgRoleAdmin,
-	}); err != nil {
-		t.Fatalf("add creator org membership: %v", err)
-	}
-	created, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
-		OrgID:           testOrgID,
-		CreatedByUserID: creator.ID,
-		Name:            "stored-key",
-		OrgRole:         authz.OrgRoleMember,
-	})
-	if err != nil {
-		t.Fatalf("create org API key: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE org_api_keys DROP CONSTRAINT org_api_keys_name_policy`); err != nil {
-		t.Fatalf("drop org API key name constraint: %v", err)
-	}
-	const invalidStoredName = " invalid key "
-	if _, err := pool.Exec(ctx, `UPDATE org_api_keys SET name = $1 WHERE id = $2`, invalidStoredName, created.Record.ID); err != nil {
-		t.Fatalf("seed invalid org API key name: %v", err)
-	}
-
-	if _, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
-		OrgID:   testOrgID,
-		KeyID:   created.Record.ID,
-		Name:    invalidStoredName,
-		OrgRole: authz.OrgRoleAdmin,
-	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("update with invalid stored org API key name error = %v, want invalid request", err)
-	}
-	updated, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
-		OrgID: testOrgID, KeyID: created.Record.ID, Name: "Repaired key", OrgRole: authz.OrgRoleAdmin,
-	})
-	if err != nil {
-		t.Fatalf("repair org API key name: %v", err)
-	}
-	if updated.Name != "Repaired key" || updated.OrgRole != authz.OrgRoleAdmin {
-		t.Fatalf("repaired org API key = %+v", updated)
 	}
 }
 

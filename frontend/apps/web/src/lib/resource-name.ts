@@ -5,38 +5,18 @@ export const resourceNameMaxCodePoints = 64
 // HTML maxlength counts UTF-16 code units, so allow two per code point.
 export const resourceNameInputMaxLength = 2 * resourceNameMaxCodePoints
 
-const whitespacePattern = /\p{White_Space}/u
-const unsupportedCharacterPattern = /[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800]/u
-
 export function normalizeResourceName(value: string) {
   return value.normalize('NFC')
 }
 
 export function resourceNameError(value: string, fieldLabel = 'Name'): string | undefined {
-  value = normalizeResourceName(value)
+  const result = zResourceName.safeParse(value)
+  if (result.success) return undefined
   if (value === '') return `${fieldLabel} is required.`
 
-  const codePoints = Array.from(value)
-  if (
-    whitespacePattern.test(codePoints[0] ?? '') ||
-    whitespacePattern.test(codePoints.at(-1) ?? '')
-  ) {
-    return `${fieldLabel} must not start or end with whitespace.`
-  }
-  if (codePoints.length > resourceNameMaxCodePoints) {
-    return `${fieldLabel} cannot exceed ${resourceNameMaxCodePoints} Unicode characters.`
-  }
-  if (unsupportedCharacterPattern.test(value)) {
-    return `${fieldLabel} contains an unsupported invisible, control, or format character.`
-  }
-  if (value.includes('\ufffd')) {
-    return `${fieldLabel} contains the Unicode replacement character.`
-  }
-  if (codePoints.some((character) => character !== ' ' && whitespacePattern.test(character))) {
-    return `${fieldLabel} may only use ordinary spaces.`
-  }
-
-  return undefined
+  const message = result.error.issues[0]?.message.replace(/^Resource name/u, fieldLabel)
+  if (message === undefined) return `${fieldLabel} is invalid.`
+  return message.endsWith('.') ? message : `${message}.`
 }
 
 export function resourceNameValid(value: string) {

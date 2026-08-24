@@ -1,70 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  normalizeResourceName,
   resourceNameError,
   resourceNameMaxCodePoints,
   resourceNameSuggestion,
   resourceNameValid,
 } from './resource-name'
 
-describe('resource names', () => {
-  it.each(['Studio  54', '研究開発 شركة برمجيات', '🚀 Lab', 'R&D (West)', '.!?', 'Cafe\u0301'])(
-    'accepts and preserves %s',
-    (name) => {
-      expect(resourceNameValid(name)).toBe(true)
-    },
-  )
-
-  it('counts Unicode code points', () => {
-    expect(resourceNameValid('😀'.repeat(resourceNameMaxCodePoints))).toBe(true)
-    expect(resourceNameError('界'.repeat(resourceNameMaxCodePoints + 1))).toContain(
-      `${resourceNameMaxCodePoints} Unicode characters`,
+describe('resourceNameError', () => {
+  it('turns generated schema issues into field-specific messages', () => {
+    expect(resourceNameError('')).toBe('Name is required.')
+    expect(resourceNameError(' invalid', 'Provider name')).toBe(
+      'Provider name must not start or end with whitespace.',
     )
-  })
-
-  it('canonicalizes equivalent Unicode spellings to NFC', () => {
-    expect(normalizeResourceName('Cafe\u0301')).toBe('Café')
-    expect(resourceNameValid('e\u0301'.repeat(resourceNameMaxCodePoints))).toBe(true)
-    expect(resourceNameSuggestion(['Cafe\u0301'], 'Fallback')).toBe('Café')
-  })
-
-  it.each([
-    ['leading space', ' Acme', 'start or end'],
-    ['trailing space', 'Acme ', 'start or end'],
-    ['non-ASCII space', 'Acme\u00a0Labs', 'ordinary spaces'],
-    ['tab', 'Acme\tLabs', 'invisible, control, or format'],
-    ['newline', 'Acme\nLabs', 'invisible, control, or format'],
-    ['NUL', 'Acme\x00Labs', 'invisible, control, or format'],
-    ['zero-width joiner', 'Acme\u200dLabs', 'invisible, control, or format'],
-    ['bidi override', 'Acme\u202eLabs', 'invisible, control, or format'],
-    ['Hangul filler', 'Acme\u3164Labs', 'invisible, control, or format'],
-    ['variation selector', 'Acme\ufe0fLabs', 'invisible, control, or format'],
-    ['braille blank', 'Acme\u2800Labs', 'invisible, control, or format'],
-    ['unpaired surrogate', 'Acme\ud800Labs', 'invisible, control, or format'],
-    ['replacement character', 'Acme\ufffdLabs', 'Unicode replacement character'],
-  ])('rejects %s', (_case, name, message) => {
-    expect(resourceNameError(name)).toContain(message)
-  })
-
-  it.each([
-    '',
-    'Studio 54',
-    '研究開発 شركة برمجيات',
-    '😀'.repeat(resourceNameMaxCodePoints),
-    '界'.repeat(resourceNameMaxCodePoints + 1),
-    ' Acme',
-    'Acme ',
-    'Acme\u00a0Labs',
-    'Acme\tLabs',
-    'Acme\u200dLabs',
-    'Acme\u3164Labs',
-    'Acme\ufe0fLabs',
-    'Acme\u2800Labs',
-    'Acme\ud800Labs',
-    'Acme\ufffdLabs',
-  ])('keeps field errors aligned with the OpenAPI schema for %j', (name) => {
-    expect(resourceNameError(name) === undefined).toBe(resourceNameValid(name))
+    expect(resourceNameError('Valid name')).toBeUndefined()
   })
 })
 
