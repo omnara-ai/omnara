@@ -5,7 +5,7 @@ export type ClientOptions = {
 };
 
 /**
- * Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points, at most 256 UTF-8 bytes); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
+ * Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character. Simple emoji are accepted, but sequences that require variation selectors or zero-width joiners are not.
  */
 export type ResourceName = string;
 

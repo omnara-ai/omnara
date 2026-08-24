@@ -3,7 +3,7 @@
 import * as z from 'zod';
 
 /**
- * Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points, at most 256 UTF-8 bytes); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
+ * Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character. Simple emoji are accepted, but sequences that require variation selectors or zero-width joiners are not.
  */
 export const zResourceName = z
     .string()
@@ -11,9 +11,6 @@ export const zResourceName = z
     .transform((value) => value.normalize('NFC'))
     .refine((value) => Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
-    })
-    .refine((value) => new TextEncoder().encode(value).length <= 256, {
-        message: 'Resource name cannot exceed 256 UTF-8 bytes'
     })
     .refine((value) => !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
         message: 'Resource name must not start or end with whitespace'
@@ -38,9 +35,6 @@ export const zDefaultableResourceName = z
     .transform((value) => value.normalize('NFC'))
     .refine((value) => value === '' || Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
-    })
-    .refine((value) => value === '' || new TextEncoder().encode(value).length <= 256, {
-        message: 'Resource name cannot exceed 256 UTF-8 bytes'
     })
     .refine((value) => value === '' || !/^\p{White_Space}|\p{White_Space}$/u.test(value), {
         message: 'Resource name must not start or end with whitespace'

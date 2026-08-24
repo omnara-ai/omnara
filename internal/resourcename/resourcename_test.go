@@ -91,10 +91,3 @@ func TestValidateCanonicalRequiredRejectsDecomposedInput(t *testing.T) {
 		t.Fatalf("ValidateCanonicalRequired NFC: %v", err)
 	}
 }
-
-func TestCanonicalizeRequiredWithMaxUsesMatchingUTF8ByteCeiling(t *testing.T) {
-	const maxCodePoints = 2
-	if _, err := CanonicalizeRequiredWithMax("name", "😀😀", maxCodePoints); err != nil {
-		t.Fatalf("CanonicalizeRequiredWithMax at UTF-8 byte ceiling: %v", err)
-	}
-}

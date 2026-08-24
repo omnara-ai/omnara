@@ -6528,13 +6528,11 @@ components:
       type: string
       minLength: 1
       maxLength: 64
-      x-utf8-max-bytes: 256
       x-unicode-normalization: NFC
-      description: Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points, at most 256 UTF-8 bytes); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character.
+      description: Human-facing name normalized to Unicode NFC before validation, storage, and name resolution (1-64 Unicode code points); otherwise preserves accepted input and rejects boundary or non-ordinary whitespace, Unicode invisible, control, or format characters, and the Unicode replacement character. Simple emoji are accepted, but sequences that require variation selectors or zero-width joiners are not.
     DefaultableResourceName:
       type: string
       maxLength: 64
-      x-utf8-max-bytes: 256
       x-unicode-normalization: NFC
       description: Empty represents the endpoint's documented default or unnamed state; non-empty values use ResourceName.
     SkillName:

@@ -65,7 +65,7 @@ curl https://app.omnara.com/api/auth/device/code \
   -d '{ "client_name": "acme-cli", "token_name": "laptop of dana" }'
 ```
 
-`client_name` identifies the requesting client on the approval screen. When provided, it must contain 1–128 Unicode characters and at most 512 UTF-8 bytes. `token_name` is the human-facing name of the personal access token and has a 64-character, 256-byte limit. Both preserve accepted input exactly, allow only ordinary spaces, reject control or invisible format characters, and reject leading or trailing whitespace. Omitting either field or sending an empty value uses `Device` or `Device login`, respectively.
+`client_name` identifies the requesting client on the approval screen. When provided, it must contain 1–128 Unicode characters. `token_name` is the human-facing name of the personal access token and has a 64-character limit. Both preserve accepted input exactly, allow only ordinary spaces, reject control or invisible format characters, and reject leading or trailing whitespace. Omitting either field or sending an empty value uses `Device` or `Device login`, respectively.
 
 ```json
 {

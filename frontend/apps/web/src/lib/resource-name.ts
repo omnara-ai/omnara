@@ -1,7 +1,6 @@
 import { zResourceName } from '@omnara/sdk/zod'
 
 export const resourceNameMaxCodePoints = 64
-export const resourceNameMaxUtf8Bytes = 4 * resourceNameMaxCodePoints
 
 // HTML maxlength counts UTF-16 code units, so allow two per code point.
 export const resourceNameInputMaxLength = 2 * resourceNameMaxCodePoints
@@ -26,9 +25,6 @@ export function resourceNameError(value: string, fieldLabel = 'Name'): string | 
   }
   if (codePoints.length > resourceNameMaxCodePoints) {
     return `${fieldLabel} cannot exceed ${resourceNameMaxCodePoints} Unicode characters.`
-  }
-  if (new TextEncoder().encode(value).length > resourceNameMaxUtf8Bytes) {
-    return `${fieldLabel} cannot exceed ${resourceNameMaxUtf8Bytes} UTF-8 bytes.`
   }
   if (unsupportedCharacterPattern.test(value)) {
     return `${fieldLabel} contains an unsupported invisible, control, or format character.`

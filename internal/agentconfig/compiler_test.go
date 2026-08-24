@@ -1619,6 +1619,38 @@ model:
 	}
 }
 
+func TestRecompilingNamesUsesCurrentResourceResolution(t *testing.T) {
+	const source = `instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+`
+	configuredModelID := "configured_model_original"
+	resolve := func(string, string) (ResolvedModelSelection, error) {
+		return ResolvedModelSelection{ConfiguredModelID: configuredModelID}, nil
+	}
+	first, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+		ResolveModelSelection: resolve,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configuredModelID = "configured_model_reusing_name"
+	second, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+		ResolveModelSelection: resolve,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Compiled.Model.ConfiguredModelID != "configured_model_original" {
+		t.Fatalf("first compiled model ID changed: %+v", first.Compiled.Model)
+	}
+	if second.Compiled.Model.ConfiguredModelID != "configured_model_reusing_name" {
+		t.Fatalf("recompiled model did not use current name resolution: %+v", second.Compiled.Model)
+	}
+}
+
 func TestCompileYAMLRejectsToolsWhenResolvedModelDoesNotSupportTools(t *testing.T) {
 	supportsTools := false
 	source := validAgentSource(`

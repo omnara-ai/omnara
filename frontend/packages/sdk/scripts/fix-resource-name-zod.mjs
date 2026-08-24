@@ -15,9 +15,6 @@ const replacement = `export const zResourceName = z
     .refine((value) => Array.from(value).length <= 64, {
         message: 'Resource name cannot exceed 64 Unicode characters'
     })
-    .refine((value) => new TextEncoder().encode(value).length <= 256, {
-        message: 'Resource name cannot exceed 256 UTF-8 bytes'
-    })
     .refine((value) => !/^\\p{White_Space}|\\p{White_Space}$/u.test(value), {
         message: 'Resource name must not start or end with whitespace'
     })

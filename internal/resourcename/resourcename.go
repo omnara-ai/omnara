@@ -8,10 +8,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-const (
-	MaxCodePoints = 64
-	MaxUTF8Bytes  = 4 * MaxCodePoints
-)
+const MaxCodePoints = 64
 
 func CanonicalizeRequired(field, value string) (string, error) {
 	return canonicalizeWithMax(field, value, MaxCodePoints, true)
@@ -57,10 +54,6 @@ func canonicalizeWithMax(field, value string, maxCodePoints int, required bool) 
 func validateNormalizedWithMax(field, value string, maxCodePoints int) error {
 	if utf8.RuneCountInString(value) > maxCodePoints {
 		return fmt.Errorf("%s cannot exceed %d Unicode characters", field, maxCodePoints)
-	}
-	maxUTF8Bytes := 4 * maxCodePoints
-	if len(value) > maxUTF8Bytes {
-		return fmt.Errorf("%s cannot exceed %d UTF-8 bytes", field, maxUTF8Bytes)
 	}
 	if value != "" {
 		first, _ := utf8.DecodeRuneInString(value)
