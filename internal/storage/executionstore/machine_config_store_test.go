@@ -499,6 +499,18 @@ func TestResolveProcessCwd(t *testing.T) {
 	if got := resolveProcessCwd("/machine", "/binding", "/requested"); got != "/requested" {
 		t.Fatalf("resolved absolute process cwd = %q, want /requested", got)
 	}
+	if got := resolveProcessCwd("/machine", "/binding", "~"); got != "~" {
+		t.Fatalf("resolved home process cwd = %q, want ~", got)
+	}
+	if got := resolveProcessCwd("/machine", "/binding", "~/requested"); got != "~/requested" {
+		t.Fatalf("resolved home-relative process cwd = %q, want ~/requested", got)
+	}
+	if got := resolveProcessCwd("~/machine", "", "src"); got != "~/machine/src" {
+		t.Fatalf("resolved relative home machine cwd = %q, want ~/machine/src", got)
+	}
+	if got := resolveProcessCwd("/machine", "~/binding", "../src"); got != "~/binding/../src" {
+		t.Fatalf("resolved relative home binding cwd = %q, want ~/binding/../src", got)
+	}
 }
 
 func TestCheckLaunchAggregateCap(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -913,8 +914,14 @@ func resolveProcessCwd(machineCwd, bindingCwd, requestedCwd string) string {
 	if requestedCwd == "" {
 		return base
 	}
+	if processcmd.IsHomeRelativeCwd(requestedCwd) {
+		return requestedCwd
+	}
 	if path.IsAbs(requestedCwd) || base == "" {
 		return path.Clean(requestedCwd)
+	}
+	if processcmd.IsHomeRelativeCwd(base) {
+		return strings.TrimSuffix(base, "/") + "/" + requestedCwd
 	}
 	return path.Join(base, requestedCwd)
 }
