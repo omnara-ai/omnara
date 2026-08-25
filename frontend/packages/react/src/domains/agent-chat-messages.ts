@@ -7,6 +7,8 @@ import type {
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
+  ToolCallType,
+  ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
 
@@ -33,7 +35,11 @@ export type OmnaraUIData = {
 }
 
 type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
-type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & { id: string }
+type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & {
+  id: string
+  toolType?: ToolCallType
+  toolErrorCode?: string
+}
 export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
   parts: OmnaraUIMessagePart[]
 }
@@ -81,6 +87,22 @@ function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): bo
   return block.metadata?.omnara_hidden === 'true'
 }
 
+function structuredToolErrorCode(blocks: ToolResultContentBlock[]): string | undefined {
+  for (const block of blocks) {
+    if (
+      block.type !== 'structured_data' ||
+      block.value == null ||
+      typeof block.value !== 'object'
+    ) {
+      continue
+    }
+    if (!('error_code' in block.value)) continue
+    const errorCode = block.value.error_code
+    if (typeof errorCode === 'string') return errorCode
+  }
+  return undefined
+}
+
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
   const parts: OmnaraUIMessage['parts'] = []
   for (const [blockIndex, block] of event.content_blocks.entries()) {
@@ -122,6 +144,7 @@ function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
         id,
         toolCallId: block.tool_call_id,
         toolName: block.name,
+        toolType: block.tool_type,
         state: 'input-available',
         input: block.input,
       })
@@ -209,16 +232,23 @@ export function agentEventsToMessages(
     if (index < 0) continue
     const part = message.parts[index]
     if (part?.type !== 'dynamic-tool') continue
+    const contentBlocks = event.content_blocks.filter((block) => !isHiddenContentBlock(block))
+    const toolErrorCode =
+      event.outcome === 'failed' && part.toolType === 'built_in'
+        ? structuredToolErrorCode(contentBlocks)
+        : undefined
     message.parts[index] = {
       type: 'dynamic-tool',
       id: part.id,
       toolCallId: part.toolCallId,
       toolName: part.toolName,
+      toolType: part.toolType,
+      ...(toolErrorCode == null ? {} : { toolErrorCode }),
       state: 'output-available',
       input: part.input,
       output: {
         outcome: event.outcome,
-        contentBlocks: event.content_blocks.filter((block) => !isHiddenContentBlock(block)),
+        contentBlocks,
       },
     }
     message.metadata = eventMetadata(event)

@@ -218,6 +218,34 @@ describe('agentEventsToMessages', () => {
     ])
   })
 
+  it('exposes failed built-in tool error codes without trusting external tools', () => {
+    const result = toolResultEvent({
+      outcome: 'failed',
+      content_blocks: [
+        {
+          type: 'structured_data',
+          value: { error_code: 'managed_work_admission_denied' },
+        },
+      ],
+    })
+    const builtIn = agentEventsToMessages([event({ content_blocks: [toolCallBlock()] }), result])
+    expect(builtIn[0]?.parts[0]).toMatchObject({
+      type: 'dynamic-tool',
+      toolType: 'built_in',
+      toolErrorCode: 'managed_work_admission_denied',
+    })
+    for (const toolType of ['custom', 'mcp'] as const) {
+      const external = agentEventsToMessages([
+        event({
+          content_blocks: [{ ...toolCallBlock(), tool_type: toolType }],
+        }),
+        result,
+      ])
+      expect(external[0]?.parts[0]).toMatchObject({ type: 'dynamic-tool', toolType })
+      expect(external[0]?.parts[0]).not.toHaveProperty('toolErrorCode')
+    }
+  })
+
   it('hides content blocks explicitly marked omnara_hidden', () => {
     const messages = agentEventsToMessages([
       userInputEvent({

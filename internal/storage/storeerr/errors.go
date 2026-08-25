@@ -6,7 +6,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const ManagedWorkAdmissionDeniedCode = "managed_work_admission_denied"
+const (
+	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
+	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
+)
 
 var (
 	ErrInvalidRequest                = errors.New("invalid request")

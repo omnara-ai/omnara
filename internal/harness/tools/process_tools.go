@@ -112,7 +112,7 @@ func startCommand(
 				return failProcessTransaction(
 					err,
 					processToolErrorManagedWorkAdmissionDenied,
-					managedWorkAdmissionDeniedMessage,
+					storeerr.InsufficientOmnaraCreditsMessage,
 					false,
 					"",
 					"",
