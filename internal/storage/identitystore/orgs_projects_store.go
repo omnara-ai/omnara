@@ -57,9 +57,9 @@ func (s *Store) ProvisionOrganizationTx(
 		return CreateOrgForUserRecord{}, errors.New("org id and user id are required")
 	}
 	if input.Name == "" {
-		return CreateOrgForUserRecord{}, errors.New("org name is required")
+		return CreateOrgForUserRecord{}, errors.New("organization name is required")
 	}
-	normalizedName, err := resourcename.CanonicalizeRequired("org name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("organization name", input.Name)
 	if err != nil {
 		return CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}
@@ -402,7 +402,7 @@ func (s *Store) GetOrgCreationReplay(
 		return CreateOrgForUserRecord{}, false, errors.New("idempotency key is required")
 	}
 	if input.Name == "" {
-		return CreateOrgForUserRecord{}, false, errors.New("org name is required")
+		return CreateOrgForUserRecord{}, false, errors.New("organization name is required")
 	}
 	scopedIdempotencyKey := scopedOrgIdempotencyKey(input.UserID, input.IdempotencyKey)
 	orgRow, err := s.q.GetOrgByIdempotencyKey(ctx, dbsqlc.GetOrgByIdempotencyKeyParams{

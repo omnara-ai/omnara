@@ -10,8 +10,8 @@ import {
 describe('resourceNameError', () => {
   it('turns generated schema issues into field-specific messages', () => {
     expect(resourceNameError('')).toBe('Name is required.')
-    expect(resourceNameError(' invalid', 'Provider name')).toBe(
-      'Provider name must not start or end with whitespace.',
+    expect(resourceNameError(' invalid', 'Provider config name')).toBe(
+      'Provider config name must not start or end with whitespace.',
     )
     expect(resourceNameError('Valid name')).toBeUndefined()
   })

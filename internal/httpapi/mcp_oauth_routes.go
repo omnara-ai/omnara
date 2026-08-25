@@ -115,10 +115,6 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
-	if body.Name == "" {
-		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
-		return openapi.MCPOAuthStartResponse{}, &err, nil
-	}
 	canonicalName, err := resourcename.CanonicalizeRequired("secret name", body.Name)
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())

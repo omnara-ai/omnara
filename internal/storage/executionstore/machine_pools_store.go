@@ -279,9 +279,6 @@ func ValidateDefaultMachinePoolTemplate(
 	machinePoolProviders MachinePoolProviders,
 ) error {
 	input := defaultPoolTemplate.createInput(NilID)
-	if input.Name == "" {
-		return errors.New("name is required")
-	}
 	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
 	if err != nil {
 		return err
@@ -750,9 +747,6 @@ func (s *Store) UpdateMachinePool(
 	}
 	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
-	}
-	if merged.Name == "" {
-		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", merged.Name)
 	if err != nil {

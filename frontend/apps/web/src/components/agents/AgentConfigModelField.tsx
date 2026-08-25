@@ -122,7 +122,7 @@ export function AgentConfigModelField({
           }
           disabled={grantsQuery.isError || selectedQuery.isError}
         />
-        <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider name" />
+        <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
         <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
         {unavailable && (
           <p className="text-destructive text-sm">

@@ -111,9 +111,6 @@ func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	if isNilID(input.OrgID) {
 		return "", "", errors.New("org api key org id is required")
 	}
-	if input.Name == "" {
-		return "", "", errors.New("org api key name is required")
-	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
 	}

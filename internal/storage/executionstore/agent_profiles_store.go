@@ -230,7 +230,7 @@ func (s *Store) RenameAgentProfile(
 		return AgentProfileRecord{}, errors.New("project and profile are required")
 	}
 	if input.Name == "" {
-		return AgentProfileRecord{}, errors.New("name is required")
+		return AgentProfileRecord{}, errors.New("agent profile name is required")
 	}
 	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", input.Name)
 	if err != nil {

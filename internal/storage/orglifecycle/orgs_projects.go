@@ -36,9 +36,9 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, errors.New("user id is required")
 	}
 	if input.Name == "" {
-		return identitystore.CreateOrgForUserRecord{}, errors.New("org name is required")
+		return identitystore.CreateOrgForUserRecord{}, errors.New("organization name is required")
 	}
-	normalizedName, err := resourcename.CanonicalizeRequired("org name", input.Name)
+	normalizedName, err := resourcename.CanonicalizeRequired("organization name", input.Name)
 	if err != nil {
 		return identitystore.CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
 	}

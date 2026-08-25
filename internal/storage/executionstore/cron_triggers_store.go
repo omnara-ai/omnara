@@ -283,9 +283,6 @@ func (s *Store) UpdateCronTrigger(
 	if input.Name != nil {
 		record.Name = *input.Name
 	}
-	if record.Name == "" {
-		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("cron trigger name is required"))
-	}
 	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", record.Name)
 	if err != nil {
 		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
