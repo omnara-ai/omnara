@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,7 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
 )
 
-const usage = "usage: omnara-mcp-registry sync|serve"
+const usage = "usage: omnara-mcp-registry sync|serve|healthcheck"
 
 func main() {
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -41,6 +42,8 @@ func main() {
 		err = runSync(ctx, log, cfg)
 	case "serve":
 		err = runServe(ctx, log, cfg)
+	case "healthcheck":
+		err = runHealthcheck(ctx, cfg)
 	default:
 		err = errors.New(usage)
 	}
@@ -94,6 +97,31 @@ func runSync(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 		"servers", len(servers),
 		"elapsed", time.Since(started).String(),
 	)
+	return nil
+}
+
+func runHealthcheck(ctx context.Context, cfg config.Config) error {
+	host, port, err := net.SplitHostPort(cfg.MCPRegistryAddr)
+	if err != nil {
+		return fmt.Errorf("parse registry address: %w", err)
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthz returned %s", resp.Status)
+	}
 	return nil
 }
 

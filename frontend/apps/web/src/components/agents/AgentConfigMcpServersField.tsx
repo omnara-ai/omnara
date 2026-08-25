@@ -395,7 +395,9 @@ function McpServerIdentityFields({
             onChange={(patch) => {
               onChange({
                 ...(patch.name === undefined ? {} : { name: patch.name }),
-                ...(patch.url === server.url ? {} : { url: patch.url, secretId: '' }),
+                ...(patch.url === undefined || patch.url === server.url
+                  ? {}
+                  : { url: patch.url, secretId: '' }),
               })
             }}
           />

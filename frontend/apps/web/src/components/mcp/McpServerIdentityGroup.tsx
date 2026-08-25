@@ -1,5 +1,5 @@
-import { useServerInfo, useServers } from '@omnara/react'
-import { type FocusEvent, type KeyboardEvent, useEffect, useId, useState } from 'react'
+import { useServerInfo, useServerInfoLookup, useServers } from '@omnara/react'
+import { type FocusEvent, type KeyboardEvent, useId, useRef, useState } from 'react'
 
 import { mcpServerNameMaxLength } from '@/components/agents/useAgentBuilderForm'
 import {
@@ -28,13 +28,12 @@ export function McpServerIdentityGroup({
   name: string
   nameInvalid: boolean
   url: string
-  onChange: (patch: { name?: string; url: string }) => void
+  onChange: (patch: { name?: string; url?: string }) => void
 }) {
   const listId = useId()
   const [open, setOpen] = useState(false)
-  const [nameFocused, setNameFocused] = useState(false)
   const [highlighted, setHighlighted] = useState<number | null>(null)
-  const [autofilledUrl, setAutofilledUrl] = useState('')
+  const generatedName = useRef('')
   const debouncedName = useDebouncedValue(name)
   const debouncedUrl = useDebouncedValue(url)
   const filters = registryServerSearchFilters(debouncedName)
@@ -42,31 +41,37 @@ export function McpServerIdentityGroup({
   const serversQuery = useServers({ filters, pageSize: 25, enabled: open && searching })
   const results = registryServerEntries(useInfiniteQueryItems(serversQuery))
   const info = useServerInfo(debouncedUrl)
+  const lookupServerInfo = useServerInfoLookup()
   const selected = info.data ?? null
-  const autofillName =
-    name === '' && !nameFocused && selected && autofilledUrl !== debouncedUrl
-      ? registryServerSuggestedName(selected)
-      : ''
-
-  useEffect(() => {
-    if (autofillName !== '') {
-      setAutofilledUrl(debouncedUrl)
-      onChange({ name: autofillName, url })
-    }
-  }, [autofillName, debouncedUrl, onChange, url])
   const showList = open && searching
   const activeIndex =
     highlighted === null || results.length === 0 ? null : Math.min(highlighted, results.length - 1)
 
+  function nameReplaceable() {
+    return name.trim() === '' || name === generatedName.current
+  }
+
   function select(entry: RegistryServerEntry) {
     const suggested = registryServerSuggestedName(entry.server)
+    const replaceName = nameReplaceable() && suggested !== ''
     onChange({
-      name: name.trim() === '' && suggested !== '' ? suggested : undefined,
+      name: replaceName ? suggested : undefined,
       url: entry.remote.url,
     })
-    setAutofilledUrl(entry.remote.url)
+    if (replaceName) {
+      generatedName.current = suggested
+    }
     setOpen(false)
     setHighlighted(null)
+  }
+
+  async function suggestNameFor(candidateUrl: string) {
+    const server = await lookupServerInfo(candidateUrl)
+    const suggested = server ? registryServerSuggestedName(server) : ''
+    if (suggested !== '') {
+      generatedName.current = suggested
+      onChange({ name: suggested })
+    }
   }
 
   function onBlur(event: FocusEvent<HTMLDivElement>) {
@@ -138,16 +143,12 @@ export function McpServerIdentityGroup({
           className={cn(inputClassName, 'sm:max-w-56')}
           onKeyDown={onKeyDown}
           onFocus={() => {
-            setNameFocused(true)
             setOpen(true)
-          }}
-          onBlur={() => {
-            setNameFocused(false)
           }}
           onChange={(event) => {
             setHighlighted(null)
             setOpen(true)
-            onChange({ name: event.target.value, url })
+            onChange({ name: event.target.value })
           }}
         />
         <label htmlFor={`${idPrefix}-url`} className="sr-only">
@@ -162,6 +163,11 @@ export function McpServerIdentityGroup({
           className={inputClassName}
           onFocus={() => {
             setOpen(false)
+          }}
+          onBlur={() => {
+            if (nameReplaceable()) {
+              void suggestNameFor(url)
+            }
           }}
           onChange={(event) => {
             onChange({ url: event.target.value })

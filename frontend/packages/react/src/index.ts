@@ -104,6 +104,7 @@ export {
   type ServerListFilters,
   type ServerListOptions,
   useServerInfo,
+  useServerInfoLookup,
   useServers,
 } from './domains/mcp-registry'
 export { useMe } from './domains/me'

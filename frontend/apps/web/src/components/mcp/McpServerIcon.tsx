@@ -14,10 +14,8 @@ export function McpServerIcon({
   url?: string
   className?: string
 }) {
-  const [failed, setFailed] = useState<string[]>([])
-  const src = registryServerIconCandidates(server, url).find(
-    (candidate) => !failed.includes(candidate),
-  )
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
+  const src = registryServerIconCandidates(server, url).find((candidate) => !failed.has(candidate))
   if (src) {
     return (
       <img
@@ -25,7 +23,7 @@ export function McpServerIcon({
         alt=""
         className={cn('size-5 shrink-0 rounded-sm object-contain', className)}
         onError={() => {
-          setFailed((previous) => [...previous, src])
+          setFailed((previous) => new Set(previous).add(src))
         }}
       />
     )

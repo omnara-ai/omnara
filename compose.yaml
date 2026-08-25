@@ -112,7 +112,7 @@ services:
       minio-init:
         condition: service_completed_successfully
       mcp-registry:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   mcp-registry:
@@ -120,6 +120,15 @@ services:
     image: ghcr.io/omnara-ai/omnara-mcp-registry:${OMNARA_RELEASE:-latest}
     environment:
       OMNARA_MCP_REGISTRY_ADDR: ":8090"
+    # A first start without a baked snapshot syncs the upstream registry before
+    # listening, so allow a long start period.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/omnara-mcp-registry", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15m
+      start_interval: 5s
     restart: unless-stopped
 
   worker:

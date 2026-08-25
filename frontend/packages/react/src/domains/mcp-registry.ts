@@ -1,6 +1,6 @@
 import type { ListMcpServersData, McpRegistryServer } from '@omnara/sdk'
 import { listMcpServersInfiniteOptions, listMcpServersOptions } from '@omnara/sdk/tanstack'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 import { DEFAULT_LIST_PAGE_SIZE, type ListFilters } from './list-options'
@@ -42,13 +42,32 @@ export function findServerByRemoteUrl(servers: McpRegistryServer[], url: string)
   )
 }
 
+const serverInfoStaleTime = 5 * 60 * 1000
+
+function serverInfoQueryOptions(client: ReturnType<typeof useOmnaraClient>, remoteUrl: string) {
+  return {
+    ...listMcpServersOptions({ query: { remote_url: remoteUrl, limit: 5 }, client }),
+    staleTime: serverInfoStaleTime,
+  }
+}
+
 export function useServerInfo(url: string, options?: { enabled?: boolean }) {
   const client = useOmnaraClient()
   const remoteUrl = normalizeRemoteUrl(url)
   return useQuery({
-    ...listMcpServersOptions({ query: { remote_url: remoteUrl, limit: 5 }, client }),
+    ...serverInfoQueryOptions(client, remoteUrl),
     select: (page): McpRegistryServer | null => findServerByRemoteUrl(page.data, remoteUrl),
     enabled: (options?.enabled ?? true) && remoteUrl !== '',
-    staleTime: 5 * 60 * 1000,
   })
+}
+
+export function useServerInfoLookup() {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return async (url: string): Promise<McpRegistryServer | null> => {
+    const remoteUrl = normalizeRemoteUrl(url)
+    if (remoteUrl === '') return null
+    const page = await queryClient.fetchQuery(serverInfoQueryOptions(client, remoteUrl))
+    return findServerByRemoteUrl(page.data, remoteUrl)
+  }
 }
