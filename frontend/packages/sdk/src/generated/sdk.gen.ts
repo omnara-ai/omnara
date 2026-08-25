@@ -2294,11 +2294,19 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
  */
 export const connectByoMachine = <ThrowOnError extends boolean = true>(options: Options<ConnectByoMachineData, ThrowOnError>): RequestResult<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError> => (options.client ?? client).post<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zConnectByoMachineResponse2, data),
-    security: [{
+    security: [
+        {
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        },
+        {
             in: 'cookie',
             name: '__Host-omnara_session',
             type: 'apiKey'
-        }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
+        },
+        { name: 'X-Omnara-Csrf', type: 'apiKey' }
+    ],
     url: '/api/v1/orgs/{orgID}/machines/connect',
     ...options,
     headers: {

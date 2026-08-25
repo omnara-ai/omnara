@@ -2388,7 +2388,20 @@ export type CreateMachineRequest = {
 
 export type ConnectByoMachineRequest = {
     display_name: ResourceName;
-    project_ids: Array<ProjectId>;
+    description?: string;
+    cwd?: string;
+    env?: {
+        [key: string]: string;
+    };
+    secret_env?: {
+        [key: string]: SecretId;
+    };
+    metadata?: MachineMetadata;
+    project_ids?: Array<ProjectId>;
+    /**
+     * Optional daemon token name. Omitted values default to daemon.
+     */
+    token_name?: ResourceName;
 };
 
 export type ConnectByoMachineResponse = {

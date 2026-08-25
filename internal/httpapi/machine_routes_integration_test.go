@@ -125,22 +125,33 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "connect-byo-machine")
 	path := "/api/v1/orgs/" + project.OrgID + "/machines/connect"
-	requestJSONWithHeaders(
+	patResponse := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		path,
-		`{"display_name":"PAT Connection","project_ids":[]}`,
+		`{"display_name":"PAT Connection","description":"connected by CLI","cwd":"/srv/agents","env":{"REGION":"us"}}`,
 		"",
-		http.StatusForbidden,
+		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	patMachine := patResponse["machine"].(map[string]any)
+	if patMachine["description"] != "connected by CLI" || patMachine["cwd"] != "/srv/agents" {
+		t.Fatalf("unexpected PAT-connected machine: %+v", patMachine)
+	}
+	patTokenRecord := patResponse["token_record"].(map[string]any)
+	if patTokenRecord["name"] != "daemon" {
+		t.Fatalf("unexpected PAT token record: %+v", patTokenRecord)
+	}
+	if grants := patResponse["project_grants"].([]any); len(grants) != 0 {
+		t.Fatalf("PAT project grants = %d, want 0", len(grants))
+	}
 	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		path,
-		`{"display_name":"Connected Through API","project_ids":["`+project.ProjectID+`"]}`,
+		`{"display_name":"Connected Through API","project_ids":["`+project.ProjectID+`"],"token_name":"web-console"}`,
 		"",
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
@@ -182,6 +193,16 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		http.MethodPost,
 		path,
 		`{"display_name":"   ","project_ids":[]}`,
+		"",
+		http.StatusBadRequest,
+		project.adminBrowserAuthHeaders(),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Blank Token Name","token_name":"   "}`,
 		"",
 		http.StatusBadRequest,
 		project.adminBrowserAuthHeaders(),
@@ -265,7 +286,7 @@ func TestConnectBYOMachineAuthorizesEveryProjectGrant(t *testing.T) {
 			OrgID: project.OrgID,
 			Body: &openapi.ConnectBYOMachineRequest{
 				DisplayName: "Unauthorized Project Connection",
-				ProjectIds:  []openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
+				ProjectIds:  &[]openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
 			},
 		},
 	)
