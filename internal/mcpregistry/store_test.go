@@ -182,7 +182,12 @@ func TestStoreSearchFiltersByRemoteURL(t *testing.T) {
 			t.Fatalf("servers for %q = %+v", needle, page.Servers)
 		}
 	}
-	for _, partial := range []string{"%", "api.githubcopilot.com", "githubcopilot", "https://api.githubcopilot.com/mcp/extra"} {
+	for _, partial := range []string{
+		"%",
+		"api.githubcopilot.com",
+		"githubcopilot",
+		"https://api.githubcopilot.com/mcp/extra",
+	} {
 		page, err := store.Search(context.Background(), SearchParams{RemoteURL: partial})
 		if err != nil {
 			t.Fatalf("search %q: %v", partial, err)

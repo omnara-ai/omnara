@@ -34,6 +34,7 @@ export function McpServerIdentityGroup({
   const [open, setOpen] = useState(false)
   const [highlighted, setHighlighted] = useState<number | null>(null)
   const generatedName = useRef('')
+  const lookupToken = useRef(0)
   const debouncedName = useDebouncedValue(name)
   const debouncedUrl = useDebouncedValue(url)
   const filters = registryServerSearchFilters(debouncedName)
@@ -52,6 +53,7 @@ export function McpServerIdentityGroup({
   }
 
   function select(entry: RegistryServerEntry) {
+    lookupToken.current += 1
     const suggested = registryServerSuggestedName(entry.server)
     const replaceName = nameReplaceable() && suggested !== ''
     onChange({
@@ -66,7 +68,9 @@ export function McpServerIdentityGroup({
   }
 
   async function suggestNameFor(candidateUrl: string) {
+    const token = (lookupToken.current += 1)
     const server = await lookupServerInfo(candidateUrl)
+    if (token !== lookupToken.current) return
     const suggested = server ? registryServerSuggestedName(server) : ''
     if (suggested !== '') {
       generatedName.current = suggested
@@ -146,6 +150,7 @@ export function McpServerIdentityGroup({
             setOpen(true)
           }}
           onChange={(event) => {
+            lookupToken.current += 1
             setHighlighted(null)
             setOpen(true)
             onChange({ name: event.target.value })
