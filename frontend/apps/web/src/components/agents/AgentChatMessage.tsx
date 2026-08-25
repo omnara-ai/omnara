@@ -13,6 +13,7 @@ import {
   isInsufficientCreditsModelError,
   isInsufficientCreditsToolError,
 } from '@/lib/insufficient-credits'
+import { useWebConfig } from '@/lib/web-config'
 
 function ActorLabel({
   actorID,
@@ -115,20 +116,19 @@ export function AgentChatMessage({
   currentActorId,
   orgID,
   projectID,
-  insufficientCredits,
 }: {
   message: OmnaraUIMessage
   currentActorId?: string
   orgID: string
   projectID: string
-  insufficientCredits?: { billingHref?: string }
 }) {
+  const { data: webConfig } = useWebConfig()
   const metadata = message.metadata
   const mine =
     message.role === 'user' &&
     (metadata == null || (metadata.actorId != null && metadata.actorId === currentActorId))
   const showInsufficientCredits =
-    insufficientCredits != null &&
+    Boolean(webConfig?.billingURL) &&
     message.parts.some(
       (part) =>
         (part.type === 'data-model-error' && isInsufficientCreditsModelError(part.data.text)) ||
@@ -204,7 +204,7 @@ export function AgentChatMessage({
         {showInsufficientCredits && (
           <Bubble align="start" variant="destructive">
             <BubbleContent className="whitespace-pre-wrap">
-              <InsufficientCreditsMessage billingHref={insufficientCredits.billingHref} />
+              <InsufficientCreditsMessage billingHref={webConfig?.billingHref} />
             </BubbleContent>
           </Bubble>
         )}
