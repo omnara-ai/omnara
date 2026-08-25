@@ -19,7 +19,7 @@ func TestServiceE2ELiveOpenAIResponsesDockerDaemonProcessTools(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"openai-prod",
-		"docker-daemon-process-tools",
+		"daemon-tools",
 		8*time.Minute,
 		runLiveDockerDaemonProcessTools,
 	)
@@ -29,7 +29,7 @@ func TestServiceE2ELiveOpenAIChatCompletionsDockerDaemonProcessTools(t *testing.
 	runLiveServiceProviderJourney(
 		t,
 		"openai-chat-prod",
-		"docker-daemon-process-tools",
+		"daemon-tools",
 		8*time.Minute,
 		runLiveDockerDaemonProcessTools,
 	)
@@ -39,7 +39,7 @@ func TestServiceE2ELiveOpenRouterDockerDaemonProcessTools(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"openrouter-prod",
-		"docker-daemon-process-tools",
+		"daemon-tools",
 		8*time.Minute,
 		runLiveDockerDaemonProcessTools,
 	)
@@ -49,7 +49,7 @@ func TestServiceE2ELiveAnthropicDockerDaemonProcessTools(t *testing.T) {
 	runLiveServiceProviderJourney(
 		t,
 		"anthropic-prod",
-		"docker-daemon-process-tools",
+		"daemon-tools",
 		8*time.Minute,
 		runLiveDockerDaemonProcessTools,
 	)
