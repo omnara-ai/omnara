@@ -20,7 +20,13 @@ type MachineSetupContext = FlowContext<{ orgID: string }, MachineSetupBody>
 async function connectMachine(context: MachineSetupContext): Promise<ConnectByoMachineResponse> {
   const { client, path, body, report } = context
   report.start('Creating machine with a daemon token')
-  const { data } = await sdk.connectByoMachine({ client, path, body })
+  let data: ConnectByoMachineResponse
+  try {
+    ;({ data } = await sdk.connectByoMachine({ client, path, body }))
+  } catch (error) {
+    report.fail('could not create machine')
+    throw error
+  }
   report.stop(`Machine created: ${data.machine.id}`)
   if (data.project_grants.length > 0) {
     report.info(`Granted to ${data.project_grants.length} project(s)`)
@@ -120,8 +126,8 @@ function runInstaller(
       'installer=$(mktemp)',
       'trap \'rm -f "$installer"\' EXIT',
       'curl -qfsSL --connect-timeout 10 -m 60 --max-redirs 5 --max-filesize 1048576' +
-        ' --proto \'=http,https\' --proto-redir \'=https\'' +
-        ' -o "$installer" "$OMNARA_API_URL/install/omnarad.sh"',
+        " --proto '=http,https' --proto-redir '=https'" +
+        ` -o "$installer" ${shellQuote(`${baseUrl}/install/omnarad.sh`)}`,
       'sh "$installer"',
     ].join(' && ')
     const child = spawn('/bin/sh', ['-c', script], {
@@ -135,9 +141,11 @@ function runInstaller(
       report.stop('omnarad installed')
       report.info(daemonGuidance(machineId))
       report.info(
-        `No launchd/systemd user service manager is available, so omnarad was started in the foreground (pid ${child.pid}).\n` +
+        'No launchd/systemd user service manager is available, so omnarad was started in the foreground.\n' +
           'Its logs stream below; press Ctrl-C to stop the daemon, and run omnarad start to launch it again.',
       )
+      process.stdout.write(Buffer.concat(captured))
+      captured.length = 0
     }
     const consume = (stream: NodeJS.WriteStream) => (chunk: Buffer) => {
       if (foreground) {
@@ -153,13 +161,12 @@ function runInstaller(
       reject(new Error(`could not run the omnarad installer: ${error.message}`))
     })
     child.on('exit', (code, signal) => {
-      if (code === 0) {
-        if (foreground) {
-          report.info('omnarad stopped')
-        } else {
-          report.stop('omnarad installed and started as a background service')
-          report.info(daemonGuidance(machineId))
-        }
+      if (foreground) {
+        report.info('omnarad stopped')
+        resolve()
+      } else if (code === 0) {
+        report.stop('omnarad installed and started as a background service')
+        report.info(daemonGuidance(machineId))
         resolve()
       } else {
         const reason = signal === null ? `exit code ${code}` : `signal ${signal}`

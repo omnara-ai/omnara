@@ -1,4 +1,3 @@
-# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec.
 openapi: 3.1.2
 info:
   title: Omnara API
@@ -71,7 +70,7 @@ tags:
   - name: Machine Daemon
     description: Routes the Omnara machine daemon uses to connect a machine.
 paths:
-  /personal-access-tokens:
+  /api/v1/personal-access-tokens:
     get:
       operationId: listPersonalAccessTokens
       tags: [Users and API Keys]
@@ -135,7 +134,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /personal-access-tokens/{tokenID}/revoke:
+  /api/v1/personal-access-tokens/{tokenID}/revoke:
     parameters:
       - name: tokenID
         in: path
@@ -172,7 +171,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/bootstrap:
+  /api/v1/daemon/bootstrap:
     post:
       operationId: bootstrapDaemon
       x-hidden: true
@@ -201,7 +200,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/failures:
+  /api/v1/daemon/failures:
     post:
       operationId: recordMachineFailure
       x-hidden: true
@@ -261,7 +260,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs:
+  /api/v1/orgs:
     post:
       operationId: createOrganization
       tags: [Organizations and Projects]
@@ -313,7 +312,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}:
+  /api/v1/orgs/{orgID}:
     parameters:
       - name: orgID
         in: path
@@ -354,7 +353,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /me:
+  /api/v1/me:
     get:
       operationId: getCurrentUser
       tags: [Users and API Keys]
@@ -415,7 +414,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /invitations:
+  /api/v1/invitations:
     get:
       operationId: listPendingInvitations
       tags: [Users and API Keys]
@@ -447,7 +446,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /invitations/{invitationID}/accept:
+  /api/v1/invitations/{invitationID}/accept:
     parameters:
       - name: invitationID
         in: path
@@ -486,7 +485,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /invitations/{invitationID}/decline:
+  /api/v1/invitations/{invitationID}/decline:
     parameters:
       - name: invitationID
         in: path
@@ -525,7 +524,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/overview:
+  /api/v1/orgs/{orgID}/overview:
     parameters:
       - name: orgID
         in: path
@@ -561,7 +560,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects:
+  /api/v1/orgs/{orgID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -645,7 +644,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -693,7 +692,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/members:
+  /api/v1/orgs/{orgID}/members:
     parameters:
       - name: orgID
         in: path
@@ -735,7 +734,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/members/{userID}:
+  /api/v1/orgs/{orgID}/members/{userID}:
     parameters:
       - name: orgID
         in: path
@@ -819,7 +818,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/members/{userID}/projects:
+  /api/v1/orgs/{orgID}/members/{userID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -862,7 +861,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/members/{userID}/projects/{projectID}:
+  /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -948,7 +947,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/api-keys:
+  /api/v1/orgs/{orgID}/api-keys:
     parameters:
       - name: orgID
         in: path
@@ -1022,7 +1021,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/api-keys/{keyID}:
+  /api/v1/orgs/{orgID}/api-keys/{keyID}:
     parameters:
       - name: orgID
         in: path
@@ -1098,7 +1097,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/api-keys/{keyID}/revoke:
+  /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke:
     parameters:
       - name: orgID
         in: path
@@ -1141,7 +1140,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/api-keys/{keyID}/projects:
+  /api/v1/orgs/{orgID}/api-keys/{keyID}/projects:
     parameters:
       - name: orgID
         in: path
@@ -1184,7 +1183,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}:
+  /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}:
     parameters:
       - name: orgID
         in: path
@@ -1267,7 +1266,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/invitations:
+  /api/v1/orgs/{orgID}/invitations:
     parameters:
       - name: orgID
         in: path
@@ -1345,7 +1344,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/invitations/{invitationID}:
+  /api/v1/orgs/{orgID}/invitations/{invitationID}:
     parameters:
       - name: orgID
         in: path
@@ -1387,7 +1386,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/skills:
+  /api/v1/orgs/{orgID}/skills:
     parameters:
       - name: orgID
         in: path
@@ -1485,7 +1484,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/skills/{skillID}:
+  /api/v1/orgs/{orgID}/skills/{skillID}:
     parameters:
       - name: orgID
         in: path
@@ -1559,7 +1558,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/skills/{skillID}/grants:
+  /api/v1/orgs/{orgID}/skills/{skillID}/grants:
     parameters:
       - name: orgID
         in: path
@@ -1634,7 +1633,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/skills/{skillID}/grants/{grantID}:
+  /api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -1676,7 +1675,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/skills:
+  /api/v1/orgs/{orgID}/projects/{projectID}/skills:
     parameters:
       - name: orgID
         in: path
@@ -1721,7 +1720,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets:
+  /api/v1/orgs/{orgID}/secrets:
     parameters:
       - name: orgID
         in: path
@@ -1796,7 +1795,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets/mcp-oauth:
+  /api/v1/orgs/{orgID}/secrets/mcp-oauth:
     parameters:
       - name: orgID
         in: path
@@ -1838,7 +1837,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets/{secretID}:
+  /api/v1/orgs/{orgID}/secrets/{secretID}:
     parameters:
       - name: orgID
         in: path
@@ -1931,7 +1930,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets/{secretID}/versions:
+  /api/v1/orgs/{orgID}/secrets/{secretID}/versions:
     parameters:
       - name: orgID
         in: path
@@ -1977,7 +1976,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets/{secretID}/grants:
+  /api/v1/orgs/{orgID}/secrets/{secretID}/grants:
     parameters:
       - name: orgID
         in: path
@@ -2053,7 +2052,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/secrets/{secretID}/grants/{grantID}:
+  /api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -2097,7 +2096,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs:
+  /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs:
     parameters:
       - name: orgID
         in: path
@@ -2149,7 +2148,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}:
     parameters:
       - name: orgID
         in: path
@@ -2198,7 +2197,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-configs:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs:
     parameters:
       - name: orgID
         in: path
@@ -2255,7 +2254,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /tool-catalog:
+  /api/v1/tool-catalog:
     get:
       operationId: getToolCatalog
       tags: [Configs and Profiles]
@@ -2277,7 +2276,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
         in: path
@@ -2324,7 +2323,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles:
     parameters:
       - name: orgID
         in: path
@@ -2417,7 +2416,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}:
     parameters:
       - name: orgID
         in: path
@@ -2534,7 +2533,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config:
     parameters:
       - name: orgID
         in: path
@@ -2593,7 +2592,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup:
     parameters:
       - name: orgID
         in: path
@@ -2650,7 +2649,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup:
     parameters:
       - name: orgID
         in: path
@@ -2707,7 +2706,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/cron-triggers:
+  /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers:
     parameters:
       - name: orgID
         in: path
@@ -2817,7 +2816,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}:
     parameters:
       - name: orgID
         in: path
@@ -2926,7 +2925,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents:
     parameters:
       - name: orgID
         in: path
@@ -3029,7 +3028,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}:
     parameters:
       - name: orgID
         in: path
@@ -3076,7 +3075,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive:
     parameters:
       - name: orgID
         in: path
@@ -3132,7 +3131,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config:
     parameters:
       - name: orgID
         in: path
@@ -3191,7 +3190,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs:
     parameters:
       - name: orgID
         in: path
@@ -3256,7 +3255,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
         in: path
@@ -3315,7 +3314,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
         in: path
@@ -3381,7 +3380,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns:
     parameters:
       - name: orgID
         in: path
@@ -3446,7 +3445,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events:
     parameters:
       - name: orgID
         in: path
@@ -3517,7 +3516,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events:
     parameters:
       - name: orgID
         in: path
@@ -3596,7 +3595,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream:
     parameters:
       - name: orgID
         in: path
@@ -3680,7 +3679,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
     parameters:
       - name: orgID
         in: path
@@ -3737,7 +3736,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions:
     parameters:
       - name: orgID
         in: path
@@ -3793,7 +3792,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve:
     parameters:
       - name: orgID
         in: path
@@ -3856,7 +3855,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog:
     parameters:
       - name: orgID
         in: path
@@ -3907,7 +3906,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel:
     parameters:
       - name: orgID
         in: path
@@ -3964,7 +3963,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move:
     parameters:
       - name: orgID
         in: path
@@ -4027,7 +4026,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering:
     parameters:
       - name: orgID
         in: path
@@ -4090,7 +4089,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued:
     parameters:
       - name: orgID
         in: path
@@ -4147,7 +4146,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}:
     parameters:
       - name: orgID
         in: path
@@ -4200,7 +4199,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content:
+  /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content:
     parameters:
       - name: orgID
         in: path
@@ -4254,7 +4253,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/machines:
+  /api/v1/orgs/{orgID}/projects/{projectID}/machines:
     parameters:
       - name: orgID
         in: path
@@ -4305,7 +4304,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/machine-grants:
+  /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants:
     parameters:
       - name: orgID
         in: path
@@ -4400,7 +4399,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}:
     parameters:
       - name: orgID
         in: path
@@ -4450,7 +4449,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/secrets:
+  /api/v1/orgs/{orgID}/projects/{projectID}/secrets:
     parameters:
       - name: orgID
         in: path
@@ -4498,7 +4497,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/secrets/{secretID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}:
     parameters:
       - name: orgID
         in: path
@@ -4539,7 +4538,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/actors:
+  /api/v1/orgs/{orgID}/projects/{projectID}/actors:
     parameters:
       - name: orgID
         in: path
@@ -4625,7 +4624,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/actors/{actorID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}:
     parameters:
       - name: orgID
         in: path
@@ -4666,7 +4665,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machines:
+  /api/v1/orgs/{orgID}/machines:
     parameters:
       - name: orgID
         in: path
@@ -4756,7 +4755,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machines/connect:
+  /api/v1/orgs/{orgID}/machines/connect:
     parameters:
       - name: orgID
         in: path
@@ -4768,6 +4767,7 @@ paths:
       tags: [Machines]
       summary: Connect a BYO machine
       security:
+        - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
       requestBody:
@@ -4801,7 +4801,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machines/{machineID}:
+  /api/v1/orgs/{orgID}/machines/{machineID}:
     parameters:
       - name: orgID
         in: path
@@ -4909,7 +4909,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/model-provider-configs:
+  /api/v1/orgs/{orgID}/model-provider-configs:
     parameters:
       - name: orgID
         in: path
@@ -4997,7 +4997,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}:
+  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}:
     parameters:
       - name: orgID
         in: path
@@ -5105,7 +5105,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog:
+  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog:
     parameters:
       - name: orgID
         in: path
@@ -5148,7 +5148,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models:
+  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models:
     parameters:
       - name: orgID
         in: path
@@ -5236,7 +5236,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}:
+  /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}:
     parameters:
       - name: orgID
         in: path
@@ -5323,7 +5323,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/model-grants:
+  /api/v1/orgs/{orgID}/projects/{projectID}/model-grants:
     parameters:
       - name: orgID
         in: path
@@ -5416,7 +5416,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}:
     parameters:
       - name: orgID
         in: path
@@ -5511,7 +5511,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machine-pools:
+  /api/v1/orgs/{orgID}/machine-pools:
     parameters:
       - name: orgID
         in: path
@@ -5598,7 +5598,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machine-pools/{poolID}:
+  /api/v1/orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
         in: path
@@ -5713,7 +5713,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/machine-pool-grants:
+  /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants:
     parameters:
       - name: orgID
         in: path
@@ -5808,7 +5808,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}:
+  /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}:
     parameters:
       - name: orgID
         in: path
@@ -5928,7 +5928,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machines/{machineID}/daemon-tokens:
+  /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens:
     parameters:
       - name: orgID
         in: path
@@ -6009,7 +6009,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke:
+  /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke:
     parameters:
       - name: orgID
         in: path
@@ -6060,7 +6060,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/runtimes:
+  /api/v1/daemon/runtimes:
     post:
       operationId: registerMachineDaemonRuntime
       x-hidden: true
@@ -6099,7 +6099,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/runtimes/{runtimeID}/socket:
+  /api/v1/daemon/runtimes/{runtimeID}/socket:
     parameters:
       - name: runtimeID
         in: path
@@ -6135,7 +6135,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/runtimes/{runtimeID}/end:
+  /api/v1/daemon/runtimes/{runtimeID}/end:
     parameters:
       - name: runtimeID
         in: path
@@ -6175,7 +6175,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/runtimes/{runtimeID}/sleep:
+  /api/v1/daemon/runtimes/{runtimeID}/sleep:
     parameters:
       - name: runtimeID
         in: path
@@ -6224,7 +6224,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /daemon/skills/{skillID}/archive:
+  /api/v1/daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
         in: path
@@ -10626,16 +10626,33 @@ components:
     ConnectBYOMachineRequest:
       type: object
       additionalProperties: false
-      required: [display_name, project_ids]
+      required: [display_name]
       properties:
         display_name:
           $ref: '#/components/schemas/ResourceName'
+        description:
+          type: string
+        cwd:
+          type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        secret_env:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
+        metadata:
+          $ref: '#/components/schemas/MachineMetadata'
         project_ids:
           type: array
           maxItems: 100
           uniqueItems: true
           items:
             $ref: '#/components/schemas/ProjectID'
+        token_name:
+          type: string
+          minLength: 1
     ConnectBYOMachineResponse:
       type: object
       additionalProperties: false
@@ -11558,7 +11575,3 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
-# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1.
-servers:
-  - url: https://api.omnara.com/v1
-    description: Hosted Omnara
