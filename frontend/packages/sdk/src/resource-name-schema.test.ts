@@ -13,6 +13,7 @@ describe('generated ResourceName schema', () => {
     expect(result.success).toBe(true)
     if (result.success) expect(result.data).toBe('é'.repeat(32))
     expect(zResourceName.safeParse('e\u0301'.repeat(33)).success).toBe(false)
+    expect(zResourceName.safeParse('\u0344'.repeat(33)).success).toBe(false)
   })
 
   it.each([

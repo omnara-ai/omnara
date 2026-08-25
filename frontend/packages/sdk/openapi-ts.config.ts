@@ -33,7 +33,8 @@ export default defineConfig({
             ctx.$(ctx.$.regexp(pattern, 'u')).attr('test').call(value)
           const not = (value: Expression) => ctx.$.not(value)
 
-          if (ctx.schema.maxLength !== undefined) {
+          const enforceMaxCodePoints = () => {
+            if (ctx.schema.maxLength === undefined) return
             refine(
               ctx.$.binary(
                 ctx.$('Array').attr('from').call('value').attr('length'),
@@ -43,11 +44,13 @@ export default defineConfig({
               `Resource name cannot exceed ${ctx.schema.maxLength} Unicode characters`,
             )
           }
+          enforceMaxCodePoints()
           ctx.chain.current = ctx.chain.current.attr('transform').call(
             ctx.$.func()
               .param('value')
               .do(ctx.$.return(ctx.$('value').attr('normalize').call(ctx.$.literal('NFC')))),
           )
+          enforceMaxCodePoints()
           refine(
             not(regexTest('^\\p{White_Space}|\\p{White_Space}$', 'value')),
             'Resource name must not start or end with whitespace',
