@@ -135,6 +135,7 @@ function daemonGuidance(machineId: string): string {
     'omnarad is connected to Omnara as this machine.',
     'Manage the daemon with: omnarad status | stop | restart | uninstall',
     `Let agents in a project use this machine with: omnara grant machines add --machine-id ${machineId}`,
+    'Learn more: https://docs.omnara.com/machines/connect',
   ].join('\n')
 }
 
