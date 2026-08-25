@@ -33,9 +33,3 @@ services:
     build:
       context: .
       target: web
-
-  mcp-registry:
-    image: omnara-mcp-registry:local
-    build:
-      context: .
-      target: mcp-registry

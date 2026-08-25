@@ -10,11 +10,12 @@ import (
 )
 
 func (s strictOpenAPIServer) ListMCPServers(
-	ctx context.Context,
+	_ context.Context,
 	request openapi.ListMCPServersRequestObject,
 ) (openapi.ListMCPServersResponseObject, error) {
 	if s.server.mcpRegistry == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "mcp registry is not configured")
+		s.server.log.Error("mcp registry search requested without a loaded snapshot")
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "mcp registry snapshot is not loaded")
 	}
 	limit, err := parseOpenAPIPageLimit(request.Params.Limit)
 	if err != nil {
@@ -30,13 +31,13 @@ func (s strictOpenAPIServer) ListMCPServers(
 	if request.Params.Cursor != nil {
 		params.Cursor = *request.Params.Cursor
 	}
-	page, err := s.server.mcpRegistry.Search(ctx, params)
-	switch {
-	case errors.Is(err, mcpregistry.ErrBadRequest):
+	page, err := s.server.mcpRegistry.Search(params)
+	if errors.Is(err, mcpregistry.ErrInvalidCursor) {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	case err != nil:
+	}
+	if err != nil {
 		s.server.log.Error("mcp registry search failed", "error", err)
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp registry request failed")
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "mcp registry search failed")
 	}
 	data := make([]openapi.MCPRegistryServer, 0, len(page.Servers))
 	for _, server := range page.Servers {

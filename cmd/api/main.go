@@ -166,6 +166,22 @@ func main() {
 		log.Error("configure api options", "error", err)
 		os.Exit(1)
 	}
+	mcpRegistry, err := mcpregistry.LoadSnapshot(cfg.MCPRegistrySnapshotPath)
+	if err != nil {
+		log.Warn(
+			"mcp registry snapshot unavailable; server search will fail",
+			"path", cfg.MCPRegistrySnapshotPath,
+			"error", err,
+		)
+	} else {
+		log.Info(
+			"loaded mcp registry snapshot",
+			"path", cfg.MCPRegistrySnapshotPath,
+			"servers", mcpRegistry.Len(),
+			"generated_at", mcpRegistry.GeneratedAt(),
+		)
+		apiOpts = append(apiOpts, httpapi.WithMCPRegistry(mcpRegistry))
+	}
 	apiServer, err := httpapi.New(log, store, apiOpts...)
 	if err != nil {
 		log.Error("create api server", "error", err)
@@ -384,13 +400,6 @@ func apiOptions(
 	}
 	if serveWeb {
 		opts = append(opts, httpapi.WithWebAssets(assets))
-	}
-	if cfg.MCPRegistryURL != "" {
-		registryClient, err := mcpregistry.NewClient(cfg.MCPRegistryURL, operatorHTTPClient)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, httpapi.WithMCPRegistryClient(registryClient))
 	}
 	if cfg.AllowInsecureDev {
 		opts = append(opts,

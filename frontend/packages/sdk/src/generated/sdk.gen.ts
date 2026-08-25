@@ -1234,7 +1234,7 @@ export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Op
 /**
  * Search the MCP server registry
  *
- * Full-text search over the public MCP registry snapshot. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+ * Search the API's snapshot of the public MCP registry. Results are ranked by relevance when `q` is set, otherwise ordered by name.
  */
 export const listMcpServers = <ThrowOnError extends boolean = true>(options?: Options<ListMcpServersData, ThrowOnError>): RequestResult<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError> => (options?.client ?? client).get<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zListMcpServersResponse2, data),

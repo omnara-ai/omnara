@@ -26,7 +26,6 @@ const (
 	imageWorker      = "worker"
 	imageMaintenance = "maintenance"
 	imageMigrations  = "migrations"
-	imageMCPRegistry = "mcp-registry"
 )
 
 var (
@@ -37,7 +36,6 @@ var (
 		{Name: imageWorker, Repository: "ghcr.io/omnara-ai/omnara-worker"},
 		{Name: imageMaintenance, Repository: "ghcr.io/omnara-ai/omnara-maintenance"},
 		{Name: imageMigrations, Repository: "ghcr.io/omnara-ai/omnara-migrations"},
-		{Name: imageMCPRegistry, Repository: "ghcr.io/omnara-ai/omnara-mcp-registry"},
 	}
 )
 
@@ -59,7 +57,6 @@ type manifestImages struct {
 	Worker      string `json:"worker"`
 	Maintenance string `json:"maintenance"`
 	Migrations  string `json:"migrations"`
-	MCPRegistry string `json:"mcp_registry"`
 }
 
 type clusterManifest struct {
@@ -314,7 +311,6 @@ func generate(
 			Worker:      records[imageWorker].Reference,
 			Maintenance: records[imageMaintenance].Reference,
 			Migrations:  records[imageMigrations].Reference,
-			MCPRegistry: records[imageMCPRegistry].Reference,
 		},
 	}
 	if err := validateManifest(manifest); err != nil {
@@ -478,8 +474,6 @@ func manifestReference(manifest clusterManifest, name string) string {
 		return manifest.Images.Maintenance
 	case imageMigrations:
 		return manifest.Images.Migrations
-	case imageMCPRegistry:
-		return manifest.Images.MCPRegistry
 	default:
 		return ""
 	}

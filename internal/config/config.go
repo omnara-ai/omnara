@@ -102,10 +102,7 @@ type Config struct {
 	OpenRouterAppCategories           []string
 	HostedAPIURL                      string
 	HostedAPIToken                    string
-	MCPRegistryURL                    string
-	MCPRegistryAddr                   string
-	MCPRegistryDBPath                 string
-	MCPRegistryUpstreamURL            string
+	MCPRegistrySnapshotPath           string
 }
 
 type AuthConnectorConfig struct {
@@ -276,13 +273,7 @@ func Load() (Config, error) {
 		OpenRouterAppCategories:           openRouterAppCategories,
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
-		MCPRegistryURL:                    getenv("OMNARA_MCP_REGISTRY_URL", ""),
-		MCPRegistryAddr:                   getenv("OMNARA_MCP_REGISTRY_ADDR", ":8090"),
-		MCPRegistryDBPath:                 getenv("OMNARA_MCP_REGISTRY_DB_PATH", "/app/mcp-registry.sqlite"),
-		MCPRegistryUpstreamURL: getenv(
-			"OMNARA_MCP_REGISTRY_UPSTREAM_URL",
-			"https://registry.modelcontextprotocol.io",
-		),
+		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
 	}
 	if defaultMachinePoolTemplatesPath := getenv(
 		"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES",
@@ -404,10 +395,8 @@ func (cfg Config) ValidateAPI() error {
 	if err := validatePortWithName("OMNARA_API_METRICS_ADDR", cfg.APIMetricsAddr); err != nil {
 		return err
 	}
-	if cfg.MCPRegistryURL != "" {
-		if err := validateHTTPURL("OMNARA_MCP_REGISTRY_URL", cfg.MCPRegistryURL); err != nil {
-			return err
-		}
+	if !filepath.IsAbs(cfg.MCPRegistrySnapshotPath) {
+		return errors.New("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH must be an absolute path")
 	}
 	if !cfg.AllowInsecureDev && cfg.DatabaseURL == "" {
 		return fmt.Errorf(
@@ -694,16 +683,6 @@ func (cfg Config) validateWebServingConfig() error {
 		return fmt.Errorf("OMNARA_WEB_SERVING must be embedded or disabled")
 	}
 	return nil
-}
-
-func (cfg Config) ValidateMCPRegistry() error {
-	if err := validatePortWithName("OMNARA_MCP_REGISTRY_ADDR", cfg.MCPRegistryAddr); err != nil {
-		return err
-	}
-	if !filepath.IsAbs(cfg.MCPRegistryDBPath) {
-		return errors.New("OMNARA_MCP_REGISTRY_DB_PATH must be an absolute path")
-	}
-	return validateHTTPURL("OMNARA_MCP_REGISTRY_UPSTREAM_URL", cfg.MCPRegistryUpstreamURL)
 }
 
 func (cfg Config) ValidateMaintenance() error {

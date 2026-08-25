@@ -6928,13 +6928,9 @@ export type ListMcpServersErrors = {
      */
     403: Error;
     /**
-     * An upstream service required to satisfy the request failed.
+     * An unexpected internal server error occurred.
      */
-    502: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
+    500: Error;
     /**
      * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
      */

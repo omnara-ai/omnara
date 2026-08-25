@@ -103,7 +103,6 @@ services:
       OMNARA_TRUSTED_PROXY_CIDRS: ${OMNARA_TRUSTED_PROXY_CIDRS:-}
       OMNARA_BILLING_URL: ${OMNARA_BILLING_URL:-}
       OMNARA_DAEMON_RELEASE_URL: ${OMNARA_DAEMON_RELEASE_URL:-https://github.com/omnara-ai/omnara/releases/download/omnarad-stable}
-      OMNARA_MCP_REGISTRY_URL: http://mcp-registry:8090
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -111,24 +110,6 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-      mcp-registry:
-        condition: service_healthy
-    restart: unless-stopped
-
-  mcp-registry:
-    profiles: ["app"]
-    image: ghcr.io/omnara-ai/omnara-mcp-registry:${OMNARA_RELEASE:-latest}
-    environment:
-      OMNARA_MCP_REGISTRY_ADDR: ":8090"
-    # A first start without a baked snapshot syncs the upstream registry before
-    # listening, so allow a long start period.
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/omnara-mcp-registry", "healthcheck"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15m
-      start_interval: 5s
     restart: unless-stopped
 
   worker:

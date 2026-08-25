@@ -3,47 +3,53 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
 )
 
-func TestListMCPServersProxiesFiltersAndShape(t *testing.T) {
-	var gotQuery string
-	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.RawQuery
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"servers":[{"name":"com.github/github-mcp-server","title":"GitHub MCP Server",
-			"description":"Official.","version":"2.1.0","website_url":"https://github.com","status":"active",
-			"updated_at":"2026-08-20T00:00:00Z",
-			"icons":[{"src":"https://github.com/icon.png","mime_type":"image/png"}],
-			"remotes":[{"type":"streamable-http","url":"https://api.githubcopilot.com/mcp/",
-			  "headers":[{"name":"Authorization","description":"Bearer token","is_required":true,"is_secret":true}]}]}],
-			"next_cursor":"MjU"}`))
-	}))
-	defer registry.Close()
-	client, err := mcpregistry.NewClient(registry.URL, registry.Client())
+func testMCPRegistry(t *testing.T) *mcpregistry.Registry {
+	t.Helper()
+	updatedAt := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	registry, err := mcpregistry.NewRegistry(mcpregistry.BuildSnapshot([]mcpregistry.Server{
+		{
+			Name: "com.github/github-mcp-server", Title: "GitHub MCP Server", Description: "Official.",
+			Version: "2.1.0", WebsiteURL: "https://github.com", Status: "active", UpdatedAt: updatedAt,
+			Icons: []mcpregistry.Icon{{Src: "https://github.com/icon.png", MimeType: "image/png"}},
+			Remotes: []mcpregistry.Remote{{
+				Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/",
+				Headers: []mcpregistry.Header{{
+					Name: "Authorization", Description: "Bearer token", IsRequired: true, IsSecret: true,
+				}},
+			}},
+		},
+		{
+			Name: "io.github.alice/weather-tools", Title: "Weather Tools", Description: "Forecasts and alerts.",
+			Version: "1.0.0", Status: "active", UpdatedAt: updatedAt,
+			Remotes: []mcpregistry.Remote{{Type: "streamable-http", URL: "https://weather.example/mcp"}},
+		},
+	}, updatedAt))
 	if err != nil {
-		t.Fatalf("new client: %v", err)
+		t.Fatalf("new registry: %v", err)
 	}
-	server := mustNewUnitServer(t, WithMCPRegistryClient(client))
+	return registry
+}
+
+func TestListMCPServersFiltersAndShape(t *testing.T) {
+	server := mustNewUnitServer(t, WithMCPRegistry(testMCPRegistry(t)))
 	query, remoteURL := "github", "https://api.githubcopilot.com/mcp/"
-	limit, cursor := openapi.PageLimit(25), openapi.PageCursor("MA")
+	limit := openapi.PageLimit(25)
 	response, err := strictOpenAPIServer{server: server}.ListMCPServers(
 		context.Background(),
 		openapi.ListMCPServersRequestObject{
-			Params: openapi.ListMCPServersParams{Q: &query, RemoteUrl: &remoteURL, Limit: &limit, Cursor: &cursor},
+			Params: openapi.ListMCPServersParams{Q: &query, RemoteUrl: &remoteURL, Limit: &limit},
 		},
 	)
 	if err != nil {
 		t.Fatalf("list: %v", err)
-	}
-	if gotQuery != "cursor=MA&limit=25&q=github&remote_url=https%3A%2F%2Fapi.githubcopilot.com%2Fmcp%2F" {
-		t.Fatalf("upstream query = %q", gotQuery)
 	}
 	page, ok := response.(openapi.ListMCPServers200JSONResponse)
 	if !ok {
@@ -65,59 +71,70 @@ func TestListMCPServersProxiesFiltersAndShape(t *testing.T) {
 	if len(got.Icons) != 1 || got.Icons[0].Src != "https://github.com/icon.png" || got.Icons[0].Theme != nil {
 		t.Fatalf("icons = %+v", got.Icons)
 	}
-	next, err := page.NextCursor.Get()
-	if err != nil || next != "MjU" {
-		t.Fatalf("next_cursor = %q, err = %v", next, err)
+	if !page.NextCursor.IsNull() {
+		next, _ := page.NextCursor.Get()
+		t.Fatalf("next_cursor = %q, want null", next)
 	}
 }
 
-func TestListMCPServersWithoutRegistryIsUnavailable(t *testing.T) {
+func TestListMCPServersPaginates(t *testing.T) {
+	server := mustNewUnitServer(t, WithMCPRegistry(testMCPRegistry(t)))
+	limit := openapi.PageLimit(1)
+	first, err := strictOpenAPIServer{server: server}.ListMCPServers(
+		context.Background(),
+		openapi.ListMCPServersRequestObject{Params: openapi.ListMCPServersParams{Limit: &limit}},
+	)
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	firstPage, ok := first.(openapi.ListMCPServers200JSONResponse)
+	if !ok {
+		t.Fatalf("first response type = %T", first)
+	}
+	cursor, err := firstPage.NextCursor.Get()
+	if err != nil || cursor == "" {
+		t.Fatalf("next_cursor = %q, err = %v", cursor, err)
+	}
+	second, err := strictOpenAPIServer{server: server}.ListMCPServers(
+		context.Background(),
+		openapi.ListMCPServersRequestObject{Params: openapi.ListMCPServersParams{Limit: &limit, Cursor: &cursor}},
+	)
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	secondPage, ok := second.(openapi.ListMCPServers200JSONResponse)
+	if !ok {
+		t.Fatalf("second response type = %T", second)
+	}
+	if len(firstPage.Data) != 1 || len(secondPage.Data) != 1 || firstPage.Data[0].Name == secondPage.Data[0].Name {
+		t.Fatalf("pages = %+v / %+v", firstPage.Data, secondPage.Data)
+	}
+	if !secondPage.NextCursor.IsNull() {
+		t.Fatalf("second page should be last")
+	}
+}
+
+func TestListMCPServersWithoutSnapshotIsInternalError(t *testing.T) {
 	server := mustNewUnitServer(t)
 	_, err := strictOpenAPIServer{server: server}.ListMCPServers(
 		context.Background(),
 		openapi.ListMCPServersRequestObject{},
 	)
 	var responseErr apierror.ResponseError
-	if !errors.As(err, &responseErr) || responseErr.Code != openapi.ErrorCodeServiceUnavailable {
+	if !errors.As(err, &responseErr) || responseErr.Code != openapi.ErrorCodeInternalError {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestListMCPServersMapsUpstreamErrors(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		status int
-		body   string
-		code   openapi.ErrorCode
-	}{
-		{
-			name: "bad request", status: http.StatusBadRequest,
-			body: `{"error":"invalid cursor"}`, code: openapi.ErrorCodeInvalidRequest,
-		},
-		{
-			name: "upstream failure", status: http.StatusInternalServerError,
-			body: `{}`, code: openapi.ErrorCodeUpstreamError,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(tc.status)
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer registry.Close()
-			client, err := mcpregistry.NewClient(registry.URL, registry.Client())
-			if err != nil {
-				t.Fatalf("new client: %v", err)
-			}
-			server := mustNewUnitServer(t, WithMCPRegistryClient(client))
-			_, err = strictOpenAPIServer{server: server}.ListMCPServers(
-				context.Background(),
-				openapi.ListMCPServersRequestObject{},
-			)
-			var responseErr apierror.ResponseError
-			if !errors.As(err, &responseErr) || responseErr.Code != tc.code {
-				t.Fatalf("err = %v, want code %s", err, tc.code)
-			}
-		})
+func TestListMCPServersRejectsInvalidCursor(t *testing.T) {
+	server := mustNewUnitServer(t, WithMCPRegistry(testMCPRegistry(t)))
+	cursor := openapi.PageCursor("not-a-cursor!")
+	_, err := strictOpenAPIServer{server: server}.ListMCPServers(
+		context.Background(),
+		openapi.ListMCPServersRequestObject{Params: openapi.ListMCPServersParams{Cursor: &cursor}},
+	)
+	var responseErr apierror.ResponseError
+	if !errors.As(err, &responseErr) || responseErr.Code != openapi.ErrorCodeInvalidRequest {
+		t.Fatalf("err = %v", err)
 	}
 }

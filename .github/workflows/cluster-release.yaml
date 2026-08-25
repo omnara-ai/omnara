@@ -35,8 +35,6 @@ jobs:
             image: ghcr.io/omnara-ai/omnara-maintenance
           - name: migrations
             image: ghcr.io/omnara-ai/omnara-migrations
-          - name: mcp-registry
-            image: ghcr.io/omnara-ai/omnara-mcp-registry
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,10 +68,8 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sync MCP registry snapshot
-        if: matrix.name == 'mcp-registry'
-        env:
-          OMNARA_MCP_REGISTRY_DB_PATH: ${{ github.workspace }}/mcp-registry-snapshot/mcp-registry.sqlite
-        run: go run ./cmd/mcp-registry sync
+        if: matrix.name == 'api'
+        run: go run ./tools/mcp-registry-sync -out "${{ github.workspace }}/mcp-registry-snapshot/mcp-registry.json"
 
       - name: Build and publish image
         id: build
@@ -83,7 +79,7 @@ jobs:
             index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             index:org.opencontainers.image.revision=${{ steps.release.outputs.source_commit }}
             index:org.opencontainers.image.version=${{ steps.release.outputs.version }}
-          build-contexts: ${{ matrix.name == 'mcp-registry' && 'mcp-registry-snapshot=./mcp-registry-snapshot' || '' }}
+          build-contexts: ${{ matrix.name == 'api' && 'mcp-registry-snapshot=./mcp-registry-snapshot' || '' }}
           context: .
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

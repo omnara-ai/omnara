@@ -2281,7 +2281,7 @@ paths:
       operationId: listMCPServers
       tags: [Configs and Profiles]
       summary: Search the MCP server registry
-      description: Full-text search over the public MCP registry snapshot. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+      description: Search the API's snapshot of the public MCP registry. Results are ranked by relevance when `q` is set, otherwise ordered by name.
       parameters:
         - name: q
           in: query
@@ -2312,10 +2312,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '502':
-          $ref: '#/components/responses/BadGateway'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
         '4XX':
           $ref: '#/components/responses/ClientError'
         '5XX':

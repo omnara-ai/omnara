@@ -64,7 +64,7 @@ type Server struct {
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
-	mcpRegistry                         *mcpregistry.Client
+	mcpRegistry                         *mcpregistry.Registry
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
@@ -208,9 +208,9 @@ func WithAuthHTTPClient(client *http.Client) Option {
 	}
 }
 
-func WithMCPRegistryClient(client *mcpregistry.Client) Option {
+func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 	return func(s *Server) {
-		s.mcpRegistry = client
+		s.mcpRegistry = registry
 	}
 }
 
