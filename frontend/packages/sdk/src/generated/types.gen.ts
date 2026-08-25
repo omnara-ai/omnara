@@ -2398,7 +2398,10 @@ export type ConnectByoMachineRequest = {
     };
     metadata?: MachineMetadata;
     project_ids?: Array<ProjectId>;
-    token_name?: string;
+    /**
+     * Optional daemon token name. Omitted values default to daemon.
+     */
+    token_name?: ResourceName;
 };
 
 export type ConnectByoMachineResponse = {

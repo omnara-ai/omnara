@@ -1991,7 +1991,7 @@ export const zConnectByoMachineRequest = z.object({
     secret_env: z.record(z.string(), zSecretId).optional(),
     metadata: zMachineMetadata.optional(),
     project_ids: z.array(zProjectId).max(100).optional(),
-    token_name: z.string().min(1).optional()
+    token_name: zResourceName.optional()
 });
 
 export const zUpdateMachineRequest = z.object({

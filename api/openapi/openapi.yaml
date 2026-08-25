@@ -10651,8 +10651,8 @@ components:
           items:
             $ref: '#/components/schemas/ProjectID'
         token_name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
+          description: Optional daemon token name. Omitted values default to daemon.
     ConnectBYOMachineResponse:
       type: object
       additionalProperties: false

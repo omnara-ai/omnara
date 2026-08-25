@@ -202,6 +202,16 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
+		`{"display_name":"Blank Token Name","token_name":"   "}`,
+		"",
+		http.StatusBadRequest,
+		project.adminBrowserAuthHeaders(),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
 		`{"display_name":"Duplicate Project Connection","project_ids":["`+project.ProjectID+`","`+project.ProjectID+`"]}`,
 		"",
 		http.StatusBadRequest,
