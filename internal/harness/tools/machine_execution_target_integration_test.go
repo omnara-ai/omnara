@@ -471,7 +471,7 @@ func assertBYOMachineObservationResult(
 
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	ctx := context.Background()
-	fixture := newMachineDispatchFixture(t, ctx, "approved-machine-target-change")
+	fixture := newMachineDispatchFixture(t, ctx, "approved-target-change")
 	first := createExecutableBinding(
 		t,
 		ctx,

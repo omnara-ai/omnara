@@ -91,7 +91,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machines/"+machineID+"/daemon-tokens",
-		`{"name":"daemon"}`,
+		`{}`,
 		"",
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
@@ -100,7 +100,11 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		t.Fatalf("browser-minted daemon token is not canonical: %v", err)
 	}
-	tokenID := tokenResponse["token_record"].(map[string]any)["id"].(string)
+	tokenRecord := tokenResponse["token_record"].(map[string]any)
+	if tokenRecord["name"] != "daemon" {
+		t.Fatalf("default daemon token name = %v, want daemon", tokenRecord["name"])
+	}
+	tokenID := tokenRecord["id"].(string)
 
 	requestJSONWithHeaders(
 		t,

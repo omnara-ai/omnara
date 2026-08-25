@@ -65,6 +65,8 @@ curl https://app.omnara.com/api/auth/device/code \
   -d '{ "client_name": "acme-cli", "token_name": "laptop of dana" }'
 ```
 
+`client_name` identifies the requesting client on the approval screen, while `token_name` names the resulting personal access token. When provided, both use the 64-character resource-name policy. Omitting either field or sending an empty value uses `Device` or `Device login`, respectively.
+
 ```json
 {
   "device_code": "b62d4cb3…",

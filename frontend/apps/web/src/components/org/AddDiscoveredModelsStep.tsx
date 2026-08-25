@@ -111,8 +111,9 @@ export function AddDiscoveredModelsStep({
       <DialogHeader>
         <DialogTitle>Add models</DialogTitle>
         <DialogDescription>
-          Create model configurations for {provider.name}. Discovered slugs are used as model names,
-          and provider-reported token limits are used when available. Both can be edited later.
+          Create model configurations for {provider.name}. Discovered slugs are used as model names
+          when valid, and provider-reported token limits are used when available. Both can be edited
+          later.
         </DialogDescription>
       </DialogHeader>
       <FieldGroup>

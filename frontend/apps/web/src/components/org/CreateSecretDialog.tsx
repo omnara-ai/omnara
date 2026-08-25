@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui/select'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
@@ -58,7 +60,7 @@ export function CreateSecretDialog({
       ? oauthTokenSetMaterial(state.secret.entries)
       : undefined
   const valid =
-    state.name.trim() !== '' &&
+    resourceNameValid(state.name) &&
     (state.secret.kind === 'generic'
       ? state.secret.value !== ''
       : state.secret.kind === 'aws_credentials'
@@ -145,6 +147,7 @@ export function CreateSecretDialog({
                   dispatch({ type: 'set-name', name: event.target.value })
                 }}
               />
+              <ResourceNameFieldError value={state.name} />
             </Field>
             <Field>
               <FieldLabel htmlFor="secret-kind">Kind</FieldLabel>

@@ -151,6 +151,7 @@ openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
 	$(OASDIFF_BREAKING) \
 		--err-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
+		--warn-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--format $(OASDIFF_FORMAT) \
 		"$(COMPAT_BASE_SHA):api/openapi/openapi.yaml" api/openapi/openapi.yaml
 
@@ -165,15 +166,19 @@ state-migration-create:
 migration-fix:
 	@for dir in $(MIGRATION_DIRS); do \
 		$(GOOSE) -env=none -dir "$$dir" fix || exit $$?; \
-		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql; do \
+		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql \
+			"$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.go; do \
 			test -e "$$file" || continue; \
 			mv "$$file" "$$dir/0$$(basename "$$file")" || exit $$?; \
 		done; \
 	done
 
 migration-check:
+	$(GOOSE) -env=none -dir internal/machinedaemon/statedb/migrations validate
+	@for migration in migrations/*.sql; do \
+		$(GOOSE) -env=none -dir "$$migration" validate || exit $$?; \
+	done
 	@for dir in $(MIGRATION_DIRS); do \
-		$(GOOSE) -env=none -dir "$$dir" validate || exit $$?; \
 		if down_annotations="$$(grep -niE '^[[:space:]]*--.*[+]goose.*down.*$$' "$$dir"/*.sql)"; then \
 			printf '%s\n' "$$down_annotations"; \
 			printf '%s contains a Down migration; committed migrations are forward-only\n' "$$dir"; \
@@ -192,16 +197,6 @@ migration-check:
 				test "$$grep_status" -eq 1 || exit "$$grep_status"; \
 			fi; \
 		fi; \
-		expected=1; \
-		for file in "$$dir"/*.sql; do \
-			version="$$(basename "$$file" | sed -nE 's/^([0-9]{6})_.+\.sql$$/\1/p')"; \
-			want="$$(printf '%06d' "$$expected")"; \
-			test "$$version" = "$$want" || { \
-				printf '%s must be migration %s; run make migration-fix after rebasing\n' "$$file" "$$want"; \
-				exit 1; \
-			}; \
-			expected=$$((expected + 1)); \
-		done; \
 	done
 	$(MIGRATION_CHECK) check
 

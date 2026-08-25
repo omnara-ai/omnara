@@ -36,6 +36,8 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -131,7 +133,7 @@ export function CreateAgentFormView({
   const yaml = mode.editorYaml ?? form.yaml
   const canSubmit =
     !isSubmitting &&
-    draft.name.trim() !== '' &&
+    resourceNameValid(draft.name) &&
     yaml.trim() !== '' &&
     !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
@@ -139,7 +141,7 @@ export function CreateAgentFormView({
     if (!canSubmit) return
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
-    const name = draft.name.trim()
+    const name = draft.name
     const result = await settleSubmission(async () => {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
@@ -251,6 +253,7 @@ export function CreateAgentFormView({
                     setDraft((prev) => ({ ...prev, name: event.target.value }))
                   }}
                 />
+                <ResourceNameFieldError value={draft.name} />
               </Field>
               {showBuilder && (
                 <AgentConfigModelField

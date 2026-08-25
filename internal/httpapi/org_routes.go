@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
@@ -65,6 +66,11 @@ func (s strictOpenAPIServer) CreateOrganization(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	canonicalName, err := resourcename.CanonicalizeRequired("organization name", request.Body.Name)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	request.Body.Name = canonicalName
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -173,6 +179,8 @@ func (s strictOpenAPIServer) DeleteOrganization(
 
 func (s strictOpenAPIServer) createOrganizationStorageError(operation string, err error) error {
 	switch {
+	case errors.Is(err, storeerr.ErrInvalidRequest):
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	case errors.Is(err, storeerr.ErrIdempotencyConflict):
 		return apierror.FromCode(
 			openapi.ErrorCodeIdempotencyKeyConflict,

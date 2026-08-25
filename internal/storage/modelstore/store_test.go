@@ -1,6 +1,7 @@
 package modelstore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -13,6 +14,24 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func TestCreateModelProviderConfigTxRejectsInvalidNameBeforeDatabaseAccess(t *testing.T) {
+	store := &Store{}
+	_, err := store.createModelProviderConfigTx(
+		context.Background(),
+		nil,
+		CreateModelProviderConfigInput{
+			OrgID:              uuid.New(),
+			Name:               "unsafe\u200dname",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			BaseURL:            "https://api.example.com/v1",
+			CredentialSecretID: uuid.New(),
+		},
+	)
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("error = %v, want ErrInvalidRequest", err)
+	}
+}
 
 func TestModelProviderAPIKeyHeaderRejectsTransportReplayHeaders(t *testing.T) {
 	for _, headerName := range []string{

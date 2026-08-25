@@ -22,6 +22,12 @@ func TestCreateOrganizationStorageErrorIsDomainSpecificAndOpaque(t *testing.T) {
 		wantMessage string
 	}{
 		{
+			name:        "invalid resource name",
+			err:         storeerr.InvalidRequest(errors.New("organization name must not start or end with whitespace")),
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "invalid request: organization name must not start or end with whitespace",
+		},
+		{
 			name:        "idempotency conflict",
 			err:         storeerr.ErrIdempotencyConflict,
 			wantStatus:  http.StatusConflict,

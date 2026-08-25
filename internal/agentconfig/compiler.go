@@ -256,15 +256,15 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 }
 
 func compileModel(source AgentConfigModelSource, opts CompileOptions) (compiledModelResult, error) {
-	if strings.TrimSpace(source.ProviderConfig) == "" {
+	if source.ProviderConfig == "" {
 		return compiledModelResult{}, errors.New("model.provider_config is required")
 	}
-	if strings.TrimSpace(source.Name) == "" {
+	if source.Name == "" {
 		return compiledModelResult{}, errors.New("configured model name is required")
 	}
 	compiled := compiledModelResult{
-		sourceProviderConfig: strings.TrimSpace(source.ProviderConfig),
-		sourceName:           strings.TrimSpace(source.Name),
+		sourceProviderConfig: source.ProviderConfig,
+		sourceName:           source.Name,
 	}
 	compiled.model = ModelCompiled{
 		ContextWindowTokens:    source.ContextWindowTokens,
@@ -442,8 +442,8 @@ func compileMachineSource(
 	index int,
 	opts CompileOptions,
 ) (MachineSourceCompiled, error) {
-	machineName := strings.TrimSpace(source.MachineName)
-	machinePoolName := strings.TrimSpace(source.MachinePoolName)
+	machineName := source.MachineName
+	machinePoolName := source.MachinePoolName
 	cwd := strings.TrimSpace(source.Cwd)
 	description := strings.TrimSpace(source.Description)
 	if strings.ContainsRune(cwd, 0) {

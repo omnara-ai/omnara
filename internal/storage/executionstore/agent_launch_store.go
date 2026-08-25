@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -18,7 +19,7 @@ type LaunchAgentInput struct {
 	ProfileID     ID
 	AgentConfigID ID
 	LaunchedBy    identitystore.PrincipalRecord
-	Name          string
+	Name          *string
 	Message       string
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
@@ -48,6 +49,13 @@ func (s *Store) LaunchAgent(
 		return LaunchAgentResult{}, errors.New(
 			"project, agent config, and launching principal are required",
 		)
+	}
+	if input.Name != nil {
+		name, err := resourcename.CanonicalizeAllowEmpty("agent name", *input.Name)
+		if err != nil {
+			return LaunchAgentResult{}, storeerr.InvalidRequest(err)
+		}
+		input.Name = &name
 	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -89,6 +97,7 @@ func (s *Store) LaunchAgent(
 		}
 		profile = &record
 	}
+	agentName := launchAgentName(input.Name, profile)
 	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -101,7 +110,7 @@ func (s *Store) LaunchAgent(
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
-		Name:            launchAgentName(input.Name, profile),
+		Name:            agentName,
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
 	})
@@ -326,9 +335,9 @@ func launchConfigTx(
 	return config, contract, nil
 }
 
-func launchAgentName(name string, profile *AgentProfileRecord) string {
-	if name != "" {
-		return name
+func launchAgentName(name *string, profile *AgentProfileRecord) string {
+	if name != nil {
+		return *name
 	}
 	if profile != nil {
 		return profile.Name

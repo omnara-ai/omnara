@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -53,9 +54,19 @@ func PrepareDefaultModelProviderTemplate(
 	template DefaultModelProviderTemplate,
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
+	var err error
+	template.Name, err = resourcename.CanonicalizeRequired("model provider config name", template.Name)
+	if err != nil {
+		return DefaultModelProviderTemplate{}, err
+	}
+	template.CredentialSecretName, err = resourcename.CanonicalizeRequired(
+		"credential secret name",
+		template.CredentialSecretName,
+	)
+	if err != nil {
+		return DefaultModelProviderTemplate{}, err
+	}
 	template.Provisioner = strings.TrimSpace(template.Provisioner)
-	template.Name = strings.TrimSpace(template.Name)
-	template.CredentialSecretName = strings.TrimSpace(template.CredentialSecretName)
 	template.APIFormat = modelprotocol.APIFormat(strings.TrimSpace(string(template.APIFormat)))
 	template.APIVariant = modelprotocol.APIVariant(strings.TrimSpace(string(template.APIVariant)))
 	if template.APIVariant == "" {
@@ -77,6 +88,13 @@ func PrepareDefaultModelProviderTemplate(
 	)
 	for i := range template.Models {
 		template.Models[i] = normalizeDefaultConfiguredModelTemplate(template.Models[i])
+		template.Models[i].Name, err = resourcename.CanonicalizeRequired(
+			"configured model name",
+			template.Models[i].Name,
+		)
+		if err != nil {
+			return DefaultModelProviderTemplate{}, err
+		}
 	}
 	if err := validatePreparedDefaultModelProviderTemplate(template); err != nil {
 		return DefaultModelProviderTemplate{}, err

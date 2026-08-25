@@ -10,7 +10,7 @@ Before doing anything, check if the user is logged in with `npx omnara whoami`. 
 
 Then, ask the user questions on what type of agent they'd like to create:
 
-1. Ask two questions before creating anything. 
+1. Ask two questions before creating anything.
    a. What should the agent do? Examples include a coding agent, deep research agent, etc.
    b. How will you interact with the agent (Omnara web console, first-party slack integration, custom frontend UI using the typescript SDK)
 

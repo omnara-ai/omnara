@@ -2,10 +2,21 @@ import type { ToolPermissionProfile } from '@omnara/sdk'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
-import type { BasicMcpServer, McpAuthType } from '@/components/agents/useAgentBuilderForm'
+import {
+  type BasicMcpServer,
+  type McpAuthType,
+  mcpServerNameError,
+  mcpServerNameMaxLength,
+} from '@/components/agents/useAgentBuilderForm'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  RequiredFieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -82,20 +93,29 @@ export function AgentConfigMcpServersField({
       {servers.length > 0 ? (
         <div className="divide-y">
           {servers.map((server) => {
+            const duplicateName = servers.some(
+              (candidate) => candidate.id !== server.id && candidate.name === server.name,
+            )
+            const nameError =
+              mcpServerNameError(server.name) ??
+              (duplicateName ? 'Name must be unique within this configuration.' : undefined)
             return (
               <div key={server.id} className="space-y-4 px-5 py-4">
                 <div className="grid gap-4 sm:grid-cols-[minmax(8rem,14rem)_1fr_auto]">
-                  <Field>
+                  <Field data-invalid={nameError !== undefined}>
                     <RequiredFieldLabel htmlFor={`${server.id}-name`}>Name</RequiredFieldLabel>
                     <Input
                       id={`${server.id}-name`}
                       required
+                      maxLength={mcpServerNameMaxLength}
+                      aria-invalid={nameError !== undefined}
                       value={server.name}
                       placeholder="github"
                       onChange={(event) => {
                         updateServer(server.id, { name: event.target.value })
                       }}
                     />
+                    <FieldError>{nameError}</FieldError>
                   </Field>
                   <Field>
                     <RequiredFieldLabel htmlFor={`${server.id}-url`}>URL</RequiredFieldLabel>

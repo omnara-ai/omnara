@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -80,6 +80,11 @@ func (s *Store) createConfiguredModelTx(
 			"org, provider config, configured model name, and provider model slug are required",
 		)
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
+	if err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if input.MaxOutputTokens <= 0 {
 		return ConfiguredModelRecord{}, fmt.Errorf(
 			"max_output_tokens must be positive: %w",
@@ -203,18 +208,21 @@ func (s *Store) PatchConfiguredModel(
 	update = normalizeConfiguredModelUpdate(update)
 	behaviorChanged := configuredModelBehaviorChanged(current, update)
 	if !behaviorChanged {
+		if update.Name == "" {
+			return ConfiguredModelRecord{}, errors.New("configured model name is required")
+		}
+		normalizedName, err := resourcename.CanonicalizeRequired("configured model name", update.Name)
+		if err != nil {
+			return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+		}
+		update.Name = normalizedName
 		record := current
-		if input.Name != nil {
-			if update.Name == "" {
-				return ConfiguredModelRecord{}, errors.New("configured model name is required")
+		if input.Name != nil && update.Name != current.Name {
+			renamed, err := renameConfiguredModelTx(ctx, qtx, update)
+			if err != nil {
+				return ConfiguredModelRecord{}, err
 			}
-			if update.Name != current.Name {
-				renamed, err := renameConfiguredModelTx(ctx, qtx, update)
-				if err != nil {
-					return ConfiguredModelRecord{}, err
-				}
-				record = renamed
-			}
+			record = renamed
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return ConfiguredModelRecord{}, err
@@ -307,6 +315,11 @@ func updateConfiguredModelTx(
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
+	if err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New("provider model slug is required")
 	}
@@ -365,10 +378,14 @@ func renameConfiguredModelTx(
 	qtx *dbsqlc.Queries,
 	input configuredModelUpdate,
 ) (ConfiguredModelRecord, error) {
-	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" {
 		return ConfiguredModelRecord{}, errors.New("configured model name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", input.Name)
+	if err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	row, err := qtx.RenameConfiguredModel(
 		ctx,
 		dbsqlc.RenameConfiguredModelParams{
@@ -498,9 +515,15 @@ func (s *Store) GetConfiguredModelByName(
 	orgID, providerConfigID ID,
 	name string,
 ) (ConfiguredModelRecord, error) {
+	normalizedName, err := resourcename.CanonicalizeRequired("configured model name", name)
+	if err != nil {
+		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
+	}
 	row, err := s.q.GetConfiguredModelByName(
 		ctx,
-		dbsqlc.GetConfiguredModelByNameParams{OrgID: orgID, ModelProviderConfigID: providerConfigID, Name: name},
+		dbsqlc.GetConfiguredModelByNameParams{
+			OrgID: orgID, ModelProviderConfigID: providerConfigID, Name: normalizedName,
+		},
 	)
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)

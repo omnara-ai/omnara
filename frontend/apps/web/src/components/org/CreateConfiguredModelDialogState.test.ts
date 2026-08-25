@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   configuredModelFormDefaults,
+  configuredModelSuggestedName,
   discoveredModelPrefill,
   providerChangeReset,
 } from './CreateConfiguredModelDialogState'
@@ -12,44 +13,45 @@ const discoveredModel = {
   max_output_tokens: 16_384,
 }
 
-describe('discoveredModelPrefill', () => {
-  it('uses the provider model slug as the generated name', () => {
+describe('generated configured model names', () => {
+  it('uses the model slug when it is a valid name', () => {
     expect(discoveredModelPrefill(configuredModelFormDefaults, discoveredModel)).toContainEqual([
       'name',
       discoveredModel.slug,
     ])
   })
 
-  it('updates a generated name and preserves a custom name', () => {
+  it('recognizes shortened suggestions and refreshes them with a new model', () => {
+    const firstSlug = `first-model-${'a'.repeat(50)}`
+    const secondSlug = `second-model-${'b'.repeat(49)}`
+    const values = {
+      ...configuredModelFormDefaults,
+      name: configuredModelSuggestedName(firstSlug),
+      providerModelSlug: firstSlug,
+    }
+
+    const updates = discoveredModelPrefill(values, { slug: secondSlug })
+    expect(updates).toContainEqual(['name', configuredModelSuggestedName(secondSlug)])
+    expect(providerChangeReset(values)).toContainEqual(['name', ''])
+  })
+
+  it('preserves custom and whitespace-only input', () => {
     const generatedValues = {
       ...configuredModelFormDefaults,
-      name: 'old-model',
+      name: configuredModelSuggestedName('old-model'),
       providerModelSlug: 'old-model',
     }
-    expect(discoveredModelPrefill(generatedValues, discoveredModel)).toContainEqual([
-      'name',
-      discoveredModel.slug,
-    ])
-
     const customValues = { ...generatedValues, name: 'My model' }
+    const whitespaceValues = { ...generatedValues, name: '   ' }
+
     expect(discoveredModelPrefill(customValues, discoveredModel)).not.toContainEqual([
       'name',
-      discoveredModel.slug,
+      configuredModelSuggestedName(discoveredModel.slug),
     ])
-  })
-})
-
-describe('providerChangeReset', () => {
-  it('clears a generated name and preserves a custom name', () => {
-    const generatedValues = {
-      ...configuredModelFormDefaults,
-      name: 'old-model',
-      providerModelSlug: 'old-model',
-    }
-    expect(providerChangeReset(generatedValues)).toContainEqual(['name', ''])
-    expect(providerChangeReset({ ...generatedValues, name: 'My model' })).not.toContainEqual([
+    expect(discoveredModelPrefill(whitespaceValues, discoveredModel)).not.toContainEqual([
       'name',
-      '',
+      configuredModelSuggestedName(discoveredModel.slug),
     ])
+    expect(providerChangeReset(customValues)).not.toContainEqual(['name', ''])
   })
 })

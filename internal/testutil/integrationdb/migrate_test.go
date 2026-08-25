@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 func TestMigrateLocalDatabase(t *testing.T) {
@@ -26,6 +27,7 @@ func TestMigrateLocalDatabase(t *testing.T) {
 		ctx,
 		db,
 		os.DirFS("../../../migrations"),
+		schemamigrations.GoMigrations()...,
 	); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}

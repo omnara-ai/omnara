@@ -24,6 +24,8 @@ var (
 	ErrProcessTerminating            = errors.New("process is terminating")
 	ErrProcessAlreadyStopped         = errors.New("process is already stopped")
 	ErrProcessStateUnknown           = errors.New("process state is unknown")
+	ErrInvalidSkillName              = errors.New("invalid skill name")
+	ErrInvalidSecretName             = errors.New("invalid secret name")
 	ErrInvalidSecretRequest          = errors.New("invalid secret request")
 	ErrInvalidActorRequest           = errors.New("invalid actor request")
 	ErrInvalidModelProviderConfig    = errors.New("invalid model provider config")

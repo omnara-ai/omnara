@@ -1,5 +1,6 @@
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
 import {
   machinePoolFormAfterProviderChange,
@@ -71,6 +72,7 @@ export function MachinePoolFields({
               onValueChange={(name) => {
                 setValue('name', name)
               }}
+              error={<ResourceNameFieldError value={values.name} />}
             />
           </div>
           <MachinePoolInputField

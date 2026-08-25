@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
@@ -98,6 +99,10 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	if err != nil {
 		return AgentConfigSource{}, err
 	}
+	jsonSource, err = canonicalizeSourceResourceReferences(jsonSource)
+	if err != nil {
+		return AgentConfigSource{}, err
+	}
 	schema, err := compiledSourceSchema()
 	if err != nil {
 		return AgentConfigSource{}, err
@@ -116,19 +121,77 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	return parsed, nil
 }
 
-func ParseStoredSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return AgentConfigSource{}, errors.New("agent config source is required")
+func canonicalizeSourceResourceReferences(raw []byte) ([]byte, error) {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("parse agent config JSON: %w", err)
 	}
-	jsonSource, err := sourceJSON(format, raw)
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("parse agent config JSON: trailing value")
+		}
+		return nil, fmt.Errorf("parse agent config JSON: %w", err)
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	changed, err := canonicalizeJSONResourceReferences(root)
 	if err != nil {
-		return AgentConfigSource{}, err
+		return nil, err
 	}
-	var parsed AgentConfigSource
-	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
-		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
+	if !changed {
+		return raw, nil
 	}
-	return parsed, nil
+	normalized, err := json.Marshal(root)
+	if err != nil {
+		return nil, fmt.Errorf("encode canonical agent config JSON: %w", err)
+	}
+	return normalized, nil
+}
+
+func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
+	changed := false
+	canonicalize := func(object map[string]any, key, field string) error {
+		value, ok := object[key].(string)
+		if !ok {
+			return nil
+		}
+		canonical, err := resourcename.CanonicalizeRequired(field, value)
+		if err != nil {
+			return err
+		}
+		if canonical != value {
+			object[key] = canonical
+			changed = true
+		}
+		return nil
+	}
+	if model, ok := root["model"].(map[string]any); ok {
+		for _, key := range []string{"provider_config", "name"} {
+			if err := canonicalize(model, key, "model."+key); err != nil {
+				return false, err
+			}
+		}
+	}
+	if machineSources, ok := root["machine_sources"].([]any); ok {
+		for index, value := range machineSources {
+			machine, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, key := range []string{"machine_name", "machine_pool_name"} {
+				field := fmt.Sprintf("machine_sources[%d].%s", index, key)
+				if err := canonicalize(machine, key, field); err != nil {
+					return false, err
+				}
+			}
+		}
+	}
+	return changed, nil
 }
 
 func sourceJSON(format SourceFormat, raw []byte) ([]byte, error) {
@@ -256,8 +319,8 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 		kjsonschema.AdditionalProps(false),
 		kjsonschema.Defs(map[string]*kjsonschema.Schema{
 			"AgentConfigModelSource": kjsonschema.Object(
-				kjsonschema.Prop("provider_config", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-				kjsonschema.Prop("name", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
+				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
+				kjsonschema.Prop("name", resourceNameReferenceSchema()),
 				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
 				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
 				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
@@ -270,8 +333,8 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.AdditionalProps(false),
 			),
 			"AgentConfigMachineSource": kjsonschema.Object(
-				kjsonschema.Prop("machine_name", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-				kjsonschema.Prop("machine_pool_name", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
+				kjsonschema.Prop("machine_name", resourceNameReferenceSchema()),
+				kjsonschema.Prop("machine_pool_name", resourceNameReferenceSchema()),
 				kjsonschema.Prop("max_machines", kjsonschema.Integer(kjsonschema.Min(0))),
 				kjsonschema.Prop("initial_num_machines", kjsonschema.Integer(kjsonschema.Min(0))),
 				kjsonschema.Prop(
@@ -395,6 +458,14 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 		}),
 	)
 	return schema
+}
+
+func resourceNameReferenceSchema() *kjsonschema.Schema {
+	return kjsonschema.String(
+		kjsonschema.MinLength(1),
+		kjsonschema.MaxLength(resourcename.MaxCodePoints),
+		kjsonschema.Pattern(`^\S(?:.*\S)?$`),
+	)
 }
 
 func envNameSchema() *kjsonschema.Schema {

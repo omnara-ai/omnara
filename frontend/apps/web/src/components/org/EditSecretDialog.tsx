@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 
 export function EditSecretDialog({
   open,
@@ -32,7 +34,7 @@ export function EditSecretDialog({
     event.preventDefault()
     setError('')
     try {
-      await mutation.mutateAsync({ secretID: secret.id, name: name.trim() })
+      await mutation.mutateAsync({ secretID: secret.id, name })
       onOpenChange(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not update secret')
@@ -55,12 +57,13 @@ export function EditSecretDialog({
                   setName(event.target.value)
                 }}
               />
+              <ResourceNameFieldError value={name} />
             </Field>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={mutation.isPending || name.trim() === ''}
+                disabled={mutation.isPending || name === secret.name || !resourceNameValid(name)}
                 loading={mutation.isPending}
               >
                 Save changes

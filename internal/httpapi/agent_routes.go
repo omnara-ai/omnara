@@ -248,8 +248,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	name := strings.TrimSpace(request.Body.Name)
-	if name == "" {
+	if request.Body.Name == "" {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 	}
 	principal, _ := principalFromContext(ctx)
@@ -260,7 +259,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 	profile, err := s.server.store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
 		ProjectID: scope.project.ID,
 		ProfileID: profileID,
-		Name:      name,
+		Name:      request.Body.Name,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -798,16 +797,12 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	name := ""
-	if request.Body.Name != nil {
-		name = strings.TrimSpace(*request.Body.Name)
-	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
 		LaunchedBy:     principal,
-		Name:           name,
+		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	})

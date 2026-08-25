@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,26 +18,28 @@ const (
 	DeviceAuthFlowTTL      = 15 * time.Minute
 	DeviceAuthPollInterval = 5 * time.Second
 	deviceAuthCodeAttempts = 5
-	deviceAuthNameMaxRunes = 128
 )
 
 func (s *Store) StartDeviceAuthFlow(
 	ctx context.Context,
 	input StartDeviceAuthFlowInput,
 ) (DeviceAuthFlowStartRecord, error) {
-	clientName := strings.TrimSpace(input.ClientName)
+	clientName := input.ClientName
 	if clientName == "" {
 		clientName = "Device"
 	}
-	tokenName := strings.TrimSpace(input.TokenName)
+	tokenName := input.TokenName
 	if tokenName == "" {
 		tokenName = "Device login"
 	}
-	if err := validateDeviceAuthFlowName("client_name", clientName); err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+	var err error
+	clientName, err = resourcename.CanonicalizeRequired("client_name", clientName)
+	if err != nil {
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
-	if err := validateDeviceAuthFlowName("token_name", tokenName); err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+	tokenName, err = resourcename.CanonicalizeRequired("token_name", tokenName)
+	if err != nil {
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	var deviceCode string
 	var userCode string
@@ -302,21 +303,6 @@ func (s *Store) PollDeviceAuthFlow(
 		Token:    preparedToken.token,
 		Interval: DeviceAuthPollInterval,
 	}, nil
-}
-
-func validateDeviceAuthFlowName(field, value string) error {
-	if utf8.RuneCountInString(value) > deviceAuthNameMaxRunes {
-		return storeerr.Tag(
-			storeerr.ErrInvalidDeviceAuthFlow,
-			fmt.Errorf("%s cannot exceed %d characters", field, deviceAuthNameMaxRunes),
-		)
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, errors.New(field+" cannot include control characters"))
-		}
-	}
-	return nil
 }
 
 func NormalizeDeviceUserCode(code string) string {

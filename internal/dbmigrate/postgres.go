@@ -30,6 +30,7 @@ func RunPostgres(
 	databaseURL string,
 	migrations fs.FS,
 	timeout time.Duration,
+	goMigrations ...*goose.Migration,
 ) error {
 	if timeout <= 0 {
 		return fmt.Errorf("migration timeout must be positive")
@@ -43,7 +44,7 @@ func RunPostgres(
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := ApplyPostgres(migrationCtx, db, migrations); err != nil {
+	if err := ApplyPostgres(migrationCtx, db, migrations, goMigrations...); err != nil {
 		return fmt.Errorf("run PostgreSQL migrations with %s timeout: %w", timeout, err)
 	}
 	return nil
@@ -81,8 +82,9 @@ func ApplyPostgres(
 	ctx context.Context,
 	db *sql.DB,
 	migrations fs.FS,
+	goMigrations ...*goose.Migration,
 ) error {
-	if err := requirePostgresVersion(ctx, db); err != nil {
+	if err := requirePostgresCapabilities(ctx, db); err != nil {
 		return err
 	}
 	locker, err := lock.NewPostgresSessionLocker(
@@ -102,6 +104,7 @@ func ApplyPostgres(
 		migrations,
 		goose.WithSessionLocker(boundedLocker),
 		goose.WithDisableGlobalRegistry(true),
+		goose.WithGoMigrations(goMigrations...),
 	)
 	if err != nil {
 		return fmt.Errorf("create PostgreSQL migration provider: %w", err)
@@ -134,7 +137,7 @@ func ApplyPostgres(
 }
 
 // Goose removes cancellation before SessionUnlock; restore a deadline so cleanup cannot hang.
-// See https://github.com/pressly/goose/blob/v3.27.2/provider_run.go#L300-L306.
+// See https://github.com/pressly/goose/blob/v3.27.3/provider_run.go#L300-L306.
 type deadlineSessionLocker struct {
 	delegate lock.SessionLocker
 	timeout  time.Duration
@@ -150,15 +153,21 @@ func (locker deadlineSessionLocker) SessionUnlock(ctx context.Context, conn *sql
 	return locker.delegate.SessionUnlock(unlockCtx, conn)
 }
 
-func requirePostgresVersion(ctx context.Context, db *sql.DB) error {
+func requirePostgresCapabilities(ctx context.Context, db *sql.DB) error {
 	var version int
+	var encoding string
 	if err := db.QueryRowContext(
 		ctx,
-		`SELECT current_setting('server_version_num')::integer`,
-	).Scan(&version); err != nil {
-		return fmt.Errorf("read PostgreSQL server version: %w", err)
+		`SELECT
+			current_setting('server_version_num')::integer,
+			current_setting('server_encoding')`,
+	).Scan(&version, &encoding); err != nil {
+		return fmt.Errorf("read PostgreSQL capabilities: %w", err)
 	}
-	return validatePostgresVersion(version)
+	if err := validatePostgresVersion(version); err != nil {
+		return err
+	}
+	return validatePostgresEncoding(encoding)
 }
 
 func validatePostgresVersion(version int) error {
@@ -166,6 +175,16 @@ func validatePostgresVersion(version int) error {
 		return fmt.Errorf(
 			"PostgreSQL 18 or newer is required (server_version_num=%d)",
 			version,
+		)
+	}
+	return nil
+}
+
+func validatePostgresEncoding(encoding string) error {
+	if encoding != "UTF8" {
+		return fmt.Errorf(
+			"PostgreSQL UTF8 database encoding is required (server_encoding=%q)",
+			encoding,
 		)
 	}
 	return nil

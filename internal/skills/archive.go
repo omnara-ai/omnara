@@ -39,6 +39,19 @@ const (
 // alphanumeric segments separated by single hyphens.
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+func ValidateName(name string) error {
+	if name == "" {
+		return errors.New("is required")
+	}
+	if len(name) > MaxSkillNameChars {
+		return fmt.Errorf("cannot exceed %d characters", MaxSkillNameChars)
+	}
+	if !skillNamePattern.MatchString(name) {
+		return errors.New("must use lowercase alphanumeric segments separated by single hyphens")
+	}
+	return nil
+}
+
 var errExtractionLimitExceeded = errors.New("skill archive extraction limit exceeded")
 
 type extractionBudget struct {
@@ -409,7 +422,6 @@ func parseSkillMdFrontmatter(body string) (string, string, error) {
 			return "", "", fmt.Errorf("parse SKILL.md frontmatter: %w", err)
 		}
 	}
-	parsed.Name = strings.TrimSpace(parsed.Name)
 	parsed.Description = strings.TrimSpace(parsed.Description)
 	if parsed.Name == "" {
 		return "", "", errors.New("SKILL.md frontmatter is missing `name`")
@@ -417,14 +429,8 @@ func parseSkillMdFrontmatter(body string) (string, string, error) {
 	if parsed.Description == "" {
 		return "", "", errors.New("SKILL.md frontmatter is missing `description`")
 	}
-	if len(parsed.Name) > MaxSkillNameChars {
-		return "", "", fmt.Errorf("SKILL.md frontmatter `name` exceeds %d characters", MaxSkillNameChars)
-	}
-	if !skillNamePattern.MatchString(parsed.Name) {
-		return "", "", fmt.Errorf(
-			"SKILL.md frontmatter `name` %q must be lowercase alphanumeric segments separated by single hyphens",
-			parsed.Name,
-		)
+	if err := ValidateName(parsed.Name); err != nil {
+		return "", "", fmt.Errorf("SKILL.md frontmatter `name` %q %w", parsed.Name, err)
 	}
 	if len(parsed.Description) > MaxSkillDescriptionChars {
 		return "", "", fmt.Errorf("SKILL.md frontmatter `description` exceeds %d characters", MaxSkillDescriptionChars)

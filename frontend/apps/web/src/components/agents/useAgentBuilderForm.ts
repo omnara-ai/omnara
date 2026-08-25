@@ -21,6 +21,7 @@ import {
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
+import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
@@ -124,7 +125,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     unavailableSkillIds.length > 0 ||
     unavailableSourceIds.length > 0 ||
     modelUnavailable ||
-    !draftValid(draft)
+    !basicConfigValid(draft)
 
   const patch = (fields: Partial<BasicConfig>) => {
     setDraft((prev) => ({ ...prev, ...fields }))
@@ -174,11 +175,11 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
   }
 }
 
-function draftValid(draft: BasicConfig) {
+export function basicConfigValid(draft: BasicConfig) {
   return (
     draft.instruction.trim() !== '' &&
-    draft.providerConfig.trim() !== '' &&
-    draft.modelName.trim() !== '' &&
+    resourceNameValid(draft.providerConfig) &&
+    resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&
     mcpServerNamesUnique(draft.mcpServers) &&
     draft.mcpServers.every(mcpServerValid)
@@ -193,7 +194,7 @@ function machineCountValid(value: string) {
 
 function machineSourceValid(source: BasicMachineSource) {
   return (
-    source.name.trim() !== '' &&
+    resourceNameValid(source.name) &&
     envOverlayRowsValid(source.envRows) &&
     secretEnvOverlayRowsValid(source.secretEnvRows) &&
     (source.kind === 'machine' ||
@@ -205,11 +206,25 @@ function machineSourceValid(source: BasicMachineSource) {
   )
 }
 
+export const mcpServerNameMaxLength = 32
+
 const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
+
+export function mcpServerNameError(name: string): string | undefined {
+  if (name === '') return 'Name is required.'
+  if (name.length > mcpServerNameMaxLength) {
+    return `Name cannot exceed ${mcpServerNameMaxLength} characters.`
+  }
+  if (!/^[a-zA-Z]/.test(name)) return 'Name must start with a letter.'
+  if (!mcpServerNamePattern.test(name)) {
+    return 'Name may only contain letters, numbers, and hyphens.'
+  }
+  return undefined
+}
 
 function mcpServerValid(server: BasicMcpServer) {
   return (
-    mcpServerNamePattern.test(server.name.trim()) &&
+    mcpServerNameError(server.name) === undefined &&
     server.url.trim() !== '' &&
     (server.authType === 'none' ||
       (server.secretId.trim() !== '' &&
@@ -219,7 +234,7 @@ function mcpServerValid(server: BasicMcpServer) {
 }
 
 function mcpServerNamesUnique(servers: BasicMcpServer[]) {
-  const names = servers.map((server) => server.name.trim())
+  const names = servers.map((server) => server.name)
   return new Set(names).size === names.length
 }
 
@@ -256,17 +271,18 @@ function applyToDocument(
 
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
-  const providerConfig = config.providerConfig.trim()
-  if (providerConfig !== (baseline?.providerConfig ?? '')) {
+  const providerConfig = normalizeResourceName(config.providerConfig)
+  if (providerConfig !== normalizeResourceName(baseline?.providerConfig ?? '')) {
     set(['model', 'provider_config'], providerConfig)
   }
-  const modelName = config.modelName.trim()
-  if (modelName !== (baseline?.modelName ?? '')) set(['model', 'name'], modelName)
+  const modelName = normalizeResourceName(config.modelName)
+  if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
+    set(['model', 'name'], modelName)
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools.map((tool) => [tool.name.trim(), toolWire(tool)]),
+    config.tools.map((tool) => [tool.name, toolWire(tool)]),
     baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,
@@ -274,7 +290,7 @@ function applyToDocument(
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
     'mcp',
-    config.mcpServers.map((server) => [server.name.trim(), mcpWire(server)]),
+    config.mcpServers.map((server) => [server.name, mcpWire(server)]),
     baseline == null ? null : baseline.mcpServers.map((server) => [server.name, mcpWire(server)]),
     set,
     del,
@@ -346,7 +362,7 @@ function applySkills(
 function machineSourceComparable(source: BasicMachineSource) {
   return {
     kind: source.kind,
-    name: source.name.trim(),
+    name: normalizeResourceName(source.name),
     cwd: source.defaultCwd.trim(),
     initialNumMachines: source.initialNumMachines,
     maxMachines: source.maxMachines,
@@ -378,8 +394,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function machineSourceWire(source: BasicMachineSource): Record<string, unknown> {
   const wire: Record<string, unknown> = {}
+  const name = normalizeResourceName(source.name)
   if (source.kind === 'pool') {
-    wire.machine_pool_name = source.name.trim()
+    wire.machine_pool_name = name
     if (source.initialNumMachines !== '') {
       wire.initial_num_machines = Number(source.initialNumMachines)
     }
@@ -394,7 +411,7 @@ function machineSourceWire(source: BasicMachineSource): Record<string, unknown> 
       : undefined
     if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
   } else {
-    wire.machine_name = source.name.trim()
+    wire.machine_name = name
   }
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
   const envOverlay = envOverlayFromRows(source.envRows)

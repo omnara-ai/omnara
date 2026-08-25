@@ -12,6 +12,10 @@ An agent config is a YAML or JSON document that defines the agent's instruction,
 
 Configs are immutable: changing the definition creates a new config ID (`acfg_…`). Submitting the same definition again returns the same ID.
 
+YAML and JSON configs refer to model providers, configured models, BYO machines, and machine pools by their human-readable names. When a config is created, Omnara resolves those names and stores the resources' immutable IDs in the compiled config. Renaming a resource therefore does not change an existing config or an agent already using it. Recompiling saved source resolves its names again against the current resources, so an old name may stop resolving or may resolve to a different resource if that name has since been reused.
+
+Provider names are unique within an organization, model names within a provider, and BYO machine and machine-pool names within an organization. Machine and pool resolution also requires the project to have access to the selected resource.
+
 The example below includes every major section. If you are creating your first agent, start with the smaller config in the [Quickstart](/quickstart).
 
 ```yaml

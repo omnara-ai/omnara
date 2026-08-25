@@ -6523,6 +6523,23 @@ components:
               code:
                 $ref: '#/components/schemas/ServerErrorCode'
   schemas:
+    ResourceName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      x-omnara-unicode-normalization: NFC
+      description: Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+    AgentName:
+      type: string
+      maxLength: 64
+      x-omnara-unicode-normalization: NFC
+      description: Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
+    SkillName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      description: Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
     ResourceListSort:
       type: string
       description: Sort order for named resources that expose created and modified timestamps.
@@ -6741,8 +6758,7 @@ components:
       required: [name, credential_secret_id]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         preset:
           type: string
           enum: [openai, openrouter, anthropic]
@@ -6823,7 +6839,7 @@ components:
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
@@ -6916,9 +6932,8 @@ components:
       required: [name, provider_model_slug, context_window_tokens]
       properties:
         name:
-          type: string
-          minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -6974,9 +6989,8 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
-          minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -7038,8 +7052,8 @@ components:
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         name:
-          type: string
-          description: Admin-facing configured model name used by agent YAML as model.name.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name.
         current_revision_id:
           $ref: '#/components/schemas/ConfiguredModelRevisionID'
         provider_model_slug:
@@ -7288,10 +7302,10 @@ components:
         model_provider_config_id:
           $ref: '#/components/schemas/ModelProviderConfigID'
         name:
-          type: string
-          description: Admin-facing configured model name used by agent YAML as model.name.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name.
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
           description: Name of the provider config that owns this model, used by agent YAML as model.provider_config.
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -7443,7 +7457,7 @@ components:
         owner:
           $ref: '#/components/schemas/SkillOwner'
         name:
-          type: string
+          $ref: '#/components/schemas/SkillName'
         revision_id:
           $ref: '#/components/schemas/SkillRevisionID'
         revision:
@@ -7572,8 +7586,7 @@ components:
           type: string
           minLength: 1
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         return_to:
           type: string
         client_id:
@@ -7855,10 +7868,10 @@ components:
       required: [provider_config, name, provider_model_slug, configured_model_id, current_revision_id, api_format, api_variant, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities]
       properties:
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         name:
-          type: string
-          description: Configured model name selected by this agent config, rendered from the current configured model display record.
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name selected by this agent config, rendered from the current configured model record.
         provider_model_slug:
           type: string
           description: Exact provider model slug on the configured model's current revision at response time.
@@ -7938,7 +7951,7 @@ components:
       required: [name, config]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         config:
           $ref: '#/components/schemas/AgentConfigID'
     UpdateAgentProfileRequest:
@@ -7956,7 +7969,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
     AgentProfile:
       type: object
       additionalProperties: false
@@ -7969,7 +7982,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
         current_generation:
@@ -8062,7 +8075,7 @@ components:
       required: [name, target, cron, message_template]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
         cron:
@@ -8079,7 +8092,7 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         cron:
           $ref: '#/components/schemas/CronExpression'
         timezone:
@@ -8100,7 +8113,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
         cron:
@@ -8154,8 +8167,8 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
         name:
-          type: string
-          description: Display name for the launched agent. Defaults to the profile name when launching from a profile.
+          $ref: '#/components/schemas/AgentName'
+          description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
     Agent:
@@ -8175,7 +8188,7 @@ components:
           type: string
           enum: [active, archived]
         name:
-          type: string
+          $ref: '#/components/schemas/AgentName'
         integration_target:
           $ref: '#/components/schemas/IntegrationTarget'
         current_config_id:
@@ -8194,9 +8207,9 @@ components:
       required: [provider_config, name]
       properties:
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
     IntegrationTarget:
       type: object
       additionalProperties: false
@@ -9728,8 +9741,7 @@ components:
         owner:
           $ref: '#/components/schemas/SecretOwnerInput'
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
         material:
@@ -9740,8 +9752,7 @@ components:
       minProperties: 1
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
     SecretVersionRequest:
@@ -9780,7 +9791,7 @@ components:
         owner:
           $ref: '#/components/schemas/SecretOwner'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         kind:
           $ref: '#/components/schemas/SecretKind'
         metadata:
@@ -9899,8 +9910,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     CreateOrganizationResponse:
       type: object
       additionalProperties: false
@@ -9920,7 +9930,7 @@ components:
         id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9948,7 +9958,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         org_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         email:
           type: string
           format: email
@@ -9984,8 +9994,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     PersonalAccessToken:
       type: object
       additionalProperties: false
@@ -9996,7 +10005,7 @@ components:
         user_id:
           $ref: '#/components/schemas/UserID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         token_id:
           type: string
           description: Stable non-secret display identifier. It is not embedded in the bearer token.
@@ -10035,7 +10044,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         token_id:
           type: string
           description: Stable non-secret display identifier. It is not embedded in the bearer token.
@@ -10062,8 +10071,7 @@ components:
       required: [name, org_role]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         org_role:
           $ref: '#/components/schemas/OrgAPIKeyRole'
     CreateOrgAPIKeyResponse:
@@ -10083,8 +10091,7 @@ components:
       minProperties: 1
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         org_role:
           $ref: '#/components/schemas/OrgAPIKeyRole'
     ListOrgAPIKeysResponse:
@@ -10197,8 +10204,7 @@ components:
       required: [name, provider, default_machine_provider_options, provider_auth_secret_id, max_total_machines]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -10286,8 +10292,7 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         default_machine_cpu:
@@ -10376,7 +10381,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         description:
@@ -10545,7 +10550,7 @@ components:
             - $ref: '#/components/schemas/MachinePoolID'
             - type: "null"
         display_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -10602,8 +10607,7 @@ components:
       required: [display_name]
       properties:
         display_name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         cwd:
@@ -10624,8 +10628,7 @@ components:
       required: [display_name, project_ids]
       properties:
         display_name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         project_ids:
           type: array
           maxItems: 100
@@ -10676,7 +10679,7 @@ components:
         source_kind:
           $ref: '#/components/schemas/MachineSourceKind'
         display_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -11103,7 +11106,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         description:
@@ -11119,7 +11122,8 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
+          description: Optional token name. Omitted values default to daemon.
         metadata:
           $ref: '#/components/schemas/Metadata'
     MachineDaemonToken:
@@ -11134,7 +11138,7 @@ components:
         machine_id:
           $ref: '#/components/schemas/MachineID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -11356,8 +11360,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     ProjectFields:
       type: object
       description: Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
@@ -11368,7 +11371,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -11455,7 +11458,7 @@ components:
         id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         role:
           type: string
           description: The authenticated user's role in this organization.
@@ -11539,7 +11542,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         project_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         role:
           type: string
           description: The member's role on the project (admin, developer, operator, or viewer).

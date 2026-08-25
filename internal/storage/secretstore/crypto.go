@@ -41,6 +41,11 @@ func invalidSecretRequest(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", storeerr.ErrInvalidSecretRequest, fmt.Sprintf(format, args...))
 }
 
+func invalidSecretName(format string, args ...any) error {
+	detail := fmt.Errorf(format, args...)
+	return storeerr.Tag(storeerr.ErrInvalidSecretName, storeerr.InvalidRequest(detail))
+}
+
 func encryptedPayloadFromSecretVersion(version SecretVersionRecord) secrets.EncryptedPayload {
 	return secrets.EncryptedPayload{
 		EncryptionScheme:  version.EncryptionScheme,

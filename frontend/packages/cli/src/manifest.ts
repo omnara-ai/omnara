@@ -49,7 +49,7 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zCreateAgentPath,
         body: zConfigAttachment.extend({
           profile: schemas.zAgentProfileId.optional(),
-          name: z.string().optional(),
+          name: schemas.zAgentName.optional(),
           message: z.string().optional(),
         }),
         transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
@@ -628,7 +628,7 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: zConfigAttachment.extend({ name: z.string() }),
+        body: zConfigAttachment.extend({ name: schemas.zResourceName }),
         transformBody: async ({ name, ...attachment }, { client, path }) => ({
           name,
           config: await resolveConfigId(client, path, attachment),

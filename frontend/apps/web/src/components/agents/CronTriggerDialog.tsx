@@ -23,7 +23,9 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Textarea } from '@/components/ui/textarea'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const browserTimezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -71,7 +73,7 @@ function cronTriggerFormValid(value: {
   messageTemplate: string
 }) {
   return (
-    value.name.trim() !== '' &&
+    resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
     value.messageTemplate.trim() !== ''
@@ -153,6 +155,7 @@ function CronTriggerFormDialog({
                       field.handleChange(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={field.state.value} />
                 </Field>
               )}
             </form.Field>
@@ -287,7 +290,7 @@ export function CreateCronTriggerDialog({
       isPending={createTrigger.isPending}
       onSubmit={async (value) => {
         const trigger = await createTrigger.mutateAsync({
-          name: value.name.trim(),
+          name: value.name,
           target,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
@@ -331,7 +334,7 @@ export function EditCronTriggerDialog({
       onSubmit={async (value) => {
         await updateTrigger.mutateAsync({
           cronTriggerID: trigger.id,
-          name: value.name.trim(),
+          name: value.name,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,

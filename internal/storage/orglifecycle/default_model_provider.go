@@ -2,6 +2,7 @@ package orglifecycle
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -203,7 +205,10 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	if err != nil {
 		return fmt.Errorf("generate default model provider credential name: %w", err)
 	}
-	prepared.CredentialSecretName += "-" + credentialNameID.String()
+	prepared.CredentialSecretName = defaultModelProviderCredentialName(
+		prepared.CredentialSecretName,
+		credentialNameID,
+	)
 	if err := s.installDefaultModelProviderTx(
 		ctx,
 		tx,
@@ -222,6 +227,14 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		return fmt.Errorf("commit default model provider provisioning completion: %w", err)
 	}
 	return nil
+}
+
+func defaultModelProviderCredentialName(base string, id uuid.UUID) string {
+	suffix := "-" + base64.RawURLEncoding.EncodeToString(id[:])
+	prefixRunes := []rune(base)
+	maximumPrefix := resourcename.MaxCodePoints - len([]rune(suffix))
+	prefix := strings.TrimRight(string(prefixRunes[:min(len(prefixRunes), maximumPrefix)]), " ")
+	return prefix + suffix
 }
 
 func finishSupersededDefaultModelProviderProvisioning(
