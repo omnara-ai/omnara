@@ -20,7 +20,7 @@ import (
 
 func TestSkillAPIErrorOnlyExposesFieldSpecificNameValidation(t *testing.T) {
 	nameErr := storeerr.Tag(
-		skillstore.ErrInvalidSkillName,
+		storeerr.ErrInvalidSkillName,
 		storeerr.InvalidRequest(errors.New("skill name must use lowercase segments")),
 	)
 	if got := skillAPIError(context.Background(), nameErr).Message; !strings.Contains(got, "skill name") {

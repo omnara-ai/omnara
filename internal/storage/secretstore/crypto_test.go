@@ -11,7 +11,7 @@ import (
 
 func TestInvalidSecretNameIsFieldSpecificWithoutOpaqueRequestTag(t *testing.T) {
 	err := invalidSecretName("secret name must not start or end with whitespace")
-	if !errors.Is(err, ErrInvalidSecretName) {
+	if !errors.Is(err, storeerr.ErrInvalidSecretName) {
 		t.Fatalf("error = %v, want ErrInvalidSecretName", err)
 	}
 	if !errors.Is(err, storeerr.ErrInvalidRequest) {
@@ -32,7 +32,7 @@ func TestCreateTxRejectsInvalidNameBeforeDatabaseWrite(t *testing.T) {
 		nil,
 		CreateSecretInput{Name: "unsafe\u200dname"},
 	)
-	if !errors.Is(err, ErrInvalidSecretName) {
+	if !errors.Is(err, storeerr.ErrInvalidSecretName) {
 		t.Fatalf("error = %v, want ErrInvalidSecretName", err)
 	}
 }

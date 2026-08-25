@@ -12,8 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 )
 
-var ErrInvalidSecretName = errors.New("invalid secret name")
-
 func (s *Store) encryptSecretPayload(
 	ctx context.Context,
 	orgID, secretID, versionID ID,
@@ -45,7 +43,7 @@ func invalidSecretRequest(format string, args ...any) error {
 
 func invalidSecretName(format string, args ...any) error {
 	detail := fmt.Errorf(format, args...)
-	return storeerr.Tag(ErrInvalidSecretName, storeerr.InvalidRequest(detail))
+	return storeerr.Tag(storeerr.ErrInvalidSecretName, storeerr.InvalidRequest(detail))
 }
 
 func encryptedPayloadFromSecretVersion(version SecretVersionRecord) secrets.EncryptedPayload {

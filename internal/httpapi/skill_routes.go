@@ -114,7 +114,7 @@ func skillAPIError(ctx context.Context, err error) apierror.ResponseError {
 		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	case errors.Is(err, storeerr.ErrConflict):
 		return apierror.FromCode(openapi.ErrorCodeConflict, "conflict")
-	case errors.Is(err, skillstore.ErrInvalidSkillName):
+	case errors.Is(err, storeerr.ErrInvalidSkillName):
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	case errors.Is(err, storeerr.ErrInvalidRequest):
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid skill request")

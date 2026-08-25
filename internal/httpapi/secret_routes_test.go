@@ -6,13 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestSecretAPIErrorOnlyExposesFieldSpecificNameValidation(t *testing.T) {
 	nameErr := storeerr.Tag(
-		secretstore.ErrInvalidSecretName,
+		storeerr.ErrInvalidSecretName,
 		storeerr.InvalidRequest(errors.New("secret name must not start or end with whitespace")),
 	)
 	if got := secretAPIError(context.Background(), nameErr).Message; !strings.Contains(got, "secret name") {

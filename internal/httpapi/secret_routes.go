@@ -151,7 +151,7 @@ func secretAPIError(ctx context.Context, err error) apierror.ResponseError {
 		return apierror.FromCode(openapi.ErrorCodeConflict, "conflict")
 	case errors.Is(err, storeerr.ErrStateTransitionConflict):
 		return apierror.FromCode(openapi.ErrorCodeConflict, "cluster-managed secrets cannot be changed")
-	case errors.Is(err, secretstore.ErrInvalidSecretName):
+	case errors.Is(err, storeerr.ErrInvalidSecretName):
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	case errors.Is(err, storeerr.ErrInvalidRequest), errors.Is(err, storeerr.ErrInvalidSecretRequest):
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid secret request")
