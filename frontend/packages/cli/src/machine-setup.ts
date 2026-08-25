@@ -47,7 +47,8 @@ export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
 ) => ({
   value: {
     ...response,
-    install_command: `${installCommand(baseUrl)}  (paste the token when prompted)`,
+    install_command: installCommand(baseUrl),
+    install_note: 'Run install_command on the target machine and paste the token when prompted.',
   },
 })
 
