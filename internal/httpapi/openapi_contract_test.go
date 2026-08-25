@@ -1191,8 +1191,16 @@ func TestOpenAPIResourceNameLengthCountsUnicodeCodePoints(t *testing.T) {
 	}{
 		{name: "at limit", value: strings.Repeat("😀", resourcename.MaxCodePoints), wantStatus: http.StatusNoContent},
 		{name: "above limit", value: strings.Repeat("界", resourcename.MaxCodePoints+1), wantStatus: http.StatusBadRequest},
-		{name: "decomposed at submitted limit", value: strings.Repeat("e\u0301", resourcename.MaxCodePoints/2), wantStatus: http.StatusNoContent},
-		{name: "decomposed above submitted limit", value: strings.Repeat("e\u0301", resourcename.MaxCodePoints/2+1), wantStatus: http.StatusBadRequest},
+		{
+			name:       "decomposed at submitted limit",
+			value:      strings.Repeat("e\u0301", resourcename.MaxCodePoints/2),
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "decomposed above submitted limit",
+			value:      strings.Repeat("e\u0301", resourcename.MaxCodePoints/2+1),
+			wantStatus: http.StatusBadRequest,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]string{"name": test.value})

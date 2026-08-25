@@ -1,0 +1,25 @@
+<CodeGroup>
+```bash CLI
+npx omnara agents update {agent-id} --file agent-v2.yaml
+```
+
+```bash REST
+jq -n --rawfile src agent-v2.yaml '{source: $src, source_format: "yaml"}' |
+curl "$BASE/agents/$AGENT/config" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @-
+```
+
+```typescript SDK
+import { readFile } from 'node:fs/promises'
+
+const source = await readFile('agent-v2.yaml', 'utf8')
+
+await sdk.updateAgentConfig({
+  client,
+  path: { orgID, projectID, agentID },
+  body: { source, source_format: 'yaml' },
+})
+```
+</CodeGroup>

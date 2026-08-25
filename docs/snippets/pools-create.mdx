@@ -1,0 +1,71 @@
+<CodeGroup>
+```bash CLI
+npx omnara pools create \
+  --name sandbox-pool \
+  --provider blaxel \
+  --provider-auth-secret-id sec_hcyd5n6a2bfgik7mv4qtrwz3je \
+  --provider-config '{"workspace": "acme-main"}' \
+  --default-machine-provider-options '{"image": "sandbox/repo-agent:latest", "region": "us-pdx-1"}' \
+  --default-machine-memory-mb 1024 \
+  --default-cwd /workspace \
+  --max-total-machines 10 \
+  --max-total-memory-mb 10240 \
+  --min-machine-memory-mb 1024 \
+  --max-machine-memory-mb 1024 \
+  --json
+```
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/machine-pools" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "sandbox-pool",
+    "provider": "blaxel",
+    "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+    "provider_config": { "workspace": "acme-main" },
+    "default_machine_provider_options": { "image": "sandbox/repo-agent:latest", "region": "us-pdx-1" },
+    "default_machine_memory_mb": 1024,
+    "default_cwd": "/workspace",
+    "max_total_machines": 10,
+    "max_total_memory_mb": 10240,
+    "min_machine_memory_mb": 1024,
+    "max_machine_memory_mb": 1024
+  }'
+```
+
+```typescript SDK
+const pool = await sdk.createMachinePool({
+  client,
+  path: { orgID },
+  body: {
+    name: 'sandbox-pool',
+    provider: 'blaxel',
+    provider_auth_secret_id: 'sec_hcyd5n6a2bfgik7mv4qtrwz3je',
+    provider_config: { workspace: 'acme-main' },
+    default_machine_provider_options: { image: 'sandbox/repo-agent:latest', region: 'us-pdx-1' },
+    default_machine_memory_mb: 1024,
+    default_cwd: '/workspace',
+    max_total_machines: 10,
+    max_total_memory_mb: 10240,
+    min_machine_memory_mb: 1024,
+    max_machine_memory_mb: 1024,
+  },
+})
+```
+</CodeGroup>
+
+```json
+{
+  "id": "mpo_a2bfgik7mv4qtrwz3jehcyd5n6",
+  "name": "sandbox-pool",
+  "provider": "blaxel",
+  "default_machine_memory_mb": 1024,
+  "default_machine_provider_options": { "image": "sandbox/repo-agent:latest", "region": "us-pdx-1" },
+  "max_total_machines": 10,
+  "max_total_memory_mb": 10240,
+  "min_machine_memory_mb": 1024,
+  "max_machine_memory_mb": 1024,
+  "...": "..."
+}
+```

@@ -1,0 +1,39 @@
+<CodeGroup>
+```bash CLI
+npx omnara agents get {agent-id}
+```
+
+```bash REST
+curl -N "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/events/stream?stream_deltas=true" \
+  -H "Authorization: Bearer $OMNARA_TOKEN"
+
+# from a second terminal:
+curl -fsS "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"content_blocks": [{"type": "text", "text": "Install that Node.js version on the machine and show me node --version."}]}'
+```
+
+```typescript SDK
+import { openAgentEventStream } from '@omnara/sdk'
+
+await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  body: {
+    content_blocks: [
+      { type: 'text', text: 'Install that Node.js version on the machine and show me node --version.' },
+    ],
+  },
+})
+
+const { stream } = await openAgentEventStream({
+  client,
+  path: { orgID, projectID, agentID },
+  query: { stream_deltas: true },
+})
+for await (const event of stream) {
+  console.log(event)
+}
+```
+</CodeGroup>
