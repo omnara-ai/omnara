@@ -362,87 +362,27 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		t.Fatalf("parse checked-in openapi spec: %v", err)
 	}
 
-	propertiesByRef := map[string][]string{
-		"#/components/schemas/ResourceName": {
-			"AgentConfigModel.name",
-			"AgentConfigModel.provider_config",
-			"AgentModel.name",
-			"AgentModel.provider_config",
-			"AgentProfile.name",
-			"ConnectBYOMachineRequest.display_name",
-			"ConfiguredModel.name",
-			"ConfiguredModelSummary.name",
-			"ConfiguredModelSummary.provider_config",
-			"CreateAgentProfileRequest.name",
-			"CreateConfiguredModelRequest.name",
-			"CreateCronTriggerRequest.name",
-			"CreateMachineDaemonTokenRequest.name",
-			"CreateMachinePoolRequestBase.name",
-			"CreateMachineRequest.display_name",
-			"CreateModelProviderConfigRequest.name",
-			"CreateOrgAPIKeyRequest.name",
-			"CreateOrganizationRequest.name",
-			"CreatePersonalAccessTokenRequest.name",
-			"CreateProjectRequest.name",
-			"CreateSecretRequest.name",
-			"CurrentUserOrg.name",
-			"CronTrigger.name",
-			"Machine.display_name",
-			"MachineDaemonToken.name",
-			"MachinePool.name",
-			"MachinePoolSummary.name",
-			"MachineSummaryFields.display_name",
-			"MCPOAuthStartRequest.name",
-			"ModelProviderConfig.name",
-			"OrgAPIKey.name",
-			"Organization.name",
-			"OrgInvitation.org_name",
-			"PersonalAccessToken.name",
-			"ProjectFields.name",
-			"ProjectMembershipGrant.project_name",
-			"RenameAgentProfileRequest.name",
-			"Secret.name",
-			"UpdateConfiguredModelRequest.name",
-			"UpdateCronTriggerRequest.name",
-			"UpdateMachinePoolRequest.name",
-			"UpdateOrgAPIKeyRequest.name",
-			"UpdateSecretRequest.name",
-		},
-		"#/components/schemas/AgentName": {
-			"Agent.name",
-			"CreateAgentRequest.name",
-		},
-		"#/components/schemas/SkillName": {
-			"Skill.name",
-		},
-		"": {
-			"Actor.display_name",
-			"CreateMachinePoolRequestBase.provider_config",
-			"CreateSlackSetupRequest.app_name",
-			"CurrentUserIdentity.display_name",
-			"DiscoveredProviderModel.display_name",
-			"ExternalActorParams.display_name",
-			"IntegrationInstall.provider_agent_display_name",
-			"IntegrationTarget.display_name",
-			"MachinePool.provider_config",
-			"ModelOutputToolUseStreamBlock.tool_name",
-			"ModelToolCallContentBlock.name",
-			"OrgMember.display_name",
-			"ToolCall.name",
-			"ToolCatalogEntry.name",
-			"ToolPermissionMode.name",
-			"UpdateMachinePoolRequest.provider_config",
-		},
-	}
-
-	expectedRefs := make(map[string]string)
-	for ref, properties := range propertiesByRef {
-		for _, property := range properties {
-			if _, exists := expectedRefs[property]; exists {
-				t.Fatalf("duplicate name contract for %s", property)
-			}
-			expectedRefs[property] = ref
-		}
+	const resourceNameRef = "#/components/schemas/ResourceName"
+	exceptions := map[string]string{
+		"Agent.name":              "#/components/schemas/AgentName",
+		"CreateAgentRequest.name": "#/components/schemas/AgentName",
+		"Skill.name":              "#/components/schemas/SkillName",
+		"Actor.display_name":      "",
+		"CreateMachinePoolRequestBase.provider_config":   "",
+		"CreateSlackSetupRequest.app_name":               "",
+		"CurrentUserIdentity.display_name":               "",
+		"DiscoveredProviderModel.display_name":           "",
+		"ExternalActorParams.display_name":               "",
+		"IntegrationInstall.provider_agent_display_name": "",
+		"IntegrationTarget.display_name":                 "",
+		"MachinePool.provider_config":                    "",
+		"ModelOutputToolUseStreamBlock.tool_name":        "",
+		"ModelToolCallContentBlock.name":                 "",
+		"OrgMember.display_name":                         "",
+		"ToolCall.name":                                  "",
+		"ToolCatalogEntry.name":                          "",
+		"ToolPermissionMode.name":                        "",
+		"UpdateMachinePoolRequest.provider_config":       "",
 	}
 
 	var failures []string
@@ -452,21 +392,20 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 				continue
 			}
 			key := schemaName + "." + propertyName
-			expectedRef, ok := expectedRefs[key]
-			if !ok {
-				failures = append(failures, key+": name contract is not classified")
-				continue
+			expectedRef := resourceNameRef
+			if exception, ok := exceptions[key]; ok {
+				expectedRef = exception
+				delete(exceptions, key)
 			}
 			property := openAPIPropertySchema(t, schema.Properties, propertyName)
 			actualRef, _ := property["$ref"].(string)
 			if actualRef != expectedRef {
 				failures = append(failures, fmt.Sprintf("%s: $ref = %q, want %q", key, actualRef, expectedRef))
 			}
-			delete(expectedRefs, key)
 		}
 	}
-	for property := range expectedRefs {
-		failures = append(failures, property+": classified name property does not exist")
+	for property := range exceptions {
+		failures = append(failures, property+": name-contract exception does not exist")
 	}
 	slices.Sort(failures)
 	if len(failures) > 0 {

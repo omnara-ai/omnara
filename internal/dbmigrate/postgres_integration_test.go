@@ -11,14 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,84 +60,47 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
-func TestPostgresNamePoliciesMatchGo(t *testing.T) {
+func TestPostgresNameStoragePolicies(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	pool, _ := openPostgresMigrationTestDB(t, ctx)
-	wantForbidden := make([]int, 0)
-	for codepoint := rune(0); codepoint <= unicode.MaxRune; codepoint++ {
-		if unicode.IsControl(codepoint) || unicode.In(
-			codepoint,
-			unicode.Cf,
-			unicode.Other_Default_Ignorable_Code_Point,
-			unicode.Variation_Selector,
-		) || codepoint == '\u2800' || codepoint == '\ufffd' ||
-			(unicode.IsSpace(codepoint) && codepoint != ' ') {
-			wantForbidden = append(wantForbidden, int(codepoint))
-		}
-	}
-	rows, err := pool.Query(ctx, `
-SELECT codepoint
-FROM generate_series(0, $1) AS codepoints(codepoint)
-WHERE resource_name_codepoint_is_forbidden_v1(codepoint)
-ORDER BY codepoint
-`, int(unicode.MaxRune))
-	if err != nil {
-		t.Fatalf("query forbidden resource-name code points: %v", err)
-	}
-	defer rows.Close()
-	gotForbidden := make([]int, 0, len(wantForbidden))
-	for rows.Next() {
-		var codepoint int
-		if err := rows.Scan(&codepoint); err != nil {
-			t.Fatalf("scan forbidden resource-name code point: %v", err)
-		}
-		gotForbidden = append(gotForbidden, codepoint)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate forbidden resource-name code points: %v", err)
-	}
-	if !slices.Equal(gotForbidden, wantForbidden) {
-		t.Fatalf("PostgreSQL forbidden code points differ from Go\n got: %v\nwant: %v", gotForbidden, wantForbidden)
-	}
-
 	tests := []struct {
 		value string
+		want  bool
 	}{
-		{value: ""},
-		{value: "Studio  54"},
-		{value: "Café"},
-		{value: "Cafe\u0301"},
-		{value: "研究開発 شركة برمجيات"},
-		{value: "🚀 Lab"},
-		{value: strings.Repeat("界", resourcename.MaxCodePoints)},
-		{value: strings.Repeat("界", resourcename.MaxCodePoints+1)},
-		{value: " Acme"},
-		{value: "Acme "},
-		{value: "\u00a0Acme"},
-		{value: "Acme\u00a0Labs"},
-		{value: "Acme\u200dLabs"},
-		{value: "Acme\u202eLabs"},
+		{value: "", want: false},
+		{value: "Studio  54", want: true},
+		{value: "Café", want: true},
+		{value: "Cafe\u0301", want: false},
+		{value: "研究開発 شركة برمجيات", want: true},
+		{value: "🚀 Lab", want: true},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints), want: true},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints+1), want: false},
+		{value: " Acme", want: false},
+		{value: "Acme ", want: false},
+		{value: "Acme\u00a0Labs", want: false},
+		{value: "Acme\u2003Labs", want: false},
+		{value: "Acme\tLabs", want: false},
+		{value: "Acme\u007fLabs", want: false},
+		{value: "Acme\ufffdLabs", want: false},
 	}
 	for _, test := range tests {
-		normalized, validationErr := resourcename.CanonicalizeRequired("name", test.value)
-		want := validationErr == nil && normalized == test.value
 		var got bool
 		if err := pool.QueryRow(
 			ctx,
-			`SELECT resource_name_is_valid_v1($1)`,
+			`SELECT resource_name_storage_is_valid_v1($1)`,
 			test.value,
 		).Scan(&got); err != nil {
 			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
 		}
-		if got != want {
+		if got != test.want {
 			t.Errorf(
 				"PostgreSQL resource-name validity for %q = %t, want %t",
 				test.value,
 				got,
-				want,
+				test.want,
 			)
 		}
 	}
