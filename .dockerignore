@@ -10,6 +10,7 @@
 .unikraft
 bin
 tmp
+mcp-registry-snapshot
 research
 plans
 release

@@ -46,7 +46,7 @@ export function useServerInfo(url: string, options?: { enabled?: boolean }) {
   const client = useOmnaraClient()
   const remoteUrl = normalizeRemoteUrl(url)
   return useQuery({
-    ...listMcpServersOptions({ query: { remote_url: remoteUrl, limit: 25 }, client }),
+    ...listMcpServersOptions({ query: { remote_url: remoteUrl, limit: 5 }, client }),
     select: (page): McpRegistryServer | null => findServerByRemoteUrl(page.data, remoteUrl),
     enabled: (options?.enabled ?? true) && remoteUrl !== '',
     staleTime: 5 * 60 * 1000,

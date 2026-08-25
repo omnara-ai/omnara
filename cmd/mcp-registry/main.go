@@ -98,6 +98,14 @@ func runSync(ctx context.Context, log *slog.Logger, cfg config.Config) error {
 }
 
 func runServe(ctx context.Context, log *slog.Logger, cfg config.Config) error {
+	if _, err := os.Stat(cfg.MCPRegistryDBPath); errors.Is(err, os.ErrNotExist) {
+		log.Info("no registry snapshot found, syncing from upstream before serving", "path", cfg.MCPRegistryDBPath)
+		if err := runSync(ctx, log, cfg); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return fmt.Errorf("stat registry database: %w", err)
+	}
 	store, err := mcpregistry.OpenStore(ctx, cfg.MCPRegistryDBPath, true)
 	if err != nil {
 		return err

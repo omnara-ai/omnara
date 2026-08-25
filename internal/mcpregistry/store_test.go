@@ -171,9 +171,8 @@ func TestStoreSearchFiltersByRemoteURL(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"https://api.githubcopilot.com/mcp",
-		"api.githubcopilot.com",
-		"HTTP://API.GITHUBCOPILOT.COM/",
-		"githubcopilot",
+		"HTTP://API.GITHUBCOPILOT.COM/MCP/",
+		"api.githubcopilot.com/mcp",
 	} {
 		page, err := store.Search(context.Background(), SearchParams{RemoteURL: needle})
 		if err != nil {
@@ -183,12 +182,14 @@ func TestStoreSearchFiltersByRemoteURL(t *testing.T) {
 			t.Fatalf("servers for %q = %+v", needle, page.Servers)
 		}
 	}
-	wildcard, err := store.Search(context.Background(), SearchParams{RemoteURL: "%"})
-	if err != nil {
-		t.Fatalf("search wildcard: %v", err)
-	}
-	if len(wildcard.Servers) != 0 {
-		t.Fatalf("wildcard should be literal, got %+v", wildcard.Servers)
+	for _, partial := range []string{"%", "api.githubcopilot.com", "githubcopilot", "https://api.githubcopilot.com/mcp/extra"} {
+		page, err := store.Search(context.Background(), SearchParams{RemoteURL: partial})
+		if err != nil {
+			t.Fatalf("search %q: %v", partial, err)
+		}
+		if len(page.Servers) != 0 {
+			t.Fatalf("remote_url must match exactly, %q returned %+v", partial, page.Servers)
+		}
 	}
 	combined, err := store.Search(context.Background(), SearchParams{
 		Query: "weather", RemoteURL: "https://api.githubcopilot.com/mcp/",

@@ -6899,7 +6899,7 @@ export type ListMcpServersData = {
          */
         q?: string;
         /**
-         * Only return servers with a remote whose URL contains this value. Matching is case-insensitive and ignores the scheme and trailing slashes, so `linear.app` matches `https://mcp.linear.app/mcp`.
+         * Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
          */
         remote_url?: string;
         /**

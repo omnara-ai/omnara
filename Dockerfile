@@ -41,9 +41,12 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/o
 FROM go-base AS mcp-registry-build
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-mcp-registry ./cmd/mcp-registry \
-    && CGO_ENABLED=0 go build -trimpath -o /tmp/omnara-mcp-registry-host ./cmd/mcp-registry \
-    && OMNARA_MCP_REGISTRY_DB_PATH=/out/mcp-registry.sqlite /tmp/omnara-mcp-registry-host sync
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-mcp-registry ./cmd/mcp-registry
+
+# Empty by default; the release workflow overrides this stage with a named
+# build context holding a freshly synced mcp-registry.sqlite so the published
+# image ships a snapshot. Without one, `serve` syncs from upstream on first start.
+FROM scratch AS mcp-registry-snapshot
 
 FROM go-base AS migrations-build
 ARG TARGETOS
@@ -67,9 +70,9 @@ COPY --from=maintenance-build /out/omnara-maintenance /usr/local/bin/omnara-main
 ENTRYPOINT ["/usr/local/bin/omnara-maintenance"]
 
 FROM runtime AS mcp-registry
-ENV OMNARA_MCP_REGISTRY_DB_PATH=/app/mcp-registry.sqlite
+ENV OMNARA_MCP_REGISTRY_DB_PATH=/app/mcp-registry/mcp-registry.sqlite
 COPY --from=mcp-registry-build /out/omnara-mcp-registry /usr/local/bin/omnara-mcp-registry
-COPY --from=mcp-registry-build --chown=nonroot:nonroot /out/mcp-registry.sqlite /app/mcp-registry.sqlite
+COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot / /app/mcp-registry/
 ENTRYPOINT ["/usr/local/bin/omnara-mcp-registry"]
 CMD ["serve"]
 

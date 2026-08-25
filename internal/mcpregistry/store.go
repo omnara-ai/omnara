@@ -249,8 +249,8 @@ func (s *Store) Search(ctx context.Context, params SearchParams) (SearchPage, er
 	remoteFilter := ""
 	args := []any{}
 	if needle := normalizeRemoteURL(params.RemoteURL); needle != "" {
-		remoteFilter = ` AND s.id IN (SELECT server_id FROM server_remotes WHERE url LIKE ? ESCAPE '\')`
-		args = append(args, "%"+escapeLike(needle)+"%")
+		remoteFilter = ` AND s.id IN (SELECT server_id FROM server_remotes WHERE url = ?)`
+		args = append(args, needle)
 	}
 	var rows *sql.Rows
 	if match == "" {
@@ -261,10 +261,18 @@ func (s *Store) Search(ctx context.Context, params SearchParams) (SearchPage, er
 			ORDER BY s.name
 			LIMIT ? OFFSET ?
 		`, append(args, limit+1, offset)...)
+	} else if urlNeedle := normalizeRemoteURL(params.Query); urlNeedle == "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT `+serverColumns+`
+			FROM servers_fts f
+			JOIN servers s ON s.id = f.rowid
+			WHERE servers_fts MATCH ?`+remoteFilter+`
+			ORDER BY bm25(servers_fts, 1.0, 5.0, 2.0, 1.0), s.name
+			LIMIT ? OFFSET ?
+		`, append(append([]any{match}, args...), limit+1, offset)...)
 	} else {
-		urlNeedle := "%" + escapeLike(normalizeRemoteURL(params.Query)) + "%"
 		ranked := append([]any{match}, args...)
-		substring := append([]any{urlNeedle, match}, args...)
+		substring := append([]any{"%" + escapeLike(urlNeedle) + "%", match}, args...)
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT name, title, description, version, website_url, status, updated_at, remotes_json, icons_json
 			FROM (

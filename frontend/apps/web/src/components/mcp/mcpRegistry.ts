@@ -1,5 +1,7 @@
 import type { McpRegistryRemote, McpRegistryServer } from '@omnara/sdk'
 
+import { mcpServerNameMaxLength } from '@/components/agents/useAgentBuilderForm'
+
 export function registryServerSearchFilters(name: string): { q?: string } {
   const q = name.trim()
   return q === '' ? {} : { q }
@@ -49,6 +51,15 @@ export function registryServerShortName(server: Pick<McpRegistryServer, 'name'>)
   const segment = server.name.split('/').at(-1) ?? server.name
   const slug = segment.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '')
   return slug === '' ? server.name : slug
+}
+
+export function registryServerSuggestedName(server: Pick<McpRegistryServer, 'name'>) {
+  const segment = server.name.split('/').at(-1) ?? server.name
+  return segment
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^[^A-Za-z]+/, '')
+    .slice(0, mcpServerNameMaxLength)
+    .replace(/-+$/, '')
 }
 
 export function registryServerLabel(server: Pick<McpRegistryServer, 'name' | 'title'>) {

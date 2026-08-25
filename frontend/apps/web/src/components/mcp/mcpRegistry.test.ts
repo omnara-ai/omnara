@@ -9,6 +9,7 @@ import {
   registryServerRemoteUrl,
   registryServerSearchFilters,
   registryServerShortName,
+  registryServerSuggestedName,
 } from '@/components/mcp/mcpRegistry'
 
 describe('registryServerShortName', () => {
@@ -18,6 +19,17 @@ describe('registryServerShortName', () => {
     )
     expect(registryServerShortName({ name: 'com.notion/mcp' })).toBe('mcp')
     expect(registryServerShortName({ name: 'ai.example/Weird Name!' })).toBe('Weird-Name')
+  })
+})
+
+describe('registryServerSuggestedName', () => {
+  it('produces a valid MCP server name or nothing', () => {
+    expect(registryServerSuggestedName({ name: 'io.github.foo/my_server.v2' })).toBe('my-server-v2')
+    expect(registryServerSuggestedName({ name: 'ai.example/42-weird name!' })).toBe('weird-name')
+    expect(registryServerSuggestedName({ name: 'ai.example/1234' })).toBe('')
+    expect(
+      registryServerSuggestedName({ name: `ai.example/${'a'.repeat(40)}-tail` }).length,
+    ).toBeLessThanOrEqual(32)
   })
 })
 

@@ -2296,7 +2296,7 @@ paths:
           schema:
             type: string
             maxLength: 2048
-          description: Only return servers with a remote whose URL contains this value. Matching is case-insensitive and ignores the scheme and trailing slashes, so `linear.app` matches `https://mcp.linear.app/mcp`.
+          description: Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:

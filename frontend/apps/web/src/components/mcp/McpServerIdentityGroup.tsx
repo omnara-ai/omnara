@@ -7,7 +7,7 @@ import {
   type RegistryServerEntry,
   registryServerLabel,
   registryServerSearchFilters,
-  registryServerShortName,
+  registryServerSuggestedName,
 } from '@/components/mcp/mcpRegistry'
 import { McpServerIcon } from '@/components/mcp/McpServerIcon'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -33,53 +33,72 @@ export function McpServerIdentityGroup({
   const listId = useId()
   const [open, setOpen] = useState(false)
   const [nameFocused, setNameFocused] = useState(false)
-  const [highlighted, setHighlighted] = useState(0)
+  const [highlighted, setHighlighted] = useState<number | null>(null)
+  const [autofilledUrl, setAutofilledUrl] = useState('')
   const debouncedName = useDebouncedValue(name)
+  const debouncedUrl = useDebouncedValue(url)
   const filters = registryServerSearchFilters(debouncedName)
   const searching = filters.q !== undefined
   const serversQuery = useServers({ filters, pageSize: 25, enabled: open && searching })
   const results = registryServerEntries(useInfiniteQueryItems(serversQuery))
-  const info = useServerInfo(url)
+  const info = useServerInfo(debouncedUrl)
   const selected = info.data ?? null
   const autofillName =
-    name === '' && !nameFocused && selected ? registryServerShortName(selected) : null
+    name === '' && !nameFocused && selected && autofilledUrl !== debouncedUrl
+      ? registryServerSuggestedName(selected)
+      : ''
 
   useEffect(() => {
-    if (autofillName !== null) {
+    if (autofillName !== '') {
+      setAutofilledUrl(debouncedUrl)
       onChange({ name: autofillName, url })
     }
-  }, [autofillName, onChange, url])
+  }, [autofillName, debouncedUrl, onChange, url])
   const showList = open && searching
-  const activeIndex = Math.min(highlighted, Math.max(results.length - 1, 0))
+  const activeIndex =
+    highlighted === null || results.length === 0 ? null : Math.min(highlighted, results.length - 1)
 
   function select(entry: RegistryServerEntry) {
+    const suggested = registryServerSuggestedName(entry.server)
     onChange({
-      name: name.trim() === '' && !nameFocused ? registryServerShortName(entry.server) : undefined,
+      name: name.trim() === '' && suggested !== '' ? suggested : undefined,
       url: entry.remote.url,
     })
+    setAutofilledUrl(entry.remote.url)
     setOpen(false)
+    setHighlighted(null)
   }
 
   function onBlur(event: FocusEvent<HTMLDivElement>) {
     if (!event.currentTarget.contains(event.relatedTarget)) {
       setOpen(false)
+      setHighlighted(null)
     }
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
       setOpen(false)
+      setHighlighted(null)
       return
     }
-    if (!showList || results.length === 0) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       setOpen(true)
-      setHighlighted((activeIndex + 1) % results.length)
-    } else if (event.key === 'ArrowUp') {
+      if (results.length > 0) {
+        setHighlighted(activeIndex === null ? 0 : (activeIndex + 1) % results.length)
+      }
+      return
+    }
+    if (!showList || results.length === 0) return
+    if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setHighlighted((activeIndex - 1 + results.length) % results.length)
-    } else if (event.key === 'Enter') {
+      setHighlighted(
+        activeIndex === null
+          ? results.length - 1
+          : (activeIndex - 1 + results.length) % results.length,
+      )
+    } else if (event.key === 'Enter' && activeIndex !== null) {
       const entry = results[activeIndex]
       if (entry) {
         event.preventDefault()
@@ -88,33 +107,28 @@ export function McpServerIdentityGroup({
     }
   }
 
-  const inputProps = {
-    role: 'combobox' as const,
-    'aria-expanded': showList,
-    'aria-controls': listId,
-    'aria-autocomplete': 'list' as const,
-    'aria-activedescendant':
-      showList && results.length > 0 ? `${listId}-${activeIndex}` : undefined,
-    onFocus: () => {
-      setOpen(true)
-    },
-    onKeyDown,
-  }
-
   return (
     <div className="relative" onBlur={onBlur}>
       <div
         className={cn(
           'border-input dark:bg-input/30 flex h-9 w-full items-stretch divide-x rounded-md border transition-[color,box-shadow]',
           'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
+          nameInvalid &&
+            'border-destructive focus-within:border-destructive focus-within:ring-destructive/20 dark:focus-within:ring-destructive/40',
         )}
       >
         <div className="flex w-10 shrink-0 items-center justify-center">
-          <McpServerIcon server={selected} url={url} />
+          <McpServerIcon server={selected} url={debouncedUrl} />
         </div>
         <input
-          {...inputProps}
           id={`${idPrefix}-name`}
+          role="combobox"
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            showList && activeIndex !== null ? `${listId}-${activeIndex}` : undefined
+          }
           required
           maxLength={mcpServerNameMaxLength}
           aria-invalid={nameInvalid}
@@ -122,6 +136,7 @@ export function McpServerIdentityGroup({
           placeholder="Name"
           autoComplete="off"
           className={cn(inputClassName, 'sm:max-w-56')}
+          onKeyDown={onKeyDown}
           onFocus={() => {
             setNameFocused(true)
             setOpen(true)
@@ -130,11 +145,14 @@ export function McpServerIdentityGroup({
             setNameFocused(false)
           }}
           onChange={(event) => {
-            setHighlighted(0)
+            setHighlighted(null)
             setOpen(true)
             onChange({ name: event.target.value, url })
           }}
         />
+        <label htmlFor={`${idPrefix}-url`} className="sr-only">
+          URL
+        </label>
         <input
           id={`${idPrefix}-url`}
           required

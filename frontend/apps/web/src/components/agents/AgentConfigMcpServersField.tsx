@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useDebouncedValue } from '@/hooks/use-resource-list'
 import { errorMessage } from '@/lib/submit-status'
 
 const awsSigningFields = [
@@ -379,7 +380,7 @@ function McpServerIdentityFields({
   onChange: (patch: Partial<BasicMcpServer>) => void
   onRemove: () => void
 }) {
-  const info = useServerInfo(server.url)
+  const info = useServerInfo(useDebouncedValue(server.url))
   const registryServer = info.data ?? null
   return (
     <Field data-invalid={nameError !== undefined}>
