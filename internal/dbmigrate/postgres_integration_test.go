@@ -90,7 +90,7 @@ func TestPostgresNameStoragePolicies(t *testing.T) {
 		var got bool
 		if err := pool.QueryRow(
 			ctx,
-			`SELECT resource_name_storage_is_valid_v1($1)`,
+			`SELECT resource_name_storage_is_valid($1)`,
 			test.value,
 		).Scan(&got); err != nil {
 			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
@@ -116,7 +116,7 @@ func TestPostgresNameStoragePolicies(t *testing.T) {
 	for _, name := range skillNames {
 		want := skills.ValidateName(name) == nil
 		var got bool
-		if err := pool.QueryRow(ctx, `SELECT skill_name_is_valid_v1($1)`, name).Scan(&got); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT skill_name_is_valid($1)`, name).Scan(&got); err != nil {
 			t.Fatalf("validate skill name %q in PostgreSQL: %v", name, err)
 		}
 		if got != want {

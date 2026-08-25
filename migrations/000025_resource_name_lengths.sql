@@ -13,7 +13,7 @@ $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION resource_name_storage_is_valid_v1(candidate text) RETURNS boolean
+CREATE FUNCTION resource_name_storage_is_valid(candidate text) RETURNS boolean
 LANGUAGE sql IMMUTABLE
 RETURN candidate IS NOT NULL
     AND candidate <> ''
@@ -42,59 +42,59 @@ $$ LANGUAGE sql IMMUTABLE;
 UPDATE orgs
 SET name = resource_name_repair(name)
 WHERE name IS DISTINCT FROM resource_name_repair(name)
-  AND resource_name_storage_is_valid_v1(resource_name_repair(name));
+  AND resource_name_storage_is_valid(resource_name_repair(name));
 
 UPDATE agents
 SET name = resource_name_repair(name)
 WHERE name IS DISTINCT FROM resource_name_repair(name)
   AND (
       resource_name_repair(name) = ''
-      OR resource_name_storage_is_valid_v1(resource_name_repair(name))
+      OR resource_name_storage_is_valid(resource_name_repair(name))
   );
 
 DROP FUNCTION resource_name_repair(text);
 
-ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_storage_is_valid_v1(name));
-ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+ALTER TABLE orgs ADD CONSTRAINT orgs_name_policy CHECK (resource_name_storage_is_valid(name));
+ALTER TABLE projects ADD CONSTRAINT projects_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE personal_access_tokens
     DROP CONSTRAINT personal_access_tokens_name_check,
-    ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT personal_access_tokens_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE auth_device_flows
     DROP CONSTRAINT auth_device_flows_client_name_check,
     DROP CONSTRAINT auth_device_flows_token_name_check,
-    ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_storage_is_valid_v1(client_name)),
-    ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_storage_is_valid_v1(token_name));
+    ADD CONSTRAINT auth_device_flows_client_name_policy CHECK (resource_name_storage_is_valid(client_name)),
+    ADD CONSTRAINT auth_device_flows_token_name_policy CHECK (resource_name_storage_is_valid(token_name));
 ALTER TABLE org_api_keys
     DROP CONSTRAINT org_api_keys_name_check,
-    ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT org_api_keys_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE secrets
     DROP CONSTRAINT secrets_name_check,
-    ADD CONSTRAINT secrets_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT secrets_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE model_provider_configs
     DROP CONSTRAINT model_provider_configs_name_check,
-    ADD CONSTRAINT model_provider_configs_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT model_provider_configs_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE configured_models
     DROP CONSTRAINT configured_models_name_check,
-    ADD CONSTRAINT configured_models_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT configured_models_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE agent_profiles
     DROP CONSTRAINT agent_profiles_name_check,
-    ADD CONSTRAINT agent_profiles_name_policy CHECK (resource_name_storage_is_valid_v1(name));
-ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (name = '' OR resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT agent_profiles_name_policy CHECK (resource_name_storage_is_valid(name));
+ALTER TABLE agents ADD CONSTRAINT agents_name_policy CHECK (name = '' OR resource_name_storage_is_valid(name));
 ALTER TABLE machine_pools
     DROP CONSTRAINT machine_pools_name_check,
-    ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT machine_pools_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE machines
-    ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_storage_is_valid_v1(display_name)),
+    ADD CONSTRAINT machines_display_name_policy CHECK (resource_name_storage_is_valid(display_name)),
     ALTER COLUMN display_name DROP DEFAULT;
 ALTER TABLE machine_daemon_tokens
     DROP CONSTRAINT machine_daemon_tokens_name_check,
-    ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT machine_daemon_tokens_name_policy CHECK (resource_name_storage_is_valid(name));
 ALTER TABLE cron_triggers
     DROP CONSTRAINT cron_triggers_name_check,
-    ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_storage_is_valid_v1(name));
+    ADD CONSTRAINT cron_triggers_name_policy CHECK (resource_name_storage_is_valid(name));
 
 -- +goose StatementBegin
-CREATE FUNCTION skill_name_is_valid_v1(candidate text) RETURNS boolean AS $$
+CREATE FUNCTION skill_name_is_valid(candidate text) RETURNS boolean AS $$
     SELECT candidate IS NOT NULL
         AND char_length(candidate) BETWEEN 1 AND 64
         AND (candidate COLLATE "C") ~ '^[a-z0-9]+(-[a-z0-9]+)*$';
@@ -103,4 +103,4 @@ $$ LANGUAGE sql IMMUTABLE;
 
 ALTER TABLE skills
     DROP CONSTRAINT skills_name_check,
-    ADD CONSTRAINT skills_name_policy CHECK (skill_name_is_valid_v1(name));
+    ADD CONSTRAINT skills_name_policy CHECK (skill_name_is_valid(name));
