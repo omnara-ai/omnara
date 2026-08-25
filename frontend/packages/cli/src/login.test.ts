@@ -90,19 +90,21 @@ describe('login', () => {
     vi.restoreAllMocks()
   })
 
-  it('uses and persists the configured base URL', async () => {
-    const baseUrl = 'https://self-hosted.example'
+  it('uses the API URL for requests, the app URL for the browser, and persists both', async () => {
+    const apiUrl = 'https://api.self-hosted.example'
+    const appUrl = 'https://self-hosted.example'
     const program = new Command()
     const cli: CliConfig = {
       client: {} as CliConfig['client'],
-      baseUrl,
+      apiUrl,
+      appUrl,
     }
     registerLoginCommand(program, cli)
 
     await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
 
     expect(mocks.startDeviceAuth).toHaveBeenCalledWith(
-      expect.objectContaining({ issuerUrl: baseUrl, clientId: 'omnara-cli' }),
+      expect.objectContaining({ issuerUrl: appUrl, clientId: 'omnara-cli' }),
     )
     expect(mocks.pollDeviceAuthToken).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -110,10 +112,14 @@ describe('login', () => {
         clientId: 'omnara-cli',
       }),
     )
-    expect(mocks.createOmnaraClient).toHaveBeenCalledWith(expect.objectContaining({ baseUrl }))
+    expect(mocks.createOmnaraClient).toHaveBeenCalledWith(
+      expect.objectContaining({ baseUrl: apiUrl }),
+    )
     expect(mocks.updateConfigFile).toHaveBeenCalledWith({
       token: 'omnara_pat_v1_test',
-      base_url: baseUrl,
+      api_url: apiUrl,
+      app_url: appUrl,
+      base_url: undefined,
     })
   })
 
@@ -121,7 +127,8 @@ describe('login', () => {
     const program = new Command()
     const cli: CliConfig = {
       client: {} as CliConfig['client'],
-      baseUrl: 'https://self-hosted.example',
+      apiUrl: 'https://api.self-hosted.example',
+      appUrl: 'https://self-hosted.example',
     }
     mocks.readConfigFileForUpdate.mockImplementationOnce(() => {
       throw new Error('invalid config')
@@ -137,11 +144,13 @@ describe('login', () => {
   })
 
   it('keeps the login successful when account validation fails', async () => {
-    const baseUrl = 'https://self-hosted.example'
+    const apiUrl = 'https://api.self-hosted.example'
+    const appUrl = 'https://self-hosted.example'
     const program = new Command()
     const cli: CliConfig = {
       client: {} as CliConfig['client'],
-      baseUrl,
+      apiUrl,
+      appUrl,
     }
     mocks.getCurrentUser.mockRejectedValueOnce(new Error('temporary network failure'))
     registerLoginCommand(program, cli)
@@ -150,7 +159,9 @@ describe('login', () => {
 
     expect(mocks.updateConfigFile).toHaveBeenCalledWith({
       token: 'omnara_pat_v1_test',
-      base_url: baseUrl,
+      api_url: apiUrl,
+      app_url: appUrl,
+      base_url: undefined,
     })
     expect(console.log).toHaveBeenCalledWith('Logged in')
     expect(console.error).toHaveBeenCalledWith(

@@ -37,17 +37,17 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-function installCommand(baseUrl: string): string {
-  return `curl -fsSL ${shellQuote(`${baseUrl}/install/omnarad.sh`)} | sh`
+function installCommand(apiUrl: string): string {
+  return `curl -fsSL ${shellQuote(`${apiUrl}/install/omnarad.sh`)} | sh`
 }
 
 export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
   response,
-  { baseUrl },
+  { apiUrl },
 ) => ({
   value: {
     ...response,
-    install_command: installCommand(baseUrl),
+    install_command: installCommand(apiUrl),
     install_note: 'Run install_command on the target machine and paste the token when prompted.',
   },
 })
@@ -172,9 +172,9 @@ function ensureDaemonHomeWritable(home: string): void {
 class DaemonExitError extends Error {}
 
 export async function runMachineCreateLocal(context: MachineSetupContext): Promise<void> {
-  const { report, baseUrl } = context
+  const { report, apiUrl } = context
   ensureSupportedPlatform(process.platform, process.arch)
-  ensureDaemonApiUrl(baseUrl)
+  ensureDaemonApiUrl(apiUrl)
   const home = daemonHome()
   const existing = describeExistingInstallation(home)
   if (existing !== undefined) {
@@ -192,7 +192,7 @@ export async function runMachineCreateLocal(context: MachineSetupContext): Promi
   report.info(`Machine ID: ${machine.id}`)
   report.start('Installing omnarad on this machine')
   try {
-    await runInstaller(report, baseUrl, token, machine.id, home)
+    await runInstaller(report, apiUrl, token, machine.id, home)
   } catch (error) {
     if (error instanceof DaemonExitError) {
       report.fail('omnarad exited after it was installed')
@@ -208,7 +208,7 @@ export async function runMachineCreateLocal(context: MachineSetupContext): Promi
     report.info(`Machine daemon token (shown only once):\n${token}`)
     report.url(
       'Finish setup by running this, then paste the machine token when prompted',
-      installCommand(baseUrl),
+      installCommand(apiUrl),
     )
     throw error
   }
@@ -283,13 +283,13 @@ function readDaemonLockPid(home: string): number | undefined {
   }
 }
 
-function installerScript(baseUrl: string): string {
+function installerScript(apiUrl: string): string {
   return [
     'installer=$(mktemp)',
     'trap \'rm -f "$installer"\' EXIT',
     'curl -qfsSL --connect-timeout 10 -m 60 --max-redirs 5 --max-filesize 1048576' +
       " --proto '=http,https' --proto-redir '=https'" +
-      ` -o "$installer" ${shellQuote(`${baseUrl}/install/omnarad.sh`)}`,
+      ` -o "$installer" ${shellQuote(`${apiUrl}/install/omnarad.sh`)}`,
     'sh "$installer"',
   ].join(' && ')
 }
@@ -301,15 +301,15 @@ function installerFailure(code: number | null, signal: string | null, log: strin
 
 function runInstaller(
   report: FlowReporter,
-  baseUrl: string,
+  apiUrl: string,
   token: string,
   machineId: string,
   home: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', ['-c', installerScript(baseUrl)], {
+    const child = spawn('/bin/sh', ['-c', installerScript(apiUrl)], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, OMNARA_API_URL: baseUrl, OMNARA_MACHINE_TOKEN: token },
+      env: { ...process.env, OMNARA_API_URL: apiUrl, OMNARA_MACHINE_TOKEN: token },
     })
     const relay = (signal: NodeJS.Signals) => {
       child.kill(signal)

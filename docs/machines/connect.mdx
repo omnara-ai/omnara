@@ -53,7 +53,7 @@ A machine starts as a record in the control plane — the daemon attaches to it 
 `omnara machines create-local` runs this step for you. Otherwise, on the target computer, run the installer and paste the machine token when prompted:
 
 ```sh
-curl -fsSL https://app.omnara.com/install/omnarad.sh | sh
+curl -fsSL https://api.omnara.com/install/omnarad.sh | sh
 ```
 
 The installer supports macOS and Linux on amd64 and arm64. It installs `omnarad` under `~/.omnarad` and registers it as a user service using systemd on Linux or launchd on macOS. When no launchd or systemd user service manager is available, `omnarad` runs in the foreground instead; press Ctrl-C to stop it and run `omnarad start` to launch it again. The daemon connects outbound and updates itself. Manage it with `omnarad start|stop|restart|status`, or remove it with `omnarad uninstall`.

@@ -14,9 +14,12 @@ import {
 } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
 
-export const DEFAULT_BASE_URL = 'https://app.omnara.com'
+export const DEFAULT_API_URL = 'https://api.omnara.com'
+export const DEFAULT_APP_URL = 'https://app.omnara.com'
 
 const zConfigFile = z.looseObject({
+  api_url: z.url().optional(),
+  app_url: z.url().optional(),
   base_url: z.url().optional(),
   token: z.string().min(1).optional(),
   org_id: zOrganizationId.optional(),
@@ -27,7 +30,8 @@ export type ConfigFile = z.infer<typeof zConfigFile>
 
 export interface CliConfig {
   client: OmnaraClient
-  baseUrl: string
+  apiUrl: string
+  appUrl: string
   defaultOrgId?: string
   defaultProjectId?: string
 }
@@ -95,18 +99,32 @@ export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
   return result.data
 }
 
+export interface ResolvedUrls {
+  apiUrl: string
+  appUrl: string
+}
+
+export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedUrls {
+  const selfHostedBaseUrl = file.base_url === DEFAULT_APP_URL ? undefined : file.base_url
+  return {
+    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? selfHostedBaseUrl ?? DEFAULT_API_URL,
+    appUrl: env.OMNARA_APP_URL ?? file.app_url ?? selfHostedBaseUrl ?? DEFAULT_APP_URL,
+  }
+}
+
 export function loadConfig(): CliConfig {
   const file = readConfigFile()
-  const baseUrl = process.env.OMNARA_BASE_URL ?? file.base_url ?? DEFAULT_BASE_URL
+  const { apiUrl, appUrl } = resolveUrls(file, process.env)
   const token = process.env.OMNARA_API_KEY ?? file.token
   const client = createOmnaraClient({
-    baseUrl,
+    baseUrl: apiUrl,
     auth: token ? bearerToken(token) : undefined,
     headers: { 'User-Agent': 'omnara-cli' },
   })
   return {
     client,
-    baseUrl,
+    apiUrl,
+    appUrl,
     defaultOrgId: process.env.OMNARA_ORG_ID ?? file.org_id,
     defaultProjectId: process.env.OMNARA_PROJECT_ID ?? file.project_id,
   }
@@ -115,7 +133,8 @@ export function loadConfig(): CliConfig {
 interface ConfigOptions {
   org?: string
   project?: string
-  baseUrl?: string
+  apiUrl?: string
+  appUrl?: string
 }
 
 function describeValue(
@@ -138,7 +157,11 @@ function printConfig(): void {
   console.log(`config file  ${configFilePath()}`)
   console.log(`org_id       ${describeValue('OMNARA_ORG_ID', file.org_id)}`)
   console.log(`project_id   ${describeValue('OMNARA_PROJECT_ID', file.project_id)}`)
-  console.log(`base_url     ${describeValue('OMNARA_BASE_URL', file.base_url, DEFAULT_BASE_URL)}`)
+  console.log(`api_url      ${describeValue('OMNARA_API_URL', file.api_url, DEFAULT_API_URL)}`)
+  console.log(`app_url      ${describeValue('OMNARA_APP_URL', file.app_url, DEFAULT_APP_URL)}`)
+  if (file.base_url !== undefined) {
+    console.log(`base_url     ${file.base_url}  [legacy; replaced by api_url and app_url]`)
+  }
 }
 
 export function registerConfigCommand(program: Command, cli: CliConfig): void {
@@ -147,13 +170,15 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
     .description('Show or set the default organization and project')
     .option('--org <org-id>', 'save this organization ID as the default')
     .option('--project <project-id>', 'save this project ID as the default')
-    .option('--base-url <url>', 'save this API base URL as the default')
+    .option('--api-url <url>', 'save this API URL (used for requests) as the default')
+    .option('--app-url <url>', 'save this web app URL (used for browser links) as the default')
     .action(async (options: ConfigOptions) => {
       await runCliAction(() => {
         if (
           options.org !== undefined ||
           options.project !== undefined ||
-          options.baseUrl !== undefined
+          options.apiUrl !== undefined ||
+          options.appUrl !== undefined
         ) {
           const clearStaleProject = options.org !== undefined && options.project === undefined
           updateConfigFile({
@@ -163,7 +188,11 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
               : options.project !== undefined
                 ? { project_id: options.project }
                 : {}),
-            ...(options.baseUrl !== undefined ? { base_url: options.baseUrl } : {}),
+            ...(options.apiUrl !== undefined ? { api_url: options.apiUrl } : {}),
+            ...(options.appUrl !== undefined ? { app_url: options.appUrl } : {}),
+            ...(options.apiUrl !== undefined || options.appUrl !== undefined
+              ? { base_url: undefined }
+              : {}),
           })
         }
         printConfig()

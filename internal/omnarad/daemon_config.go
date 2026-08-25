@@ -25,7 +25,7 @@ import (
 const (
 	daemonConfigFileName = "daemon.json"
 	daemonConfigVersion  = 1
-	defaultAPIURL        = "https://app.omnara.com"
+	defaultAPIURL        = "https://api.omnara.com"
 	missingTokenError    = "OMNARA_MACHINE_TOKEN is required; " +
 		"rerun from an interactive terminal or set OMNARA_MACHINE_TOKEN"
 )
