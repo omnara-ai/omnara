@@ -8,7 +8,8 @@ import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfig
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
-import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
+import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
@@ -166,8 +167,9 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       )}
       {tab === 'schedules' && (
         <div className="flex flex-col gap-4">
-          {canManage && (
-            <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
+            {canManage && (
               <Button
                 size="sm"
                 variant="outline"
@@ -177,8 +179,8 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
               >
                 Add cron schedule
               </Button>
-            </div>
-          )}
+            )}
+          </div>
           <CronTriggersList
             orgId={activeOrg.id}
             projectId={projectId}
@@ -218,7 +220,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           orgId={activeOrg.id}
           projectId={projectId}
           target={{ type: 'profile', agent_profile_id: profile.id }}
-          targetLabel={`a new agent launched from ${profile.name}`}
+          targetLabel={profile.name}
         />
       )}
       <SlackOAuthOutcomeDialog />
