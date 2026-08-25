@@ -2,6 +2,7 @@ import { useCreateSecret, useGrantSecretToProject, useStartSecretMcpOAuth } from
 import type { SecretOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useReducer } from 'react'
 
+import { isMcpOAuthLoginUrl } from '@/components/agents/mcpOAuthLogin'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
 import { Button } from '@/components/ui/button'
 import {
@@ -54,7 +55,7 @@ export function CreateSecretDialog({
   const [state, dispatch] = useReducer(secretDialogReducer, undefined, newSecretDialogState)
 
   const validMcpUrl =
-    state.secret.kind === 'mcp_oauth' && isValidMcpUrl(state.secret.serverUrl.trim())
+    state.secret.kind === 'mcp_oauth' && isMcpOAuthLoginUrl(state.secret.serverUrl.trim())
   const oauthMaterial =
     state.secret.kind === 'oauth_token_set'
       ? oauthTokenSetMaterial(state.secret.entries)
@@ -239,13 +240,4 @@ export function CreateSecretDialog({
       </DialogContent>
     </Dialog>
   )
-}
-
-function isValidMcpUrl(value: string) {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:'
-  } catch {
-    return false
-  }
 }
