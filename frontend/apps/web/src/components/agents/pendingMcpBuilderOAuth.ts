@@ -4,55 +4,13 @@ import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
 const STORAGE_KEY = 'omnara:pending-mcp-builder-oauth'
 
-const permission = z.object({
-  mode: z.string(),
-  parameters: z.record(z.string(), z.unknown()),
+const draftShape = z.looseObject({
+  mcpServers: z.array(z.looseObject({ id: z.string(), secretId: z.string() })),
 })
 
-const basicConfig: z.ZodType<BasicConfig> = z.object({
-  instruction: z.string(),
-  providerConfig: z.string(),
-  modelName: z.string(),
-  machineSources: z.array(
-    z.object({
-      id: z.string(),
-      kind: z.enum(['pool', 'machine']),
-      name: z.string(),
-      provider: z.string(),
-      managementKind: z.string(),
-      defaultCwd: z.string(),
-      initialNumMachines: z.string(),
-      maxMachines: z.string(),
-      deleteAfterIdleMinutes: z.string(),
-      machineCpu: z.string(),
-      machineMemoryGb: z.string(),
-      providerOptions: z.object({
-        resource: z.string(),
-        location: z.string(),
-        startupScript: z.string(),
-      }),
-      envRows: z.array(z.object({ id: z.string(), key: z.string(), value: z.string().nullable() })),
-      secretEnvRows: z.array(
-        z.object({ id: z.string(), key: z.string(), secretId: z.string().nullable() }),
-      ),
-    }),
-  ),
-  tools: z.array(z.object({ name: z.string(), permission: permission.nullable() })),
-  mcpServers: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      url: z.string(),
-      permission: permission.nullable(),
-      defaultEnabled: z.boolean(),
-      authType: z.enum(['none', 'oauth', 'bearer', 'sigv4']),
-      secretId: z.string(),
-      service: z.string(),
-      region: z.string(),
-    }),
-  ),
-  skillIds: z.array(z.string()),
-})
+const basicConfig: z.ZodType<BasicConfig> = z.custom<BasicConfig>(
+  (value) => draftShape.safeParse(value).success,
+)
 
 const pendingRecord = z.object({
   returnPath: z.string(),

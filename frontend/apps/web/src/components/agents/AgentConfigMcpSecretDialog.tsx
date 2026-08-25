@@ -9,6 +9,7 @@ import {
 } from '@/components/agents/mcpOAuthLogin'
 import { PillTabs } from '@/components/agents/PillTabs'
 import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
+import { McpOAuthClientFields } from '@/components/org/McpOAuthClientFields'
 import { OAuthTokenFields } from '@/components/org/OAuthTokenFields'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,13 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  RequiredFieldLabel,
-} from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { newOAuthTokenSetEntries, type OAuthEntry, oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { errorMessage } from '@/lib/submit-status'
@@ -156,40 +151,20 @@ export function AgentConfigMcpSecretDialog({
                 />
               </Field>
             ) : loginMode ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel htmlFor={`${idPrefix}-client-id`}>Client ID</FieldLabel>
-                  <Input
-                    id={`${idPrefix}-client-id`}
-                    value={clientId}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setClientId(event.target.value)
-                    }}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor={`${idPrefix}-client-secret`}>Client secret</FieldLabel>
-                  <Input
-                    id={`${idPrefix}-client-secret`}
-                    type="password"
-                    value={clientSecret}
-                    autoComplete="new-password"
-                    onChange={(event) => {
-                      setClientSecret(event.target.value)
-                    }}
-                  />
-                </Field>
-              </div>
+              <McpOAuthClientFields
+                idPrefix={idPrefix}
+                clientId={clientId}
+                clientSecret={clientSecret}
+                onChange={(patch) => {
+                  if (patch.clientId !== undefined) setClientId(patch.clientId)
+                  if (patch.clientSecret !== undefined) setClientSecret(patch.clientSecret)
+                }}
+              />
             ) : (
               <OAuthTokenFields entries={entries} onChange={setEntries} hiddenKeys={['mcp_url']} />
             )}
-            {loginMode && (
-              <FieldDescription>
-                {isMcpOAuthLoginUrl(mcpUrl)
-                  ? 'Client credentials are only needed when the server requires a registered OAuth client.'
-                  : 'Enter an https:// server URL to log in.'}
-              </FieldDescription>
+            {loginMode && !isMcpOAuthLoginUrl(mcpUrl) && (
+              <FieldDescription>Enter an https:// server URL to log in.</FieldDescription>
             )}
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>

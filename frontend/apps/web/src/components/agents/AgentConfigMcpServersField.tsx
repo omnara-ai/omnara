@@ -1,5 +1,5 @@
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
@@ -83,6 +83,11 @@ export function AgentConfigMcpServersField({
   function updateServer(id: string, patch: Partial<BasicMcpServer>) {
     onServersChange(servers.map((server) => (server.id === id ? { ...server, ...patch } : server)))
   }
+
+  const pendingOAuthContextRef = useRef({ builderDraft, agentName })
+  useEffect(() => {
+    pendingOAuthContextRef.current = { builderDraft, agentName }
+  })
 
   return (
     <AgentConfigSectionCard
@@ -249,8 +254,8 @@ export function AgentConfigMcpServersField({
                         savePendingMcpBuilderOAuth({
                           returnPath: window.location.pathname,
                           serverId: server.id,
-                          agentName,
-                          draft: builderDraft,
+                          agentName: pendingOAuthContextRef.current.agentName,
+                          draft: pendingOAuthContextRef.current.builderDraft,
                         })
                       }}
                     />
