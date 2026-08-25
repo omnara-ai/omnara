@@ -52,6 +52,7 @@ func upMigrateAgentConfigNames(ctx context.Context, tx *sql.Tx) error {
 		FROM agent_configs
 		WHERE definition ? 'name'
 		   OR compiled_definition ? 'name'
+		   OR (source_format = 'json' AND source::jsonb ? 'name')
 		   OR (source_format = 'yaml' AND source ~ E'(^|\\n)name:[^\\r\\n]*(\\r?\\n|$)')
 		ORDER BY id`)
 	if err != nil {
@@ -171,9 +172,17 @@ func migrateAgentConfigSource(
 	format string,
 	raw []byte,
 ) ([]byte, bool, error) {
-	if format != "yaml" {
+	switch format {
+	case "json":
+		return removeTopLevelJSONName(raw)
+	case "yaml":
+		return migrateAgentConfigYAMLSource(raw)
+	default:
 		return nil, false, fmt.Errorf("unsupported legacy agent config source format %q", format)
 	}
+}
+
+func migrateAgentConfigYAMLSource(raw []byte) ([]byte, bool, error) {
 	beforeValue, err := decodeAgentConfigNameMigrationYAML(raw)
 	if err != nil {
 		return nil, false, err
