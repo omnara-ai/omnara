@@ -8,6 +8,7 @@ import {
   defaultMcpSecretName,
   isMcpOAuthLoginUrl,
   useMcpOAuthLogin,
+  useProjectSecretNamed,
 } from '@/components/agents/mcpOAuthLogin'
 import { savePendingMcpBuilderOAuth } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
@@ -321,6 +322,8 @@ function McpServerSecretField({
   const [dialog, setDialog] = useState<{ error: string } | null>(null)
   const [createdSecret, setCreatedSecret] = useState<Secret>()
   const mcpUrl = server.url.trim()
+  const loginSecretName = defaultMcpSecretName(server)
+  const existingLoginSecret = useProjectSecretNamed(orgId, projectId, loginSecretName)
   const addSecret = {
     label: server.authType === 'oauth' ? 'Add secret (advanced)' : 'Add secret',
     icon: <PlusIcon className="size-4 shrink-0" />,
@@ -335,17 +338,18 @@ function McpServerSecretField({
             label: `Login to ${mcpUrl || 'MCP server'}`,
             icon: <KeyRound className="size-4 shrink-0" />,
             disabled: !isMcpOAuthLoginUrl(mcpUrl) || login.pending,
+            warning: existingLoginSecret
+              ? `This will update the existing secret "${existingLoginSecret.name}"`
+              : undefined,
             onSelect: () => {
-              login.start({ name: defaultMcpSecretName(server) }).catch((error: unknown) => {
+              login.start({ name: loginSecretName }).catch((error: unknown) => {
                 setDialog({ error: errorMessage(error, 'Could not start login') })
               })
             },
           },
           addSecret,
         ]
-      : server.authType === 'bearer'
-        ? [addSecret]
-        : []
+      : [addSecret]
 
   return (
     <Field>

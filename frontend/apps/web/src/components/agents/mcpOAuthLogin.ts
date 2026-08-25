@@ -1,4 +1,4 @@
-import { useStartSecretMcpOAuth } from '@omnara/react'
+import { useSecrets, useStartSecretMcpOAuth } from '@omnara/react'
 
 import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
 
@@ -18,6 +18,15 @@ export function defaultMcpSecretName(server: BasicMcpServer) {
   } catch {
     return 'mcp-oauth'
   }
+}
+
+export function useProjectSecretNamed(orgId: string, projectId: string, name: string) {
+  const query = useSecrets(
+    orgId,
+    { kind: 'project', project_id: projectId },
+    { filters: { name: name.replace(/[*?\\]/g, '\\$&') }, pageSize: 5 },
+  )
+  return query.data?.pages.flatMap((page) => page.data).find((secret) => secret.name === name)
 }
 
 export function useMcpOAuthLogin({

@@ -29,7 +29,13 @@ export function AgentConfigMcpSecretCombobox({
   projectId: string
   server: BasicMcpServer
   onChange: (secretId: string) => void
-  actions?: { label: string; icon: ReactNode; onSelect: () => void; disabled?: boolean }[]
+  actions?: {
+    label: string
+    icon: ReactNode
+    onSelect: () => void
+    disabled?: boolean
+    warning?: string
+  }[]
   knownSecret?: Secret
 }) {
   const search = useTypeaheadSearch()
@@ -97,7 +103,14 @@ export function AgentConfigMcpSecretCombobox({
                 onClick={action.onSelect}
               >
                 {action.icon}
-                <span className="truncate">{action.label}</span>
+                <span className="flex min-w-0 flex-col items-start">
+                  <span className="truncate">{action.label}</span>
+                  {action.warning && (
+                    <span className="truncate text-xs text-amber-600 dark:text-amber-500">
+                      {action.warning}
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </>

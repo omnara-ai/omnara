@@ -9,6 +9,8 @@ import {
 } from '@/components/agents/mcpOAuthLogin'
 import { PillTabs } from '@/components/agents/PillTabs'
 import type { BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
+import { AWSCredentialsSecretFields } from '@/components/org/AWSCredentialsSecretFields'
+import type { AWSCredentialsSecretFormSecret } from '@/components/org/CreateSecretDialogState'
 import { McpOAuthClientFields } from '@/components/org/McpOAuthClientFields'
 import { OAuthTokenFields } from '@/components/org/OAuthTokenFields'
 import { Button } from '@/components/ui/button'
@@ -26,6 +28,38 @@ import { newOAuthTokenSetEntries, type OAuthEntry, oauthTokenSetMaterial } from 
 import { errorMessage } from '@/lib/submit-status'
 
 type OAuthMethod = 'login' | 'tokens'
+
+const emptyAws: AWSCredentialsSecretFormSecret = {
+  kind: 'aws_credentials',
+  accessKeyId: '',
+  secretAccessKey: '',
+  sessionToken: '',
+  roleArn: '',
+  externalId: '',
+}
+
+function optionalField(value: string) {
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : trimmed
+}
+
+function awsMaterial(aws: AWSCredentialsSecretFormSecret) {
+  const accessKeyId = aws.accessKeyId.trim()
+  const secretAccessKey = aws.secretAccessKey.trim()
+  const roleArn = optionalField(aws.roleArn)
+  const externalId = optionalField(aws.externalId)
+  if (accessKeyId === '' || secretAccessKey === '') return undefined
+  if (externalId !== undefined && roleArn === undefined) return undefined
+  const sessionToken = optionalField(aws.sessionToken)
+  return {
+    kind: 'aws_credentials',
+    access_key_id: accessKeyId,
+    secret_access_key: secretAccessKey,
+    ...(sessionToken === undefined ? {} : { session_token: sessionToken }),
+    ...(roleArn === undefined ? {} : { role_arn: roleArn }),
+    ...(externalId === undefined ? {} : { external_id: externalId }),
+  } as const
+}
 
 export function AgentConfigMcpSecretDialog({
   orgId,
@@ -52,8 +86,10 @@ export function AgentConfigMcpSecretDialog({
     onBeforeRedirect: onBeforeOAuthRedirect,
   })
   const oauth = server.authType === 'oauth'
+  const sigv4 = server.authType === 'sigv4'
   const [name, setName] = useState(() => (oauth ? defaultMcpSecretName(server) : ''))
   const [bearerValue, setBearerValue] = useState('')
+  const [aws, setAws] = useState(emptyAws)
   const [method, setMethod] = useState<OAuthMethod>('login')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
@@ -65,14 +101,15 @@ export function AgentConfigMcpSecretDialog({
   const mcpUrl = server.url.trim()
   const loginMode = oauth && method === 'login'
   const tokenMaterial = oauthTokenSetMaterial(entries)
+  const sigv4Material = awsMaterial(aws)
   const submitting = createSecret.isPending || login.pending
   const valid =
     name.trim() !== '' &&
-    (!oauth
-      ? bearerValue !== ''
-      : loginMode
-        ? isMcpOAuthLoginUrl(mcpUrl)
-        : tokenMaterial !== undefined)
+    (oauth
+      ? isMcpOAuthLoginUrl(mcpUrl) && (loginMode || tokenMaterial !== undefined)
+      : sigv4
+        ? sigv4Material !== undefined
+        : bearerValue !== '')
 
   async function submit() {
     setError('')
@@ -81,11 +118,16 @@ export function AgentConfigMcpSecretDialog({
         await login.start({ name, clientId, clientSecret })
         return
       }
-      const material = oauth
-        ? tokenMaterial && { ...tokenMaterial, mcp_url: mcpUrl }
-        : ({ kind: 'generic', value: bearerValue } as const)
-      if (material === undefined) return
-      onCreated(await createSecret.mutateAsync({ owner, name: name.trim(), material }))
+      const secret = oauth
+        ? tokenMaterial && {
+            metadata: { mcp_url: mcpUrl },
+            material: { ...tokenMaterial, mcp_url: mcpUrl },
+          }
+        : sigv4
+          ? sigv4Material && { material: sigv4Material }
+          : { material: { kind: 'generic', value: bearerValue } as const }
+      if (secret === undefined) return
+      onCreated(await createSecret.mutateAsync({ owner, name: name.trim(), ...secret }))
     } catch (err) {
       setError(errorMessage(err, 'Could not create secret'))
     }
@@ -100,7 +142,9 @@ export function AgentConfigMcpSecretDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{oauth ? 'Add OAuth secret' : 'Add bearer secret'}</DialogTitle>
+          <DialogTitle>
+            {oauth ? 'Add OAuth secret' : sigv4 ? 'Add AWS credentials' : 'Add bearer secret'}
+          </DialogTitle>
           <DialogDescription>
             {oauth
               ? `Stored as a project secret bound to ${mcpUrl || 'this server URL'}.`
@@ -131,13 +175,20 @@ export function AgentConfigMcpSecretDialog({
                 id={`${idPrefix}-name`}
                 value={name}
                 autoComplete="off"
-                placeholder="mcp-token"
+                placeholder={sigv4 ? 'aws-credentials' : 'mcp-token'}
                 onChange={(event) => {
                   setName(event.target.value)
                 }}
               />
             </Field>
-            {!oauth ? (
+            {sigv4 ? (
+              <AWSCredentialsSecretFields
+                value={aws}
+                onChange={(patch) => {
+                  setAws((current) => ({ ...current, ...patch }))
+                }}
+              />
+            ) : !oauth ? (
               <Field>
                 <RequiredFieldLabel htmlFor={`${idPrefix}-value`}>Bearer token</RequiredFieldLabel>
                 <Input
