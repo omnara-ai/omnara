@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -34,7 +34,7 @@ async function connectMachine(context: MachineSetupContext): Promise<ConnectByoM
   return data
 }
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
@@ -54,19 +54,20 @@ export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
 
 const daemonConfigFileName = 'daemon.json'
 const daemonWritabilityProbeFileName = '.omnara-write-check'
+// Matches installLockFileName in internal/omnarad/install_lock.go: the only entry
+// `omnarad install` tolerates in an otherwise-empty home directory.
+const installLockFileName = 'install.lock'
 
 const zDaemonConfigFile = z.looseObject({
   machine_id: z.string().optional(),
   api_url: z.string().optional(),
 })
 
-function resolveDaemonHome(): string {
+export function resolveDaemonHome(): string {
   return process.env.OMNARA_HOME ?? join(homedir(), '.omnarad')
 }
 
-function describeExistingDaemon(home: string): string | undefined {
-  const configPath = join(home, daemonConfigFileName)
-  if (!existsSync(configPath)) return undefined
+function describeDaemonConfig(configPath: string): string {
   try {
     const config = zDaemonConfigFile.parse(JSON.parse(readFileSync(configPath, 'utf8')))
     const details = [
@@ -79,10 +80,28 @@ function describeExistingDaemon(home: string): string | undefined {
   }
 }
 
+// `omnarad install` refuses to run into a home directory that contains anything other
+// than its own lock file (see installHomeEmptyLocked in internal/omnarad/install.go), so
+// any leftover state there - not just daemon.json - means create-local would fail after
+// already creating a remote machine and a one-time token. Detect that here first.
+function describeExistingDaemon(home: string): string | undefined {
+  const configPath = join(home, daemonConfigFileName)
+  if (existsSync(configPath)) return describeDaemonConfig(configPath)
+  let entries: string[]
+  try {
+    entries = readdirSync(home)
+  } catch {
+    return undefined
+  }
+  const residual = entries.filter((name) => name !== installLockFileName)
+  if (residual.length === 0) return undefined
+  return `${home} (existing installation state: ${residual.join(', ')})`
+}
+
 function ensureDaemonHomeWritable(home: string): void {
   const probePath = join(home, daemonWritabilityProbeFileName)
   try {
-    mkdirSync(home, { recursive: true })
+    mkdirSync(home, { recursive: true, mode: 0o700 })
     writeFileSync(probePath, '')
     rmSync(probePath, { force: true })
   } catch (error) {
@@ -152,6 +171,18 @@ function runInstaller(
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, OMNARA_API_URL: baseUrl, OMNARA_MACHINE_TOKEN: token },
     })
+    // The child shares our process group, so Ctrl-C also signals it directly. But Node's
+    // default action for an unhandled SIGINT/SIGTERM is to exit immediately, which would
+    // kill this CLI before the child's 'exit' event (and the cleanup below) ever runs.
+    // Registering a listener suppresses that default so we can wait for the child instead.
+    const ignoreSignal = () => undefined
+    process.on('SIGINT', ignoreSignal)
+    process.on('SIGTERM', ignoreSignal)
+    const settle = (action: () => void) => {
+      process.off('SIGINT', ignoreSignal)
+      process.off('SIGTERM', ignoreSignal)
+      action()
+    }
     const captured: Buffer[] = []
     let foreground = false
     const enterForeground = () => {
@@ -176,22 +207,26 @@ function runInstaller(
     child.stdout.on('data', consume(process.stdout))
     child.stderr.on('data', consume(process.stderr))
     child.on('error', (error) => {
-      reject(new Error(`could not run the omnarad installer: ${error.message}`))
+      settle(() => {
+        reject(new Error(`could not run the omnarad installer: ${error.message}`))
+      })
     })
     child.on('exit', (code, signal) => {
       const cleanStop =
         code === 0 || (code === null && (signal === 'SIGINT' || signal === 'SIGTERM'))
       if (foreground && cleanStop) {
         report.info('omnarad stopped')
-        resolve()
+        settle(resolve)
       } else if (!foreground && code === 0) {
         report.stop('omnarad installed and started as a background service')
         report.info(daemonGuidance(machineId))
-        resolve()
+        settle(resolve)
       } else {
         const reason = signal === null ? `exit code ${code}` : `signal ${signal}`
         const log = Buffer.concat(captured).toString().trim()
-        reject(new Error(`omnarad installer failed (${reason})${log === '' ? '' : `\n${log}`}`))
+        settle(() => {
+          reject(new Error(`omnarad installer failed (${reason})${log === '' ? '' : `\n${log}`}`))
+        })
       }
     })
   })
