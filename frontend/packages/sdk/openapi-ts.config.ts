@@ -20,12 +20,6 @@ export default defineConfig({
           const minLength = ctx.nodes.minLength(ctx)
           if (minLength) ctx.chain.current = minLength
 
-          ctx.chain.current = ctx.chain.current.attr('transform').call(
-            ctx.$.func()
-              .param('value')
-              .do(ctx.$.return(ctx.$('value').attr('normalize').call(ctx.$.literal('NFC')))),
-          )
-
           type Expression = Parameters<typeof ctx.$.not>[0]
           const refine = (predicate: Expression, message: string) => {
             ctx.chain.current = ctx.chain.current
@@ -49,6 +43,11 @@ export default defineConfig({
               `Resource name cannot exceed ${ctx.schema.maxLength} Unicode characters`,
             )
           }
+          ctx.chain.current = ctx.chain.current.attr('transform').call(
+            ctx.$.func()
+              .param('value')
+              .do(ctx.$.return(ctx.$('value').attr('normalize').call(ctx.$.literal('NFC')))),
+          )
           refine(
             not(regexTest('^\\p{White_Space}|\\p{White_Space}$', 'value')),
             'Resource name must not start or end with whitespace',

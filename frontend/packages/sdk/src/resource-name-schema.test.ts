@@ -8,11 +8,11 @@ describe('generated ResourceName schema', () => {
     expect(zResourceName.safeParse('界'.repeat(65)).success).toBe(false)
   })
 
-  it('normalizes to NFC before applying the length policy', () => {
-    const decomposed = 'e\u0301'.repeat(64)
-    const result = zResourceName.safeParse(decomposed)
+  it('applies the submitted length policy before normalizing to NFC', () => {
+    const result = zResourceName.safeParse('e\u0301'.repeat(32))
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data).toBe('é'.repeat(64))
+    if (result.success) expect(result.data).toBe('é'.repeat(32))
+    expect(zResourceName.safeParse('e\u0301'.repeat(33)).success).toBe(false)
   })
 
   it.each([
