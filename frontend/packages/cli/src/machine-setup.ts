@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -53,14 +53,18 @@ export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
 })
 
 const daemonConfigFileName = 'daemon.json'
+const daemonWritabilityProbeFileName = '.omnara-write-check'
 
 const zDaemonConfigFile = z.looseObject({
   machine_id: z.string().optional(),
   api_url: z.string().optional(),
 })
 
-function describeExistingDaemon(): string | undefined {
-  const home = process.env.OMNARA_HOME ?? join(homedir(), '.omnarad')
+function resolveDaemonHome(): string {
+  return process.env.OMNARA_HOME ?? join(homedir(), '.omnarad')
+}
+
+function describeExistingDaemon(home: string): string | undefined {
   const configPath = join(home, daemonConfigFileName)
   if (!existsSync(configPath)) return undefined
   try {
@@ -75,9 +79,22 @@ function describeExistingDaemon(): string | undefined {
   }
 }
 
+function ensureDaemonHomeWritable(home: string): void {
+  const probePath = join(home, daemonWritabilityProbeFileName)
+  try {
+    mkdirSync(home, { recursive: true })
+    writeFileSync(probePath, '')
+    rmSync(probePath, { force: true })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new CliInputError(`cannot write to ${home}, so omnarad cannot be installed: ${reason}`)
+  }
+}
+
 export async function runMachineCreateLocal(context: MachineSetupContext): Promise<void> {
   const { report, baseUrl } = context
-  const existing = describeExistingDaemon()
+  const home = resolveDaemonHome()
+  const existing = describeExistingDaemon(home)
   if (existing !== undefined) {
     report.warn(`omnarad is already configured on this computer: ${existing}`)
     report.info(
@@ -88,6 +105,7 @@ export async function runMachineCreateLocal(context: MachineSetupContext): Promi
     )
     throw new CliInputError('omnarad is already installed on this machine')
   }
+  ensureDaemonHomeWritable(home)
   const { machine, token } = await connectMachine(context)
   report.info(`Machine ID: ${machine.id}`)
   report.start('Installing omnarad on this machine')
@@ -161,10 +179,12 @@ function runInstaller(
       reject(new Error(`could not run the omnarad installer: ${error.message}`))
     })
     child.on('exit', (code, signal) => {
-      if (foreground) {
+      const cleanStop =
+        code === 0 || (code === null && (signal === 'SIGINT' || signal === 'SIGTERM'))
+      if (foreground && cleanStop) {
         report.info('omnarad stopped')
         resolve()
-      } else if (code === 0) {
+      } else if (!foreground && code === 0) {
         report.stop('omnarad installed and started as a background service')
         report.info(daemonGuidance(machineId))
         resolve()
