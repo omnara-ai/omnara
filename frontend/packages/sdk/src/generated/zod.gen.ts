@@ -665,6 +665,43 @@ export const zToolCatalog = z.object({
     mcp_tool_permissions: zToolPermissionProfile
 });
 
+export const zMcpRegistryHeader = z.object({
+    name: z.string(),
+    description: z.string().optional(),
+    is_required: z.boolean(),
+    is_secret: z.boolean()
+});
+
+export const zMcpRegistryRemote = z.object({
+    type: z.string(),
+    url: z.string(),
+    headers: z.array(zMcpRegistryHeader).optional()
+});
+
+export const zMcpRegistryIcon = z.object({
+    src: z.string(),
+    mime_type: z.string().optional(),
+    sizes: z.array(z.string()).optional(),
+    theme: z.string().optional()
+});
+
+export const zMcpRegistryServer = z.object({
+    name: z.string(),
+    title: z.string().optional(),
+    description: z.string(),
+    version: z.string(),
+    website_url: z.string().optional(),
+    status: z.string(),
+    updated_at: z.iso.datetime({ offset: true }),
+    remotes: z.array(zMcpRegistryRemote),
+    icons: z.array(zMcpRegistryIcon)
+});
+
+export const zListMcpServersResponse = z.object({
+    data: z.array(zMcpRegistryServer),
+    next_cursor: z.string().nullable()
+});
+
 export const zAgentConfigModel = z.object({
     provider_config: zResourceName,
     name: zResourceName,
@@ -3161,6 +3198,18 @@ export const zCreateAgentConfigResponse = zAgentConfig;
  * Built-in tools and permission modes available to agent configs.
  */
 export const zGetToolCatalogResponse = zToolCatalog;
+
+export const zListMcpServersQuery = z.object({
+    q: z.string().max(200).optional(),
+    remote_url: z.string().max(2048).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Registry servers matching the query.
+ */
+export const zListMcpServersResponse2 = zListMcpServersResponse;
 
 export const zGetAgentConfigPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

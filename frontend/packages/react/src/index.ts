@@ -98,6 +98,15 @@ export {
   useMachines,
   useProjectMachines,
 } from './domains/machines'
+export {
+  findServerByRemoteUrl,
+  normalizeRemoteUrl,
+  type ServerListFilters,
+  type ServerListOptions,
+  useServerInfo,
+  useServerInfoLookup,
+  useServers,
+} from './domains/mcp-registry'
 export { useMe } from './domains/me'
 export {
   type ModelOption,

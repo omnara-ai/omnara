@@ -2277,6 +2277,48 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /mcp-servers:
+    get:
+      operationId: listMCPServers
+      tags: [Configs and Profiles]
+      summary: Search the MCP server registry
+      description: Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: Free-text query matched against server name, title, description, and remote URLs. Each term matches as a prefix.
+        - name: remote_url
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+          description: Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Registry servers matching the query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMCPServersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
@@ -7864,6 +7906,92 @@ components:
           $ref: '#/components/schemas/ToolPermissionProfile'
         mcp_tool_permissions:
           $ref: '#/components/schemas/ToolPermissionProfile'
+    MCPRegistryHeader:
+      type: object
+      additionalProperties: false
+      required: [name, is_required, is_secret]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        is_required:
+          type: boolean
+        is_secret:
+          type: boolean
+    MCPRegistryRemote:
+      type: object
+      additionalProperties: false
+      required: [type, url]
+      properties:
+        type:
+          type: string
+          description: Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
+        url:
+          type: string
+        headers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryHeader'
+    MCPRegistryIcon:
+      type: object
+      additionalProperties: false
+      required: [src]
+      properties:
+        src:
+          type: string
+          description: Absolute https URL of the icon image.
+        mime_type:
+          type: string
+        sizes:
+          type: array
+          items:
+            type: string
+          description: Icon sizes as `WxH` strings, or `any` for scalable images.
+        theme:
+          type: string
+          description: Theme the icon is intended for, `light` or `dark`, when the publisher specifies one.
+    MCPRegistryServer:
+      type: object
+      additionalProperties: false
+      required: [name, description, version, status, updated_at, remotes, icons]
+      properties:
+        name:
+          type: string
+          description: Reverse-DNS registry name, for example `io.github.owner/server`.
+        title:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        website_url:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        remotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryRemote'
+        icons:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryIcon'
+    ListMCPServersResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryServer'
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or null when this is the last page.
     AgentConfigModel:
       type: object
       additionalProperties: false

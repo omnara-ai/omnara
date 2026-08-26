@@ -876,6 +876,61 @@ export type ToolCatalog = {
     mcp_tool_permissions: ToolPermissionProfile;
 };
 
+export type McpRegistryHeader = {
+    name: string;
+    description?: string;
+    is_required: boolean;
+    is_secret: boolean;
+};
+
+export type McpRegistryRemote = {
+    /**
+     * Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
+     */
+    type: string;
+    url: string;
+    headers?: Array<McpRegistryHeader>;
+};
+
+export type McpRegistryIcon = {
+    /**
+     * Absolute https URL of the icon image.
+     */
+    src: string;
+    mime_type?: string;
+    /**
+     * Icon sizes as `WxH` strings, or `any` for scalable images.
+     */
+    sizes?: Array<string>;
+    /**
+     * Theme the icon is intended for, `light` or `dark`, when the publisher specifies one.
+     */
+    theme?: string;
+};
+
+export type McpRegistryServer = {
+    /**
+     * Reverse-DNS registry name, for example `io.github.owner/server`.
+     */
+    name: string;
+    title?: string;
+    description: string;
+    version: string;
+    website_url?: string;
+    status: string;
+    updated_at: string;
+    remotes: Array<McpRegistryRemote>;
+    icons: Array<McpRegistryIcon>;
+};
+
+export type ListMcpServersResponse = {
+    data: Array<McpRegistryServer>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
 export type AgentConfigModel = {
     provider_config: ResourceName;
     /**
@@ -6834,6 +6889,80 @@ export type GetToolCatalogResponses = {
 };
 
 export type GetToolCatalogResponse = GetToolCatalogResponses[keyof GetToolCatalogResponses];
+
+export type ListMcpServersData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Free-text query matched against server name, title, description, and remote URLs. Each term matches as a prefix.
+         */
+        q?: string;
+        /**
+         * Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
+         */
+        remote_url?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/mcp-servers';
+};
+
+export type ListMcpServersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMcpServersError = ListMcpServersErrors[keyof ListMcpServersErrors];
+
+export type ListMcpServersResponses = {
+    /**
+     * Registry servers matching the query.
+     */
+    200: ListMcpServersResponse;
+};
+
+export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServersResponses];
 
 export type GetAgentConfigData = {
     body?: never;
