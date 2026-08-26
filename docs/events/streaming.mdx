@@ -69,9 +69,9 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `context_checkpoint` | A summary of earlier context | Yes |
 | `tool_call_update` | A tool call ID and a reported lifecycle state | No |
 | `model_output_delta` | A live preview while the model responds | No |
-| `error` | A stream error; reconnect after receiving one | No |
+| `error` | A stream-closing error; retry only `service_unavailable` | No |
 
-Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. A simplified exchange looks like:
+Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. Live delivery notifications are best-effort hints; a later notification or a reconnect with `Last-Event-ID` catches up every saved event after the cursor. A simplified exchange looks like:
 
 ```text
 event: model_output_delta
@@ -86,6 +86,8 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 
 `tool_call_update` frames are included for every tool type and contain only `tool_call_id` and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
 
+After an `error` frame, the server closes that HTTP response. A raw client should reconnect when the stable `code` is `service_unavailable`; other currently documented error codes are terminal and should be surfaced to the caller. Do not decide from the human-readable `error` text.
+
 ### Deltas are a preview, not the record
 
 With `stream_deltas=true`, the stream includes partial text, reasoning, and tool-call arguments while the model responds. Use these deltas to show progress, but do not treat them as durable history: they are not saved or replayed after a reconnect.
@@ -94,7 +96,7 @@ When the completed `model_output` event arrives, replace the preview with it. De
 
 ### Resuming after a disconnect
 
-Reconnect with `Last-Event-ID` set to the last saved sequence you processed. You can also pass the same value as `after_sequence`:
+Raw HTTP clients should reconnect after a network failure or an unexpected end of the response. Set `Last-Event-ID` to the last saved sequence you processed. You can also pass the same value as `after_sequence`:
 
 ```bash
 curl -N "$BASE/agents/$AGENT/events/stream?stream_deltas=true" \
@@ -103,6 +105,28 @@ curl -N "$BASE/agents/$AGENT/events/stream?stream_deltas=true" \
 ```
 
 The server sends every saved event after sequence 3, then continues live. Deltas produced while disconnected are not replayed, but the completed `model_output` event is.
+
+The TypeScript SDK owns this loop for you. `openAgentEventStream` follows the durable stream until you abort it and resumes after the last delivered durable sequence. It retries HTTP 408, 429, and 5xx responses; fetch or reader disconnects; unexpected end-of-response; 35 seconds without SSE activity while actively waiting; and in-band `service_unavailable` errors. Retries use bounded jittered backoff. Other HTTP, API, request, and contract errors are terminal and thrown.
+
+```ts
+const controller = new AbortController()
+// Call controller.abort() from the owning task or UI cleanup path.
+
+for await (const frame of openAgentEventStream({
+  client,
+  path: { orgID, projectID, agentID },
+  query: { stream_deltas: true },
+  signal: controller.signal,
+  onConnectionStateChange(state) {
+    if (state.state === 'reconnecting') clearDeltaPreviews()
+    if (state.state === 'connected' && state.reconnected) refreshOpenToolCalls()
+  },
+})) {
+  applyFrame(frame)
+}
+```
+
+Aborting the signal or breaking out of the loop closes the physical response normally. If a `next()` read is already pending, use the abort signal for prompt cancellation; an iterator `return()` waits behind that read. A reconnect can miss best-effort delta and tool lifecycle frames, so discard connection-scoped previews and refresh any authoritative state you project outside the durable event timeline.
 
 <Info>
 Full schema and playground: [Stream events](/api-reference/endpoints/events/stream-events).

@@ -1,4 +1,4 @@
-import { ApiError } from '@omnara/sdk'
+import { AgentEventStreamError, ApiError } from '@omnara/sdk'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -398,11 +398,13 @@ describe('AgentChatSession input lifecycle', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(invalidate).toHaveBeenCalled()
 
-      stream.push({
-        event: 'error',
-        data: { code: 'internal_error', error: 'event projection failed' },
-      })
-      stream.end()
+      stream.fail(
+        new AgentEventStreamError({
+          kind: 'api',
+          code: 'internal_error',
+          message: 'event projection failed',
+        }),
+      )
       await vi.advanceTimersByTimeAsync(0)
       expect(read(session).error?.message).toBe('event projection failed')
 

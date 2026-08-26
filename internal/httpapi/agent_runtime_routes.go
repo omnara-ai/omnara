@@ -620,7 +620,10 @@ func (s strictOpenAPIServer) StreamEvents(
 	return s.streamEvents(ctx, request, scope.project, scope.agent)
 }
 
-const streamFrameChannelSize = 4096
+const (
+	streamFrameChannelSize            = 4096
+	agentEventStreamHeartbeatInterval = 10 * time.Second
+)
 
 func (s strictOpenAPIServer) streamEvents(
 	ctx context.Context,
@@ -727,10 +730,6 @@ func (s *Server) streamAgentEvents(
 		func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
 			select {
 			case toolCallUpdates <- update:
-				select {
-				case notify <- struct{}{}:
-				default:
-				}
 			default:
 				if s.log != nil {
 					s.log.Debug(
@@ -778,31 +777,17 @@ func (s *Server) streamAgentEvents(
 		defer func() { _ = streamSubscription.Unsubscribe() }()
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	heartbeat := s.timer.Ticker(agentEventStreamHeartbeatInterval)
+	defer heartbeat.Stop()
 	if _, err := fmt.Fprint(w, ": ok\n\n"); err != nil {
 		return
 	}
 	flusher.Flush()
-	heartbeat := time.NewTicker(25 * time.Second)
-	defer heartbeat.Stop()
 	completedModelCallContexts := map[string]struct{}{}
 	for {
-		if streamDeltas != nil {
-			drained := false
-			for !drained {
-				select {
-				case payload := <-streamDeltas:
-					if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
-						return
-					}
-					flusher.Flush()
-				default:
-					drained = true
-				}
-			}
-		}
 		records, err := s.store.Execution().ListAgentEventsForRead(r.Context(), project.ID, agent.ID, after, 100)
 		if err != nil {
 			if !writeSSEJSONFrame(
@@ -851,36 +836,43 @@ func (s *Server) streamAgentEvents(
 			after = record.Sequence
 			flusher.Flush()
 		}
-		drained := false
-		for !drained {
+		if len(records) == 100 {
+			continue
+		}
+	waitForDurableWakeup:
+		for {
+			// Heartbeats and best-effort frames are transport-only. Only a durable
+			// wakeup leaves this loop to reconcile Postgres; if one is lost, the
+			// next wakeup or client reconnect replays every event after the cursor.
+			// Once a wakeup is visible, at most one racing best-effort frame can
+			// precede this priority check.
 			select {
+			case <-notify:
+				break waitForDurableWakeup
+			default:
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-notify:
+				break waitForDurableWakeup
 			case update := <-toolCallUpdates:
 				if !writeToolCallUpdateFrame(w, update) {
 					flusher.Flush()
 					return
 				}
 				flusher.Flush()
-			default:
-				drained = true
+			case payload := <-streamDeltas:
+				if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
+					return
+				}
+				flusher.Flush()
+			case <-heartbeat.C:
+				if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
 			}
-		}
-		if len(records) == 100 {
-			continue
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-notify:
-		case payload := <-streamDeltas:
-			if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
-				return
-			}
-			flusher.Flush()
-		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
 		}
 	}
 }

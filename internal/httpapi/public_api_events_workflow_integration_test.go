@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -27,6 +28,244 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
+
+// controlledAgentNotificationSubscriber is a single-stream test barrier; each
+// one-slot channel captures exactly one callback so the test controls delivery.
+type controlledAgentNotificationSubscriber struct {
+	eventCallbacks chan func(context.Context)
+	deltaCallbacks chan func(context.Context, json.RawMessage)
+	toolCallbacks  chan func(context.Context, notifications.ToolCallUpdatedCommitted)
+}
+
+func (s *controlledAgentNotificationSubscriber) SubscribeAgentEventWakeups(
+	_ context.Context,
+	_ uuid.UUID,
+	callback func(context.Context),
+) (notifications.Subscription, error) {
+	s.eventCallbacks <- callback
+	return noopSubscription{}, nil
+}
+
+func (s *controlledAgentNotificationSubscriber) SubscribeAgentStreamDeltas(
+	_ context.Context,
+	_ uuid.UUID,
+	callback func(context.Context, json.RawMessage),
+) (notifications.Subscription, error) {
+	s.deltaCallbacks <- callback
+	return noopSubscription{}, nil
+}
+
+func (s *controlledAgentNotificationSubscriber) SubscribeAgentToolCallUpdates(
+	_ context.Context,
+	_ uuid.UUID,
+	callback func(context.Context, notifications.ToolCallUpdatedCommitted),
+) (notifications.Subscription, error) {
+	s.toolCallbacks <- callback
+	return noopSubscription{}, nil
+}
+
+func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
+	t.Parallel()
+	setupCtx := context.Background()
+	pool := openIntegrationDB(t, setupCtx)
+	store := newIntegrationStore(pool)
+	timer := clock.NewMock()
+	subscriber := &controlledAgentNotificationSubscriber{
+		eventCallbacks: make(chan func(context.Context), 1),
+		deltaCallbacks: make(chan func(context.Context, json.RawMessage), 1),
+		toolCallbacks:  make(chan func(context.Context, notifications.ToolCallUpdatedCommitted), 1),
+	}
+	server := mustNewServer(
+		t,
+		store,
+		WithTimer(timer),
+		WithAgentEventWakeupSubscriber(subscriber),
+		WithAgentStreamDeltaSubscriber(subscriber),
+		WithAgentToolCallUpdateSubscriber(subscriber),
+	)
+	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
+	project := bootstrapPublicHTTPProject(t, handler, "sse-heartbeat")
+	launch := launchPublicHTTPAgent(
+		t,
+		handler,
+		project,
+		"sse-heartbeat",
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
+	if err != nil {
+		t.Fatalf("decode agent id: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(setupCtx, 10*time.Second)
+	defer cancel()
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		httpServer.URL+project.ProjectPath+"/agents/"+agentPublicID+"/events/stream?stream_deltas=true",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build sse request: %v", err)
+	}
+	for key, value := range authHeaders(project.AdminToken) {
+		req.Header.Set(key, value)
+	}
+	// Launch creates the opening event at sequence 1; begin after it so the stream is idle.
+	req.Header.Set("Last-Event-ID", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("sse request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sse status=%d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-cache, no-transform" {
+		t.Fatalf("sse Cache-Control=%q", got)
+	}
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Fatalf("sse X-Accel-Buffering=%q", got)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	if !scanner.Scan() || scanner.Text() != ": ok" {
+		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
+	}
+	wakeup := <-subscriber.eventCallbacks
+	delta := <-subscriber.deltaCallbacks
+	toolUpdate := <-subscriber.toolCallbacks
+	type scanResult struct {
+		line string
+		err  error
+	}
+	lines := make(chan scanResult, 16)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			if line := scanner.Text(); line != "" {
+				lines <- scanResult{line: line}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			lines <- scanResult{err: err}
+		}
+	}()
+
+	timer.Add(agentEventStreamHeartbeatInterval)
+	select {
+	case result, ok := <-lines:
+		if !ok || result.err != nil {
+			t.Fatalf("sse stream closed before heartbeat: %v", result.err)
+		}
+		if result.line != ": heartbeat" {
+			t.Fatalf("first idle stream frame=%q, want heartbeat comment", result.line)
+		}
+	case <-ctx.Done():
+		t.Fatalf("wait for heartbeat: %v", ctx.Err())
+	}
+
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents/"+agentPublicID+"/inputs",
+		`{"content_blocks":[{"type":"text","text":"found after durable wakeup"}]}`,
+		"idem-sse-heartbeat",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	if err != nil {
+		t.Fatalf("claim agent work: %v", err)
+	}
+	if !found || len(claim.Model.AdmittedInputTurn.Events) != 1 {
+		t.Fatalf("claim did not admit heartbeat test input: found=%v claim=%+v", found, claim)
+	}
+	wantSequence := claim.Model.AdmittedInputTurn.Events[0].Sequence
+
+	toolCallID := uuid.New()
+	toolUpdate(ctx, notifications.ToolCallUpdatedCommitted{
+		AgentID:    agentID,
+		ToolCallID: toolCallID,
+		State:      string(executionstore.ToolCallStateReady),
+	})
+	for _, wantLine := range []string{"event: tool_call_update", "data: "} {
+		select {
+		case result, ok := <-lines:
+			if !ok || result.err != nil {
+				t.Fatalf("sse stream closed before tool update: %v", result.err)
+			}
+			if !strings.HasPrefix(result.line, wantLine) {
+				t.Fatalf("tool update line=%q, want prefix %q", result.line, wantLine)
+			}
+		case <-ctx.Done():
+			t.Fatalf("wait for tool update: %v", ctx.Err())
+		}
+	}
+
+	deltaTurnID := testPublicID(t, publicid.KindAgentTurn, uuid.New())
+	deltaModelCallContextID := testPublicID(t, publicid.KindModelCallContext, uuid.New())
+	delta(ctx, json.RawMessage(`{"turn_id":"`+deltaTurnID+
+		`","model_call_context_id":"`+deltaModelCallContextID+
+		`","seq":1,"source_seq_start":1,"source_seq_end":1,"coalesced_count":1,`+
+		`"event":{"kind":"text_delta","block_index":0,"delta":"ephemeral sentinel"}}`))
+	for _, wantLine := range []string{"event: model_output_delta", "data: "} {
+		select {
+		case result, ok := <-lines:
+			if !ok || result.err != nil {
+				t.Fatalf("sse stream closed before delta: %v", result.err)
+			}
+			if !strings.HasPrefix(result.line, wantLine) {
+				t.Fatalf("delta line=%q, want prefix %q", result.line, wantLine)
+			}
+		case <-ctx.Done():
+			t.Fatalf("wait for delta: %v", ctx.Err())
+		}
+	}
+
+	// Heartbeats and best-effort frames keep the connection active but must not
+	// turn every stream into a periodic database poll. Two ticks prove the
+	// durable event remains pending until its notification requests reconciliation.
+	for heartbeatNumber := 1; heartbeatNumber <= 2; heartbeatNumber++ {
+		timer.Add(agentEventStreamHeartbeatInterval)
+		select {
+		case result, ok := <-lines:
+			if !ok || result.err != nil {
+				t.Fatalf("sse stream closed before heartbeat %d: %v", heartbeatNumber, result.err)
+			}
+			if result.line != ": heartbeat" {
+				t.Fatalf("idle stream frame=%q before wakeup, want heartbeat", result.line)
+			}
+		case <-ctx.Done():
+			t.Fatalf("wait for heartbeat %d: %v", heartbeatNumber, ctx.Err())
+		}
+	}
+	wakeup(ctx)
+	sawID := false
+	for {
+		select {
+		case result, ok := <-lines:
+			if !ok || result.err != nil {
+				t.Fatalf("sse stream closed before durable event %d: %v", wantSequence, result.err)
+			}
+			if result.line == "id: "+strconv.FormatInt(wantSequence, 10) {
+				sawID = true
+				continue
+			}
+			if sawID && strings.HasPrefix(result.line, "data: ") &&
+				strings.Contains(result.line, "found after durable wakeup") {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatalf("wakeup did not deliver durable event %d: %v", wantSequence, ctx.Err())
+		}
+	}
+}
 
 func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	t.Parallel()

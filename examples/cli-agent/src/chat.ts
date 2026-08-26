@@ -6,12 +6,16 @@ import type {
   AgentInteraction,
   InteractionAnswer,
   ListAgentEventsResponse,
-  ModelOutputDelta,
   OmnaraClient,
 } from '@omnara/sdk'
-import { AgentEventStreamError, ApiError, openAgentEventStream, sdk } from '@omnara/sdk'
+import { ApiError, openAgentEventStream, sdk } from '@omnara/sdk'
 
 import type { AgentProfileSource } from './bootstrap.js'
+import {
+  type AgentRenderState,
+  DeltaRenderer,
+  resetConnectionScopedRendering,
+} from './chat-rendering.js'
 import { runConfigCommand } from './commands.js'
 import { promptContentBlocks } from './prompt.js'
 import { pick } from './select.js'
@@ -268,18 +272,16 @@ interface ToolCallInfo {
 function printEvent(
   terminal: Terminal,
   event: AgentEvent,
-  streamedTextContexts: Set<string>,
   toolCalls: Map<string, ToolCallInfo>,
 ): void {
   switch (event.event_kind) {
     case 'agent_input':
       return
     case 'model_output': {
-      const textAlreadyStreamed = streamedTextContexts.delete(event.model_call_context_id)
       for (const block of event.content_blocks) {
         switch (block.type) {
           case 'text':
-            if (!textAlreadyStreamed && block.text.trim() !== '') {
+            if (block.text.trim() !== '') {
               terminal.printBlock(`${label('agent', ansi.green)} ${block.text}`)
             }
             break
@@ -332,7 +334,7 @@ function printHistoryEvent(terminal: Terminal, event: AgentEvent, toolCalls: Map
     if (text !== '') terminal.printBlock(`${label('you', ansi.cyan)} ${text}`)
     return
   }
-  printEvent(terminal, event, new Set(), toolCalls)
+  printEvent(terminal, event, toolCalls)
 }
 
 async function loadHistory(
@@ -358,102 +360,6 @@ async function loadHistory(
   if (before != null) terminal.printBlock(`${ansi.dim}(older history omitted)${ansi.reset}`)
   for (const event of events) printHistoryEvent(terminal, event, toolCalls)
   return events.length > 0 ? events[events.length - 1]!.sequence : 0
-}
-
-class DeltaRenderer {
-  private contextId = ''
-  private buffer = ''
-  private startedBlock = false
-
-  constructor(
-    private readonly terminal: Terminal,
-    private readonly streamedTextContexts: Set<string>,
-  ) {}
-
-  handle(frame: ModelOutputDelta): void {
-    const event = frame.event
-    switch (event.kind) {
-      case 'text_delta': {
-        if (this.contextId !== frame.model_call_context_id) {
-          this.flush()
-          this.contextId = frame.model_call_context_id
-        }
-        this.streamedTextContexts.add(frame.model_call_context_id)
-        this.buffer += event.delta
-        this.commitReadyLines()
-        this.updatePreview()
-        return
-      }
-      case 'block_stop':
-      case 'message_stop':
-        this.flush()
-        return
-      case 'error':
-        this.flush()
-        this.terminal.printBlock(`${label('error', ansi.red)} ${event.error.message}`)
-        return
-      default:
-        return
-    }
-  }
-
-  reset(): void {
-    this.flush()
-    this.contextId = ''
-  }
-
-  private lineWidthLimit(): number {
-    const columns = process.stdout.columns ?? 80
-    return Math.max(20, columns - (this.startedBlock ? 2 : 6) - 1)
-  }
-
-  private commitReadyLines(): void {
-    for (;;) {
-      const limit = this.lineWidthLimit()
-      const newline = this.buffer.indexOf('\n')
-      if (newline >= 0 && newline <= limit) {
-        this.printLine(this.buffer.slice(0, newline))
-        this.buffer = this.buffer.slice(newline + 1)
-        continue
-      }
-      if (this.buffer.length > limit) {
-        const head = this.buffer.slice(0, limit)
-        const space = head.lastIndexOf(' ')
-        const cut = space > limit / 2 ? space : limit
-        this.printLine(this.buffer.slice(0, cut))
-        this.buffer = this.buffer.slice(cut).replace(/^ /, '')
-        continue
-      }
-      return
-    }
-  }
-
-  private updatePreview(): void {
-    if (this.buffer === '' && !this.startedBlock) {
-      this.terminal.setPreview(undefined)
-      return
-    }
-    const prefix = this.startedBlock ? '  ' : `${label('agent', ansi.green)} `
-    this.terminal.setPreview(`${prefix}${this.buffer}`)
-  }
-
-  private flush(): void {
-    if (this.buffer.trim() !== '') this.printLine(this.buffer)
-    this.buffer = ''
-    this.startedBlock = false
-    this.terminal.setPreview(undefined)
-  }
-
-  private printLine(line: string): void {
-    if (line.trim() === '' && !this.startedBlock) return
-    if (!this.startedBlock) {
-      this.terminal.blankLine()
-      this.terminal.print(`${label('agent', ansi.green)} ${line}`)
-      this.startedBlock = true
-      return
-    }
-    this.terminal.print(`  ${line}`)
-  }
 }
 
 async function answerInteraction(
@@ -501,9 +407,8 @@ export async function runChat(target: ChatTarget): Promise<void> {
   const abort = new AbortController()
   const pendingInteractions: AgentInteraction[] = []
   const seenInteractions = new Set<string>()
-  const streamedTextContexts = new Set<string>()
   const terminal = new Terminal()
-  const deltas = new DeltaRenderer(terminal, streamedTextContexts)
+  const deltas = new DeltaRenderer(terminal, label('agent', ansi.green), label('error', ansi.red))
   let interruptRead = new AbortController()
   let inputMode: 'queue' | 'steer' = 'queue'
   const toolCalls = new Map<string, ToolCallInfo>()
@@ -525,7 +430,7 @@ export async function runChat(target: ChatTarget): Promise<void> {
   }
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   let spinnerIndex = 0
-  let agentState: { text: string; detail?: string } | undefined
+  let agentState: AgentRenderState | undefined
   let thinkingTail = ''
   let workStart: number | undefined
   const formatDuration = (ms: number): string => {
@@ -585,76 +490,71 @@ export async function runChat(target: ChatTarget): Promise<void> {
   renderRunningTools()
 
   const streamTask = (async () => {
-    let afterSequence = initialSequence
-    while (!abort.signal.aborted) {
-      try {
-        const { stream } = await openAgentEventStream({
-          client,
-          path,
-          query: { after_sequence: afterSequence, stream_deltas: true },
-          signal: abort.signal,
-        })
-        for await (const frame of stream) {
-          if ('event_kind' in frame) {
-            afterSequence = Math.max(afterSequence, frame.sequence)
-            if (
-              frame.event_kind === 'agent_input' &&
-              (frame.input_kind === 'content' || frame.input_kind === 'interaction_response')
-            ) {
-              setAgentState('working…')
-            }
-            if (frame.event_kind === 'tool_result') setAgentState('working…')
-            if (frame.event_kind === 'model_output') {
-              if (frame.stop_reason === 'tool_use') setAgentState('running tools…')
-              else finishTurn()
-            }
-            printEvent(terminal, frame, streamedTextContexts, toolCalls)
-            renderRunningTools()
-          } else if ('event' in frame) {
-            const delta = frame.event
-            if (delta.kind === 'block_start') {
-              if (delta.block.kind === 'tool_use') {
-                if (!toolCalls.has(delta.block.tool_call_id)) {
-                  toolCalls.set(delta.block.tool_call_id, { name: delta.block.tool_name })
-                  renderRunningTools()
-                }
-                setAgentState(`calling ${delta.block.tool_name}…`)
-              } else if (delta.block.kind === 'thinking') {
-                thinkingTail = ''
-                setAgentState('thinking…')
-              } else {
-                setAgentState('writing…')
-              }
-            } else if (delta.kind === 'thinking_delta') {
-              thinkingTail = (thinkingTail + delta.delta).slice(-200)
-              setAgentState('thinking…', thinkingTail)
-            } else if (delta.kind === 'text_delta') {
-              setAgentState('writing…')
-            } else if (delta.kind === 'message_stop') {
-              thinkingTail = ''
-              if (delta.stop.reason === 'tool_use') setAgentState('running tools…')
-              else finishTurn()
-            } else if (delta.kind === 'error') {
-              finishTurn()
-            }
-            deltas.handle(frame)
-          } else if ('code' in frame) {
-            terminal.printBlock(`${label('stream error', ansi.red)} ${frame.error}`)
+    try {
+      const stream = openAgentEventStream({
+        client,
+        path,
+        query: { after_sequence: initialSequence, stream_deltas: true },
+        signal: abort.signal,
+        onConnectionStateChange: (state) => {
+          if (state.state !== 'reconnecting') return
+          agentState = resetConnectionScopedRendering(deltas, agentState)
+          thinkingTail = ''
+          renderRunningTools()
+        },
+      })
+      for await (const frame of stream) {
+        if ('event_kind' in frame) {
+          if (
+            frame.event_kind === 'agent_input' &&
+            (frame.input_kind === 'content' || frame.input_kind === 'interaction_response')
+          ) {
+            setAgentState('working…')
           }
+          if (frame.event_kind === 'tool_result') setAgentState('working…')
+          if (frame.event_kind === 'model_output') {
+            deltas.complete(frame.model_call_context_id)
+            if (frame.stop_reason === 'tool_use') setAgentState('running tools…')
+            else finishTurn()
+          }
+          printEvent(terminal, frame, toolCalls)
+          renderRunningTools()
+        } else if ('event' in frame) {
+          const delta = frame.event
+          if (delta.kind === 'block_start') {
+            if (delta.block.kind === 'tool_use') {
+              if (!toolCalls.has(delta.block.tool_call_id)) {
+                toolCalls.set(delta.block.tool_call_id, { name: delta.block.tool_name })
+                renderRunningTools()
+              }
+              setAgentState(`calling ${delta.block.tool_name}…`)
+            } else if (delta.block.kind === 'thinking') {
+              thinkingTail = ''
+              setAgentState('thinking…')
+            } else {
+              setAgentState('writing…')
+            }
+          } else if (delta.kind === 'thinking_delta') {
+            thinkingTail = (thinkingTail + delta.delta).slice(-200)
+            setAgentState('thinking…', thinkingTail)
+          } else if (delta.kind === 'text_delta') {
+            setAgentState('writing…')
+          } else if (delta.kind === 'message_stop') {
+            thinkingTail = ''
+            if (delta.stop.reason === 'tool_use') setAgentState('running tools…')
+            else finishTurn()
+          } else if (delta.kind === 'error') {
+            finishTurn()
+          }
+          deltas.handle(frame)
         }
-      } catch (error) {
-        if (abort.signal.aborted) return
-        deltas.reset()
-        streamedTextContexts.clear()
-        if (error instanceof AgentEventStreamError && error.retryable) {
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          continue
-        }
-        terminal.printBlock(`${label('stream error', ansi.red)} ${error instanceof Error ? error.message : String(error)}`)
-        abort.abort()
-        interruptRead.abort()
-        return
       }
+    } catch (error) {
+      if (abort.signal.aborted) return
+      deltas.discard()
+      terminal.printBlock(`${label('stream error', ansi.red)} ${error instanceof Error ? error.message : String(error)}`)
+      abort.abort()
+      interruptRead.abort()
     }
   })()
 
