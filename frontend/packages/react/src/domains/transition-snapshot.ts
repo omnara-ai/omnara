@@ -6,18 +6,21 @@ export function useQuerySnapshotInTransition<TData, TError>(
 ): TData | undefined {
   const queryClient = useQueryClient()
   const queryHash = hashKey(queryKey)
-  const [data, setData] = useState(() => queryClient.getQueryData(queryKey))
+  const [snapshot, setSnapshot] = useState(() => ({
+    hash: queryHash,
+    data: queryClient.getQueryData(queryKey),
+  }))
 
   useEffect(() => {
     const cache = queryClient.getQueryCache()
     return cache.subscribe((event) => {
       if (event.query.queryHash !== queryHash) return
-      const next = queryClient.getQueryData(queryKey)
+      const data = queryClient.getQueryData(queryKey)
       startTransition(() => {
-        setData(next)
+        setSnapshot({ hash: queryHash, data })
       })
     })
   }, [queryClient, queryHash, queryKey])
 
-  return data
+  return snapshot.hash === queryHash ? snapshot.data : queryClient.getQueryData(queryKey)
 }

@@ -18,6 +18,7 @@ export interface OnboardingProgress {
   cliToken?: PersonalAccessToken
   agentProfile?: AgentProfile
   agent?: Agent
+  live: { agentProfile?: AgentProfile; agent?: Agent }
   steps: {
     cli: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
     browser: { createProfile: StepStatus; chat: StepStatus }
@@ -64,6 +65,7 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
     cliToken,
     agentProfile,
     agent,
+    live,
     steps: {
       cli: {
         login: statusAt(0, cliCompleted),

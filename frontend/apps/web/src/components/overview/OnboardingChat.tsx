@@ -13,10 +13,12 @@ export function CreateChat({
   orgId,
   project,
   profile,
+  disabled = false,
 }: {
   orgId: string
   project: VisibleProject
   profile: AgentProfile
+  disabled?: boolean
 }) {
   const chat = useCreateChat(orgId, project, profile)
   return (
@@ -30,7 +32,7 @@ export function CreateChat({
         <Button
           type="button"
           data-action="create-chat"
-          disabled={chat.pending}
+          disabled={chat.pending || disabled}
           loading={chat.pending}
           onClick={() => {
             void chat.launch()

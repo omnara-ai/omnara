@@ -70,6 +70,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
     cliToken,
     agentProfile: profile,
     agent,
+    live,
     steps,
   } = useOnboarding({
     orgId,
@@ -106,6 +107,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
           <CliProfileOptions
             orgId={orgId}
             projectId={project.id}
+            disabled={live.agentProfile != null}
             onPendingChange={setProfilePending}
           />
         )}
@@ -128,7 +130,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
               agent
                 ? undefined
                 : {
-                    pending: chatRun.pending,
+                    pending: chatRun.pending || live.agent != null,
                     error: chatRun.error,
                     onRun: () => {
                       void chatRun.launch(chatMessage)
@@ -145,10 +147,12 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
 function CliProfileOptions({
   orgId,
   projectId,
+  disabled,
   onPendingChange,
 }: {
   orgId: string
   projectId: string
+  disabled: boolean
   onPendingChange: (pending: boolean) => void
 }) {
   const defaults = useTemplateDefaults(orgId, projectId)
@@ -199,7 +203,7 @@ function CliProfileOptions({
       ]}
       footer={
         <RunFooter
-          pending={pending}
+          pending={pending || disabled}
           error={error}
           onRun={() => {
             void run()
@@ -211,7 +215,12 @@ function CliProfileOptions({
 }
 
 function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProject }) {
-  const { agentProfile: profile, agent, steps } = useOnboarding({ orgId, projectId: project.id })
+  const {
+    agentProfile: profile,
+    agent,
+    live,
+    steps,
+  } = useOnboarding({ orgId, projectId: project.id })
   const { createProfile, chat } = steps.browser
   return (
     <OnboardingSteps>
@@ -224,7 +233,9 @@ function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProje
         nextStatus={chat}
         completion={profile && <ProfileCreated project={project} profile={profile} />}
       >
-        {!profile && <ProfileDraftStep orgId={orgId} project={project} />}
+        {!profile && (
+          <ProfileDraftStep orgId={orgId} project={project} disabled={live.agentProfile != null} />
+        )}
       </OnboardingStep>
       <OnboardingStep
         index={2}
@@ -235,7 +246,12 @@ function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProje
         completion={agent && <ChatGuide project={project} agent={agent} />}
       >
         {agent ? null : profile ? (
-          <CreateChat orgId={orgId} project={project} profile={profile} />
+          <CreateChat
+            orgId={orgId}
+            project={project}
+            profile={profile}
+            disabled={live.agent != null}
+          />
         ) : null}
         {agent && profile && <ChatOptions orgId={orgId} project={project} profile={profile} />}
       </OnboardingStep>

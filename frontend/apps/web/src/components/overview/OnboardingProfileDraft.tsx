@@ -24,7 +24,15 @@ export interface ProfileDraft {
   config: BasicConfig
 }
 
-export function ProfileDraftStep({ orgId, project }: { orgId: string; project: VisibleProject }) {
+export function ProfileDraftStep({
+  orgId,
+  project,
+  disabled = false,
+}: {
+  orgId: string
+  project: VisibleProject
+  disabled?: boolean
+}) {
   const [templateId, setTemplateId] = useState(agentTemplates[0]?.id ?? '')
   const [customDraft, setCustomDraft] = useState<ProfileDraft | null>(null)
   const [builderOpen, setBuilderOpen] = useState(false)
@@ -41,7 +49,7 @@ export function ProfileDraftStep({ orgId, project }: { orgId: string; project: V
     return { name: template.name, config: defaults.build(template) }
   }
   const canCreate =
-    defaults.ready && !submitting && template != null && defaults.defaultModel != null
+    defaults.ready && !submitting && !disabled && template != null && defaults.defaultModel != null
 
   async function create() {
     const current = draft()
