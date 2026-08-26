@@ -141,6 +141,35 @@ func main() {
 		metricSet,
 		metrics.ReadyAll(schemaGuard.Ready, db.Ping, redisClient.Ping),
 	)
+	activated := make(chan bool, 1)
+	go func() {
+		activated <- schemaGuard.WaitForActivation(ctx)
+	}()
+	select {
+	case active := <-activated:
+		if !active {
+			if mismatch := schemaGuard.Mismatch(); mismatch != nil {
+				log.Warn(
+					"worker schema version mismatch",
+					"expected_version", mismatch.Expected,
+					"actual_version", mismatch.Actual,
+					"action", "quiesce",
+				)
+			}
+			if err := <-healthErr; err != nil {
+				log.Error("worker health and metrics server failed", "error", err)
+				os.Exit(1)
+			}
+			return
+		}
+	case err := <-healthErr:
+		cancel()
+		if err != nil {
+			log.Error("worker health and metrics server failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	integrationHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(

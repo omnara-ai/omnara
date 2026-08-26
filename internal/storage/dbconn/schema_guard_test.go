@@ -28,8 +28,19 @@ func TestSchemaGuardRejectsNonDefaultTransactionOptions(t *testing.T) {
 	}
 }
 
+func TestSchemaGuardStartsInactive(t *testing.T) {
+	guard := NewSchemaGuard(nil, 1)
+	if err := guard.Ready(context.Background()); !errors.Is(err, errSchemaVersionInactive) {
+		t.Fatalf("readiness error = %v, want %v", err, errSchemaVersionInactive)
+	}
+	if _, err := guard.BeginTx(context.Background(), pgx.TxOptions{}); !errors.Is(err, errSchemaVersionInactive) {
+		t.Fatalf("begin transaction error = %v, want %v", err, errSchemaVersionInactive)
+	}
+}
+
 func TestSchemaGuardLatchesFirstMismatch(t *testing.T) {
 	guard := NewSchemaGuard(nil, 26)
+	guard.active.Store(true)
 	if err := guard.observe(26); err != nil {
 		t.Fatalf("matching version: %v", err)
 	}
@@ -56,6 +67,9 @@ func TestSchemaGuardLatchesFirstMismatch(t *testing.T) {
 	}
 	if err := guard.Ready(context.Background()); !errors.Is(err, mismatch) {
 		t.Fatalf("readiness error = %v, want %v", err, mismatch)
+	}
+	if guard.WaitForActivation(context.Background()) {
+		t.Fatal("mismatched active guard activated")
 	}
 }
 

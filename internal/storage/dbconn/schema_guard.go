@@ -2,13 +2,19 @@ package dbconn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var errSchemaVersionInactive = errors.New("database schema version is not active")
+
+const schemaActivationPollInterval = time.Second
 
 type SchemaVersionMismatchError struct {
 	Expected int64
@@ -23,6 +29,7 @@ type SchemaGuard struct {
 	pool     *pgxpool.Pool
 	expected int64
 	done     chan struct{}
+	active   atomic.Bool
 	mismatch atomic.Pointer[SchemaVersionMismatchError]
 }
 
@@ -42,7 +49,39 @@ func (guard *SchemaGuard) Ready(context.Context) error {
 	if mismatch := guard.Mismatch(); mismatch != nil {
 		return mismatch
 	}
-	return nil
+	if guard.active.Load() {
+		return nil
+	}
+	return errSchemaVersionInactive
+}
+
+func (guard *SchemaGuard) WaitForActivation(ctx context.Context) bool {
+	if guard.Mismatch() != nil {
+		return false
+	}
+	if guard.active.Load() {
+		return true
+	}
+	ticker := time.NewTicker(schemaActivationPollInterval)
+	defer ticker.Stop()
+	for {
+		actual, err := readSchemaVersion(ctx, guard.pool)
+		if err == nil {
+			switch {
+			case actual == guard.expected:
+				guard.active.Store(true)
+				return true
+			case actual > guard.expected:
+				_ = guard.observe(actual)
+				return false
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
 }
 
 func (guard *SchemaGuard) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
@@ -98,6 +137,9 @@ func (guard *SchemaGuard) begin(ctx context.Context, opts pgx.TxOptions) (*guard
 	}
 	if opts != (pgx.TxOptions{}) {
 		return nil, fmt.Errorf("schema guard requires default transaction options")
+	}
+	if !guard.active.Load() {
+		return nil, errSchemaVersionInactive
 	}
 	opts.IsoLevel = pgx.ReadCommitted
 	tx, err := guard.pool.BeginTx(ctx, opts)

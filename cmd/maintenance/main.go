@@ -128,6 +128,33 @@ func main() {
 		metricSet,
 		metrics.ReadyAll(schemaGuard.Ready, db.Ping, redisClient.Ping),
 	)
+	activated := make(chan bool, 1)
+	go func() {
+		activated <- schemaGuard.WaitForActivation(ctx)
+	}()
+	select {
+	case active := <-activated:
+		if !active {
+			if mismatch := schemaGuard.Mismatch(); mismatch != nil {
+				if handleSchemaVersionMismatch(signalCtx, healthErr, logger, mismatch) != 0 {
+					os.Exit(1)
+				}
+				return
+			}
+			if err := <-healthErr; err != nil {
+				logger.Error("maintenance health and metrics server failed", "error", err)
+				os.Exit(1)
+			}
+			return
+		}
+	case err := <-healthErr:
+		cancel()
+		if err != nil {
+			logger.Error("maintenance health and metrics server failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
 

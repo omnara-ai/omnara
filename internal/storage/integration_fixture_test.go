@@ -908,6 +908,60 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 	}
 }
 
+func TestSchemaGuardWaitsForExpectedVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool := openIntegrationDB(t, ctx)
+
+	var current int64
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version`).Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	guard := dbconn.NewSchemaGuard(pool, current+1)
+	activated := make(chan bool, 1)
+	go func() {
+		activated <- guard.WaitForActivation(ctx)
+	}()
+	if err := guard.Ready(ctx); err == nil {
+		t.Fatal("behind-version guard is ready")
+	}
+	select {
+	case <-guard.Done():
+		t.Fatal("behind-version guard latched a mismatch")
+	default:
+	}
+
+	migrationTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrationTx.Rollback(ctx) }()
+	if _, err := migrationTx.Exec(
+		ctx,
+		`INSERT INTO goose_db_version (version_id, is_applied) VALUES ($1, true)`,
+		current+1,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.BeginTx(ctx, pgx.TxOptions{}); err == nil {
+		t.Fatal("uncommitted-version guard began a transaction")
+	}
+	if err := migrationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case active := <-activated:
+		if !active {
+			t.Fatal("expected schema guard activation")
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := guard.Ready(ctx); err != nil {
+		t.Fatalf("activated schema guard readiness: %v", err)
+	}
+}
+
 func TestSchemaGuardAllowsWorkUntilMigrationVersionCommits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -928,6 +982,13 @@ func TestSchemaGuardAllowsWorkUntilMigrationVersionCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	guard := dbconn.NewSchemaGuard(guardPool, expected)
+	if !guard.WaitForActivation(ctx) {
+		t.Fatal("schema guard did not activate")
+	}
+	rollbackGuard := dbconn.NewSchemaGuard(guardPool, expected)
+	if !rollbackGuard.WaitForActivation(ctx) {
+		t.Fatal("rollback schema guard did not activate")
+	}
 	var value int
 	if err := guard.QueryRow(ctx, `SELECT 7`).Scan(&value); err != nil || value != 7 {
 		t.Fatalf("guarded row = (%d, %v), want (7, nil)", value, err)
@@ -1006,7 +1067,6 @@ func TestSchemaGuardAllowsWorkUntilMigrationVersionCommits(t *testing.T) {
 		t.Fatalf("schema mismatch = %+v", mismatch)
 	}
 
-	rollbackGuard := dbconn.NewSchemaGuard(guardPool, expected)
 	rollbackTx, err := rollbackGuard.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin guarded work before rollback: %v", err)
@@ -1028,6 +1088,23 @@ func TestSchemaGuardAllowsWorkUntilMigrationVersionCommits(t *testing.T) {
 	}
 
 	postCutoverGuard := dbconn.NewSchemaGuard(guardPool, expected)
+	postCutoverActivation := make(chan bool, 1)
+	go func() {
+		postCutoverActivation <- postCutoverGuard.WaitForActivation(ctx)
+	}()
+	select {
+	case <-postCutoverGuard.Done():
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	select {
+	case active := <-postCutoverActivation:
+		if active {
+			t.Fatal("post-cutover guard activated")
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 	err = postCutoverGuard.QueryRow(
 		ctx,
 		`INSERT INTO schema_guard_writes (id) VALUES (3) RETURNING id`,
