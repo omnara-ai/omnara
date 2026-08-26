@@ -1,5 +1,5 @@
 import { useCreateAgentConfig, useCreateAgentProfile } from '@omnara/react'
-import type { AgentProfile, VisibleProject } from '@omnara/sdk'
+import type { VisibleProject } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
@@ -24,15 +24,7 @@ export interface ProfileDraft {
   config: BasicConfig
 }
 
-export function ProfileDraftStep({
-  orgId,
-  project,
-  onCreated,
-}: {
-  orgId: string
-  project: VisibleProject
-  onCreated: (profile: AgentProfile) => void
-}) {
+export function ProfileDraftStep({ orgId, project }: { orgId: string; project: VisibleProject }) {
   const [templateId, setTemplateId] = useState(agentTemplates[0]?.id ?? '')
   const [customDraft, setCustomDraft] = useState<ProfileDraft | null>(null)
   const [builderOpen, setBuilderOpen] = useState(false)
@@ -59,11 +51,7 @@ export function ProfileDraftStep({
     try {
       const yaml = createBasicConfigSession('').apply(current.config)
       const config = await createAgentConfig.mutateAsync({ source: yaml, source_format: 'yaml' })
-      const profile = await createAgentProfile.mutateAsync({
-        name: current.name,
-        config: config.id,
-      })
-      onCreated(profile)
+      await createAgentProfile.mutateAsync({ name: current.name, config: config.id })
     } catch (err) {
       setError(errorMessage(err, 'Could not create profile'))
     } finally {

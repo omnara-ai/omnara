@@ -13,14 +13,12 @@ export function CreateChat({
   orgId,
   project,
   profile,
-  onCreated,
 }: {
   orgId: string
   project: VisibleProject
   profile: AgentProfile
-  onCreated: (agent: Agent) => void
 }) {
-  const chat = useCreateChat(orgId, project, profile, onCreated)
+  const chat = useCreateChat(orgId, project, profile)
   return (
     <div className="flex flex-col gap-4">
       {chat.error && (

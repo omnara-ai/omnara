@@ -103,7 +103,7 @@ export function OnboardingStep({
             )}
           >
             <div className="flex min-w-0 flex-col gap-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
                     {status === 'done' ? doneTitle : title}

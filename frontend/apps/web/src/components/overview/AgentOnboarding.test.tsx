@@ -32,6 +32,8 @@ vi.mock('@omnara/react', () => ({
     hooks.personalAccessTokens(pageSize, options)
     return { data: { pages: [{ data: hooks.tokens }] } }
   },
+  useOrgOverviewSnapshot: () => undefined,
+  usePersonalAccessTokensSnapshot: () => undefined,
   useToolCatalog: () => ({ isPending: false, data: { built_in_tools: [] } }),
   useProjectMachinePoolGrants: () => ({ isPending: false, data: { pages: [{ data: [] }] } }),
   useProjectModelGrants: () => ({
@@ -287,6 +289,10 @@ describe('AgentOnboarding CLI tab', () => {
       name: 'General agent',
       config: 'config-3',
     })
+    expect(stepStatus(2)).toBe('active')
+
+    render(overviewFixture({ recent_agent_profiles: [profileFixture({ id: 'profile-3' })] }))
+
     expect(stepStatus(2)).toBe('done')
     expect(stepStatus(3)).toBe('active')
   })
@@ -319,6 +325,15 @@ describe('AgentOnboarding CLI tab', () => {
       config: 'config-1',
       message: 'Hi! What can you do?',
     })
+    expect(stepStatus(3)).toBe('active')
+
+    render(
+      overviewFixture({
+        recent_agent_profiles: [profileFixture()],
+        recent_agents: [agentFixture({ id: 'agent-10' })],
+      }),
+    )
+
     expect(stepStatus(3)).toBe('done')
     expect(container.querySelector('[data-step="3"] [data-action="run"]')).toBeNull()
     expect(hooks.orgOverview).toHaveBeenLastCalledWith('org-1', { refetchInterval: false })
@@ -372,12 +387,32 @@ describe('AgentOnboarding browser tab', () => {
       name: 'Deep researcher',
       config: 'config-7',
     })
+    expect(stepStatus(1)).toBe('active')
+
+    const createdProfile = profileFixture({
+      id: 'profile-7',
+      name: 'Deep researcher',
+      current_config_id: 'config-7',
+    })
+    render(overviewFixture({ recent_agent_profiles: [createdProfile] }))
+    selectTab('browser')
+
     expect(stepStatus(1)).toBe('done')
     expect(stepStatus(2)).toBe('active')
 
     await click('[data-action="create-chat"]')
 
     expect(hooks.createAgent).toHaveBeenCalledWith({ profile: 'profile-7', config: 'config-7' })
+    expect(stepStatus(2)).toBe('active')
+
+    render(
+      overviewFixture({
+        recent_agent_profiles: [createdProfile],
+        recent_agents: [agentFixture({ id: 'agent-7', agent_profile_id: 'profile-7' })],
+      }),
+    )
+    selectTab('browser')
+
     expect(stepStatus(2)).toBe('done')
     expect(element('[data-action="open-agent"]').getAttribute('href')).toBe(
       '/projects/proj-1/agents/agent-7',
@@ -406,7 +441,6 @@ describe('AgentOnboarding browser tab', () => {
     await click('[data-action="create-profile"]')
 
     expect(hooks.createAgentProfile).toHaveBeenCalledWith({ name: 'Ops bot', config: 'config-8' })
-    expect(stepStatus(1)).toBe('done')
   })
 
   it('shows the profile creation error and stays on step one', async () => {

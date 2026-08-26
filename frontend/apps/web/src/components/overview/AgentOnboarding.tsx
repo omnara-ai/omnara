@@ -2,7 +2,9 @@ import {
   useCreateAgentConfig,
   useCreateAgentProfile,
   useOrgOverview,
+  useOrgOverviewSnapshot,
   usePersonalAccessTokens,
+  usePersonalAccessTokensSnapshot,
 } from '@omnara/react'
 import type {
   Agent,
@@ -12,7 +14,7 @@ import type {
   VisibleProject,
 } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { type ReactNode, startTransition, useDeferredValue, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { agentTemplates } from '@/components/agents/agentTemplates'
 import { Monitor, Terminal } from '@/components/icons'
@@ -42,11 +44,6 @@ const pollIntervalMs = 3000
 
 type OnboardingTab = 'cli' | 'browser'
 
-interface OnboardingProgress {
-  profile?: AgentProfile
-  agent?: Agent
-}
-
 function stepStatuses(completed: boolean[]): StepStatus[] {
   const activeIndex = completed.indexOf(false)
   return completed.map((done, index) => {
@@ -65,32 +62,26 @@ export function AgentOnboarding({
   overview: OrgOverviewResponse
 }) {
   const [tab, setTab] = useState<OnboardingTab>('cli')
-  const [created, setCreated] = useState<OnboardingProgress>({})
-
-  const liveProfile =
-    created.profile ??
-    overview.recent_agent_profiles.find((candidate) => candidate.project_id === project.id)
+  const liveProfile = overview.recent_agent_profiles.find(
+    (candidate) => candidate.project_id === project.id,
+  )
   const liveAgents = overview.recent_agents.filter((agent) => agent.project_id === project.id)
   const liveAgent =
-    created.agent ??
-    liveAgents.find((candidate) => candidate.agent_profile_id === liveProfile?.id) ??
-    liveAgents[0]
+    liveAgents.find((candidate) => candidate.agent_profile_id === liveProfile?.id) ?? liveAgents[0]
 
   useOrgOverview(orgId, { refetchInterval: liveAgent == null ? pollIntervalMs : false })
   const tokensQuery = usePersonalAccessTokens(50, {
     refetchInterval: tab === 'cli' && liveProfile == null ? pollIntervalMs : false,
   })
 
-  const shownOverview = useDeferredValue(overview)
-  const shownTokens = useDeferredValue(tokensQuery.data)
-  const profile =
-    created.profile ??
-    shownOverview.recent_agent_profiles.find((candidate) => candidate.project_id === project.id)
+  const shownOverview = useOrgOverviewSnapshot(orgId) ?? overview
+  const shownTokens = usePersonalAccessTokensSnapshot(50) ?? tokensQuery.data
+  const profile = shownOverview.recent_agent_profiles.find(
+    (candidate) => candidate.project_id === project.id,
+  )
   const shownAgents = shownOverview.recent_agents.filter((agent) => agent.project_id === project.id)
   const agent =
-    created.agent ??
-    shownAgents.find((candidate) => candidate.agent_profile_id === profile?.id) ??
-    shownAgents[0]
+    shownAgents.find((candidate) => candidate.agent_profile_id === profile?.id) ?? shownAgents[0]
   const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   return (
@@ -127,32 +118,11 @@ export function AgentOnboarding({
               cliToken={cliToken}
               profile={profile}
               agent={agent}
-              onProfileCreated={(createdProfile) => {
-                setCreated((prev) => ({ ...prev, profile: createdProfile }))
-              }}
-              onAgentCreated={(createdAgent) => {
-                setCreated((prev) => ({ ...prev, agent: createdAgent }))
-              }}
             />
           )}
         </TabsContent>
         <TabsContent value="browser" className="pt-14">
-          <BrowserSteps
-            orgId={orgId}
-            project={project}
-            profile={profile}
-            agent={agent}
-            onProfileCreated={(createdProfile) => {
-              startTransition(() => {
-                setCreated((prev) => ({ ...prev, profile: createdProfile }))
-              })
-            }}
-            onAgentCreated={(createdAgent) => {
-              startTransition(() => {
-                setCreated((prev) => ({ ...prev, agent: createdAgent }))
-              })
-            }}
-          />
+          <BrowserSteps orgId={orgId} project={project} profile={profile} agent={agent} />
         </TabsContent>
       </Tabs>
     </div>
@@ -165,19 +135,15 @@ function CliSteps({
   cliToken,
   profile,
   agent,
-  onProfileCreated,
-  onAgentCreated,
 }: {
   orgId: string
   project: VisibleProject
   cliToken?: PersonalAccessToken
   profile?: AgentProfile
   agent?: Agent
-  onProfileCreated: (profile: AgentProfile) => void
-  onAgentCreated: (agent: Agent) => void
 }) {
   const [profilePending, setProfilePending] = useState(false)
-  const chatRun = useCreateChat(orgId, project, profile, onAgentCreated)
+  const chatRun = useCreateChat(orgId, project, profile)
   const [login = 'upcoming', createProfile = 'upcoming', chat = 'upcoming'] = stepStatuses([
     cliToken != null || profile != null,
     profile != null,
@@ -210,7 +176,6 @@ function CliSteps({
           <CliProfileOptions
             orgId={orgId}
             projectId={project.id}
-            onCreated={onProfileCreated}
             onPendingChange={setProfilePending}
           />
         )}
@@ -250,12 +215,10 @@ function CliSteps({
 function CliProfileOptions({
   orgId,
   projectId,
-  onCreated,
   onPendingChange,
 }: {
   orgId: string
   projectId: string
-  onCreated: (profile: AgentProfile) => void
   onPendingChange: (pending: boolean) => void
 }) {
   const defaults = useTemplateDefaults(orgId, projectId)
@@ -282,7 +245,7 @@ function CliProfileOptions({
         source: spec.json,
         source_format: 'json',
       })
-      onCreated(await createAgentProfile.mutateAsync({ name: spec.name, config: config.id }))
+      await createAgentProfile.mutateAsync({ name: spec.name, config: config.id })
     } catch (err) {
       setError(errorMessage(err, 'Could not create profile'))
     } finally {
@@ -322,15 +285,11 @@ function BrowserSteps({
   project,
   profile,
   agent,
-  onProfileCreated,
-  onAgentCreated,
 }: {
   orgId: string
   project: VisibleProject
   profile?: AgentProfile
   agent?: Agent
-  onProfileCreated: (profile: AgentProfile) => void
-  onAgentCreated: (agent: Agent) => void
 }) {
   const [createProfile = 'upcoming', chat = 'upcoming'] = stepStatuses([
     profile != null,
@@ -347,9 +306,7 @@ function BrowserSteps({
         nextStatus={chat}
         completion={profile && <ProfileCreated project={project} profile={profile} />}
       >
-        {!profile && (
-          <ProfileDraftStep orgId={orgId} project={project} onCreated={onProfileCreated} />
-        )}
+        {!profile && <ProfileDraftStep orgId={orgId} project={project} />}
       </OnboardingStep>
       <OnboardingStep
         index={2}
@@ -360,12 +317,7 @@ function BrowserSteps({
         completion={agent && <ChatGuide project={project} agent={agent} />}
       >
         {agent ? null : profile ? (
-          <CreateChat
-            orgId={orgId}
-            project={project}
-            profile={profile}
-            onCreated={onAgentCreated}
-          />
+          <CreateChat orgId={orgId} project={project} profile={profile} />
         ) : null}
         {agent && profile && <ChatOptions orgId={orgId} project={project} profile={profile} />}
       </OnboardingStep>
