@@ -914,13 +914,13 @@ func resolveProcessCwd(machineCwd, bindingCwd, requestedCwd string) string {
 	if requestedCwd == "" {
 		return base
 	}
-	if processcmd.IsHomeRelativeCwd(requestedCwd) {
+	if processcmd.IsHomeRelativePath(requestedCwd) {
 		return requestedCwd
 	}
 	if path.IsAbs(requestedCwd) || base == "" {
 		return path.Clean(requestedCwd)
 	}
-	if processcmd.IsHomeRelativeCwd(base) {
+	if processcmd.IsHomeRelativePath(base) {
 		return strings.TrimSuffix(base, "/") + "/" + requestedCwd
 	}
 	return path.Join(base, requestedCwd)

@@ -51,6 +51,12 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	uploadArtifactToolDescription = "Create an artifact from a regular file on an attached machine. " +
+		"The file must be non-empty and at most 10 MiB. " +
+		"The result includes a process_id; on successful completion, process output includes an artifact_id. " +
+		"machine_ref is only needed when multiple machines are available."
+	showArtifactToolDescription = "Request that clients consuming the conversation show an artifact to the user. " +
+		"The artifact contents are not added to model context or delivered through external integrations."
 )
 
 type Catalog struct {
@@ -91,7 +97,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	processID := map[string]any{
 		"type":        "string",
-		"description": "Opaque process_id returned by run_command or list_processes. Copy it exactly.",
+		"description": "Opaque process_id returned by a process-backed tool or list_processes. Copy it exactly.",
 	}
 	entries := map[string]Entry{}
 	var err error
@@ -253,6 +259,12 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineRef); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameShowArtifact], err = showArtifactTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -453,6 +465,38 @@ func webFetchTool() (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
+	return toolEntry(
+		ToolNameUploadArtifact,
+		uploadArtifactToolDescription,
+		[]string{"path"},
+		map[string]any{
+			"path": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Path to a regular file on the selected machine. " +
+					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
+			},
+			"machine_ref": machineRef,
+		},
+	)
+}
+
+func showArtifactTool() (Entry, error) {
+	return toolEntry(
+		ToolNameShowArtifact,
+		showArtifactToolDescription,
+		[]string{"artifact_id"},
+		map[string]any{
+			"artifact_id": map[string]any{
+				"type":        "string",
+				"pattern":     `^art_[a-z2-7]{26}$`,
+				"description": "Exact artifact_id to show.",
+			},
+		},
+	)
 }
 
 func (r Catalog) Lookup(name string) (Entry, bool) {

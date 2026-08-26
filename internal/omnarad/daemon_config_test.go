@@ -628,7 +628,8 @@ func TestRunVersionHelpAndUsage(t *testing.T) {
 		t.Fatalf("help exit code = %d", code)
 	}
 	if help := stdout.String(); !strings.Contains(help, "Usage: omnarad") ||
-		strings.Contains(help, "run-service") || strings.Contains(help, "__omnara_process_runner") {
+		strings.Contains(help, "run-service") || strings.Contains(help, "__omnara_process_runner") ||
+		strings.Contains(help, "__omnara_upload_artifact") {
 		t.Fatalf("help output = %q", help)
 	}
 	stdout.Reset()

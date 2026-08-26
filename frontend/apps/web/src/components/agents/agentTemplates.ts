@@ -10,7 +10,7 @@ export interface AgentTemplate {
   instruction: string
 }
 
-const defaultAgentToolNames = ['web_search', 'web_fetch'] as const
+const defaultAgentToolNames = ['web_search', 'web_fetch', 'show_artifact'] as const
 
 const templateToolNames = [
   'run_command',
@@ -23,6 +23,8 @@ const templateToolNames = [
   'ask_question',
   'web_search',
   'web_fetch',
+  'upload_artifact',
+  'show_artifact',
 ] as const
 
 const generalAgent: AgentTemplate = {

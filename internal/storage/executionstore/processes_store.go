@@ -18,6 +18,37 @@ type DaemonProcessOffer struct {
 	RetryError       error             `json:"-"`
 }
 
+type DaemonArtifactUploadScope struct {
+	ProjectID ID
+	AgentID   ID
+}
+
+func (s *Store) GetDaemonArtifactUploadScope(
+	ctx context.Context,
+	orgID, machineID, toolCallID ID,
+) (DaemonArtifactUploadScope, bool, error) {
+	if isNilID(orgID) || isNilID(machineID) || isNilID(toolCallID) {
+		return DaemonArtifactUploadScope{}, false, errors.New(
+			"organization id, machine id, and tool call id are required",
+		)
+	}
+	record, err := s.q.GetDaemonArtifactUploadScope(ctx, dbsqlc.GetDaemonArtifactUploadScopeParams{
+		OrgID:      orgID,
+		MachineID:  machineID,
+		ToolCallID: toolCallID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DaemonArtifactUploadScope{}, false, nil
+	}
+	if err != nil {
+		return DaemonArtifactUploadScope{}, false, fmt.Errorf("load daemon artifact upload scope: %w", err)
+	}
+	return DaemonArtifactUploadScope{
+		ProjectID: record.ProjectID,
+		AgentID:   record.AgentID,
+	}, true, nil
+}
+
 func (t *toolCallTransaction) startProcess(
 	ctx context.Context,
 	input CreateProcessInput,

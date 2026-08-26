@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -268,6 +269,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/api/v1/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/sleep", "post"},
 		{"/api/v1/daemon/skills/{skillID}/archive", "get"},
+		{"/api/v1/daemon/tool-calls/{toolCallID}/artifact", "post"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -300,11 +302,12 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"delete /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /api/v1/daemon/bootstrap":                  true,
-		"post /api/v1/daemon/failures":                   true,
-		"post /api/v1/daemon/runtimes":                   true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/end":   true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/sleep": true,
+		"post /api/v1/daemon/bootstrap":                        true,
+		"post /api/v1/daemon/failures":                         true,
+		"post /api/v1/daemon/runtimes":                         true,
+		"post /api/v1/daemon/runtimes/{runtimeID}/end":         true,
+		"post /api/v1/daemon/runtimes/{runtimeID}/sleep":       true,
+		"post /api/v1/daemon/tool-calls/{toolCallID}/artifact": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -1248,6 +1251,55 @@ func TestOpenAPIRequestValidatorRejectsBodyOnNoBodyOperation(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("empty body status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+}
+
+type trackingReadCloser struct {
+	reader    io.Reader
+	bytesRead int
+}
+
+func (r *trackingReadCloser) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	r.bytesRead += n
+	return n, err
+}
+
+func (*trackingReadCloser) Close() error {
+	return nil
+}
+
+func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+	validator, err := newOpenAPIRequestValidator()
+	if err != nil {
+		t.Fatalf("create openapi request validator: %v", err)
+	}
+	body := []byte{0, 1, 2, 3, 255}
+	source := &trackingReadCloser{reader: bytes.NewReader(body)}
+	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if source.bytesRead != 0 {
+			t.Fatalf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+		}
+		got, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read preserved body: %v", err)
+		}
+		if !bytes.Equal(got, body) {
+			t.Fatalf("preserved body = %v, want %v", got, body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		source,
+	)
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
 	}
 }
 

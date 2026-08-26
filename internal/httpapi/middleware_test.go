@@ -76,3 +76,14 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestBodyLimitDaemonArtifactUpload(t *testing.T) {
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/daemon/tool-calls/tcl_abc/artifact?filename=shot.png",
+		nil,
+	)
+	if got := requestBodyLimit(req); got != maxDaemonArtifactUploadBytes {
+		t.Fatalf("artifact upload body limit = %d, want %d", got, maxDaemonArtifactUploadBytes)
+	}
+}

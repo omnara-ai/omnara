@@ -140,6 +140,7 @@ export function AgentView() {
               currentActorId={currentActorId}
               orgID={activeOrg.id}
               projectID={projectId}
+              agentID={agentId}
             />
           </main>
         )}

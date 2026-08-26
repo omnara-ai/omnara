@@ -2420,6 +2420,10 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
+export const zUploadArtifactResponse = z.object({
+    artifact_id: zArtifactId
+});
+
 export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
@@ -4417,3 +4421,18 @@ export const zGetDaemonSkillArchiveQuery = z.object({
  * Skill archive bytes.
  */
 export const zGetDaemonSkillArchiveResponse = z.string();
+
+export const zUploadDaemonArtifactBody = z.string();
+
+export const zUploadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId
+});
+
+export const zUploadDaemonArtifactQuery = z.object({
+    filename: z.string().min(1).max(255)
+});
+
+/**
+ * Artifact created.
+ */
+export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;

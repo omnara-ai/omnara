@@ -1,10 +1,13 @@
 import { type OmnaraUIMessage, useOmnaraClient } from '@omnara/react'
 import { getActorOptions } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
+import { Fragment } from 'react'
 import { Streamdown } from 'streamdown'
 
 import { AgentAttachment } from '@/components/agents/AgentAttachment'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
+import { shownArtifactFromToolPart } from '@/components/agents/shownArtifact'
+import { ShownArtifactCard } from '@/components/agents/ShownArtifactCard'
 import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -116,11 +119,13 @@ export function AgentChatMessage({
   currentActorId,
   orgID,
   projectID,
+  agentID,
 }: {
   message: OmnaraUIMessage
   currentActorId?: string
   orgID: string
   projectID: string
+  agentID: string
 }) {
   const { data: webConfig } = useWebConfig()
   const metadata = message.metadata
@@ -198,7 +203,22 @@ export function AgentChatMessage({
           if (part.type === 'data-media') {
             return <AgentAttachment key={part.id} artifactId={part.data.artifactId} />
           }
-          if (part.type === 'dynamic-tool') return <ToolPart key={part.id} part={part} />
+          if (part.type === 'dynamic-tool') {
+            const artifact = shownArtifactFromToolPart(part)
+            return (
+              <Fragment key={part.id}>
+                <ToolPart part={part} />
+                {artifact != null && (
+                  <ShownArtifactCard
+                    artifact={artifact}
+                    orgID={orgID}
+                    projectID={projectID}
+                    agentID={agentID}
+                  />
+                )}
+              </Fragment>
+            )
+          }
           return null
         })}
         {showInsufficientCredits && (

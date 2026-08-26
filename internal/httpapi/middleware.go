@@ -33,6 +33,8 @@ const maxAttachmentRequestBodyBytes int64 = 2 * modelcontext.MaxResolvedMediaByt
 
 const maxSkillUploadRequestBodyBytes int64 = int64(skills.MaxArchiveBytes) + 1024*1024
 
+const maxDaemonArtifactUploadBytes int64 = 10 * 1024 * 1024
+
 func requestBodyLimit(r *http.Request) int64 {
 	if r.Method != http.MethodPost {
 		return maxRequestBodyBytes
@@ -46,6 +48,9 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"):
 		return maxSkillUploadRequestBodyBytes
+	case strings.HasPrefix(r.URL.Path, "/api/v1/daemon/tool-calls/") &&
+		strings.HasSuffix(r.URL.Path, "/artifact"):
+		return maxDaemonArtifactUploadBytes
 	}
 	return maxRequestBodyBytes
 }

@@ -44,7 +44,7 @@ func (subprocessRunnerLauncher) Prepare(
 	assignment ProcessAssignment,
 ) (*processRuntime, error) {
 	if assignment.PreparationError == "" {
-		canonicalCwd, err := canonicalProcessCwd(assignment.Process.Cwd, os.UserHomeDir)
+		canonicalCwd, err := canonicalProcessCwd(assignment.Process.Cwd)
 		if err != nil {
 			assignment.PreparationError = err.Error()
 		} else {
@@ -323,20 +323,10 @@ func (subprocessRunnerLauncher) Prepare(
 	return runtime, nil
 }
 
-func canonicalProcessCwd(cwd string, userHomeDir func() (string, error)) (string, error) {
-	if processcmd.IsHomeRelativeCwd(cwd) {
-		home, err := userHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve process working directory home: %w", err)
-		}
-		if home == "" {
-			return "", errors.New("resolve process working directory home: home is empty")
-		}
-		if cwd == "~" {
-			cwd = home
-		} else {
-			cwd = filepath.Join(home, cwd[2:])
-		}
+func canonicalProcessCwd(cwd string) (string, error) {
+	cwd, err := processcmd.ExpandHomeRelativePath(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve process working directory home: %w", err)
 	}
 	return filepath.Abs(cwd)
 }

@@ -206,7 +206,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 		cancelWake()
 		return false, errors.New("wake failed")
 	}
-	cleanupErr := wakeRunCommand(wakeCtx, backgroundToolContext{
+	cleanupErr := wakeProcessTool(wakeCtx, backgroundToolContext{
 		Executor:   Executor{Store: store, MachinePoolManager: manager},
 		Turn:       turn,
 		ToolCallID: toolCallID,
@@ -217,7 +217,7 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 	manager.wake = func(context.Context, storage.ID, storage.ID) (bool, error) {
 		return false, nil
 	}
-	cleanupErr = wakeRunCommand(ctx, backgroundToolContext{
+	cleanupErr = wakeProcessTool(ctx, backgroundToolContext{
 		Executor:   Executor{Store: store, MachinePoolManager: manager},
 		Turn:       turn,
 		ToolCallID: toolCallID,
