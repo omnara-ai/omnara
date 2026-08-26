@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/accountsecurity"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -72,22 +73,23 @@ func WithModelCallRetryBackoff(backoff func(int, string) time.Duration) Option {
 	}
 }
 
-func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
+func NewStore(db dbconn.DB, opts ...Option) *Store {
 	config := storeConfig{}
 	for _, opt := range opts {
 		opt(&config)
 	}
+	pool, _ := db.(*pgxpool.Pool)
 	store := &Store{
 		pool:  pool,
 		blobs: config.blobs,
 	}
-	store.identity = identitystore.New(pool, config.secretKeyWrapper, config.blobs)
-	store.models = modelstore.New(pool)
-	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
-	store.skills = skillstore.New(pool, config.blobs, store.identity)
-	store.artifacts = artifactstore.New(pool, config.blobs)
-	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
-	store.execution = executionstore.New(pool, executionstore.Config{
+	store.identity = identitystore.New(db, config.secretKeyWrapper, config.blobs)
+	store.models = modelstore.New(db)
+	store.secrets = secretstore.New(db, config.secretKeyWrapper, store.identity)
+	store.skills = skillstore.New(db, config.blobs, store.identity)
+	store.artifacts = artifactstore.New(db, config.blobs)
+	store.integrations = integrationstore.New(db, executionstore.IntegrationInstallAccess{})
+	store.execution = executionstore.New(db, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,
 		Integrations:          store.integrations,
@@ -95,7 +97,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		Identity:              store.identity,
 		Secrets:               store.secrets,
 	})
-	store.organizations = orglifecycle.New(pool, orglifecycle.Config{
+	store.organizations = orglifecycle.New(db, orglifecycle.Config{
 		Blobs:               config.blobs,
 		PostCommitPublisher: config.postCommitPublisher,
 		Identity:            store.identity,
@@ -104,7 +106,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		Secrets:             store.secrets,
 	})
 	store.accountSecurity = accountsecurity.New(
-		pool,
+		db,
 		store.identity,
 	)
 	return store

@@ -25,7 +25,7 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 	input.Definition = normalizedJSON(input.Definition)
 	input = withDefaultAgentConfigCompilation(input)
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentConfigRecord{}, fmt.Errorf("begin create agent config: %w", err)
 	}
@@ -89,7 +89,7 @@ func (s *Store) CaptureAgentConfigForModelContext(
 		return AgentConfigSnapshotRecord{}, errors.New("project and agent are required")
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentConfigSnapshotRecord{}, fmt.Errorf(
 			"begin capture agent config for model context: %w",

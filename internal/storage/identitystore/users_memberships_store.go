@@ -160,7 +160,7 @@ func (s *Store) resolveAuthIdentityUser(
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
 	email := strings.TrimSpace(input.Email)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin resolve auth identity user: %w", err)
 	}
@@ -304,7 +304,7 @@ func (s *Store) createAuthIdentitySession(
 	sessionToken, csrfToken string,
 	ttl time.Duration,
 ) (UserRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin auth identity session: %w", err)
 	}
@@ -366,7 +366,7 @@ func (s *Store) AddProjectMembership(
 			errors.New("role must be admin, developer, operator, or viewer"),
 		)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMembershipRecord{}, fmt.Errorf("begin add project membership: %w", err)
 	}
@@ -415,7 +415,7 @@ func (s *Store) AddOrgMembership(
 	if input.Role == "" {
 		return OrgMembershipRecord{}, errors.New("role is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("begin add org membership: %w", err)
 	}
@@ -500,7 +500,7 @@ func (s *Store) UpdateOrgMemberRole(
 	if input.Role != authz.OrgRoleAdmin && input.Role != authz.OrgRoleMember {
 		return OrgMembershipRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("begin update org member role: %w", err)
 	}
@@ -549,7 +549,7 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	if isNilID(input.UserID) {
 		return errors.New("user id is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin remove org member: %w", err)
 	}
@@ -823,7 +823,7 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 	if isNilID(userID) {
 		return errors.New("user is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete user account: %w", err)
 	}

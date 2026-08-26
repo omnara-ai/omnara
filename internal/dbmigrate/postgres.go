@@ -98,13 +98,11 @@ func ApplyPostgres(
 		delegate: locker,
 		timeout:  migrationUnlockTimeout,
 	}
-	provider, err := goose.NewProvider(
-		goose.DialectPostgres,
+	provider, err := newPostgresProvider(
 		db,
 		migrations,
+		goMigrations,
 		goose.WithSessionLocker(boundedLocker),
-		goose.WithDisableGlobalRegistry(true),
-		goose.WithGoMigrations(goMigrations...),
 	)
 	if err != nil {
 		return fmt.Errorf("create PostgreSQL migration provider: %w", err)
@@ -134,6 +132,32 @@ func ApplyPostgres(
 		)
 	}
 	return nil
+}
+
+func PostgresTargetVersion(
+	db *sql.DB,
+	migrations fs.FS,
+	goMigrations ...*goose.Migration,
+) (int64, error) {
+	provider, err := newPostgresProvider(db, migrations, goMigrations)
+	if err != nil {
+		return 0, fmt.Errorf("create PostgreSQL migration provider: %w", err)
+	}
+	sources := provider.ListSources()
+	return sources[len(sources)-1].Version, nil
+}
+
+func newPostgresProvider(
+	db *sql.DB,
+	migrations fs.FS,
+	goMigrations []*goose.Migration,
+	opts ...goose.ProviderOption,
+) (*goose.Provider, error) {
+	opts = append(opts,
+		goose.WithDisableGlobalRegistry(true),
+		goose.WithGoMigrations(goMigrations...),
+	)
+	return goose.NewProvider(goose.DialectPostgres, db, migrations, opts...)
 }
 
 // Goose removes cancellation before SessionUnlock; restore a deadline so cleanup cannot hang.

@@ -35,7 +35,7 @@ func (s *Store) CreateSecret(
 	if err := s.validateCreateSecretInput(ctx, &input); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("begin create secret: %w", err)
 	}
@@ -234,7 +234,7 @@ func (s *Store) UpdateSecretMetadata(
 	if err != nil {
 		return SecretRecord{}, invalidSecretRequest("%v", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin update secret metadata: %w", err)
 	}
@@ -302,7 +302,7 @@ func (s *Store) CreateSecretVersion(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf(
 			"begin create secret version: %w",
@@ -433,7 +433,7 @@ func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (Secr
 	if err := s.authorizeSecretManage(ctx, record, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin delete secret: %w", err)
 	}

@@ -404,7 +404,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, storeerr.InvalidRequest(err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("begin create project machine pool grant: %w", err)
 	}
@@ -556,7 +556,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 			"pool grant org, project, and id are required",
 		))
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("begin update project machine pool grant: %w", err)
 	}
@@ -752,7 +752,7 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 		return DeleteProjectMachinePoolGrantResult{}, errors.New("pool grant org, project, and id are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf("begin revoke project machine pool grant: %w", err)
 	}

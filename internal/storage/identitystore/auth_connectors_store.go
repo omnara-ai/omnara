@@ -33,7 +33,7 @@ func (s *Store) UpsertAuthConnector(ctx context.Context, input CreateAuthConnect
 	if err != nil {
 		return AuthConnectorRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AuthConnectorRecord{}, fmt.Errorf("begin upsert auth connector: %w", err)
 	}

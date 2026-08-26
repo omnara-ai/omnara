@@ -47,7 +47,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	); err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("begin retryable model call failure: %w", err)
 	}

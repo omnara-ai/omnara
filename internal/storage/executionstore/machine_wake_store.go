@@ -32,7 +32,7 @@ func (s *Store) BeginMachineWake(
 		return MachineWakeUnavailable, errors.New("machine wake timeout must be at least one millisecond")
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineWakeUnavailable, fmt.Errorf("begin machine wake: %w", err)
 	}

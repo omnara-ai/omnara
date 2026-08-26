@@ -44,7 +44,7 @@ func (s *Store) CreateSkillGrant(
 	if err != nil {
 		return SkillGrantRecord{}, fmt.Errorf("generate skill grant id: %w", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SkillGrantRecord{}, fmt.Errorf("begin create skill grant: %w", err)
 	}

@@ -92,7 +92,7 @@ func (s *Store) CreatePermissionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("marshal permission request: %w", err)
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("begin create agent interaction: %w", err)
 	}
@@ -259,7 +259,7 @@ func (s *Store) ResolveAgentInteraction(
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("begin resolve agent interaction: %w", err)
 	}

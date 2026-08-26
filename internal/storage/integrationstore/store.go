@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -29,13 +29,13 @@ type Access interface {
 }
 
 type Store struct {
-	pool   *pgxpool.Pool
+	db     dbconn.DB
 	q      *dbsqlc.Queries
 	access Access
 }
 
-func New(pool *pgxpool.Pool, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), access: access}
+func New(db dbconn.DB, access Access) *Store {
+	return &Store{db: db, q: dbsqlc.New(db), access: access}
 }
 
 func isNilID(id ID) bool {

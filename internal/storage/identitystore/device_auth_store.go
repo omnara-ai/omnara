@@ -105,7 +105,7 @@ func (s *Store) ApproveDeviceAuthFlow(ctx context.Context, input ApproveDeviceAu
 	if input.UserCode == "" || isNilID(input.UserID) || isNilID(input.ApprovedBrowserSessionID) {
 		return storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin device auth approval: %w", err)
 	}
@@ -163,7 +163,7 @@ func (s *Store) DenyDeviceAuthFlow(ctx context.Context, input DenyDeviceAuthFlow
 	if input.UserCode == "" {
 		return storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin device auth denial: %w", err)
 	}
@@ -205,7 +205,7 @@ func (s *Store) PollDeviceAuthFlow(
 	if input.DeviceCode == "" {
 		return DeviceAuthFlowPollRecord{}, storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DeviceAuthFlowPollRecord{}, fmt.Errorf("begin device auth poll: %w", err)
 	}

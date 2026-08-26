@@ -71,7 +71,7 @@ func (s *Store) reapExpiredAgentRuntimeLock(
 	projectID, agentID, runtimeLockID ID,
 ) (bool, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, fmt.Errorf("begin reap expired agent runtime lock: %w", err)
 	}

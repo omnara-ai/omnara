@@ -228,7 +228,7 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	if err != nil {
 		return MachineRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin create machine: %w", err)
 	}
@@ -344,7 +344,7 @@ func (s *Store) UpdateMachine(ctx context.Context, input UpdateMachineInput) (Ma
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin update machine: %w", err)
 	}
@@ -526,7 +526,7 @@ func (s *Store) DeleteMachine(
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin delete machine: %w", err)
 	}
@@ -648,7 +648,7 @@ func (s *Store) CreateProjectMachineGrant(
 	if err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
 			"begin create project machine grant: %w",
@@ -955,7 +955,7 @@ func (s *Store) DeleteProjectMachineGrant(
 	orgID, projectID, id ID,
 ) (ProjectMachineGrantRecord, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMachineGrantRecord{}, fmt.Errorf(
 			"begin delete project machine grant: %w",

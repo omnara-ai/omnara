@@ -2,9 +2,9 @@ package orglifecycle
 
 import (
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -26,7 +26,7 @@ type Config struct {
 }
 
 type Service struct {
-	pool                *pgxpool.Pool
+	db                  dbconn.DB
 	q                   *dbsqlc.Queries
 	blobs               blobstore.Store
 	postCommitPublisher notifications.PostCommitPublisher
@@ -36,10 +36,10 @@ type Service struct {
 	secrets             *secretstore.Store
 }
 
-func New(pool *pgxpool.Pool, config Config) *Service {
+func New(db dbconn.DB, config Config) *Service {
 	return &Service{
-		pool:                pool,
-		q:                   dbsqlc.New(pool),
+		db:                  db,
+		q:                   dbsqlc.New(db),
 		blobs:               config.Blobs,
 		postCommitPublisher: config.PostCommitPublisher,
 		identity:            config.Identity,

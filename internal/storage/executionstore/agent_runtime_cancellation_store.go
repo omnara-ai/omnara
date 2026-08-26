@@ -34,7 +34,7 @@ func (s *Store) CancelAgent(
 		return CancelAgentResult{}, errors.New("project and agent are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CancelAgentResult{}, fmt.Errorf("begin cancel agent: %w", err)
 	}

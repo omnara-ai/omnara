@@ -21,7 +21,7 @@ func (s *Store) CreateProjectModelGrant(
 		return ProjectModelGrantRecord{}, errors.New("org, project, and configured model are required")
 	}
 	input = normalizeProjectModelGrantInput(input)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectModelGrantRecord{}, fmt.Errorf("begin create project model grant: %w", err)
 	}
@@ -92,7 +92,7 @@ func (s *Store) UpdateProjectModelGrant(
 	if isNilID(input.OrgID) || isNilID(input.ProjectID) || isNilID(input.ID) {
 		return ProjectModelGrantRecord{}, storeerr.InvalidRequest(errors.New("org, project, and grant are required"))
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectModelGrantRecord{}, fmt.Errorf("begin update project model grant: %w", err)
 	}

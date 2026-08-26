@@ -110,7 +110,7 @@ func (s *Store) CreateCronTrigger(
 	}
 	input.IdempotencyKey = cronTriggerCreateIdempotencyKey(input.IdempotencyKey)
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("begin create cron trigger: %w", err)
 	}
@@ -268,7 +268,7 @@ func (s *Store) UpdateCronTrigger(
 	if isNilID(input.ProjectID) || isNilID(input.TriggerID) {
 		return CronTriggerRecord{}, errors.New("project and cron trigger are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("begin update cron trigger: %w", err)
 	}
@@ -512,7 +512,7 @@ func (s *Store) ClaimDueCronTriggers(
 	if limit <= 0 {
 		return ClaimDueCronTriggersResult{}, errors.New("limit must be positive")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ClaimDueCronTriggersResult{}, fmt.Errorf("begin claim due cron triggers: %w", err)
 	}
@@ -587,7 +587,7 @@ func (s *Store) CompleteCronTriggerFiring(
 	if isNilID(input.ProjectID) || isNilID(input.TriggerID) || isNilID(input.ClaimToken) {
 		return errors.New("project, cron trigger, and claim token are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin complete cron trigger firing: %w", err)
 	}

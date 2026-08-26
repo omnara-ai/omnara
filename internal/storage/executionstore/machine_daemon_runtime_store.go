@@ -54,7 +54,7 @@ func (s *Store) RegisterDaemonRuntimeWithReconciliation(
 	}
 	input.Capacity = normalizedJSON(input.Capacity)
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonRuntimeRegistrationRecord{}, fmt.Errorf("begin register daemon runtime: %w", err)
 	}
@@ -271,7 +271,7 @@ func (s *Store) HeartbeatDaemonRuntime(
 	}
 	input.ObservedPlatform = normalizedJSON(input.ObservedPlatform)
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin heartbeat daemon runtime: %w", err)
 	}
@@ -329,7 +329,7 @@ func (s *Store) EndDaemonRuntime(
 		return DaemonRuntimeRecord{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin end daemon runtime: %w", err)
 	}
@@ -380,7 +380,7 @@ func (s *Store) SleepDaemonRuntime(
 		return DaemonRuntimeRecord{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonRuntimeRecord{}, fmt.Errorf("begin sleep daemon runtime: %w", err)
 	}

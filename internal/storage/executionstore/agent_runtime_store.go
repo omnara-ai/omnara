@@ -348,7 +348,7 @@ func (s *Store) ArchiveAgent(
 	}
 	if err := validateProjectPrincipalActionTx(
 		ctx,
-		dbsqlc.New(s.pool),
+		s.q,
 		projectID,
 		archivedBy,
 		identitystore.AgentActionOperate,
@@ -364,7 +364,7 @@ func (s *Store) ArchiveAgent(
 		return AgentRecord{}, nil, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentRecord{}, nil, fmt.Errorf("begin archive agent: %w", err)
 	}

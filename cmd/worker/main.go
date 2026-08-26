@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
+	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
@@ -28,7 +30,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/webaccess"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 const (
@@ -65,6 +69,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	versionDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = versionDB.Close() }()
+	expectedVersion, err := dbmigrate.PostgresTargetVersion(
+		versionDB,
+		schemamigrations.Files,
+		schemamigrations.GoMigrations()...,
+	)
+	if err != nil {
+		log.Error("read worker schema target version", "error", err)
+		os.Exit(1)
+	}
+	schemaGuard := dbconn.NewSchemaGuard(db, expectedVersion)
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -121,13 +137,13 @@ func main() {
 		}
 		storeOpts = append(storeOpts, storage.WithBlobStore(blobs))
 	}
-	store := storage.NewStore(db, storeOpts...)
+	store := storage.NewStore(schemaGuard, storeOpts...)
 	healthErr := metrics.Serve(
-		ctx,
+		signalCtx,
 		log,
 		cfg.WorkerMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(db.Ping, redisClient.Ping),
+		metrics.ReadyAll(schemaGuard.Ready, db.Ping, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	integrationHTTPClient := metrics.NewObservedHTTPClient(
@@ -228,11 +244,14 @@ func main() {
 	}()
 
 	exitCode := 0
+	var schemaMismatch *dbconn.SchemaVersionMismatchError
 	select {
 	case err := <-workerErr:
+		unexpectedWorkerErr := err != nil && signalCtx.Err() == nil
 		cancel()
+		stop()
 		<-healthErr
-		if err != nil && signalCtx.Err() == nil {
+		if unexpectedWorkerErr {
 			log.Error("kernel worker failed", "error", err)
 			exitCode = 1
 		}
@@ -250,9 +269,31 @@ func main() {
 		cancel()
 		<-healthErr
 		<-workerErr
+	case <-schemaGuard.Done():
+		schemaMismatch = schemaGuard.Mismatch()
+		cancel()
+		<-workerErr
 	}
 	<-cronTriggerDone
 	backgroundRunner.Shutdown()
+	if schemaMismatch != nil {
+		log.Warn(
+			"worker schema version mismatch",
+			"expected_version", schemaMismatch.Expected,
+			"actual_version", schemaMismatch.Actual,
+			"action", "quiesce",
+		)
+		var healthServerErr error
+		select {
+		case <-signalCtx.Done():
+			healthServerErr = <-healthErr
+		case healthServerErr = <-healthErr:
+		}
+		if healthServerErr != nil {
+			log.Error("worker health and metrics server failed", "error", healthServerErr)
+			exitCode = 1
+		}
+	}
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}

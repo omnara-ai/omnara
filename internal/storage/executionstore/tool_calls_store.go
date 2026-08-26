@@ -149,7 +149,7 @@ func (s *Store) CompleteToolCall(
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ToolCallRecord{}, fmt.Errorf("begin complete tool call: %w", err)
 	}
@@ -495,7 +495,7 @@ func (s *Store) CompleteRuntimeToolCall(
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ToolCallRecord{}, err
 	}
@@ -669,7 +669,7 @@ func (s *Store) CompleteCustomToolCall(
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}

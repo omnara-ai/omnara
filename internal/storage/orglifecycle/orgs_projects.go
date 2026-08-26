@@ -50,7 +50,7 @@ func (s *Service) CreateOrgForUser(
 		}
 		input.OrgID = orgID
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return identitystore.CreateOrgForUserRecord{}, fmt.Errorf("begin create org for user: %w", err)
 	}
@@ -241,7 +241,7 @@ func (s *Service) DeleteProject(
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete project: %w", err)
 	}
@@ -335,7 +335,7 @@ func (s *Service) deleteOrganizationAttempt(
 	actor *executionstore.ActorParams,
 	lockProjectIDs []ID,
 ) ([]executionstore.MachineRecord, []ID, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin delete organization: %w", err)
 	}

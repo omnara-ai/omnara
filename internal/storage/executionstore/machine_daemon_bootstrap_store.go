@@ -28,7 +28,7 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	if err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
@@ -161,7 +161,7 @@ func (s *Store) BeginPoolMachineProviderProvisioning(
 	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineProviderProvisioningStart{}, fmt.Errorf(
 			"begin pool machine provider provisioning: %w",
@@ -315,7 +315,7 @@ func (s *Store) RevokeBYOMachineDaemonToken(
 	orgID, machineID, tokenID ID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("begin revoke machine daemon token: %w", err)
 	}
@@ -528,7 +528,7 @@ func (s *Store) RecordMachineFailureReport(
 		MachineID:       input.MachineID,
 		DaemonTokenID:   input.DaemonTokenID,
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin machine failure report: %w", err)
 	}

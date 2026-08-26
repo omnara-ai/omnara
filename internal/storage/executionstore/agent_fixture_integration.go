@@ -26,7 +26,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 		return AgentRecord{}, errors.New("current config id is required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentRecord{}, fmt.Errorf("begin create agent fixture: %w", err)
 	}

@@ -22,7 +22,7 @@ func (s *Store) CreateConfiguredModel(
 	ctx context.Context,
 	input CreateConfiguredModelInput,
 ) (ConfiguredModelRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("begin create configured model: %w", err)
 	}
@@ -184,7 +184,7 @@ func (s *Store) PatchConfiguredModel(
 	if isNilID(input.OrgID) || isNilID(input.ModelProviderConfigID) || isNilID(input.ID) {
 		return ConfiguredModelRecord{}, errors.New("org, provider config, and configured model are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -615,7 +615,7 @@ func (s *Store) DeleteConfiguredModel(
 	ctx context.Context,
 	orgID, id ID,
 ) (ConfiguredModelRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("begin delete configured model: %w", err)
 	}

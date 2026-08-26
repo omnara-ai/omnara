@@ -184,3 +184,6 @@ linters:
           - bodyclose
           - contextcheck
           - noctx
+      - path: internal/storage/dbconn/schema_guard\.go
+        linters:
+          - rowserrcheck

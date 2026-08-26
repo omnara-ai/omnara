@@ -25,7 +25,7 @@ func (s *Store) UpsertIntegrationInstall(
 	if err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return IntegrationInstallRecord{}, fmt.Errorf("begin upsert integration install: %w", err)
 	}
@@ -277,7 +277,7 @@ func (s *Store) DisableIntegrationInstall(
 		return false, errors.New("project, integration install, and expected OAuth flow are required")
 	}
 	expectedOAuthFlowID := *input.ExpectedOAuthFlowID
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, fmt.Errorf("begin disable integration install: %w", err)
 	}
@@ -324,7 +324,7 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and integration install are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete integration install: %w", err)
 	}

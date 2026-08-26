@@ -137,7 +137,7 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 		return errors.New("default model provider credential is required")
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin default model provider provisioning completion: %w", err)
 	}

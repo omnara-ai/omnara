@@ -145,7 +145,7 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 		return events.Event{}, nil, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return events.Event{}, nil, fmt.Errorf("begin record tool call source: %w", err)
 	}
@@ -402,7 +402,7 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
 	}

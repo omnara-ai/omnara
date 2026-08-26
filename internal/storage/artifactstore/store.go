@@ -2,8 +2,8 @@ package artifactstore
 
 import (
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -13,13 +13,13 @@ type ID = uuid.UUID
 var NilID = uuid.Nil
 
 type Store struct {
-	pool  *pgxpool.Pool
+	db    dbconn.DB
 	q     *dbsqlc.Queries
 	blobs blobstore.Store
 }
 
-func New(pool *pgxpool.Pool, blobs blobstore.Store) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), blobs: blobs}
+func New(db dbconn.DB, blobs blobstore.Store) *Store {
+	return &Store{db: db, q: dbsqlc.New(db), blobs: blobs}
 }
 
 func isNilID(id ID) bool {

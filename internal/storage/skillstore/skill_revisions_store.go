@@ -90,7 +90,7 @@ func (s *Store) insertSkillRevision(
 	input CreateSkillInput,
 	archiveDigest string,
 ) (skillRevisionInsertResult, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return skillRevisionInsertResult{}, fmt.Errorf("begin create skill revision: %w", err)
 	}

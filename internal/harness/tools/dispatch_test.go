@@ -1,6 +1,12 @@
 package tools
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
+)
 
 func TestToolCompletionRejectsUnsetContent(t *testing.T) {
 	transactional := completeInTransaction(toolResultContent{})
@@ -19,5 +25,15 @@ func TestToolCompletionRejectsUnsetContent(t *testing.T) {
 	}
 	if _, ok := completeAsynchronously(empty).(completeAsync); !ok {
 		t.Fatal("explicitly empty async result was not accepted")
+	}
+}
+
+func TestSchemaVersionMismatchIsNotRetryableForAsyncPersistence(t *testing.T) {
+	err := fmt.Errorf("persist tool result: %w", &dbconn.SchemaVersionMismatchError{
+		Expected: 26,
+		Actual:   27,
+	})
+	if retryableAsyncToolPersistenceError(context.Background(), err) {
+		t.Fatal("schema version mismatch is retryable")
 	}
 }

@@ -34,7 +34,7 @@ func (s *Store) CreateAgentProfile(
 	}
 	input.IdempotencyKey = agentProfileCreateIdempotencyKey(input.IdempotencyKey)
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin create agent profile: %w", err)
 	}
@@ -121,7 +121,7 @@ func (s *Store) RetargetAgentProfile(
 	}
 	input.IdempotencyKey = agentProfileRetargetIdempotencyKey(input.IdempotencyKey)
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin retarget agent profile: %w", err)
 	}
@@ -237,7 +237,7 @@ func (s *Store) RenameAgentProfile(
 		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin rename agent profile: %w", err)
 	}
@@ -286,7 +286,7 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id ID) (AgentPro
 	if isNilID(projectID) {
 		return AgentProfileRecord{}, errors.New("project id is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin get agent: %w", err)
 	}
@@ -411,7 +411,7 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id ID) error 
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and agent profile are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete agent profile: %w", err)
 	}

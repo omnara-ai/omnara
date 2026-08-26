@@ -8,12 +8,28 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/pressly/goose/v3"
 )
 
 func TestRunPostgresRequiresPositiveTimeout(t *testing.T) {
 	err := RunPostgres(context.Background(), "not-used", fstest.MapFS{}, 0)
 	if err == nil || !strings.Contains(err.Error(), "must be positive") {
 		t.Fatalf("migration timeout error = %v", err)
+	}
+}
+
+func TestPostgresTargetVersionUsesLatestMigrationSource(t *testing.T) {
+	target, err := PostgresTargetVersion(
+		new(sql.DB),
+		fstest.MapFS{"000001_initial.sql": {Data: []byte("-- +goose Up\nSELECT 1;")}},
+		goose.NewGoMigration(2, nil, nil),
+	)
+	if err != nil {
+		t.Fatalf("read PostgreSQL migration target version: %v", err)
+	}
+	if target != 2 {
+		t.Fatalf("PostgreSQL migration target version = %d, want 2", target)
 	}
 }
 

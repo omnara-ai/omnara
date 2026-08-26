@@ -46,7 +46,7 @@ func (s *Store) RecordTerminalCompactionFailure(
 		return err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin terminal compaction failure: %w", err)
 	}

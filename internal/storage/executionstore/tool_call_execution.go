@@ -93,7 +93,7 @@ func (s *Store) executeToolCallOnce(
 	input ExecuteToolCallInput,
 	plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ExecuteToolCallResult{}, fmt.Errorf("begin tool call execution: %w", err)
 	}

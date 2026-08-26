@@ -41,7 +41,7 @@ func (s *Store) endExpiredDaemonRuntime(
 	ctx context.Context,
 	candidate dbsqlc.ListExpiredDaemonRuntimeCandidatesRow,
 ) (DaemonRuntimeRecord, bool, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonRuntimeRecord{}, false, fmt.Errorf("begin end expired daemon runtime: %w", err)
 	}

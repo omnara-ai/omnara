@@ -52,7 +52,7 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("begin change agent config: %w", err)
 	}

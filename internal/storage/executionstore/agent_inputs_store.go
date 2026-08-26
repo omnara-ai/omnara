@@ -105,7 +105,7 @@ func (s *Store) ClaimNextAgentWork(ctx context.Context, input ClaimNextAgentWork
 		return ClaimedAgentWork{}, false, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ClaimedAgentWork{}, false, fmt.Errorf("begin claim agent work: %w", err)
 	}
@@ -627,7 +627,7 @@ func (s *Store) CancelQueuedBacklogInput(
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.InputID) {
 		return errors.New("project id, agent id, and input id are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin cancel queued backlog input: %w", err)
 	}
@@ -688,7 +688,7 @@ func (s *Store) MoveQueuedBacklogInput(
 	default:
 		return errors.New("position must be front, back, before, or after")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin move queued backlog input: %w", err)
 	}

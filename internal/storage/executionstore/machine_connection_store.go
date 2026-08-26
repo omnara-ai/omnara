@@ -61,7 +61,7 @@ func (s *Store) ConnectBYOMachine(
 	if err != nil {
 		return ConnectBYOMachineResult{}, storeerr.InvalidRequest(err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ConnectBYOMachineResult{}, fmt.Errorf("begin connect BYO machine: %w", err)
 	}

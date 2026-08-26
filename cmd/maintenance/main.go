@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -23,8 +25,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 const (
@@ -59,6 +63,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	versionDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = versionDB.Close() }()
+	expectedVersion, err := dbmigrate.PostgresTargetVersion(
+		versionDB,
+		schemamigrations.Files,
+		schemamigrations.GoMigrations()...,
+	)
+	if err != nil {
+		logger.Error("read maintenance schema target version", "error", err)
+		os.Exit(1)
+	}
+	schemaGuard := dbconn.NewSchemaGuard(db, expectedVersion)
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -104,17 +120,17 @@ func main() {
 		os.Exit(1)
 	}
 	store := storage.NewStore(
-		db,
+		schemaGuard,
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 	)
 	healthErr := metrics.Serve(
-		ctx,
+		signalCtx,
 		logger,
 		cfg.MaintenanceMetricsAddr,
 		metricSet,
-		metrics.ReadyAll(db.Ping, redisClient.Ping),
+		metrics.ReadyAll(schemaGuard.Ready, db.Ping, redisClient.Ping),
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
@@ -187,19 +203,27 @@ func main() {
 		}()
 	}
 
-	exitCode := runCoreMaintenanceLoop(
+	exitCode, schemaMismatch := runCoreMaintenanceLoop(
 		ctx,
-		cancel,
 		logger,
 		store,
 		cfg.MaintenanceInterval,
 		healthErr,
+		schemaGuard.Done(),
 	)
 	cancel()
 	<-machineLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-defaultModelProviderDone
+	if schemaMismatch {
+		exitCode = handleSchemaVersionMismatch(
+			signalCtx,
+			healthErr,
+			logger,
+			schemaGuard.Mismatch(),
+		)
+	}
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
@@ -307,12 +331,12 @@ func jitteredMaintenanceDelay(interval time.Duration) time.Duration {
 
 func runCoreMaintenanceLoop(
 	ctx context.Context,
-	cancel context.CancelFunc,
 	log *slog.Logger,
 	store *storage.Store,
 	interval time.Duration,
 	healthErr <-chan error,
-) int {
+	schemaMismatch <-chan struct{},
+) (int, bool) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -322,18 +346,47 @@ func runCoreMaintenanceLoop(
 		event.Done(loopCtx)
 		select {
 		case <-ctx.Done():
-			<-healthErr
-			return 0
+			if err := <-healthErr; err != nil {
+				log.Error("maintenance health and metrics server failed", "error", err)
+				return 1, false
+			}
+			return 0, false
 		case err := <-healthErr:
-			cancel()
 			if err != nil {
 				log.Error("maintenance health and metrics server failed", "error", err)
-				return 1
+				return 1, false
 			}
-			return 0
+			return 0, false
+		case <-schemaMismatch:
+			return 0, true
 		case <-ticker.C:
 		}
 	}
+}
+
+func handleSchemaVersionMismatch(
+	signalCtx context.Context,
+	healthErr <-chan error,
+	log *slog.Logger,
+	mismatch *dbconn.SchemaVersionMismatchError,
+) int {
+	log.Warn(
+		"maintenance schema version mismatch",
+		"expected_version", mismatch.Expected,
+		"actual_version", mismatch.Actual,
+		"action", "quiesce",
+	)
+	var healthServerErr error
+	select {
+	case <-signalCtx.Done():
+		healthServerErr = <-healthErr
+	case healthServerErr = <-healthErr:
+	}
+	if healthServerErr != nil {
+		log.Error("maintenance health and metrics server failed", "error", healthServerErr)
+		return 1
+	}
+	return 0
 }
 
 func runCoreMaintenanceTick(

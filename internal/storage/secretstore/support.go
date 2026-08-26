@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -22,14 +22,14 @@ type Access interface {
 }
 
 type Store struct {
-	pool             *pgxpool.Pool
+	db               dbconn.DB
 	q                *dbsqlc.Queries
 	secretKeyWrapper secrets.KeyWrapper
 	access           Access
 }
 
-func New(pool *pgxpool.Pool, keyWrapper secrets.KeyWrapper, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), secretKeyWrapper: keyWrapper, access: access}
+func New(db dbconn.DB, keyWrapper secrets.KeyWrapper, access Access) *Store {
+	return &Store{db: db, q: dbsqlc.New(db), secretKeyWrapper: keyWrapper, access: access}
 }
 
 type ID = uuid.UUID

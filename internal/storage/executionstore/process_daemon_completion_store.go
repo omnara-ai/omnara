@@ -30,7 +30,7 @@ func (s *Store) MarkProcessStarted(
 	}
 	input.SourceStartedAt = canonicalSourceTime(input.SourceStartedAt)
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonProcessReportApplication{}, fmt.Errorf("begin mark process started: %w", err)
 	}
@@ -220,7 +220,7 @@ func (s *Store) CompleteDaemonProcess(
 		input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonProcessReportApplication{}, fmt.Errorf("begin complete daemon process: %w", err)
 	}
@@ -499,7 +499,7 @@ func (s *Store) GetProcessByToolCall(
 	if isNilID(projectID) || isNilID(agentID) || isNilID(toolCallID) {
 		return ProcessRecord{}, false, errors.New("project, agent, and tool call are required")
 	}
-	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
+	return getProcessByToolCallTx(ctx, s.db, projectID, agentID, toolCallID)
 }
 
 func (r *ToolCallReader) ListActiveProcesses(

@@ -110,7 +110,7 @@ func (s *Service) reconcileOrgDefaults(
 	if !input.Apply {
 		txOptions.AccessMode = pgx.ReadOnly
 	}
-	tx, err := s.pool.BeginTx(ctx, txOptions)
+	tx, err := s.db.BeginTx(ctx, txOptions)
 	if err != nil {
 		return ReconcileDefaultsResult{}, fmt.Errorf("begin default reconciliation: %w", err)
 	}

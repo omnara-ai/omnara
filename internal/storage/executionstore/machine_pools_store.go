@@ -324,7 +324,7 @@ func (s *Store) CreateMachinePool(
 	if err := s.validatePoolDefaultsTx(ctx, s.q, input, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("begin create machine pool: %w", err)
 	}
@@ -640,7 +640,7 @@ func (s *Store) UpdateMachinePool(
 	if isNilID(input.OrgID) || isNilID(input.ID) {
 		return MachinePoolRecord{}, errors.New("org and machine pool are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("begin update machine pool: %w", err)
 	}
@@ -945,7 +945,7 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete machine pool: %w", err)
 	}

@@ -52,7 +52,7 @@ func (s *Store) CreateAgentContentInput(
 		return AgentInputRecord{}, nil, false, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentInputRecord{}, nil, false, fmt.Errorf(
 			"begin create agent content input: %w",

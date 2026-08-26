@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type Service struct {
-	pool     *pgxpool.Pool
+	db       dbconn.DB
 	identity *identitystore.Store
 }
 
@@ -20,11 +20,11 @@ func isNilID(id identitystore.ID) bool {
 }
 
 func New(
-	pool *pgxpool.Pool,
+	db dbconn.DB,
 	identity *identitystore.Store,
 ) *Service {
 	return &Service{
-		pool:     pool,
+		db:       db,
 		identity: identity,
 	}
 }
@@ -37,7 +37,7 @@ func (s *Service) RevokeUserTokensForCompromiseWithPasswordIfPresent(
 	if isNilID(userID) {
 		return storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin compromise revocation: %w", err)
 	}

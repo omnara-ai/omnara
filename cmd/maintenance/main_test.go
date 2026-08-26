@@ -11,7 +11,37 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 )
+
+func TestHandleSchemaVersionMismatchQuiesces(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	healthErr := make(chan error, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- handleSchemaVersionMismatch(
+			ctx,
+			healthErr,
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			&dbconn.SchemaVersionMismatchError{Expected: 26, Actual: 25},
+		)
+	}()
+	select {
+	case code := <-done:
+		t.Fatalf("quiesced maintenance returned early with %d", code)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	healthErr <- nil
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("quiesced maintenance did not stop after cancellation")
+	}
+}
 
 func TestJitteredMaintenanceDelayStaysWithinTenPercent(t *testing.T) {
 	interval := 10 * time.Second

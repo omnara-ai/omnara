@@ -222,7 +222,7 @@ func (s *Store) completeDaemonProcessAction(
 		return DaemonProcessActionReportApplication{}, errors.New("project, agent, process, and action are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonProcessActionReportApplication{}, fmt.Errorf("begin complete process action: %w", err)
 	}

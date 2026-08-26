@@ -179,7 +179,7 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 	graceSeconds int32,
 ) (bool, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, fmt.Errorf("begin machine-unreachable queued process expiry: %w", err)
 	}
@@ -301,7 +301,7 @@ func (s *Store) failMachineUnreachableQueuedProcessActions(
 	graceSeconds int32,
 ) (int64, error) {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return 0, fmt.Errorf("begin machine-unreachable queued action expiry: %w", err)
 	}
@@ -417,7 +417,7 @@ func (s *Store) completeMachineUnreachableProcessActionToolCall(
 		return false, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, fmt.Errorf(
 			"begin machine-unreachable process action completion: %w",
@@ -508,7 +508,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 		return false, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, err
 	}

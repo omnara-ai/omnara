@@ -5,15 +5,18 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -902,5 +905,160 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 		CompiledDefinition:      record.CompiledDefinition,
 		CompilerVersion:         record.CompilerVersion,
 		EffectiveDefinitionHash: record.EffectiveDefinitionHash,
+	}
+}
+
+func TestSchemaGuardAllowsWorkUntilMigrationVersionCommits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool := openIntegrationDB(t, ctx)
+	guardConfig := pool.Config()
+	guardConfig.ConnConfig.RuntimeParams["default_transaction_isolation"] = "repeatable read"
+	guardPool, err := pgxpool.NewWithConfig(ctx, guardConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guardPool.Close()
+	if _, err := pool.Exec(ctx, `CREATE TABLE schema_guard_writes (id integer PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+
+	var expected int64
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version`).Scan(&expected); err != nil {
+		t.Fatal(err)
+	}
+	guard := dbconn.NewSchemaGuard(guardPool, expected)
+	var value int
+	if err := guard.QueryRow(ctx, `SELECT 7`).Scan(&value); err != nil || value != 7 {
+		t.Fatalf("guarded row = (%d, %v), want (7, nil)", value, err)
+	}
+	rows, err := guard.Query(ctx, `SELECT value FROM generate_series(1, 2) AS values(value)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0] != 1 || values[1] != 2 {
+		t.Fatalf("guarded rows = %v, want [1 2]", values)
+	}
+	rows, err = guard.Query(ctx, `INSERT INTO schema_guard_writes (id) VALUES (4) RETURNING id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertedID, err := pgx.CollectOneRow(rows, pgx.RowTo[int])
+	if err != nil || insertedID != 4 {
+		t.Fatalf("guarded returning row = (%d, %v), want (4, nil)", insertedID, err)
+	}
+
+	migrationTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrationTx.Rollback(ctx) }()
+	var migrationPID int32
+	if err := migrationTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&migrationPID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrationTx.Exec(ctx, `CREATE TABLE schema_guard_migration_work (id integer)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.Exec(ctx, `INSERT INTO schema_guard_writes (id) VALUES (1)`); err != nil {
+		t.Fatalf("guarded work before migration version change: %v", err)
+	}
+	if _, err := migrationTx.Exec(
+		ctx,
+		`INSERT INTO goose_db_version (version_id, is_applied) VALUES ($1, true)`,
+		expected+1,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTx, err := guard.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writeTx.Rollback(ctx) }()
+	if _, err := writeTx.Exec(ctx, `INSERT INTO schema_guard_writes (id) VALUES (2)`); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := make(chan error, 1)
+	go func() {
+		writeErr <- writeTx.Commit(ctx)
+	}()
+	integrationdb.WaitForLockWaitBlockedBy(
+		t,
+		ctx,
+		pool,
+		`LOCK TABLE goose_db_version IN SHARE MODE`,
+		migrationPID,
+	)
+	if err := migrationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	err = <-writeErr
+	var mismatch *dbconn.SchemaVersionMismatchError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("guarded write error = %v, want schema version mismatch", err)
+	}
+	if mismatch.Expected != expected || mismatch.Actual != expected+1 {
+		t.Fatalf("schema mismatch = %+v", mismatch)
+	}
+
+	rollbackGuard := dbconn.NewSchemaGuard(guardPool, expected)
+	rollbackTx, err := rollbackGuard.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin guarded work before rollback: %v", err)
+	}
+	if _, err := rollbackTx.Exec(ctx, `SELECT missing_schema_guard_column`); err == nil {
+		t.Fatal("expected guarded transaction statement error")
+	}
+	if err := rollbackTx.Rollback(ctx); err != nil {
+		t.Fatalf("roll back guarded work: %v", err)
+	}
+	rollbackMismatch := rollbackGuard.Mismatch()
+	if rollbackMismatch == nil || rollbackMismatch.Expected != expected || rollbackMismatch.Actual != expected+1 {
+		t.Fatalf("rollback schema mismatch = %+v", rollbackMismatch)
+	}
+	select {
+	case <-rollbackGuard.Done():
+	default:
+		t.Fatal("rolled-back schema guard did not latch mismatch")
+	}
+
+	postCutoverGuard := dbconn.NewSchemaGuard(guardPool, expected)
+	err = postCutoverGuard.QueryRow(
+		ctx,
+		`INSERT INTO schema_guard_writes (id) VALUES (3) RETURNING id`,
+	).Scan(new(int))
+	var postCutoverMismatch *dbconn.SchemaVersionMismatchError
+	if !errors.As(err, &postCutoverMismatch) {
+		t.Fatalf("post-cutover guarded write error = %v, want schema version mismatch", err)
+	}
+
+	rows, err = pool.Query(ctx, `SELECT id FROM schema_guard_writes ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != 1 || ids[1] != 4 {
+		t.Fatalf("guarded writes = %v, want [1 4]", ids)
+	}
+	select {
+	case <-guard.Done():
+	default:
+		t.Fatal("schema guard did not latch mismatch")
+	}
+	select {
+	case <-postCutoverGuard.Done():
+	default:
+		t.Fatal("post-cutover schema guard did not latch mismatch")
+	}
+	if err := guard.QueryRow(ctx, `SELECT 1`).Scan(new(int)); !errors.As(err, &mismatch) {
+		t.Fatalf("query after mismatch = %v, want latched mismatch", err)
 	}
 }

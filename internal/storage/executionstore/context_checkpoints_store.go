@@ -38,7 +38,7 @@ func (s *Store) PublishContextCheckpoint(
 	}
 	input.Usage = modelUsageForStorage(input.Usage)
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ContextCheckpointRecord{}, fmt.Errorf("begin publish context checkpoint: %w", err)
 	}

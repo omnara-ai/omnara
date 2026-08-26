@@ -221,7 +221,7 @@ func (s *Store) CreateProjectForPrincipal(
 		return ProjectRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectRecord{}, fmt.Errorf("begin create project: %w", err)
 	}

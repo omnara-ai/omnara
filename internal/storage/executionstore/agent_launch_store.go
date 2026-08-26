@@ -58,7 +58,7 @@ func (s *Store) LaunchAgent(
 		input.Name = &name
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return LaunchAgentResult{}, fmt.Errorf("begin launch agent: %w", err)
 	}

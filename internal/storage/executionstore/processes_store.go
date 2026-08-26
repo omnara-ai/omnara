@@ -268,7 +268,7 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 	}
 	input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
 	}

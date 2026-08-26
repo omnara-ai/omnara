@@ -24,7 +24,7 @@ func (s *Store) CreateModelProviderConfig(
 	input CreateModelProviderConfigInput,
 ) (ModelProviderConfigRecord, error) {
 	input.managementKind = management.Tenant
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("begin create model provider config: %w", err)
 	}
@@ -295,7 +295,7 @@ func (s *Store) PatchModelProviderConfig(
 	if isNilID(input.OrgID) || isNilID(input.ID) {
 		return ModelProviderConfigRecord{}, errors.New("org and provider config are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -459,7 +459,7 @@ func (s *Store) DeleteModelProviderConfig(
 	ctx context.Context,
 	orgID, id ID,
 ) (ModelProviderConfigRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("begin delete model provider config: %w", err)
 	}

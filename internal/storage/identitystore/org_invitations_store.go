@@ -31,7 +31,7 @@ func (s *Store) CreateOrgInvitation(
 		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
 	}
 	normalizedEmail := NormalizeEmail(input.Email)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("begin create org invitation: %w", err)
 	}
@@ -291,7 +291,7 @@ func (s *Store) answerOrgInvitation(
 	if len(emailRows) == 0 {
 		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("begin answer org invitation: %w", err)
 	}

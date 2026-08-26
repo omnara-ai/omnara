@@ -9,6 +9,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -365,9 +366,11 @@ func retryAsyncToolPersistence(
 }
 
 func retryableAsyncToolPersistenceError(ctx context.Context, err error) bool {
+	var schemaMismatch *dbconn.SchemaVersionMismatchError
 	return ctx.Err() == nil &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded) &&
+		!errors.As(err, &schemaMismatch) &&
 		!errors.Is(err, storeerr.ErrRuntimeLockInactive) &&
 		!errors.Is(err, storeerr.ErrStateTransitionConflict) &&
 		!errors.Is(err, storeerr.ErrIdempotencyConflict) &&

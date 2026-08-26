@@ -82,7 +82,7 @@ func (s *Store) ReconcileAgentMCPConnections(
 	if reconciled && len(connections) == len(servers) && len(current) > 0 {
 		return connections, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin reconcile agent mcp connections: %w", err)
 	}

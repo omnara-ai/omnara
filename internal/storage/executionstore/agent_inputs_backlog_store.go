@@ -82,7 +82,7 @@ func (s *Store) changeAgentInputDeliveryMode(
 		return errors.New("project id, agent id, and input id are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin change agent input delivery mode: %w", err)
 	}

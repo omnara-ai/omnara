@@ -111,7 +111,7 @@ func (s *Store) ClaimPoolMachineForProvisioning(
 	if isNilID(orgID) || isNilID(machineID) {
 		return PoolMachineProvisioningClaim{}, false, errors.New("org and machine are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineProvisioningClaim{}, false, fmt.Errorf("begin claim pool machine for provisioning: %w", err)
 	}
@@ -177,7 +177,7 @@ func (s *Store) AdmitPoolMachineProvisioning(
 	if err != nil {
 		return PoolMachineProvisioningAdmission{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineProvisioningAdmission{}, fmt.Errorf(
 			"begin admit pool machine provisioning: %w",
@@ -432,7 +432,7 @@ func (s *Store) CompletePoolMachineProvisioning(
 	if provisionAttempt <= 0 {
 		return errors.New("provision attempt is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin complete pool machine provisioning: %w", err)
 	}
@@ -482,7 +482,7 @@ func (s *Store) MarkPoolMachineProvisionFailed(
 	if input.RetryDelay < time.Millisecond {
 		return errors.New("retry delay must be at least one millisecond")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin mark pool machine provision failed: %w", err)
 	}
@@ -530,7 +530,7 @@ func (s *Store) MarkPoolMachineDeleting(ctx context.Context, input MachineDeleti
 	if input.ExpectedLifecycleVersion <= 0 {
 		return MachineRecord{}, false, errors.New("expected lifecycle version is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, false, fmt.Errorf("begin mark pool machine deleting: %w", err)
 	}
@@ -643,7 +643,7 @@ func (s *Store) ClaimExpiredIdlePoolMachineDeletion(
 	if isNilID(orgID) || isNilID(machineID) {
 		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, fmt.Errorf("begin claim expired idle pool machine deletion: %w", err)
 	}
@@ -701,7 +701,7 @@ func (s *Store) ClaimPoolMachineDeletion(
 	if input.ExpectedLifecycleVersion <= 0 {
 		return PoolMachineDeletionClaim{}, false, errors.New("expected lifecycle version is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, fmt.Errorf("begin claim pool machine deletion: %w", err)
 	}
@@ -877,7 +877,7 @@ func (s *Store) MarkMachineDeleteFailed(ctx context.Context, input MachineDelete
 	if input.RetryDelay < time.Millisecond {
 		return errors.New("retry delay must be at least one millisecond")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin mark machine delete failed: %w", err)
 	}
@@ -930,7 +930,7 @@ func (s *Store) CompletePoolMachineDeletion(
 	if deleteAttempt <= 0 {
 		return errors.New("delete attempt is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin complete pool machine deletion: %w", err)
 	}

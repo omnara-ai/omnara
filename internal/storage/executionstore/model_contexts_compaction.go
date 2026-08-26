@@ -46,7 +46,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 	}
 
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, fmt.Errorf("begin triggered compaction handoff: %w", err)
 	}
@@ -234,7 +234,7 @@ func (s *Store) ReplaceCompactionSource(
 	}
 
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, fmt.Errorf("begin compaction source replacement: %w", err)
 	}

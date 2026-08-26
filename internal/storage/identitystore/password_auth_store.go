@@ -54,7 +54,7 @@ func (s *Store) StartPasswordSignup(
 	if err != nil {
 		return PasswordSignupStartRecord{}, fmt.Errorf("generate email verification token: %w", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PasswordSignupStartRecord{}, fmt.Errorf("begin password signup: %w", err)
 	}
@@ -170,7 +170,7 @@ func (s *Store) CompletePasswordSignup(
 	if input.Token == "" || input.PasswordHash == "" {
 		return CompletePasswordSignupRecord{}, storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CompletePasswordSignupRecord{}, fmt.Errorf("begin complete password signup: %w", err)
 	}
@@ -305,7 +305,7 @@ func (s *Store) AuthenticatePasswordAndCreateSession(
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("load password credential: %w", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin password login: %w", err)
 	}
@@ -405,7 +405,7 @@ func (s *Store) StartPasswordReset(
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("generate password reset token: %w", err)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PasswordResetStartRecord{}, fmt.Errorf("begin password reset request: %w", err)
 	}
@@ -444,7 +444,7 @@ func (s *Store) CompletePasswordReset(ctx context.Context, input CompletePasswor
 	if input.Token == "" || input.PasswordHash == "" {
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin complete password reset: %w", err)
 	}
@@ -546,7 +546,7 @@ func (s *Store) ChangePassword(ctx context.Context, input ChangePasswordInput) (
 	if input.PasswordHash == "" {
 		return UserRecord{}, errors.New("password hash is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return UserRecord{}, fmt.Errorf("begin change password: %w", err)
 	}

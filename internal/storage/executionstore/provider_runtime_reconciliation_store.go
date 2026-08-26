@@ -234,7 +234,7 @@ func (s *Store) MarkProviderRuntimeMismatch(
 	if candidate.ProviderRuntimeMismatchSince != nil {
 		return false, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return false, fmt.Errorf("begin provider runtime mismatch mark: %w", err)
 	}
@@ -343,7 +343,7 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 	if !providerRuntimeWakeAllowsDeletion(candidate) {
 		return PoolMachineDeletionClaim{}, false, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
 			"begin provider runtime mismatch deletion claim: %w",
@@ -415,7 +415,7 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 	if !providerRuntimeWakeAllowsDeletion(candidate) {
 		return PoolMachineDeletionClaim{}, false, nil
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, fmt.Errorf(
 			"begin provider runtime terminated deletion claim: %w",

@@ -75,7 +75,7 @@ func (s *Store) CreateArtifact(
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
 	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(ctx, artifactKey); err != nil {
+		if err := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey); err != nil {
 			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
 		}
 		return cause
@@ -83,7 +83,7 @@ func (s *Store) CreateArtifact(
 	input.Digest = metadata.Digest
 	input.SizeBytes = &metadata.SizeBytes
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("begin create artifact: %w", err))
 	}

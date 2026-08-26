@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/dbconn"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -25,6 +26,7 @@ type Config struct {
 
 type Store struct {
 	pool                  *pgxpool.Pool
+	db                    dbconn.DB
 	q                     *dbsqlc.Queries
 	postCommitPublisher   notifications.PostCommitPublisher
 	modelCallRetryBackoff func(int, string) time.Duration
@@ -34,10 +36,12 @@ type Store struct {
 	secrets               *secretstore.Store
 }
 
-func New(pool *pgxpool.Pool, config Config) *Store {
+func New(db dbconn.DB, config Config) *Store {
+	pool, _ := db.(*pgxpool.Pool)
 	return &Store{
 		pool:                  pool,
-		q:                     dbsqlc.New(pool),
+		db:                    db,
+		q:                     dbsqlc.New(db),
 		postCommitPublisher:   config.PostCommitPublisher,
 		modelCallRetryBackoff: config.ModelCallRetryBackoff,
 		integrations:          config.Integrations,

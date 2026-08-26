@@ -209,7 +209,7 @@ func (s *Store) AcceptDaemonProcess(
 	if isNilID(input.ProcessID) {
 		return DaemonProcessOffer{}, false, errors.New("process is required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonProcessOffer{}, false, fmt.Errorf("begin accept daemon process: %w", err)
 	}
@@ -345,7 +345,7 @@ func (s *Store) AcceptDaemonProcessAction(
 	if isNilID(input.ProcessID) || isNilID(input.ID) {
 		return DaemonProcessActionGrant{}, false, errors.New("process and action are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return DaemonProcessActionGrant{}, false, fmt.Errorf("begin accept daemon process action: %w", err)
 	}

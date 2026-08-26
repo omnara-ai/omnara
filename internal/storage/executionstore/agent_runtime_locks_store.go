@@ -87,7 +87,7 @@ func (s *Store) EnsureRuntimeLockActive(
 	if isNilID(projectID) || isNilID(agentID) || isNilID(runtimeID) {
 		return errors.New("project, agent, and runtime lock ids are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin runtime lock check: %w", err)
 	}
@@ -135,7 +135,7 @@ func (s *Store) beginAgentRuntimeOwnedMutation(
 	ctx context.Context,
 	projectID, agentID, runtimeID ID,
 ) (pgx.Tx, *dbsqlc.Queries, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin runtime-owned mutation: %w", err)
 	}
@@ -316,7 +316,7 @@ func (s *Store) RenewAgentRuntimeLock(
 	if err := validateAgentRuntimeLockLeaseDuration(leaseDuration); err != nil {
 		return AgentRuntimeLockRenewal{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentRuntimeLockRenewal{}, fmt.Errorf("begin renew agent runtime lock: %w", err)
 	}
@@ -384,7 +384,7 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	projectID, agentID, runtimeLockID ID,
 ) error {
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin release agent runtime lock: %w", err)
 	}

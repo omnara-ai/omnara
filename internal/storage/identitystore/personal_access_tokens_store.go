@@ -29,7 +29,7 @@ func (s *Store) CreatePersonalAccessTokenWithPlaintext(
 	if err != nil {
 		return CreatedPersonalAccessToken{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CreatedPersonalAccessToken{}, fmt.Errorf("begin create personal access token: %w", err)
 	}

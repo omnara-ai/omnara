@@ -50,7 +50,7 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 		return events.Event{}, err
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return events.Event{}, fmt.Errorf("begin record model call error: %w", err)
 	}

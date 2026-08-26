@@ -40,7 +40,7 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	if err != nil {
 		return CreatedOrgAPIKey{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return CreatedOrgAPIKey{}, fmt.Errorf("begin create org api key: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *Store) UpdateOrgAPIKey(
 	if input.OrgRole != "" && !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return OrgAPIKeyRecord{}, fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgAPIKeyRecord{}, fmt.Errorf("begin update org api key: %w", err)
 	}
@@ -334,7 +334,7 @@ func (s *Store) RevokeOrgAPIKey(
 	if isNilID(orgID) || isNilID(keyID) {
 		return OrgAPIKeyRecord{}, errors.New("org id and key id are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgAPIKeyRecord{}, fmt.Errorf("begin revoke org api key: %w", err)
 	}
@@ -391,7 +391,7 @@ func (s *Store) SetOrgAPIKeyProjectRole(
 	if !isValidProjectRole(input.Role) {
 		return ProjectMembershipRecord{}, errors.New("role must be admin, developer, operator, or viewer")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectMembershipRecord{}, fmt.Errorf("begin set org api key project role: %w", err)
 	}
@@ -466,7 +466,7 @@ func (s *Store) RemoveOrgAPIKeyProjectRole(
 	if isNilID(input.OrgID) || isNilID(input.KeyID) || isNilID(input.ProjectID) {
 		return errors.New("org id, key id, and project id are required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin remove org api key project role: %w", err)
 	}

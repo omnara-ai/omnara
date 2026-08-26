@@ -22,7 +22,7 @@ func (s *Store) RebuildMissingAgentWakeups(
 	var total int64
 	var afterAgentID *ID
 	for {
-		tx, beginErr := s.pool.BeginTx(ctx, pgx.TxOptions{})
+		tx, beginErr := s.db.BeginTx(ctx, pgx.TxOptions{})
 		if beginErr != nil {
 			return total, fmt.Errorf("begin missing agent wakeup rebuild batch: %w", beginErr)
 		}

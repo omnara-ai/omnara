@@ -46,7 +46,7 @@ func (s *Store) DeleteSkill(ctx context.Context, input DeleteSkillInput) error {
 		}
 		return err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete skill: %w", err)
 	}

@@ -187,15 +187,13 @@ migration-check:
 			grep_status=$$?; \
 			test "$$grep_status" -eq 1 || exit "$$grep_status"; \
 		fi; \
-		if test "$$dir" = "internal/machinedaemon/statedb/migrations"; then \
-			if no_transaction="$$(grep -niE '^[[:space:]]*--[[:space:]]*[+]goose[[:space:]]+no[[:space:]]+transaction[[:space:]]*$$' "$$dir"/*.sql)"; then \
-				printf '%s\n' "$$no_transaction"; \
-				printf '%s migrations must be transactional\n' "$$dir"; \
-				exit 1; \
-			else \
-				grep_status=$$?; \
-				test "$$grep_status" -eq 1 || exit "$$grep_status"; \
-			fi; \
+		if no_transaction="$$(grep -niE '^[[:space:]]*--[[:space:]]*[+]goose[[:space:]]+no[[:space:]]+transaction[[:space:]]*$$' "$$dir"/*.sql)"; then \
+			printf '%s\n' "$$no_transaction"; \
+			printf '%s migrations must be transactional\n' "$$dir"; \
+			exit 1; \
+		else \
+			grep_status=$$?; \
+			test "$$grep_status" -eq 1 || exit "$$grep_status"; \
 		fi; \
 	done
 	$(MIGRATION_CHECK) check

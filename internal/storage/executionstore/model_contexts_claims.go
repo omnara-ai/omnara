@@ -55,7 +55,7 @@ type claimModelCallInput struct {
 func (s *Store) claimModelCall(ctx context.Context, input claimModelCallInput) (ModelCallClaim, error) {
 	projectID, agentID, runtimeLockID := claimIdentity(input)
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelCallClaim{}, fmt.Errorf("begin claim model call: %w", err)
 	}
@@ -403,7 +403,7 @@ func (s *Store) ClaimNextModelCallContext(
 		return ModelCallClaim{}, errors.New("project, agent, predecessor context, and runtime are required")
 	}
 	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ModelCallClaim{}, fmt.Errorf("begin claim next model call context: %w", err)
 	}

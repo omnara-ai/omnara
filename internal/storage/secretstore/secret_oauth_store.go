@@ -38,7 +38,7 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	); err != nil {
 		return SecretRecord{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin rotate project oauth secret: %w", err)
 	}
@@ -161,7 +161,7 @@ func (s *Store) AcquireProjectOAuthRefreshLease(
 	if err != nil {
 		return OAuthRefreshLeaseRecord{}, false, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OAuthRefreshLeaseRecord{}, false, fmt.Errorf("begin acquire oauth refresh lease: %w", err)
 	}
