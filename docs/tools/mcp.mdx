@@ -72,6 +72,8 @@ For servers that take a static token, store the token as a generic secret and re
 
 The response's `id` (`sec_…`) goes in `auth.secret_id` with `type: bearer`. Rotation is a [new secret version](/organization/secrets#rotate-a-secret) — configs keep referencing the same ID.
 
+For a complete runnable example — PostHog's MCP server with Slack delivery and a daily cron trigger — see [`examples/posthog-pulse-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/posthog-pulse-agent).
+
 ## AWS Signature Version 4 auth
 
 For a SigV4-protected MCP server, create an **AWS credentials** secret in the dashboard, grant it to the project, and select **AWS Signature V4** for server authentication:
