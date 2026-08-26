@@ -71,10 +71,18 @@ updates:
       development-minor-and-patch:
         applies-to: version-updates
         dependency-type: development
+        exclude-patterns:
+          - typescript
         update-types:
           - minor
           - patch
-      shared-npm-dependencies:
+      shared-typescript:
+        applies-to: version-updates
+        patterns:
+          - typescript
+        update-types:
+          - minor
+          - patch
         group-by: dependency-name
     cooldown:
       semver-major-days: 30
