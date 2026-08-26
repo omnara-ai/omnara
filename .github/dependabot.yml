@@ -9,6 +9,10 @@ updates:
       timezone: America/Los_Angeles
     open-pull-requests-limit: 3
     groups:
+      actions-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       actions-minor-and-patch:
         applies-to: version-updates
         patterns:
@@ -32,6 +36,10 @@ updates:
       timezone: America/Los_Angeles
     open-pull-requests-limit: 3
     groups:
+      go-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       aws-sdk-minor-and-patch:
         applies-to: version-updates
         patterns:
@@ -62,6 +70,16 @@ updates:
       timezone: America/Los_Angeles
     open-pull-requests-limit: 3
     groups:
+      production-security-updates:
+        applies-to: security-updates
+        dependency-type: production
+      development-security-updates:
+        applies-to: security-updates
+        dependency-type: development
+      other-npm-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       production-minor-and-patch:
         applies-to: version-updates
         dependency-type: production
