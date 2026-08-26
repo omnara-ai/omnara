@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -69,10 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	versionDB := stdlib.OpenDBFromPool(db)
-	defer func() { _ = versionDB.Close() }()
 	expectedVersion, err := dbmigrate.PostgresTargetVersion(
-		versionDB,
 		schemamigrations.Files,
 		schemamigrations.GoMigrations()...,
 	)
@@ -250,7 +246,11 @@ func main() {
 		unexpectedWorkerErr := err != nil && signalCtx.Err() == nil
 		cancel()
 		stop()
-		<-healthErr
+		healthServerErr := <-healthErr
+		if healthServerErr != nil {
+			log.Error("worker health and metrics server failed", "error", healthServerErr)
+			exitCode = 1
+		}
 		if unexpectedWorkerErr {
 			log.Error("kernel worker failed", "error", err)
 			exitCode = 1
@@ -267,8 +267,12 @@ func main() {
 		}
 	case <-signalCtx.Done():
 		cancel()
-		<-healthErr
+		healthServerErr := <-healthErr
 		<-workerErr
+		if healthServerErr != nil {
+			log.Error("worker health and metrics server failed", "error", healthServerErr)
+			exitCode = 1
+		}
 	case <-schemaGuard.Done():
 		schemaMismatch = schemaGuard.Mismatch()
 		cancel()

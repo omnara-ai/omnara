@@ -135,11 +135,10 @@ func ApplyPostgres(
 }
 
 func PostgresTargetVersion(
-	db *sql.DB,
 	migrations fs.FS,
 	goMigrations ...*goose.Migration,
 ) (int64, error) {
-	provider, err := newPostgresProvider(db, migrations, goMigrations)
+	provider, err := newPostgresProvider(new(sql.DB), migrations, goMigrations)
 	if err != nil {
 		return 0, fmt.Errorf("create PostgreSQL migration provider: %w", err)
 	}

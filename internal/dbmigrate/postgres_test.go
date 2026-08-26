@@ -21,7 +21,6 @@ func TestRunPostgresRequiresPositiveTimeout(t *testing.T) {
 
 func TestPostgresTargetVersionUsesLatestMigrationSource(t *testing.T) {
 	target, err := PostgresTargetVersion(
-		new(sql.DB),
 		fstest.MapFS{"000001_initial.sql": {Data: []byte("-- +goose Up\nSELECT 1;")}},
 		goose.NewGoMigration(2, nil, nil),
 	)

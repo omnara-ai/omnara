@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
@@ -63,10 +62,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	versionDB := stdlib.OpenDBFromPool(db)
-	defer func() { _ = versionDB.Close() }()
 	expectedVersion, err := dbmigrate.PostgresTargetVersion(
-		versionDB,
 		schemamigrations.Files,
 		schemamigrations.GoMigrations()...,
 	)
