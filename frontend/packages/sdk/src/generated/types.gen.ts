@@ -885,7 +885,7 @@ export type McpRegistryHeader = {
 
 export type McpRegistryRemote = {
     /**
-     * Transport type as published in the registry, for example `streamable-http` or `sse`.
+     * Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
      */
     type: string;
     url: string;

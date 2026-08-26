@@ -24,7 +24,8 @@ func (r *sleepRecorder) sleep(_ context.Context, delay time.Duration) error {
 }
 
 func pageBody(name, next string) string {
-	body := `{"servers":[{"server":{"name":"` + name + `","description":"d","version":"1.0.0"},` +
+	body := `{"servers":[{"server":{"name":"` + name + `","description":"d","version":"1.0.0",` +
+		`"remotes":[{"type":"streamable-http","url":"https://` + name + `/mcp"}]},` +
 		`"_meta":{"io.modelcontextprotocol.registry/official":{"status":"active","updatedAt":"2026-08-20T00:00:00Z","isLatest":true}}}],` +
 		`"metadata":{"count":1`
 	if next != "" {
@@ -173,5 +174,48 @@ func TestParseRetryAfter(t *testing.T) {
 	}
 	if got := parseRetryAfter("garbage", now); got != 0 {
 		t.Fatalf("garbage = %s", got)
+	}
+}
+
+func TestServerFromUpstreamKeepsOnlyActiveStreamableHTTPServers(t *testing.T) {
+	entry := func(status string, latest bool, remotes ...upstreamRemote) upstreamEntry {
+		var e upstreamEntry
+		e.Server.Name = "io.example/server"
+		e.Server.Remotes = remotes
+		e.Meta = map[string]struct {
+			Status    string    `json:"status"`
+			UpdatedAt time.Time `json:"updatedAt"`
+			IsLatest  bool      `json:"isLatest"`
+		}{officialMetaKey: {Status: status, IsLatest: latest}}
+		return e
+	}
+	streamable := upstreamRemote{Type: "streamable-http", URL: "https://example.com/mcp"}
+	sse := upstreamRemote{Type: "sse", URL: "https://example.com/sse"}
+	cases := []struct {
+		name  string
+		entry upstreamEntry
+		want  int
+		ok    bool
+	}{
+		{"active streamable", entry("active", true, sse, streamable), 1, true},
+		{"deprecated", entry("deprecated", true, streamable), 0, false},
+		{"deleted", entry("deleted", true, streamable), 0, false},
+		{"not latest", entry("active", false, streamable), 0, false},
+		{"sse only", entry("active", true, sse), 0, false},
+		{"no remotes", entry("active", true), 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, ok := serverFromUpstream(tc.entry)
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if len(server.Remotes) != tc.want {
+				t.Fatalf("remotes = %d, want %d", len(server.Remotes), tc.want)
+			}
+			if ok && server.Remotes[0].Type != "streamable-http" {
+				t.Fatalf("remote type = %q", server.Remotes[0].Type)
+			}
+		})
 	}
 }

@@ -18,6 +18,8 @@ const (
 	upstreamPageSize   = 100
 	upstreamMaxBody    = 32 * 1024 * 1024
 	officialMetaKey    = "io.modelcontextprotocol.registry/official"
+	activeStatus       = "active"
+	streamableHTTPType = "streamable-http"
 
 	DefaultBatchPages  = 10
 	DefaultBatchDelay  = time.Second
@@ -251,11 +253,14 @@ func fetchPage(ctx context.Context, client *http.Client, endpoint *url.URL, curs
 
 func serverFromUpstream(entry upstreamEntry) (Server, bool) {
 	official, ok := entry.Meta[officialMetaKey]
-	if !ok || !official.IsLatest || entry.Server.Name == "" {
+	if !ok || !official.IsLatest || official.Status != activeStatus || entry.Server.Name == "" {
 		return Server{}, false
 	}
 	remotes := make([]Remote, 0, len(entry.Server.Remotes))
 	for _, remote := range entry.Server.Remotes {
+		if remote.Type != streamableHTTPType || remote.URL == "" {
+			continue
+		}
 		headers := make([]Header, 0, len(remote.Headers))
 		for _, header := range remote.Headers {
 			headers = append(headers, Header{
@@ -266,6 +271,9 @@ func serverFromUpstream(entry upstreamEntry) (Server, bool) {
 			})
 		}
 		remotes = append(remotes, Remote{Type: remote.Type, URL: remote.URL, Headers: headers})
+	}
+	if len(remotes) == 0 {
+		return Server{}, false
 	}
 	icons := make([]Icon, 0, len(entry.Server.Icons))
 	for _, icon := range entry.Server.Icons {

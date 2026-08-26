@@ -2282,7 +2282,7 @@ paths:
       operationId: listMCPServers
       tags: [Configs and Profiles]
       summary: Search the MCP server registry
-      description: Search the API's snapshot of the public MCP registry. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+      description: Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
       parameters:
         - name: q
           in: query
@@ -7926,7 +7926,7 @@ components:
       properties:
         type:
           type: string
-          description: Transport type as published in the registry, for example `streamable-http` or `sse`.
+          description: Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
         url:
           type: string
         headers:

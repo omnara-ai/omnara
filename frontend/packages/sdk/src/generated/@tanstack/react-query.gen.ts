@@ -1483,7 +1483,7 @@ export const listMcpServersQueryKey = (options?: Options<ListMcpServersData>) =>
 /**
  * Search the MCP server registry
  *
- * Search the API's snapshot of the public MCP registry. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+ * Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
  */
 export const listMcpServersOptions = (options?: Options<ListMcpServersData>) => queryOptions<ListMcpServersResponse2, ListMcpServersError, ListMcpServersResponse2, ReturnType<typeof listMcpServersQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1503,7 +1503,7 @@ export const listMcpServersInfiniteQueryKey = (options?: Options<ListMcpServersD
 /**
  * Search the MCP server registry
  *
- * Search the API's snapshot of the public MCP registry. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+ * Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
  */
 export const listMcpServersInfiniteOptions = (options?: Options<ListMcpServersData>) => {
     const opts = infiniteQueryOptions<ListMcpServersResponse2, ListMcpServersError, InfiniteData<ListMcpServersResponse2>, QueryKey<Options<ListMcpServersData>>, string | Pick<QueryKey<Options<ListMcpServersData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
