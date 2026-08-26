@@ -136,8 +136,12 @@ func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeOAuthTokenStorageError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, storeerr.ErrUnauthorized) || errors.Is(err, storeerr.ErrConflict) {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+	if errors.Is(err, storeerr.ErrUnauthorized) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "device authorization grant is invalid")
+		return
+	}
+	if errors.Is(err, storeerr.ErrConflict) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "personal access token limit reached")
 		return
 	}
 	h.writeOAuthServerError(w, r, err)

@@ -74,7 +74,7 @@ curl https://app.omnara.com/api/auth/device/code \
   --data-urlencode "token_name=laptop of dana"
 ```
 
-`client_id` must identify a registered public client. `token_name` is an optional Omnara extension for naming the resulting PAT; it uses the 64-character resource-name policy and defaults to `Device login`.
+`client_id` must be `omnara-cli`; other public clients are not currently registered. `token_name` is an optional Omnara extension for naming the resulting PAT; it uses the 64-character resource-name policy and defaults to `Device login`.
 
 ```json
 {

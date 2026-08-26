@@ -15,7 +15,7 @@ import (
 func TestWriteAuthStorageErrorMapsConflict(t *testing.T) {
 	err := fmt.Errorf("active personal access tokens limit reached: %w", storeerr.ErrConflict)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/device/token", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/password/login", nil)
 
 	(&Handler{}).writeAuthStorageError(rec, req, err)
 
