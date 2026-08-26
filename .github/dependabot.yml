@@ -51,10 +51,10 @@ updates:
     cooldown:
       default-days: 7
 
-  # The main frontend uses pnpm 11, which Dependabot does not currently
-  # support. Keep the independent pnpm 10 CLI example updated here.
   - package-ecosystem: npm
-    directory: /examples/cli-agent
+    directories:
+      - /frontend
+      - /examples/cli-agent
     schedule:
       interval: weekly
       day: monday
@@ -74,6 +74,8 @@ updates:
         update-types:
           - minor
           - patch
+      shared-npm-dependencies:
+        group-by: dependency-name
     cooldown:
       semver-major-days: 30
       semver-minor-days: 7
