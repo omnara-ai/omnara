@@ -1,10 +1,6 @@
-import {
-  useOrgOverview,
-  useOrgOverviewSnapshot,
-  usePersonalAccessTokens,
-  usePersonalAccessTokensSnapshot,
-} from '@omnara/react'
+import { useOrgOverview, usePersonalAccessTokens } from '@omnara/react'
 import type { Agent, AgentProfile, OrgOverviewResponse, PersonalAccessToken } from '@omnara/sdk'
+import { useDeferredValue } from 'react'
 
 import { isCliLoginToken } from '@/components/overview/onboardingCli'
 import type { StepStatus } from '@/components/overview/OnboardingSteps'
@@ -48,8 +44,8 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
     refetchInterval: live.agentProfile == null ? pollIntervalMs : false,
   })
 
-  const shownOverview = useOrgOverviewSnapshot(input.orgId) ?? overviewQuery.data
-  const shownTokens = usePersonalAccessTokensSnapshot(tokenPageSize) ?? tokensQuery.data
+  const shownOverview = useDeferredValue(overviewQuery.data)
+  const shownTokens = useDeferredValue(tokensQuery.data)
   const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   const { agentProfile, agent } = projectProgress(shownOverview, input.projectId)

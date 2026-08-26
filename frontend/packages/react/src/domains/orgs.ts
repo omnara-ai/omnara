@@ -22,7 +22,6 @@ import {
 } from './list-options'
 import { cursorPagination } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
-import { useQuerySnapshotInTransition } from './transition-snapshot'
 
 // createOrganization has no path params, so useScopedMutation doesn't apply.
 export function useCreateOrganization() {
@@ -47,11 +46,6 @@ export function useCreateOrganization() {
       await queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) })
     },
   })
-}
-
-export function useOrgOverviewSnapshot(orgID: string) {
-  const client = useOmnaraClient()
-  return useQuerySnapshotInTransition(getOrgOverviewOptions({ path: { orgID }, client }).queryKey)
 }
 
 export function useOrgOverview(orgID: string, options?: { refetchInterval?: number | false }) {
