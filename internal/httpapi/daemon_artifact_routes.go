@@ -71,12 +71,13 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 		contentType = http.DetectContentType(content)
 	}
 	artifact, err := s.server.store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
-		ProjectID:   uploadScope.ProjectID,
-		AgentID:     uploadScope.AgentID,
-		ContentType: contentType,
-		Filename:    filename,
-		Content:     content,
-		MaxBytes:    maxDaemonArtifactUploadBytes,
+		ProjectID:      uploadScope.ProjectID,
+		AgentID:        uploadScope.AgentID,
+		ContentType:    contentType,
+		Filename:       filename,
+		Content:        content,
+		MaxBytes:       maxDaemonArtifactUploadBytes,
+		IdempotencyKey: "upload-artifact:" + toolCallID.String(),
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

@@ -62,6 +62,21 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 	if !ok {
 		t.Fatalf("upload response = %+v", response)
 	}
+	replayResponse := requestDaemonArtifactUpload(
+		t,
+		handler,
+		fixture,
+		"screenshot.png",
+		content,
+		http.StatusCreated,
+	)
+	replayArtifactIDValue, ok := replayResponse["artifact_id"].(string)
+	if !ok {
+		t.Fatalf("replay upload response = %+v", replayResponse)
+	}
+	if replayArtifactIDValue != artifactIDValue {
+		t.Fatalf("replay artifact id = %q, want %q", replayArtifactIDValue, artifactIDValue)
+	}
 	artifactID, err := publicid.Decode(publicid.KindArtifact, artifactIDValue)
 	if err != nil {
 		t.Fatalf("decode artifact id: %v", err)
@@ -76,7 +91,8 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		t.Fatalf("load uploaded artifact: %v", err)
 	}
 	if !bytes.Equal(stored, content) || artifact.Filename != "screenshot.png" ||
-		artifact.ContentType != "image/png" || artifact.IdempotencyKey != "" {
+		artifact.ContentType != "image/png" ||
+		artifact.IdempotencyKey != "upload-artifact:"+fixture.ToolCallUUID.String() {
 		t.Fatalf("stored artifact = %+v content=%q", artifact, stored)
 	}
 
@@ -169,13 +185,12 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 	} else if !found {
 		t.Fatal("terminal process offer was not found")
 	}
-	if _, err := pool.Exec(
-		ctx,
-		"UPDATE processes SET state = 'failed', state_reason_code = 'test_terminal' WHERE id = $1",
-		terminal.ProcessUUID,
-	); err != nil {
-		t.Fatalf("make upload process terminal: %v", err)
-	}
+	applyDaemonReportForTest(t, ctx, store, project, terminal, daemonReportedEvent{
+		Type:            "process_finished",
+		ProcessID:       terminal.ProcessID,
+		State:           "failed",
+		StateReasonCode: "test_terminal",
+	})
 	requestDaemonArtifactUpload(
 		t,
 		handler,

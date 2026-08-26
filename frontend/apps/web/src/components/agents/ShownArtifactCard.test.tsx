@@ -2,7 +2,7 @@
 
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient } from '@omnara/sdk'
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
@@ -50,36 +50,15 @@ afterEach(() => {
   act(() => {
     root.unmount()
   })
-  focusManager.setFocused(undefined)
   queryClient.clear()
   container.remove()
   vi.restoreAllMocks()
 })
 
-it('revokes every image preview URL created in StrictMode', async () => {
-  const createdURLs: string[] = []
-  const revokedURLs: string[] = []
-  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
-    const url = `blob:artifact-${String(createdURLs.length + 1)}`
-    createdURLs.push(url)
-    return url
-  })
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation((url) => {
-    revokedURLs.push(url)
-  })
+it('renders image previews from the artifact content endpoint', () => {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
-  client.setConfig({
-    fetch: vi.fn(() =>
-      Promise.resolve(
-        new Response(new Uint8Array([1, 2, 3]), {
-          headers: { 'Content-Type': 'image/png' },
-          status: 200,
-        }),
-      ),
-    ),
-  })
 
-  await act(async () => {
+  act(() => {
     root.render(
       <StrictMode>
         <OmnaraClientProvider client={client}>
@@ -99,22 +78,13 @@ it('revokes every image preview URL created in StrictMode', async () => {
         </OmnaraClientProvider>
       </StrictMode>,
     )
-    await Promise.resolve()
-  })
-  await vi.waitFor(() => {
-    expect(container.querySelector('img')).not.toBeNull()
   })
 
-  act(() => {
-    root.render(
-      <StrictMode>
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={queryClient}>{null}</QueryClientProvider>
-        </OmnaraClientProvider>
-      </StrictMode>,
-    )
-  })
-  expect([...revokedURLs].sort()).toEqual([...createdURLs].sort())
+  const image = container.querySelector('img')
+  expect(image?.src).toBe(
+    'https://omnara.test/api/v1/orgs/org_test/projects/proj_test/agents/agt_test/artifacts/art_image/content',
+  )
+  expect(image?.loading).toBe('lazy')
 })
 
 it('downloads text artifact content as a Blob', async () => {
@@ -169,9 +139,7 @@ it('downloads text artifact content as a Blob', async () => {
   expect(filename).toBe('notes.txt')
 })
 
-it('reuses immutable preview content after focus and for download', async () => {
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:artifact-image')
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+it('fetches image content through the SDK only when downloaded', async () => {
   const fetch = vi.fn(() =>
     Promise.resolve(
       new Response(new Uint8Array([1, 2, 3]), {
@@ -206,11 +174,7 @@ it('reuses immutable preview content after focus and for download', async () => 
   await vi.waitFor(() => {
     expect(container.querySelector('img')).not.toBeNull()
   })
-
-  act(() => {
-    focusManager.setFocused(false)
-    focusManager.setFocused(true)
-  })
+  expect(fetch).not.toHaveBeenCalled()
 
   const download = Array.from(container.querySelectorAll('button')).find(
     (candidate) => candidate.textContent.trim() === 'Download',
