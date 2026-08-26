@@ -474,6 +474,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 	secondToolCallID := publicToolCallIDs[1]
 	mediaToolCallID := publicToolCallIDs[2]
 	emptyToolCallID := publicToolCallIDs[4]
+	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
 	resultPath := toolCallsPath + "/" + toolCallID + "/result"
 	for _, test := range []struct {
 		name string
@@ -501,6 +502,80 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 				authHeaders(project.AdminToken),
 			)
 		})
+	}
+	for _, test := range []struct {
+		name       string
+		toolCallID string
+		body       string
+	}{
+		{
+			name:       "text NUL",
+			toolCallID: toolCallID,
+			body: `{"outcome":"succeeded","content_blocks":[` +
+				`{"type":"text","text":"before\u0000after"}]}`,
+		},
+		{
+			name:       "structured data NUL",
+			toolCallID: secondToolCallID,
+			body: `{"outcome":"succeeded","content_blocks":[` +
+				`{"type":"structured_data","value":{"nested":["before\u0000after"]}}]}`,
+		},
+		{
+			name:       "metadata NUL",
+			toolCallID: mediaToolCallID,
+			body: `{"outcome":"succeeded","content_blocks":[` +
+				`{"type":"text","text":"safe","metadata":{"source":"before\u0000after"}}]}`,
+		},
+		{
+			name:       "media filename NUL",
+			toolCallID: mediaToolCallID,
+			body: `{"outcome":"succeeded","content_blocks":[` +
+				`{"type":"media","media_type":"image/png","filename":"before\u0000after.png","data":"` +
+				pngBase64 + `"}]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := requestJSONWithHeaders(
+				t,
+				handler,
+				http.MethodPost,
+				toolCallsPath+"/"+test.toolCallID+"/result",
+				test.body,
+				"",
+				http.StatusBadRequest,
+				authHeaders(project.AdminToken),
+			)
+			if response["code"] != "invalid_request" {
+				t.Fatalf("database-unsafe result response = %+v, want invalid_request", response)
+			}
+		})
+	}
+	readyAfterRejectedResults := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		toolCallsPath+"?state=ready&type=custom",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	readyAfterRejectedResultsByProviderID := publicToolCallsByProviderID(
+		t,
+		readyAfterRejectedResults,
+	)
+	for _, providerCallID := range []string{
+		"call_lookup_customer",
+		"call_lookup_customer_2",
+		"call_lookup_customer_3",
+	} {
+		if readyAfterRejectedResultsByProviderID[providerCallID]["state"] != "ready" {
+			t.Fatalf(
+				"tool call %s after rejected result = %+v, want ready",
+				providerCallID,
+				readyAfterRejectedResultsByProviderID[providerCallID],
+			)
+		}
 	}
 	submitted := requestJSONWithHeaders(
 		t,
@@ -555,7 +630,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		handler,
 		http.MethodPost,
 		toolCallsPath+"/"+secondToolCallID+"/result",
-		`{"outcome":"failed","content_blocks":[{"type":"text","text":"Customer lookup failed."}]}`,
+		`{"outcome":"failed","content_blocks":[{"type":"structured_data","value":{"message":"before\ud800after"}}]}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -564,8 +639,16 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 	if failedCall["state"] != "completed" || failedCall["outcome"] != "failed" {
 		t.Fatalf("failed tool call = %+v", failedCall)
 	}
-	if failedSubmitted["tool_result"].(map[string]any)["outcome"] != "failed" {
-		t.Fatalf("failed tool result = %+v", failedSubmitted["tool_result"])
+	failedToolResult := failedSubmitted["tool_result"].(map[string]any)
+	expectedFailedContentBlocks := []any{map[string]any{
+		"type": "structured_data",
+		"value": map[string]any{
+			"message": "before\uFFFDafter",
+		},
+	}}
+	if failedToolResult["outcome"] != "failed" ||
+		!reflect.DeepEqual(failedToolResult["content_blocks"], expectedFailedContentBlocks) {
+		t.Fatalf("failed tool result = %+v", failedToolResult)
 	}
 	completedCalls, err := storagetest.ListCompletedToolCallsForTurn(
 		ctx,
@@ -592,14 +675,10 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 	}
 	if failedRecord == nil ||
 		failedRecord.Outcome != executionstore.ToolResultOutcomeFailed ||
-		!publicEventTextEquals(
-			map[string]any{"content_blocks": failedContentBlocks},
-			"Customer lookup failed.",
-		) {
+		!reflect.DeepEqual(failedContentBlocks, expectedFailedContentBlocks) {
 		t.Fatalf("failed custom tool call = %+v", failedRecord)
 	}
 
-	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
 	mediaSubmitted := requestJSONWithHeaders(
 		t,
 		handler,

@@ -119,6 +119,8 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls/tcl_wz3jehcy
 
 The agent wakes and continues its turn with your result in context. If your system failed, submit `outcome: "failed"` with a text block explaining why — a failed tool call is information the model can act on, not an error you should swallow.
 
+Result text, structured-data string keys and values, and metadata must not contain U+0000. Decode text output before submitting it, and send binary output as a supported media block or a safe failed result. An invalid result returns `400` and leaves the call `ready`; correct the payload instead of retrying the same payload.
+
 **The first result wins.** Only `ready` custom calls accept results; a second submission for the same call, or a result for a built-in or MCP call, returns `409`:
 
 ```json

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -138,6 +139,11 @@ func (s *Server) extractInlineMedia(
 					ordinal,
 					maxAttachmentFilenameBytes,
 				),
+			}
+		}
+		if strings.IndexByte(block.Filename, 0) >= 0 {
+			return nil, mediaIngestError{
+				fmt.Sprintf("content block %d: filename must not contain U+0000", ordinal),
 			}
 		}
 		totalBytes += len(content)

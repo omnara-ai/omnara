@@ -96,8 +96,9 @@ func createContentBlockTx(
 			"project, agent, owner kind, and block kind are required",
 		)
 	}
-	if err := input.Metadata.Validate(); err != nil {
-		return ContentBlockRecord{}, fmt.Errorf("content block metadata: %w", err)
+	input, err := prepareContentBlockForStorage(input)
+	if err != nil {
+		return ContentBlockRecord{}, err
 	}
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
@@ -129,6 +130,25 @@ func createContentBlockTx(
 		return ContentBlockRecord{}, fmt.Errorf("create content block: %w", err)
 	}
 	return contentBlockFromInsertSQLC(row), nil
+}
+
+func prepareContentBlockForStorage(
+	input CreateContentBlockInput,
+) (CreateContentBlockInput, error) {
+	if err := validateContentBlockStringForStorage(input.TextContent); err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("content block text %w", err)
+	}
+	if len(input.StructuredData) > 0 {
+		normalized, err := normalizeContentBlockJSONForStorage(input.StructuredData)
+		if err != nil {
+			return CreateContentBlockInput{}, fmt.Errorf("content block structured data %w", err)
+		}
+		input.StructuredData = normalized
+	}
+	if err := input.Metadata.Validate(); err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("content block metadata: %w", err)
+	}
+	return input, nil
 }
 
 func appendTypedAgentEventTx(

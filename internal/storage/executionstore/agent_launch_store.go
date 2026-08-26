@@ -85,6 +85,9 @@ func (s *Store) LaunchAgent(
 		}
 		return result, nil
 	}
+	if err := validateContentBlockStringForStorage(input.Message); err != nil {
+		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
+	}
 	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
 	if err != nil {
 		return LaunchAgentResult{}, err

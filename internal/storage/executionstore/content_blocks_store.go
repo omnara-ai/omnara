@@ -1,10 +1,15 @@
 package executionstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -121,10 +126,7 @@ func decodeContentBlock(
 	}
 	metadata, err := resourcemeta.FromJSON(fields["metadata"])
 	if err != nil {
-		return "", nil, nil, errors.New("metadata must be a JSON object with string values")
-	}
-	if err := metadata.Validate(); err != nil {
-		return "", nil, nil, fmt.Errorf("metadata: %w", err)
+		return "", nil, nil, fmt.Errorf("invalid metadata: %w", err)
 	}
 	return kind, metadata, fields, nil
 }
@@ -142,6 +144,9 @@ func parseTextContentBlock(
 	var text string
 	if err := json.Unmarshal(rawText, &text); err != nil {
 		return CreateContentBlockInput{}, errors.New("text must be a string")
+	}
+	if err := validateContentBlockStringForStorage(text); err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("text %w", err)
 	}
 	return CreateContentBlockInput{
 		BlockKind:   ContentBlockKindText,
@@ -175,10 +180,52 @@ func parseStructuredDataContentBlock(
 	if !ok {
 		return CreateContentBlockInput{}, errors.New("value is required")
 	}
+	value, err := normalizeContentBlockJSONForStorage(value)
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("value %w", err)
+	}
 	return CreateContentBlockInput{
 		BlockKind:      ContentBlockKindStructuredData,
 		StructuredData: value,
 	}, nil
+}
+
+func validateContentBlockStringForStorage(value string) error {
+	if !utf8.ValidString(value) {
+		return errors.New("contains invalid UTF-8")
+	}
+	if strings.IndexByte(value, 0) >= 0 {
+		return errors.New("contains U+0000")
+	}
+	return nil
+}
+
+func normalizeContentBlockJSONForStorage(value json.RawMessage) (json.RawMessage, error) {
+	if !utf8.Valid(value) {
+		return nil, errors.New("contains invalid UTF-8")
+	}
+	normalized, err := jsoncanonical.Normalize(value)
+	if err != nil {
+		return nil, errors.New("is not valid JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(normalized))
+	decoder.UseNumber()
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return normalized, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decode JSON: %w", err)
+		}
+		text, ok := token.(string)
+		if !ok {
+			continue
+		}
+		if err := validateContentBlockStringForStorage(text); err != nil {
+			return nil, fmt.Errorf("JSON string %w", err)
+		}
+	}
 }
 
 func rejectContentBlockFields(

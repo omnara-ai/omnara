@@ -141,6 +141,46 @@ func TestCreateArtifactMaxBytesRejectsBeforeUpload(t *testing.T) {
 	}
 }
 
+func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	store := newIntegrationStore(pool)
+	agentID := mustCreateAgent(t, ctx, store, now)
+
+	for _, test := range []struct {
+		name        string
+		contentType string
+		filename    string
+		want        string
+	}{
+		{name: "NUL content type", contentType: "image/\x00png", want: "U+0000"},
+		{name: "invalid UTF-8 content type", contentType: string([]byte{0xff}), want: "invalid UTF-8"},
+		{name: "NUL filename", contentType: "image/png", filename: "before\x00after.png", want: "U+0000"},
+		{name: "invalid UTF-8 filename", contentType: "image/png", filename: string([]byte{0xff}), want: "invalid UTF-8"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			blobs := newRecordingBlobStore()
+			store := newIntegrationStore(pool, WithBlobStore(blobs))
+			_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+				ProjectID:   testProjectID,
+				AgentID:     agentID,
+				ContentType: test.contentType,
+				Filename:    test.filename,
+				Content:     []byte("artifact bytes"),
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("create artifact error = %v, want %q", err, test.want)
+			}
+			if len(blobs.putKeys) != 0 {
+				t.Fatalf("uploaded blobs = %v, want none", blobs.putKeys)
+			}
+		})
+	}
+}
+
 func TestCreateArtifactCleansUploadedBlobWhenDBInsertFails(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

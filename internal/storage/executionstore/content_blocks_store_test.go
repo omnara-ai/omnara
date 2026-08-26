@@ -3,6 +3,7 @@ package executionstore
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -119,6 +120,97 @@ func TestToolResultContentBlocksAllowEmptyText(t *testing.T) {
 	if len(blocks) != 1 || blocks[0].BlockKind != ContentBlockKindText ||
 		blocks[0].TextContent != "" {
 		t.Fatalf("empty text blocks = %+v, want one empty text block", blocks)
+	}
+}
+
+func TestContentBlocksRejectDatabaseUnsafeStrings(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		parse func(json.RawMessage) ([]CreateContentBlockInput, error)
+		input json.RawMessage
+	}{
+		{
+			name:  "agent input text",
+			parse: parseAgentInputContentBlocks,
+			input: json.RawMessage(`[{"type":"text","text":"before\u0000after"}]`),
+		},
+		{
+			name:  "tool result text",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(`[{"type":"text","text":"before\u0000after"}]`),
+		},
+		{
+			name:  "structured data value",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"structured_data","value":{"nested":["before\u0000after"]}}]`,
+			),
+		},
+		{
+			name:  "structured data key",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"structured_data","value":{"before\u0000after":true}}]`,
+			),
+		},
+		{
+			name:  "metadata key",
+			parse: parseAgentInputContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"text","text":"safe","metadata":{"before\u0000after":"value"}}]`,
+			),
+		},
+		{
+			name:  "metadata value",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"text","text":"safe","metadata":{"key":"before\u0000after"}}]`,
+			),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.parse(test.input)
+			if !errors.Is(err, storeerr.ErrInvalidRequest) ||
+				!strings.Contains(err.Error(), "U+0000") {
+				t.Fatalf("database-unsafe content error = %v, want invalid request for U+0000", err)
+			}
+		})
+	}
+}
+
+func TestPrepareContentBlockForStorageRejectsDatabaseUnsafeStrings(t *testing.T) {
+	for _, input := range []CreateContentBlockInput{
+		{TextContent: "before\x00after"},
+		{StructuredData: json.RawMessage(`{"value":"before\u0000after"}`)},
+		{Metadata: map[string]string{"key": "before\x00after"}},
+	} {
+		if _, err := prepareContentBlockForStorage(input); err == nil {
+			t.Fatalf("database-unsafe storage input passed validation: %+v", input)
+		}
+	}
+}
+
+func TestStructuredDataNormalizesUnpairedSurrogates(t *testing.T) {
+	blocks, err := parseToolResultContentBlocks(json.RawMessage(
+		`[{"type":"structured_data","value":{"\ud800":"before\ud800after"}}]`,
+	))
+	if err != nil {
+		t.Fatalf("parse structured data: %v", err)
+	}
+	prepared, err := prepareContentBlockForStorage(CreateContentBlockInput{
+		StructuredData: json.RawMessage(`{"\ud800":"before\ud800after"}`),
+	})
+	if err != nil {
+		t.Fatalf("prepare structured data: %v", err)
+	}
+	for _, value := range []json.RawMessage{blocks[0].StructuredData, prepared.StructuredData} {
+		var decoded map[string]string
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			t.Fatalf("decode normalized structured data %s: %v", value, err)
+		}
+		if decoded["\uFFFD"] != "before\uFFFDafter" {
+			t.Fatalf("normalized structured data = %s, want replacement characters", value)
+		}
 	}
 }
 
