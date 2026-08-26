@@ -30,7 +30,6 @@ import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCred
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import {
-  type BasicConfig,
   createBasicConfigSession,
   emptyBasicConfig,
   useAgentBuilderForm,
@@ -99,7 +98,7 @@ export function CreateAgentFormView({
     session,
     restored?.draft ??
       (initialTemplate
-        ? templateBasicConfig(initialTemplate)
+        ? agentTemplateBasicConfig(initialTemplate, catalog, defaultPool, defaultModel)
         : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) }),
   )
   const switchMode = (nextMode: AgentConfigMode) => {
@@ -115,12 +114,8 @@ export function CreateAgentFormView({
     dispatchMode({ type: 'switch-mode', mode: nextMode })
   }
 
-  function templateBasicConfig(template: AgentTemplate): BasicConfig {
-    return agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
-  }
-
   function applyTemplate(template: AgentTemplate) {
-    const next = templateBasicConfig(template)
+    const next = agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
     // Keep a model the user already picked; templates only fill the gap.
     if (form.model.providerConfig !== '' && form.model.modelName !== '') {
       next.providerConfig = form.model.providerConfig

@@ -1,7 +1,7 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, Suspense, useEffect, useState } from 'react'
 
 import { CheckIcon, CopyIcon } from '@/components/icons'
-import { type CodeLanguage, highlight } from '@/components/overview/highlight'
+import { type CodeLanguage, Highlighted } from '@/components/overview/highlight'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -53,7 +53,15 @@ function JsonSegment({ json }: { json: string }) {
         setExpanded((prev) => !prev)
       }}
     >
-      {expanded ? <span>{highlight(prettyJson(json), 'json')}</span> : '{ … }'}
+      {expanded ? (
+        <span>
+          <Suspense fallback={prettyJson(json)}>
+            <Highlighted code={prettyJson(json)} language="json" />
+          </Suspense>
+        </span>
+      ) : (
+        '{ … }'
+      )}
     </button>
   )
 }
@@ -101,14 +109,18 @@ function Code({
   return (
     <pre
       className={cn(
-        'overflow-x-auto whitespace-pre-wrap break-words px-6 py-5 font-mono text-sm leading-6',
+        'code-highlight overflow-x-auto whitespace-pre-wrap break-words px-6 py-5 font-mono text-sm leading-6',
         emphasis ? 'text-foreground font-medium' : 'text-muted-foreground',
         className,
       )}
     >
       {segments.map((segment) =>
         typeof segment === 'string' ? (
-          <span key={`text:${segment}`}>{highlight(segment, language)}</span>
+          <span key={`text:${segment}`}>
+            <Suspense fallback={segment}>
+              <Highlighted code={segment} language={language} />
+            </Suspense>
+          </span>
         ) : (
           <JsonSegment key={`json:${segment.json}`} json={segment.json} />
         ),

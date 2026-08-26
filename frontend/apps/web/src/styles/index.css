@@ -242,3 +242,11 @@
     animation-duration: 0s;
   }
 }
+
+.code-highlight span {
+  color: var(--shiki-light);
+}
+
+.dark .code-highlight span {
+  color: var(--shiki-dark);
+}

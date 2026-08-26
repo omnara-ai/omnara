@@ -1,18 +1,5 @@
-import {
-  useCreateAgentConfig,
-  useCreateAgentProfile,
-  useOrgOverview,
-  useOrgOverviewSnapshot,
-  usePersonalAccessTokens,
-  usePersonalAccessTokensSnapshot,
-} from '@omnara/react'
-import type {
-  Agent,
-  AgentProfile,
-  OrgOverviewResponse,
-  PersonalAccessToken,
-  VisibleProject,
-} from '@omnara/sdk'
+import { useCreateAgentConfig, useCreateAgentProfile } from '@omnara/react'
+import type { AgentProfile, VisibleProject } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
@@ -25,64 +12,20 @@ import {
   cliLoginCommand,
   cliSetupPrompt,
   cliTokenHost,
-  isCliLoginToken,
   profileCreateSpec,
 } from '@/components/overview/onboardingCli'
 import { ProfileDraftStep } from '@/components/overview/OnboardingProfileDraft'
-import {
-  OnboardingStep,
-  OnboardingSteps,
-  type StepStatus,
-} from '@/components/overview/OnboardingSteps'
+import { OnboardingStep, OnboardingSteps } from '@/components/overview/OnboardingSteps'
 import { useCreateChat } from '@/components/overview/useCreateChat'
+import { useOnboarding } from '@/components/overview/useOnboarding'
 import { useTemplateDefaults } from '@/components/overview/useTemplateDefaults'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { errorMessage } from '@/lib/submit-status'
-
-const pollIntervalMs = 3000
 
 type OnboardingTab = 'cli' | 'browser'
 
-function stepStatuses(completed: boolean[]): StepStatus[] {
-  const activeIndex = completed.indexOf(false)
-  return completed.map((done, index) => {
-    if (done) return 'done'
-    return index === activeIndex ? 'active' : 'upcoming'
-  })
-}
-
-export function AgentOnboarding({
-  orgId,
-  project,
-  overview,
-}: {
-  orgId: string
-  project: VisibleProject
-  overview: OrgOverviewResponse
-}) {
+export function AgentOnboarding({ orgId, project }: { orgId: string; project: VisibleProject }) {
   const [tab, setTab] = useState<OnboardingTab>('cli')
-  const liveProfile = overview.recent_agent_profiles.find(
-    (candidate) => candidate.project_id === project.id,
-  )
-  const liveAgents = overview.recent_agents.filter((agent) => agent.project_id === project.id)
-  const liveAgent =
-    liveAgents.find((candidate) => candidate.agent_profile_id === liveProfile?.id) ?? liveAgents[0]
-
-  useOrgOverview(orgId, { refetchInterval: liveAgent == null ? pollIntervalMs : false })
-  const tokensQuery = usePersonalAccessTokens(50, {
-    refetchInterval: tab === 'cli' && liveProfile == null ? pollIntervalMs : false,
-  })
-
-  const shownOverview = useOrgOverviewSnapshot(orgId) ?? overview
-  const shownTokens = usePersonalAccessTokensSnapshot(50) ?? tokensQuery.data
-  const profile = shownOverview.recent_agent_profiles.find(
-    (candidate) => candidate.project_id === project.id,
-  )
-  const shownAgents = shownOverview.recent_agents.filter((agent) => agent.project_id === project.id)
-  const agent =
-    shownAgents.find((candidate) => candidate.agent_profile_id === profile?.id) ?? shownAgents[0]
-  const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   return (
     <div className="flex w-full max-w-4xl flex-col gap-10 py-4">
@@ -111,44 +54,31 @@ export function AgentOnboarding({
           </TabsList>
         </div>
         <TabsContent value="cli" className="pt-14">
-          {!tokensQuery.isPending && (
-            <CliSteps
-              orgId={orgId}
-              project={project}
-              cliToken={cliToken}
-              profile={profile}
-              agent={agent}
-            />
-          )}
+          <CliSteps orgId={orgId} project={project} />
         </TabsContent>
         <TabsContent value="browser" className="pt-14">
-          <BrowserSteps orgId={orgId} project={project} profile={profile} agent={agent} />
+          <BrowserSteps orgId={orgId} project={project} />
         </TabsContent>
       </Tabs>
     </div>
   )
 }
 
-function CliSteps({
-  orgId,
-  project,
-  cliToken,
-  profile,
-  agent,
-}: {
-  orgId: string
-  project: VisibleProject
-  cliToken?: PersonalAccessToken
-  profile?: AgentProfile
-  agent?: Agent
-}) {
+function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }) {
+  const {
+    ready,
+    cliToken,
+    agentProfile: profile,
+    agent,
+    steps,
+  } = useOnboarding({
+    orgId,
+    projectId: project.id,
+  })
   const [profilePending, setProfilePending] = useState(false)
   const chatRun = useCreateChat(orgId, project, profile)
-  const [login = 'upcoming', createProfile = 'upcoming', chat = 'upcoming'] = stepStatuses([
-    cliToken != null || profile != null,
-    profile != null,
-    agent != null,
-  ])
+  const { login, createProfile, chat } = steps.cli
+  if (!ready) return null
   return (
     <OnboardingSteps>
       <OnboardingStep
@@ -280,21 +210,9 @@ function CliProfileOptions({
   )
 }
 
-function BrowserSteps({
-  orgId,
-  project,
-  profile,
-  agent,
-}: {
-  orgId: string
-  project: VisibleProject
-  profile?: AgentProfile
-  agent?: Agent
-}) {
-  const [createProfile = 'upcoming', chat = 'upcoming'] = stepStatuses([
-    profile != null,
-    agent != null,
-  ])
+function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProject }) {
+  const { agentProfile: profile, agent, steps } = useOnboarding({ orgId, projectId: project.id })
+  const { createProfile, chat } = steps.browser
   return (
     <OnboardingSteps>
       <OnboardingStep
