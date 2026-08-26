@@ -47,6 +47,7 @@ export {
   PencilIcon,
   PlusIcon as Plus,
   PlusIcon,
+  MagnifyingGlassIcon as SearchIcon,
   PaperAirplaneIcon as SendHorizontal,
   ServerIcon as Server,
   Cog6ToothIcon as SettingsIcon,

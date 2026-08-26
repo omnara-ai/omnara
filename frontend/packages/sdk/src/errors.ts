@@ -5,12 +5,14 @@ export type ApiErrorCode = ApiErrorBody['code']
 export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode | undefined
+  readonly body: unknown
 
-  constructor(status: number, message: string, code?: ApiErrorCode) {
+  constructor(status: number, message: string, code?: ApiErrorCode, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.body = body
   }
 
   static async fromResponse(response: Response): Promise<ApiError> {
@@ -30,6 +32,6 @@ export class ApiError extends Error {
         code = data.code as ApiErrorCode
       }
     }
-    return new ApiError(response.status, message, code)
+    return new ApiError(response.status, message, code, data)
   }
 }

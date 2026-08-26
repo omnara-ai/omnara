@@ -107,6 +107,7 @@ export {
   useServerInfoLookup,
   useServers,
 } from './domains/mcp-registry'
+export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,

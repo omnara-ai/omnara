@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
+import { AgentConfigMcpServerTools } from '@/components/agents/AgentConfigMcpServerTools'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
   defaultMcpSecretName,
@@ -19,6 +20,7 @@ import {
   mcpServerNameError,
 } from '@/components/agents/useAgentBuilderForm'
 import { KeyRound, PlusIcon, Trash2Icon } from '@/components/icons'
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
 import { McpServerIdentityGroup } from '@/components/mcp/McpServerIdentityGroup'
 import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
@@ -64,6 +66,7 @@ function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer 
     secretId: '',
     service: '',
     region: '',
+    tools: [],
   }
 }
 
@@ -121,8 +124,10 @@ export function AgentConfigMcpServersField({
               (candidate) => candidate.id !== server.id && candidate.name === server.name,
             )
             const nameError =
-              mcpServerNameError(server.name) ??
-              (duplicateName ? 'Name must be unique within this configuration.' : undefined)
+              server.name === ''
+                ? undefined
+                : (mcpServerNameError(server.name) ??
+                  (duplicateName ? 'Name must be unique within this configuration.' : undefined))
             return (
               <div key={server.id} className="space-y-4 px-5 py-4">
                 <McpServerIdentityFields
@@ -135,55 +140,6 @@ export function AgentConfigMcpServersField({
                     onServersChange(servers.filter((candidate) => candidate.id !== server.id))
                   }}
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel>Tool permission</FieldLabel>
-                    <Select
-                      value={
-                        server.permission?.mode ?? permissionProfile?.default_permission.mode ?? ''
-                      }
-                      disabled={permissionProfile == null}
-                      onValueChange={(mode) => {
-                        updateServer(server.id, { permission: { mode, parameters: {} } })
-                      }}
-                    >
-                      <SelectTrigger className="w-full" aria-label="MCP tool permission">
-                        <SelectValue>
-                          {permissionModeLabel(
-                            permissionProfile,
-                            server.permission?.mode ?? permissionProfile?.default_permission.mode,
-                          )}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {permissionProfile?.permission_modes.map((mode) => (
-                          <SelectItem key={mode.name} value={mode.name}>
-                            {mode.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <FieldLabel>Discovered tools</FieldLabel>
-                    <Select
-                      value={server.defaultEnabled ? 'true' : 'false'}
-                      onValueChange={(value) => {
-                        updateServer(server.id, { defaultEnabled: value === 'true' })
-                      }}
-                    >
-                      <SelectTrigger className="w-full" aria-label="MCP default enable">
-                        <SelectValue>
-                          {server.defaultEnabled ? 'Enabled by default' : 'Disabled by default'}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="true">Enabled by default</SelectItem>
-                        <SelectItem value="false">Disabled by default</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel>Authentication</FieldLabel>
@@ -249,18 +205,81 @@ export function AgentConfigMcpServersField({
                       </Field>
                     ))}
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="sm:hidden"
-                  onClick={() => {
-                    onServersChange(servers.filter((candidate) => candidate.id !== server.id))
-                  }}
-                >
-                  <Trash2Icon />
-                  Remove server
-                </Button>
+                <div className="pb-2">
+                  <OverridesCollapsible title="Tools" keepMounted>
+                    <div className="space-y-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>Default permission</FieldLabel>
+                          <Select
+                            value={
+                              server.permission?.mode ??
+                              permissionProfile?.default_permission.mode ??
+                              ''
+                            }
+                            disabled={permissionProfile == null}
+                            onValueChange={(mode) => {
+                              updateServer(server.id, { permission: { mode, parameters: {} } })
+                            }}
+                          >
+                            <SelectTrigger className="w-full" aria-label="MCP default permission">
+                              <SelectValue>
+                                {permissionModeLabel(
+                                  permissionProfile,
+                                  server.permission?.mode ??
+                                    permissionProfile?.default_permission.mode,
+                                )}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {permissionProfile?.permission_modes.map((mode) => (
+                                <SelectItem key={mode.name} value={mode.name}>
+                                  {mode.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Default visibility</FieldLabel>
+                          <Select
+                            value={server.defaultEnabled ? 'true' : 'false'}
+                            onValueChange={(value) => {
+                              updateServer(server.id, { defaultEnabled: value === 'true' })
+                            }}
+                          >
+                            <SelectTrigger className="w-full" aria-label="MCP default visibility">
+                              <SelectValue>
+                                {server.defaultEnabled ? 'Enabled' : 'Disabled'}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">Enabled</SelectItem>
+                              <SelectItem value="false">Disabled</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </div>
+                      <AgentConfigMcpServerTools
+                        orgId={orgId}
+                        projectId={projectId}
+                        server={server}
+                        permissionProfile={permissionProfile}
+                        onToolsChange={(tools) => {
+                          updateServer(server.id, { tools })
+                        }}
+                        onAuthTypeChange={(authType) => {
+                          updateServer(server.id, {
+                            authType,
+                            secretId: '',
+                            service: '',
+                            region: '',
+                          })
+                        }}
+                      />
+                    </div>
+                  </OverridesCollapsible>
+                </div>
               </div>
             )
           })}
@@ -335,15 +354,6 @@ function McpServerSecretField({
         onChange={onSecretChange}
         actions={actions}
       />
-      <FieldDescription>
-        {login.pending
-          ? 'Starting login…'
-          : server.authType === 'oauth'
-            ? 'OAuth token sets whose MCP URL matches this server URL.'
-            : server.authType === 'sigv4'
-              ? 'AWS credentials visible to this project.'
-              : 'Any generic secret visible to this project.'}
-      </FieldDescription>
       {dialog && (
         <AgentConfigMcpSecretDialog
           orgId={orgId}
@@ -406,7 +416,7 @@ function McpServerIdentityFields({
           type="button"
           size="icon"
           variant="ghost"
-          className="hidden shrink-0 sm:inline-flex"
+          className="shrink-0"
           aria-label="Remove MCP server"
           onClick={onRemove}
         >

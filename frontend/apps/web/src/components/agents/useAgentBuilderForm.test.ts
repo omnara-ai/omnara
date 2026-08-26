@@ -63,6 +63,7 @@ const fullConfig: BasicConfig = {
       secretId: '',
       service: '',
       region: '',
+      tools: [],
     },
     {
       id: 'mcp-2',
@@ -74,6 +75,7 @@ const fullConfig: BasicConfig = {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+      tools: [],
     },
     {
       id: 'mcp-3',
@@ -85,6 +87,7 @@ const fullConfig: BasicConfig = {
       secretId: 'sec_789',
       service: '',
       region: '',
+      tools: [],
     },
   ],
   skillIds: ['skl_1', 'skl_2'],
@@ -179,6 +182,24 @@ describe('createBasicConfigSession initialDraft', () => {
     })
   })
 
+  it('treats missing or empty instruction and model fields as blank drafts', () => {
+    expect(mustDeserialize('instruction:\nmodel:\n  provider_config: anthropic\n')).toMatchObject({
+      instruction: '',
+      providerConfig: 'anthropic',
+      modelName: '',
+    })
+    expect(mustDeserialize('model:\n')).toMatchObject({
+      instruction: '',
+      providerConfig: '',
+      modelName: '',
+    })
+    expect(mustDeserialize('{}')).toMatchObject({
+      instruction: '',
+      providerConfig: '',
+      modelName: '',
+    })
+  })
+
   it('accepts a v1 version marker', () => {
     expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
     expect(deserialize(`${minimalYaml}version: v2\n`)).toBeNull()
@@ -237,6 +258,50 @@ mcp:
     expect(config.tools).toEqual([{ name: 'ask_question', permission: null }])
     expect(config.mcpServers).toMatchObject([{ name: 'search', permission: null }])
     expect(applyToSource(source, config)).toBe(source)
+  })
+
+  it('round-trips per-tool mcp overrides and drops empty ones', () => {
+    const source = `${minimalYaml}mcp:
+  search:
+    url: https://mcp.example.com
+    tools:
+      web_search:
+        enabled: false
+      fetch:
+        permission:
+          mode: always_allow
+`
+    const config = mustDeserialize(source)
+    expect(config.mcpServers[0]?.tools).toEqual([
+      { name: 'web_search', enabled: false, permission: null },
+      { name: 'fetch', enabled: null, permission: { mode: 'always_allow', parameters: {} } },
+    ])
+    expect(applyToSource(source, config)).toBe(source)
+
+    const [server] = config.mcpServers
+    if (server == null) throw new Error('missing server')
+    const cleared = applyToSource(source, {
+      ...config,
+      mcpServers: [
+        {
+          ...server,
+          tools: [
+            { name: 'web_search', enabled: null, permission: null },
+            { name: 'fetch', enabled: true, permission: null },
+          ],
+        },
+      ],
+    })
+    expect(parse(cleared)).toEqual({
+      ...parse(minimalYaml),
+      mcp: {
+        search: {
+          url: 'https://mcp.example.com',
+          default_enabled: true,
+          tools: { fetch: { enabled: true } },
+        },
+      },
+    })
   })
 
   it('accepts zero machine counts and round-trips them', () => {
@@ -518,6 +583,7 @@ describe('createBasicConfigSession apply', () => {
           secretId: '',
           service: '',
           region: '',
+          tools: [],
         },
       ],
     })
