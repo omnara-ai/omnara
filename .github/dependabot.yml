@@ -4,8 +4,21 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     cooldown:
       default-days: 7
+
   - package-ecosystem: gomod
     directories:
       - /
@@ -14,5 +27,81 @@ updates:
       - /tools/omnaralint
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 3
+    groups:
+      aws-sdk-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - github.com/aws/aws-sdk-go-v2*
+        update-types:
+          - minor
+          - patch
+      golang-x-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - golang.org/x/*
+        update-types:
+          - minor
+          - patch
+      shared-go-dependencies:
+        group-by: dependency-name
+    cooldown:
+      default-days: 7
+
+  # The main frontend uses pnpm 11, which Dependabot does not currently
+  # support. Keep the independent pnpm 10 CLI example updated here.
+  - package-ecosystem: npm
+    directory: /examples/cli-agent
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 3
+    groups:
+      production-minor-and-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-minor-and-patch:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /examples/sharepoint-mount
+      - /examples/unikraft-machine
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 3
+    groups:
+      per-image:
+        group-by: dependency-name
+    ignore:
+      # Runtime and toolchain lines are upgraded deliberately; digest and
+      # patch updates within the adopted lines remain eligible.
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+      - dependency-name: golang
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     cooldown:
       default-days: 7
