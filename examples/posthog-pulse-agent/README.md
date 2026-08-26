@@ -53,7 +53,7 @@ https://mcp.posthog.com/mcp?mode=tools&features=insights,data_schema,sql
 ```
 
 filters PostHog's ~40+ tools down to the query surface (`query-*`,
-`read-data-schema`, `execute-sql`) — write tools simply don't exist for this
+`read-data-schema`, `execute-sql`) — write tools aren't enabled by default for this
 agent. The key lives in an Omnara project secret referenced from the config's
 `auth` block and is attached as the bearer header server-side; it never
 appears in the config or event log. EU cloud accounts: swap the host for
