@@ -44,7 +44,7 @@ function JsonSegment({ json }: { json: string }) {
       aria-expanded={expanded}
       data-slot="json-toggle"
       className={cn(
-        'text-left font-mono transition-colors',
+        'text-left font-mono transition-[color,background-color]',
         expanded
           ? 'hover:text-foreground'
           : 'bg-muted text-foreground hover:bg-muted/70 rounded-md px-1.5 py-0.5',
@@ -53,13 +53,7 @@ function JsonSegment({ json }: { json: string }) {
         setExpanded((prev) => !prev)
       }}
     >
-      {expanded ? (
-        <span className="animate-in fade-in-0 duration-300">
-          {highlight(prettyJson(json), 'json')}
-        </span>
-      ) : (
-        '{ … }'
-      )}
+      {expanded ? <span>{highlight(prettyJson(json), 'json')}</span> : '{ … }'}
     </button>
   )
 }
@@ -112,11 +106,11 @@ function Code({
         className,
       )}
     >
-      {segments.map((segment, index) =>
+      {segments.map((segment) =>
         typeof segment === 'string' ? (
-          <span key={index}>{highlight(segment, language)}</span>
+          <span key={`text:${segment}`}>{highlight(segment, language)}</span>
         ) : (
-          <JsonSegment key={index} json={segment.json} />
+          <JsonSegment key={`json:${segment.json}`} json={segment.json} />
         ),
       )}
     </pre>
@@ -166,7 +160,7 @@ export function CodeTabsBlock({
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
-                className="text-muted-foreground data-[state=active]:bg-secondary! data-[state=active]:text-secondary-foreground! h-8 rounded-md px-3.5 transition-colors after:hidden data-[state=active]:shadow-none"
+                className="text-muted-foreground data-[state=active]:bg-secondary! data-[state=active]:text-secondary-foreground! h-8 rounded-md px-3.5 transition-[color,background-color] after:hidden data-[state=active]:shadow-none"
               >
                 {tab.label}
               </TabsTrigger>
@@ -183,11 +177,7 @@ export function CodeTabsBlock({
           </div>
         </div>
         {tabs.map((tab) => (
-          <TabsContent
-            key={tab.value}
-            value={tab.value}
-            className="animate-in fade-in-0 duration-200"
-          >
+          <TabsContent key={tab.value} value={tab.value}>
             <Code content={tab.content} emphasis={tab.emphasis} className="pb-5 pt-3" />
           </TabsContent>
         ))}

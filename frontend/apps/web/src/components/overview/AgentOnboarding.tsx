@@ -12,14 +12,14 @@ import type {
   VisibleProject,
 } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { type ReactNode, useEffect, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { type ReactNode, startTransition, useDeferredValue, useState } from 'react'
 
 import { agentTemplates } from '@/components/agents/agentTemplates'
 import { Monitor, Terminal } from '@/components/icons'
 import { CodeBlock, CodeTabsBlock } from '@/components/overview/CodeBlock'
 import { ChatGuide, ChatOptions, CreateChat, RunFooter } from '@/components/overview/OnboardingChat'
 import {
+  chatMessage,
   cliLoginCommand,
   cliSetupPrompt,
   cliTokenHost,
@@ -32,6 +32,7 @@ import {
   OnboardingSteps,
   type StepStatus,
 } from '@/components/overview/OnboardingSteps'
+import { useCreateChat } from '@/components/overview/useCreateChat'
 import { useTemplateDefaults } from '@/components/overview/useTemplateDefaults'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
@@ -46,26 +47,6 @@ interface OnboardingProgress {
   agent?: Agent
 }
 
-function useViewTransitioned<T>(value: T, key: string): T {
-  const [shown, setShown] = useState({ key, value })
-
-  useEffect(() => {
-    if (shown.key === key) return
-    const apply = () => {
-      setShown({ key, value })
-    }
-    if (typeof document.startViewTransition !== 'function') {
-      apply()
-      return
-    }
-    document.startViewTransition(() => {
-      flushSync(apply)
-    })
-  }, [key, shown.key, value])
-
-  return shown.value
-}
-
 function stepStatuses(completed: boolean[]): StepStatus[] {
   const activeIndex = completed.indexOf(false)
   return completed.map((done, index) => {
@@ -78,12 +59,10 @@ export function AgentOnboarding({
   orgId,
   project,
   overview,
-  onProfileSeen,
 }: {
   orgId: string
   project: VisibleProject
   overview: OrgOverviewResponse
-  onProfileSeen: (seen: boolean) => void
 }) {
   const [tab, setTab] = useState<OnboardingTab>('cli')
   const [created, setCreated] = useState<OnboardingProgress>({})
@@ -91,25 +70,28 @@ export function AgentOnboarding({
   const liveProfile =
     created.profile ??
     overview.recent_agent_profiles.find((candidate) => candidate.project_id === project.id)
-  const projectAgents = overview.recent_agents.filter((agent) => agent.project_id === project.id)
+  const liveAgents = overview.recent_agents.filter((agent) => agent.project_id === project.id)
   const liveAgent =
     created.agent ??
-    projectAgents.find((candidate) => candidate.agent_profile_id === liveProfile?.id) ??
-    projectAgents[0]
+    liveAgents.find((candidate) => candidate.agent_profile_id === liveProfile?.id) ??
+    liveAgents[0]
 
   useOrgOverview(orgId, { refetchInterval: liveAgent == null ? pollIntervalMs : false })
   const tokensQuery = usePersonalAccessTokens(50, {
     refetchInterval: tab === 'cli' && liveProfile == null ? pollIntervalMs : false,
   })
-  const liveCliToken = useInfiniteQueryItems(tokensQuery).find(isCliLoginToken)
-  const { profile, agent, cliToken } = useViewTransitioned(
-    { profile: liveProfile, agent: liveAgent, cliToken: liveCliToken },
-    [liveProfile?.id, liveAgent?.id, liveCliToken?.id].join('|'),
-  )
 
-  useEffect(() => {
-    if (profile != null) onProfileSeen(true)
-  }, [onProfileSeen, profile])
+  const shownOverview = useDeferredValue(overview)
+  const shownTokens = useDeferredValue(tokensQuery.data)
+  const profile =
+    created.profile ??
+    shownOverview.recent_agent_profiles.find((candidate) => candidate.project_id === project.id)
+  const shownAgents = shownOverview.recent_agents.filter((agent) => agent.project_id === project.id)
+  const agent =
+    created.agent ??
+    shownAgents.find((candidate) => candidate.agent_profile_id === profile?.id) ??
+    shownAgents[0]
+  const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   return (
     <div className="flex w-full max-w-4xl flex-col gap-10 py-4">
@@ -161,10 +143,14 @@ export function AgentOnboarding({
             profile={profile}
             agent={agent}
             onProfileCreated={(createdProfile) => {
-              setCreated((prev) => ({ ...prev, profile: createdProfile }))
+              startTransition(() => {
+                setCreated((prev) => ({ ...prev, profile: createdProfile }))
+              })
             }}
             onAgentCreated={(createdAgent) => {
-              setCreated((prev) => ({ ...prev, agent: createdAgent }))
+              startTransition(() => {
+                setCreated((prev) => ({ ...prev, agent: createdAgent }))
+              })
             }}
           />
         </TabsContent>
@@ -190,7 +176,8 @@ function CliSteps({
   onProfileCreated: (profile: AgentProfile) => void
   onAgentCreated: (agent: Agent) => void
 }) {
-  const [pendingStep, setPendingStep] = useState<number | null>(null)
+  const [profilePending, setProfilePending] = useState(false)
+  const chatRun = useCreateChat(orgId, project, profile, onAgentCreated)
   const [login = 'upcoming', createProfile = 'upcoming', chat = 'upcoming'] = stepStatuses([
     cliToken != null || profile != null,
     profile != null,
@@ -216,7 +203,7 @@ function CliSteps({
         description="Run the command or hand the prompt to your coding agent"
         status={createProfile}
         nextStatus={chat}
-        pending={pendingStep === 2}
+        pending={profilePending}
         completion={profile && <ProfileCreated project={project} profile={profile} />}
       >
         {!profile && (
@@ -224,9 +211,7 @@ function CliSteps({
             orgId={orgId}
             projectId={project.id}
             onCreated={onProfileCreated}
-            onPendingChange={(pending) => {
-              setPendingStep(pending ? 2 : null)
-            }}
+            onPendingChange={setProfilePending}
           />
         )}
       </OnboardingStep>
@@ -236,7 +221,7 @@ function CliSteps({
         doneTitle="Started a chat"
         description="Launch an agent from the profile, then talk to it from the browser or your terminal"
         status={chat}
-        pending={pendingStep === 3}
+        pending={chatRun.pending}
         completion={agent && <ChatGuide project={project} agent={agent} />}
       >
         {profile ? (
@@ -244,10 +229,17 @@ function CliSteps({
             orgId={orgId}
             project={project}
             profile={profile}
-            onCreated={agent ? undefined : onAgentCreated}
-            onPendingChange={(pending) => {
-              setPendingStep(pending ? 3 : null)
-            }}
+            run={
+              agent
+                ? undefined
+                : {
+                    pending: chatRun.pending,
+                    error: chatRun.error,
+                    onRun: () => {
+                      void chatRun.launch(chatMessage)
+                    },
+                  }
+            }
           />
         ) : null}
       </OnboardingStep>

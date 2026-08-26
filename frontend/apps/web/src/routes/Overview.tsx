@@ -20,6 +20,9 @@ export function Overview() {
     overview != null && manageableProject != null && overview.recent_agents.length === 0
 
   const [profileSeen, setProfileSeen] = useState(false)
+  if (needsOnboarding && !profileSeen && overview.recent_agent_profiles.length > 0) {
+    setProfileSeen(true)
+  }
   const showOnboarding =
     overview != null && manageableProject != null && (needsOnboarding || profileSeen)
 
@@ -36,12 +39,7 @@ export function Overview() {
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
         <div className="flex min-h-0 flex-1 justify-center pb-16">
-          <AgentOnboarding
-            orgId={activeOrg.id}
-            project={manageableProject}
-            overview={overview}
-            onProfileSeen={setProfileSeen}
-          />
+          <AgentOnboarding orgId={activeOrg.id} project={manageableProject} overview={overview} />
         </div>
       ) : (
         <RecentAgentsSection

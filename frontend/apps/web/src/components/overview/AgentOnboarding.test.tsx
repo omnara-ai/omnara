@@ -167,18 +167,10 @@ function element(selector: string): HTMLElement {
   return match
 }
 
-function render(overview: OrgOverviewResponse, onProfileSeen = vi.fn()) {
+function render(overview: OrgOverviewResponse) {
   act(() => {
-    root.render(
-      <AgentOnboarding
-        orgId="org-1"
-        project={project}
-        overview={overview}
-        onProfileSeen={onProfileSeen}
-      />,
-    )
+    root.render(<AgentOnboarding orgId="org-1" project={project} overview={overview} />)
   })
-  return onProfileSeen
 }
 
 function selectTab(name: 'cli' | 'browser' | 'command' | 'prompt' | 'sdk') {
@@ -249,9 +241,8 @@ afterEach(() => {
 
 describe('AgentOnboarding CLI tab', () => {
   it('waits for a CLI token on step one and polls tokens and the overview', () => {
-    const onProfileSeen = render(overviewFixture())
+    render(overviewFixture())
 
-    expect(onProfileSeen).not.toHaveBeenCalled()
     expect(container.textContent).toContain(cliLoginCommand)
     expect(container.textContent).not.toContain(cliSetupPrompt)
     expect(stepStatus(1)).toBe('active')
@@ -307,10 +298,9 @@ describe('AgentOnboarding CLI tab', () => {
     expect(stepStatus(1)).toBe('active')
   })
 
-  it('waits for a chat once the profile exists, pins onboarding, and stops polling tokens', async () => {
-    const onProfileSeen = render(overviewFixture({ recent_agent_profiles: [profileFixture()] }))
+  it('waits for a chat once the profile exists and stops polling tokens', async () => {
+    render(overviewFixture({ recent_agent_profiles: [profileFixture()] }))
 
-    expect(onProfileSeen).toHaveBeenCalledWith(true)
     expect(stepStatus(1)).toBe('done')
     expect(stepStatus(2)).toBe('done')
     expect(stepStatus(3)).toBe('active')
