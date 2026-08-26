@@ -62,9 +62,8 @@ export function ProfileDraftStep({
       await createAgentProfile.mutateAsync({ name: current.name, config: config.id })
     } catch (err) {
       setError(errorMessage(err, 'Could not create profile'))
-    } finally {
-      setSubmitting(false)
     }
+    setSubmitting(false)
   }
 
   if (builderOpen) {
@@ -145,7 +144,7 @@ export function ProfileDraftStep({
           variant="ghost"
           className="text-primary hover:text-primary"
           data-action="customize"
-          disabled={!defaults.ready || submitting || template == null}
+          disabled={!canCreate}
           onClick={() => {
             setBuilderOpen(true)
           }}
