@@ -89,6 +89,19 @@ export function agentTemplateConfig(
   }
 }
 
+export function agentTemplateBasicConfig(
+  template: AgentTemplate,
+  catalog?: ToolCatalog,
+  defaultPool?: MachinePoolSummary,
+  defaultModel?: ConfiguredModelSummary,
+): BasicConfig {
+  return {
+    mcpServers: [],
+    skillIds: [],
+    ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
+  }
+}
+
 export function agentTemplateName(currentName: string, template: AgentTemplate) {
   const trimmed = currentName.trim()
   const isTemplateName = agentTemplates.some((candidate) => candidate.name === trimmed)

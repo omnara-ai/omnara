@@ -6,11 +6,15 @@ import { useOmnaraClient } from '../omnara-client'
 import { DEFAULT_LIST_PAGE_SIZE } from './list-options'
 import { cursorPagination } from './pagination'
 
-export function usePersonalAccessTokens(pageSize = DEFAULT_LIST_PAGE_SIZE) {
+export function usePersonalAccessTokens(
+  pageSize = DEFAULT_LIST_PAGE_SIZE,
+  options?: { refetchInterval?: number | false },
+) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
     ...listPersonalAccessTokensInfiniteOptions({ query: { limit: pageSize }, client }),
     ...cursorPagination,
+    refetchInterval: options?.refetchInterval,
   })
 }
 

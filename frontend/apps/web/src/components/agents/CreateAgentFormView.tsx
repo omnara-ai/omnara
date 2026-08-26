@@ -21,7 +21,7 @@ import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import {
   type AgentTemplate,
-  agentTemplateConfig,
+  agentTemplateBasicConfig,
   agentTemplateName,
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
@@ -116,11 +116,7 @@ export function CreateAgentFormView({
   }
 
   function templateBasicConfig(template: AgentTemplate): BasicConfig {
-    return {
-      mcpServers: [],
-      skillIds: [],
-      ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
-    }
+    return agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
   }
 
   function applyTemplate(template: AgentTemplate) {

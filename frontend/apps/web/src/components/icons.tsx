@@ -45,6 +45,7 @@ export {
   Bars3Icon as PanelLeftIcon,
   PaperClipIcon as Paperclip,
   PencilIcon,
+  PlayIcon,
   PlusIcon as Plus,
   PlusIcon,
   PaperAirplaneIcon as SendHorizontal,

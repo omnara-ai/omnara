@@ -1,0 +1,197 @@
+import { type ReactNode, useEffect, useState } from 'react'
+
+import { CheckIcon, CopyIcon } from '@/components/icons'
+import { type CodeLanguage, highlight } from '@/components/overview/highlight'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
+
+export type CodeSegment = string | { json: string }
+
+export interface CodeContent {
+  copy: string
+  segments: CodeSegment[]
+  language: CodeLanguage
+}
+
+export interface CodeTab {
+  value: string
+  label: string
+  content: string | CodeContent
+  emphasis?: boolean
+  footer?: boolean
+}
+
+function toContent(content: string | CodeContent): CodeContent {
+  return typeof content === 'string'
+    ? { copy: content, segments: [content], language: 'shell' }
+    : content
+}
+
+function prettyJson(json: string) {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2)
+  } catch {
+    return json
+  }
+}
+
+function JsonSegment({ json }: { json: string }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      data-slot="json-toggle"
+      className={cn(
+        'text-left font-mono transition-colors',
+        expanded
+          ? 'hover:text-foreground'
+          : 'bg-muted text-foreground hover:bg-muted/70 rounded-md px-1.5 py-0.5',
+      )}
+      onClick={() => {
+        setExpanded((prev) => !prev)
+      }}
+    >
+      {expanded ? (
+        <span className="animate-in fade-in-0 duration-300">
+          {highlight(prettyJson(json), 'json')}
+        </span>
+      ) : (
+        '{ … }'
+      )}
+    </button>
+  )
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => {
+      setCopied(false)
+    }, 2000)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [copied])
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground hover:text-foreground size-8"
+      aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true)
+        })
+      }}
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </Button>
+  )
+}
+
+function Code({
+  content,
+  emphasis = false,
+  className,
+}: {
+  content: string | CodeContent
+  emphasis?: boolean
+  className?: string
+}) {
+  const { segments, language } = toContent(content)
+  return (
+    <pre
+      className={cn(
+        'overflow-x-auto whitespace-pre-wrap break-words px-6 py-5 font-mono text-sm leading-6',
+        emphasis ? 'text-foreground font-medium' : 'text-muted-foreground',
+        className,
+      )}
+    >
+      {segments.map((segment, index) =>
+        typeof segment === 'string' ? (
+          <span key={index}>{highlight(segment, language)}</span>
+        ) : (
+          <JsonSegment key={index} json={segment.json} />
+        ),
+      )}
+    </pre>
+  )
+}
+
+export function CodeBlock({
+  content,
+  label,
+  className,
+}: {
+  content: string | CodeContent
+  label: string
+  className?: string
+}) {
+  return (
+    <div className={cn('bg-card relative rounded-xl border', className)}>
+      <div className="absolute right-4 top-4">
+        <CopyButton text={toContent(content).copy} label={label} />
+      </div>
+      <div className="pr-14">
+        <Code content={content} />
+      </div>
+    </div>
+  )
+}
+
+export function CodeTabsBlock({
+  tabs,
+  label,
+  footer,
+  className,
+}: {
+  tabs: CodeTab[]
+  label: string
+  footer?: ReactNode
+  className?: string
+}) {
+  const [value, setValue] = useState(tabs[0]?.value ?? '')
+  const active = tabs.find((tab) => tab.value === value) ?? tabs[0]
+  return (
+    <div className={cn('bg-card relative rounded-xl border', className)}>
+      <Tabs value={value} onValueChange={setValue}>
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <TabsList variant="line" aria-label={label} className="gap-1 p-0">
+            {tabs.map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="text-muted-foreground data-[state=active]:bg-secondary! data-[state=active]:text-secondary-foreground! h-8 rounded-md px-3.5 transition-colors after:hidden data-[state=active]:shadow-none"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <div className="flex items-center gap-2">
+            {active && (
+              <CopyButton
+                text={toContent(active.content).copy}
+                label={active.label.toLowerCase()}
+              />
+            )}
+            {footer && active?.footer !== false && footer}
+          </div>
+        </div>
+        {tabs.map((tab) => (
+          <TabsContent
+            key={tab.value}
+            value={tab.value}
+            className="animate-in fade-in-0 duration-200"
+          >
+            <Code content={tab.content} emphasis={tab.emphasis} className="pb-5 pt-3" />
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  )
+}
