@@ -17,14 +17,19 @@ export function CreateAgentForm() {
   })
   const modelGrantsQuery = useProjectModelGrants(activeOrg.id, projectId, {
     sort: 'created_at',
-    pageSize: 1,
+    pageSize: 100,
   })
   const catalog = toolCatalog.data
   const poolGrants = poolGrantsQuery.data?.pages[0]?.data ?? []
+  const modelGrants = modelGrantsQuery.data?.pages[0]?.data ?? []
   const defaultPool = (
     poolGrants.find((grant) => grant.machine_pool.management_kind === 'cluster') ?? poolGrants[0]
   )?.machine_pool
-  const defaultModel = modelGrantsQuery.data?.pages[0]?.data[0]?.model
+  const defaultModel =
+    modelGrants.find(
+      ({ model }) =>
+        model.provider_config === 'omnara-openrouter' && model.name === 'openai/gpt-5.6-sol',
+    )?.model ?? modelGrants[0]?.model
   const templatesReady = !poolGrantsQuery.isPending && !modelGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
