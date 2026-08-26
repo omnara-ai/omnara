@@ -55,24 +55,33 @@ Key management stays human-gated: creating, renaming, changing roles, and revoki
 
 ## Device login for CLIs
 
-The device flow gets a token onto a machine where pasting secrets is awkward. It's three steps: request a code, have the user approve it in a browser, poll for the token. These routes live under `/api/auth` (not `/api/v1`) and the first two need no authentication.
+Omnara supports the [OAuth 2.0 Device Authorization Grant](https://www.rfc-editor.org/rfc/rfc8628.html). The returned access token is a regular Omnara personal access token.
+
+Start by discovering the endpoints for the Omnara installation:
+
+```bash
+curl https://app.omnara.com/.well-known/oauth-authorization-server
+```
+
+Use the endpoint URLs returned by this metadata rather than constructing them.
 
 **1. Start the flow:**
 
 ```bash
 curl https://app.omnara.com/api/auth/device/code \
-  -H "Content-Type: application/json" \
-  -d '{ "client_name": "acme-cli", "token_name": "laptop of dana" }'
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "client_id=omnara-cli" \
+  --data-urlencode "token_name=laptop of dana"
 ```
 
-`client_name` identifies the requesting client on the approval screen, while `token_name` names the resulting personal access token. When provided, both use the 64-character resource-name policy. Omitting either field or sending an empty value uses `Device` or `Device login`, respectively.
+`client_id` must identify a registered public client. `token_name` is an optional Omnara extension for naming the resulting PAT; it uses the 64-character resource-name policy and defaults to `Device login`.
 
 ```json
 {
   "device_code": "b62d4cb3…",
-  "user_code": "GLPM-XKCD",
+  "user_code": "A1B2C-D3E4F",
   "verification_uri": "https://app.omnara.com/device",
-  "verification_uri_complete": "https://app.omnara.com/device?user_code=GLPM-XKCD",
+  "verification_uri_complete": "https://app.omnara.com/device?user_code=A1B2C-D3E4F",
   "expires_in": 900,
   "interval": 5
 }
@@ -84,23 +93,25 @@ curl https://app.omnara.com/api/auth/device/code \
 
 ```bash
 curl https://app.omnara.com/api/auth/device/token \
-  -H "Content-Type: application/json" \
-  -d '{ "device_code": "b62d4cb3…" }'
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+  --data-urlencode "device_code=b62d4cb3…" \
+  --data-urlencode "client_id=omnara-cli"
 ```
 
-While the user hasn't decided, you get `202`:
+While the user hasn't decided, the token endpoint returns `400`:
 
 ```json
-{ "error": "authorization_pending", "interval": 5 }
+{ "error": "authorization_pending" }
 ```
 
-(`slow_down` means you're polling too fast — back off to the returned interval.) On approval, `200` delivers a normal API key:
+Keep polling at the returned interval. After `slow_down`, add five seconds to the interval for this and later requests. On approval, `200` returns the PAT:
 
 ```json
 { "access_token": "omnara_pat_v1_…", "token_type": "Bearer" }
 ```
 
-A denied or expired flow returns `400` with `"access_denied"` or `"expired_token"`. The resulting token is a regular personal access token for the approving user, named after `token_name` — it appears in their token list like any other.
+A denied or expired flow returns `400` with `"access_denied"` or `"expired_token"`. The PAT does not expire automatically; it appears in the approving user's token list, where it can be revoked, and is used as a bearer token for subsequent API calls.
 
 ## Managing tokens
 

@@ -66,7 +66,7 @@ export function DeviceAuth() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Approve device login</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Review the request before granting API access.
+          Only approve if this code matches the one shown by the CLI where you started login.
         </p>
       </div>
 

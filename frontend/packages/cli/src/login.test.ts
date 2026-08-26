@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
       verificationUriComplete: 'https://self-hosted.example/device?user_code=ABCDE-FGHIJ',
       expiresInSeconds: 900,
       intervalSeconds: 5,
+      tokenEndpoint: 'https://self-hosted.example/api/auth/device/token',
+      clientId: 'omnara-cli',
     }),
   ),
   readConfigFileForUpdate: vi.fn(() => ({})),
@@ -32,6 +34,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@omnara/sdk', () => ({
+  OMNARA_CLI_OAUTH_CLIENT_ID: 'omnara-cli',
   bearerToken: mocks.bearerToken,
   createOmnaraClient: mocks.createOmnaraClient,
   pollDeviceAuthToken: mocks.pollDeviceAuthToken,
@@ -96,8 +99,15 @@ describe('login', () => {
 
     await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
 
-    expect(mocks.startDeviceAuth).toHaveBeenCalledWith(expect.objectContaining({ baseUrl }))
-    expect(mocks.pollDeviceAuthToken).toHaveBeenCalledWith(expect.objectContaining({ baseUrl }))
+    expect(mocks.startDeviceAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ issuerUrl: baseUrl, clientId: 'omnara-cli' }),
+    )
+    expect(mocks.pollDeviceAuthToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenEndpoint: 'https://self-hosted.example/api/auth/device/token',
+        clientId: 'omnara-cli',
+      }),
+    )
     expect(mocks.createOmnaraClient).toHaveBeenCalledWith(expect.objectContaining({ baseUrl }))
     expect(mocks.updateConfigFile).toHaveBeenCalledWith({
       token: 'omnara_pat_v1_test',

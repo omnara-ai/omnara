@@ -19,30 +19,30 @@ const (
 )
 
 func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
-	if !requireJSONContentType(w, r) {
+	form, ok := parseOAuthForm(w, r)
+	if !ok {
 		return
 	}
-	var body struct {
-		ClientName string `json:"client_name"`
-		TokenName  string `json:"token_name"`
-	}
-	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"client_name": true, "token_name": true}, nil); err != nil {
-		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+	clientID := oauthFormValue(form, "client_id")
+	if clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "client_id is required")
 		return
 	}
-	clientName, err := resourcename.CanonicalizeAllowEmpty("client_name", body.ClientName)
+	client, ok := oauthPublicClients[clientID]
+	if !ok {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "client_id is not registered")
+		return
+	}
+	if oauthFormValue(form, "scope") != "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope", "this authorization server does not define OAuth scopes")
+		return
+	}
+	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", oauthFormValue(form, "token_name"))
 	if err != nil {
-		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	body.ClientName = clientName
-	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", body.TokenName)
-	if err != nil {
-		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
-		return
-	}
-	body.TokenName = tokenName
-	if !h.requireAuthRateLimits(
+	if !h.requireOAuthRateLimits(
 		w,
 		r,
 		"device_code",
@@ -51,24 +51,29 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		ResetClientLimit,
 		ResetClientLimit,
 		authShortWindow,
+		false,
 	) {
 		return
 	}
 	flow, err := h.store.StartDeviceAuthFlow(
 		r.Context(),
-		identitystore.StartDeviceAuthFlowInput{ClientName: body.ClientName, TokenName: body.TokenName},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   clientID,
+			ClientName: client.name,
+			TokenName:  tokenName,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
-			apierror.WriteError(w, apierror.FromError(err))
+			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "device authorization request is invalid")
 			return
 		}
-		h.writeAuthServerError(w, r, err)
+		h.writeOAuthServerError(w, r, err)
 		return
 	}
 	verificationURI := h.authURL("/device", nil)
 	values := url.Values{"user_code": []string{flow.UserCode}}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeOAuthJSON(w, http.StatusOK, map[string]any{
 		"device_code":               flow.DeviceCode,
 		"user_code":                 flow.UserCode,
 		"verification_uri":          verificationURI,
@@ -79,46 +84,63 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
-	if !requireJSONContentType(w, r) {
+	form, ok := parseOAuthForm(w, r)
+	if !ok {
 		return
 	}
-	var body struct {
-		DeviceCode string `json:"device_code"`
-	}
-	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"device_code": true}, nil); err != nil {
-		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+	grantType := oauthFormValue(form, "grant_type")
+	if grantType == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
 		return
 	}
-	if !h.requireAuthRateLimits(
+	if grantType != OAuthDeviceGrantType {
+		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type is not supported")
+		return
+	}
+	deviceCode := oauthFormValue(form, "device_code")
+	clientID := oauthFormValue(form, "client_id")
+	if deviceCode == "" || clientID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "device_code and client_id are required")
+		return
+	}
+	if _, ok := oauthPublicClients[clientID]; !ok {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "client_id is not registered")
+		return
+	}
+	if !h.requireOAuthRateLimits(
 		w,
 		r,
 		"device_token",
-		body.DeviceCode,
+		deviceCode,
 		devicePollLimit,
 		devicePollLimit,
 		devicePollClientLimit,
 		authShortWindow,
+		true,
 	) {
 		return
 	}
 	result, err := h.store.PollDeviceAuthFlow(
 		r.Context(),
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: body.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: deviceCode, ClientID: clientID},
 	)
 	if err != nil {
-		h.writeAuthStorageError(w, r, err)
+		h.writeOAuthTokenStorageError(w, r, err)
 		return
 	}
 	if result.Status != identitystore.DeviceAuthFlowStatusApproved {
-		status := http.StatusBadRequest
-		if result.Status == identitystore.DeviceAuthFlowStatusPending ||
-			result.Status == identitystore.DeviceAuthFlowStatusSlowDown {
-			status = http.StatusAccepted
-		}
-		writeJSON(w, status, map[string]any{"error": string(result.Status), "interval": int(result.Interval.Seconds())})
+		writeOAuthError(w, http.StatusBadRequest, string(result.Status), "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": result.Token, "token_type": "Bearer"})
+	writeOAuthJSON(w, http.StatusOK, map[string]any{"access_token": result.Token, "token_type": "Bearer"})
+}
+
+func (h *Handler) writeOAuthTokenStorageError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, storeerr.ErrUnauthorized) || errors.Is(err, storeerr.ErrConflict) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+		return
+	}
+	h.writeOAuthServerError(w, r, err)
 }
 
 func (h *Handler) pendingDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {

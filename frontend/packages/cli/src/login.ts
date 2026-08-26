@@ -4,6 +4,7 @@ import { intro, log, note, outro, spinner } from '@clack/prompts'
 import {
   bearerToken,
   createOmnaraClient,
+  OMNARA_CLI_OAUTH_CLIENT_ID,
   type OmnaraClient,
   pollDeviceAuthToken,
   sdk,
@@ -135,8 +136,8 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         readConfigFileForUpdate()
         const report = canPromptInteractively() ? interactiveReporter(cli.baseUrl) : plainReporter()
         const start = await startDeviceAuth({
-          baseUrl: cli.baseUrl,
-          clientName: 'Omnara CLI',
+          issuerUrl: cli.baseUrl,
+          clientId: OMNARA_CLI_OAUTH_CLIENT_ID,
           tokenName: loginTokenName(options.tokenName, hostname()),
         })
         report.showCode(start.userCode, start.verificationUriComplete)
@@ -149,7 +150,8 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         let token: string
         try {
           token = await pollDeviceAuthToken({
-            baseUrl: cli.baseUrl,
+            tokenEndpoint: start.tokenEndpoint,
+            clientId: start.clientId,
             deviceCode: start.deviceCode,
             intervalSeconds: start.intervalSeconds,
           })

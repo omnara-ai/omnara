@@ -1037,20 +1037,21 @@ WHERE user_id = sqlc.arg(user_id)
   AND revoked_at IS NULL;
 
 -- name: CreateAuthDeviceFlow :one
-INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
+INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
 VALUES (
   sqlc.arg(device_code_hash),
   sqlc.arg(user_code_hash),
+  sqlc.arg(client_id),
   sqlc.arg(client_name),
   sqlc.arg(token_name),
   transaction_timestamp(),
   transaction_timestamp() + (sqlc.arg(ttl_seconds)::bigint * interval '1 second')
 )
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at,
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id,
   greatest(0, extract(epoch FROM expires_at - transaction_timestamp()))::bigint AS expires_in_seconds;
 
 -- name: GetAuthDeviceFlowByUserCodeForUpdate :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE user_code_hash = sqlc.arg(user_code_hash)
   AND approved_at IS NULL
@@ -1060,7 +1061,7 @@ WHERE user_code_hash = sqlc.arg(user_code_hash)
 FOR UPDATE;
 
 -- name: GetAuthDeviceFlowByUserCode :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE user_code_hash = sqlc.arg(user_code_hash)
   AND approved_at IS NULL
@@ -1069,7 +1070,7 @@ WHERE user_code_hash = sqlc.arg(user_code_hash)
   AND expires_at > transaction_timestamp();
 
 -- name: GetAuthDeviceFlowByDeviceCodeForUpdate :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE device_code_hash = sqlc.arg(device_code_hash)
 FOR UPDATE;
@@ -1094,7 +1095,7 @@ WHERE id = sqlc.arg(id)
   AND denied_at IS NULL
   AND consumed_at IS NULL
   AND expires_at > statement_timestamp()
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at;
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id;
 
 -- name: DenyAuthDeviceFlow :one
 UPDATE auth_device_flows
@@ -1104,7 +1105,7 @@ WHERE id = sqlc.arg(id)
   AND denied_at IS NULL
   AND consumed_at IS NULL
   AND expires_at > statement_timestamp()
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at;
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id;
 
 -- name: DenyInvalidatedApprovedAuthDeviceFlow :execrows
 UPDATE auth_device_flows

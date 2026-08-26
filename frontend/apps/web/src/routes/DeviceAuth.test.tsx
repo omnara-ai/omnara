@@ -69,6 +69,14 @@ afterEach(() => {
 })
 
 describe('Device authorization decisions', () => {
+  it('asks the user to match the code shown by the CLI', async () => {
+    await renderDeviceAuth()
+
+    expect(container.textContent).toContain(
+      'Only approve if this code matches the one shown by the CLI where you started login.',
+    )
+  })
+
   it('marks Deny, rather than Approve, as busy while denial is pending', async () => {
     await renderDeviceAuth()
 
