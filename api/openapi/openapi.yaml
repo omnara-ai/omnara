@@ -6380,6 +6380,62 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /api/v1/daemon/tool-calls/{toolCallID}/artifact:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    post:
+      operationId: uploadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Upload daemon artifact
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Artifact created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadArtifactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: The uploaded artifact is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -8755,6 +8811,9 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        exclude_from_model_context:
+          type: boolean
+          description: Whether the referenced artifact is excluded from later model context.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:
@@ -11729,6 +11788,13 @@ components:
           $ref: '#/components/schemas/InstallationID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
+    UploadArtifactResponse:
+      type: object
+      additionalProperties: false
+      required: [artifact_id]
+      properties:
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
     CreateProjectRequest:
       type: object
       additionalProperties: false

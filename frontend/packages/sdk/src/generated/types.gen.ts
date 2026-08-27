@@ -1359,6 +1359,10 @@ export type InlineMediaContentBlock = {
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    /**
+     * Whether the referenced artifact is excluded from later model context.
+     */
+    exclude_from_model_context?: boolean;
     metadata?: ContentBlockMetadata;
 };
 
@@ -2920,6 +2924,10 @@ export type RegisterDaemonRuntimeResponse = {
 export type BootstrapDaemonResponse = {
     installation_id: InstallationId;
     machine_id: MachineId;
+};
+
+export type UploadArtifactResponse = {
+    artifact_id: ArtifactId;
 };
 
 export type CreateProjectRequest = {
@@ -13196,3 +13204,72 @@ export type GetDaemonSkillArchiveResponses = {
 };
 
 export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof GetDaemonSkillArchiveResponses];
+
+export type UploadDaemonArtifactData = {
+    body: Blob | File;
+    path: {
+        toolCallID: ToolCallId;
+    };
+    query: {
+        filename: string;
+    };
+    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifact';
+};
+
+export type UploadDaemonArtifactErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The uploaded artifact is too large.
+     */
+    413: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UploadDaemonArtifactError = UploadDaemonArtifactErrors[keyof UploadDaemonArtifactErrors];
+
+export type UploadDaemonArtifactResponses = {
+    /**
+     * Artifact created.
+     */
+    201: UploadArtifactResponse;
+};
+
+export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];

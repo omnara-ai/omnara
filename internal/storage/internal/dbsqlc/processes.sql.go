@@ -517,6 +517,38 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 	return i, err
 }
 
+const getDaemonArtifactUploadScope = `-- name: GetDaemonArtifactUploadScope :one
+SELECT process.project_id, process.agent_id
+FROM processes process
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
+  AND tool_call.id = process.tool_call_id
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND process.tool_call_id = $3
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+  AND tool_call.type = 'built_in'
+  AND tool_call.name = 'upload_artifact'
+`
+
+type GetDaemonArtifactUploadScopeParams struct {
+	OrgID      uuid.UUID
+	MachineID  uuid.UUID
+	ToolCallID uuid.UUID
+}
+
+type GetDaemonArtifactUploadScopeRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) GetDaemonArtifactUploadScope(ctx context.Context, arg GetDaemonArtifactUploadScopeParams) (GetDaemonArtifactUploadScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonArtifactUploadScope, arg.OrgID, arg.MachineID, arg.ToolCallID)
+	var i GetDaemonArtifactUploadScopeRow
+	err := row.Scan(&i.ProjectID, &i.AgentID)
+	return i, err
+}
+
 const getDaemonProcessForMachineReport = `-- name: GetDaemonProcessForMachineReport :one
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process

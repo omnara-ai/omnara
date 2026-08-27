@@ -3,6 +3,8 @@ package processcmd
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
@@ -84,8 +86,22 @@ func NormalizeIOMode(value IOMode) (IOMode, error) {
 	}
 }
 
-func IsHomeRelativeCwd(cwd string) bool {
-	return cwd == "~" || strings.HasPrefix(cwd, "~/")
+func IsHomeRelativePath(path string) bool {
+	return path == "~" || strings.HasPrefix(path, "~/")
+}
+
+func ExpandHomeRelativePath(path string) (string, error) {
+	if !IsHomeRelativePath(path) {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
 }
 
 func ResolveShellCommand(command string, shell ShellSelector, goos string) ([]string, error) {

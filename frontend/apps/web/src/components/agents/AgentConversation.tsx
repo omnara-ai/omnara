@@ -18,11 +18,13 @@ export function AgentConversation({
   currentActorId,
   orgID,
   projectID,
+  agentID,
 }: {
   chat: UseAgentChatResult
   currentActorId?: string
   orgID: string
   projectID: string
+  agentID: string
 }) {
   return (
     <MessageScrollerProvider>
@@ -78,6 +80,7 @@ export function AgentConversation({
                       currentActorId={currentActorId}
                       orgID={orgID}
                       projectID={projectID}
+                      agentID={agentID}
                     />
                   </MessageScrollerItem>
                 ))}

@@ -14,7 +14,7 @@ func TestToolResultContentBlocksCanonicalizeToPersistedShape(t *testing.T) {
 	input := json.RawMessage(`[
 		{"type":"text","text":"before"},
 		{"type":"structured_data","value":{"runtime_lock_id":"domain value","items":[1,true,null]}},
-		{"type":"media_ref","artifact_id":"` + artifactID + `"},
+		{"type":"media_ref","artifact_id":"` + artifactID + `","exclude_from_model_context":true},
 		{"type":"text","text":"after"}
 	]`)
 	blocks, err := parseToolResultContentBlocks(input)
@@ -98,6 +98,12 @@ func TestToolResultContentBlocksRejectUnpersistedEnvelopeFields(t *testing.T) {
 			name: "provider replay metadata",
 			input: json.RawMessage(
 				`[{"type":"media_ref","artifact_id":"018ffc6b-7f1a-7828-8687-93aa210f5f4a","provider_replay":{"item":{"id":"ig_1"}}}]`,
+			),
+		},
+		{
+			name: "invalid model context exclusion",
+			input: json.RawMessage(
+				`[{"type":"media_ref","artifact_id":"018ffc6b-7f1a-7828-8687-93aa210f5f4a","exclude_from_model_context":"yes"}]`,
 			),
 		},
 	}

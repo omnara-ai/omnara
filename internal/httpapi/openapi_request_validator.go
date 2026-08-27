@@ -56,6 +56,10 @@ func newOpenAPIRequestValidator() (middleware, error) {
 					writeOpenAPIRequestError(w, r, err)
 					return
 				}
+				if route.Operation.OperationID == string(operationUploadDaemonArtifact) {
+					next.ServeHTTP(w, r)
+					return
+				}
 				if route.Operation.RequestBody == nil {
 					if err := rejectUnexpectedOpenAPIRequestBody(r); err != nil {
 						writeOpenAPIRequestError(w, r, err)

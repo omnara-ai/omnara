@@ -13,7 +13,7 @@ function catalogEntry(name: string, mode: string): ToolCatalogEntry {
 }
 
 describe('defaultAgentTools', () => {
-  it('selects web tools in order with catalog permissions', () => {
+  it('selects default tools in order with catalog permissions', () => {
     const webFetch = catalogEntry('web_fetch', 'always_allow')
     const webSearch = catalogEntry('web_search', 'always_ask')
     const catalog: ToolCatalog = {

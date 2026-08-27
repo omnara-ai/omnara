@@ -31,7 +31,10 @@ export type OmnaraUIData = {
   'agent-config': { action: 'initialized' | 'changed' }
   'model-error': { text: string }
   thinking: { active: boolean }
-  media: { artifactId?: string }
+  media: {
+    artifactId?: string
+    excludeFromModelContext?: MediaRefContentBlock['exclude_from_model_context']
+  }
 }
 
 type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
@@ -79,7 +82,10 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   return {
     type: 'data-media',
     id,
-    data: { artifactId: block.artifact_id },
+    data: {
+      artifactId: block.artifact_id,
+      excludeFromModelContext: block.exclude_from_model_context,
+    },
   }
 }
 
@@ -237,7 +243,7 @@ export function agentEventsToMessages(
       event.outcome === 'failed' && part.toolType === 'built_in'
         ? structuredToolErrorCode(contentBlocks)
         : undefined
-    message.parts[index] = {
+    const toolPart: OmnaraUIMessagePart = {
       type: 'dynamic-tool',
       id: part.id,
       toolCallId: part.toolCallId,
@@ -251,6 +257,12 @@ export function agentEventsToMessages(
         contentBlocks,
       },
     }
+    const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
+      block.type === 'media_ref'
+        ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
+        : [],
+    )
+    message.parts.splice(index, 1, toolPart, ...mediaParts)
     message.metadata = eventMetadata(event)
   }
 

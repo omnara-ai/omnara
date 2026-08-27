@@ -28,19 +28,20 @@ type TypedAgentEventRecord struct {
 }
 
 type CreateContentBlockInput struct {
-	ProjectID             ID
-	AgentID               ID
-	OwnerKind             ContentBlockOwnerKind
-	OwnerAgentInputID     ID
-	OwnerModelOutputID    ID
-	OwnerToolCallResultID ID
-	Ordinal               int32
-	BlockKind             ContentBlockKind
-	TextContent           string
-	StructuredData        json.RawMessage
-	ArtifactID            ID
-	ToolCallID            ID
-	Metadata              resourcemeta.Metadata
+	ProjectID               ID
+	AgentID                 ID
+	OwnerKind               ContentBlockOwnerKind
+	OwnerAgentInputID       ID
+	OwnerModelOutputID      ID
+	OwnerToolCallResultID   ID
+	Ordinal                 int32
+	BlockKind               ContentBlockKind
+	TextContent             string
+	StructuredData          json.RawMessage
+	ArtifactID              ID
+	ToolCallID              ID
+	ExcludeFromModelContext bool
+	Metadata                resourcemeta.Metadata
 }
 
 type ContentBlockRecord struct {
@@ -119,19 +120,20 @@ func createContentBlockTx(
 		textContent = &input.TextContent
 	}
 	row, err := dbsqlc.New(db).InsertContentBlock(ctx, dbsqlc.InsertContentBlockParams{
-		ProjectID:             input.ProjectID,
-		AgentID:               input.AgentID,
-		OwnerKind:             string(input.OwnerKind),
-		OwnerAgentInputID:     sqlcIDFromNil(input.OwnerAgentInputID),
-		OwnerModelOutputID:    sqlcIDFromNil(input.OwnerModelOutputID),
-		OwnerToolCallResultID: sqlcIDFromNil(input.OwnerToolCallResultID),
-		Ordinal:               input.Ordinal,
-		BlockKind:             string(input.BlockKind),
-		TextContent:           textContent,
-		StructuredData:        sqlcRawMessageFromEmpty(input.StructuredData),
-		ArtifactID:            sqlcIDFromNil(input.ArtifactID),
-		ToolCallID:            sqlcIDFromNil(input.ToolCallID),
-		Metadata:              metadata,
+		ProjectID:               input.ProjectID,
+		AgentID:                 input.AgentID,
+		OwnerKind:               string(input.OwnerKind),
+		OwnerAgentInputID:       sqlcIDFromNil(input.OwnerAgentInputID),
+		OwnerModelOutputID:      sqlcIDFromNil(input.OwnerModelOutputID),
+		OwnerToolCallResultID:   sqlcIDFromNil(input.OwnerToolCallResultID),
+		Ordinal:                 input.Ordinal,
+		BlockKind:               string(input.BlockKind),
+		TextContent:             textContent,
+		StructuredData:          sqlcRawMessageFromEmpty(input.StructuredData),
+		ArtifactID:              sqlcIDFromNil(input.ArtifactID),
+		ToolCallID:              sqlcIDFromNil(input.ToolCallID),
+		ExcludeFromModelContext: input.ExcludeFromModelContext,
+		Metadata:                metadata,
 	})
 	if err != nil {
 		return ContentBlockRecord{}, fmt.Errorf("create content block: %w", err)
@@ -437,6 +439,9 @@ func toolCallResultContentBlocksTx(
 			part = map[string]any{
 				"type":        "media_ref",
 				"artifact_id": row.ArtifactID.String(),
+			}
+			if row.ExcludeFromModelContext {
+				part["exclude_from_model_context"] = true
 			}
 		default:
 			return nil, fmt.Errorf("stored tool result has unsupported block kind %q", row.BlockKind)
