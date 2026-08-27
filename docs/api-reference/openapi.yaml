@@ -2325,14 +2325,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
     post:
       operationId: listMCPServerTools
       tags: [Configs and Profiles]

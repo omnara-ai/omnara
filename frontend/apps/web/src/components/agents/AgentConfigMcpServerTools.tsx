@@ -74,8 +74,6 @@ export function AgentConfigMcpServerTools({
     mcpToolNamePattern.test(typedName) &&
     !overriddenNames.has(typedName) &&
     !discoveredByName.has(typedName)
-  const serverPermissionMode =
-    server.permission?.mode ?? permissionProfile?.default_permission.mode ?? ''
 
   function addOverride(name: string) {
     if (overriddenNames.has(name)) return
@@ -235,17 +233,11 @@ export function AgentConfigMcpServerTools({
                   >
                     <SelectTrigger size="sm" className="w-36" aria-label={`${tool.name} enabled`}>
                       <SelectValue>
-                        {tool.enabled == null
-                          ? `Default (${server.defaultEnabled ? 'enabled' : 'disabled'})`
-                          : tool.enabled
-                            ? 'Enabled'
-                            : 'Disabled'}
+                        {tool.enabled == null ? 'Default' : tool.enabled ? 'Enabled' : 'Disabled'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={inheritValue}>
-                        Default ({server.defaultEnabled ? 'enabled' : 'disabled'})
-                      </SelectItem>
+                      <SelectItem value={inheritValue}>Default</SelectItem>
                       <SelectItem value="true">Enabled</SelectItem>
                       <SelectItem value="false">Disabled</SelectItem>
                     </SelectContent>
@@ -266,14 +258,12 @@ export function AgentConfigMcpServerTools({
                     >
                       <SelectValue>
                         {tool.permission == null
-                          ? `Default (${permissionModeLabel(permissionProfile, serverPermissionMode)})`
+                          ? 'Default'
                           : permissionModeLabel(permissionProfile, tool.permission.mode)}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={inheritValue}>
-                        Default ({permissionModeLabel(permissionProfile, serverPermissionMode)})
-                      </SelectItem>
+                      <SelectItem value={inheritValue}>Default</SelectItem>
                       {permissionProfile?.permission_modes.map((mode) => (
                         <SelectItem key={mode.name} value={mode.name}>
                           {mode.label}

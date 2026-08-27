@@ -275,15 +275,13 @@ func (m Manager) initialize(
 			err,
 		)
 	}
-	seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, conn.ID)
-	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf(
-			"allocate mcp tools/list request sequence for %q: %w",
-			conn.ServerKey,
-			err,
-		)
-	}
-	tools, err := m.Client.ListTools(ctx, wireConn, seq)
+	tools, err := listAllTools(ctx, m.Client, wireConn, func(ctx context.Context) (int64, error) {
+		seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, conn.ID)
+		if err != nil {
+			return 0, fmt.Errorf("allocate mcp tools/list request sequence for %q: %w", conn.ServerKey, err)
+		}
+		return seq, nil
+	})
 	if err != nil {
 		return executionstore.MCPConnectionRecord{}, fmt.Errorf("list mcp tools for %q: %w", conn.ServerKey, err)
 	}

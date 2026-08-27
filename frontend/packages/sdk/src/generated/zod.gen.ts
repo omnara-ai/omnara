@@ -3293,8 +3293,8 @@ export const zListMcpServersResponse2 = zListMcpServersResponse;
 export const zListMcpServerToolsBody = zMcpServerToolsRequest;
 
 export const zListMcpServerToolsPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+    orgID: zOrganizationId,
+    projectID: zProjectId
 });
 
 /**

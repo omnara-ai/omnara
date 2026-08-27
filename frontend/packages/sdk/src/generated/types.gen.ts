@@ -7095,8 +7095,8 @@ export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServe
 export type ListMcpServerToolsData = {
     body: McpServerToolsRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
     };
     query?: never;
     url: '/api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools';

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +20,25 @@ type fakeMCPToolServer struct {
 	t        *testing.T
 	wantAuth string
 	tools    []map[string]any
+	pageSize int
+}
+
+func (f fakeMCPToolServer) toolsPage(cursor string) map[string]any {
+	if f.pageSize == 0 {
+		return map[string]any{"tools": f.tools}
+	}
+	start := 0
+	if cursor != "" {
+		if _, err := fmt.Sscanf(cursor, "page-%d", &start); err != nil {
+			f.t.Errorf("unexpected cursor %q", cursor)
+		}
+	}
+	end := min(start+f.pageSize, len(f.tools))
+	page := map[string]any{"tools": f.tools[start:end]}
+	if end < len(f.tools) {
+		page["nextCursor"] = fmt.Sprintf("page-%d", end)
+	}
+	return page
 }
 
 func (f fakeMCPToolServer) handler() http.Handler {
@@ -31,6 +51,9 @@ func (f fakeMCPToolServer) handler() http.Handler {
 		var message struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Params struct {
+				Cursor string `json:"cursor"`
+			} `json:"params"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
 			f.t.Errorf("decode request: %v", err)
@@ -56,7 +79,7 @@ func (f fakeMCPToolServer) handler() http.Handler {
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
 				"jsonrpc": "2.0", "id": message.ID,
-				"result": map[string]any{"tools": f.tools},
+				"result": f.toolsPage(message.Params.Cursor),
 			})
 		default:
 			f.t.Errorf("unexpected method %q", message.Method)
@@ -89,7 +112,8 @@ func mcpServerAuthNone(t *testing.T) openapi.MCPServerAuth {
 
 func TestListMCPServerToolsReturnsDiscoveredTools(t *testing.T) {
 	upstream := httptest.NewServer(fakeMCPToolServer{
-		t: t,
+		t:        t,
+		pageSize: 1,
 		tools: []map[string]any{
 			{
 				"name":        "get_forecast",

@@ -10,8 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 )
 
-const discoveryToolsListRequestID = 1
-
 type DiscoveredServer struct {
 	ProtocolVersion string
 	ServerInfo      sdkmcp.Implementation
@@ -44,7 +42,11 @@ func (m Manager) DiscoverTools(
 			ClarifyTransportError(err, endpointURL),
 		)
 	}
-	tools, err := m.Client.ListTools(ctx, wireConn, discoveryToolsListRequestID)
+	var requestID int64
+	tools, err := listAllTools(ctx, m.Client, wireConn, func(context.Context) (int64, error) {
+		requestID++
+		return requestID, nil
+	})
 	if err != nil {
 		return DiscoveredServer{}, fmt.Errorf("list mcp tools: %w", ClarifyTransportError(err, endpointURL))
 	}
