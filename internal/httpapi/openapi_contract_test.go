@@ -377,6 +377,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"MachinePool.provider_config":                    "",
 		"MCPRegistryHeader.name":                         "",
 		"MCPRegistryServer.name":                         "",
+		"MCPServerInfo.name":                             "",
+		"MCPServerTool.name":                             "",
 		"ModelOutputToolUseStreamBlock.tool_name":        "",
 		"ModelToolCallContentBlock.name":                 "",
 		"OrgMember.display_name":                         "",

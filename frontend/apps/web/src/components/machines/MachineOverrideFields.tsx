@@ -29,10 +29,12 @@ import { StartupScriptField } from './StartupScriptField'
 export function OverridesCollapsible({
   title = 'Overrides',
   description,
+  keepMounted = false,
   children,
 }: {
   title?: string
   description?: string
+  keepMounted?: boolean
   children: ReactNode
 }) {
   return (
@@ -42,7 +44,10 @@ export function OverridesCollapsible({
         {title}
         {description && <span className="text-muted-foreground font-normal">— {description}</span>}
       </CollapsibleTrigger>
-      <CollapsibleContent>
+      <CollapsibleContent
+        forceMount={keepMounted || undefined}
+        className={keepMounted ? 'data-[state=closed]:hidden' : undefined}
+      >
         <div className="pt-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>

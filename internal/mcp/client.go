@@ -50,7 +50,7 @@ type Client interface {
 		params json.RawMessage,
 		requestID int64,
 	) (json.RawMessage, error)
-	ListTools(ctx context.Context, conn Conn, requestID int64) ([]*sdkmcp.Tool, error)
+	ListTools(ctx context.Context, conn Conn, requestID int64, cursor string) (ToolsPage, error)
 	CallTool(
 		ctx context.Context,
 		conn Conn,
@@ -58,6 +58,11 @@ type Client interface {
 		toolName string,
 		args json.RawMessage,
 	) (*sdkmcp.CallToolResult, error)
+}
+
+type ToolsPage struct {
+	Tools      []*sdkmcp.Tool `json:"tools"`
+	NextCursor string         `json:"nextCursor,omitempty"`
 }
 
 type InitializeResult struct {
@@ -223,18 +228,29 @@ func (c *httpClient) Call(
 	return result, err
 }
 
-func (c *httpClient) ListTools(ctx context.Context, conn Conn, requestID int64) ([]*sdkmcp.Tool, error) {
-	result, err := c.Call(ctx, conn, "tools/list", json.RawMessage(`{}`), requestID)
+func (c *httpClient) ListTools(
+	ctx context.Context,
+	conn Conn,
+	requestID int64,
+	cursor string,
+) (ToolsPage, error) {
+	params := json.RawMessage(`{}`)
+	if cursor != "" {
+		encoded, err := json.Marshal(map[string]string{"cursor": cursor})
+		if err != nil {
+			return ToolsPage{}, fmt.Errorf("mcp: marshal tools/list params: %w", err)
+		}
+		params = encoded
+	}
+	result, err := c.Call(ctx, conn, "tools/list", params, requestID)
 	if err != nil {
-		return nil, err
+		return ToolsPage{}, err
 	}
-	var out struct {
-		Tools []*sdkmcp.Tool `json:"tools"`
+	var page ToolsPage
+	if err := json.Unmarshal(result, &page); err != nil {
+		return ToolsPage{}, fmt.Errorf("mcp: decode tools/list: %w", err)
 	}
-	if err := json.Unmarshal(result, &out); err != nil {
-		return nil, fmt.Errorf("mcp: decode tools/list: %w", err)
-	}
-	return out.Tools, nil
+	return page, nil
 }
 
 func (c *httpClient) CallTool(

@@ -23,6 +23,7 @@ const draft: BasicConfig = {
       secretId: '',
       service: '',
       region: '',
+      tools: [],
     },
   ],
 }

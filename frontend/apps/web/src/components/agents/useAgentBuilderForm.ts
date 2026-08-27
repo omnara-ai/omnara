@@ -25,6 +25,12 @@ import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 
+export interface BasicMcpTool {
+  name: string
+  enabled: boolean | null
+  permission: ToolPermissionSelection | null
+}
+
 export interface BasicMcpServer {
   id: string
   name: string
@@ -35,6 +41,7 @@ export interface BasicMcpServer {
   secretId: string
   service: string
   region: string
+  tools: BasicMcpTool[]
 }
 
 export type MachineSourceKind = 'pool' | 'machine'
@@ -443,6 +450,17 @@ function mcpWire(server: BasicMcpServer): Record<string, unknown> {
     }
     wire.auth = auth
   }
+  const tools = server.tools.filter((tool) => tool.enabled != null || tool.permission != null)
+  if (tools.length > 0) {
+    wire.tools = Object.fromEntries(tools.map((tool) => [tool.name, mcpToolWire(tool)]))
+  }
+  return wire
+}
+
+function mcpToolWire(tool: BasicMcpTool): Record<string, unknown> {
+  const wire: Record<string, unknown> = {}
+  if (tool.enabled != null) wire.enabled = tool.enabled
+  if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   return wire
 }
 

@@ -275,15 +275,13 @@ func (m Manager) initialize(
 			err,
 		)
 	}
-	seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, conn.ID)
-	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf(
-			"allocate mcp tools/list request sequence for %q: %w",
-			conn.ServerKey,
-			err,
-		)
-	}
-	tools, err := m.Client.ListTools(ctx, wireConn, seq)
+	tools, err := listAllTools(ctx, m.Client, wireConn, func(ctx context.Context) (int64, error) {
+		seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, conn.ID)
+		if err != nil {
+			return 0, fmt.Errorf("allocate mcp tools/list request sequence for %q: %w", conn.ServerKey, err)
+		}
+		return seq, nil
+	})
 	if err != nil {
 		return executionstore.MCPConnectionRecord{}, fmt.Errorf("list mcp tools for %q: %w", conn.ServerKey, err)
 	}
@@ -340,24 +338,34 @@ func (m Manager) Connection(
 	server agentconfig.RuntimeMCPServer,
 	sessionID, protocolVersion string,
 ) (Conn, error) {
-	wireConn := Conn{EndpointURL: conn.EndpointURL, MCPSessionID: sessionID, ProtocolVersion: protocolVersion}
-	if server.Auth == nil {
-		return wireConn, nil
-	}
-	if server.ServerKey != "" && server.ServerKey != conn.ServerKey {
+	if server.Auth != nil && server.ServerKey != "" && server.ServerKey != conn.ServerKey {
 		return Conn{}, fmt.Errorf(
 			"mcp auth server key mismatch: connection %q config %q",
 			conn.ServerKey,
 			server.ServerKey,
 		)
 	}
-	secretID, err := publicid.Decode(publicid.KindSecret, server.Auth.SecretID)
-	if err != nil {
-		return Conn{}, fmt.Errorf("decode mcp auth secret id for %q: %w", conn.ServerKey, err)
+	return m.connection(ctx, orgID, projectID, conn.ServerKey, conn.EndpointURL, server.Auth, sessionID, protocolVersion)
+}
+
+func (m Manager) connection(
+	ctx context.Context,
+	orgID, projectID storage.ID,
+	serverKey, endpointURL string,
+	auth *agentconfig.RuntimeMCPAuth,
+	sessionID, protocolVersion string,
+) (Conn, error) {
+	wireConn := Conn{EndpointURL: endpointURL, MCPSessionID: sessionID, ProtocolVersion: protocolVersion}
+	if auth == nil {
+		return wireConn, nil
 	}
-	kind, err := mcpAuthSecretKind(server.Auth.Type)
+	secretID, err := publicid.Decode(publicid.KindSecret, auth.SecretID)
 	if err != nil {
-		return Conn{}, fmt.Errorf("resolve mcp auth secret kind for %q: %w", conn.ServerKey, err)
+		return Conn{}, fmt.Errorf("decode mcp auth secret id for %q: %w", serverKey, err)
+	}
+	kind, err := mcpAuthSecretKind(auth.Type)
+	if err != nil {
+		return Conn{}, fmt.Errorf("resolve mcp auth secret kind for %q: %w", serverKey, err)
 	}
 	secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 		ctx,
@@ -369,14 +377,14 @@ func (m Manager) Connection(
 		},
 	)
 	if err != nil {
-		return Conn{}, fmt.Errorf("read mcp auth secret for %q: %w", conn.ServerKey, err)
+		return Conn{}, fmt.Errorf("read mcp auth secret for %q: %w", serverKey, err)
 	}
 	payload := secretPayload.Payload
-	switch server.Auth.Type {
+	switch auth.Type {
 	case agentconfig.MCPAuthTypeBearer:
 		wireConn.BearerToken = payload[secrets.KeyValue]
 	case agentconfig.MCPAuthTypeOAuth:
-		token, err := m.oauthBearerToken(ctx, conn, orgID, projectID, secretID, secretPayload)
+		token, err := m.oauthBearerToken(ctx, serverKey, orgID, projectID, secretID, secretPayload)
 		if err != nil {
 			return Conn{}, err
 		}
@@ -386,26 +394,26 @@ func (m Manager) Connection(
 			m.SigV4CredentialCache,
 			secretID,
 			secretPayload.CurrentVersionID,
-			server.Auth.Region,
+			auth.Region,
 			payload,
 		)
 		if providerErr != nil {
-			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, providerErr)
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, providerErr)
 		}
 		wireConn.prepareRequest, err = newSigV4RequestPreparer(
-			server.Auth.Service,
-			server.Auth.Region,
+			auth.Service,
+			auth.Region,
 			provider,
 		)
 		if err != nil {
-			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", conn.ServerKey, err)
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
 		}
 		return wireConn, nil
 	default:
-		return Conn{}, fmt.Errorf("unsupported mcp auth type %q", server.Auth.Type)
+		return Conn{}, fmt.Errorf("unsupported mcp auth type %q", auth.Type)
 	}
 	if wireConn.BearerToken == "" {
-		return Conn{}, fmt.Errorf("mcp auth secret for %q is missing bearer token material", conn.ServerKey)
+		return Conn{}, fmt.Errorf("mcp auth secret for %q is missing bearer token material", serverKey)
 	}
 	return wireConn, nil
 }
@@ -422,23 +430,23 @@ const (
 
 func (m Manager) oauthBearerToken(
 	ctx context.Context,
-	conn executionstore.MCPConnectionRecord,
+	serverKey string,
 	orgID, projectID, secretID storage.ID,
 	secretPayload secretstore.SecretPayloadRecord,
 ) (string, error) {
-	token, fresh, err := m.oauthAccessToken(conn, secretPayload)
+	token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 	if err != nil {
 		return "", err
 	}
 	if fresh {
 		return token, nil
 	}
-	return m.refreshOAuthBearerTokenWithLease(ctx, conn, orgID, projectID, secretID)
+	return m.refreshOAuthBearerTokenWithLease(ctx, serverKey, orgID, projectID, secretID)
 }
 
 func (m Manager) refreshOAuthBearerTokenWithLease(
 	ctx context.Context,
-	conn executionstore.MCPConnectionRecord,
+	serverKey string,
 	orgID, projectID, secretID storage.ID,
 ) (string, error) {
 	maxWaits := m.OAuthRefreshMaxWaits
@@ -458,20 +466,20 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", conn.ServerKey, err)
+			return "", fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err)
 		}
 		if acquired {
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - oauthRefreshOwnerHeadroom
 			return m.refreshOAuthBearerTokenAsLeaseOwner(
 				ctx,
-				conn,
+				serverKey,
 				projectID,
 				lease,
 				ownerTimeout,
 			)
 		}
 		if attempt >= maxWaits {
-			return "", fmt.Errorf("mcp oauth refresh lease for %q is busy", conn.ServerKey)
+			return "", fmt.Errorf("mcp oauth refresh lease for %q is busy", serverKey)
 		}
 		if err := sleepBackoff(ctx, m.oauthRefreshWait(attempt)); err != nil {
 			return "", err
@@ -486,9 +494,9 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", conn.ServerKey, err)
+			return "", fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", serverKey, err)
 		}
-		token, fresh, err := m.oauthAccessToken(conn, secretPayload)
+		token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 		if err != nil {
 			return "", err
 		}
@@ -500,14 +508,14 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 
 func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 	callerCtx context.Context,
-	conn executionstore.MCPConnectionRecord,
+	serverKey string,
 	projectID storage.ID,
 	lease secretstore.OAuthRefreshLeaseRecord,
 	timeout time.Duration,
 ) (string, error) {
 	defer func() { _ = m.Secrets.ReleaseProjectOAuthRefreshLease(context.WithoutCancel(callerCtx), lease) }()
 	if timeout <= 0 {
-		return "", fmt.Errorf("mcp oauth refresh lease for %q has insufficient remaining time", conn.ServerKey)
+		return "", fmt.Errorf("mcp oauth refresh lease for %q has insufficient remaining time", serverKey)
 	}
 	if err := callerCtx.Err(); err != nil {
 		return "", err
@@ -524,10 +532,10 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		},
 	)
 	if err != nil {
-		return "", fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", conn.ServerKey, err)
+		return "", fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", serverKey, err)
 	}
 	payload := secretPayload.Payload
-	token, fresh, err := m.oauthAccessToken(conn, secretPayload)
+	token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 	if err != nil {
 		return "", err
 	}
@@ -535,10 +543,10 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		return token, nil
 	}
 	if secretPayload.CurrentVersionID != lease.ExpectedCurrentVersionID {
-		return "", fmt.Errorf("mcp oauth refresh lease for %q no longer owns the current secret version", conn.ServerKey)
+		return "", fmt.Errorf("mcp oauth refresh lease for %q no longer owns the current secret version", serverKey)
 	}
 	if payload[secrets.KeyRefreshToken] == "" {
-		return "", fmt.Errorf("mcp oauth secret for %q is expired and has no refresh token", conn.ServerKey)
+		return "", fmt.Errorf("mcp oauth secret for %q is expired and has no refresh token", serverKey)
 	}
 	refreshed, err := RefreshOAuthToken(leaseOwnerCtx, OAuthRefreshInput{
 		TokenEndpoint: payload[secrets.KeyTokenEndpoint],
@@ -549,7 +557,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		HTTPClient:    m.OAuthHTTPClient,
 	})
 	if err != nil {
-		return "", fmt.Errorf("refresh mcp oauth token for %q: %w", conn.ServerKey, err)
+		return "", fmt.Errorf("refresh mcp oauth token for %q: %w", serverKey, err)
 	}
 	refreshedPayload := cloneSecretPayload(payload)
 	refreshedPayload[secrets.KeyAccessToken] = refreshed.AccessToken
@@ -568,7 +576,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		refreshed.AccessTokenLifetime(),
 	)
 	if err != nil {
-		return "", fmt.Errorf("normalize refreshed mcp oauth token for %q: %w", conn.ServerKey, err)
+		return "", fmt.Errorf("normalize refreshed mcp oauth token for %q: %w", serverKey, err)
 	}
 	if _, err := m.Secrets.RotateProjectAvailableOAuthSecret(
 		leaseOwnerCtx,
@@ -589,24 +597,24 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 				},
 			)
 			if readErr == nil {
-				currentToken, fresh, tokenErr := m.oauthAccessToken(conn, current)
+				currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current)
 				if tokenErr == nil && fresh {
 					return currentToken, nil
 				}
 			}
 		}
-		return "", fmt.Errorf("store refreshed mcp oauth token for %q: %w", conn.ServerKey, err)
+		return "", fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err)
 	}
 	return refreshed.AccessToken, nil
 }
 
 func (m Manager) oauthAccessToken(
-	conn executionstore.MCPConnectionRecord,
+	serverKey string,
 	secretPayload secretstore.SecretPayloadRecord,
 ) (string, bool, error) {
 	accessToken := secretPayload.Payload[secrets.KeyAccessToken]
 	if accessToken == "" {
-		return "", false, fmt.Errorf("mcp oauth secret for %q is missing access token", conn.ServerKey)
+		return "", false, fmt.Errorf("mcp oauth secret for %q is missing access token", serverKey)
 	}
 	if !secretPayload.OAuthAccessTokenExpires || secretPayload.OAuthAccessTokenRemaining > oauthRefreshSkew {
 		return accessToken, true, nil

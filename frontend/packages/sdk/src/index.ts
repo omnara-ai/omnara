@@ -20,3 +20,4 @@ export {
 export { ApiError, type ApiErrorCode } from './errors'
 export * as sdk from './generated/sdk.gen'
 export type * from './generated/types.gen'
+export * as schemas from './generated/zod.gen'
