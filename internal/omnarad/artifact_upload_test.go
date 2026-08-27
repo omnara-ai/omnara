@@ -127,7 +127,7 @@ func TestRunUploadArtifactCommandRejectsInvalidFiles(t *testing.T) {
 				if err != nil {
 					t.Fatalf("create large file: %v", err)
 				}
-				if err := file.Truncate(maxArtifactUploadBytes + 1); err != nil {
+				if err := file.Truncate(daemonprotocol.MaxArtifactUploadBytes + 1); err != nil {
 					t.Fatalf("truncate large file: %v", err)
 				}
 				if err := file.Close(); err != nil {

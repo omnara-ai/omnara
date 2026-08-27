@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -53,7 +54,7 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	if httpRequest.ContentLength == 0 {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "artifact content is required")
 	}
-	if httpRequest.ContentLength > maxDaemonArtifactUploadBytes {
+	if httpRequest.ContentLength > daemonprotocol.MaxArtifactUploadBytes {
 		return nil, apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "artifact content exceeds the size limit")
 	}
 	content, err := io.ReadAll(request.Body)
@@ -77,7 +78,7 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 		ContentType:    contentType,
 		Filename:       filename,
 		Content:        content,
-		MaxBytes:       maxDaemonArtifactUploadBytes,
+		MaxBytes:       daemonprotocol.MaxArtifactUploadBytes,
 		IdempotencyKey: executionstore.UploadArtifactIdempotencyKey(toolCallID),
 	})
 	if err != nil {

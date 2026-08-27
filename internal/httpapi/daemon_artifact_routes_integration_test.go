@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
@@ -262,7 +263,7 @@ func TestUploadDaemonArtifactValidatesFilenameAndBody(t *testing.T) {
 		handler,
 		fixture,
 		"large.bin",
-		bytes.Repeat([]byte("x"), int(maxDaemonArtifactUploadBytes)+1),
+		bytes.Repeat([]byte("x"), int(daemonprotocol.MaxArtifactUploadBytes)+1),
 		http.StatusRequestEntityTooLarge,
 	)
 }

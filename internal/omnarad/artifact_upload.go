@@ -17,8 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-const maxArtifactUploadBytes int64 = 10 * 1024 * 1024
-
 type uploadArtifactResponse struct {
 	ArtifactID string `json:"artifact_id"`
 }
@@ -55,8 +53,8 @@ func runUploadArtifactCommand(
 	if info.Size() == 0 {
 		return errors.New("artifact file cannot be empty")
 	}
-	if info.Size() > maxArtifactUploadBytes {
-		return fmt.Errorf("artifact file exceeds %d bytes", maxArtifactUploadBytes)
+	if info.Size() > daemonprotocol.MaxArtifactUploadBytes {
+		return fmt.Errorf("artifact file exceeds %d bytes", daemonprotocol.MaxArtifactUploadBytes)
 	}
 	config, _, _, err := loadRuntimeConfig(false)
 	if err != nil {

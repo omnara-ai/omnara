@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/skills"
 )
 
@@ -83,7 +84,7 @@ func TestRequestBodyLimitDaemonArtifactUpload(t *testing.T) {
 		"/api/v1/daemon/tool-calls/tcl_abc/artifact?filename=shot.png",
 		nil,
 	)
-	if got := requestBodyLimit(req); got != maxDaemonArtifactUploadBytes {
-		t.Fatalf("artifact upload body limit = %d, want %d", got, maxDaemonArtifactUploadBytes)
+	if got := requestBodyLimit(req); got != daemonprotocol.MaxArtifactUploadBytes {
+		t.Fatalf("artifact upload body limit = %d, want %d", got, daemonprotocol.MaxArtifactUploadBytes)
 	}
 }

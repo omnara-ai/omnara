@@ -36,7 +36,8 @@ const (
 type AckStatus string
 
 const (
-	MaxMessageBytes = 1048576
+	MaxMessageBytes        = 1048576
+	MaxArtifactUploadBytes = 10 * 1024 * 1024
 
 	AckStatusCommitted       AckStatus = "committed"
 	AckStatusCleanupOnly     AckStatus = "cleanup_only"

@@ -164,7 +164,9 @@ Deletes a pool-backed machine. Requires `machine_ref`.
 
 ### `upload_artifact`
 
-Creates an artifact from a regular file on an attached machine. Requires a relative, absolute, or `~`-relative `path`; provide `machine_ref` when the agent has more than one machine. Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
+Use `upload_artifact` to make a regular file on an attached machine available for the user to view or download, such as a generated PDF, image, or report. Pass a relative, absolute, or `~`-relative `path`; provide `machine_ref` when the agent has more than one machine.
+
+Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
 On success, the durable tool result includes the process ID and artifact metadata so clients can display or download the artifact. The artifact's contents are not added to model context or delivered through external integrations.
 
