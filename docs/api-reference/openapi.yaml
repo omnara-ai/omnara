@@ -6706,6 +6706,27 @@ components:
       description: Sort order for named resources that expose a created timestamp.
       default: -created_at
       enum: [name, -name, -created_at, created_at]
+    ErrorIssue:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      properties:
+        path:
+          type: string
+          description: >-
+            JSON Pointer (RFC 6901) to the offending field in the submitted document.
+            An empty string refers to the whole document.
+        message:
+          type: string
+          description: Human-readable description of the problem with this field.
+        line:
+          type: integer
+          minimum: 1
+          description: 1-based line of the offending field in the submitted source, when it can be located.
+        column:
+          type: integer
+          minimum: 1
+          description: 1-based column of the offending field in the submitted source, when it can be located.
     Error:
       type: object
       additionalProperties: false
@@ -6714,6 +6735,13 @@ components:
         error:
           type: string
           description: Human-readable error message. Do not match on it programmatically.
+        issues:
+          type: array
+          description: >-
+            Field-level problems when a submitted document (such as an agent config source)
+            failed validation. Absent for errors that are not about a specific field.
+          items:
+            $ref: '#/components/schemas/ErrorIssue'
         code:
           type: string
           description: Stable error code for programmatic handling.

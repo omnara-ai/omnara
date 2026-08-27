@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -199,8 +200,8 @@ mcp:
 			if err == nil {
 				t.Fatal("expected JSON Schema validation to reject the unknown field")
 			}
-			if !strings.Contains(err.Error(), "additionalProperties") {
-				t.Fatalf("expected additionalProperties error, got %v", err)
+			if !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("expected unknown field error, got %v", err)
 			}
 		})
 	}
@@ -289,7 +290,8 @@ func TestParseSourceRejectsInvalidShapeBeforeCompilerValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected JSON Schema validation to reject an invalid model.provider_config type")
 	}
-	if !strings.Contains(err.Error(), "JSON schema") {
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
 		t.Fatalf("expected JSON Schema validation error, got %v", err)
 	}
 }

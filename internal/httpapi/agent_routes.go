@@ -57,7 +57,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 		request.Body.Source,
 	)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, agentConfigCompileError(err)
 	}
 	config, err := s.server.store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               project.ID,
@@ -861,7 +861,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		request.Body.Source,
 	)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, agentConfigCompileError(err)
 	}
 	expectedCurrentConfigID := storage.NilID
 	if request.Body.ExpectedCurrentConfigId != nil {
@@ -1312,10 +1312,9 @@ func (s *Server) compileAgentConfigBodyForProject(
 		providerConfig, err := s.store.Models().GetModelProviderConfigByName(ctx, project.OrgID, providerConfigName)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"model.provider_config %q was not found: %w",
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/provider_config",
+					fmt.Errorf("model provider config %q was not found: %w", providerConfigName, storeerr.ErrNotFound),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1328,11 +1327,14 @@ func (s *Server) compileAgentConfigBodyForProject(
 		)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"configured model name %q is not configured for model.provider_config %q: %w",
-					configuredModelName,
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/name",
+					fmt.Errorf(
+						"configured model %q is not configured for model provider config %q: %w",
+						configuredModelName,
+						providerConfigName,
+						storeerr.ErrNotFound,
+					),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1345,11 +1347,14 @@ func (s *Server) compileAgentConfigBodyForProject(
 		)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"configured model name %q on model.provider_config %q does not have an active project grant: %w",
-					configuredModelName,
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/name",
+					fmt.Errorf(
+						"configured model %q on model provider config %q does not have an active project grant: %w",
+						configuredModelName,
+						providerConfigName,
+						storeerr.ErrNotFound,
+					),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1440,4 +1445,25 @@ func (s *Server) compileAgentConfigBodyForProject(
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     result.Hash,
 	}, nil
+}
+
+func agentConfigCompileError(err error) apierror.ResponseError {
+	var validationErr *agentconfig.ValidationError
+	if !errors.As(err, &validationErr) {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	issues := make([]openapi.ErrorIssue, 0, len(validationErr.Issues))
+	for _, issue := range validationErr.Issues {
+		converted := openapi.ErrorIssue{Path: issue.Path, Message: issue.Message}
+		if issue.Line > 0 {
+			line := issue.Line
+			converted.Line = &line
+		}
+		if issue.Column > 0 {
+			column := issue.Column
+			converted.Column = &column
+		}
+		issues = append(issues, converted)
+	}
+	return apierror.WithIssues(openapi.ErrorCodeInvalidRequest, validationErr.Error(), issues)
 }

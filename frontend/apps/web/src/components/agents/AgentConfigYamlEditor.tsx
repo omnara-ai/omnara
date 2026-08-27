@@ -1,10 +1,13 @@
 import './monacoEnvironment'
 import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js'
 
+import type { ErrorIssue } from '@omnara/sdk'
 import * as monaco from 'monaco-editor'
 import { configureMonacoYaml, type MonacoYaml, type MonacoYamlOptions } from 'monaco-yaml'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
+import { issueMarkers } from '@/lib/agent-config-issues'
 import { cn } from '@/lib/utils'
 
 import agentConfigSchemaSource from '../../../../../../internal/agentconfig/generated/agent_config.schema.json?raw'
@@ -59,6 +62,25 @@ model:
   provider_config: <provider-config-name>
   name: <model-name>`
 
+const serverIssueMarkerOwner = 'omnara-agent-config-issues'
+
+function serverIssueMarkers(model: monaco.editor.ITextModel, issues: readonly ErrorIssue[]) {
+  const lineCount = model.getLineCount()
+  return issueMarkers(issues).flatMap((marker): monaco.editor.IMarkerData[] => {
+    if (marker.line > lineCount) return []
+    return [
+      {
+        severity: monaco.MarkerSeverity.Error,
+        message: marker.message,
+        startLineNumber: marker.line,
+        startColumn: marker.column,
+        endLineNumber: marker.line,
+        endColumn: model.getLineMaxColumn(marker.line),
+      },
+    ]
+  })
+}
+
 function agentConfigYamlAriaLabel(readOnly: boolean) {
   return readOnly ? 'Config preview (YAML)' : 'Config (YAML)'
 }
@@ -69,7 +91,10 @@ export interface AgentConfigYamlEditorProps {
   onChange: (value: string) => void
   readOnly?: boolean
   className?: string
+  issues?: readonly ErrorIssue[]
 }
+
+const noIssues: readonly ErrorIssue[] = []
 
 export function AgentConfigYamlEditor({
   id,
@@ -77,6 +102,7 @@ export function AgentConfigYamlEditor({
   onChange,
   readOnly = false,
   className,
+  issues = noIssues,
 }: AgentConfigYamlEditorProps) {
   const editorElementRef = useRef<HTMLDivElement | null>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -84,6 +110,9 @@ export function AgentConfigYamlEditor({
   const onChangeRef = useRef(onChange)
   const initialValueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
+  const issuesRef = useRef(issues)
+  const [staleIssues, setStaleIssues] = useState<readonly ErrorIssue[] | null>(null)
+  const visibleIssues = staleIssues === issues ? noIssues : issues
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -131,6 +160,8 @@ export function AgentConfigYamlEditor({
 
     const subscription = model.onDidChangeContent((event) => {
       onChangeRef.current(model.getValue())
+      monaco.editor.setModelMarkers(model, serverIssueMarkerOwner, [])
+      setStaleIssues(issuesRef.current)
 
       const editor = editorRef.current
       if (!editor?.hasTextFocus() || !shouldTriggerSuggestionsForChange(event)) return
@@ -160,6 +191,22 @@ export function AgentConfigYamlEditor({
   }, [value])
 
   useEffect(() => {
+    issuesRef.current = issues
+    const model = modelRef.current
+    if (!model) return
+    monaco.editor.setModelMarkers(model, serverIssueMarkerOwner, serverIssueMarkers(model, issues))
+  }, [issues])
+
+  function revealIssue(issue: ErrorIssue) {
+    const editor = editorRef.current
+    if (!editor || issue.line === undefined) return
+    const position = { lineNumber: issue.line, column: issue.column ?? 1 }
+    editor.revealPositionInCenter(position)
+    editor.setPosition(position)
+    editor.focus()
+  }
+
+  useEffect(() => {
     editorRef.current?.updateOptions({
       ariaLabel: agentConfigYamlAriaLabel(readOnly),
       ariaRequired: !readOnly,
@@ -168,13 +215,16 @@ export function AgentConfigYamlEditor({
   }, [readOnly])
 
   return (
-    <div
-      id={id}
-      ref={editorElementRef}
-      className={cn(
-        'border-input bg-background h-[28rem] overflow-hidden rounded-md border text-xs',
-        className,
-      )}
-    />
+    <>
+      <div
+        id={id}
+        ref={editorElementRef}
+        className={cn(
+          'border-input bg-background h-[28rem] overflow-hidden rounded-md border text-xs',
+          className,
+        )}
+      />
+      <AgentConfigIssueList issues={visibleIssues} onSelect={revealIssue} />
+    </>
   )
 }

@@ -1,6 +1,8 @@
+import type { ErrorIssue } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
@@ -14,6 +16,7 @@ export function AgentConfigEditorFields({
   header,
   yamlFieldId,
   yamlFieldClassName,
+  issues,
 }: {
   editor: AgentConfigEditorState
   orgId: string
@@ -21,6 +24,7 @@ export function AgentConfigEditorFields({
   header?: ReactNode
   yamlFieldId: string
   yamlFieldClassName: string
+  issues?: readonly ErrorIssue[]
 }) {
   const { builderSession, canManage, dispatchMode, mode, showBuilder, source } = editor
   return (
@@ -54,6 +58,7 @@ export function AgentConfigEditorFields({
             onUnavailableChange={editor.form.reportModelUnavailable}
           />
           <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={editor.form} />
+          <AgentConfigIssueList issues={issues ?? []} />
         </div>
       )}
       {!showBuilder && (
@@ -69,6 +74,7 @@ export function AgentConfigEditorFields({
           }}
           readOnly={!canManage}
           className={yamlFieldClassName}
+          issues={issues}
         />
       )}
       {canManage && builderSession == null && source !== '' && (

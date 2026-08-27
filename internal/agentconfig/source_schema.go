@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
-	"strings"
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
@@ -92,33 +90,35 @@ type AgentConfigMCPToolSource struct {
 }
 
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
+	parsed, _, err := parseSource(format, raw)
+	return parsed, err
+}
+
+func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return AgentConfigSource{}, errors.New("agent config source is required")
+		return AgentConfigSource{}, nil, errors.New("agent config source is required")
 	}
-	jsonSource, err := sourceJSON(format, raw)
+	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
-		return AgentConfigSource{}, err
+		return AgentConfigSource{}, nil, validationErrorFrom(err, root)
 	}
 	jsonSource, err = canonicalizeSourceResourceReferences(jsonSource)
 	if err != nil {
-		return AgentConfigSource{}, err
+		return AgentConfigSource{}, nil, validationErrorFrom(err, root)
 	}
 	schema, err := compiledSourceSchema()
 	if err != nil {
-		return AgentConfigSource{}, err
+		return AgentConfigSource{}, nil, err
 	}
 	result := schema.Validate(jsonSource)
 	if !result.IsValid() {
-		return AgentConfigSource{}, fmt.Errorf(
-			"agent config source does not match JSON schema: %s",
-			validationErrors(result),
-		)
+		return AgentConfigSource{}, nil, newValidationError(schemaIssues(result), root)
 	}
 	var parsed AgentConfigSource
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
-		return AgentConfigSource{}, fmt.Errorf("decode agent config source: %w", err)
+		return AgentConfigSource{}, nil, fmt.Errorf("decode agent config source: %w", err)
 	}
-	return parsed, nil
+	return parsed, root, nil
 }
 
 func canonicalizeSourceResourceReferences(raw []byte) ([]byte, error) {
@@ -155,14 +155,14 @@ func canonicalizeSourceResourceReferences(raw []byte) ([]byte, error) {
 
 func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 	changed := false
-	canonicalize := func(object map[string]any, key, field string) error {
+	canonicalize := func(object map[string]any, key string, path string) error {
 		value, ok := object[key].(string)
 		if !ok {
 			return nil
 		}
-		canonical, err := resourcename.CanonicalizeRequired(field, value)
+		canonical, err := resourcename.CanonicalizeRequired(key, value)
 		if err != nil {
-			return err
+			return NewIssue(path, err)
 		}
 		if canonical != value {
 			object[key] = canonical
@@ -172,7 +172,7 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 	}
 	if model, ok := root["model"].(map[string]any); ok {
 		for _, key := range []string{"provider_config", "name"} {
-			if err := canonicalize(model, key, "model."+key); err != nil {
+			if err := canonicalize(model, key, jsonPointer("model", key)); err != nil {
 				return false, err
 			}
 		}
@@ -184,8 +184,7 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 				continue
 			}
 			for _, key := range []string{"machine_name", "machine_pool_name"} {
-				field := fmt.Sprintf("machine_sources[%d].%s", index, key)
-				if err := canonicalize(machine, key, field); err != nil {
+				if err := canonicalize(machine, key, jsonPointer("machine_sources", index, key)); err != nil {
 					return false, err
 				}
 			}
@@ -194,34 +193,39 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 	return changed, nil
 }
 
-func sourceJSON(format SourceFormat, raw []byte) ([]byte, error) {
+func sourceJSON(format SourceFormat, raw []byte) ([]byte, *yaml.Node, error) {
 	switch format {
 	case SourceFormatJSON:
-		return raw, nil
+		return raw, nil, nil
 	case SourceFormatYAML:
-		var value any
+		var root yaml.Node
 		decoder := yaml.NewDecoder(bytes.NewReader(raw))
-		if err := decoder.Decode(&value); err != nil {
-			return nil, fmt.Errorf("parse agent config YAML: %w", err)
+		if err := decoder.Decode(&root); err != nil {
+			return nil, nil, yamlSyntaxIssue(err)
 		}
-		var extra any
+		var extra yaml.Node
 		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 			if err == nil {
-				return nil, errors.New("parse agent config YAML: trailing document")
+				line, column := yamlLocation(&extra, "")
+				return nil, &root, issueError{issue: Issue{Message: "trailing document", Line: line, Column: column}}
 			}
-			return nil, fmt.Errorf("parse agent config YAML: %w", err)
+			return nil, &root, yamlSyntaxIssue(err)
+		}
+		var value any
+		if err := root.Decode(&value); err != nil {
+			return nil, &root, yamlSyntaxIssue(err)
 		}
 		normalized, err := normalizeYAMLValue(value)
 		if err != nil {
-			return nil, fmt.Errorf("normalize agent config YAML: %w", err)
+			return nil, &root, NewIssue("", err)
 		}
 		out, err := json.Marshal(normalized)
 		if err != nil {
-			return nil, fmt.Errorf("marshal agent config YAML as JSON: %w", err)
+			return nil, &root, fmt.Errorf("marshal agent config YAML as JSON: %w", err)
 		}
-		return out, nil
+		return out, &root, nil
 	default:
-		return nil, fmt.Errorf("unsupported agent config source format %q", format)
+		return nil, nil, fmt.Errorf("unsupported agent config source format %q", format)
 	}
 }
 
@@ -470,20 +474,4 @@ func resourceNameReferenceSchema() *kjsonschema.Schema {
 
 func envNameSchema() *kjsonschema.Schema {
 	return kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern("^[^=\x00]+$"))
-}
-
-func validationErrors(result *kjsonschema.EvaluationResult) string {
-	detailed := result.DetailedErrors()
-	messages := make([]string, 0, len(detailed))
-	for location, message := range detailed {
-		if location == "" {
-			location = "/"
-		}
-		messages = append(messages, location+": "+message)
-	}
-	if len(messages) == 0 {
-		return "validation failed"
-	}
-	sort.Strings(messages)
-	return strings.Join(messages, "; ")
 }
