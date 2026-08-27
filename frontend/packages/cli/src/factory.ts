@@ -242,7 +242,7 @@ const CONFIG_PARAMS: ConfigParam[] = [
   },
 ]
 
-function parseJsonFlag(raw: string): FlagValue {
+export function parseJsonFlag(raw: string): FlagValue {
   try {
     return zFlagValue.parse(JSON.parse(raw))
   } catch {
@@ -252,7 +252,7 @@ function parseJsonFlag(raw: string): FlagValue {
 
 const NUMBER_PATTERN = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
 
-function parseNumberFlag(raw: string): number {
+export function parseNumberFlag(raw: string): number {
   if (!NUMBER_PATTERN.test(raw.trim())) {
     throw new InvalidArgumentError('expects a number')
   }

@@ -81,7 +81,7 @@ function tableColumns(rows: Row[]): string[] {
 const COLUMN_GAP = 2
 const MIN_COLUMN_WIDTH = 6
 
-function terminalWidth(): number | undefined {
+export function terminalWidth(): number | undefined {
   if (!process.stdout.isTTY) return undefined
   const columns = process.stdout.columns
   return Number.isInteger(columns) && columns > 0 ? columns : undefined
@@ -107,12 +107,16 @@ function fitWidths(
   return widths
 }
 
-function truncate(value: string, width: number): string {
+export function truncate(value: string, width: number): string {
   if (value.length <= width) return value
   let end = Math.max(0, width - 1)
   const lastUnit = value.charCodeAt(end - 1)
   if (end > 0 && lastUnit >= 0xd800 && lastUnit <= 0xdbff) end -= 1
   return `${value.slice(0, end)}…`
+}
+
+export function abbreviate(text: string, max: number): string {
+  return truncate(text.replaceAll(/\s+/g, ' ').trim(), max)
 }
 
 function printTable(rows: Row[], indent: number, explicitColumns?: readonly string[]): void {

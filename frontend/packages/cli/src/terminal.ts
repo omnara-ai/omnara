@@ -1,6 +1,8 @@
 import readlineCursor from 'node:readline'
 import readline from 'node:readline/promises'
 
+import { terminalWidth } from './output.ts'
+
 export const ansi = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
@@ -11,6 +13,8 @@ export const ansi = {
   yellow: '\x1b[33m',
   magenta: '\x1b[35m',
   red: '\x1b[31m',
+  hideCursor: '\x1b[?25l',
+  showCursor: '\x1b[?25h',
 }
 
 export function label(name: string, color: string): string {
@@ -18,9 +22,13 @@ export function label(name: string, color: string): string {
 }
 
 export function terminalColumns(): number {
-  const columns: number | undefined = process.stdout.columns
-  return Number.isInteger(columns) && columns > 0 ? columns : 80
+  return terminalWidth() ?? 80
 }
+
+export type ReadResult =
+  | { kind: 'line'; line: string }
+  | { kind: 'interrupted'; input: string }
+  | { kind: 'closed' }
 
 export class Terminal {
   private currentRl: readline.Interface | undefined
@@ -30,15 +38,12 @@ export class Terminal {
   private status: string | undefined
   private preview: string | undefined
   private renderedRows = 0
+  private repaintScheduled = false
 
   private eraseRegion(): void {
-    readlineCursor.cursorTo(process.stdout, 0)
-    readlineCursor.clearLine(process.stdout, 0)
-    for (let row = 0; row < this.renderedRows; row++) {
-      readlineCursor.moveCursor(process.stdout, 0, -1)
-      readlineCursor.clearLine(process.stdout, 0)
-    }
+    const rows = this.renderedRows
     this.renderedRows = 0
+    process.stdout.write(rows > 0 ? `\r\x1b[${rows}A\x1b[J` : '\r\x1b[2K')
   }
 
   private renderRegion(): void {
@@ -55,40 +60,7 @@ export class Terminal {
     this.currentRl?.prompt(true)
   }
 
-  print(text: string): void {
-    if (this.locked) {
-      this.queued.push(text)
-      return
-    }
-    this.eraseRegion()
-    console.log(text)
-    this.lastBlank = text.trim() === ''
-    this.renderRegion()
-  }
-
-  setStatus(text: string | undefined): void {
-    if (this.locked) {
-      this.status = text
-      return
-    }
-    if (text === this.status) return
-    this.eraseRegion()
-    this.status = text
-    this.renderRegion()
-  }
-
-  setPreview(text: string | undefined): void {
-    if (this.locked) {
-      this.preview = text
-      return
-    }
-    if (text === this.preview) return
-    this.eraseRegion()
-    this.preview = text
-    this.renderRegion()
-  }
-
-  repaint(): void {
+  private repaint(): void {
     if (this.locked) {
       this.currentRl?.prompt(true)
       return
@@ -97,7 +69,16 @@ export class Terminal {
     this.renderRegion()
   }
 
-  finishRead(): void {
+  private scheduleRepaint(): void {
+    if (this.repaintScheduled) return
+    this.repaintScheduled = true
+    setImmediate(() => {
+      this.repaintScheduled = false
+      if (!this.locked) this.repaint()
+    })
+  }
+
+  private finishRead(): void {
     const staleRows = this.renderedRows
     this.renderedRows = 0
     if (staleRows > 0) {
@@ -112,6 +93,29 @@ export class Terminal {
     }
     console.log('')
     this.lastBlank = true
+  }
+
+  print(text: string): void {
+    if (this.locked) {
+      this.queued.push(text)
+      return
+    }
+    this.eraseRegion()
+    console.log(text)
+    this.lastBlank = text.trim() === ''
+    this.renderRegion()
+  }
+
+  setStatus(text: string | undefined): void {
+    if (text === this.status) return
+    this.status = text
+    if (!this.locked) this.scheduleRepaint()
+  }
+
+  setPreview(text: string | undefined): void {
+    if (text === this.preview) return
+    this.preview = text
+    if (!this.locked) this.scheduleRepaint()
   }
 
   blankLine(): void {
@@ -154,55 +158,36 @@ export class Terminal {
     for (const text of queued) this.print(text)
   }
 
-  attach(rl: readline.Interface): void {
-    this.currentRl = rl
+  readLine(prompt: string, initial: string, interrupt?: AbortSignal): Promise<ReadResult> {
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt })
+      this.currentRl = rl
+      let settled = false
+      const settle = (result: ReadResult) => {
+        if (settled) return
+        settled = true
+        interrupt?.removeEventListener('abort', onInterrupt)
+        if (result.kind === 'line') this.finishRead()
+        this.currentRl = undefined
+        rl.close()
+        resolve(result)
+      }
+      const onInterrupt = () => {
+        settle({ kind: 'interrupted', input: rl.line })
+      }
+      interrupt?.addEventListener('abort', onInterrupt)
+      rl.once('line', (line) => {
+        settle({ kind: 'line', line })
+      })
+      rl.once('close', () => {
+        settle({ kind: 'closed' })
+      })
+      rl.once('SIGINT', () => {
+        settle({ kind: 'closed' })
+      })
+      this.repaint()
+      if (initial !== '') rl.write(initial)
+      if (interrupt?.aborted === true) onInterrupt()
+    })
   }
-
-  detach(): void {
-    this.currentRl = undefined
-  }
-}
-
-export interface ReadResult {
-  line?: string
-  interruptedInput?: string
-  closed?: boolean
-}
-
-export function readLineOnce(
-  terminal: Terminal,
-  prompt: string,
-  initial: string,
-  interrupt: AbortSignal,
-): Promise<ReadResult> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt })
-    terminal.attach(rl)
-    let settled = false
-    const settle = (result: ReadResult) => {
-      if (settled) return
-      settled = true
-      interrupt.removeEventListener('abort', onInterrupt)
-      if (result.line != null) terminal.finishRead()
-      terminal.detach()
-      rl.close()
-      resolve(result)
-    }
-    const onInterrupt = () => {
-      settle({ interruptedInput: rl.line })
-    }
-    interrupt.addEventListener('abort', onInterrupt)
-    rl.once('line', (line) => {
-      settle({ line })
-    })
-    rl.once('close', () => {
-      settle({ closed: true })
-    })
-    rl.once('SIGINT', () => {
-      settle({ closed: true })
-    })
-    terminal.repaint()
-    if (initial !== '') rl.write(initial)
-    if (interrupt.aborted) settle({ interruptedInput: rl.line })
-  })
 }
