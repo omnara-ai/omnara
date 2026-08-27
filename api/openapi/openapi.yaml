@@ -8811,6 +8811,9 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        exclude_from_model_context:
+          type: boolean
+          description: Whether the referenced artifact is excluded from later model context.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:

@@ -10,11 +10,11 @@ The event log stays lightweight because it never embeds file bytes. When inline 
 { "type": "media_ref", "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw" }
 ```
 
-In the dashboard, artifacts appear as downloadable attachment chips on the conversation timeline; rendering your own timeline means resolving each `media_ref` with the two endpoints on this page.
+In the dashboard, artifacts appear as downloadable cards or attachment chips on the conversation timeline; rendering your own timeline means resolving each `media_ref` with the two endpoints on this page.
 
 ## Artifacts uploaded by an agent
 
-A successful [`upload_artifact`](/tools/built-in#upload_artifact) result carries artifact metadata in a `structured_data` block rather than a `media_ref`, so presenting it does not make its bytes eligible for later model context. Match the result's `tool_call_id` to the corresponding `upload_artifact` call, then use its `artifact_id` with the endpoints below.
+A successful [`upload_artifact`](/tools/built-in#upload_artifact) result contains a `media_ref`. Read its `artifact_id` from the tool result, then use the metadata and content endpoints below to display or download the artifact.
 
 The relevant fields in the resulting event look like this:
 
@@ -25,14 +25,9 @@ The relevant fields in the resulting event look like this:
   "outcome": "succeeded",
   "content_blocks": [
     {
-      "type": "structured_data",
-      "value": {
-        "process_id": "prc_rwz3jehcyd5n6a2bfgik7mv4qt",
-        "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw",
-        "filename": "eu-ai-act-summary.pdf",
-        "content_type": "application/pdf",
-        "size_bytes": 482133
-      }
+      "type": "media_ref",
+      "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw",
+      "exclude_from_model_context": true
     }
   ]
 }
@@ -94,7 +89,7 @@ Full schema and playground: [Get artifact content](/api-reference/endpoints/even
 | --- | --- |
 | Inline `media` block on an [input](/events/sending-input#attach-files-and-images) | Persisted as an artifact; the stored event shows a `media_ref`. |
 | Inline `media` block on a [custom tool result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call) | Same conversion — submission accepts bytes, the timeline stores a reference. |
-| `upload_artifact` | The durable tool result carries the artifact metadata needed to display or download it. |
+| `upload_artifact` | The durable tool result stores a `media_ref`. |
 | Model output with media | The `model_output` event references it. |
 
 There's no general-purpose public endpoint for creating artifacts; they're created during agent interactions.

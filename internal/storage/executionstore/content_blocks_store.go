@@ -154,17 +154,33 @@ func parseTextContentBlock(
 func parseMediaRefContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "artifact_id"); err != nil {
+	if err := rejectContentBlockFields(fields, "artifact_id", "exclude_from_model_context"); err != nil {
 		return CreateContentBlockInput{}, err
 	}
 	artifactID, err := requiredArtifactID(fields["artifact_id"])
 	if err != nil {
 		return CreateContentBlockInput{}, err
 	}
+	excludeFromModelContext, err := optionalBool(fields["exclude_from_model_context"])
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("exclude_from_model_context %w", err)
+	}
 	return CreateContentBlockInput{
-		BlockKind:  ContentBlockKindArtifact,
-		ArtifactID: artifactID,
+		BlockKind:               ContentBlockKindArtifact,
+		ArtifactID:              artifactID,
+		ExcludeFromModelContext: excludeFromModelContext,
 	}, nil
+}
+
+func optionalBool(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false, nil
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, errors.New("must be a boolean")
+	}
+	return value, nil
 }
 
 func parseStructuredDataContentBlock(
@@ -272,13 +288,15 @@ func marshalAgentInputContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string                `json:"type"`
-			ArtifactID string                `json:"artifact_id"`
-			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			ArtifactID              string                `json:"artifact_id"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:       "media_ref",
-			ArtifactID: block.ArtifactID.String(),
-			Metadata:   metadata,
+			Type:                    "media_ref",
+			ArtifactID:              block.ArtifactID.String(),
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
@@ -332,13 +350,15 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string                `json:"type"`
-			ArtifactID string                `json:"artifact_id"`
-			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			ArtifactID              string                `json:"artifact_id"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:       "media_ref",
-			ArtifactID: block.ArtifactID.String(),
-			Metadata:   metadata,
+			Type:                    "media_ref",
+			ArtifactID:              block.ArtifactID.String(),
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)

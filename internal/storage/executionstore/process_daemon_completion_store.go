@@ -313,20 +313,27 @@ func (s *Store) CompleteDaemonProcess(
 		if resultErr != nil {
 			return DaemonProcessReportApplication{}, resultErr
 		}
+		var contentParts json.RawMessage
 		if outcome == ToolResultOutcomeSucceeded && isUploadArtifactToolCall(toolCall) {
-			outcome, result, err = uploadArtifactProcessToolResult(ctx, qtx, record)
+			outcome, contentParts, err = uploadArtifactProcessToolResultContentParts(
+				ctx,
+				qtx,
+				record,
+			)
 			if err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-		} else if len(input.Result) > 0 && string(input.Result) != "null" {
-			result, err = commandTerminalToolResult(record.ID, input.Result)
+		} else {
+			if len(input.Result) > 0 && string(input.Result) != "null" {
+				result, err = commandTerminalToolResult(record.ID, input.Result)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			}
+			contentParts, err = ToolResultContentParts(result)
 			if err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-		}
-		contentParts, err := ToolResultContentParts(result)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
 		}
 		toolRow, err := qtx.CompleteToolCallFromProcess(
 			ctx,

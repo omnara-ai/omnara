@@ -2,6 +2,7 @@
 
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient } from '@omnara/sdk'
+import { getArtifactOptions } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -55,8 +56,48 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+function artifactMetadata({
+  contentType,
+  filename,
+  sizeBytes,
+}: {
+  contentType: string
+  filename: string
+  sizeBytes: number
+}) {
+  return new Response(
+    JSON.stringify({
+      id: 'art_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+      org_id: 'org_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+      project_id: 'proj_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+      agent_id: 'agt_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+      content_type: contentType,
+      filename,
+      size_bytes: sizeBytes,
+      created_at: '2026-08-27T00:00:00Z',
+    }),
+    { headers: { 'Content-Type': 'application/json' }, status: 200 },
+  )
+}
+
 it('renders image previews from the artifact content endpoint', () => {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const path = {
+    orgID: 'org_test',
+    projectID: 'proj_test',
+    agentID: 'agt_test',
+    artifactID: 'art_image',
+  }
+  queryClient.setQueryData(getArtifactOptions({ client, path }).queryKey, {
+    id: 'art_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+    org_id: 'org_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+    project_id: 'proj_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+    agent_id: 'agt_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+    content_type: 'image/png',
+    filename: 'image.png',
+    size_bytes: 3,
+    created_at: '2026-08-27T00:00:00Z',
+  })
 
   act(() => {
     root.render(
@@ -64,15 +105,10 @@ it('renders image previews from the artifact content endpoint', () => {
         <OmnaraClientProvider client={client}>
           <QueryClientProvider client={queryClient}>
             <ShownArtifactCard
-              artifact={{
-                artifactId: 'art_image',
-                contentType: 'image/png',
-                filename: 'image.png',
-                sizeBytes: 3,
-              }}
-              orgID="org_test"
-              projectID="proj_test"
-              agentID="agt_test"
+              artifactID={path.artifactID}
+              orgID={path.orgID}
+              projectID={path.projectID}
+              agentID={path.agentID}
             />
           </QueryClientProvider>
         </OmnaraClientProvider>
@@ -89,15 +125,19 @@ it('renders image previews from the artifact content endpoint', () => {
 
 it('downloads text artifact content as a Blob', async () => {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      artifactMetadata({ contentType: 'text/plain', filename: 'notes.txt', sizeBytes: 13 }),
+    )
+    .mockResolvedValueOnce(
+      new Response('artifact text', {
+        headers: { 'Content-Type': 'text/plain' },
+        status: 200,
+      }),
+    )
   client.setConfig({
-    fetch: vi.fn(() =>
-      Promise.resolve(
-        new Response('artifact text', {
-          headers: { 'Content-Type': 'text/plain' },
-          status: 200,
-        }),
-      ),
-    ),
+    fetch,
   })
 
   act(() => {
@@ -105,12 +145,7 @@ it('downloads text artifact content as a Blob', async () => {
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
           <ShownArtifactCard
-            artifact={{
-              artifactId: 'art_test',
-              contentType: 'text/plain',
-              filename: 'notes.txt',
-              sizeBytes: 13,
-            }}
+            artifactID="art_test"
             orgID="org_test"
             projectID="proj_test"
             agentID="agt_test"
@@ -118,6 +153,10 @@ it('downloads text artifact content as a Blob', async () => {
         </QueryClientProvider>
       </OmnaraClientProvider>,
     )
+  })
+
+  await vi.waitFor(() => {
+    expect(container.textContent).toContain('notes.txt')
   })
 
   const download = Array.from(container.querySelectorAll('button')).find(
@@ -140,14 +179,17 @@ it('downloads text artifact content as a Blob', async () => {
 })
 
 it('fetches image content through the SDK only when downloaded', async () => {
-  const fetch = vi.fn(() =>
-    Promise.resolve(
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      artifactMetadata({ contentType: 'image/png', filename: 'image.png', sizeBytes: 3 }),
+    )
+    .mockResolvedValueOnce(
       new Response(new Uint8Array([1, 2, 3]), {
         headers: { 'Content-Type': 'image/png' },
         status: 200,
       }),
-    ),
-  )
+    )
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
   client.setConfig({ fetch })
 
@@ -156,12 +198,7 @@ it('fetches image content through the SDK only when downloaded', async () => {
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
           <ShownArtifactCard
-            artifact={{
-              artifactId: 'art_image',
-              contentType: 'image/png',
-              filename: 'image.png',
-              sizeBytes: 3,
-            }}
+            artifactID="art_image"
             orgID="org_test"
             projectID="proj_test"
             agentID="agt_test"
@@ -174,7 +211,7 @@ it('fetches image content through the SDK only when downloaded', async () => {
   await vi.waitFor(() => {
     expect(container.querySelector('img')).not.toBeNull()
   })
-  expect(fetch).not.toHaveBeenCalled()
+  expect(fetch).toHaveBeenCalledOnce()
 
   const download = Array.from(container.querySelectorAll('button')).find(
     (candidate) => candidate.textContent.trim() === 'Download',
@@ -187,5 +224,5 @@ it('fetches image content through the SDK only when downloaded', async () => {
     })
   })
 
-  expect(fetch).toHaveBeenCalledOnce()
+  expect(fetch).toHaveBeenCalledTimes(2)
 })

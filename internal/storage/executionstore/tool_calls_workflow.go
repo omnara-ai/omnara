@@ -243,7 +243,7 @@ func UploadArtifactIdempotencyKey(toolCallID ID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
 
-func uploadArtifactProcessToolResult(
+func uploadArtifactProcessToolResultContentParts(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	process ProcessRecord,
@@ -254,29 +254,23 @@ func uploadArtifactProcessToolResult(
 		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return failedUploadArtifactProcessToolResult(process, "upload completed without an artifact")
+		return failedUploadArtifactProcessToolResultContentParts(
+			process,
+			"upload completed without an artifact",
+		)
 	}
 	if err != nil {
 		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
 	}
-	if artifact.SizeBytes == nil {
-		return failedUploadArtifactProcessToolResult(process, "uploaded artifact has no size")
-	}
-	artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-	if err != nil {
-		return failedUploadArtifactProcessToolResult(process, "uploaded artifact has an invalid id")
-	}
-	result, err := marshalJSON(map[string]any{
-		"process_id":   publicResourceID(publicid.KindProcess, process.ID),
-		"artifact_id":  artifactID,
-		"filename":     artifact.Filename,
-		"content_type": artifact.ContentType,
-		"size_bytes":   *artifact.SizeBytes,
-	})
-	return ToolResultOutcomeSucceeded, result, err
+	contentParts, err := marshalJSON([]map[string]any{{
+		"type":                       "media_ref",
+		"artifact_id":                artifact.ID.String(),
+		"exclude_from_model_context": true,
+	}})
+	return ToolResultOutcomeSucceeded, contentParts, err
 }
 
-func failedUploadArtifactProcessToolResult(
+func failedUploadArtifactProcessToolResultContentParts(
 	process ProcessRecord,
 	message string,
 ) (ToolResultOutcome, json.RawMessage, error) {
@@ -285,7 +279,11 @@ func failedUploadArtifactProcessToolResult(
 		"state":      process.State,
 		"error":      message,
 	})
-	return ToolResultOutcomeFailed, result, err
+	if err != nil {
+		return "", nil, err
+	}
+	contentParts, err := ToolResultContentParts(result)
+	return ToolResultOutcomeFailed, contentParts, err
 }
 
 func ToolResultContentParts(result json.RawMessage) (json.RawMessage, error) {

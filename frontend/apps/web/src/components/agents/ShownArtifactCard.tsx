@@ -1,10 +1,9 @@
 import { useOmnaraClient } from '@omnara/react'
-import { getArtifactContentOptions } from '@omnara/sdk/tanstack'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getArtifactContentOptions, getArtifactOptions } from '@omnara/sdk/tanstack'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { downloadBlob } from '@/components/agents/downloadBlob'
-import type { ShownArtifact } from '@/components/agents/shownArtifact'
 import { FileArchive } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 
@@ -17,21 +16,28 @@ function formatByteSize(bytes: number) {
 }
 
 export function ShownArtifactCard({
-  artifact,
+  artifactID,
   orgID,
   projectID,
   agentID,
 }: {
-  artifact: ShownArtifact
+  artifactID: string
   orgID: string
   projectID: string
   agentID: string
 }) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
-  const previewable = previewContentTypes.has(artifact.contentType)
   const [previewFailed, setPreviewFailed] = useState(false)
-  const path = { orgID, projectID, agentID, artifactID: artifact.artifactId }
+  const path = { orgID, projectID, agentID, artifactID }
+  const artifact = useQuery({
+    ...getArtifactOptions({ client, path }),
+    staleTime: Infinity,
+  }).data
+  const rawFilename = artifact?.filename?.trim()
+  const filename = rawFilename == null || rawFilename === '' ? 'artifact' : rawFilename
+  const contentType = artifact?.content_type ?? 'application/octet-stream'
+  const previewable = previewContentTypes.has(contentType)
   const contentQuery = getArtifactContentOptions({ client, path, parseAs: 'blob' })
   const contentURL = client.buildUrl({
     url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
@@ -43,7 +49,7 @@ export function ShownArtifactCard({
 
   async function downloadArtifact() {
     const content = await download.mutateAsync()
-    downloadBlob(content, artifact.filename)
+    downloadBlob(content, filename)
   }
 
   const showPreview = previewable && !previewFailed
@@ -52,7 +58,7 @@ export function ShownArtifactCard({
       {showPreview ? (
         <img
           src={contentURL}
-          alt={artifact.filename}
+          alt={filename}
           loading="lazy"
           className="bg-muted/30 max-h-[32rem] w-full object-contain"
           onError={() => {
@@ -66,9 +72,10 @@ export function ShownArtifactCard({
       )}
       <div className="flex items-center gap-3 border-t px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{artifact.filename}</p>
+          <p className="truncate text-sm font-medium">{filename}</p>
           <p className="text-muted-foreground truncate text-xs">
-            {artifact.contentType} · {formatByteSize(artifact.sizeBytes)}
+            {contentType}
+            {artifact?.size_bytes == null ? '' : ` · ${formatByteSize(artifact.size_bytes)}`}
           </p>
         </div>
         <Button

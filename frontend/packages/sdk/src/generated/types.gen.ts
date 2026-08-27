@@ -1359,6 +1359,10 @@ export type InlineMediaContentBlock = {
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    /**
+     * Whether the referenced artifact is excluded from later model context.
+     */
+    exclude_from_model_context?: boolean;
     metadata?: ContentBlockMetadata;
 };
 

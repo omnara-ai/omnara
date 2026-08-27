@@ -1130,6 +1130,7 @@ export const zInlineMediaContentBlock = z.object({
 export const zMediaRefContentBlock = z.object({
     type: z.enum(['media_ref']),
     artifact_id: zArtifactId,
+    exclude_from_model_context: z.boolean().optional(),
     metadata: zContentBlockMetadata.optional()
 });
 

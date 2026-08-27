@@ -930,8 +930,9 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 
 func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	publicArtifactID := testPublicID(t, publicid.KindArtifact, httpTestArtifactID)
-	blocks, err := publicAgentInputContentBlocks(json.RawMessage(
-		`[{"type":"media_ref","artifact_id":"` + httpTestArtifactID.String() + `"}]`,
+	blocks, err := publicToolResultContentBlocks(json.RawMessage(
+		`[{"type":"media_ref","artifact_id":"` + httpTestArtifactID.String() +
+			`","exclude_from_model_context":true,"metadata":{"source":"test"}}]`,
 	))
 	if err != nil {
 		t.Fatalf("project public content blocks: %v", err)
@@ -942,6 +943,12 @@ func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	}
 	if block.ArtifactId != publicArtifactID {
 		t.Fatalf("artifact_id = %v, want %s", block.ArtifactId, publicArtifactID)
+	}
+	if block.ExcludeFromModelContext == nil || !*block.ExcludeFromModelContext {
+		t.Fatalf("exclude_from_model_context = %v, want true", block.ExcludeFromModelContext)
+	}
+	if block.Metadata["source"] != "test" {
+		t.Fatalf("metadata = %v, want source=test", block.Metadata)
 	}
 }
 

@@ -168,7 +168,7 @@ Use `upload_artifact` to make a regular file on an attached machine available fo
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the durable tool result includes the process ID and artifact metadata so clients can display or download the artifact. The artifact's contents are not added to model context or delivered through external integrations.
+On success, the artifact appears in the conversation and the durable tool result contains a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context or delivered through external integrations.
 
 ## Integrations
 

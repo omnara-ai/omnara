@@ -332,6 +332,40 @@ describe('agentEventsToMessages', () => {
     ])
   })
 
+  it('places media_ref tool results after the technical tool part', () => {
+    const messages = agentEventsToMessages([
+      event({ content_blocks: [toolCallBlock()] }),
+      toolResultEvent({
+        content_blocks: [
+          {
+            type: 'media_ref',
+            artifact_id: 'art_upload',
+            exclude_from_model_context: true,
+          },
+        ],
+      }),
+    ])
+
+    expect(messages[0]?.parts).toMatchObject([
+      {
+        type: 'dynamic-tool',
+        output: {
+          contentBlocks: [
+            {
+              type: 'media_ref',
+              artifact_id: 'art_upload',
+              exclude_from_model_context: true,
+            },
+          ],
+        },
+      },
+      {
+        type: 'data-media',
+        data: { artifactId: 'art_upload', excludeFromModelContext: true },
+      },
+    ])
+  })
+
   it('represents initial and subsequent config changes as timeline markers', () => {
     const messages = agentEventsToMessages([
       configChangeEvent({

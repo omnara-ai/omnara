@@ -25,9 +25,10 @@ type storedTextContentBlock struct {
 }
 
 type storedMediaRefContentBlock struct {
-	Type       string                `json:"type"`
-	ArtifactID string                `json:"artifact_id"`
-	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+	Type                    string                `json:"type"`
+	ArtifactID              string                `json:"artifact_id"`
+	ExcludeFromModelContext *bool                 `json:"exclude_from_model_context,omitempty"`
+	Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedToolCallContentBlock struct {
@@ -338,8 +339,9 @@ func publicMediaRefContentBlock(
 		return openapi.MediaRefContentBlock{}, err
 	}
 	return openapi.MediaRefContentBlock{
-		ArtifactId: artifactID,
-		Metadata:   block.Metadata,
+		ArtifactId:              artifactID,
+		ExcludeFromModelContext: block.ExcludeFromModelContext,
+		Metadata:                block.Metadata,
 	}, nil
 }
 
