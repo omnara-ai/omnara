@@ -160,6 +160,19 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
+	invalidMessage := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		`{"config":"`+configID+`","message":"before\u0000after"}`,
+		"idem-agent-launch-invalid-message",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	if invalidMessage["code"] != "invalid_request" {
+		t.Fatalf("invalid launch message response = %+v, want invalid_request", invalidMessage)
+	}
 
 	explicitConfig := requestJSONWithHeaders(
 		t,
@@ -193,7 +206,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
-		`{"profile":"`+profileID+`","config":"`+retargetedConfigID+`","message":"ignored retry body"}`,
+		`{"profile":"`+profileID+`","config":"`+retargetedConfigID+`","message":"ignored\u0000retry body"}`,
 		"idem-agent-launch-first",
 		http.StatusOK,
 		authHeaders(project.AdminToken),

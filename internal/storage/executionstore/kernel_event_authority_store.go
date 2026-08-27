@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -96,8 +97,15 @@ func createContentBlockTx(
 			"project, agent, owner kind, and block kind are required",
 		)
 	}
-	if err := input.Metadata.Validate(); err != nil {
-		return ContentBlockRecord{}, fmt.Errorf("content block metadata: %w", err)
+	if err := dbsafe.Text(input.TextContent); err != nil {
+		return ContentBlockRecord{}, fmt.Errorf("content block text %w", err)
+	}
+	if len(input.StructuredData) > 0 {
+		normalized, err := normalizeContentBlockJSONForStorage(input.StructuredData)
+		if err != nil {
+			return ContentBlockRecord{}, fmt.Errorf("content block structured data %w", err)
+		}
+		input.StructuredData = normalized
 	}
 	metadata, err := input.Metadata.JSON()
 	if err != nil {

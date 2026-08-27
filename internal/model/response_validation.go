@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
@@ -22,7 +22,7 @@ func ValidateProviderJSON(body []byte) error {
 	if !json.Valid(body) {
 		return errors.New("provider response is not valid JSON")
 	}
-	if containsNULJSONString(body) {
+	if err := dbsafe.JSONStrings(body); err != nil {
 		return errors.New("provider response contains a NUL string value")
 	}
 	return nil
@@ -149,26 +149,9 @@ func validateProviderRaw(raw json.RawMessage) error {
 		return errors.New("contains a NUL byte")
 	}
 	if json.Valid(raw) {
-		if containsNULJSONString(raw) {
+		if err := dbsafe.JSONStrings(raw); err != nil {
 			return errors.New("contains a NUL string value")
 		}
 	}
 	return nil
-}
-
-func containsNULJSONString(body []byte) bool {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	for {
-		token, err := decoder.Token()
-		if errors.Is(err, io.EOF) {
-			return false
-		}
-		if err != nil {
-			return false
-		}
-		if value, ok := token.(string); ok && strings.IndexByte(value, 0) >= 0 {
-			return true
-		}
-	}
 }

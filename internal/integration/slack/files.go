@@ -415,7 +415,7 @@ func attachmentFilename(
 		filename = strings.TrimSpace(file.ID)
 	}
 	filename = attachmentDefaultFilename(filename, contentType, defaultFilename)
-	if maxBytes > 0 && len(filename) > maxBytes {
+	if strings.IndexByte(filename, 0) >= 0 || (maxBytes > 0 && len(filename) > maxBytes) {
 		return attachmentDefaultFilename("", contentType, defaultFilename)
 	}
 	return filename
