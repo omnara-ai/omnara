@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func (s strictOpenAPIServer) UploadDaemonArtifact(
@@ -77,7 +78,7 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 		Filename:       filename,
 		Content:        content,
 		MaxBytes:       maxDaemonArtifactUploadBytes,
-		IdempotencyKey: "upload-artifact:" + toolCallID.String(),
+		IdempotencyKey: executionstore.UploadArtifactIdempotencyKey(toolCallID),
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

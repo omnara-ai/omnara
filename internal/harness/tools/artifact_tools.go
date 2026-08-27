@@ -12,12 +12,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const uploadArtifactProcessTimeoutSeconds = 300
+const uploadArtifactProcessTimeoutSeconds = 30
 
 type uploadArtifactRequest struct {
 	Path       string          `json:"path"`
@@ -32,17 +30,6 @@ type resolvedUploadArtifactRequest struct {
 type uploadArtifactAuthorization struct {
 	AgentMachineBindingID string `json:"agent_machine_binding_id"`
 	Path                  string `json:"path"`
-}
-
-type showArtifactRequest struct {
-	ArtifactID string `json:"artifact_id"`
-}
-
-type artifactToolResult struct {
-	ArtifactID  string `json:"artifact_id"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	SizeBytes   int64  `json:"size_bytes"`
 }
 
 func validateUploadArtifactInput(input json.RawMessage) error {
@@ -135,77 +122,4 @@ func uploadArtifactProcessInput(
 		InitialWaitMS:  processaction.MaxWaitMilliseconds,
 		TimeoutSeconds: uploadArtifactProcessTimeoutSeconds,
 	}
-}
-
-func validateShowArtifactInput(input json.RawMessage) error {
-	_, err := resolveShowArtifactRequest(input)
-	return err
-}
-
-func resolveShowArtifactRequest(raw json.RawMessage) (storage.ID, error) {
-	var input showArtifactRequest
-	if err := decodeSingleStrictJSON(raw, &input, "show_artifact request"); err != nil {
-		return storage.NilID, fmt.Errorf("parse show_artifact request: %w", err)
-	}
-	artifactID, err := publicid.Decode(publicid.KindArtifact, input.ArtifactID)
-	if err != nil {
-		return storage.NilID, errors.New("artifact_id is invalid")
-	}
-	return artifactID, nil
-}
-
-func runShowArtifact(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
-	artifactID, err := resolveShowArtifactRequest(call.Call.Input)
-	if err != nil {
-		return failArtifactTool("malformed", err.Error(), err)
-	}
-	artifact, err := call.Executor.Store.Artifacts().GetArtifact(
-		ctx,
-		call.Turn.ProjectID,
-		call.Turn.AgentID,
-		artifactID,
-	)
-	if errors.Is(err, storeerr.ErrNotFound) {
-		return failArtifactTool("artifact_not_found", "artifact does not exist", err)
-	}
-	if err != nil {
-		return nil, err
-	}
-	content, err := artifactToolResultContent(artifact)
-	if err != nil {
-		return nil, err
-	}
-	return completeAsynchronously(content), nil
-}
-
-func artifactToolResultContent(artifact artifactstore.ArtifactRecord) (toolResultContent, error) {
-	artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-	if err != nil {
-		return toolResultContent{}, err
-	}
-	sizeBytes := int64(0)
-	if artifact.SizeBytes != nil {
-		sizeBytes = *artifact.SizeBytes
-	}
-	filename := artifact.Filename
-	if strings.TrimSpace(filename) == "" {
-		filename = "artifact"
-	}
-	return structuredToolResultContent(artifactToolResult{
-		ArtifactID:  artifactID,
-		Filename:    filename,
-		ContentType: artifact.ContentType,
-		SizeBytes:   sizeBytes,
-	})
-}
-
-func failArtifactTool(code, message string, cause error) (asyncPhaseResult, error) {
-	content, err := structuredToolResultContent(map[string]any{
-		"error_code": code,
-		"error":      message,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return failAsynchronously(content, cause), nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -118,72 +117,7 @@ func TestUploadArtifactProcessInput(t *testing.T) {
 		input.IOMode != processcmd.IOModePipe ||
 		input.Cwd != "" ||
 		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
-		input.TimeoutSeconds != uploadArtifactProcessTimeoutSeconds {
+		input.TimeoutSeconds != 30 {
 		t.Fatalf("upload process input = %+v, want command %q", input, wantCommand)
-	}
-}
-
-func TestShowArtifactInputValidatorIsRegistered(t *testing.T) {
-	artifactUUID := uuid.New()
-	artifactID, err := publicid.Encode(publicid.KindArtifact, artifactUUID)
-	if err != nil {
-		t.Fatalf("encode artifact id: %v", err)
-	}
-	call := model.ToolCall{
-		Name:  "show_artifact",
-		Input: json.RawMessage(`{"artifact_id":"` + artifactID + `"}`),
-	}
-	if err := validateRegisteredToolInput(call.Name, call.Input); err != nil {
-		t.Fatalf("registered validator rejected show_artifact: %v", err)
-	}
-	resolved, err := resolveShowArtifactRequest(call.Input)
-	if err != nil {
-		t.Fatalf("resolve show_artifact: %v", err)
-	}
-	if resolved != artifactUUID {
-		t.Fatalf("resolved artifact id = %s, want %s", resolved, artifactUUID)
-	}
-}
-
-func TestArtifactToolResultContentContainsOnlyStableMetadata(t *testing.T) {
-	size := int64(12)
-	artifact := artifactstore.ArtifactRecord{
-		ID:          uuid.New(),
-		Filename:    "shot.png",
-		ContentType: "image/png",
-		SizeBytes:   &size,
-	}
-	artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-	if err != nil {
-		t.Fatalf("encode artifact id: %v", err)
-	}
-	content, err := artifactToolResultContent(artifact)
-	if err != nil {
-		t.Fatalf("artifact result: %v", err)
-	}
-	parts, err := content.contentParts()
-	if err != nil {
-		t.Fatalf("content parts: %v", err)
-	}
-	want := `[{"type":"structured_data","value":{"artifact_id":"` + artifactID +
-		`","filename":"shot.png","content_type":"image/png","size_bytes":12}}]`
-	if string(parts) != want {
-		t.Fatalf("content parts = %s, want %s", parts, want)
-	}
-	if strings.Contains(string(parts), "media_ref") {
-		t.Fatalf("artifact result exposed model media content: %s", parts)
-	}
-
-	artifact.Filename = " \t\n"
-	content, err = artifactToolResultContent(artifact)
-	if err != nil {
-		t.Fatalf("artifact result with blank filename: %v", err)
-	}
-	parts, err = content.contentParts()
-	if err != nil {
-		t.Fatalf("blank-filename content parts: %v", err)
-	}
-	if !strings.Contains(string(parts), `"filename":"artifact"`) {
-		t.Fatalf("blank-filename content parts = %s, want artifact fallback", parts)
 	}
 }

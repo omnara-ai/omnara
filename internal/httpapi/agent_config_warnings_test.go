@@ -38,7 +38,7 @@ func TestAgentConfigWarnings(t *testing.T) {
 			want: []openapi.Warning{{
 				Code: openapi.MissingRecommendedMachineTools,
 				Message: "Machine sources are configured, but some recommended machine tools are not enabled: " +
-					"write_process, read_process, stop_process, list_processes, list_machines, inspect_machine, upload_artifact, show_artifact. " +
+					"write_process, read_process, stop_process, list_processes, list_machines, inspect_machine, upload_artifact. " +
 					"Add or enable them under tools so the agent can fully use its attached machines.",
 			}},
 		},

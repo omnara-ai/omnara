@@ -38,7 +38,6 @@ describe('addMachineToolsForNewSourceSelection', () => {
       ...recommendedMachineToolNames.map((name) => ({ name, permission: null })),
     ])
     expect(result).toContainEqual({ name: 'upload_artifact', permission: null })
-    expect(result).toContainEqual({ name: 'show_artifact', permission: null })
   })
 
   it('preserves existing tools and permissions without duplicates', () => {

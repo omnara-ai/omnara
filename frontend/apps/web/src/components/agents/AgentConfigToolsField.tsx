@@ -36,7 +36,6 @@ const toolDescriptions: Record<string, string> = {
   list_machines: 'List the machines available to the agent.',
   inspect_machine: 'View details about a machine available to the agent.',
   upload_artifact: 'Create an artifact from a regular file on an attached machine.',
-  show_artifact: 'Show an artifact to the user.',
   ask_question: 'Ask the user a question and wait for their response.',
   web_search: 'Search the public web for current information.',
   web_fetch: 'Read the contents of a public webpage.',

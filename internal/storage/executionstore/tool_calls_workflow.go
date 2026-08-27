@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 const (
@@ -231,6 +232,60 @@ func commandTerminalToolResult(
 	}
 	object["process_id"] = publicResourceID(publicid.KindProcess, processID)
 	return marshalJSON(object)
+}
+
+func isUploadArtifactToolCall(call ToolCallRecord) bool {
+	return call.Type == toolcatalog.ToolTypeBuiltIn &&
+		call.Name == toolcatalog.ToolNameUploadArtifact
+}
+
+func UploadArtifactIdempotencyKey(toolCallID ID) string {
+	return "upload-artifact:" + toolCallID.String()
+}
+
+func uploadArtifactProcessToolResult(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+) (ToolResultOutcome, json.RawMessage, error) {
+	artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+		ProjectID:      process.ProjectID,
+		AgentID:        process.AgentID,
+		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return failedUploadArtifactProcessToolResult(process, "upload completed without an artifact")
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+	}
+	if artifact.SizeBytes == nil {
+		return failedUploadArtifactProcessToolResult(process, "uploaded artifact has no size")
+	}
+	artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
+	if err != nil {
+		return failedUploadArtifactProcessToolResult(process, "uploaded artifact has an invalid id")
+	}
+	result, err := marshalJSON(map[string]any{
+		"process_id":   publicResourceID(publicid.KindProcess, process.ID),
+		"artifact_id":  artifactID,
+		"filename":     artifact.Filename,
+		"content_type": artifact.ContentType,
+		"size_bytes":   *artifact.SizeBytes,
+	})
+	return ToolResultOutcomeSucceeded, result, err
+}
+
+func failedUploadArtifactProcessToolResult(
+	process ProcessRecord,
+	message string,
+) (ToolResultOutcome, json.RawMessage, error) {
+	result, err := marshalJSON(map[string]any{
+		"process_id": publicResourceID(publicid.KindProcess, process.ID),
+		"state":      process.State,
+		"error":      message,
+	})
+	return ToolResultOutcomeFailed, result, err
 }
 
 func ToolResultContentParts(result json.RawMessage) (json.RawMessage, error) {

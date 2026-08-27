@@ -8,10 +8,10 @@ function shownPart(contentType = 'image/png', outcome = 'succeeded'): ToolPart {
   return {
     type: 'dynamic-tool',
     toolType: 'built_in',
-    toolName: 'show_artifact',
+    toolName: 'upload_artifact',
     toolCallId: 'call-1',
     state: 'output-available',
-    input: { artifact_id: 'art_test' },
+    input: { path: 'report.pdf' },
     output: {
       outcome,
       contentBlocks: [
@@ -30,7 +30,7 @@ function shownPart(contentType = 'image/png', outcome = 'succeeded'): ToolPart {
 }
 
 describe('shownArtifactFromToolPart', () => {
-  it('projects successful show_artifact metadata', () => {
+  it('projects successful upload_artifact metadata', () => {
     expect(shownArtifactFromToolPart(shownPart())).toEqual({
       artifactId: 'art_test',
       filename: 'report.pdf',

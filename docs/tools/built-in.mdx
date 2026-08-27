@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Artifacts | `upload_artifact`, `show_artifact` |
+| Artifacts | `upload_artifact` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 
@@ -164,11 +164,9 @@ Deletes a pool-backed machine. Requires `machine_ref`.
 
 ### `upload_artifact`
 
-Creates an artifact from a regular file on an attached machine. Requires a relative, absolute, or `~`-relative `path`; provide `machine_ref` when the agent has more than one machine. The result includes a process ID; on successful completion, process output contains the new `artifact_id`. Files must be non-empty and may be up to 10 MiB.
+Creates an artifact from a regular file on an attached machine. Requires a relative, absolute, or `~`-relative `path`; provide `machine_ref` when the agent has more than one machine. Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-### `show_artifact`
-
-Requests that clients consuming the conversation display an [artifact](/events/artifacts#show-an-existing-artifact) available to the agent and make it available to download. Requires an `artifact_id`. It does not add the artifact's contents to model context or deliver the file through an external integration.
+On success, the durable tool result includes the process ID and artifact metadata so clients can display or download the artifact. The artifact's contents are not added to model context or delivered through external integrations.
 
 ## Integrations
 

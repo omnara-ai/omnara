@@ -87,8 +87,7 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	warning := warnings[0].(map[string]any)
 	if warning["code"] != "missing_recommended_machine_tools" ||
 		!strings.Contains(warning["message"].(string), "write_process") ||
-		!strings.Contains(warning["message"].(string), "upload_artifact") ||
-		!strings.Contains(warning["message"].(string), "show_artifact") {
+		!strings.Contains(warning["message"].(string), "upload_artifact") {
 		t.Fatalf("config warnings = %v, want missing machine tools warning", warnings)
 	}
 	profile := createPublicHTTPAgentProfile(

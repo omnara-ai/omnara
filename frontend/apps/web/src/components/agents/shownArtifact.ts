@@ -16,7 +16,7 @@ function unknownRecord(value: unknown): Record<string, unknown> | null {
 export function shownArtifactFromToolPart(part: DynamicToolPart): ShownArtifact | null {
   if (
     part.toolType !== 'built_in' ||
-    part.toolName !== 'show_artifact' ||
+    part.toolName !== 'upload_artifact' ||
     part.state !== 'output-available'
   ) {
     return null
