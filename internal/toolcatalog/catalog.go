@@ -32,7 +32,7 @@ const (
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
 	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
+	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
 	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_ref values and current availability."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
