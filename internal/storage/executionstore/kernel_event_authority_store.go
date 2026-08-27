@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -96,9 +97,15 @@ func createContentBlockTx(
 			"project, agent, owner kind, and block kind are required",
 		)
 	}
-	input, err := prepareContentBlockForStorage(input)
-	if err != nil {
-		return ContentBlockRecord{}, err
+	if err := dbsafe.Text(input.TextContent); err != nil {
+		return ContentBlockRecord{}, fmt.Errorf("content block text %w", err)
+	}
+	if len(input.StructuredData) > 0 {
+		normalized, err := normalizeContentBlockJSONForStorage(input.StructuredData)
+		if err != nil {
+			return ContentBlockRecord{}, fmt.Errorf("content block structured data %w", err)
+		}
+		input.StructuredData = normalized
 	}
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
@@ -130,25 +137,6 @@ func createContentBlockTx(
 		return ContentBlockRecord{}, fmt.Errorf("create content block: %w", err)
 	}
 	return contentBlockFromInsertSQLC(row), nil
-}
-
-func prepareContentBlockForStorage(
-	input CreateContentBlockInput,
-) (CreateContentBlockInput, error) {
-	if err := validateContentBlockStringForStorage(input.TextContent); err != nil {
-		return CreateContentBlockInput{}, fmt.Errorf("content block text %w", err)
-	}
-	if len(input.StructuredData) > 0 {
-		normalized, err := normalizeContentBlockJSONForStorage(input.StructuredData)
-		if err != nil {
-			return CreateContentBlockInput{}, fmt.Errorf("content block structured data %w", err)
-		}
-		input.StructuredData = normalized
-	}
-	if err := input.Metadata.Validate(); err != nil {
-		return CreateContentBlockInput{}, fmt.Errorf("content block metadata: %w", err)
-	}
-	return input, nil
 }
 
 func appendTypedAgentEventTx(

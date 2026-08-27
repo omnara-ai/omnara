@@ -2,10 +2,10 @@ package resourcemeta
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"unicode/utf8"
+
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 )
 
 const (
@@ -45,10 +45,10 @@ func (m Metadata) ValidateWithReservedKey(reserved string) error {
 }
 
 func ValidateEntry(key, value string) error {
-	if err := validateMetadataString(key); err != nil {
+	if err := dbsafe.Text(key); err != nil {
 		return fmt.Errorf("metadata key %w", err)
 	}
-	if err := validateMetadataString(value); err != nil {
+	if err := dbsafe.Text(value); err != nil {
 		return fmt.Errorf("metadata value %w", err)
 	}
 	if key == "" || utf8.RuneCountInString(key) > MaxKeyLength {
@@ -56,16 +56,6 @@ func ValidateEntry(key, value string) error {
 	}
 	if utf8.RuneCountInString(value) > MaxValueLength {
 		return fmt.Errorf("metadata values must be at most %d characters", MaxValueLength)
-	}
-	return nil
-}
-
-func validateMetadataString(value string) error {
-	if !utf8.ValidString(value) {
-		return errors.New("contains invalid UTF-8")
-	}
-	if strings.IndexByte(value, 0) >= 0 {
-		return errors.New("contains U+0000")
 	}
 	return nil
 }

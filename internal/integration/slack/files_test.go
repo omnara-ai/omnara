@@ -98,6 +98,19 @@ func TestDownloadEventFilesResultUsesSlackErrorCode(t *testing.T) {
 	}
 }
 
+func TestAttachmentFilenameFallsBackForNUL(t *testing.T) {
+	t.Parallel()
+	got := attachmentFilename(
+		File{Name: "before\x00after.png"},
+		"image/png",
+		func(string, string) string { return "attachment.png" },
+		255,
+	)
+	if got != "attachment.png" {
+		t.Fatalf("attachment filename = %q, want fallback", got)
+	}
+}
+
 func TestDownloadEventFilesSkipsDeclaredOversize(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

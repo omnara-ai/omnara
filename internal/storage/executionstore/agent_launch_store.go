@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -85,7 +86,7 @@ func (s *Store) LaunchAgent(
 		}
 		return result, nil
 	}
-	if err := validateContentBlockStringForStorage(input.Message); err != nil {
+	if err := dbsafe.Text(input.Message); err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
 	}
 	project, err := loadProjectTx(ctx, qtx, input.ProjectID)

@@ -172,6 +172,54 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 	}
 }
 
+func TestSessionInputInlineMediaMatchesJSONUTF8Decoding(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	handler, _ := newMediaIntegrationHandler(t, ctx)
+	project := bootstrapPublicHTTPProject(t, handler, "media-invalid-utf8")
+	launch := launchPublicHTTPAgent(
+		t,
+		handler,
+		project,
+		"media-invalid-utf8",
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
+	invalidText := `{"type":"text","text":"before` + string([]byte{0xff}) + `after"}`
+
+	withoutMedia := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		inputsPath,
+		`{"content_blocks":[`+invalidText+`]}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	withMedia := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		inputsPath,
+		`{"content_blocks":[`+invalidText+`,`+
+			`{"type":"media","media_type":"image/png","data":"`+
+			base64.StdEncoding.EncodeToString(testPNGBytes)+`"}]}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+
+	for _, response := range []map[string]any{withoutMedia, withMedia} {
+		blocks := response["agent_input"].(map[string]any)["content_blocks"].([]any)
+		if blocks[0].(map[string]any)["text"] != "before\uFFFDafter" {
+			t.Fatalf("decoded content blocks = %+v, want replacement character", blocks)
+		}
+	}
+}
+
 func TestSessionInputInlineMediaValidation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -248,12 +296,16 @@ func TestSessionInputRejectedAttachmentLeavesNoArtifacts(t *testing.T) {
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
-	// A valid attachment followed by an invalid one must reject the request
-	// before any artifact row is created.
 	requestJSONWithHeaders(t, handler, http.MethodPost, inputsPath,
 		`{"content_blocks":[`+
 			`{"type":"media","media_type":"image/png","data":"`+pngBase64+`"},`+
 			`{"type":"media","media_type":"image/tiff","data":"`+pngBase64+`"}`+
+			`]}`,
+		"", http.StatusBadRequest, authHeaders(project.AdminToken))
+	requestJSONWithHeaders(t, handler, http.MethodPost, inputsPath,
+		`{"content_blocks":[`+
+			`{"type":"media","media_type":"image/png","data":"`+pngBase64+`"},`+
+			`{"type":"text","text":"before\u0000after"}`+
 			`]}`,
 		"", http.StatusBadRequest, authHeaders(project.AdminToken))
 

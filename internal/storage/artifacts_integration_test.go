@@ -171,7 +171,8 @@ func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
 				Filename:    test.filename,
 				Content:     []byte("artifact bytes"),
 			})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
+			if !errors.Is(err, storeerr.ErrInvalidRequest) ||
+				!strings.Contains(err.Error(), test.want) {
 				t.Fatalf("create artifact error = %v, want %q", err, test.want)
 			}
 			if len(blobs.putKeys) != 0 {

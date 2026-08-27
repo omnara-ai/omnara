@@ -178,18 +178,6 @@ func TestContentBlocksRejectDatabaseUnsafeStrings(t *testing.T) {
 	}
 }
 
-func TestPrepareContentBlockForStorageRejectsDatabaseUnsafeStrings(t *testing.T) {
-	for _, input := range []CreateContentBlockInput{
-		{TextContent: "before\x00after"},
-		{StructuredData: json.RawMessage(`{"value":"before\u0000after"}`)},
-		{Metadata: map[string]string{"key": "before\x00after"}},
-	} {
-		if _, err := prepareContentBlockForStorage(input); err == nil {
-			t.Fatalf("database-unsafe storage input passed validation: %+v", input)
-		}
-	}
-}
-
 func TestStructuredDataNormalizesUnpairedSurrogates(t *testing.T) {
 	blocks, err := parseToolResultContentBlocks(json.RawMessage(
 		`[{"type":"structured_data","value":{"\ud800":"before\ud800after"}}]`,
@@ -197,20 +185,31 @@ func TestStructuredDataNormalizesUnpairedSurrogates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse structured data: %v", err)
 	}
-	prepared, err := prepareContentBlockForStorage(CreateContentBlockInput{
-		StructuredData: json.RawMessage(`{"\ud800":"before\ud800after"}`),
-	})
-	if err != nil {
-		t.Fatalf("prepare structured data: %v", err)
+	var decoded map[string]string
+	if err := json.Unmarshal(blocks[0].StructuredData, &decoded); err != nil {
+		t.Fatalf("decode normalized structured data %s: %v", blocks[0].StructuredData, err)
 	}
-	for _, value := range []json.RawMessage{blocks[0].StructuredData, prepared.StructuredData} {
-		var decoded map[string]string
-		if err := json.Unmarshal(value, &decoded); err != nil {
-			t.Fatalf("decode normalized structured data %s: %v", value, err)
-		}
-		if decoded["\uFFFD"] != "before\uFFFDafter" {
-			t.Fatalf("normalized structured data = %s, want replacement characters", value)
-		}
+	if decoded["\uFFFD"] != "before\uFFFDafter" {
+		t.Fatalf("normalized structured data = %s, want replacement characters", blocks[0].StructuredData)
+	}
+}
+
+func TestStructuredDataNormalizesInvalidUTF8(t *testing.T) {
+	input := append(
+		[]byte(`[{"type":"structured_data","value":{"message":"before`),
+		0xff,
+	)
+	input = append(input, []byte(`after"}}]`)...)
+	blocks, err := parseToolResultContentBlocks(input)
+	if err != nil {
+		t.Fatalf("parse structured data: %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(blocks[0].StructuredData, &decoded); err != nil {
+		t.Fatalf("decode normalized structured data %s: %v", blocks[0].StructuredData, err)
+	}
+	if decoded["message"] != "before\uFFFDafter" {
+		t.Fatalf("normalized structured data = %s, want replacement character", blocks[0].StructuredData)
 	}
 }
 

@@ -524,7 +524,8 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			name:       "metadata NUL",
 			toolCallID: mediaToolCallID,
 			body: `{"outcome":"succeeded","content_blocks":[` +
-				`{"type":"text","text":"safe","metadata":{"source":"before\u0000after"}}]}`,
+				`{"type":"media","media_type":"image/png","data":"` + pngBase64 + `",` +
+				`"metadata":{"source":"before\u0000after"}}]}`,
 		},
 		{
 			name:       "media filename NUL",
@@ -549,6 +550,17 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 				t.Fatalf("database-unsafe result response = %+v, want invalid_request", response)
 			}
 		})
+	}
+	var artifactCount int
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM artifacts WHERE agent_id = $1`,
+		agent.ID,
+	).Scan(&artifactCount); err != nil {
+		t.Fatalf("count artifacts after rejected results: %v", err)
+	}
+	if artifactCount != 0 {
+		t.Fatalf("rejected results left %d artifact rows", artifactCount)
 	}
 	readyAfterRejectedResults := requestJSONWithHeaders(
 		t,

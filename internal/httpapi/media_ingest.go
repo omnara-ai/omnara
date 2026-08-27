@@ -5,8 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -141,9 +141,9 @@ func (s *Server) extractInlineMedia(
 				),
 			}
 		}
-		if strings.IndexByte(block.Filename, 0) >= 0 {
+		if err := dbsafe.Text(block.Filename); err != nil {
 			return nil, mediaIngestError{
-				fmt.Sprintf("content block %d: filename must not contain U+0000", ordinal),
+				fmt.Sprintf("content block %d: filename %s", ordinal, err),
 			}
 		}
 		totalBytes += len(content)
@@ -170,6 +170,19 @@ func (s *Server) extractInlineMedia(
 	}
 	if len(pending) == 0 {
 		return contentBlocks, nil
+	}
+	for ordinal, raw := range rawBlocks {
+		if attachment, ok := pending[ordinal]; ok {
+			raw = attachment.metadata
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		if err := dbsafe.JSONStrings(raw); err != nil {
+			return nil, mediaIngestError{
+				fmt.Sprintf("content block %d: %s", ordinal, err),
+			}
+		}
 	}
 	out := make([]json.RawMessage, 0, len(rawBlocks))
 	for ordinal, raw := range rawBlocks {

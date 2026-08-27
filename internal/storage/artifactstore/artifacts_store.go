@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -57,11 +56,15 @@ func (s *Store) CreateArtifact(
 	if input.ContentType == "" {
 		return ArtifactRecord{}, errors.New("artifact content type is required")
 	}
-	if err := validateArtifactStringForStorage("content type", input.ContentType); err != nil {
-		return ArtifactRecord{}, err
+	if err := dbsafe.Text(input.ContentType); err != nil {
+		return ArtifactRecord{}, storeerr.InvalidRequest(
+			fmt.Errorf("artifact content type %w", err),
+		)
 	}
-	if err := validateArtifactStringForStorage("filename", input.Filename); err != nil {
-		return ArtifactRecord{}, err
+	if err := dbsafe.Text(input.Filename); err != nil {
+		return ArtifactRecord{}, storeerr.InvalidRequest(
+			fmt.Errorf("artifact filename %w", err),
+		)
 	}
 	if len(input.Content) == 0 {
 		return ArtifactRecord{}, errors.New("artifact content is required")
@@ -115,16 +118,6 @@ func (s *Store) CreateArtifact(
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
 	}
 	return record, nil
-}
-
-func validateArtifactStringForStorage(field, value string) error {
-	if !utf8.ValidString(value) {
-		return fmt.Errorf("artifact %s contains invalid UTF-8", field)
-	}
-	if strings.IndexByte(value, 0) >= 0 {
-		return fmt.Errorf("artifact %s contains U+0000", field)
-	}
-	return nil
 }
 
 func (s *Store) GetArtifact(
