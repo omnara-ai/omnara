@@ -1,5 +1,5 @@
 import { useCreateAgentConfig, useCreateAgentProfile } from '@omnara/react'
-import type { AgentProfile, VisibleProject } from '@omnara/sdk'
+import { type AgentProfile, cliLoginTokenHost, type VisibleProject } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
@@ -11,7 +11,6 @@ import {
   chatMessage,
   cliLoginCommand,
   cliSetupPrompt,
-  cliTokenHost,
   profileCreateSpec,
 } from '@/components/overview/onboardingCli'
 import { ProfileDraftStep } from '@/components/overview/OnboardingProfileDraft'
@@ -89,7 +88,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
         description="Run the command below to sign in and save an API token"
         status={login}
         nextStatus={createProfile}
-        completion={cliToken ? cliTokenHost(cliToken) : 'CLI access is set up'}
+        completion={cliToken ? cliLoginTokenHost(cliToken) : 'CLI access is set up'}
       >
         {login !== 'done' && <CodeBlock content={cliLoginCommand} label="command" />}
       </OnboardingStep>

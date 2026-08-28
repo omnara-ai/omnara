@@ -1,4 +1,3 @@
-import type { PersonalAccessToken } from '@omnara/sdk'
 import { parse } from 'yaml'
 
 import { type BasicConfig, createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
@@ -7,20 +6,6 @@ import type { CodeContent } from '@/components/overview/CodeBlock'
 export const cliLoginCommand = 'npx omnara login'
 export const cliSetupPrompt =
   'Read https://omnara.com/SKILL.md and help me create an Omnara agent profile.'
-export const cliTokenNamePrefix = 'Omnara CLI'
-
-export function isCliLoginToken(token: PersonalAccessToken) {
-  return token.revoked_at == null && token.name.startsWith(cliTokenNamePrefix)
-}
-
-export function cliTokenHost(token: PersonalAccessToken) {
-  const rest = token.name
-    .slice(cliTokenNamePrefix.length)
-    .replace(/^\s+on\s+/, '')
-    .trim()
-  return rest === '' ? token.name : rest
-}
-
 function shellLines(parts: string[]) {
   return parts.join(' \\\n  ')
 }

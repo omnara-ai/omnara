@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 export type StepStatus = 'done' | 'active' | 'upcoming'
 
 export function OnboardingSteps({ children }: { children: ReactNode }) {
-  return <div className="relative flex flex-col gap-12 py-4">{children}</div>
+  return <div className="relative flex flex-col gap-12 pb-12 pt-4">{children}</div>
 }
 
 export function OnboardingStep({

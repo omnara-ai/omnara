@@ -48,7 +48,10 @@ export function useCreateOrganization() {
   })
 }
 
-export function useOrgOverview(orgID: string, options?: { refetchInterval?: number | false }) {
+export function useOrgOverview(
+  orgID: string,
+  options?: Pick<ReturnType<typeof getOrgOverviewOptions>, 'refetchInterval'>,
+) {
   const client = useOmnaraClient()
   return useQuery({
     ...getOrgOverviewOptions({ path: { orgID }, client }),

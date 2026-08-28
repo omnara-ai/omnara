@@ -18,7 +18,6 @@ export interface AuthConnector {
 }
 
 export interface WebConfig {
-  publicURL?: string
   billingURL?: string
 }
 
@@ -94,8 +93,8 @@ export async function listAuthConnectors(): Promise<AuthConnector[]> {
 export async function fetchWebConfig(): Promise<WebConfig> {
   const response = await fetch('/api/web-config', { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = (await response.json()) as { public_url?: string; billing_url?: string }
-  return { publicURL: data.public_url, billingURL: data.billing_url }
+  const data = (await response.json()) as { billing_url?: string }
+  return { billingURL: data.billing_url }
 }
 
 export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPending> {

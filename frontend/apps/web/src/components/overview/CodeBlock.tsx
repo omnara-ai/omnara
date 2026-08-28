@@ -1,6 +1,6 @@
 import { type ReactNode, Suspense, useEffect, useState } from 'react'
 
-import { CheckIcon, CopyIcon } from '@/components/icons'
+import { CheckIcon, CopyIcon, XIcon } from '@/components/icons'
 import { type CodeLanguage, Highlighted } from '@/components/overview/highlight'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -66,32 +66,48 @@ function JsonSegment({ json }: { json: string }) {
   )
 }
 
+type CopyState = 'idle' | 'copied' | 'failed'
+
+const copyLabels: Record<CopyState, (label: string) => string> = {
+  idle: (label) => `Copy ${label}`,
+  copied: (label) => `Copied ${label}`,
+  failed: (label) => `Could not copy ${label}`,
+}
+
 function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<CopyState>('idle')
 
   useEffect(() => {
-    if (!copied) return
+    if (state === 'idle') return
     const timer = window.setTimeout(() => {
-      setCopied(false)
+      setState('idle')
     }, 2000)
     return () => {
       window.clearTimeout(timer)
     }
-  }, [copied])
+  }, [state])
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      className="text-muted-foreground hover:text-foreground size-8"
-      aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+      className={cn(
+        'text-muted-foreground hover:text-foreground size-8',
+        state === 'failed' && 'text-destructive hover:text-destructive',
+      )}
+      aria-label={copyLabels[state](label)}
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-        })
+        navigator.clipboard.writeText(text).then(
+          () => {
+            setState('copied')
+          },
+          () => {
+            setState('failed')
+          },
+        )
       }}
     >
-      {copied ? <CheckIcon /> : <CopyIcon />}
+      {state === 'copied' ? <CheckIcon /> : state === 'failed' ? <XIcon /> : <CopyIcon />}
     </Button>
   )
 }

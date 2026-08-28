@@ -39,7 +39,11 @@ export function Overview() {
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
         <div className="flex min-h-0 flex-1 justify-center pb-16">
-          <AgentOnboarding orgId={activeOrg.id} project={manageableProject} />
+          <AgentOnboarding
+            key={`${activeOrg.id}:${manageableProject.id}`}
+            orgId={activeOrg.id}
+            project={manageableProject}
+          />
         </div>
       ) : (
         <RecentAgentsSection

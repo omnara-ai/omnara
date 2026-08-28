@@ -1,8 +1,13 @@
 import { useOrgOverview, usePersonalAccessTokens } from '@omnara/react'
-import type { Agent, AgentProfile, OrgOverviewResponse, PersonalAccessToken } from '@omnara/sdk'
+import {
+  type Agent,
+  type AgentProfile,
+  isCliLoginToken,
+  type OrgOverviewResponse,
+  type PersonalAccessToken,
+} from '@omnara/sdk'
 import { useDeferredValue } from 'react'
 
-import { isCliLoginToken } from '@/components/overview/onboardingCli'
 import type { StepStatus } from '@/components/overview/OnboardingSteps'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
@@ -37,9 +42,11 @@ function projectProgress(overview: OrgOverviewResponse | undefined, projectId: s
 }
 
 export function useOnboarding(input: { orgId: string; projectId: string }): OnboardingProgress {
-  const overviewQuery = useOrgOverview(input.orgId)
+  const overviewQuery = useOrgOverview(input.orgId, {
+    refetchInterval: (query) =>
+      projectProgress(query.state.data, input.projectId).agent == null ? pollIntervalMs : false,
+  })
   const live = projectProgress(overviewQuery.data, input.projectId)
-  useOrgOverview(input.orgId, { refetchInterval: live.agent == null ? pollIntervalMs : false })
   const tokensQuery = usePersonalAccessTokens(tokenPageSize, {
     refetchInterval: live.agentProfile == null ? pollIntervalMs : false,
   })

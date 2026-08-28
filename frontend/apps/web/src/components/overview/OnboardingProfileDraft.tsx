@@ -48,8 +48,7 @@ export function ProfileDraftStep({
     if (!template) return null
     return { name: template.name, config: defaults.build(template) }
   }
-  const canCreate =
-    defaults.ready && !submitting && !disabled && template != null && defaults.defaultModel != null
+  const canCreate = defaults.ready && !submitting && !disabled && template != null
 
   async function create() {
     const current = draft()
@@ -76,6 +75,9 @@ export function ProfileDraftStep({
           initial={current}
           onDone={(next) => {
             setCustomDraft(next)
+            setBuilderOpen(false)
+          }}
+          onCancel={() => {
             setBuilderOpen(false)
           }}
         />
@@ -121,11 +123,6 @@ export function ProfileDraftStep({
           Customized as <span className="text-foreground font-medium">{customDraft.name}</span>.
         </p>
       )}
-      {defaults.ready && defaults.defaultModel == null && (
-        <p className="text-destructive text-sm">
-          Grant a model to {project.name} before creating a profile.
-        </p>
-      )}
       {error && <p className="text-destructive text-sm">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -161,11 +158,13 @@ function InlineProfileBuilder({
   projectId,
   initial,
   onDone,
+  onCancel,
 }: {
   orgId: string
   projectId: string
   initial: ProfileDraft
   onDone: (draft: ProfileDraft) => void
+  onCancel: () => void
 }) {
   const [name, setName] = useState(initial.name)
   const [session] = useState(() => createBasicConfigSession(''))
@@ -198,7 +197,10 @@ function InlineProfileBuilder({
         </div>
         <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={form} agentName={name} />
       </FieldGroup>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" data-action="builder-cancel" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           type="button"
           data-action="builder-ok"
