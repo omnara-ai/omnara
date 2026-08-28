@@ -59,7 +59,7 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		fired := false
 		if err := s.fireTrigger(ctx, trigger); err != nil {
 			stats.Failures++
-			retry := !permanentFireError(err)
+			retry := shouldRetryFiring(err)
 			s.logger.Error(
 				"fire cron trigger",
 				"cron_trigger_id", trigger.TriggerID,
@@ -217,10 +217,12 @@ func cronTriggerActorParams(
 	}, nil
 }
 
-func permanentFireError(err error) bool {
-	return errors.Is(err, storeerr.ErrNotFound) ||
-		errors.Is(err, storeerr.ErrInvalidRequest) ||
-		errors.Is(err, storeerr.ErrIdempotencyConflict)
+// Unknown failures retry. Deterministic errors consume this occurrence; later
+// scheduled occurrences remain eligible to run.
+func shouldRetryFiring(err error) bool {
+	return !errors.Is(err, storeerr.ErrNotFound) &&
+		!errors.Is(err, storeerr.ErrInvalidRequest) &&
+		!errors.Is(err, storeerr.ErrIdempotencyConflict)
 }
 
 func fireIdempotencyKey(trigger executionstore.ClaimedCronTrigger) string {
