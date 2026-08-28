@@ -6,6 +6,3 @@ ALTER TABLE auth_device_flows
         octet_length(client_id) BETWEEN 1 AND 256
         AND (client_id COLLATE "C") !~ '[[:cntrl:]]'
     );
-
-ALTER TABLE auth_device_flows
-    ALTER COLUMN client_id DROP DEFAULT;

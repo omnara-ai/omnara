@@ -60,6 +60,64 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
+func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 27)); err != nil {
+		t.Fatalf("apply migrations through version 27: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'pre-migration-device', 'pre-migration-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+`); err != nil {
+		t.Fatalf("insert pre-migration device flow: %v", err)
+	}
+
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
+		t.Fatalf("apply device OAuth migration: %v", err)
+	}
+
+	var backfilledClientID string
+	if err := db.QueryRowContext(ctx, `
+SELECT client_id
+FROM auth_device_flows
+WHERE device_code_hash = 'pre-migration-device'
+`).Scan(&backfilledClientID); err != nil {
+		t.Fatalf("read backfilled device flow: %v", err)
+	}
+	if backfilledClientID != "omnara-cli" {
+		t.Fatalf("backfilled client_id = %q, want omnara-cli", backfilledClientID)
+	}
+
+	var previousWriterClientID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'previous-writer-device', 'previous-writer-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+RETURNING client_id
+`).Scan(&previousWriterClientID); err != nil {
+		t.Fatalf("insert device flow with previous writer shape: %v", err)
+	}
+	if previousWriterClientID != "omnara-cli" {
+		t.Fatalf("previous writer client_id = %q, want omnara-cli", previousWriterClientID)
+	}
+}
+
 func TestPostgresNameStoragePolicies(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
