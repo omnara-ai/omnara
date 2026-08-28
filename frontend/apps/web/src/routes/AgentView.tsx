@@ -25,6 +25,7 @@ import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcp
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
+import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -91,118 +92,120 @@ export function AgentView() {
       className="h-[calc(100svh-3rem)] min-h-0 overflow-hidden"
       style={{ '--sidebar-width': '20rem' } as CSSProperties}
     >
-      <div
-        className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden"
-        style={{ contain: 'paint' }}
-      >
-        <header className="shrink-0 pb-4">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <PageBreadcrumb
-              items={[
-                { id: 'organization', label: activeOrg.name, to: '/' },
-                ...(project ? [{ id: 'project', label: project.name }] : []),
-                {
-                  id: 'agents',
-                  label: 'Agents',
-                  to: '/projects/$projectId/agents' as const,
-                  params: { projectId },
-                },
-                { id: 'agent', label: agent.name || 'Agent' },
-              ]}
-            />
-            <div className="flex shrink-0 items-center gap-1">
-              {agent.current_config_id !== undefined && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Agent configuration"
-                  className={cn('text-muted-foreground', configOpen && sidebarToggleActiveClass)}
-                  onClick={() => {
-                    if (!configOpen) {
-                      setConfigOpen(true)
-                      return
-                    }
-                    if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
-                    closeConfig()
-                  }}
-                >
-                  <SettingsIcon />
-                </Button>
-              )}
-              <AgentSidebarToggle />
-            </div>
-          </div>
-        </header>
-
-        {configOpen ? (
-          <main className="min-h-0 flex-1 overflow-y-auto">
-            <AgentConfigPanel
-              orgId={activeOrg.id}
-              projectId={projectId}
-              agent={agent}
-              canManage={project?.access.can_manage ?? false}
-              onDirtyChange={(dirty) => {
-                configDirty.current = dirty
-              }}
-              onClose={closeConfig}
-            />
-          </main>
-        ) : (
-          <main className="min-h-0 flex-1">
-            <AgentConversation
-              chat={chat}
-              currentActorId={currentActorId}
-              orgID={activeOrg.id}
-              projectID={projectId}
-              agentID={agentId}
-            />
-          </main>
-        )}
-
-        <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3">
-          {!archived && (
-            <AgentInteractions
-              interactions={interactions.data?.data ?? []}
-              pending={resolveInteraction.isPending}
-              error={resolveInteraction.error}
-              loadError={
-                interactions.error != null
-                  ? errorMessage(interactions.error, 'Unknown error')
-                  : null
-              }
-              onResolve={resolve}
-              canOperate={canOperate}
-            />
-          )}
-          {archived ? (
-            !configOpen && (
-              <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
-                <p className="text-sm font-medium">This agent is archived</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  You can view its conversation, but it can no longer receive messages.
-                </p>
-              </div>
-            )
-          ) : (
-            <div className={cn('min-w-0', configOpen && 'hidden')}>
-              <AgentInputQueue
-                backlog={chat.inputBacklog}
-                canOperate={canOperate}
-                canSendNow={canSendNow}
+      <MessageScrollerProvider key={agentId} autoScroll>
+        <div
+          className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden"
+          style={{ contain: 'paint' }}
+        >
+          <header className="shrink-0 pb-4">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <PageBreadcrumb
+                items={[
+                  { id: 'organization', label: activeOrg.name, to: '/' },
+                  ...(project ? [{ id: 'project', label: project.name }] : []),
+                  {
+                    id: 'agents',
+                    label: 'Agents',
+                    to: '/projects/$projectId/agents' as const,
+                    params: { projectId },
+                  },
+                  { id: 'agent', label: agent.name || 'Agent' },
+                ]}
               />
-              {!configOpen && (
-                <AgentComposer
-                  chat={chat}
-                  cancelPending={cancelAgent.isPending}
-                  cancelError={cancelAgent.error}
-                  onCancel={cancelCurrent}
-                  canOperate={canOperate}
-                />
-              )}
+              <div className="flex shrink-0 items-center gap-1">
+                {agent.current_config_id !== undefined && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Agent configuration"
+                    className={cn('text-muted-foreground', configOpen && sidebarToggleActiveClass)}
+                    onClick={() => {
+                      if (!configOpen) {
+                        setConfigOpen(true)
+                        return
+                      }
+                      if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
+                      closeConfig()
+                    }}
+                  >
+                    <SettingsIcon />
+                  </Button>
+                )}
+                <AgentSidebarToggle />
+              </div>
             </div>
+          </header>
+
+          {configOpen ? (
+            <main className="min-h-0 flex-1 overflow-y-auto">
+              <AgentConfigPanel
+                orgId={activeOrg.id}
+                projectId={projectId}
+                agent={agent}
+                canManage={project?.access.can_manage ?? false}
+                onDirtyChange={(dirty) => {
+                  configDirty.current = dirty
+                }}
+                onClose={closeConfig}
+              />
+            </main>
+          ) : (
+            <main className="min-h-0 flex-1">
+              <AgentConversation
+                chat={chat}
+                currentActorId={currentActorId}
+                orgID={activeOrg.id}
+                projectID={projectId}
+                agentID={agentId}
+              />
+            </main>
           )}
+
+          <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
+            {!archived && (
+              <AgentInteractions
+                interactions={interactions.data?.data ?? []}
+                pending={resolveInteraction.isPending}
+                error={resolveInteraction.error}
+                loadError={
+                  interactions.error != null
+                    ? errorMessage(interactions.error, 'Unknown error')
+                    : null
+                }
+                onResolve={resolve}
+                canOperate={canOperate}
+              />
+            )}
+            {archived ? (
+              !configOpen && (
+                <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
+                  <p className="text-sm font-medium">This agent is archived</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    You can view its conversation, but it can no longer receive messages.
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className={cn('min-w-0', configOpen && 'hidden')}>
+                <AgentInputQueue
+                  backlog={chat.inputBacklog}
+                  canOperate={canOperate}
+                  canSendNow={canSendNow}
+                />
+                {!configOpen && (
+                  <AgentComposer
+                    chat={chat}
+                    cancelPending={cancelAgent.isPending}
+                    cancelError={cancelAgent.error}
+                    onCancel={cancelCurrent}
+                    canOperate={canOperate}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </MessageScrollerProvider>
       <AgentSidebar
         orgId={activeOrg.id}
         projectId={projectId}
