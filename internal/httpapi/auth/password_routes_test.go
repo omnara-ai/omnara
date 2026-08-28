@@ -29,3 +29,16 @@ func TestWriteAuthStorageErrorMapsConflict(t *testing.T) {
 		t.Fatalf("conflict response status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestSafeSignupReturnToAllowsOnlyDeviceApproval(t *testing.T) {
+	for input, want := range map[string]string{
+		"/device?user_code=abcde-f1234":        "/device?user_code=ABCDE-F1234",
+		"/device?user_code=ABCDE-F1234&next=/": "/",
+		"/device?user_code=not-a-code":         "/",
+		"/projects/project":                    "/",
+	} {
+		if got := safeSignupReturnTo(input); got != want {
+			t.Errorf("safeSignupReturnTo(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

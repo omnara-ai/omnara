@@ -33,15 +33,16 @@ import (
 )
 
 type capturedAuthEmail struct {
-	to    string
-	token string
-	path  string
+	to       string
+	token    string
+	path     string
+	returnTo string
 }
 
 type captureAuthEmailSender struct {
 	verification chan capturedAuthEmail
 	reset        chan capturedAuthEmail
-	account      chan string
+	account      chan capturedAuthEmail
 	changed      chan string
 }
 
@@ -71,7 +72,7 @@ func newCaptureAuthEmailSender() *captureAuthEmailSender {
 	return &captureAuthEmailSender{
 		verification: make(chan capturedAuthEmail, 16),
 		reset:        make(chan capturedAuthEmail, 16),
-		account:      make(chan string, 16),
+		account:      make(chan capturedAuthEmail, 16),
 		changed:      make(chan string, 16),
 	}
 }
@@ -90,8 +91,8 @@ func (s *captureAuthEmailSender) SendPasswordReset(_ context.Context, to, resetU
 	return nil
 }
 
-func (s *captureAuthEmailSender) SendAccountExists(_ context.Context, to, _ string) error {
-	s.account <- to
+func (s *captureAuthEmailSender) SendAccountExists(_ context.Context, to, loginURL string) error {
+	s.account <- authEmailFromURL(to, loginURL)
 	return nil
 }
 
@@ -105,7 +106,12 @@ func authEmailFromURL(to, raw string) capturedAuthEmail {
 	if err != nil {
 		return capturedAuthEmail{to: to}
 	}
-	return capturedAuthEmail{to: to, token: parsed.Query().Get("token"), path: parsed.Path}
+	return capturedAuthEmail{
+		to:       to,
+		token:    parsed.Query().Get("token"),
+		path:     parsed.Path,
+		returnTo: parsed.Query().Get("return_to"),
+	}
 }
 
 func waitAuthEmail(t *testing.T, ch <-chan capturedAuthEmail) capturedAuthEmail {
@@ -1246,14 +1252,19 @@ func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 		return req
 	}
 
-	req := authReq(http.MethodPost, "/api/auth/signup", `{"email":"`+email+`"}`)
+	req := authReq(
+		http.MethodPost,
+		"/api/auth/signup",
+		`{"email":"`+email+`","return_to":"/device?user_code=ABCDE-F1234"}`,
+	)
 	rec := performRequest(handler, req)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("signup status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	assertAuthNoSessionCookies(t, rec)
 	verification := waitAuthEmail(t, emailSender.verification)
-	if verification.to != email || verification.token == "" || verification.path != "/verify-email" {
+	if verification.to != email || verification.token == "" || verification.path != "/verify-email" ||
+		verification.returnTo != "/device?user_code=ABCDE-F1234" {
 		t.Fatalf("unexpected verification email: %+v", verification)
 	}
 
@@ -1477,8 +1488,8 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 		return req
 	}
 	signupBodies := []string{
-		`{"email":"` + email + `"}`,
-		`{"email":"new-` + runKey + `@example.com"}`,
+		`{"email":"` + email + `","return_to":"/device?user_code=ABCDE-F1234"}`,
+		`{"email":"new-` + runKey + `@example.com","return_to":"https://evil.example/device"}`,
 		`{"email":"not an email"}`,
 	}
 	var signupBody string
@@ -1494,14 +1505,15 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 			t.Fatalf("signup %d body=%q want %q", i, rec.Body.String(), signupBody)
 		}
 	}
-	if got := waitStringEmail(t, emailSender.account); got != email {
-		t.Fatalf("existing-account signup notice to=%q want %q", got, email)
+	if got := waitAuthEmail(t, emailSender.account); got.to != email || got.path != "/login" || got.returnTo != "" {
+		t.Fatalf("unexpected existing-account signup notice: %+v", got)
 	}
-	if got := waitAuthEmail(t, emailSender.verification); got.to != "new-"+runKey+"@example.com" {
-		t.Fatalf("new-account verification to=%q", got.to)
+	if got := waitAuthEmail(t, emailSender.verification); got.to != "new-"+runKey+"@example.com" ||
+		got.returnTo != "" {
+		t.Fatalf("unexpected new-account verification: %+v", got)
 	}
 	assertNoAuthEmail(t, emailSender.verification)
-	assertNoStringEmail(t, emailSender.account)
+	assertNoAuthEmail(t, emailSender.account)
 
 	loginBodies := []string{
 		`{"email":"` + email + `","password":"wrong horse battery staple"}`,

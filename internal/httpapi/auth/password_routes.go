@@ -49,9 +49,10 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		ReturnTo string `json:"return_to"`
 	}
-	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"email": true}, nil); err != nil {
+	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"email": true, "return_to": true}, nil); err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
@@ -85,12 +86,40 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 			return h.email.SendAccountExists(ctx, email, h.authURL("/login", nil))
 		})
 	} else {
-		verifyURL := h.authURL("/verify-email", url.Values{"token": []string{record.Token}})
+		returnTo := safeSignupReturnTo(body.ReturnTo)
+		verifyValues := url.Values{"token": []string{record.Token}}
+		if returnTo != "/" {
+			verifyValues.Set("return_to", returnTo)
+		}
+		verifyURL := h.authURL("/verify-email", verifyValues)
 		h.sendAuthEmail(r.Context(), func(ctx context.Context) error {
 			return h.email.SendEmailVerification(ctx, record.Email.Email, verifyURL)
 		})
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "ok"})
+}
+
+func safeSignupReturnTo(value string) string {
+	if len(value) > 256 {
+		return "/"
+	}
+	target, err := url.Parse(SafeReturnTo(value))
+	if err != nil || target.Path != "/device" || target.Fragment != "" {
+		return "/"
+	}
+	query, err := url.ParseQuery(target.RawQuery)
+	if err != nil {
+		return "/"
+	}
+	codes, ok := query["user_code"]
+	if !ok || len(query) != 1 || len(codes) != 1 {
+		return "/"
+	}
+	code, ok := identitystore.CanonicalDeviceUserCode(codes[0])
+	if !ok {
+		return "/"
+	}
+	return "/device?" + url.Values{"user_code": []string{code}}.Encode()
 }
 
 func (h *Handler) resendEmailVerificationRoute(w http.ResponseWriter, r *http.Request) {

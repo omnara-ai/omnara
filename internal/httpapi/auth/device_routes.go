@@ -23,7 +23,7 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	clientID := oauthFormValue(form, "client_id")
+	clientID := form.Get("client_id")
 	if clientID == "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "client_id is required")
 		return
@@ -33,11 +33,11 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client", "client_id is not registered")
 		return
 	}
-	if oauthFormValue(form, "scope") != "" {
+	if form.Get("scope") != "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_scope", "this authorization server does not define OAuth scopes")
 		return
 	}
-	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", oauthFormValue(form, "token_name"))
+	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", form.Get("token_name"))
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -88,7 +88,7 @@ func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	grantType := oauthFormValue(form, "grant_type")
+	grantType := form.Get("grant_type")
 	if grantType == "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
 		return
@@ -97,8 +97,8 @@ func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type is not supported")
 		return
 	}
-	deviceCode := oauthFormValue(form, "device_code")
-	clientID := oauthFormValue(form, "client_id")
+	deviceCode := form.Get("device_code")
+	clientID := form.Get("client_id")
 	if deviceCode == "" || clientID == "" {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "device_code and client_id are required")
 		return

@@ -131,8 +131,8 @@ export async function sessionLogout(): Promise<void> {
   await authJSON('/api/auth/logout')
 }
 
-export async function requestSignup(email: string): Promise<void> {
-  await authJSON('/api/auth/signup', { email })
+export async function requestSignup(email: string, returnTo?: string): Promise<void> {
+  await authJSON('/api/auth/signup', { email, return_to: returnTo })
 }
 
 export async function completeEmailVerification(

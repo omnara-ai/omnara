@@ -323,11 +323,24 @@ func NormalizeDeviceUserCode(code string) string {
 	return code
 }
 
+func CanonicalDeviceUserCode(code string) (string, bool) {
+	code = NormalizeDeviceUserCode(code)
+	if len(code) != 10 || strings.IndexFunc(code, func(char rune) bool {
+		return (char < 'A' || char > 'F') && (char < '0' || char > '9')
+	}) >= 0 {
+		return "", false
+	}
+	return code[:5] + "-" + code[5:], true
+}
+
 func randomUserCode() (string, error) {
 	raw, err := randomTokenPart(5)
 	if err != nil {
 		return "", fmt.Errorf("generate user code: %w", err)
 	}
-	code := strings.ToUpper(raw)
-	return code[:5] + "-" + code[5:], nil
+	code, ok := CanonicalDeviceUserCode(raw)
+	if !ok {
+		return "", errors.New("generated invalid user code")
+	}
+	return code, nil
 }

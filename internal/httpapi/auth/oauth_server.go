@@ -79,10 +79,6 @@ func parseOAuthForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
 	return r.PostForm, true
 }
 
-func oauthFormValue(values url.Values, key string) string {
-	return values.Get(key)
-}
-
 func writeOAuthError(w http.ResponseWriter, status int, code, description string) {
 	setOAuthNoStoreHeaders(w)
 	writeJSON(w, status, oauthErrorResponse{Error: code, ErrorDescription: description})
