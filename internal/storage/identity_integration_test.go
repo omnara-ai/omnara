@@ -4337,6 +4337,29 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 	}
 }
 
+func TestDeviceAuthClientIDValidationMatchesSchema(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+	clientID := strings.Repeat("é", 129)
+	if _, err := store.Identity().StartDeviceAuthFlow(
+		ctx,
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID: clientID, ClientName: "CLI", TokenName: "CLI token",
+		},
+	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
+		t.Fatalf("long device client id error = %v, want ErrInvalidDeviceAuthFlow", err)
+	}
+	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-long-client-id', 'device-schema-long-client-id-user', $1, 'client', 'token', $2, $3)
+	`, clientID, now, now.Add(time.Hour)); !isCheckViolation(err) {
+		t.Fatalf("long client id error = %v, want check violation", err)
+	}
+}
+
 func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
