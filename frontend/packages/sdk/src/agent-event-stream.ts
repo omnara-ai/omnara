@@ -288,8 +288,7 @@ export async function* openAgentEventStream({
         state: 'connected',
         reconnected: hasRetried,
       })
-      // A connection callback may synchronously abort after the pre-callback guard.
-      // Check again before the generated reader installs its abort listener.
+      // The callback may abort before the generated reader owns the response.
       if (isAborted(controller.signal)) {
         await cancelResponseBody(response)
         throw controller.signal.reason ?? new DOMException('Aborted', 'AbortError')
@@ -358,8 +357,7 @@ export async function* openAgentEventStream({
       } catch {
         // The original failure is authoritative; abort already canceled the reader.
       }
-      // Validation and connected-callback failures happen before the generated
-      // reader owns the body, so the controller/iterator cleanup cannot close it.
+      // Close responses rejected before the generated reader owns them.
       await cancelResponseBody(activeResponse)
       unlink()
     }

@@ -841,11 +841,8 @@ func (s *Server) streamAgentEvents(
 		}
 	waitForDurableWakeup:
 		for {
-			// Heartbeats and best-effort frames are transport-only. Only a durable
-			// wakeup leaves this loop to reconcile Postgres; if one is lost, the
-			// next wakeup or client reconnect replays every event after the cursor.
-			// Once a wakeup is visible, at most one racing best-effort frame can
-			// precede this priority check.
+			// Prefer a buffered durable wakeup; at most one racing best-effort
+			// frame can precede reconciliation.
 			select {
 			case <-notify:
 				break waitForDurableWakeup

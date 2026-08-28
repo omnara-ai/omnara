@@ -29,8 +29,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// controlledAgentNotificationSubscriber is a single-stream test barrier; each
-// one-slot channel captures exactly one callback so the test controls delivery.
 type controlledAgentNotificationSubscriber struct {
 	eventCallbacks chan func(context.Context)
 	deltaCallbacks chan func(context.Context, json.RawMessage)
@@ -228,9 +226,6 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 		}
 	}
 
-	// Heartbeats and best-effort frames keep the connection active but must not
-	// turn every stream into a periodic database poll. Two ticks prove the
-	// durable event remains pending until its notification requests reconciliation.
 	for heartbeatNumber := 1; heartbeatNumber <= 2; heartbeatNumber++ {
 		timer.Add(agentEventStreamHeartbeatInterval)
 		select {

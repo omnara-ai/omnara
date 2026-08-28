@@ -36,7 +36,6 @@ Requires Node.js 22 or later.
 import { openAgentEventStream } from '@omnara/sdk'
 
 const controller = new AbortController()
-// Call controller.abort() from the owning task or UI cleanup path.
 
 for await (const frame of openAgentEventStream({
   client,
