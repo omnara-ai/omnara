@@ -1946,9 +1946,9 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * List queued backlog inputs
+ * List waiting backlog inputs
  *
- * Items are ordered by queue position, then queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
  */
 export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(options: Options<ListQueuedBacklogInputsData, ThrowOnError>): RequestResult<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError> => (options.client ?? client).get<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zListQueuedBacklogInputsResponse, data),

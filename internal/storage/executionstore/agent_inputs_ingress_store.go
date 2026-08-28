@@ -39,10 +39,11 @@ type AgentInputRecord struct {
 }
 
 type AgentInputQueueCursor struct {
-	Set       bool
-	InputRank int64
-	QueuedAt  time.Time
-	ID        ID
+	Set          bool
+	DeliveryMode AgentInputDeliveryMode
+	InputRank    int64
+	QueuedAt     time.Time
+	ID           ID
 }
 
 const agentInputRankStride int64 = 1024

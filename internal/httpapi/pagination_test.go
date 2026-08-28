@@ -255,9 +255,10 @@ func TestAgentInputQueueCursorRoundTrip(t *testing.T) {
 		t.Fatalf("encode public id: %v", err)
 	}
 	token, err := encodeAgentInputQueueCursor(agentInputQueueCursor{
-		InputRank: 1536,
-		QueuedAt:  queuedAt,
-		ID:        publicID,
+		DeliveryMode: string(executionstore.DeliveryModeSteering),
+		InputRank:    1536,
+		QueuedAt:     queuedAt,
+		ID:           publicID,
 	})
 	if err != nil {
 		t.Fatalf("encode queue cursor: %v", err)
@@ -274,6 +275,9 @@ func TestAgentInputQueueCursorRoundTrip(t *testing.T) {
 	if !after.Set {
 		t.Fatal("expected queue cursor to be set")
 	}
+	if after.DeliveryMode != executionstore.DeliveryModeSteering {
+		t.Fatalf("delivery mode = %s, want steering", after.DeliveryMode)
+	}
 	if after.InputRank != 1536 {
 		t.Fatalf("input rank = %d, want 1536", after.InputRank)
 	}
@@ -282,6 +286,49 @@ func TestAgentInputQueueCursorRoundTrip(t *testing.T) {
 	}
 	if after.ID != rawID {
 		t.Fatalf("id = %s, want %s", after.ID, rawID)
+	}
+}
+
+func TestAgentInputQueueCursorDefaultsLegacyCursorToQueued(t *testing.T) {
+	publicID, err := publicid.Encode(publicid.KindAgentInput, uuid.New())
+	if err != nil {
+		t.Fatalf("encode public id: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"input_rank": 1024,
+		"queued_at":  time.Date(2026, 6, 22, 8, 30, 15, 0, time.UTC),
+		"id":         publicID,
+	})
+	if err != nil {
+		t.Fatalf("encode legacy queue cursor: %v", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(payload)
+	_, after, err := parseAgentInputQueuePageParams(nil, &token)
+	if err != nil {
+		t.Fatalf("parse legacy queue cursor: %v", err)
+	}
+	if after.DeliveryMode != executionstore.DeliveryModeQueued {
+		t.Fatalf("delivery mode = %s, want queued", after.DeliveryMode)
+	}
+}
+
+func TestAgentInputQueueCursorRejectsInvalidDeliveryMode(t *testing.T) {
+	publicID, err := publicid.Encode(publicid.KindAgentInput, uuid.New())
+	if err != nil {
+		t.Fatalf("encode public id: %v", err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"delivery_mode": "immediate",
+		"input_rank":    1024,
+		"queued_at":     time.Date(2026, 6, 22, 8, 30, 15, 0, time.UTC),
+		"id":            publicID,
+	})
+	if err != nil {
+		t.Fatalf("encode queue cursor: %v", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(payload)
+	if _, _, err := parseAgentInputQueuePageParams(nil, &token); !errors.Is(err, errMalformedCursor) {
+		t.Fatalf("err = %v, want errMalformedCursor", err)
 	}
 }
 

@@ -73,16 +73,16 @@ For a steering message, set `cancel_open_interactions: true` when the correction
 
 ## Inspect and manage the queue
 
-The queue is API-only for now; the dashboard has no queue view. Through the API, you can list waiting inputs, change their order or delivery mode, or cancel them.
+The dashboard shows waiting inputs above the composer. Through the API, you can also list waiting inputs, change their order or delivery mode, or cancel them.
 
 ### List waiting inputs
 
 <SendingInputBacklog />
 
-Similarly, you can cancel a queued input, change its position, or switch it between queued and steering delivery. These operations work only while the input is still waiting; if the agent has already taken it, the API returns `409`.
+Similarly, you can cancel a queued input, change its position, or switch it between queued and steering delivery. Canceling, moving, and demoting work only while the input is still waiting. Promoting is idempotent: it also returns `200` if the input is already steering or the agent has already taken it. Other invalid state transitions return `409`.
 
 <Info>
-Full schemas and playground: [List queued backlog inputs](/api-reference/endpoints/agents/list-queued-backlog-inputs) · [Cancel](/api-reference/endpoints/agents/cancel-queued-backlog-input) · [Move](/api-reference/endpoints/agents/move-queued-backlog-input) · [Promote](/api-reference/endpoints/agents/promote-queued-input-to-steering) · [Demote](/api-reference/endpoints/agents/demote-steering-input-to-queued).
+Full schemas and playground: [List waiting backlog inputs](/api-reference/endpoints/agents/list-queued-backlog-inputs) · [Cancel](/api-reference/endpoints/agents/cancel-queued-backlog-input) · [Move](/api-reference/endpoints/agents/move-queued-backlog-input) · [Promote](/api-reference/endpoints/agents/promote-queued-input-to-steering) · [Demote](/api-reference/endpoints/agents/demote-steering-input-to-queued).
 </Info>
 
 ## Change the config mid-conversation

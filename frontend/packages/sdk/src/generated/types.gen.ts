@@ -1450,6 +1450,10 @@ export type AgentInput = {
      * Actor this input is attributed to. Absent when the input has no actor attribution.
      */
     actor_id?: ActorId;
+    /**
+     * Idempotency key supplied when this content input was created. Absent for other input kinds.
+     */
+    input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
 };
@@ -9364,7 +9368,7 @@ export type ListQueuedBacklogInputsError = ListQueuedBacklogInputsErrors[keyof L
 
 export type ListQueuedBacklogInputsResponses = {
     /**
-     * Queued backlog inputs.
+     * Waiting backlog inputs.
      */
     200: ListAgentInputsResponse;
 };

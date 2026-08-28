@@ -1184,6 +1184,7 @@ export const zAgentInput = z.object({
     delivery_mode: zAgentInputDeliveryMode,
     input_kind: zAgentInputKind,
     actor_id: zActorId.optional(),
+    input_idempotency_key: z.string().optional(),
     content_blocks: z.array(zAgentInputContentBlock).optional(),
     queued_at: zTimestamp
 });
@@ -3747,7 +3748,7 @@ export const zListQueuedBacklogInputsQuery = z.object({
 });
 
 /**
- * Queued backlog inputs.
+ * Waiting backlog inputs.
  */
 export const zListQueuedBacklogInputsResponse = zListAgentInputsResponse;
 

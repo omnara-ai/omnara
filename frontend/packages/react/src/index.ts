@@ -12,7 +12,7 @@ export {
   useAgentChat,
   type UseAgentChatResult,
 } from './domains/agent-chat'
-export { useAgentInputBacklog } from './domains/agent-input-backlog'
+export { type AgentInputBacklogItem, useAgentInputBacklog } from './domains/agent-input-backlog'
 export {
   useAgentInteractions,
   useCancelAgent,

@@ -754,19 +754,41 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 		t.Fatalf("artifact response: %v", err)
 	}
 	inputResponse, err := publicAgentInputResponseFromRecord(executionstore.AgentInputRecord{
-		ID:        httpTestInputID,
-		ProjectID: httpTestProjectID,
-		AgentID:   httpTestAgentID,
-		State:     "queued",
-		ActorID:   httpTestActorID,
-		InputKind: "content",
-		QueuedAt:  now,
+		ID:                  httpTestInputID,
+		ProjectID:           httpTestProjectID,
+		AgentID:             httpTestAgentID,
+		State:               "queued",
+		ActorID:             httpTestActorID,
+		InputKind:           "content",
+		InputIdempotencyKey: "public-input-key",
+		QueuedAt:            now,
 		Metadata: json.RawMessage(
 			`{"visible":true,"source_event_id":"evt_internal","operation_key":"op_internal"}`,
 		),
 	})
 	if err != nil {
 		t.Fatalf("agent input response: %v", err)
+	}
+	if inputResponse.InputIdempotencyKey == nil || *inputResponse.InputIdempotencyKey != "public-input-key" {
+		t.Fatalf("agent input idempotency key = %v", inputResponse.InputIdempotencyKey)
+	}
+	nonContentInputResponse, err := publicAgentInputResponseFromRecord(executionstore.AgentInputRecord{
+		ID:                  testHTTPID(27),
+		ProjectID:           httpTestProjectID,
+		AgentID:             httpTestAgentID,
+		State:               "queued",
+		InputKind:           "control",
+		InputIdempotencyKey: "non-content-key",
+		QueuedAt:            now,
+	})
+	if err != nil {
+		t.Fatalf("non-content agent input response: %v", err)
+	}
+	if nonContentInputResponse.InputIdempotencyKey != nil {
+		t.Fatalf(
+			"non-content agent input idempotency key = %v",
+			nonContentInputResponse.InputIdempotencyKey,
+		)
 	}
 	eventResponses, err := publicEventResponsesFromReadRecords([]executionstore.AgentEventReadRecord{
 		{
@@ -799,20 +821,21 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			CreatedAt:     now,
 		},
 		{
-			ID:            testHTTPID(18),
-			OrgID:         httpTestOrgID,
-			ProjectID:     httpTestProjectID,
-			AgentID:       httpTestAgentID,
-			TurnID:        httpTestTurnID,
-			TurnSequence:  1,
-			Sequence:      6,
-			EventKind:     string(events.KindAgentInput),
-			InputKind:     "control",
-			ControlType:   "cancel_current",
-			ActorID:       httpTestActorID,
-			AgentInputID:  testHTTPID(23),
-			ContentBlocks: json.RawMessage(`[]`),
-			CreatedAt:     now,
+			ID:                  testHTTPID(18),
+			OrgID:               httpTestOrgID,
+			ProjectID:           httpTestProjectID,
+			AgentID:             httpTestAgentID,
+			TurnID:              httpTestTurnID,
+			TurnSequence:        1,
+			Sequence:            6,
+			EventKind:           string(events.KindAgentInput),
+			InputKind:           "control",
+			InputIdempotencyKey: "non-content-key",
+			ControlType:         "cancel_current",
+			ActorID:             httpTestActorID,
+			AgentInputID:        testHTTPID(23),
+			ContentBlocks:       json.RawMessage(`[]`),
+			CreatedAt:           now,
 		},
 		{
 			ID:                 testHTTPID(19),
@@ -855,6 +878,13 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 	if toolResultEvent.Outcome != openapi.ToolCallOutcomeSucceeded {
 		t.Fatalf("tool result event outcome = %s", toolResultEvent.Outcome)
 	}
+	controlEvent, err := eventResponses[2].AsAgentInputEvent()
+	if err != nil {
+		t.Fatalf("decode control event: %v", err)
+	}
+	if controlEvent.InputIdempotencyKey != nil {
+		t.Fatalf("control event idempotency key = %v", controlEvent.InputIdempotencyKey)
+	}
 	interactionResponseEvent, err := eventResponses[4].AsAgentInputEvent()
 	if err != nil {
 		t.Fatalf("decode interaction response event: %v", err)
@@ -890,7 +920,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			t.Fatalf("marshal response: %v", err)
 		}
 		assertPublicJSONDoesNotContain(t, body,
-			"idempotency_key",
+			`"idempotency_key"`,
 			"operation_fingerprint",
 			"operation_key",
 			"previous_backlog_position",
