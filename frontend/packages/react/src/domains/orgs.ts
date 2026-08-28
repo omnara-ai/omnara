@@ -48,9 +48,15 @@ export function useCreateOrganization() {
   })
 }
 
-export function useOrgOverview(orgID: string) {
+export function useOrgOverview(
+  orgID: string,
+  options?: Pick<ReturnType<typeof getOrgOverviewOptions>, 'refetchInterval'>,
+) {
   const client = useOmnaraClient()
-  return useQuery(getOrgOverviewOptions({ path: { orgID }, client }))
+  return useQuery({
+    ...getOrgOverviewOptions({ path: { orgID }, client }),
+    refetchInterval: options?.refetchInterval,
+  })
 }
 
 export function useInviteMember(orgID: string) {
