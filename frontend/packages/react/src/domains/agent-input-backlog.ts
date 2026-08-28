@@ -1,9 +1,9 @@
-import { type OmnaraClient, sdk } from '@omnara/sdk'
+import { type AgentInput, type ListAgentInputsResponse, type OmnaraClient, sdk } from '@omnara/sdk'
 import {
   listQueuedBacklogInputsOptions,
   listQueuedBacklogInputsQueryKey,
 } from '@omnara/sdk/tanstack'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 
@@ -15,14 +15,119 @@ interface AgentInputBacklogScope {
   agentID: string
 }
 
+export type AgentInputBacklogItem =
+  | AgentInput
+  | { id: string; delivery_mode: 'optimistic'; text: string }
+
+export interface AgentInputBacklogMove {
+  inputID: string
+  anchorInputID: string
+  position: 'before' | 'after'
+}
+
+export function reorderAgentInputBacklog<Input extends AgentInputBacklogItem>(
+  inputs: Input[],
+  { inputID, anchorInputID, position }: AgentInputBacklogMove,
+): Input[] {
+  const input = inputs.find((candidate) => candidate.id === inputID)
+  const anchor = inputs.find((candidate) => candidate.id === anchorInputID)
+  if (
+    input == null ||
+    anchor == null ||
+    input.delivery_mode !== 'queued' ||
+    anchor.delivery_mode !== 'queued'
+  ) {
+    return inputs
+  }
+  const reordered = inputs.filter((candidate) => candidate.id !== inputID)
+  const anchorIndex = reordered.findIndex((candidate) => candidate.id === anchorInputID)
+  reordered.splice(position === 'before' ? anchorIndex : anchorIndex + 1, 0, input)
+  return reordered
+}
+
+export interface AgentInputBacklogControls {
+  inputs: AgentInputBacklogItem[]
+  actionPending: boolean
+  beginCancellation: (inputIDs: string[]) => Promise<() => void>
+  cancel: (inputID: string) => Promise<unknown>
+  promote: (inputID: string) => Promise<unknown>
+  move: (input: AgentInputBacklogMove) => Promise<unknown>
+}
+
 export function agentInputBacklogQueryKey(client: OmnaraClient, path: AgentInputBacklogScope) {
   return listQueuedBacklogInputsQueryKey({ path, query: backlogQuery, client })
+}
+
+export function cacheAgentInputBacklog(
+  queryClient: QueryClient,
+  client: OmnaraClient,
+  path: AgentInputBacklogScope,
+  input: AgentInput,
+): void {
+  if (input.state !== 'received') return
+  const queryKey = agentInputBacklogQueryKey(client, path)
+  const current = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
+  if (current == null) return
+  const inputs = current.data.filter((candidate) => candidate.id !== input.id)
+  const insertionIndex =
+    input.delivery_mode === 'steering'
+      ? inputs.findIndex((candidate) => candidate.delivery_mode !== 'steering')
+      : -1
+  inputs.splice(insertionIndex < 0 ? inputs.length : insertionIndex, 0, input)
+  queryClient.setQueryData<ListAgentInputsResponse>(queryKey, { ...current, data: inputs })
 }
 
 export function useAgentInputBacklog(path: AgentInputBacklogScope) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
+  const queryKey = agentInputBacklogQueryKey(client, path)
+  const optimisticUpdate = <Variables>(
+    update: (inputs: AgentInput[], variables: Variables) => AgentInput[],
+  ) => {
+    const applyUpdate = (variables: Variables) => {
+      queryClient.setQueryData<ListAgentInputsResponse>(queryKey, (current) =>
+        current == null ? current : { ...current, data: update(current.data, variables) },
+      )
+    }
+    return {
+      onMutate: async (variables: Variables) => {
+        await queryClient.cancelQueries({ queryKey })
+        const previous = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
+        applyUpdate(variables)
+        return { previous }
+      },
+      onSuccess: async (_data: unknown, variables: Variables) => {
+        await queryClient.cancelQueries({ queryKey })
+        applyUpdate(variables)
+      },
+      onError: (
+        _error: unknown,
+        _variables: Variables,
+        context: { previous: ListAgentInputsResponse | undefined } | undefined,
+      ) => {
+        if (context?.previous != null) queryClient.setQueryData(queryKey, context.previous)
+      },
+      onSettled: () => {
+        void queryClient.invalidateQueries({ queryKey })
+      },
+    }
+  }
   const query = useQuery(listQueuedBacklogInputsOptions({ path, query: backlogQuery, client }))
+  const beginCancellation = async (inputIDs: string[], dismissRelatedInputs: () => () => void) => {
+    const ids = new Set(inputIDs)
+    await queryClient.cancelQueries({ queryKey })
+    const previous = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
+    queryClient.setQueryData<ListAgentInputsResponse>(queryKey, (current) =>
+      current == null
+        ? current
+        : { ...current, data: current.data.filter((input) => !ids.has(input.id)) },
+    )
+    const rollbackRelatedInputs = dismissRelatedInputs()
+    return () => {
+      if (previous != null) queryClient.setQueryData(queryKey, previous)
+      rollbackRelatedInputs()
+    }
+  }
   const cancel = useMutation({
     mutationFn: async (inputID: string) => {
       const { data } = await sdk.cancelQueuedBacklogInput({
@@ -31,11 +136,9 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: agentInputBacklogQueryKey(client, path),
-      })
-    },
+    ...optimisticUpdate((inputs, inputID: string) =>
+      inputs.filter((input) => input.id !== inputID),
+    ),
   })
   const promote = useMutation({
     mutationFn: async (inputID: string) => {
@@ -45,22 +148,17 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: agentInputBacklogQueryKey(client, path),
-      })
-    },
+    ...optimisticUpdate((inputs, inputID: string) => {
+      const promoted = inputs.find((input) => input.id === inputID)
+      if (promoted == null) return inputs
+      const remaining = inputs.filter((input) => input.id !== inputID)
+      const steering = remaining.filter((input) => input.delivery_mode === 'steering')
+      const queued = remaining.filter((input) => input.delivery_mode !== 'steering')
+      return [...steering, { ...promoted, delivery_mode: 'steering' as const }, ...queued]
+    }),
   })
   const move = useMutation({
-    mutationFn: async ({
-      inputID,
-      anchorInputID,
-      position,
-    }: {
-      inputID: string
-      anchorInputID: string
-      position: 'before' | 'after'
-    }) => {
+    mutationFn: async ({ inputID, anchorInputID, position }: AgentInputBacklogMove) => {
       const { data } = await sdk.moveQueuedBacklogInput({
         path: { ...path, inputID },
         body: { position, anchor_input_id: anchorInputID },
@@ -68,12 +166,8 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: agentInputBacklogQueryKey(client, path),
-      })
-    },
+    ...optimisticUpdate(reorderAgentInputBacklog),
   })
 
-  return { query, cancel, promote, move }
+  return { query, beginCancellation, cancel, promote, move }
 }

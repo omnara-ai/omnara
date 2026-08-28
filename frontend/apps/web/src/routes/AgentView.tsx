@@ -72,6 +72,20 @@ export function AgentView() {
     return resolveInteraction.mutateAsync({ interactionID, body })
   }
 
+  async function cancelCurrent() {
+    const steeringInputIDs: string[] = []
+    for (const input of chat.inputBacklog.inputs) {
+      if (input.delivery_mode === 'steering') steeringInputIDs.push(input.id)
+    }
+    const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
+    try {
+      return await cancelAgent.mutateAsync()
+    } catch (error) {
+      rollback()
+      throw error
+    }
+  }
+
   return (
     <SidebarProvider
       className="h-[calc(100svh-3rem)] min-h-0 overflow-hidden"
@@ -172,7 +186,7 @@ export function AgentView() {
           ) : (
             <div className={cn('min-w-0', configOpen && 'hidden')}>
               <AgentInputQueue
-                scope={{ orgID: activeOrg.id, projectID: projectId, agentID: agentId }}
+                backlog={chat.inputBacklog}
                 canOperate={canOperate}
                 canSendNow={canSendNow}
               />
@@ -181,7 +195,7 @@ export function AgentView() {
                   chat={chat}
                   cancelPending={cancelAgent.isPending}
                   cancelError={cancelAgent.error}
-                  onCancel={() => cancelAgent.mutateAsync()}
+                  onCancel={cancelCurrent}
                   canOperate={canOperate}
                 />
               )}

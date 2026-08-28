@@ -229,6 +229,9 @@ func publicAgentInputResponseFromRecordWithContent(
 		}
 		response.ActorId = &actorID
 	}
+	if inputKind == openapi.AgentInputKindContent && record.InputIdempotencyKey != "" {
+		response.InputIdempotencyKey = &record.InputIdempotencyKey
+	}
 	if len(contentBlocks) != 0 {
 		blocks, err := publicAgentInputContentBlocks(contentBlocks)
 		if err != nil {
@@ -358,7 +361,7 @@ func publicAgentInputEvent(
 		}
 		event.ActorId = &actorID
 	}
-	if record.InputIdempotencyKey != "" {
+	if inputKind == openapi.AgentInputKindContent && record.InputIdempotencyKey != "" {
 		event.InputIdempotencyKey = &record.InputIdempotencyKey
 	}
 	if record.ControlType != "" {

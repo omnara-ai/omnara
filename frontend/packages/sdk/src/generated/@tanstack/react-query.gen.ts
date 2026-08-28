@@ -2228,9 +2228,9 @@ export const resolveAgentInteractionMutation = (options?: Partial<Options<Resolv
 export const listQueuedBacklogInputsQueryKey = (options: Options<ListQueuedBacklogInputsData>) => createQueryKey('listQueuedBacklogInputs', options);
 
 /**
- * List queued backlog inputs
+ * List waiting backlog inputs
  *
- * Items are ordered by queue position, then queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
  */
 export const listQueuedBacklogInputsOptions = (options: Options<ListQueuedBacklogInputsData>) => queryOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, ListQueuedBacklogInputsResponse, ReturnType<typeof listQueuedBacklogInputsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2248,9 +2248,9 @@ export const listQueuedBacklogInputsOptions = (options: Options<ListQueuedBacklo
 export const listQueuedBacklogInputsInfiniteQueryKey = (options: Options<ListQueuedBacklogInputsData>): QueryKey<Options<ListQueuedBacklogInputsData>> => createQueryKey('listQueuedBacklogInputs', options, true);
 
 /**
- * List queued backlog inputs
+ * List waiting backlog inputs
  *
- * Items are ordered by queue position, then queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
  */
 export const listQueuedBacklogInputsInfiniteOptions = (options: Options<ListQueuedBacklogInputsData>) => {
     const opts = infiniteQueryOptions<ListQueuedBacklogInputsResponse, ListQueuedBacklogInputsError, InfiniteData<ListQueuedBacklogInputsResponse>, QueryKey<Options<ListQueuedBacklogInputsData>>, string | Pick<QueryKey<Options<ListQueuedBacklogInputsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

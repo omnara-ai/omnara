@@ -179,13 +179,17 @@ FROM agent_inputs input
 WHERE input.project_id = sqlc.arg(project_id)
   AND input.agent_id = sqlc.arg(agent_id)
   AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
+  AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
   AND (
-    sqlc.narg(cursor_input_rank)::bigint IS NULL
-    OR (input.input_rank, input.queued_at, input.id) > (sqlc.narg(cursor_input_rank)::bigint, sqlc.narg(cursor_queued_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    sqlc.narg(cursor_delivery_mode)::text IS NULL
+    OR input.delivery_mode < sqlc.narg(cursor_delivery_mode)::text
+    OR (
+      input.delivery_mode = sqlc.narg(cursor_delivery_mode)::text
+      AND (input.input_rank, input.queued_at, input.id) > (sqlc.narg(cursor_input_rank)::bigint, sqlc.narg(cursor_queued_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    )
   )
-ORDER BY input.input_rank ASC, input.queued_at ASC, input.id ASC
+ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: AdmitAgentInput :one
@@ -406,27 +410,44 @@ WHERE input.project_id = sqlc.arg(project_id)
   AND input.input_kind = 'content'
   AND new_rank.input_rank IS NOT NULL;
 
--- name: PromoteQueuedInputToSteering :execrows
-UPDATE agent_inputs input
-SET delivery_mode = 'steering',
-    input_rank = coalesce(
-      (
-        SELECT max(existing.input_rank) + sqlc.arg(rank_stride)::bigint
-        FROM agent_inputs existing
-        WHERE existing.project_id = input.project_id
-          AND existing.agent_id = input.agent_id
-          AND existing.delivery_mode = 'steering'
-          AND existing.state = 'received'
-          AND existing.input_kind = 'content'
-      ),
-      sqlc.arg(rank_stride)::bigint
-    )
-WHERE input.project_id = sqlc.arg(project_id)
-  AND input.agent_id = sqlc.arg(agent_id)
-  AND input.id = sqlc.arg(id)
-  AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
-  AND input.input_kind = 'content';
+-- name: PromoteQueuedInputToSteering :one
+WITH promoted AS (
+  UPDATE agent_inputs input
+  SET delivery_mode = 'steering',
+      input_rank = coalesce(
+        (
+          SELECT max(existing.input_rank) + sqlc.arg(rank_stride)::bigint
+          FROM agent_inputs existing
+          WHERE existing.project_id = input.project_id
+            AND existing.agent_id = input.agent_id
+            AND existing.delivery_mode = 'steering'
+            AND existing.state = 'received'
+            AND existing.input_kind = 'content'
+        ),
+        sqlc.arg(rank_stride)::bigint
+      )
+  WHERE input.project_id = sqlc.arg(project_id)
+    AND input.agent_id = sqlc.arg(agent_id)
+    AND input.id = sqlc.arg(id)
+    AND input.state = 'received'
+    AND input.delivery_mode = 'queued'
+    AND input.input_kind = 'content'
+  RETURNING TRUE
+)
+SELECT EXISTS (SELECT 1 FROM promoted) AS changed,
+       EXISTS (SELECT 1 FROM promoted)
+       OR EXISTS (
+         SELECT 1
+         FROM agent_inputs input
+         WHERE input.project_id = sqlc.arg(project_id)
+           AND input.agent_id = sqlc.arg(agent_id)
+           AND input.id = sqlc.arg(id)
+           AND input.input_kind = 'content'
+           AND (
+             (input.state = 'received' AND input.delivery_mode = 'steering')
+             OR (input.state = 'resolved' AND input.admitted_event_id IS NOT NULL)
+           )
+       ) AS effective;
 
 -- name: DemoteSteeringInputToQueued :execrows
 UPDATE agent_inputs input
