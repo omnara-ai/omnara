@@ -86,6 +86,23 @@ machine_sources:
 	}
 }
 
+func TestCompileReportsMutuallyExclusiveFields(t *testing.T) {
+	issues := compileIssues(t, SourceFormatYAML, `instruction: x
+model:
+  provider_config: a
+  name: b
+machine_sources:
+  - machine_name: primary
+    machine_pool_name: pool
+`, CompileOptions{})
+	want := []Issue{
+		{Path: "/machine_sources/0", Message: "machine_name and machine_pool_name are mutually exclusive", Line: 6, Column: 5},
+	}
+	if got, wanted := describeIssues(issues), describeIssues(want); got != wanted {
+		t.Fatalf("issues = %s, want %s", got, wanted)
+	}
+}
+
 func TestCompileReportsCompilerIssuesWithYAMLLocations(t *testing.T) {
 	issues := compileIssues(t, SourceFormatYAML, `instruction: x
 model:

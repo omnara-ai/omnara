@@ -112,7 +112,7 @@ func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node
 	}
 	result := schema.Validate(jsonSource)
 	if !result.IsValid() {
-		return AgentConfigSource{}, nil, newValidationError(schemaIssues(result), root)
+		return AgentConfigSource{}, nil, newValidationError(schemaIssues(result, schema), root)
 	}
 	var parsed AgentConfigSource
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {

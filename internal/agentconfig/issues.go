@@ -258,8 +258,8 @@ type schemaIssue struct {
 	expected string
 }
 
-func schemaIssues(result *kjsonschema.EvaluationResult) []Issue {
-	collected := collectSchemaIssues(result, "")
+func schemaIssues(result *kjsonschema.EvaluationResult, schema *kjsonschema.Schema) []Issue {
+	collected := collectSchemaIssues(result, "", schema)
 	issues := make([]Issue, 0, len(collected))
 	for _, item := range collected {
 		issues = append(issues, item.Issue)
@@ -270,12 +270,21 @@ func schemaIssues(result *kjsonschema.EvaluationResult) []Issue {
 	return issues
 }
 
-func collectSchemaIssues(result *kjsonschema.EvaluationResult, base string) []schemaIssue {
+func collectSchemaIssues(result *kjsonschema.EvaluationResult, base string, schema *kjsonschema.Schema) []schemaIssue {
 	location := base + result.InstanceLocation
 	missing := map[string]bool{}
 	var own []schemaIssue
 	for keyword, evalErr := range result.Errors {
 		switch evalErr.Code {
+		case "one_of_multiple_matches":
+			fields := exclusiveFields(schema, stringParam(evalErr.Params, "matches"))
+			if len(fields) == 0 {
+				continue
+			}
+			own = append(own, schemaIssue{
+				Issue:   Issue{Path: location, Message: joinFields(fields) + " are mutually exclusive"},
+				keyword: keyword,
+			})
 		case "missing_required_property", "missing_required_properties":
 			for _, property := range quotedListParam(evalErr.Params) {
 				missing[property] = true
@@ -318,11 +327,11 @@ func collectSchemaIssues(result *kjsonschema.EvaluationResult, base string) []sc
 		}
 		if keyword, ok := alternativeKeyword(detail); ok {
 			if _, failed := result.Errors[keyword]; failed {
-				branches = append(branches, collectSchemaIssues(detail, location))
+				branches = append(branches, collectSchemaIssues(detail, location, childSchema(schema, detail.EvaluationPath)))
 			}
 			continue
 		}
-		nested = append(nested, collectSchemaIssues(detail, location)...)
+		nested = append(nested, collectSchemaIssues(detail, location, childSchema(schema, detail.EvaluationPath))...)
 	}
 	nested = append(nested, mergeAlternatives(branches, location)...)
 	if len(nested) > 0 {
@@ -332,6 +341,105 @@ func collectSchemaIssues(result *kjsonschema.EvaluationResult, base string) []sc
 		return []schemaIssue{{Issue: Issue{Path: location, Message: "value does not match the schema"}}}
 	}
 	return own
+}
+
+func childSchema(schema *kjsonschema.Schema, evaluationPath string) *kjsonschema.Schema {
+	if schema == nil {
+		return nil
+	}
+	segments := pointerSegments(evaluationPath)
+	if len(segments) == 0 {
+		if schema.ResolvedRef != nil {
+			return schema.ResolvedRef
+		}
+		return schema
+	}
+	argument := ""
+	if len(segments) > 1 {
+		argument = segments[1]
+	}
+	switch segments[0] {
+	case "properties":
+		return schemaMapEntry(schema.Properties, argument)
+	case "patternProperties":
+		return schemaMapEntry(schema.PatternProperties, argument)
+	case "dependentSchemas":
+		return schema.DependentSchemas[argument]
+	case "allOf":
+		return schemaSliceEntry(schema.AllOf, argument)
+	case "anyOf":
+		return schemaSliceEntry(schema.AnyOf, argument)
+	case "oneOf":
+		return schemaSliceEntry(schema.OneOf, argument)
+	case "prefixItems":
+		return schemaSliceEntry(schema.PrefixItems, argument)
+	case "additionalProperties":
+		return schema.AdditionalProperties
+	case "propertyNames":
+		return schema.PropertyNames
+	case "unevaluatedProperties":
+		return schema.UnevaluatedProperties
+	case "unevaluatedItems":
+		return schema.UnevaluatedItems
+	case "items":
+		return schema.Items
+	case "contains":
+		return schema.Contains
+	case "contentSchema":
+		return schema.ContentSchema
+	case "if":
+		return schema.If
+	case "then":
+		return schema.Then
+	case "else":
+		return schema.Else
+	case "not":
+		return schema.Not
+	}
+	return nil
+}
+
+func schemaMapEntry(schemas *kjsonschema.SchemaMap, name string) *kjsonschema.Schema {
+	if schemas == nil {
+		return nil
+	}
+	return (*schemas)[name]
+}
+
+func schemaSliceEntry(schemas []*kjsonschema.Schema, index string) *kjsonschema.Schema {
+	position, err := strconv.Atoi(index)
+	if err != nil || position < 0 || position >= len(schemas) {
+		return nil
+	}
+	return schemas[position]
+}
+
+func exclusiveFields(schema *kjsonschema.Schema, matches string) []string {
+	if schema == nil || matches == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var fields []string
+	for _, index := range strings.Split(matches, ", ") {
+		branch := schemaSliceEntry(schema.OneOf, index)
+		if branch == nil || len(branch.Required) == 0 {
+			return nil
+		}
+		for _, field := range branch.Required {
+			if !seen[field] {
+				seen[field] = true
+				fields = append(fields, field)
+			}
+		}
+	}
+	return fields
+}
+
+func joinFields(fields []string) string {
+	if len(fields) <= 2 {
+		return strings.Join(fields, " and ")
+	}
+	return strings.Join(fields[:len(fields)-1], ", ") + ", and " + fields[len(fields)-1]
 }
 
 func isConditionBranch(result *kjsonschema.EvaluationResult) bool {
