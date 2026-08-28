@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -239,7 +240,7 @@ func TestWorkerLoopCreatesEventAndAttachesWorker(t *testing.T) {
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
 	workerID := testID(12)
 	ctx, event := WorkerLoop(ctx, workerID)
-	WorkerLoopResult(ctx, true)
+	WorkerLoopResult(ctx, true, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
@@ -252,6 +253,34 @@ func TestWorkerLoopCreatesEventAndAttachesWorker(t *testing.T) {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
 		}
+	}
+}
+
+func TestWorkerLoopIdleSuccessIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
+	ctx, event := WorkerLoop(ctx, testID(12))
+	WorkerLoopResult(ctx, false, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "debug" {
+		t.Fatalf("level = %v, want debug in %+v", got, record)
+	}
+}
+
+func TestWorkerLoopFailureIsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	ctx, event := WorkerLoop(ctx, testID(12))
+	workerErr := errors.New("claim work")
+	WorkerLoopResult(ctx, false, workerErr)
+	log.Error(ctx, workerErr)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "error" {
+		t.Fatalf("level = %v, want error in %+v", got, record)
 	}
 }
 
@@ -309,6 +338,53 @@ func TestMaintenanceLoopAttachesTaskErrors(t *testing.T) {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
 		}
+	}
+}
+
+func TestMaintenanceLoopIgnoresTaskCancellationDuringShutdown(t *testing.T) {
+	var buf bytes.Buffer
+	ctx, cancel := context.WithCancel(log.WithLogger(context.Background(), testLogger(&buf)))
+	cancel()
+
+	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
+	canceledErr := fmt.Errorf("maintenance task: %w", context.Canceled)
+	MaintenanceLoopResult(
+		ctx,
+		0,
+		canceledErr,
+		0,
+		canceledErr,
+	)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "info" {
+		t.Fatalf("level = %v, want info in %+v", got, record)
+	}
+	for _, key := range []string{
+		"error.message",
+		"maintenance.reap_runtime_locks.error",
+		"maintenance.rebuild_agent_wakeups.error",
+	} {
+		if _, ok := record[key]; ok {
+			t.Fatalf("%s present in shutdown event %+v", key, record)
+		}
+	}
+}
+
+func TestIsCanceledDuringShutdownRequiresBothCancellationSignals(t *testing.T) {
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceledErr := fmt.Errorf("maintenance task: %w", context.Canceled)
+
+	if !IsCanceledDuringShutdown(canceledCtx, canceledErr) {
+		t.Fatal("shutdown cancellation was not recognized")
+	}
+	if IsCanceledDuringShutdown(context.Background(), canceledErr) {
+		t.Fatal("live operation cancellation was recognized as shutdown")
+	}
+	if IsCanceledDuringShutdown(canceledCtx, errors.New("failed")) {
+		t.Fatal("operation failure was recognized as shutdown cancellation")
 	}
 }
 
@@ -515,7 +591,12 @@ func TestMCPInitializationFailureWarns(t *testing.T) {
 }
 
 func testLogger(buf *bytes.Buffer) *slog.Logger {
+	return testLoggerAtLevel(buf, slog.LevelInfo)
+}
+
+func testLoggerAtLevel(buf *bytes.Buffer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{
+		Level: level,
 		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
 			switch attr.Key {
 			case slog.TimeKey:

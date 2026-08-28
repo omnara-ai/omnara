@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -389,7 +390,7 @@ func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 
 func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handlerErr := errors.New("query agent row: connection refused")
+	handlerErr := apierror.ProjectScoped(context.Canceled)
 	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
 	}))
@@ -410,6 +411,42 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 		if got := event[key]; got != want {
 			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
 		}
+	}
+}
+
+func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.ProjectScoped(context.Canceled)
+	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openAPIResponseErrorHandler(w, r, handlerErr)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != statusClientClosedRequest {
+		t.Fatalf("status=%d want=%d", rec.Code, statusClientClosedRequest)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("body=%q want empty", rec.Body.String())
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "info",
+		"http.status_code":           float64(statusClientClosedRequest),
+		"http.response_bytes":        float64(0),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	if _, ok := event["error.message"]; ok {
+		t.Fatalf("canceled request has error.message in event %+v", event)
 	}
 }
 

@@ -140,7 +140,7 @@ func (w *Worker) runLoop(ctx context.Context) {
 	for {
 		loopCtx, event := logent.WorkerLoop(ctx, w.workerProcessID)
 		worked, err := w.RunOnce(loopCtx)
-		logent.WorkerLoopResult(loopCtx, worked)
+		logent.WorkerLoopResult(loopCtx, worked, err)
 		recoverable := isRecoverableRunOnceError(err)
 		if recoverable {
 			logent.WorkerLoopRecoverableTurnRace(loopCtx, err)

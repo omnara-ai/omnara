@@ -2,10 +2,8 @@ package executionstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -15,6 +13,13 @@ func (s *Store) RebuildMissingAgentWakeups(
 	ctx context.Context,
 	projectID ID,
 ) (int64, error) {
+	return s.rebuildMissingAgentWakeups(ctx, &projectID)
+}
+
+func (s *Store) rebuildMissingAgentWakeups(
+	ctx context.Context,
+	projectID *ID,
+) (int64, error) {
 	metadata, err := marshalJSON(map[string]any{"reason": "maintenance_rebuild"})
 	if err != nil {
 		return 0, fmt.Errorf("marshal wakeup rebuild metadata: %w", err)
@@ -22,11 +27,7 @@ func (s *Store) RebuildMissingAgentWakeups(
 	var total int64
 	var afterAgentID *ID
 	for {
-		tx, beginErr := s.pool.BeginTx(ctx, pgx.TxOptions{})
-		if beginErr != nil {
-			return total, fmt.Errorf("begin missing agent wakeup rebuild batch: %w", beginErr)
-		}
-		rows, batchErr := dbsqlc.New(tx).RebuildMissingAgentWakeupsBatch(
+		rows, batchErr := s.q.RebuildMissingAgentWakeupsBatch(
 			ctx,
 			dbsqlc.RebuildMissingAgentWakeupsBatchParams{
 				ProjectID:    projectID,
@@ -35,11 +36,6 @@ func (s *Store) RebuildMissingAgentWakeups(
 				Metadata:     metadata,
 			},
 		)
-		if batchErr == nil {
-			batchErr = tx.Commit(ctx)
-		} else {
-			_ = tx.Rollback(ctx)
-		}
 		if batchErr != nil {
 			return total, fmt.Errorf("rebuild missing agent wakeups batch: %w", batchErr)
 		}
@@ -59,19 +55,5 @@ func (s *Store) RebuildMissingAgentWakeups(
 func (s *Store) RebuildMissingAgentWakeupsForAllProjects(
 	ctx context.Context,
 ) (int64, error) {
-	projectIDs, err := s.q.ListProjectIDsForMaintenance(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("list projects for wakeup rebuild: %w", err)
-	}
-	var total int64
-	var rebuildErrs []error
-	for _, projectID := range projectIDs {
-		count, err := s.RebuildMissingAgentWakeups(ctx, projectID)
-		if err != nil {
-			rebuildErrs = append(rebuildErrs, fmt.Errorf("project %s: %w", projectID, err))
-			continue
-		}
-		total += count
-	}
-	return total, errors.Join(rebuildErrs...)
+	return s.rebuildMissingAgentWakeups(ctx, nil)
 }

@@ -381,12 +381,16 @@ func runCoreMaintenanceTick(
 		rebuildErr,
 	)
 	if expireDaemonRuntimesErr != nil {
-		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesErr)
+		if !logent.IsCanceledDuringShutdown(ctx, expireDaemonRuntimesErr) {
+			log.Error("expire daemon runtimes", "error", expireDaemonRuntimesErr)
+		}
 	} else if expiredDaemonRuntimes > 0 {
 		log.Info("expired daemon runtimes", "count", expiredDaemonRuntimes)
 	}
 	if expireUnreachableToolsErr != nil {
-		log.Error("expire machine-unreachable process tool calls", "error", expireUnreachableToolsErr)
+		if !logent.IsCanceledDuringShutdown(ctx, expireUnreachableToolsErr) {
+			log.Error("expire machine-unreachable process tool calls", "error", expireUnreachableToolsErr)
+		}
 	} else if expiredUnreachableTools > 0 {
 		log.Info("expired machine-unreachable process tool calls", "count", expiredUnreachableTools)
 	}
@@ -395,7 +399,9 @@ func runCoreMaintenanceTick(
 		authCleanup.DeletedAbandonedUsers > 0 ||
 		authCleanup.DeletedDeviceFlows > 0
 	if authCleanupErr != nil {
-		log.Error("cleanup inactive auth state", "error", authCleanupErr)
+		if !logent.IsCanceledDuringShutdown(ctx, authCleanupErr) {
+			log.Error("cleanup inactive auth state", "error", authCleanupErr)
+		}
 	} else if authCleanupDeleted {
 		log.Info(
 			"cleaned inactive auth state",
@@ -429,7 +435,9 @@ func runMachinePoolMaintenanceLoop(
 				machinePoolManager.ReconcileIdleDeletion,
 			)
 			if err != nil {
-				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
+				if !logent.IsCanceledDuringShutdown(ctx, err) {
+					log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
+				}
 			} else if candidateCount > 0 {
 				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
 			}
@@ -470,7 +478,9 @@ func runMachinePoolMaintenanceTick(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,
 	); err != nil {
-		log.Error("reconcile machine provisioning", "attempted_count", attempted, "error", err)
+		if !logent.IsCanceledDuringShutdown(ctx, err) {
+			log.Error("reconcile machine provisioning", "attempted_count", attempted, "error", err)
+		}
 	} else if attempted > 0 {
 		log.Info("attempted machine provisioning reconcile", "attempted_count", attempted)
 	}
@@ -478,7 +488,9 @@ func runMachinePoolMaintenanceTick(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,
 	); err != nil {
-		log.Error("reconcile machine cleanup", "attempted_count", attempted, "error", err)
+		if !logent.IsCanceledDuringShutdown(ctx, err) {
+			log.Error("reconcile machine cleanup", "attempted_count", attempted, "error", err)
+		}
 	} else if attempted > 0 {
 		log.Info("attempted machine cleanup reconcile", "attempted_count", attempted)
 	}

@@ -932,7 +932,12 @@ const rebuildMissingAgentWakeupsBatch = `-- name: RebuildMissingAgentWakeupsBatc
 WITH locked_agents AS MATERIALIZED (
   SELECT agent.id, agent.project_id
   FROM agents agent
-  WHERE agent.project_id = $1
+  JOIN projects project ON project.id = agent.project_id
+  WHERE project.deleted_at IS NULL
+    AND (
+      $1::uuid IS NULL
+      OR agent.project_id = $1::uuid
+    )
     AND agent.state <> 'archived'
     AND (
       $2::uuid IS NULL
@@ -980,7 +985,7 @@ ORDER BY locked.id
 `
 
 type RebuildMissingAgentWakeupsBatchParams struct {
-	ProjectID    uuid.UUID
+	ProjectID    *uuid.UUID
 	AfterAgentID *uuid.UUID
 	BatchLimit   int32
 	Metadata     json.RawMessage

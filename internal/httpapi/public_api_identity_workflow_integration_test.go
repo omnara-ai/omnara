@@ -1211,6 +1211,30 @@ func TestBearerAuthStorageErrorReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestBearerAuthCancellationReturnsClientClosedRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		t.Fatalf("format valid personal access token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	requestCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(requestCtx)
+	rec := performRequest(handler, req)
+	if rec.Code != statusClientClosedRequest {
+		t.Fatalf("expected canceled bearer auth to return %d, got %d body=%s", statusClientClosedRequest, rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected canceled bearer auth body to be empty, got %s", rec.Body.String())
+	}
+}
+
 func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -57,7 +57,12 @@ WHERE wake.agent_id = locked_agent.id
 WITH locked_agents AS MATERIALIZED (
   SELECT agent.id, agent.project_id
   FROM agents agent
-  WHERE agent.project_id = sqlc.arg(project_id)
+  JOIN projects project ON project.id = agent.project_id
+  WHERE project.deleted_at IS NULL
+    AND (
+      sqlc.narg(project_id)::uuid IS NULL
+      OR agent.project_id = sqlc.narg(project_id)::uuid
+    )
     AND agent.state <> 'archived'
     AND (
       sqlc.narg(after_agent_id)::uuid IS NULL

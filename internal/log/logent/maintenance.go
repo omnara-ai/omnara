@@ -2,6 +2,7 @@ package logent
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/log"
@@ -33,12 +34,20 @@ func MaintenanceLoopResult(
 			rebuiltAgentWakeups > 0,
 	}
 	if reapRuntimeLocksErr != nil {
-		fields["maintenance.reap_runtime_locks.error"] = reapRuntimeLocksErr.Error()
-		log.Error(ctx, reapRuntimeLocksErr)
+		if !IsCanceledDuringShutdown(ctx, reapRuntimeLocksErr) {
+			fields["maintenance.reap_runtime_locks.error"] = reapRuntimeLocksErr.Error()
+			log.Error(ctx, reapRuntimeLocksErr)
+		}
 	}
 	if rebuildErr != nil {
-		fields["maintenance.rebuild_agent_wakeups.error"] = rebuildErr.Error()
-		log.Error(ctx, rebuildErr)
+		if !IsCanceledDuringShutdown(ctx, rebuildErr) {
+			fields["maintenance.rebuild_agent_wakeups.error"] = rebuildErr.Error()
+			log.Error(ctx, rebuildErr)
+		}
 	}
 	log.Attach(ctx, fields)
+}
+
+func IsCanceledDuringShutdown(ctx context.Context, err error) bool {
+	return errors.Is(ctx.Err(), context.Canceled) && errors.Is(err, context.Canceled)
 }
