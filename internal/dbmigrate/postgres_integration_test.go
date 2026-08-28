@@ -69,7 +69,7 @@ func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 27)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 27); err != nil {
 		t.Fatalf("apply migrations through version 27: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `
@@ -702,7 +702,7 @@ func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	latestVersion := latestPostgresMigrationVersion(t)
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 14)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 14); err != nil {
 		t.Fatalf("apply migrations through version 14: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
@@ -855,7 +855,7 @@ func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *tes
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 20); err != nil {
 		t.Fatalf("apply migrations through version 20: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
@@ -1291,6 +1291,28 @@ func applyProductionPostgresMigrations(ctx context.Context, db *sql.DB) error {
 	)
 }
 
+func applyProductionPostgresMigrationsThrough(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	maximum int64,
+) error {
+	t.Helper()
+	goMigrations := schemamigrations.GoMigrations()
+	selectedGoMigrations := goMigrations[:0]
+	for _, migration := range goMigrations {
+		if migration.Version <= maximum {
+			selectedGoMigrations = append(selectedGoMigrations, migration)
+		}
+	}
+	return dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		migrationFilesThrough(t, maximum),
+		selectedGoMigrations...,
+	)
+}
+
 func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
 	t.Helper()
 	var version int64
@@ -1332,7 +1354,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 	return latest
 }
 
-func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
+func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
 	if err != nil {
@@ -1347,7 +1369,7 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 		if !ok {
 			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
 		}
-		version, err := strconv.Atoi(prefix)
+		version, err := strconv.ParseInt(prefix, 10, 64)
 		if err != nil {
 			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
 		}
