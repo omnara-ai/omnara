@@ -318,10 +318,36 @@ func (c Capabilities) AllowsInputModality(modality string) bool {
 type CacheRetention string
 
 const (
+	CacheRetentionUnset CacheRetention = ""
 	CacheRetentionNone  CacheRetention = "none"
 	CacheRetentionShort CacheRetention = "short"
 	CacheRetentionLong  CacheRetention = "long"
 )
+
+func EffectiveCacheRetention(
+	apiFormat modelprotocol.APIFormat,
+	apiVariant modelprotocol.APIVariant,
+	providerModelSlug string,
+	retention CacheRetention,
+) CacheRetention {
+	if retention != CacheRetentionUnset {
+		return retention
+	}
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
+		return CacheRetentionShort
+	}
+	if apiFormat == modelprotocol.APIFormatOpenAIChatCompletions &&
+		apiVariant == modelprotocol.APIVariantOpenRouter &&
+		isOpenRouterAnthropicSlug(providerModelSlug) {
+		return CacheRetentionShort
+	}
+	return CacheRetentionNone
+}
+
+func isOpenRouterAnthropicSlug(providerModelSlug string) bool {
+	slug := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(providerModelSlug)), "~")
+	return strings.HasPrefix(slug, "anthropic/claude-")
+}
 
 type RequestPolicy struct {
 	MaxOutputTokens                   int            `json:"max_output_tokens,omitempty"`

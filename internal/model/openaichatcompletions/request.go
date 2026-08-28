@@ -65,9 +65,15 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
+	cacheRetention := model.EffectiveCacheRetention(
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		apiVariant,
+		providerModelSlug,
+		input.Policy.CacheRetention,
+	)
 	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		payload.CacheControl = openRouterCacheControl(input.Policy.CacheRetention, providerModelSlug)
-	} else if retention := promptCacheRetention(input.Policy.CacheRetention); retention != "" {
+		payload.CacheControl = openRouterCacheControl(cacheRetention, providerModelSlug)
+	} else if retention := promptCacheRetention(cacheRetention); retention != "" {
 		payload.PromptCacheRetention = retention
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(

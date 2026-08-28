@@ -351,6 +351,8 @@ func capabilitiesForRevision(record modelstore.ConfiguredModelRevisionRecord) mo
 
 func cacheRetentionForModel(value string) model.CacheRetention {
 	switch value {
+	case "":
+		return model.CacheRetentionUnset
 	case modelstore.ModelCacheRetentionShort:
 		return model.CacheRetentionShort
 	case modelstore.ModelCacheRetentionLong:

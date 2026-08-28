@@ -192,7 +192,7 @@ export const zModelProviderApiVariantResponse = z.string();
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Default prompt-cache hint for model requests. `none` means Omnara does not send a cache hint; providers may still apply their own automatic caching. `short` and `long` are translated to the closest supported control for the selected API.
+ * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
  */
 export const zModelCacheRetention = z.enum([
     'none',
@@ -392,7 +392,7 @@ export const zConfiguredModel = z.object({
     context_window_tokens: z.int(),
     max_output_tokens: z.int(),
     default_max_output_tokens: z.int().nullish(),
-    default_cache_retention: zModelCacheRetention,
+    default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
     supports_reasoning: z.boolean(),
     default_reasoning_effort: z.string(),

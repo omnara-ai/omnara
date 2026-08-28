@@ -985,3 +985,50 @@ func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
 		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
 	}
 }
+
+func TestPrepareDefaultsOpenRouterCacheControlForClaudeModels(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		retention model.CacheRetention
+		wantCache bool
+	}{
+		{name: "unset", retention: model.CacheRetentionUnset, wantCache: true},
+		{name: "none", retention: model.CacheRetentionNone, wantCache: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := Client{EndpointPath: testEndpointPath,
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			}
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+						Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+					}},
+				},
+				Policy: model.RequestPolicy{CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				CacheControl *struct {
+					Type string `json:"type"`
+					TTL  string `json:"ttl"`
+				} `json:"cache_control"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if !tc.wantCache {
+				if payload.CacheControl != nil {
+					t.Fatalf("cache_control should be omitted: %s", prepared.Body)
+				}
+				return
+			}
+			if payload.CacheControl == nil || payload.CacheControl.Type != "ephemeral" || payload.CacheControl.TTL != "" {
+				t.Fatalf("cache_control = %+v, want ephemeral without ttl: %s", payload.CacheControl, prepared.Body)
+			}
+		})
+	}
+}

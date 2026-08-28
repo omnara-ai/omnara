@@ -42,6 +42,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolNames(input.Context.ToolSpecs); err != nil {
 		return nil, err
 	}
+	input.Policy.CacheRetention = model.EffectiveCacheRetention(
+		modelprotocol.APIFormatAnthropicMessages,
+		c.APIVariant,
+		providerModelSlug,
+		input.Policy.CacheRetention,
+	)
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
