@@ -176,6 +176,13 @@ describe('AgentInputQueue', () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
+    let resolveMove!: () => void
+    move.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveMove = resolve
+        }),
+    )
     const actEnvironment = globalThis as typeof globalThis & {
       IS_REACT_ACT_ENVIRONMENT?: boolean
     }
@@ -242,6 +249,37 @@ describe('AgentInputQueue', () => {
         inputID: 'input-3',
         anchorInputID: 'input-2',
         position: 'before',
+      })
+      expect(Array.from(container.querySelectorAll('p')).map((row) => row.textContent)).toEqual([
+        'Sending',
+        'First',
+        'Third',
+        'Second',
+      ])
+
+      act(() => {
+        root.render(
+          <AgentInputQueue
+            {...queueProps}
+            backlog={backlog([
+              input('input-0', 'Sending', 'steering'),
+              input('input-1', 'First'),
+              input('input-3', 'Third'),
+              input('input-2', 'Second'),
+            ])}
+          />,
+        )
+      })
+      expect(Array.from(container.querySelectorAll('p')).map((row) => row.textContent)).toEqual([
+        'Sending',
+        'First',
+        'Third',
+        'Second',
+      ])
+
+      await act(async () => {
+        resolveMove()
+        await Promise.resolve()
       })
     } finally {
       act(() => {

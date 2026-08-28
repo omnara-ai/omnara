@@ -19,17 +19,39 @@ export type AgentInputBacklogItem =
   | AgentInput
   | { id: string; delivery_mode: 'optimistic'; text: string }
 
+export interface AgentInputBacklogMove {
+  inputID: string
+  anchorInputID: string
+  position: 'before' | 'after'
+}
+
+export function reorderAgentInputBacklog<Input extends AgentInputBacklogItem>(
+  inputs: Input[],
+  { inputID, anchorInputID, position }: AgentInputBacklogMove,
+): Input[] {
+  const input = inputs.find((candidate) => candidate.id === inputID)
+  const anchor = inputs.find((candidate) => candidate.id === anchorInputID)
+  if (
+    input == null ||
+    anchor == null ||
+    input.delivery_mode !== 'queued' ||
+    anchor.delivery_mode !== 'queued'
+  ) {
+    return inputs
+  }
+  const reordered = inputs.filter((candidate) => candidate.id !== inputID)
+  const anchorIndex = reordered.findIndex((candidate) => candidate.id === anchorInputID)
+  reordered.splice(position === 'before' ? anchorIndex : anchorIndex + 1, 0, input)
+  return reordered
+}
+
 export interface AgentInputBacklogControls {
   inputs: AgentInputBacklogItem[]
   actionPending: boolean
   beginCancellation: (inputIDs: string[]) => Promise<() => void>
   cancel: (inputID: string) => Promise<unknown>
   promote: (inputID: string) => Promise<unknown>
-  move: (input: {
-    inputID: string
-    anchorInputID: string
-    position: 'before' | 'after'
-  }) => Promise<unknown>
+  move: (input: AgentInputBacklogMove) => Promise<unknown>
 }
 
 export function agentInputBacklogQueryKey(client: OmnaraClient, path: AgentInputBacklogScope) {
@@ -136,15 +158,7 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
     }),
   })
   const move = useMutation({
-    mutationFn: async ({
-      inputID,
-      anchorInputID,
-      position,
-    }: {
-      inputID: string
-      anchorInputID: string
-      position: 'before' | 'after'
-    }) => {
+    mutationFn: async ({ inputID, anchorInputID, position }: AgentInputBacklogMove) => {
       const { data } = await sdk.moveQueuedBacklogInput({
         path: { ...path, inputID },
         body: { position, anchor_input_id: anchorInputID },
@@ -152,22 +166,7 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
       })
       return data
     },
-    ...optimisticUpdate((inputs, { inputID, anchorInputID, position }) => {
-      const input = inputs.find((candidate) => candidate.id === inputID)
-      const anchor = inputs.find((candidate) => candidate.id === anchorInputID)
-      if (
-        input == null ||
-        anchor == null ||
-        input.delivery_mode !== 'queued' ||
-        anchor.delivery_mode !== 'queued'
-      ) {
-        return inputs
-      }
-      const reordered = inputs.filter((candidate) => candidate.id !== inputID)
-      const anchorIndex = reordered.findIndex((candidate) => candidate.id === anchorInputID)
-      reordered.splice(position === 'before' ? anchorIndex : anchorIndex + 1, 0, input)
-      return reordered
-    }),
+    ...optimisticUpdate(reorderAgentInputBacklog),
   })
 
   return { query, beginCancellation, cancel, promote, move }

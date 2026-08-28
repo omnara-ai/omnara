@@ -14,8 +14,14 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { AgentInputBacklogItem, UseAgentChatResult } from '@omnara/react'
+import {
+  type AgentInputBacklogItem,
+  type AgentInputBacklogMove,
+  reorderAgentInputBacklog,
+  type UseAgentChatResult,
+} from '@omnara/react'
 import { GripVertical, X } from 'lucide-react'
+import { startTransition, useOptimistic } from 'react'
 
 import { errorMessage } from '@/lib/submit-status'
 
@@ -52,35 +58,36 @@ export function AgentInputQueue({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  const inputs = backlog.inputs
+  const [inputs, moveOptimistically] = useOptimistic<
+    AgentInputBacklogItem[],
+    AgentInputBacklogMove
+  >(backlog.inputs, reorderAgentInputBacklog)
   const queuedInputs = inputs.filter((input) => input.delivery_mode === 'queued')
   const waitingInputs = inputs.filter((input) => input.delivery_mode !== 'steering')
   const queuedIndexes = new Map(waitingInputs.map((input, index) => [input.id, index]))
 
   if (inputs.length === 0) return null
 
-  async function handleDragEnd({ active, over }: DragEndEvent) {
+  function handleDragEnd({ active, over }: DragEndEvent) {
     if (over == null || active.id === over.id) return
     const oldIndex = queuedInputs.findIndex((input) => input.id === active.id)
     const newIndex = queuedInputs.findIndex((input) => input.id === over.id)
     if (oldIndex < 0 || newIndex < 0) return
-    await backlog
-      .move({
-        inputID: String(active.id),
-        anchorInputID: String(over.id),
-        position: oldIndex < newIndex ? 'after' : 'before',
-      })
-      .catch((error: unknown) => {
+    const move = {
+      inputID: String(active.id),
+      anchorInputID: String(over.id),
+      position: oldIndex < newIndex ? ('after' as const) : ('before' as const),
+    }
+    startTransition(async () => {
+      moveOptimistically(move)
+      await backlog.move(move).catch((error: unknown) => {
         window.alert(errorMessage(error, 'Could not reorder this message'))
       })
+    })
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={(event) => void handleDragEnd(event)}
-    >
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext
         items={inputs.map((input) => input.id)}
         strategy={verticalListSortingStrategy}
