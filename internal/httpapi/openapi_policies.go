@@ -137,6 +137,7 @@ const (
 	operationGetSkill                      operationID = "GetSkill"
 	operationGetToolCatalog                operationID = "GetToolCatalog"
 	operationListMCPServers                operationID = "ListMCPServers"
+	operationListMCPServerTools            operationID = "ListMCPServerTools"
 	operationGetProjectMachinePoolGrant    operationID = "GetProjectMachinePoolGrant"
 	operationListActors                    operationID = "ListActors"
 	operationGetActor                      operationID = "GetActor"
@@ -200,6 +201,7 @@ const (
 	operationUpdateOrgMember               operationID = "UpdateOrgMember"
 	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
 	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
+	operationUploadDaemonArtifact          operationID = "UploadDaemonArtifact"
 )
 
 type operationPolicy struct {
@@ -321,6 +323,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetToolCatalog:                accountPolicy(noScope()),
 	operationListMCPServers:                accountPolicy(noScope()),
+	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListIntegrationInstalls:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -391,6 +394,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 		customScope("machine daemon token + token-scoped runtime ownership"),
 	),
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
+	operationUploadDaemonArtifact: machineDaemonPolicy(
+		customScope("machine daemon token + active upload_artifact process"),
+	),
 }
 
 func newOpenAPIAuthorizer() (operationAuthorizer, error) {

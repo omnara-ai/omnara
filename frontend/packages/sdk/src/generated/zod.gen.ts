@@ -702,6 +702,85 @@ export const zListMcpServersResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zMcpServerAuthNone = z.object({
+    type: z.enum(['none'])
+});
+
+export const zMcpServerAuthBearer = z.object({
+    type: z.enum(['bearer']),
+    secret_id: zSecretId
+});
+
+export const zMcpServerAuthOAuth = z.object({
+    type: z.enum(['oauth']),
+    secret_id: zSecretId
+});
+
+export const zMcpServerAuthSigV4 = z.object({
+    type: z.enum(['sigv4']),
+    secret_id: zSecretId,
+    service: z.string().min(1).max(64),
+    region: z.string().min(1).max(64)
+});
+
+/**
+ * How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+ */
+export const zMcpServerAuth = z.discriminatedUnion('type', [
+    zMcpServerAuthNone.extend({ type: z.literal('none') }),
+    zMcpServerAuthBearer.extend({ type: z.literal('bearer') }),
+    zMcpServerAuthOAuth.extend({ type: z.literal('oauth') }),
+    zMcpServerAuthSigV4.extend({ type: z.literal('sigv4') })
+]);
+
+export const zMcpServerToolsRequest = z.object({
+    url: z.url().min(1).max(2048),
+    auth: zMcpServerAuth
+});
+
+export const zMcpServerAuthHint = z.object({
+    type: z.enum(['oauth', 'bearer']),
+    scopes: z.array(z.string()).optional(),
+    authorization_server: z.string().optional()
+});
+
+export const zMcpServerAuthRequiredError = z.object({
+    error: z.string(),
+    code: z.enum(['unprocessable']),
+    auth: zMcpServerAuthHint
+});
+
+export const zMcpServerInfo = z.object({
+    name: z.string(),
+    version: z.string(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    website_url: z.string().optional()
+});
+
+export const zMcpServerToolAnnotations = z.object({
+    title: z.string().optional(),
+    read_only_hint: z.boolean().optional(),
+    destructive_hint: z.boolean().optional(),
+    idempotent_hint: z.boolean().optional(),
+    open_world_hint: z.boolean().optional()
+});
+
+export const zMcpServerTool = z.object({
+    name: z.string(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    input_schema: z.record(z.string(), z.unknown()),
+    output_schema: z.record(z.string(), z.unknown()).optional(),
+    annotations: zMcpServerToolAnnotations.optional()
+});
+
+export const zMcpServerToolsResponse = z.object({
+    protocol_version: z.string(),
+    server_info: zMcpServerInfo,
+    tools: z.array(zMcpServerTool)
+});
+
 export const zAgentConfigModel = z.object({
     provider_config: zResourceName,
     name: zResourceName,
@@ -1051,6 +1130,7 @@ export const zInlineMediaContentBlock = z.object({
 export const zMediaRefContentBlock = z.object({
     type: z.enum(['media_ref']),
     artifact_id: zArtifactId,
+    exclude_from_model_context: z.boolean().optional(),
     metadata: zContentBlockMetadata.optional()
 });
 
@@ -1104,6 +1184,7 @@ export const zAgentInput = z.object({
     delivery_mode: zAgentInputDeliveryMode,
     input_kind: zAgentInputKind,
     actor_id: zActorId.optional(),
+    input_idempotency_key: z.string().optional(),
     content_blocks: z.array(zAgentInputContentBlock).optional(),
     queued_at: zTimestamp
 });
@@ -2341,6 +2422,10 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
+export const zUploadArtifactResponse = z.object({
+    artifact_id: zArtifactId
+});
+
 export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
@@ -3211,6 +3296,18 @@ export const zListMcpServersQuery = z.object({
  */
 export const zListMcpServersResponse2 = zListMcpServersResponse;
 
+export const zListMcpServerToolsBody = zMcpServerToolsRequest;
+
+export const zListMcpServerToolsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Tools advertised by the MCP server.
+ */
+export const zListMcpServerToolsResponse = zMcpServerToolsResponse;
+
 export const zGetAgentConfigPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
@@ -3651,7 +3748,7 @@ export const zListQueuedBacklogInputsQuery = z.object({
 });
 
 /**
- * Queued backlog inputs.
+ * Waiting backlog inputs.
  */
 export const zListQueuedBacklogInputsResponse = zListAgentInputsResponse;
 
@@ -4326,3 +4423,18 @@ export const zGetDaemonSkillArchiveQuery = z.object({
  * Skill archive bytes.
  */
 export const zGetDaemonSkillArchiveResponse = z.string();
+
+export const zUploadDaemonArtifactBody = z.string();
+
+export const zUploadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId
+});
+
+export const zUploadDaemonArtifactQuery = z.object({
+    filename: z.string().min(1).max(255)
+});
+
+/**
+ * Artifact created.
+ */
+export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;

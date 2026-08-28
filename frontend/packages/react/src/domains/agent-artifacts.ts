@@ -11,7 +11,7 @@ export function useDownloadAgentArtifact(orgID: string, projectID: string, agent
       const path = { orgID, projectID, agentID, artifactID }
       const [{ data: artifact }, { data: content }] = await Promise.all([
         sdk.getArtifact({ client, path }),
-        sdk.getArtifactContent({ client, path }),
+        sdk.getArtifactContent({ client, path, parseAs: 'blob' }),
       ])
       return { artifact, content }
     },

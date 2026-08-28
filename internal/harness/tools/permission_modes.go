@@ -338,6 +338,7 @@ func permissionChallenge(
 	call model.ToolCall,
 	mode permissionModeContext,
 	authorizationInput json.RawMessage,
+	contextItems ...interactionform.ContextItem,
 ) (toolpermission.Request, error) {
 	authorization, err := toolpermission.NewAuthorization(
 		call.Name,
@@ -346,11 +347,12 @@ func permissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	input := strings.TrimSpace(string(authorization.Input))
-	contextItems := []interactionform.ContextItem(nil)
-	if input != "" && input != "{}" {
-		contextItems = []interactionform.ContextItem{
-			{Label: "Input", Value: input},
+	if len(contextItems) == 0 {
+		input := strings.TrimSpace(string(authorization.Input))
+		if input != "" && input != "{}" {
+			contextItems = []interactionform.ContextItem{
+				{Label: "Input", Value: input},
+			}
 		}
 	}
 	value, err := toolpermission.NewAllowDenyForm(
@@ -387,13 +389,6 @@ func runCommandPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	authorization, err := toolpermission.NewAuthorization(
-		call.Name,
-		authorizationInput,
-	)
-	if err != nil {
-		return toolpermission.Request{}, err
-	}
 	contextItems := []interactionform.ContextItem{
 		{Label: "Command", Value: resolved.Command},
 		{Label: "Machine", Value: binding.MachineRef},
@@ -405,18 +400,34 @@ func runCommandPermissionChallenge(
 			interactionform.ContextItem{Label: "Working directory", Value: resolved.Cwd},
 		)
 	}
-	value, err := toolpermission.NewAllowDenyForm(
-		"Permission requested for run_command",
-		contextItems,
-	)
+	return permissionChallenge(call, mode, authorizationInput, contextItems...)
+}
+
+func uploadArtifactPermissionChallenge(
+	ctx context.Context,
+	executor Executor,
+	turn Turn,
+	call model.ToolCall,
+	mode permissionModeContext,
+) (toolpermission.Request, error) {
+	resolved, err := resolveUploadArtifactRequest(call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return toolpermission.NewRequest(
-		mode.descriptor,
-		mode.selection,
-		authorization,
-		value,
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	if err != nil {
+		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	authorizationInput, err := uploadArtifactAuthorizationInput(binding.ID, resolved.Path)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(
+		call,
+		mode,
+		authorizationInput,
+		interactionform.ContextItem{Label: "Path", Value: resolved.Path},
+		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
 	)
 }
 

@@ -2319,6 +2319,62 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/mcp-servers/tools:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    post:
+      operationId: listMCPServerTools
+      tags: [Configs and Profiles]
+      summary: List an MCP server's tools
+      description: Connects to a remote MCP server over streamable HTTP, completes the initialize handshake, and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPServerToolsRequest'
+      responses:
+        '200':
+          description: Tools advertised by the MCP server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServerToolsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServerAuthRequiredError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
@@ -3921,14 +3977,14 @@ paths:
     get:
       operationId: listQueuedBacklogInputs
       tags: [Agents]
-      summary: List queued backlog inputs
-      description: Items are ordered by queue position, then queued_at ascending, then id ascending.
+      summary: List waiting backlog inputs
+      description: Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
       parameters:
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Queued backlog inputs.
+          description: Waiting backlog inputs.
           content:
             application/json:
               schema:
@@ -6325,6 +6381,62 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/tool-calls/{toolCallID}/artifact:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    post:
+      operationId: uploadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Upload daemon artifact
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Artifact created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadArtifactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: The uploaded artifact is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -7992,6 +8104,179 @@ components:
         next_cursor:
           type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
+    MCPServerToolsRequest:
+      type: object
+      additionalProperties: false
+      required: [url, auth]
+      properties:
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+        auth:
+          $ref: '#/components/schemas/MCPServerAuth'
+    MCPServerAuth:
+      description: How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+      oneOf:
+        - $ref: '#/components/schemas/MCPServerAuthNone'
+        - $ref: '#/components/schemas/MCPServerAuthBearer'
+        - $ref: '#/components/schemas/MCPServerAuthOAuth'
+        - $ref: '#/components/schemas/MCPServerAuthSigV4'
+      discriminator:
+        propertyName: type
+        mapping:
+          none: '#/components/schemas/MCPServerAuthNone'
+          bearer: '#/components/schemas/MCPServerAuthBearer'
+          oauth: '#/components/schemas/MCPServerAuthOAuth'
+          sigv4: '#/components/schemas/MCPServerAuthSigV4'
+    MCPServerAuthNone:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [none]
+    MCPServerAuthBearer:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+          enum: [bearer]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: A generic secret whose value is sent as the bearer token.
+    MCPServerAuthOAuth:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+          enum: [oauth]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: An oauth_token_set secret. An expired access token is refreshed and the refreshed token set is stored as a new secret version.
+    MCPServerAuthSigV4:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id, service, region]
+      properties:
+        type:
+          type: string
+          enum: [sigv4]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: An aws_credentials secret used to sign requests.
+        service:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: AWS signing service name, for example `bedrock-agentcore`.
+        region:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: AWS signing region, for example `us-east-1`.
+    MCPServerAuthRequiredError:
+      type: object
+      additionalProperties: false
+      required: [error, code, auth]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message. Do not match on it programmatically.
+        code:
+          type: string
+          enum: [unprocessable]
+        auth:
+          $ref: '#/components/schemas/MCPServerAuthHint'
+    MCPServerAuthHint:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [oauth, bearer]
+          description: '`oauth` when the server advertises an OAuth authorization server per the MCP authorization spec; `bearer` when it rejects unauthenticated requests without OAuth metadata, which usually means a static API token.'
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Scopes the server requested or supports, when advertised.
+        authorization_server:
+          type: string
+          description: Issuer URL of the OAuth authorization server, when advertised.
+    MCPServerToolsResponse:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, server_info, tools]
+      properties:
+        protocol_version:
+          type: string
+          description: MCP protocol version negotiated with the server.
+        server_info:
+          $ref: '#/components/schemas/MCPServerInfo'
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPServerTool'
+    MCPServerInfo:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        website_url:
+          type: string
+    MCPServerTool:
+      type: object
+      additionalProperties: false
+      required: [name, input_schema]
+      properties:
+        name:
+          type: string
+          description: Tool name as advertised by the server. Referenced from agent config `mcp_servers.<key>.tools.<name>`.
+        title:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for the tool's arguments.
+        output_schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for the tool's structured result, when the server advertises one.
+        annotations:
+          $ref: '#/components/schemas/MCPServerToolAnnotations'
+    MCPServerToolAnnotations:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+        read_only_hint:
+          type: boolean
+        destructive_hint:
+          type: boolean
+        idempotent_hint:
+          type: boolean
+        open_world_hint:
+          type: boolean
     AgentConfigModel:
       type: object
       additionalProperties: false
@@ -8527,6 +8812,9 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        exclude_from_model_context:
+          type: boolean
+          description: Whether the referenced artifact is excluded from later model context.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:
@@ -8665,6 +8953,9 @@ components:
         actor_id:
           description: Actor this input is attributed to. Absent when the input has no actor attribution.
           $ref: '#/components/schemas/ActorID'
+        input_idempotency_key:
+          type: string
+          description: Idempotency key supplied when this content input was created. Absent for other input kinds.
         content_blocks:
           type: array
           items:
@@ -11501,6 +11792,13 @@ components:
           $ref: '#/components/schemas/InstallationID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
+    UploadArtifactResponse:
+      type: object
+      additionalProperties: false
+      required: [artifact_id]
+      properties:
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
     CreateProjectRequest:
       type: object
       additionalProperties: false

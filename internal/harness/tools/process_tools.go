@@ -76,17 +76,14 @@ func runCommandAuthorizationInput(
 	return request, nil
 }
 
-func startCommand(
+func startProcessTool(
 	ctx context.Context,
 	call transactionalToolContext,
 	binding executionstore.AgentMachineBindingRecord,
-	resolved resolvedRunCommandRequest,
+	authorizationInput json.RawMessage,
+	processInput executionstore.CreateProcessInput,
 ) (transactionalPhaseResult, error) {
-	authorizationInput, err := runCommandAuthorizationInput(binding.ID, resolved)
-	if err != nil {
-		return nil, err
-	}
-	err = authorizeToolExecution(
+	err := authorizeToolExecution(
 		ctx,
 		call.Reader,
 		call.Turn,
@@ -96,15 +93,8 @@ func startCommand(
 	if err != nil {
 		return nil, fmt.Errorf("authorize %s: %w", call.Call.Name, err)
 	}
-	command := executionstore.StartProcessForToolCall(executionstore.CreateProcessInput{
-		AgentMachineBindingID: binding.ID,
-		IOMode:                resolved.IOMode,
-		Command:               resolved.Command,
-		ShellSelector:         resolved.Selector,
-		Cwd:                   resolved.Cwd,
-		TimeoutSeconds:        0,
-		InitialWaitMS:         resolved.WaitMs,
-	})
+	processInput.AgentMachineBindingID = binding.ID
+	command := executionstore.StartProcessForToolCall(processInput)
 	return executeInTransaction(
 		command,
 		func(err error) (transactionalPhaseResult, error) {
@@ -158,10 +148,21 @@ func runCommand(
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
-	return startCommand(ctx, call, binding, resolved)
+	authorizationInput, err := runCommandAuthorizationInput(binding.ID, resolved)
+	if err != nil {
+		return nil, err
+	}
+	return startProcessTool(ctx, call, binding, authorizationInput, executionstore.CreateProcessInput{
+		IOMode:         resolved.IOMode,
+		Command:        resolved.Command,
+		ShellSelector:  resolved.Selector,
+		Cwd:            resolved.Cwd,
+		InitialWaitMS:  resolved.WaitMs,
+		TimeoutSeconds: 0,
+	})
 }
 
-func wakeRunCommand(
+func wakeProcessTool(
 	ctx context.Context,
 	call backgroundToolContext,
 ) error {
@@ -175,7 +176,7 @@ func wakeRunCommand(
 		return err
 	}
 	if !found {
-		return errors.New("run_command process was not created")
+		return fmt.Errorf("%s process was not created", call.Call.Name)
 	}
 	err = wakeProcessMachine(ctx, call, process)
 	if err != nil {

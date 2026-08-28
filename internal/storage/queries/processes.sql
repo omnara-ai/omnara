@@ -391,6 +391,19 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND runtime.daemon_token_id = sqlc.arg(daemon_token_id)
   AND process.id = sqlc.arg(id);
 
+-- name: GetDaemonArtifactUploadScope :one
+SELECT process.project_id, process.agent_id
+FROM processes process
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
+  AND tool_call.id = process.tool_call_id
+WHERE process.org_id = sqlc.arg(org_id)
+  AND process.machine_id = sqlc.arg(machine_id)
+  AND process.tool_call_id = sqlc.arg(tool_call_id)
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+  AND tool_call.type = 'built_in'
+  AND tool_call.name = 'upload_artifact';
+
 -- name: MarkActiveProcessUnknownByMachine :one
 UPDATE processes
 SET state = 'unknown',

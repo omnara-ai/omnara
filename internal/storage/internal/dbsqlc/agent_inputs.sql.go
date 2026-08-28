@@ -340,23 +340,28 @@ FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
   AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
+  AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
   AND (
-    $3::bigint IS NULL
-    OR (input.input_rank, input.queued_at, input.id) > ($3::bigint, $4::timestamptz, $5::uuid)
+    $3::text IS NULL
+    OR input.delivery_mode < $3::text
+    OR (
+      input.delivery_mode = $3::text
+      AND (input.input_rank, input.queued_at, input.id) > ($4::bigint, $5::timestamptz, $6::uuid)
+    )
   )
-ORDER BY input.input_rank ASC, input.queued_at ASC, input.id ASC
-LIMIT $6::bigint
+ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
+LIMIT $7::bigint
 `
 
 type ListQueuedBacklogInputsParams struct {
-	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
-	CursorInputRank *int64
-	CursorQueuedAt  *time.Time
-	CursorID        *uuid.UUID
-	RowLimit        int64
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	CursorDeliveryMode *string
+	CursorInputRank    *int64
+	CursorQueuedAt     *time.Time
+	CursorID           *uuid.UUID
+	RowLimit           int64
 }
 
 type ListQueuedBacklogInputsRow struct {
@@ -386,6 +391,7 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 	rows, err := q.db.Query(ctx, listQueuedBacklogInputs,
 		arg.ProjectID,
 		arg.AgentID,
+		arg.CursorDeliveryMode,
 		arg.CursorInputRank,
 		arg.CursorQueuedAt,
 		arg.CursorID,
@@ -780,47 +786,68 @@ func (q *Queries) MoveQueuedBacklogInputToFront(ctx context.Context, arg MoveQue
 	return result.RowsAffected(), nil
 }
 
-const promoteQueuedInputToSteering = `-- name: PromoteQueuedInputToSteering :execrows
-UPDATE agent_inputs input
-SET delivery_mode = 'steering',
-    input_rank = coalesce(
-      (
-        SELECT max(existing.input_rank) + $1::bigint
-        FROM agent_inputs existing
-        WHERE existing.project_id = input.project_id
-          AND existing.agent_id = input.agent_id
-          AND existing.delivery_mode = 'steering'
-          AND existing.state = 'received'
-          AND existing.input_kind = 'content'
-      ),
-      $1::bigint
-    )
-WHERE input.project_id = $2
-  AND input.agent_id = $3
-  AND input.id = $4
-  AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
-  AND input.input_kind = 'content'
+const promoteQueuedInputToSteering = `-- name: PromoteQueuedInputToSteering :one
+WITH promoted AS (
+  UPDATE agent_inputs input
+  SET delivery_mode = 'steering',
+      input_rank = coalesce(
+        (
+          SELECT max(existing.input_rank) + $4::bigint
+          FROM agent_inputs existing
+          WHERE existing.project_id = input.project_id
+            AND existing.agent_id = input.agent_id
+            AND existing.delivery_mode = 'steering'
+            AND existing.state = 'received'
+            AND existing.input_kind = 'content'
+        ),
+        $4::bigint
+      )
+  WHERE input.project_id = $1
+    AND input.agent_id = $2
+    AND input.id = $3
+    AND input.state = 'received'
+    AND input.delivery_mode = 'queued'
+    AND input.input_kind = 'content'
+  RETURNING TRUE
+)
+SELECT EXISTS (SELECT 1 FROM promoted) AS changed,
+       EXISTS (SELECT 1 FROM promoted)
+       OR EXISTS (
+         SELECT 1
+         FROM agent_inputs input
+         WHERE input.project_id = $1
+           AND input.agent_id = $2
+           AND input.id = $3
+           AND input.input_kind = 'content'
+           AND (
+             (input.state = 'received' AND input.delivery_mode = 'steering')
+             OR (input.state = 'resolved' AND input.admitted_event_id IS NOT NULL)
+           )
+       ) AS effective
 `
 
 type PromoteQueuedInputToSteeringParams struct {
-	RankStride int64
 	ProjectID  uuid.UUID
 	AgentID    uuid.UUID
 	ID         uuid.UUID
+	RankStride int64
 }
 
-func (q *Queries) PromoteQueuedInputToSteering(ctx context.Context, arg PromoteQueuedInputToSteeringParams) (int64, error) {
-	result, err := q.db.Exec(ctx, promoteQueuedInputToSteering,
-		arg.RankStride,
+type PromoteQueuedInputToSteeringRow struct {
+	Changed   bool
+	Effective *bool
+}
+
+func (q *Queries) PromoteQueuedInputToSteering(ctx context.Context, arg PromoteQueuedInputToSteeringParams) (PromoteQueuedInputToSteeringRow, error) {
+	row := q.db.QueryRow(ctx, promoteQueuedInputToSteering,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ID,
+		arg.RankStride,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i PromoteQueuedInputToSteeringRow
+	err := row.Scan(&i.Changed, &i.Effective)
+	return i, err
 }
 
 const queuedBacklogMoveIsValid = `-- name: QueuedBacklogMoveIsValid :one

@@ -3,6 +3,7 @@ import { hostname } from 'node:os'
 import { intro, log, note, outro, spinner } from '@clack/prompts'
 import {
   bearerToken,
+  cliLoginTokenName,
   createOmnaraClient,
   OMNARA_CLI_OAUTH_CLIENT_ID,
   type OmnaraClient,
@@ -118,10 +119,10 @@ interface LoginOptions {
 }
 
 export function loginTokenName(explicit: string | undefined, hostName: string): string {
-  const candidate = explicit ?? `Omnara CLI on ${hostName}`
+  const candidate = explicit ?? cliLoginTokenName(hostName)
   const result = zResourceName.safeParse(candidate)
   if (result.success) return result.data
-  if (explicit === undefined) return 'Omnara CLI'
+  if (explicit === undefined) return cliLoginTokenName()
   throw new CliInputError(`invalid token name:\n${z.prettifyError(result.error)}`)
 }
 

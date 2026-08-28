@@ -931,6 +931,134 @@ export type ListMcpServersResponse = {
     next_cursor: string | null;
 };
 
+export type McpServerToolsRequest = {
+    /**
+     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     */
+    url: string;
+    auth: McpServerAuth;
+};
+
+/**
+ * How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+ */
+export type McpServerAuth = ({
+    type: 'none';
+} & McpServerAuthNone) | ({
+    type: 'bearer';
+} & McpServerAuthBearer) | ({
+    type: 'oauth';
+} & McpServerAuthOAuth) | ({
+    type: 'sigv4';
+} & McpServerAuthSigV4);
+
+export type McpServerAuthNone = {
+    type: 'none';
+};
+
+export type McpServerAuthBearer = {
+    type: 'bearer';
+    /**
+     * A generic secret whose value is sent as the bearer token.
+     */
+    secret_id: SecretId;
+};
+
+export type McpServerAuthOAuth = {
+    type: 'oauth';
+    /**
+     * An oauth_token_set secret. An expired access token is refreshed and the refreshed token set is stored as a new secret version.
+     */
+    secret_id: SecretId;
+};
+
+export type McpServerAuthSigV4 = {
+    type: 'sigv4';
+    /**
+     * An aws_credentials secret used to sign requests.
+     */
+    secret_id: SecretId;
+    /**
+     * AWS signing service name, for example `bedrock-agentcore`.
+     */
+    service: string;
+    /**
+     * AWS signing region, for example `us-east-1`.
+     */
+    region: string;
+};
+
+export type McpServerAuthRequiredError = {
+    /**
+     * Human-readable error message. Do not match on it programmatically.
+     */
+    error: string;
+    code: 'unprocessable';
+    auth: McpServerAuthHint;
+};
+
+export type McpServerAuthHint = {
+    /**
+     * `oauth` when the server advertises an OAuth authorization server per the MCP authorization spec; `bearer` when it rejects unauthenticated requests without OAuth metadata, which usually means a static API token.
+     */
+    type: 'oauth' | 'bearer';
+    /**
+     * Scopes the server requested or supports, when advertised.
+     */
+    scopes?: Array<string>;
+    /**
+     * Issuer URL of the OAuth authorization server, when advertised.
+     */
+    authorization_server?: string;
+};
+
+export type McpServerToolsResponse = {
+    /**
+     * MCP protocol version negotiated with the server.
+     */
+    protocol_version: string;
+    server_info: McpServerInfo;
+    tools: Array<McpServerTool>;
+};
+
+export type McpServerInfo = {
+    name: string;
+    version: string;
+    title?: string;
+    description?: string;
+    website_url?: string;
+};
+
+export type McpServerTool = {
+    /**
+     * Tool name as advertised by the server. Referenced from agent config `mcp_servers.<key>.tools.<name>`.
+     */
+    name: string;
+    title?: string;
+    description?: string;
+    /**
+     * JSON Schema for the tool's arguments.
+     */
+    input_schema: {
+        [key: string]: unknown;
+    };
+    /**
+     * JSON Schema for the tool's structured result, when the server advertises one.
+     */
+    output_schema?: {
+        [key: string]: unknown;
+    };
+    annotations?: McpServerToolAnnotations;
+};
+
+export type McpServerToolAnnotations = {
+    title?: string;
+    read_only_hint?: boolean;
+    destructive_hint?: boolean;
+    idempotent_hint?: boolean;
+    open_world_hint?: boolean;
+};
+
 export type AgentConfigModel = {
     provider_config: ResourceName;
     /**
@@ -1231,6 +1359,10 @@ export type InlineMediaContentBlock = {
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    /**
+     * Whether the referenced artifact is excluded from later model context.
+     */
+    exclude_from_model_context?: boolean;
     metadata?: ContentBlockMetadata;
 };
 
@@ -1318,6 +1450,10 @@ export type AgentInput = {
      * Actor this input is attributed to. Absent when the input has no actor attribution.
      */
     actor_id?: ActorId;
+    /**
+     * Idempotency key supplied when this content input was created. Absent for other input kinds.
+     */
+    input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
 };
@@ -2792,6 +2928,10 @@ export type RegisterDaemonRuntimeResponse = {
 export type BootstrapDaemonResponse = {
     installation_id: InstallationId;
     machine_id: MachineId;
+};
+
+export type UploadArtifactResponse = {
+    artifact_id: ArtifactId;
 };
 
 export type CreateProjectRequest = {
@@ -6964,6 +7104,78 @@ export type ListMcpServersResponses = {
 
 export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServersResponses];
 
+export type ListMcpServerToolsData = {
+    body: McpServerToolsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools';
+};
+
+export type ListMcpServerToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+     */
+    422: McpServerAuthRequiredError;
+    /**
+     * An upstream service required to satisfy the request failed.
+     */
+    502: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMcpServerToolsError = ListMcpServerToolsErrors[keyof ListMcpServerToolsErrors];
+
+export type ListMcpServerToolsResponses = {
+    /**
+     * Tools advertised by the MCP server.
+     */
+    200: McpServerToolsResponse;
+};
+
+export type ListMcpServerToolsResponse = ListMcpServerToolsResponses[keyof ListMcpServerToolsResponses];
+
 export type GetAgentConfigData = {
     body?: never;
     path: {
@@ -9156,7 +9368,7 @@ export type ListQueuedBacklogInputsError = ListQueuedBacklogInputsErrors[keyof L
 
 export type ListQueuedBacklogInputsResponses = {
     /**
-     * Queued backlog inputs.
+     * Waiting backlog inputs.
      */
     200: ListAgentInputsResponse;
 };
@@ -12996,3 +13208,72 @@ export type GetDaemonSkillArchiveResponses = {
 };
 
 export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof GetDaemonSkillArchiveResponses];
+
+export type UploadDaemonArtifactData = {
+    body: Blob | File;
+    path: {
+        toolCallID: ToolCallId;
+    };
+    query: {
+        filename: string;
+    };
+    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifact';
+};
+
+export type UploadDaemonArtifactErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The uploaded artifact is too large.
+     */
+    413: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UploadDaemonArtifactError = UploadDaemonArtifactErrors[keyof UploadDaemonArtifactErrors];
+
+export type UploadDaemonArtifactResponses = {
+    /**
+     * Artifact created.
+     */
+    201: UploadArtifactResponse;
+};
+
+export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];

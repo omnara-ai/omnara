@@ -5,6 +5,7 @@ import type {
   BasicConfig,
   BasicMachineSource,
   BasicMcpServer,
+  BasicMcpTool,
 } from '@/components/agents/useAgentBuilderForm'
 import {
   emptyProviderOptions,
@@ -58,11 +59,17 @@ const mcpAuth = z.discriminatedUnion('type', [
   }),
 ])
 
+const mcpToolEntry = z.strictObject({
+  enabled: z.boolean().nullable().optional(),
+  permission: permission.optional(),
+})
+
 const mcpEntry = z.strictObject({
   url: z.string(),
   permission: permission.optional(),
   default_enabled: z.boolean().nullable().optional(),
   auth: mcpAuth.optional(),
+  tools: z.record(z.string(), mcpToolEntry).optional(),
 })
 
 const toolEntry = z.strictObject({
@@ -71,10 +78,12 @@ const toolEntry = z.strictObject({
   permission: permission.optional(),
 })
 
+const optionalText = z.string().nullable().optional()
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
-  instruction: z.string(),
-  model: z.looseObject({ provider_config: z.string(), name: z.string() }),
+  instruction: optionalText,
+  model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
@@ -94,9 +103,9 @@ export function extractBasicConfig(js: unknown): BasicConfig | null {
   }
 
   return {
-    instruction: normalizeMultiline(doc.instruction),
-    providerConfig: doc.model.provider_config,
-    modelName: doc.model.name,
+    instruction: normalizeMultiline(doc.instruction ?? ''),
+    providerConfig: doc.model?.provider_config ?? '',
+    modelName: doc.model?.name ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => ({
       name,
@@ -183,5 +192,12 @@ function mcpServerDraft(name: string, entry: z.infer<typeof mcpEntry>): BasicMcp
     secretId: auth?.secret_id ?? '',
     service: auth?.type === 'sigv4' ? auth.service : '',
     region: auth?.type === 'sigv4' ? auth.region : '',
+    tools: Object.entries(entry.tools ?? {}).map(
+      ([name, tool]): BasicMcpTool => ({
+        name,
+        enabled: tool.enabled ?? null,
+        permission: permissionDraft(tool.permission),
+      }),
+    ),
   }
 }

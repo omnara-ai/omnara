@@ -169,8 +169,14 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameRunCommand,
 			semanticInputValidator: validateRunCommandInput,
-			handler:                toolHandler{Transactional: runCommand, Background: wakeRunCommand},
+			handler:                toolHandler{Transactional: runCommand, Background: wakeProcessTool},
 			permissionModes:        commonPermissionModeHandlers(runCommandPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameUploadArtifact,
+			semanticInputValidator: validateUploadArtifactInput,
+			handler:                toolHandler{Transactional: runUploadArtifact, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(uploadArtifactPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteProcess,

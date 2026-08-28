@@ -133,7 +133,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		client,
 	)
 	if err != nil {
-		return AuthRequirement{}, err
+		return AuthRequirement{}, fmt.Errorf("%w: %w", ErrOAuthMetadataUnavailable, err)
 	}
 	authRequirement.Required = true
 	return authRequirement, nil

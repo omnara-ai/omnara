@@ -32,7 +32,7 @@ const (
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
 	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request another pool-backed machine for this agent. machine_pool_name is only needed when multiple machine pools are available."
+	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
 	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_ref values and current availability."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_ref is only needed when multiple machines are available."
@@ -51,6 +51,10 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	uploadArtifactToolDescription = "Create an artifact from a regular file on an attached machine. " +
+		"The file must be non-empty and at most 10 MiB. " +
+		"The result includes artifact metadata after a successful upload. " +
+		"machine_ref is only needed when multiple machines are available."
 )
 
 type Catalog struct {
@@ -91,7 +95,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	}
 	processID := map[string]any{
 		"type":        "string",
-		"description": "Opaque process_id returned by run_command or list_processes. Copy it exactly.",
+		"description": "Opaque process_id returned by a process-backed tool or list_processes. Copy it exactly.",
 	}
 	entries := map[string]Entry{}
 	var err error
@@ -253,6 +257,9 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineRef); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -453,6 +460,23 @@ func webFetchTool() (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
+	return toolEntry(
+		ToolNameUploadArtifact,
+		uploadArtifactToolDescription,
+		[]string{"path"},
+		map[string]any{
+			"path": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Path to a regular file on the selected machine. " +
+					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
+			},
+			"machine_ref": machineRef,
+		},
+	)
 }
 
 func (r Catalog) Lookup(name string) (Entry, bool) {

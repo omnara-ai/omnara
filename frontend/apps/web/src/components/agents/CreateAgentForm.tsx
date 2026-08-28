@@ -1,8 +1,9 @@
-import { useProjectMachinePoolGrants, useProjectModelGrants, useToolCatalog } from '@omnara/react'
+import { useToolCatalog } from '@omnara/react'
 import { useSearch } from '@tanstack/react-router'
 
 import { agentTemplates } from '@/components/agents/agentTemplates'
 import { CreateAgentFormView } from '@/components/agents/CreateAgentFormView'
+import { useProjectDefaults } from '@/components/agents/useProjectDefaults'
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { useProjectPage } from '@/lib/use-project-page'
 
@@ -11,26 +12,12 @@ export function CreateAgentForm() {
   const search = useSearch({ strict: false })
 
   const toolCatalog = useToolCatalog()
-  const poolGrantsQuery = useProjectMachinePoolGrants(activeOrg.id, projectId, {
-    sort: 'created_at',
-    pageSize: 50,
-  })
-  const modelGrantsQuery = useProjectModelGrants(activeOrg.id, projectId, {
-    sort: 'created_at',
-    pageSize: 100,
-  })
+  const {
+    ready: templatesReady,
+    defaultPool,
+    defaultModel,
+  } = useProjectDefaults(activeOrg.id, projectId)
   const catalog = toolCatalog.data
-  const poolGrants = poolGrantsQuery.data?.pages[0]?.data ?? []
-  const modelGrants = modelGrantsQuery.data?.pages[0]?.data ?? []
-  const defaultPool = (
-    poolGrants.find((grant) => grant.machine_pool.management_kind === 'cluster') ?? poolGrants[0]
-  )?.machine_pool
-  const defaultModel =
-    modelGrants.find(
-      ({ model }) =>
-        model.provider_config === 'omnara-openrouter' && model.name === 'openai/gpt-5.6-sol',
-    )?.model ?? modelGrants[0]?.model
-  const templatesReady = !poolGrantsQuery.isPending && !modelGrantsQuery.isPending
   const linkedTemplate = agentTemplates.find((template) => template.id === search.template)
 
   if (toolCatalog.isPending) return <FullPageSpinner />

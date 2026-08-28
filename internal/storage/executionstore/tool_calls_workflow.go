@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 const (
@@ -231,6 +232,58 @@ func commandTerminalToolResult(
 	}
 	object["process_id"] = publicResourceID(publicid.KindProcess, processID)
 	return marshalJSON(object)
+}
+
+func isUploadArtifactToolCall(call ToolCallRecord) bool {
+	return call.Type == toolcatalog.ToolTypeBuiltIn &&
+		call.Name == toolcatalog.ToolNameUploadArtifact
+}
+
+func UploadArtifactIdempotencyKey(toolCallID ID) string {
+	return "upload-artifact:" + toolCallID.String()
+}
+
+func uploadArtifactProcessToolResultContentParts(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+) (ToolResultOutcome, json.RawMessage, error) {
+	artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+		ProjectID:      process.ProjectID,
+		AgentID:        process.AgentID,
+		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return failedUploadArtifactProcessToolResultContentParts(
+			process,
+			"upload completed without an artifact",
+		)
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+	}
+	contentParts, err := marshalJSON([]map[string]any{{
+		"type":                       "media_ref",
+		"artifact_id":                artifact.ID.String(),
+		"exclude_from_model_context": true,
+	}})
+	return ToolResultOutcomeSucceeded, contentParts, err
+}
+
+func failedUploadArtifactProcessToolResultContentParts(
+	process ProcessRecord,
+	message string,
+) (ToolResultOutcome, json.RawMessage, error) {
+	result, err := marshalJSON(map[string]any{
+		"process_id": publicResourceID(publicid.KindProcess, process.ID),
+		"state":      process.State,
+		"error":      message,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	contentParts, err := ToolResultContentParts(result)
+	return ToolResultOutcomeFailed, contentParts, err
 }
 
 func ToolResultContentParts(result json.RawMessage) (json.RawMessage, error) {

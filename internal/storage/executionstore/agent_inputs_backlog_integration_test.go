@@ -19,6 +19,80 @@ import (
 
 const backlogRankStride int64 = 1024
 
+func TestPromoteQueuedInputToSteeringIsIdempotentAfterPromotionAndAdmission(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "idempotent-backlog-promotion")
+	createQueued := func(label string) executionstore.AgentInputRecord {
+		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+			ctx,
+			executionstore.CreateAgentContentInputInput{
+				ProjectID:      testProjectID,
+				AgentID:        fixture.AgentID,
+				Actor:          mustOmnaraActorParams(t, fixture.UserID),
+				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + label + `"}]`),
+				IdempotencyKey: "idem-idempotent-promotion-" + label,
+			},
+		)
+		if err != nil {
+			t.Fatalf("create %s input: %v", label, err)
+		}
+		return input
+	}
+	promote := func(inputID ID) error {
+		return fixture.Store.Execution().PromoteQueuedInputToSteering(
+			ctx,
+			executionstore.PromoteQueuedInputToSteeringInput{
+				ProjectID: testProjectID,
+				AgentID:   fixture.AgentID,
+				InputID:   inputID,
+			},
+		)
+	}
+
+	admittedFirst := createQueued("admitted-first")
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t,
+		ctx,
+		fixture.Store,
+		testProjectID,
+		fixture.AgentID,
+		fixture.Lock.ID,
+	)
+	if !found || len(admitted.Inputs) != 1 || admitted.Inputs[0].ID != admittedFirst.ID {
+		t.Fatalf("admitted inputs = %+v, want %s", admitted.Inputs, admittedFirst.ID)
+	}
+	if err := promote(admittedFirst.ID); err != nil {
+		t.Fatalf("promote after admission: %v", err)
+	}
+	if err := promote(admittedFirst.ID); err != nil {
+		t.Fatalf("repeat promotion after admission: %v", err)
+	}
+
+	promotedFirst := createQueued("promoted-first")
+	if err := promote(promotedFirst.ID); err != nil {
+		t.Fatalf("promote queued input: %v", err)
+	}
+	if err := promote(promotedFirst.ID); err != nil {
+		t.Fatalf("repeat promotion while steering: %v", err)
+	}
+
+	canceled := createQueued("canceled")
+	if err := fixture.Store.Execution().CancelQueuedBacklogInput(
+		ctx,
+		executionstore.CancelQueuedBacklogInputInput{
+			ProjectID: testProjectID,
+			AgentID:   fixture.AgentID,
+			InputID:   canceled.ID,
+		},
+	); err != nil {
+		t.Fatalf("cancel queued input: %v", err)
+	}
+	if err := promote(canceled.ID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("promote canceled input error = %v, want state transition conflict", err)
+	}
+}
+
 func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -213,7 +287,7 @@ func TestCancelQueuedBacklogInputReconcilesWakeupAndResetsEmptyQueueRank(t *test
 	}
 }
 
-func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
+func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -222,12 +296,13 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 	now := time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-pagination@example.com", "Backlog Pagination")
 	agentID := mustCreateAgent(t, ctx, store, now)
-	createQueued := func(label string) executionstore.AgentInputRecord {
+	createInput := func(label string, mode executionstore.AgentInputDeliveryMode) executionstore.AgentInputRecord {
 		input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
 			AgentID:        agentID,
 			Actor:          mustOmnaraActorParams(t, user.ID),
 			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + label + `"}]`),
+			DeliveryMode:   mode,
 			IdempotencyKey: "idem-backlog-page-" + label,
 		})
 		if err != nil {
@@ -236,9 +311,9 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 		return input
 	}
 
-	first := createQueued("first")
-	second := createQueued("second")
-	third := createQueued("third")
+	first := createInput("first", executionstore.DeliveryModeQueued)
+	second := createInput("second", executionstore.DeliveryModeQueued)
+	third := createInput("third", executionstore.DeliveryModeQueued)
 	move := func(inputID ID, position executionstore.MoveQueuedBacklogInputPosition, anchorID ID) {
 		t.Helper()
 		if err := store.Execution().MoveQueuedBacklogInput(ctx, executionstore.MoveQueuedBacklogInputInput{
@@ -285,9 +360,11 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 		t.Fatalf("unmoved second input rank = %d, want %d", secondRank, 2*backlogRankStride)
 	}
 
+	firstSteering := createInput("first-steering", executionstore.DeliveryModeSteering)
+	secondSteering := createInput("second-steering", executionstore.DeliveryModeSteering)
 	page1, err := store.Execution().ListQueuedBacklogInputs(
 		ctx,
-		executionstore.ListQueuedBacklogInputsInput{ProjectID: testProjectID, AgentID: agentID, Limit: 2},
+		executionstore.ListQueuedBacklogInputsInput{ProjectID: testProjectID, AgentID: agentID, Limit: 3},
 	)
 	if err != nil {
 		t.Fatalf("list first page: %v", err)
@@ -295,11 +372,13 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 	if !page1.HasMore {
 		t.Fatal("first page HasMore = false, want true")
 	}
-	if len(page1.Inputs) != 2 {
-		t.Fatalf("first page length = %d, want 2", len(page1.Inputs))
+	if len(page1.Inputs) != 3 {
+		t.Fatalf("first page length = %d, want 3", len(page1.Inputs))
 	}
-	if page1.Inputs[0].ID != first.ID || page1.Inputs[1].ID != third.ID {
-		t.Fatalf("first page ids = [%s %s], want [%s %s]", page1.Inputs[0].ID, page1.Inputs[1].ID, first.ID, third.ID)
+	if page1.Inputs[0].ID != firstSteering.ID ||
+		page1.Inputs[1].ID != secondSteering.ID ||
+		page1.Inputs[2].ID != first.ID {
+		t.Fatalf("first page ids = %v, want steering inputs followed by %s", page1.Inputs, first.ID)
 	}
 
 	last := page1.Inputs[len(page1.Inputs)-1]
@@ -307,7 +386,13 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 		ProjectID: testProjectID,
 		AgentID:   agentID,
 		Limit:     2,
-		After:     executionstore.AgentInputQueueCursor{Set: true, InputRank: last.InputRank, QueuedAt: last.QueuedAt, ID: last.ID},
+		After: executionstore.AgentInputQueueCursor{
+			Set:          true,
+			DeliveryMode: last.DeliveryMode,
+			InputRank:    last.InputRank,
+			QueuedAt:     last.QueuedAt,
+			ID:           last.ID,
+		},
 	})
 	if err != nil {
 		t.Fatalf("list second page: %v", err)
@@ -315,19 +400,19 @@ func TestListQueuedBacklogInputsPaginatesInQueueOrder(t *testing.T) {
 	if page2.HasMore {
 		t.Fatal("second page HasMore = true, want false")
 	}
-	if len(page2.Inputs) != 1 {
-		t.Fatalf("second page length = %d, want 1", len(page2.Inputs))
+	if len(page2.Inputs) != 2 {
+		t.Fatalf("second page length = %d, want 2", len(page2.Inputs))
 	}
-	if page2.Inputs[0].ID != second.ID {
-		t.Fatalf("second page id = %s, want %s", page2.Inputs[0].ID, second.ID)
+	if page2.Inputs[0].ID != third.ID || page2.Inputs[1].ID != second.ID {
+		t.Fatalf("second page ids = %v, want [%s %s]", page2.Inputs, third.ID, second.ID)
 	}
 
 	move(second.ID, executionstore.MoveQueuedBacklogInputToFront, NilID)
-	assertOrder(second.ID, first.ID, third.ID)
+	assertOrder(firstSteering.ID, secondSteering.ID, second.ID, first.ID, third.ID)
 	move(second.ID, executionstore.MoveQueuedBacklogInputToBack, NilID)
-	assertOrder(first.ID, third.ID, second.ID)
+	assertOrder(firstSteering.ID, secondSteering.ID, first.ID, third.ID, second.ID)
 	move(first.ID, executionstore.MoveQueuedBacklogInputAfter, second.ID)
-	assertOrder(third.ID, second.ID, first.ID)
+	assertOrder(firstSteering.ID, secondSteering.ID, third.ID, second.ID, first.ID)
 }
 
 func TestMoveQueuedBacklogInputRebalancesExhaustedRankGap(t *testing.T) {

@@ -1,7 +1,8 @@
 import {
   type AgentEvent,
   AgentEventStreamError,
-  type Error as APIError,
+  type AgentInput,
+  type Error as APIErrorBody,
   type OmnaraClient,
   openAgentEventStream,
   sdk,
@@ -23,13 +24,25 @@ import {
   hasToolCalls,
   isControlEvent,
   isTerminalEvent,
+  type LocalAgentInput,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   parseStreamData,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
-import { agentInputBacklogQueryKey } from './agent-input-backlog'
+import {
+  abortableDelay,
+  createAgentChatInput,
+  isDefiniteSendFailure,
+  reconnectBackoff,
+} from './agent-chat-transport'
+import {
+  type AgentInputBacklogControls,
+  agentInputBacklogQueryKey,
+  cacheAgentInputBacklog,
+  useAgentInputBacklog,
+} from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
 
 export type {
@@ -57,15 +70,11 @@ export interface UseAgentChatResult {
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
   sendMessage: (message: { text: string }) => Promise<void>
+  inputBacklog: AgentInputBacklogControls
 }
 
 const historyPageSize = 100
-const maxReconnectDelayMs = 30_000
-
-function reconnectBackoff(baseDelayMs: number, consecutiveFailures: number): number {
-  const exponent = Math.min(Math.max(consecutiveFailures - 1, 0), 30)
-  return Math.min(baseDelayMs * 2 ** exponent, maxReconnectDelayMs)
-}
+const emptyBacklogInputs: AgentInput[] = []
 
 function agentChatHistoryQueryKey(scope: AgentChatScope) {
   return ['agent-chat-history', scope.orgID, scope.projectID, scope.agentID]
@@ -75,19 +84,6 @@ export interface AgentChatSessionOptions extends AgentChatScope {
   client: OmnaraClient
   queryClient: QueryClient
   reconnectDelayMs?: number
-}
-
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve()
-  return new Promise((resolve) => {
-    const timeout = globalThis.setTimeout(done, ms)
-    function done() {
-      globalThis.clearTimeout(timeout)
-      signal.removeEventListener('abort', done)
-      resolve()
-    }
-    signal.addEventListener('abort', done, { once: true })
-  })
 }
 
 export class AgentChatSession {
@@ -103,7 +99,7 @@ export class AgentChatSession {
   private deltas: ModelOutputDelta[] = []
   private completedCalls = new Set<string>()
   private cursor: number | undefined
-  private pendingInput: { id: string; text: string } | null = null
+  private localInputs = new Map<string, LocalAgentInput>()
   private lastFailedSend: { id: string; text: string } | null = null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
@@ -111,7 +107,8 @@ export class AgentChatSession {
   private data: AgentChatData = {
     events: [],
     deltas: [],
-    pendingInput: null,
+    localInputs: [],
+    backlogInputs: [],
     error: undefined,
     hasOlderEvents: false,
   }
@@ -147,90 +144,128 @@ export class AgentChatSession {
     this.connect()
   }
 
-  sendMessage = async (message: { text: string }): Promise<void> => {
+  sendMessage = async (
+    message: { text: string },
+    placement: LocalAgentInput['placement'] = 'conversation',
+  ): Promise<void> => {
     const text = message.text.trim()
     if (text === '') throw new Error('Agent messages must contain text')
     this.connect()
     const id = this.lastFailedSend?.text === text ? this.lastFailedSend.id : crypto.randomUUID()
+    this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
-    this.pendingInput = { id, text }
+    this.localInputs.set(id, { id, text, placement })
     this.notify()
     try {
-      await sdk.createAgentInput({
-        client: this.client,
-        path: this.scope,
-        headers: { 'Idempotency-Key': id },
-        body: {
-          content_blocks: [
-            {
-              type: 'text',
-              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-              metadata: { omnara_hidden: 'true' },
-            },
-            { type: 'text', text },
-          ],
-        },
-      })
-      this.lastFailedSend = null
-      this.clearPendingInput(id)
-      void this.queryClient.invalidateQueries({
-        queryKey: agentInputBacklogQueryKey(this.client, this.scope),
-      })
-      void this.queryClient.invalidateQueries({
-        predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
-      })
+      const input = await createAgentChatInput(this.client, this.scope, id, text)
+      this.acceptAgentInput(id, input)
     } catch (error) {
       if (this.inputEchoLoaded(id)) {
-        this.clearPendingInput(id)
+        this.clearLocalInput(id)
         return
       }
-      this.pendingInput = null
-      this.lastFailedSend = { id, text }
-      this.error = error instanceof Error ? error : new Error('Could not send message')
+      const sendError = error instanceof Error ? error : new Error('Could not send message')
+      if (!isDefiniteSendFailure(error)) {
+        void this.queryClient.invalidateQueries({
+          queryKey: agentInputBacklogQueryKey(this.client, this.scope),
+        })
+        const signal = this.runController?.signal
+        await new Promise((resolve) => globalThis.setTimeout(resolve, this.reconnectDelayMs))
+        if (signal?.aborted && this.listeners.length === 0) return
+        if (this.inputEchoLoaded(id)) {
+          this.clearLocalInput(id)
+          return
+        }
+        if (this.localInputs.get(id)?.agentInputID != null) return
+        this.lastFailedSend = { id, text }
+      }
+      this.localInputs.delete(id)
+      this.error = sendError
       this.errorSource = 'send'
       this.notify()
       throw error
     }
   }
 
-  private clearPendingInput(id: string): void {
-    if (this.pendingInput?.id !== id) return
-    this.pendingInput = null
+  private acceptAgentInput(id: string, input: AgentInput): void {
+    if (this.inputEchoLoaded(id)) {
+      this.clearLocalInput(id)
+    } else {
+      const localInput = this.localInputs.get(id)
+      if (localInput != null) {
+        this.localInputs.set(id, { ...localInput, agentInputID: input.id })
+        cacheAgentInputBacklog(this.queryClient, this.client, this.scope, input)
+        void this.queryClient.invalidateQueries({
+          queryKey: agentInputBacklogQueryKey(this.client, this.scope),
+        })
+        this.notify()
+      }
+    }
+    void this.queryClient.invalidateQueries({
+      predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
+    })
+  }
+
+  private clearLocalInput(id: string): void {
+    if (!this.localInputs.delete(id)) return
     this.notify()
   }
 
-  private inputEchoLoaded(id: string): boolean {
-    if (
-      this.events.some(
-        (event) => event.event_kind === 'agent_input' && event.input_idempotency_key === id,
-      )
-    ) {
-      return true
+  beginBacklogInputCancellation = (inputIDs: string[]): (() => void) => {
+    const ids = new Set(inputIDs)
+    const dismissed = [...this.localInputs].filter(([, input]) => ids.has(input.agentInputID ?? ''))
+    dismissed.forEach(([id]) => this.localInputs.delete(id))
+    if (dismissed.length > 0) this.notify()
+    return () => {
+      const restored = dismissed.filter(([, input]) => !this.inputEchoLoaded(input.id))
+      restored.forEach(([id, input]) => this.localInputs.set(id, input))
+      if (restored.length > 0) this.notify()
     }
+  }
+
+  confirmBacklogInputs = (inputs: AgentInput[]): void => {
+    const byID = new Map(inputs.map((input) => [input.id, input]))
+    const byKey = new Map(
+      inputs.flatMap((input) =>
+        input.input_idempotency_key == null ? [] : [[input.input_idempotency_key, input] as const],
+      ),
+    )
+    let changed = false
+    for (const [id, localInput] of this.localInputs) {
+      const backlogInput =
+        (localInput.agentInputID == null ? undefined : byID.get(localInput.agentInputID)) ??
+        byKey.get(id)
+      if (backlogInput == null) continue
+      if (localInput.agentInputID !== backlogInput.id) {
+        this.localInputs.set(id, { ...localInput, agentInputID: backlogInput.id })
+        changed = true
+      }
+    }
+    if (changed) this.notify()
+  }
+
+  private inputEchoLoaded(id: string): boolean {
+    const matches = (event: AgentEvent) =>
+      event.event_kind === 'agent_input' && event.input_idempotency_key === id
+    if (this.events.some(matches)) return true
     const history = this.queryClient.getQueryData<InfiniteData<{ data: AgentEvent[] }>>(
       agentChatHistoryQueryKey(this.scope),
     )
-    return (
-      history?.pages.some((page) =>
-        page.data.some(
-          (event) => event.event_kind === 'agent_input' && event.input_idempotency_key === id,
-        ),
-      ) ?? false
-    )
+    return history?.pages.some((page) => page.data.some(matches)) ?? false
   }
 
   private notify(): void {
+    const localInputs = [...this.localInputs.values()]
     this.data = {
       events: this.events,
       deltas: this.deltas,
-      pendingInput: this.pendingInput,
+      localInputs,
+      backlogInputs: [],
       error: this.error,
       hasOlderEvents: false,
     }
-    this.listeners.map((listener) => {
-      listener()
-    })
+    for (const listener of this.listeners) listener()
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -243,18 +278,25 @@ export class AgentChatSession {
       this.errorSource = undefined
     }
 
-    if (
-      event.event_kind === 'agent_input' &&
-      event.input_idempotency_key != null &&
-      (event.input_idempotency_key === this.pendingInput?.id ||
-        event.input_idempotency_key === this.lastFailedSend?.id)
-    ) {
-      this.pendingInput = null
+    const inputIdempotencyKey =
+      event.event_kind === 'agent_input' ? event.input_idempotency_key : undefined
+    let localInputEcho =
+      inputIdempotencyKey != null && inputIdempotencyKey === this.lastFailedSend?.id
+    if (localInputEcho) {
       this.lastFailedSend = null
       if (this.errorSource === 'send') {
         this.error = undefined
         this.errorSource = undefined
       }
+    }
+    if (event.event_kind === 'agent_input') {
+      for (const [id, input] of this.localInputs) {
+        if (id !== inputIdempotencyKey && input.agentInputID !== event.agent_input_id) continue
+        this.localInputs.delete(id)
+        localInputEcho = true
+      }
+    }
+    if (localInputEcho) {
       void this.queryClient.invalidateQueries({
         predicate: projectActorsQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
@@ -322,7 +364,7 @@ export class AgentChatSession {
       const cursor = this.cursor
       if (cursor == null) return
       try {
-        let streamError: APIError | undefined
+        let streamError: APIErrorBody | undefined
         const { stream } = await openAgentEventStream({
           client: this.client,
           path: this.scope,
@@ -376,6 +418,7 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
+  const inputBacklog = useAgentInputBacklog(scope)
 
   const history = useInfiniteQuery({
     queryKey: agentChatHistoryQueryKey({ orgID, projectID, agentID }),
@@ -418,26 +461,57 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
     if (history.status === 'success') session.start(newestLoadedSequence)
   }, [history.status, newestLoadedSequence, session])
   const sessionData = useSyncExternalStore(session.subscribe, session.getData, session.getData)
+  const authoritativeBacklogInputs = inputBacklog.query.data?.data ?? emptyBacklogInputs
+  useEffect(() => {
+    session.confirmBacklogInputs(authoritativeBacklogInputs)
+  }, [authoritativeBacklogInputs, session])
   const hasOlderEvents = history.status !== 'success' || history.hasNextPage
   const data = useMemo(
     () => ({
       ...sessionData,
       events: [...(history.data?.events ?? []), ...sessionData.events],
+      backlogInputs: authoritativeBacklogInputs,
       hasOlderEvents,
     }),
-    [history.data, hasOlderEvents, sessionData],
+    [authoritativeBacklogInputs, history.data, hasOlderEvents, sessionData],
   )
-  const { messages, status, isWorking } = useMemo(() => projectAgentChat(data), [data])
+  const projected = useMemo(() => projectAgentChat(data), [data])
+  const inputPlacement =
+    projected.isWorking || projected.backlogInputs.length > 0 || sessionData.localInputs.length > 0
+      ? 'backlog'
+      : 'conversation'
 
   return {
-    messages,
-    status,
-    isWorking,
+    messages: projected.messages,
+    status: projected.status,
+    isWorking: projected.isWorking,
     error: data.error,
     historyStatus: history.status,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
-    sendMessage: session.sendMessage,
+    sendMessage: (message) => session.sendMessage(message, inputPlacement),
+    inputBacklog: {
+      inputs: projected.backlogInputs,
+      actionPending:
+        inputBacklog.cancel.isPending ||
+        inputBacklog.promote.isPending ||
+        inputBacklog.move.isPending,
+      beginCancellation: (inputIDs) =>
+        inputBacklog.beginCancellation(inputIDs, () =>
+          session.beginBacklogInputCancellation(inputIDs),
+        ),
+      cancel: async (inputID) => {
+        const rollback = session.beginBacklogInputCancellation([inputID])
+        try {
+          return await inputBacklog.cancel.mutateAsync(inputID)
+        } catch (error) {
+          rollback()
+          throw error
+        }
+      },
+      promote: inputBacklog.promote.mutateAsync,
+      move: inputBacklog.move.mutateAsync,
+    },
   }
 }

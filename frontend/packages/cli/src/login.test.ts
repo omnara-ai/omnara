@@ -1,3 +1,4 @@
+import type * as sdkModule from '@omnara/sdk'
 import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -33,7 +34,8 @@ const mocks = vi.hoisted(() => ({
   updateConfigFile: vi.fn((patch: Record<string, unknown>) => patch),
 }))
 
-vi.mock('@omnara/sdk', () => ({
+vi.mock('@omnara/sdk', async (importOriginal) => ({
+  cliLoginTokenName: (await importOriginal<typeof sdkModule>()).cliLoginTokenName,
   OMNARA_CLI_OAUTH_CLIENT_ID: 'omnara-cli',
   bearerToken: mocks.bearerToken,
   createOmnaraClient: mocks.createOmnaraClient,

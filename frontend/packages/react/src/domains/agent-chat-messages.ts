@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   AgentEventStreamData,
+  AgentInput,
   AgentInputEvent,
   AgentInputKind,
   Error as APIError,
@@ -11,6 +12,8 @@ import type {
   ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
+
+import type { AgentInputBacklogItem } from './agent-input-backlog'
 
 export type { ModelOutputDelta } from '@omnara/sdk'
 
@@ -31,7 +34,10 @@ export type OmnaraUIData = {
   'agent-config': { action: 'initialized' | 'changed' }
   'model-error': { text: string }
   thinking: { active: boolean }
-  media: { artifactId?: string }
+  media: {
+    artifactId?: string
+    excludeFromModelContext?: MediaRefContentBlock['exclude_from_model_context']
+  }
 }
 
 type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
@@ -79,7 +85,10 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   return {
     type: 'data-media',
     id,
-    data: { artifactId: block.artifact_id },
+    data: {
+      artifactId: block.artifact_id,
+      excludeFromModelContext: block.exclude_from_model_context,
+    },
   }
 }
 
@@ -237,7 +246,7 @@ export function agentEventsToMessages(
       event.outcome === 'failed' && part.toolType === 'built_in'
         ? structuredToolErrorCode(contentBlocks)
         : undefined
-    message.parts[index] = {
+    const toolPart: OmnaraUIMessagePart = {
       type: 'dynamic-tool',
       id: part.id,
       toolCallId: part.toolCallId,
@@ -251,6 +260,12 @@ export function agentEventsToMessages(
         contentBlocks,
       },
     }
+    const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
+      block.type === 'media_ref'
+        ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
+        : [],
+    )
+    message.parts.splice(index, 1, toolPart, ...mediaParts)
     message.metadata = eventMetadata(event)
   }
 
@@ -259,11 +274,19 @@ export function agentEventsToMessages(
 
 export type AgentChatStatus = 'submitted' | 'streaming' | 'ready' | 'error'
 
+export interface LocalAgentInput {
+  id: string
+  text: string
+  placement: 'conversation' | 'backlog'
+  agentInputID?: string
+}
+
 /** The chat's raw state: durable events, live deltas, and local send state. */
 export interface AgentChatData {
   events: AgentEvent[]
   deltas: ModelOutputDelta[]
-  pendingInput: { id: string; text: string } | null
+  localInputs: LocalAgentInput[]
+  backlogInputs: AgentInput[]
   error: Error | undefined
   /** True while older history may still be unloaded (see agentEventsToMessages). */
   hasOlderEvents: boolean
@@ -331,27 +354,75 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
  */
 export function projectAgentChat(data: AgentChatData): {
   messages: OmnaraUIMessage[]
+  backlogInputs: AgentInputBacklogItem[]
   status: AgentChatStatus
   isWorking: boolean
 } {
   const messages = agentEventsToMessages(data.events, { hasOlderEvents: data.hasOlderEvents })
-  if (data.pendingInput != null) {
+  const deltaPreviews = deltaPreviewsByTurn(data.deltas)
+  const lastEvent = lastStatusEvent(data.events)
+  const isWorking = deltaPreviews.size > 0 || (lastEvent != null && !isTerminalEvent(lastEvent))
+  const conversationInputIDs = new Set<string>()
+  const conversationInputKeys = new Set<string>()
+  for (const event of data.events) {
+    if (event.event_kind !== 'agent_input') continue
+    conversationInputIDs.add(event.agent_input_id)
+    if (event.input_idempotency_key != null) conversationInputKeys.add(event.input_idempotency_key)
+  }
+  const backlogByID = new Map<string, AgentInput>()
+  const backlogByKey = new Map<string, AgentInput>()
+  for (const input of data.backlogInputs) {
+    if (conversationInputIDs.has(input.id) || backlogByID.has(input.id)) continue
+    backlogByID.set(input.id, input)
+    if (input.input_idempotency_key != null) backlogByKey.set(input.input_idempotency_key, input)
+  }
+  const firstBacklogInputID = backlogByID.keys().next().value
+  const hiddenBacklogInputIDs = new Set<string>()
+  const optimisticBacklogInputs: AgentInputBacklogItem[] = []
+  let localMessageCount = 0
+  for (const localInput of data.localInputs) {
+    if (
+      conversationInputKeys.has(localInput.id) ||
+      (localInput.agentInputID != null && conversationInputIDs.has(localInput.agentInputID))
+    ) {
+      continue
+    }
+    const backlogInput =
+      (localInput.agentInputID == null ? undefined : backlogByID.get(localInput.agentInputID)) ??
+      backlogByKey.get(localInput.id)
+    const serverRequiresBacklog =
+      backlogInput?.delivery_mode === 'queued' &&
+      (isWorking || firstBacklogInputID !== backlogInput.id)
+    if (localInput.placement === 'backlog' || serverRequiresBacklog) {
+      if (backlogInput == null) {
+        optimisticBacklogInputs.push({
+          id: localInput.id,
+          delivery_mode: 'optimistic',
+          text: localInput.text,
+        })
+      }
+      continue
+    }
+    if (backlogInput != null) hiddenBacklogInputIDs.add(backlogInput.id)
+    localMessageCount += 1
     messages.push({
-      id: `local:${data.pendingInput.id}`,
+      id: `local:${localInput.id}`,
       role: 'user',
       parts: [
         {
           type: 'text',
-          id: `local:${data.pendingInput.id}:text`,
-          text: data.pendingInput.text,
+          id: `local:${localInput.id}:text`,
+          text: localInput.text,
         },
       ],
     })
   }
+  const backlogInputs: AgentInputBacklogItem[] = [
+    ...[...backlogByID.values()].filter((input) => !hiddenBacklogInputIDs.has(input.id)),
+    ...optimisticBacklogInputs,
+  ]
 
-  let streamingPreview = false
-  for (const [turnID, parts] of deltaPreviewsByTurn(data.deltas)) {
-    streamingPreview = true
+  for (const [turnID, parts] of deltaPreviews) {
     const id = `turn:${turnID}`
     const index = messages.findIndex((message) => message.id === id)
     const existing = messages[index]
@@ -362,16 +433,11 @@ export function projectAgentChat(data: AgentChatData): {
     }
   }
 
-  const lastEvent = lastStatusEvent(data.events)
-  const isWorking =
-    data.pendingInput != null ||
-    streamingPreview ||
-    (lastEvent != null && !isTerminalEvent(lastEvent))
   let status: AgentChatStatus = 'ready'
   if (data.error != null) status = 'error'
-  else if (data.pendingInput != null) status = 'submitted'
+  else if (localMessageCount > 0) status = 'submitted'
   else if (isWorking) status = 'streaming'
-  return { messages, status, isWorking }
+  return { messages, backlogInputs, status, isWorking }
 }
 
 function deltaPreviewsByTurn(deltas: ModelOutputDelta[]): Map<string, OmnaraUIMessage['parts']> {

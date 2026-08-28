@@ -23,6 +23,7 @@ const templateToolNames = [
   'ask_question',
   'web_search',
   'web_fetch',
+  'upload_artifact',
 ] as const
 
 const generalAgent: AgentTemplate = {
@@ -86,6 +87,19 @@ export function agentTemplateConfig(
           },
         ]
       : [],
+  }
+}
+
+export function agentTemplateBasicConfig(
+  template: AgentTemplate,
+  catalog?: ToolCatalog,
+  defaultPool?: MachinePoolSummary,
+  defaultModel?: ConfiguredModelSummary,
+): BasicConfig {
+  return {
+    mcpServers: [],
+    skillIds: [],
+    ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
   }
 }
 

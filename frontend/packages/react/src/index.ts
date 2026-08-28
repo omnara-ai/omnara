@@ -12,7 +12,12 @@ export {
   useAgentChat,
   type UseAgentChatResult,
 } from './domains/agent-chat'
-export { useAgentInputBacklog } from './domains/agent-input-backlog'
+export {
+  type AgentInputBacklogItem,
+  type AgentInputBacklogMove,
+  reorderAgentInputBacklog,
+  useAgentInputBacklog,
+} from './domains/agent-input-backlog'
 export {
   useAgentInteractions,
   useCancelAgent,
@@ -107,6 +112,7 @@ export {
   useServerInfoLookup,
   useServers,
 } from './domains/mcp-registry'
+export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,

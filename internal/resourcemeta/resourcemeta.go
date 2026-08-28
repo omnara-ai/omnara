@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"unicode/utf8"
+
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 )
 
 const (
@@ -43,6 +45,12 @@ func (m Metadata) ValidateWithReservedKey(reserved string) error {
 }
 
 func ValidateEntry(key, value string) error {
+	if err := dbsafe.Text(key); err != nil {
+		return fmt.Errorf("metadata key %w", err)
+	}
+	if err := dbsafe.Text(value); err != nil {
+		return fmt.Errorf("metadata value %w", err)
+	}
 	if key == "" || utf8.RuneCountInString(key) > MaxKeyLength {
 		return fmt.Errorf("metadata keys must be 1-%d characters", MaxKeyLength)
 	}

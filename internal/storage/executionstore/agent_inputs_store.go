@@ -456,9 +456,11 @@ func (s *Store) ListQueuedBacklogInputs(
 		RowLimit:  int64(input.Limit) + 1,
 	}
 	if input.After.Set {
+		mode := string(input.After.DeliveryMode)
 		rank := input.After.InputRank
 		queuedAt := input.After.QueuedAt
 		id := input.After.ID
+		params.CursorDeliveryMode = &mode
 		params.CursorInputRank = &rank
 		params.CursorQueuedAt = &queuedAt
 		params.CursorID = &id

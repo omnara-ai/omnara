@@ -18,6 +18,7 @@ const (
 	ToolNameSetIntegrationTarget   = "set_integration_target"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
+	ToolNameUploadArtifact         = "upload_artifact"
 	ToolNameSkill                  = "skill"
 )
 

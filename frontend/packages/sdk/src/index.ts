@@ -6,6 +6,7 @@ export {
 } from './agent-event-stream'
 export type { AuthStrategy } from './auth'
 export { bearerToken } from './auth'
+export { cliLoginTokenHost, cliLoginTokenName, isCliLoginToken } from './cli-login-token'
 export type { OmnaraClient, OmnaraClientOptions } from './client'
 export { createOmnaraClient } from './client'
 export {
@@ -22,3 +23,4 @@ export {
 export { ApiError, type ApiErrorCode } from './errors'
 export * as sdk from './generated/sdk.gen'
 export type * from './generated/types.gen'
+export * as schemas from './generated/zod.gen'

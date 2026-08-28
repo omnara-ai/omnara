@@ -53,6 +53,7 @@ export function DeviceAuth() {
       if (decision === 'approve') {
         await approveDeviceAuth(userCode)
         setState({ kind: 'approved' })
+        window.location.assign('/')
       } else {
         await denyDeviceAuth(userCode)
         setState({ kind: 'denied' })

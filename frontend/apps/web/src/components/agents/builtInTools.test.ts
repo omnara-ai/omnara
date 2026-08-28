@@ -4,7 +4,7 @@ import {
   addMachineToolsForNewSourceSelection,
   addMissingMachineTools,
   hasMissingMachineTools,
-  machineExecutionTools,
+  recommendedMachineToolNames,
 } from './builtInTools'
 
 describe('machine tool completeness', () => {
@@ -18,7 +18,7 @@ describe('machine tool completeness', () => {
 
     expect(hasMissingMachineTools(partial)).toBe(true)
     expect(complete[0]).toBe(runCommand)
-    expect(complete.map((tool) => tool.name)).toEqual(machineExecutionTools)
+    expect(complete.map((tool) => tool.name)).toEqual(recommendedMachineToolNames)
     expect(hasMissingMachineTools(complete)).toBe(false)
     expect(addMissingMachineTools(complete)).toBe(complete)
   })
@@ -35,8 +35,9 @@ describe('addMachineToolsForNewSourceSelection', () => {
 
     expect(result).toEqual([
       ...tools,
-      ...machineExecutionTools.map((name) => ({ name, permission: null })),
+      ...recommendedMachineToolNames.map((name) => ({ name, permission: null })),
     ])
+    expect(result).toContainEqual({ name: 'upload_artifact', permission: null })
   })
 
   it('preserves existing tools and permissions without duplicates', () => {
@@ -51,7 +52,7 @@ describe('addMachineToolsForNewSourceSelection', () => {
     )
 
     expect(result[0]).toBe(runCommand)
-    expect(result.map((tool) => tool.name)).toEqual(machineExecutionTools)
+    expect(result.map((tool) => tool.name)).toEqual(recommendedMachineToolNames)
   })
 
   it('does not add tools for empty rows or edits to selected sources', () => {
@@ -81,6 +82,9 @@ describe('addMachineToolsForNewSourceSelection', () => {
     )
 
     expect(result).not.toBe(tools)
-    expect(result.map((tool) => tool.name)).toEqual(['ask_question', ...machineExecutionTools])
+    expect(result.map((tool) => tool.name)).toEqual([
+      'ask_question',
+      ...recommendedMachineToolNames,
+    ])
   })
 })

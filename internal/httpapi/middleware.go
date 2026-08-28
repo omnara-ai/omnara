@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -46,6 +47,9 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"):
 		return maxSkillUploadRequestBodyBytes
+	case strings.HasPrefix(r.URL.Path, "/api/v1/daemon/tool-calls/") &&
+		strings.HasSuffix(r.URL.Path, "/artifact"):
+		return daemonprotocol.MaxArtifactUploadBytes
 	}
 	return maxRequestBodyBytes
 }

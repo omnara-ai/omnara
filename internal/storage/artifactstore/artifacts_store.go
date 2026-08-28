@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -54,6 +55,16 @@ func (s *Store) CreateArtifact(
 	}
 	if input.ContentType == "" {
 		return ArtifactRecord{}, errors.New("artifact content type is required")
+	}
+	if err := dbsafe.Text(input.ContentType); err != nil {
+		return ArtifactRecord{}, storeerr.InvalidRequest(
+			fmt.Errorf("artifact content type %w", err),
+		)
+	}
+	if err := dbsafe.Text(input.Filename); err != nil {
+		return ArtifactRecord{}, storeerr.InvalidRequest(
+			fmt.Errorf("artifact filename %w", err),
+		)
 	}
 	if len(input.Content) == 0 {
 		return ArtifactRecord{}, errors.New("artifact content is required")

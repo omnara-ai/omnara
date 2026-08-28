@@ -4,13 +4,34 @@ description: View metadata and download files referenced in an agent's event log
 icon: "box-archive"
 ---
 
-The event log stays lightweight because it never embeds file bytes. Whenever media enters the conversation — an image you attach to an input, a PDF a tool produces, a chart the model generates — the bytes are stored as an **artifact** (`art_…`) and the event carries a `media_ref` block pointing at it:
+The event log stays lightweight because it never embeds file bytes. When inline media enters the conversation, the bytes are stored as an **artifact** (`art_…`) and the persisted event carries a `media_ref` block pointing at it:
 
 ```json
 { "type": "media_ref", "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw" }
 ```
 
-In the dashboard, artifacts appear as downloadable attachment chips on the conversation timeline; rendering your own timeline means resolving each `media_ref` with the two endpoints on this page.
+In the dashboard, artifacts appear as downloadable cards or attachment chips on the conversation timeline; rendering your own timeline means resolving each `media_ref` with the two endpoints on this page.
+
+## Artifacts uploaded by an agent
+
+A successful [`upload_artifact`](/tools/built-in#upload_artifact) result contains a `media_ref`. Read its `artifact_id` from the tool result, then use the metadata and content endpoints below to display or download the artifact.
+
+The relevant fields in the resulting event look like this:
+
+```json
+{
+  "event_kind": "tool_result",
+  "tool_call_id": "tcl_wz3jehcyd5n6a2bfgik7mv4qtr",
+  "outcome": "succeeded",
+  "content_blocks": [
+    {
+      "type": "media_ref",
+      "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw",
+      "exclude_from_model_context": true
+    }
+  ]
+}
+```
 
 ```bash
 export BASE="$OMNARA_API/orgs/$ORG/projects/$PROJ"
@@ -68,10 +89,10 @@ Full schema and playground: [Get artifact content](/api-reference/endpoints/even
 | --- | --- |
 | Inline `media` block on an [input](/events/sending-input#attach-files-and-images) | Persisted as an artifact; the stored event shows a `media_ref`. |
 | Inline `media` block on a [custom tool result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call) | Same conversion — submission accepts bytes, the timeline stores a reference. |
-| Built-in tools that fetch or produce files | The tool result references the artifact. |
+| `upload_artifact` | The durable tool result stores a `media_ref`. |
 | Model output with media | The `model_output` event references it. |
 
-There's no endpoint to create an artifact directly — they exist only as a side effect of the conversation, which keeps every artifact traceable to the event that introduced it.
+There's no general-purpose public endpoint for creating artifacts; they're created during agent interactions.
 
 ## Next
 
