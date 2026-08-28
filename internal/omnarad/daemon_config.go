@@ -25,7 +25,8 @@ import (
 const (
 	daemonConfigFileName = "daemon.json"
 	daemonConfigVersion  = 1
-	defaultAPIURL        = "https://api.omnara.com"
+	defaultAPIURL        = "https://api.omnara.com/v1"
+	legacyHostedAPIURL   = "https://app.omnara.com"
 	missingTokenError    = "OMNARA_MACHINE_TOKEN is required; " +
 		"rerun from an interactive terminal or set OMNARA_MACHINE_TOKEN"
 )
@@ -215,6 +216,9 @@ func loadDaemonConfig(home string) (*daemonConfig, error) {
 	}
 	if apiURL != *document.APIURL {
 		return nil, errors.New("daemon config api_url is not canonical")
+	}
+	if apiURL == legacyHostedAPIURL {
+		apiURL = defaultAPIURL
 	}
 	if *document.MachineToken == "" {
 		return nil, errors.New("daemon config machine_token is required")

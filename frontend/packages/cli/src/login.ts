@@ -54,8 +54,8 @@ interface LoginReporter {
   finish(message?: string): void
 }
 
-function interactiveReporter(appUrl: string): LoginReporter {
-  intro(`Log in to ${appUrl}`)
+function interactiveReporter(issuerUrl: string): LoginReporter {
+  intro(`Log in to ${issuerUrl}`)
   const spin = spinner()
   return {
     showCode(userCode, approvalUrl) {
@@ -135,9 +135,11 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .action(async (options: LoginOptions) => {
       await runCliAction(async () => {
         readConfigFileForUpdate()
-        const report = canPromptInteractively() ? interactiveReporter(cli.appUrl) : plainReporter()
+        const report = canPromptInteractively()
+          ? interactiveReporter(cli.issuerUrl)
+          : plainReporter()
         const start = await startDeviceAuth({
-          issuerUrl: cli.appUrl,
+          issuerUrl: cli.issuerUrl,
           clientId: OMNARA_CLI_OAUTH_CLIENT_ID,
           tokenName: loginTokenName(options.tokenName, hostname()),
         })
@@ -164,8 +166,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         const saved = updateConfigFile({
           token,
           api_url: cli.apiUrl,
-          app_url: cli.appUrl,
-          base_url: undefined,
+          issuer_url: cli.issuerUrl,
         })
         const client = createOmnaraClient({ baseUrl: cli.apiUrl, auth: bearerToken(token) })
         let orgId = saved.org_id

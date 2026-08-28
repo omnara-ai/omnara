@@ -170,7 +170,7 @@ func TestManagedDaemonLauncherReportsInstallFailures(t *testing.T) {
 				"HOME=" + t.TempDir(),
 				"PATH=" + os.Getenv("PATH"),
 				managedBootstrapScriptTestEnv(ManagedBootScript()),
-				"OMNARA_API_URL=" + server.URL,
+				"OMNARA_API_URL=" + server.URL + "/api/v1",
 				"OMNARA_MACHINE_TOKEN=machine-token",
 				"NO_PROXY=127.0.0.1",
 				"no_proxy=127.0.0.1",

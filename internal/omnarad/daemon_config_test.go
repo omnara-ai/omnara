@@ -513,6 +513,25 @@ func TestLoadDaemonConfigRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestLoadDaemonConfigMigratesLegacyHostedAPIURL(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	writeTestDaemonConfig(t, home, daemonConfig{
+		SchemaVersion:  daemonConfigVersion,
+		APIURL:         legacyHostedAPIURL,
+		InstallationID: "inst-legacy",
+		MachineID:      "mch-legacy",
+		MachineToken:   "legacy-token",
+		RunnerPath:     "/bin",
+	})
+	config, err := loadDaemonConfig(home)
+	if err != nil {
+		t.Fatalf("load daemon config: %v", err)
+	}
+	if config.APIURL != defaultAPIURL {
+		t.Fatalf("api_url = %q, want %q", config.APIURL, defaultAPIURL)
+	}
+}
+
 func TestLoadRuntimeConfigAppliesTemporaryEnvironment(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	writeTestDaemonConfig(t, home, daemonConfig{
@@ -737,7 +756,7 @@ func bootstrapServer(
 ) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/api/v1/daemon/bootstrap") {
+		if !strings.HasSuffix(r.URL.Path, "/daemon/bootstrap") {
 			http.NotFound(w, r)
 			return
 		}

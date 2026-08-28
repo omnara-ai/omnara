@@ -58,7 +58,7 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 	}
 	env := sandboxEnvMap(create.Spec.Runtime.Envs)
 	if len(env) != 2 ||
-		env["OMNARA_API_URL"] != "https://app.omnara.test" ||
+		env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
 		t.Fatalf("unexpected sandbox env: %+v", create.Spec.Runtime.Envs)
 	}

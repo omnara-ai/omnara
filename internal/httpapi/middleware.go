@@ -220,7 +220,7 @@ func (s *Server) authenticateBearerToken(
 }
 
 func requiresAuth(path string) bool {
-	if strings.HasPrefix(path, "/api/v1/") {
+	if strings.HasPrefix(path, openAPIBasePath+"/") {
 		return true
 	}
 	for _, route := range serverManualRouteContracts {

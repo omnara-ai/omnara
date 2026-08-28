@@ -5,7 +5,6 @@ export interface FormattedOutput {
 
 export interface FormatContext {
   apiUrl: string
-  appUrl: string
 }
 
 export type OutputFormat<Response> = (data: Response, context: FormatContext) => FormattedOutput

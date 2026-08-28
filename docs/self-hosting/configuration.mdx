@@ -179,7 +179,7 @@ The credential service contract has these invariants:
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `OMNARA_HOME` | Binary, configuration, logs, locks, and runtime state | `$HOME/.omnarad` |
-| `OMNARA_API_URL` | Control-plane origin; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://api.omnara.com` |
+| `OMNARA_API_URL` | API root URL, including the `/api/v1` mount for self-hosted deployments; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://api.omnara.com/v1` |
 | `OMNARA_MACHINE_TOKEN` | Machine token; prompted for by the installer when omitted | Existing `daemon.json` value |
 | `OMNARA_NO_UPDATE` | Set to `1` or `0` to temporarily disable or enable managed updates | Existing `daemon.json` value, otherwise `0` |
 | `OMNARA_RUNNER_PATH` | Temporary `PATH` override for agent commands | Existing `daemon.json` value, otherwise the installation `PATH` |

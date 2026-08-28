@@ -30,7 +30,7 @@ func (s *Server) omnaradInstallRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		apiURL = scheme + "://" + r.Host
 	}
-	script, err := renderOmnaradInstallScript(s.daemonReleaseURL, apiURL)
+	script, err := renderOmnaradInstallScript(s.daemonReleaseURL, strings.TrimRight(apiURL, "/")+openAPIBasePath)
 	if err != nil {
 		s.log.Error("render omnarad installer", "error", err)
 		http.Error(w, "installer unavailable", http.StatusInternalServerError)

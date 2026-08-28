@@ -28,7 +28,7 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}
-	if len(env) != 5 || env["OMNARA_API_URL"] != "https://app.omnara.test" ||
+	if len(env) != 5 || env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 		env[startupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) ||
 		env["APP_ENV"] != "production" ||
@@ -42,7 +42,7 @@ func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}
-	if len(env) != 2 || env["OMNARA_API_URL"] != "https://app.omnara.test" ||
+	if len(env) != 2 || env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
 		t.Fatalf("managed machine env = %+v", env)
 	}
@@ -148,7 +148,7 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	}
 	reports := make(chan failureReport, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+		if r.URL.Path != "/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 			r.Header.Get("Content-Type") != "text/plain" {
 			http.NotFound(w, r)
 			return
@@ -366,7 +366,7 @@ func TestManagedMachineStartupDoesNotWaitForBackgroundOutput(t *testing.T) {
 		}
 		reports := make(chan failureReport, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+			if r.URL.Path != "/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 				r.Header.Get("Content-Type") != "text/plain" {
 				http.NotFound(w, r)
 				return

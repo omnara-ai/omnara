@@ -53,7 +53,7 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     }),
   )
   client.setConfig({
-    baseUrl: options.baseUrl ?? '',
+    ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
     credentials: options.credentials,
     headers: options.headers,
   })

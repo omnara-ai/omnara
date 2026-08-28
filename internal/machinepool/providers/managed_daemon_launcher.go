@@ -48,7 +48,7 @@ func BuildManagedMachineEnv(
 		}
 		env[key] = value
 	}
-	env["OMNARA_API_URL"] = omnaraPublicURL
+	env["OMNARA_API_URL"] = omnaraPublicURL + "/api/v1"
 	env["OMNARA_MACHINE_TOKEN"] = machineToken
 	if startupScript != "" {
 		env[startupScriptEnvVar] = base64.StdEncoding.EncodeToString([]byte(startupScript))

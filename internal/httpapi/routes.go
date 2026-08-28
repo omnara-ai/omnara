@@ -56,6 +56,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)
 	mux.HandleFunc("GET /healthz", s.healthzRoute)
 	openapi.HandlerWithOptions(s.strictOpenAPIHandler(), openapi.StdHTTPServerOptions{
+		BaseURL:    openAPIBasePath,
 		BaseRouter: mux,
 		Middlewares: []openapi.MiddlewareFunc{
 			s.rejectEncodedSlashPathValues,

@@ -192,28 +192,6 @@ describe('startDeviceAuth', () => {
     expect(start.verificationUri).toBe('http://localhost:8080/device')
     expect(start.verificationUriComplete).toBe('http://localhost:8080/device?user_code=ABCDE-FGHIJ')
   })
-
-  it('resolves relative verification URLs against the app URL when one is given', async () => {
-    const { fetch, requests } = fetchQueue([
-      jsonResponse(200, {
-        ...START_BODY,
-        verification_uri: '/device',
-        verification_uri_complete: '/device?user_code=ABCDE-FGHIJ',
-      }),
-    ])
-    const start = await startDeviceAuth({
-      baseUrl: 'https://api.example.com',
-      appUrl: 'https://app.example.com',
-      clientName: 'Omnara CLI',
-      tokenName: 'CLI on laptop',
-      fetch,
-    })
-    expect(requests[0]?.url).toBe('https://api.example.com/api/auth/device/code')
-    expect(start.verificationUri).toBe('https://app.example.com/device')
-    expect(start.verificationUriComplete).toBe(
-      'https://app.example.com/device?user_code=ABCDE-FGHIJ',
-    )
-  })
 })
 
 describe('pollDeviceAuthToken', () => {

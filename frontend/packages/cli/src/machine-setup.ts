@@ -37,8 +37,12 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
+function installScriptUrl(apiUrl: string): string {
+  return new URL('/install/omnarad.sh', apiUrl).toString()
+}
+
 function installCommand(apiUrl: string): string {
-  return `curl -fsSL ${shellQuote(`${apiUrl}/install/omnarad.sh`)} | sh`
+  return `curl -fsSL ${shellQuote(installScriptUrl(apiUrl))} | sh`
 }
 
 export const formatMachineSetup: OutputFormat<ConnectByoMachineResponse> = (
@@ -289,7 +293,7 @@ function installerScript(apiUrl: string): string {
     'trap \'rm -f "$installer"\' EXIT',
     'curl -qfsSL --connect-timeout 10 -m 60 --max-redirs 5 --max-filesize 1048576' +
       " --proto '=http,https' --proto-redir '=https'" +
-      ` -o "$installer" ${shellQuote(`${apiUrl}/install/omnarad.sh`)}`,
+      ` -o "$installer" ${shellQuote(installScriptUrl(apiUrl))}`,
     'sh "$installer"',
   ].join(' && ')
 }

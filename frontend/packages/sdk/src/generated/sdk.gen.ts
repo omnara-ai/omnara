@@ -36,7 +36,7 @@ export const listPersonalAccessTokens = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/personal-access-tokens',
+    url: '/personal-access-tokens',
     ...options
 });
 
@@ -50,7 +50,7 @@ export const createPersonalAccessToken = <ThrowOnError extends boolean = true>(o
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/personal-access-tokens',
+    url: '/personal-access-tokens',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@ export const revokePersonalAccessToken = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/personal-access-tokens/{tokenID}/revoke',
+    url: '/personal-access-tokens/{tokenID}/revoke',
     ...options
 });
 
@@ -90,7 +90,7 @@ export const bootstrapDaemon = <ThrowOnError extends boolean = true>(options?: O
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/bootstrap',
+    url: '/daemon/bootstrap',
     ...options
 });
 
@@ -105,7 +105,7 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/failures',
+    url: '/daemon/failures',
     ...options,
     headers: {
         'Content-Type': 'text/plain',
@@ -138,7 +138,7 @@ export const createOrganization = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs',
+    url: '/orgs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export const deleteOrganization = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}',
+    url: '/orgs/{orgID}',
     ...options
 });
 
@@ -190,7 +190,7 @@ export const deleteCurrentUser = <ThrowOnError extends boolean = true>(options?:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/me',
+    url: '/me',
     ...options
 });
 
@@ -208,7 +208,7 @@ export const getCurrentUser = <ThrowOnError extends boolean = true>(options?: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/me',
+    url: '/me',
     ...options
 });
 
@@ -228,7 +228,7 @@ export const listPendingInvitations = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/invitations',
+    url: '/invitations',
     ...options
 });
 
@@ -250,7 +250,7 @@ export const acceptInvitation = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/invitations/{invitationID}/accept',
+    url: '/invitations/{invitationID}/accept',
     ...options
 });
 
@@ -272,7 +272,7 @@ export const declineInvitation = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/invitations/{invitationID}/decline',
+    url: '/invitations/{invitationID}/decline',
     ...options
 });
 
@@ -292,7 +292,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/overview',
+    url: '/orgs/{orgID}/overview',
     ...options
 });
 
@@ -312,7 +312,7 @@ export const listVisibleProjects = <ThrowOnError extends boolean = true>(options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects',
+    url: '/orgs/{orgID}/projects',
     ...options
 });
 
@@ -334,7 +334,7 @@ export const createProject = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects',
+    url: '/orgs/{orgID}/projects',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -362,7 +362,7 @@ export const deleteProject = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}',
+    url: '/orgs/{orgID}/projects/{projectID}',
     ...options
 });
 
@@ -382,7 +382,7 @@ export const listOrgMembers = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/members',
+    url: '/orgs/{orgID}/members',
     ...options
 });
 
@@ -406,7 +406,7 @@ export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}',
+    url: '/orgs/{orgID}/members/{userID}',
     ...options
 });
 
@@ -428,7 +428,7 @@ export const updateOrgMember = <ThrowOnError extends boolean = true>(options: Op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}',
+    url: '/orgs/{orgID}/members/{userID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -452,7 +452,7 @@ export const listMemberProjectAccess = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects',
+    url: '/orgs/{orgID}/members/{userID}/projects',
     ...options
 });
 
@@ -476,7 +476,7 @@ export const removeMemberProjectAccess = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}',
+    url: '/orgs/{orgID}/members/{userID}/projects/{projectID}',
     ...options
 });
 
@@ -500,7 +500,7 @@ export const setMemberProjectAccess = <ThrowOnError extends boolean = true>(opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}',
+    url: '/orgs/{orgID}/members/{userID}/projects/{projectID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -524,7 +524,7 @@ export const listOrgApiKeys = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys',
+    url: '/orgs/{orgID}/api-keys',
     ...options
 });
 
@@ -540,7 +540,7 @@ export const createOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys',
+    url: '/orgs/{orgID}/api-keys',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -562,7 +562,7 @@ export const getOrgApiKey = <ThrowOnError extends boolean = true>(options: Optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}',
     ...options
 });
 
@@ -578,7 +578,7 @@ export const updateOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -598,7 +598,7 @@ export const revokeOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/revoke',
+    url: '/orgs/{orgID}/api-keys/{keyID}/revoke',
     ...options
 });
 
@@ -618,7 +618,7 @@ export const listOrgApiKeyProjectAccess = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects',
     ...options
 });
 
@@ -632,7 +632,7 @@ export const removeOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
     ...options
 });
 
@@ -648,7 +648,7 @@ export const setOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -672,7 +672,7 @@ export const listOrgInvitations = <ThrowOnError extends boolean = true>(options:
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/invitations',
+    url: '/orgs/{orgID}/invitations',
     ...options
 });
 
@@ -694,7 +694,7 @@ export const createOrgInvitation = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/invitations',
+    url: '/orgs/{orgID}/invitations',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -722,7 +722,7 @@ export const deleteOrgInvitation = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/invitations/{invitationID}',
+    url: '/orgs/{orgID}/invitations/{invitationID}',
     ...options
 });
 
@@ -742,7 +742,7 @@ export const listSkills = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills',
+    url: '/orgs/{orgID}/skills',
     ...options
 });
 
@@ -767,7 +767,7 @@ export const createSkill = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills',
+    url: '/orgs/{orgID}/skills',
     ...options,
     headers: {
         'Content-Type': null,
@@ -795,7 +795,7 @@ export const deleteSkill = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}',
+    url: '/orgs/{orgID}/skills/{skillID}',
     ...options
 });
 
@@ -813,7 +813,7 @@ export const getSkill = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}',
+    url: '/orgs/{orgID}/skills/{skillID}',
     ...options
 });
 
@@ -833,7 +833,7 @@ export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants',
+    url: '/orgs/{orgID}/skills/{skillID}/grants',
     ...options
 });
 
@@ -855,7 +855,7 @@ export const createSkillGrant = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants',
+    url: '/orgs/{orgID}/skills/{skillID}/grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -883,7 +883,7 @@ export const deleteSkillGrant = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}',
+    url: '/orgs/{orgID}/skills/{skillID}/grants/{grantID}',
     ...options
 });
 
@@ -903,7 +903,7 @@ export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/skills',
+    url: '/orgs/{orgID}/projects/{projectID}/skills',
     ...options
 });
 
@@ -923,7 +923,7 @@ export const listSecrets = <ThrowOnError extends boolean = true>(options: Option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets',
+    url: '/orgs/{orgID}/secrets',
     ...options
 });
 
@@ -945,7 +945,7 @@ export const createSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets',
+    url: '/orgs/{orgID}/secrets',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -971,7 +971,7 @@ export const startSecretMcpoAuth = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/mcp-oauth',
+    url: '/orgs/{orgID}/secrets/mcp-oauth',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -999,7 +999,7 @@ export const deleteSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options
 });
 
@@ -1017,7 +1017,7 @@ export const getSecret = <ThrowOnError extends boolean = true>(options: Options<
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options
 });
 
@@ -1039,7 +1039,7 @@ export const updateSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1065,7 +1065,7 @@ export const createSecretVersion = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/versions',
+    url: '/orgs/{orgID}/secrets/{secretID}/versions',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1089,7 +1089,7 @@ export const listSecretGrants = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants',
     ...options
 });
 
@@ -1111,7 +1111,7 @@ export const createSecretGrant = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1139,7 +1139,7 @@ export const deleteSecretGrant = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants/{grantID}',
     ...options
 });
 
@@ -1159,7 +1159,7 @@ export const listIntegrationInstalls = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs',
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs',
     ...options
 });
 
@@ -1183,7 +1183,7 @@ export const deleteIntegrationInstall = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}',
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}',
     ...options
 });
 
@@ -1205,7 +1205,7 @@ export const createAgentConfig = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1227,7 +1227,7 @@ export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/tool-catalog',
+    url: '/tool-catalog',
     ...options
 });
 
@@ -1247,7 +1247,7 @@ export const listMcpServers = <ThrowOnError extends boolean = true>(options?: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/mcp-servers',
+    url: '/mcp-servers',
     ...options
 });
 
@@ -1271,7 +1271,7 @@ export const listMcpServerTools = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools',
+    url: '/orgs/{orgID}/projects/{projectID}/mcp-servers/tools',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1293,7 +1293,7 @@ export const getAgentConfig = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}',
     ...options
 });
 
@@ -1313,7 +1313,7 @@ export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: 
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles',
     ...options
 });
 
@@ -1335,7 +1335,7 @@ export const createAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1363,7 +1363,7 @@ export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options
 });
 
@@ -1381,7 +1381,7 @@ export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options
 });
 
@@ -1403,7 +1403,7 @@ export const renameAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1429,7 +1429,7 @@ export const updateAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1455,7 +1455,7 @@ export const createIntegrationOAuthSetup = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1481,7 +1481,7 @@ export const createSlackSetup = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1505,7 +1505,7 @@ export const listCronTriggers = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers',
     ...options
 });
 
@@ -1529,7 +1529,7 @@ export const createCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1555,7 +1555,7 @@ export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options
 });
 
@@ -1573,7 +1573,7 @@ export const getCronTrigger = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options
 });
 
@@ -1597,7 +1597,7 @@ export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1621,7 +1621,7 @@ export const listAgents = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents',
+    url: '/orgs/{orgID}/projects/{projectID}/agents',
     ...options
 });
 
@@ -1645,7 +1645,7 @@ export const createAgent = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents',
+    url: '/orgs/{orgID}/projects/{projectID}/agents',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1667,7 +1667,7 @@ export const getAgent = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}',
     ...options
 });
 
@@ -1691,7 +1691,7 @@ export const archiveAgent = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive',
     ...options
 });
 
@@ -1713,7 +1713,7 @@ export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1739,7 +1739,7 @@ export const createAgentInput = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1763,7 +1763,7 @@ export const listToolCalls = <ThrowOnError extends boolean = true>(options: Opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls',
     ...options
 });
 
@@ -1787,7 +1787,7 @@ export const submitToolCallResult = <ThrowOnError extends boolean = true>(option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1811,7 +1811,7 @@ export const listTurns = <ThrowOnError extends boolean = true>(options: Options<
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns',
     ...options
 });
 
@@ -1831,7 +1831,7 @@ export const listTurnEvents = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events',
     ...options
 });
 
@@ -1851,7 +1851,7 @@ export const listEvents = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events',
     ...options
 });
 
@@ -1869,7 +1869,7 @@ export const streamEvents = <ThrowOnError extends boolean = true>(options: Optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream',
     ...options
 });
 
@@ -1891,7 +1891,7 @@ export const cancelAgent = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1915,7 +1915,7 @@ export const listAgentInteractions = <ThrowOnError extends boolean = true>(optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions',
     ...options
 });
 
@@ -1937,7 +1937,7 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1961,7 +1961,7 @@ export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog',
     ...options
 });
 
@@ -1983,7 +1983,7 @@ export const cancelQueuedBacklogInput = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel',
     ...options
 });
 
@@ -2005,7 +2005,7 @@ export const moveQueuedBacklogInput = <ThrowOnError extends boolean = true>(opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2031,7 +2031,7 @@ export const promoteQueuedInputToSteering = <ThrowOnError extends boolean = true
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2057,7 +2057,7 @@ export const demoteSteeringInputToQueued = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued',
     ...options
 });
 
@@ -2075,7 +2075,7 @@ export const getArtifact = <ThrowOnError extends boolean = true>(options: Option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}',
     ...options
 });
 
@@ -2093,7 +2093,7 @@ export const getArtifactContent = <ThrowOnError extends boolean = true>(options:
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
     ...options
 });
 
@@ -2113,7 +2113,7 @@ export const listVisibleProjectMachines = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machines',
+    url: '/orgs/{orgID}/projects/{projectID}/machines',
     ...options
 });
 
@@ -2133,7 +2133,7 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants',
     ...options
 });
 
@@ -2155,7 +2155,7 @@ export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2183,7 +2183,7 @@ export const deleteProjectMachineGrant = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}',
     ...options
 });
 
@@ -2203,7 +2203,7 @@ export const listProjectAvailableSecrets = <ThrowOnError extends boolean = true>
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/secrets',
+    url: '/orgs/{orgID}/projects/{projectID}/secrets',
     ...options
 });
 
@@ -2221,7 +2221,7 @@ export const getProjectAvailableSecret = <ThrowOnError extends boolean = true>(o
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/projects/{projectID}/secrets/{secretID}',
     ...options
 });
 
@@ -2241,7 +2241,7 @@ export const listActors = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors',
+    url: '/orgs/{orgID}/projects/{projectID}/actors',
     ...options
 });
 
@@ -2265,7 +2265,7 @@ export const putActor = <ThrowOnError extends boolean = true>(options: Options<P
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors',
+    url: '/orgs/{orgID}/projects/{projectID}/actors',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2287,7 +2287,7 @@ export const getActor = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}',
+    url: '/orgs/{orgID}/projects/{projectID}/actors/{actorID}',
     ...options
 });
 
@@ -2307,7 +2307,7 @@ export const listVisibleMachines = <ThrowOnError extends boolean = true>(options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines',
+    url: '/orgs/{orgID}/machines',
     ...options
 });
 
@@ -2329,7 +2329,7 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines',
+    url: '/orgs/{orgID}/machines',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2355,7 +2355,7 @@ export const connectByoMachine = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/connect',
+    url: '/orgs/{orgID}/machines/connect',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2383,7 +2383,7 @@ export const deleteMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options
 });
 
@@ -2401,7 +2401,7 @@ export const getMachine = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options
 });
 
@@ -2423,7 +2423,7 @@ export const updateMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2447,7 +2447,7 @@ export const listModelProviderConfigs = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs',
+    url: '/orgs/{orgID}/model-provider-configs',
     ...options
 });
 
@@ -2471,7 +2471,7 @@ export const createModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs',
+    url: '/orgs/{orgID}/model-provider-configs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2499,7 +2499,7 @@ export const deleteModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options
 });
 
@@ -2517,7 +2517,7 @@ export const getModelProviderConfig = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options
 });
 
@@ -2539,7 +2539,7 @@ export const updateModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2563,7 +2563,7 @@ export const getModelCatalog = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog',
     ...options
 });
 
@@ -2583,7 +2583,7 @@ export const listConfiguredModels = <ThrowOnError extends boolean = true>(option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
     ...options
 });
 
@@ -2605,7 +2605,7 @@ export const createConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2633,7 +2633,7 @@ export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
     ...options
 });
 
@@ -2655,7 +2655,7 @@ export const updateConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2679,7 +2679,7 @@ export const listProjectModelGrants = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants',
     ...options
 });
 
@@ -2701,7 +2701,7 @@ export const createProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2729,7 +2729,7 @@ export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
     ...options
 });
 
@@ -2753,7 +2753,7 @@ export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2777,7 +2777,7 @@ export const listMachinePools = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machine-pools',
+    url: '/orgs/{orgID}/machine-pools',
     ...options
 });
 
@@ -2799,7 +2799,7 @@ export const createMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools',
+    url: '/orgs/{orgID}/machine-pools',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2827,7 +2827,7 @@ export const deleteMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options
 });
 
@@ -2845,7 +2845,7 @@ export const getMachinePool = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options
 });
 
@@ -2869,7 +2869,7 @@ export const updateMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2893,7 +2893,7 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
     ...options
 });
 
@@ -2915,7 +2915,7 @@ export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2943,7 +2943,7 @@ export const deleteProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options
 });
 
@@ -2961,7 +2961,7 @@ export const getProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options
 });
 
@@ -2985,7 +2985,7 @@ export const updateProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -3009,7 +3009,7 @@ export const listByoMachineDaemonTokens = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens',
     ...options
 });
 
@@ -3031,7 +3031,7 @@ export const createByoMachineDaemonToken = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -3057,7 +3057,7 @@ export const revokeMachineDaemonToken = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke',
     ...options
 });
 
@@ -3071,7 +3071,7 @@ export const registerMachineDaemonRuntime = <ThrowOnError extends boolean = true
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes',
+    url: '/daemon/runtimes',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -3088,7 +3088,7 @@ export const socketMachineDaemonRuntime = <ThrowOnError extends boolean = true>(
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/socket',
+    url: '/daemon/runtimes/{runtimeID}/socket',
     ...options
 });
 
@@ -3102,7 +3102,7 @@ export const endMachineDaemonRuntime = <ThrowOnError extends boolean = true>(opt
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/end',
+    url: '/daemon/runtimes/{runtimeID}/end',
     ...options
 });
 
@@ -3118,7 +3118,7 @@ export const sleepMachineDaemonRuntime = <ThrowOnError extends boolean = true>(o
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/sleep',
+    url: '/daemon/runtimes/{runtimeID}/sleep',
     ...options
 });
 
@@ -3134,7 +3134,7 @@ export const getDaemonSkillArchive = <ThrowOnError extends boolean = true>(optio
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/skills/{skillID}/archive',
+    url: '/daemon/skills/{skillID}/archive',
     ...options
 });
 
@@ -3149,7 +3149,7 @@ export const uploadDaemonArtifact = <ThrowOnError extends boolean = true>(option
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifact',
+    url: '/daemon/tool-calls/{toolCallID}/artifact',
     ...options,
     headers: {
         'Content-Type': 'application/octet-stream',

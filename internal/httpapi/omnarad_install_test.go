@@ -41,7 +41,7 @@ func TestOmnaradInstallRoute(t *testing.T) {
 	if !strings.Contains(body, "default_release_url='"+releaseURL+"'") {
 		t.Fatal("installer does not contain the configured release URL")
 	}
-	if !strings.Contains(body, "default_api_url='"+apiURL+"'") {
+	if !strings.Contains(body, "default_api_url='"+apiURL+"/api/v1'") {
 		t.Fatal("installer does not contain the configured API URL")
 	}
 	if !strings.Contains(body, `install --release-manifest-url "$release_manifest_url"`) {
@@ -77,7 +77,7 @@ func TestOmnaradInstallRouteUsesRequestOrigin(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("installer status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if !strings.Contains(recorder.Body.String(), "default_api_url='http://localhost:5173'") {
+	if !strings.Contains(recorder.Body.String(), "default_api_url='http://localhost:5173/api/v1'") {
 		t.Fatal("installer does not contain the request origin")
 	}
 }
