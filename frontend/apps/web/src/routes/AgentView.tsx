@@ -73,11 +73,11 @@ export function AgentView() {
   }
 
   async function cancelCurrent() {
-    const rollback = await chat.inputBacklog.beginCancellation(
-      chat.inputBacklog.inputs
-        .filter((input) => input.delivery_mode === 'steering')
-        .map((input) => input.id),
-    )
+    const steeringInputIDs: string[] = []
+    for (const input of chat.inputBacklog.inputs) {
+      if (input.delivery_mode === 'steering') steeringInputIDs.push(input.id)
+    }
+    const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
     try {
       return await cancelAgent.mutateAsync()
     } catch (error) {

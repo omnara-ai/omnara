@@ -830,7 +830,7 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 	canceledInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued canceled message", "")
 	secondInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued second message", "")
 	thirdInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued third message", "")
-	project.createInputWithDeliveryMode(t, ctx, agentID, "steering priority message", executionstore.DeliveryModeSteering)
+	steeringInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "steering priority message", executionstore.DeliveryModeSteering)
 	project.env.requestJSON(
 		t,
 		ctx,
@@ -863,9 +863,9 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 		http.StatusOK,
 	)
 	backlogData := backlog["data"].([]any)
-	if len(backlogData) != 2 || backlogData[0].(map[string]any)["id"] != thirdInputID ||
-		backlogData[1].(map[string]any)["id"] != secondInputID {
-		t.Fatalf("backlog before worker = %+v, want reordered third then second without canceled input", backlogData)
+	if len(backlogData) != 3 || backlogData[0].(map[string]any)["id"] != steeringInputID ||
+		backlogData[1].(map[string]any)["id"] != thirdInputID || backlogData[2].(map[string]any)["id"] != secondInputID {
+		t.Fatalf("backlog before worker = %+v, want steering then reordered third and second without canceled input", backlogData)
 	}
 
 	env.startWorker(
