@@ -263,7 +263,7 @@ func TestWithIssuesWritesFieldLevelIssues(t *testing.T) {
 	err := WithIssues(
 		openapi.ErrorCodeInvalidRequest,
 		"agent config is invalid: model.name: required field is missing",
-		[]openapi.ErrorIssue{{Path: "/model/name", Message: "required field is missing", Line: &line}},
+		[]openapi.AgentConfigErrorIssue{{Path: "/model/name", Message: "required field is missing", Line: &line}},
 	)
 	recorder := httptest.NewRecorder()
 	WriteError(recorder, err)

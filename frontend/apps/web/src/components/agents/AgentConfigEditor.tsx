@@ -1,4 +1,4 @@
-import type { ErrorIssue } from '@omnara/sdk'
+import type { AgentConfigErrorIssue } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
@@ -24,7 +24,7 @@ export function AgentConfigEditorFields({
   header?: ReactNode
   yamlFieldId: string
   yamlFieldClassName: string
-  issues?: readonly ErrorIssue[]
+  issues?: readonly AgentConfigErrorIssue[]
 }) {
   const { builderSession, canManage, dispatchMode, mode, showBuilder, source } = editor
   return (

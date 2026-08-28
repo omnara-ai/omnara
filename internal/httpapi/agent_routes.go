@@ -1452,9 +1452,9 @@ func agentConfigCompileError(err error) apierror.ResponseError {
 	if !errors.As(err, &validationErr) {
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	issues := make([]openapi.ErrorIssue, 0, len(validationErr.Issues))
+	issues := make([]openapi.AgentConfigErrorIssue, 0, len(validationErr.Issues))
 	for _, issue := range validationErr.Issues {
-		converted := openapi.ErrorIssue{Path: issue.Path, Message: issue.Message}
+		converted := openapi.AgentConfigErrorIssue{Path: issue.Path, Message: issue.Message}
 		if issue.Line > 0 {
 			line := issue.Line
 			converted.Line = &line

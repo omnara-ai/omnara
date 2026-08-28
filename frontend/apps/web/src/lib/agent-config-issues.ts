@@ -1,4 +1,4 @@
-import { ApiError, type ErrorIssue } from '@omnara/sdk'
+import { type AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
 
 import { errorMessage } from '@/lib/submit-status'
 
@@ -27,7 +27,7 @@ export function formatIssuePath(pointer: string): string {
   return path
 }
 
-export function formatIssue(issue: ErrorIssue): string {
+export function formatIssue(issue: AgentConfigErrorIssue): string {
   const path = formatIssuePath(issue.path)
   return path === '' ? issue.message : `${path}: ${issue.message}`
 }
@@ -38,7 +38,7 @@ export interface IssueMarker {
   message: string
 }
 
-export function issueMarkers(issues: readonly ErrorIssue[]): IssueMarker[] {
+export function issueMarkers(issues: readonly AgentConfigErrorIssue[]): IssueMarker[] {
   return issues.flatMap((issue) =>
     issue.line === undefined
       ? []
@@ -48,7 +48,7 @@ export function issueMarkers(issues: readonly ErrorIssue[]): IssueMarker[] {
 
 export interface ConfigSubmitError {
   message: string
-  issues: ErrorIssue[]
+  issues: AgentConfigErrorIssue[]
 }
 
 export const noConfigError: ConfigSubmitError = { message: '', issues: [] }

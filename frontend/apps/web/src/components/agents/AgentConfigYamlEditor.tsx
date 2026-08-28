@@ -1,7 +1,7 @@
 import './monacoEnvironment'
 import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js'
 
-import type { ErrorIssue } from '@omnara/sdk'
+import type { AgentConfigErrorIssue } from '@omnara/sdk'
 import * as monaco from 'monaco-editor'
 import { configureMonacoYaml, type MonacoYaml, type MonacoYamlOptions } from 'monaco-yaml'
 import { useEffect, useRef, useState } from 'react'
@@ -64,7 +64,10 @@ model:
 
 const serverIssueMarkerOwner = 'omnara-agent-config-issues'
 
-function serverIssueMarkers(model: monaco.editor.ITextModel, issues: readonly ErrorIssue[]) {
+function serverIssueMarkers(
+  model: monaco.editor.ITextModel,
+  issues: readonly AgentConfigErrorIssue[],
+) {
   const lineCount = model.getLineCount()
   return issueMarkers(issues).flatMap((marker): monaco.editor.IMarkerData[] => {
     if (marker.line > lineCount) return []
@@ -91,10 +94,10 @@ export interface AgentConfigYamlEditorProps {
   onChange: (value: string) => void
   readOnly?: boolean
   className?: string
-  issues?: readonly ErrorIssue[]
+  issues?: readonly AgentConfigErrorIssue[]
 }
 
-const noIssues: readonly ErrorIssue[] = []
+const noIssues: readonly AgentConfigErrorIssue[] = []
 
 export function AgentConfigYamlEditor({
   id,
@@ -111,7 +114,7 @@ export function AgentConfigYamlEditor({
   const initialValueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
   const issuesRef = useRef(issues)
-  const [staleIssues, setStaleIssues] = useState<readonly ErrorIssue[] | null>(null)
+  const [staleIssues, setStaleIssues] = useState<readonly AgentConfigErrorIssue[] | null>(null)
   const visibleIssues = staleIssues === issues ? noIssues : issues
 
   useEffect(() => {
@@ -197,7 +200,7 @@ export function AgentConfigYamlEditor({
     monaco.editor.setModelMarkers(model, serverIssueMarkerOwner, serverIssueMarkers(model, issues))
   }, [issues])
 
-  function revealIssue(issue: ErrorIssue) {
+  function revealIssue(issue: AgentConfigErrorIssue) {
     const editor = editorRef.current
     if (!editor || issue.line === undefined) return
     const position = { lineNumber: issue.line, column: issue.column ?? 1 }

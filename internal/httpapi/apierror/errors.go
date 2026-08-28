@@ -92,7 +92,7 @@ type ResponseError struct {
 	Status  int
 	Code    openapi.ErrorCode
 	Message string
-	Issues  []openapi.ErrorIssue
+	Issues  []openapi.AgentConfigErrorIssue
 }
 
 func (err ResponseError) Error() string {
@@ -112,7 +112,7 @@ func FromCode(code openapi.ErrorCode, additionalText string) ResponseError {
 	return ResponseError{Status: def.status, Code: code, Message: message}
 }
 
-func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.ErrorIssue) ResponseError {
+func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.AgentConfigErrorIssue) ResponseError {
 	responseError := FromCode(code, additionalText)
 	if len(issues) > 0 {
 		responseError.Issues = issues
@@ -123,7 +123,7 @@ func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.
 func (err ResponseError) body() openapi.Error {
 	body := openapi.Error{Error: err.Message, Code: err.Code}
 	if len(err.Issues) > 0 {
-		issues := append([]openapi.ErrorIssue(nil), err.Issues...)
+		issues := append([]openapi.AgentConfigErrorIssue(nil), err.Issues...)
 		body.Issues = &issues
 	}
 	return body

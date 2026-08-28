@@ -29,7 +29,7 @@ export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' |
  */
 export type CreatedResourceListSort = 'name' | '-name' | '-created_at' | 'created_at';
 
-export type ErrorIssue = {
+export type AgentConfigErrorIssue = {
     /**
      * JSON Pointer (RFC 6901) to the offending field in the submitted document. An empty string refers to the whole document.
      */
@@ -56,7 +56,7 @@ export type Error = {
     /**
      * Field-level problems when a submitted document (such as an agent config source) failed validation. Absent for errors that are not about a specific field.
      */
-    issues?: Array<ErrorIssue>;
+    issues?: Array<AgentConfigErrorIssue>;
     /**
      * Stable error code for programmatic handling.
      */

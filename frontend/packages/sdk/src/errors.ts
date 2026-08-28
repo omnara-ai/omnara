@@ -1,13 +1,13 @@
 import * as z from 'zod'
 
-import type { Error as ApiErrorBody, ErrorIssue } from './generated/types.gen'
-import { zErrorIssue } from './generated/zod.gen'
+import type { AgentConfigErrorIssue, Error as ApiErrorBody } from './generated/types.gen'
+import { zAgentConfigErrorIssue } from './generated/zod.gen'
 
 export type ApiErrorCode = ApiErrorBody['code']
 
-const errorIssuesSchema = z.object({ issues: z.array(zErrorIssue).optional() })
+const errorIssuesSchema = z.object({ issues: z.array(zAgentConfigErrorIssue).optional() })
 
-function issuesFromBody(body: unknown): ErrorIssue[] {
+function issuesFromBody(body: unknown): AgentConfigErrorIssue[] {
   const parsed = errorIssuesSchema.safeParse(body)
   return parsed.success ? (parsed.data.issues ?? []) : []
 }
@@ -16,7 +16,7 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode | undefined
   readonly body: unknown
-  readonly issues: ErrorIssue[]
+  readonly issues: AgentConfigErrorIssue[]
 
   constructor(status: number, message: string, code?: ApiErrorCode, body?: unknown) {
     super(message)

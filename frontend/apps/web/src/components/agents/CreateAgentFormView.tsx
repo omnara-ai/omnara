@@ -4,7 +4,7 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { ApiError, ErrorIssue } from '@omnara/sdk'
+import type { AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
 import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
@@ -127,7 +127,7 @@ export function CreateAgentFormView({
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
   }
 
-  const [issues, setIssues] = useState<ErrorIssue[]>([])
+  const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
 
   if (project == null) return null
 

@@ -39,7 +39,7 @@ export const zCreatedResourceListSort = z.enum([
     'created_at'
 ]).default('-created_at');
 
-export const zErrorIssue = z.object({
+export const zAgentConfigErrorIssue = z.object({
     path: z.string(),
     message: z.string(),
     line: z.int().gte(1).optional(),
@@ -48,7 +48,7 @@ export const zErrorIssue = z.object({
 
 export const zError = z.object({
     error: z.string(),
-    issues: z.array(zErrorIssue).optional(),
+    issues: z.array(zAgentConfigErrorIssue).optional(),
     code: z.enum([
         'invalid_request',
         'unauthorized',

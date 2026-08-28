@@ -1,4 +1,4 @@
-import type { ErrorIssue } from '@omnara/sdk'
+import type { AgentConfigErrorIssue } from '@omnara/sdk'
 
 import { formatIssuePath } from '@/lib/agent-config-issues'
 import { cn } from '@/lib/utils'
@@ -8,8 +8,8 @@ export function AgentConfigIssueList({
   onSelect,
   className,
 }: {
-  issues: readonly ErrorIssue[]
-  onSelect?: (issue: ErrorIssue) => void
+  issues: readonly AgentConfigErrorIssue[]
+  onSelect?: (issue: AgentConfigErrorIssue) => void
   className?: string
 }) {
   if (issues.length === 0) return null
@@ -22,7 +22,7 @@ export function AgentConfigIssueList({
         className,
       )}
     >
-      {issues.map((issue, index) => {
+      {issues.map((issue) => {
         const path = formatIssuePath(issue.path)
         const content = (
           <>
@@ -35,7 +35,7 @@ export function AgentConfigIssueList({
         )
         const selectable = onSelect !== undefined && issue.line !== undefined
         return (
-          <li key={`${issue.path}-${issue.line ?? 0}-${index}`}>
+          <li key={`${issue.path}:${issue.line ?? ''}:${issue.column ?? ''}:${issue.message}`}>
             {selectable ? (
               <button
                 type="button"
