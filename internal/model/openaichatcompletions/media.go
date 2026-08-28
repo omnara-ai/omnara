@@ -78,6 +78,9 @@ func userChatContentFromParts(raw json.RawMessage, media map[string]modelcontext
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := chatImagePart(resolved); ok {
 					hasMedia = true
+					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
+						blocks = append(blocks, map[string]any{"type": "text", "text": "artifact_id: " + ref})
+					}
 					blocks = append(blocks, block)
 				}
 				continue

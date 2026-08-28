@@ -4446,3 +4446,13 @@ export const zUploadDaemonArtifactQuery = z.object({
  * Artifact created.
  */
 export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
+
+export const zDownloadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId,
+    artifactID: zArtifactId
+});
+
+/**
+ * Artifact bytes, served with the artifact's stored content type.
+ */
+export const zDownloadDaemonArtifactResponse = z.string();

@@ -19,6 +19,7 @@ const (
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
 	ToolNameUploadArtifact         = "upload_artifact"
+	ToolNameDownloadArtifact       = "download_artifact"
 	ToolNameSkill                  = "skill"
 )
 

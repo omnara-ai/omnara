@@ -47,6 +47,11 @@ type daemonCommand struct {
 		ToolCallID  string `arg:"positional,required"`
 		EncodedPath string `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_upload_artifact,hidden"`
+	DownloadArtifact *struct {
+		ToolCallID  string `arg:"positional,required"`
+		ArtifactID  string `arg:"positional,required"`
+		EncodedPath string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_download_artifact,hidden"`
 	RunService *struct {
 		Supervised bool `arg:"--supervised"`
 	} `arg:"subcommand:run-service,hidden"`
@@ -228,6 +233,17 @@ func Run(
 			command.UploadArtifact.ToolCallID,
 			command.UploadArtifact.EncodedPath,
 			stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	case command.DownloadArtifact != nil:
+		if err := runDownloadArtifactCommand(
+			ctx,
+			command.DownloadArtifact.ToolCallID,
+			command.DownloadArtifact.ArtifactID,
+			command.DownloadArtifact.EncodedPath,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

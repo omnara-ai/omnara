@@ -18,34 +18,41 @@ type DaemonProcessOffer struct {
 	RetryError       error             `json:"-"`
 }
 
-type DaemonArtifactUploadScope struct {
-	ProjectID ID
-	AgentID   ID
+type DaemonArtifactProcessScope struct {
+	ProjectID  ID
+	AgentID    ID
+	ArtifactID string
 }
 
-func (s *Store) GetDaemonArtifactUploadScope(
+func (s *Store) GetDaemonArtifactProcessScope(
 	ctx context.Context,
 	orgID, machineID, toolCallID ID,
-) (DaemonArtifactUploadScope, bool, error) {
+	toolName string,
+) (DaemonArtifactProcessScope, bool, error) {
 	if isNilID(orgID) || isNilID(machineID) || isNilID(toolCallID) {
-		return DaemonArtifactUploadScope{}, false, errors.New(
+		return DaemonArtifactProcessScope{}, false, errors.New(
 			"organization id, machine id, and tool call id are required",
 		)
 	}
-	record, err := s.q.GetDaemonArtifactUploadScope(ctx, dbsqlc.GetDaemonArtifactUploadScopeParams{
+	if toolName == "" {
+		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
+	}
+	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
 		OrgID:      orgID,
 		MachineID:  machineID,
 		ToolCallID: toolCallID,
+		ToolName:   toolName,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DaemonArtifactUploadScope{}, false, nil
+		return DaemonArtifactProcessScope{}, false, nil
 	}
 	if err != nil {
-		return DaemonArtifactUploadScope{}, false, fmt.Errorf("load daemon artifact upload scope: %w", err)
+		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
-	return DaemonArtifactUploadScope{
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
+	return DaemonArtifactProcessScope{
+		ProjectID:  record.ProjectID,
+		AgentID:    record.AgentID,
+		ArtifactID: record.ArtifactID,
 	}, true, nil
 }
 

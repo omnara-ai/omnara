@@ -201,6 +201,7 @@ const (
 	operationUpdateOrgMember               operationID = "UpdateOrgMember"
 	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
 	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
+	operationDownloadDaemonArtifact        operationID = "DownloadDaemonArtifact"
 	operationUploadDaemonArtifact          operationID = "UploadDaemonArtifact"
 )
 
@@ -396,6 +397,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
 	operationUploadDaemonArtifact: machineDaemonPolicy(
 		customScope("machine daemon token + active upload_artifact process"),
+	),
+	operationDownloadDaemonArtifact: machineDaemonPolicy(
+		customScope("machine daemon token + active download_artifact process"),
 	),
 }
 
