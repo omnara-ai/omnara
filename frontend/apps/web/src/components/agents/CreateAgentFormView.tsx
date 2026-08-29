@@ -4,12 +4,13 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { ApiError } from '@omnara/sdk'
+import type { AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
 import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import {
   type AgentConfigMode,
@@ -39,10 +40,11 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { configSubmitError } from '@/lib/agent-config-issues'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 import { useWebConfig } from '@/lib/web-config'
@@ -125,6 +127,8 @@ export function CreateAgentFormView({
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
   }
 
+  const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
+
   if (project == null) return null
 
   const showBuilder = mode.mode === 'builder'
@@ -140,6 +144,7 @@ export function CreateAgentFormView({
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
     setLaunchError(undefined)
+    setIssues([])
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
     const name = draft.name
@@ -185,13 +190,14 @@ export function CreateAgentFormView({
       if (action === 'launch' && isInsufficientCreditsError(result.error)) {
         setLaunchError(result.error)
       }
-      const status = submitError(
+      const failure = configSubmitError(
         result.error,
         action === 'launch' ? 'Could not create agent' : 'Could not create profile',
       )
+      setIssues(failure.issues)
       setDraft((prev) => ({
         ...prev,
-        status,
+        status: { phase: 'error', message: failure.message },
       }))
     }
   }
@@ -276,12 +282,14 @@ export function CreateAgentFormView({
                 form={form}
                 agentName={draft.name}
               />
+              <AgentConfigIssueList issues={issues} />
             </div>
             {!showBuilder && (
               <AgentConfigYamlField
                 id="agent-yaml"
                 value={yaml}
                 className="h-auto min-h-[24rem] flex-1"
+                issues={issues}
                 onChange={(value) => {
                   dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
                 }}
