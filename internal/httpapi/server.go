@@ -42,6 +42,7 @@ type Server struct {
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
+	publicAPIURL                        string
 	publicOrigin                        configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
@@ -153,6 +154,12 @@ func WithTrustedProxyCIDRs(cidrs []string) Option {
 func WithPublicURL(publicURL string) Option {
 	return func(s *Server) {
 		s.publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	}
+}
+
+func WithPublicAPIURL(publicAPIURL string) Option {
+	return func(s *Server) {
+		s.publicAPIURL = strings.TrimRight(strings.TrimSpace(publicAPIURL), "/")
 	}
 }
 

@@ -57,8 +57,9 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		t.Fatalf("unexpected create request: %+v", create)
 	}
 	env := sandboxEnvMap(create.Spec.Runtime.Envs)
-	if len(env) != 2 ||
-		env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
+	if len(env) != 3 ||
+		env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
+		env["OMNARA_INSTALLER_URL"] != "https://app.omnara.test/install/omnarad.sh" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
 		t.Fatalf("unexpected sandbox env: %+v", create.Spec.Runtime.Envs)
 	}
@@ -659,10 +660,10 @@ func TestBlaxelProviderInspectAndDelete(t *testing.T) {
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api:             api,
-		workspace:       "omnara",
-		apiToken:        "api-token",
-		omnaraPublicURL: "https://app.omnara.test",
+		api:       api,
+		workspace: "omnara",
+		apiToken:  "api-token",
+		omnara:    providers.OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
 	}
 }
 

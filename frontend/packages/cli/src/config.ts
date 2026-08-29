@@ -104,17 +104,10 @@ export interface ResolvedUrls {
   issuerUrl: string
 }
 
-export function selfHostedApiUrl(issuerUrl: string): string {
-  return `${issuerUrl.replace(/\/+$/, '')}/api/v1`
-}
-
 export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedUrls {
-  const issuerUrl = env.OMNARA_ISSUER_URL ?? file.issuer_url ?? DEFAULT_ISSUER_URL
-  const derivedApiUrl =
-    issuerUrl === DEFAULT_ISSUER_URL ? DEFAULT_API_URL : selfHostedApiUrl(issuerUrl)
   return {
-    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? derivedApiUrl,
-    issuerUrl,
+    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? DEFAULT_API_URL,
+    issuerUrl: env.OMNARA_ISSUER_URL ?? file.issuer_url ?? DEFAULT_ISSUER_URL,
   }
 }
 

@@ -33,7 +33,8 @@ umask > "$HOME/daemon-umask"
 		"HOME=" + home,
 		"PATH=" + os.Getenv("PATH"),
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL=" + server.URL,
+		"OMNARA_API_URL=" + server.URL + "/api/v1",
+		"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-secret",
 		"OMNARA_NO_UPDATE=1",
 		"OMNARA_RUNNER_PATH=/runner/bin",
@@ -55,7 +56,8 @@ umask > "$HOME/daemon-umask"
 	}
 	installerEnv := string(mustReadFile(t, filepath.Join(home, "installer-env")))
 	for _, value := range []string{
-		"OMNARA_API_URL=" + server.URL,
+		"OMNARA_API_URL=" + server.URL + "/api/v1",
+		"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-secret",
 		"OMNARA_NO_UPDATE=1",
 		"OMNARA_RUNNER_PATH=/runner/bin",
@@ -81,7 +83,8 @@ umask > "$HOME/daemon-umask"
 	}
 	daemonEnv := string(mustReadFile(t, filepath.Join(home, "daemon-env")))
 	for _, value := range []string{
-		"OMNARA_API_URL=" + server.URL,
+		"OMNARA_API_URL=" + server.URL + "/api/v1",
+		"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-secret",
 		"OMNARA_NO_UPDATE=1",
 		"OMNARA_RUNNER_PATH=/runner/bin",
@@ -171,6 +174,7 @@ func TestManagedDaemonLauncherReportsInstallFailures(t *testing.T) {
 				"PATH=" + os.Getenv("PATH"),
 				managedBootstrapScriptTestEnv(ManagedBootScript()),
 				"OMNARA_API_URL=" + server.URL + "/api/v1",
+				"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 				"OMNARA_MACHINE_TOKEN=machine-token",
 				"NO_PROXY=127.0.0.1",
 				"no_proxy=127.0.0.1",
@@ -215,7 +219,8 @@ func TestManagedDaemonLauncherRejectsInsecureInstallerRedirect(t *testing.T) {
 		"HOME=" + t.TempDir(),
 		"PATH=" + os.Getenv("PATH"),
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL=" + server.URL,
+		"OMNARA_API_URL=" + server.URL + "/api/v1",
+		"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 		"NO_PROXY=127.0.0.1",
 		"no_proxy=127.0.0.1",
 	}
@@ -246,7 +251,7 @@ func TestManagedDaemonLauncherShape(t *testing.T) {
 	}
 	script := managedDaemonLauncherScript()
 	for _, value := range []string{
-		"/install/omnarad.sh",
+		`"${OMNARA_INSTALLER_URL:?}"`,
 		"--install-only",
 		"b=/usr/local/bin/omnarad",
 		`OMNARA_DAEMON_SEED_PATH="${OMNARA_DAEMON_SEED_PATH:-$b}"`,
@@ -297,7 +302,8 @@ printf 'started\n' > "$OMNARA_HOME/daemon-started"
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL=" + server.URL,
+		"OMNARA_API_URL=" + server.URL + "/api/v1",
+		"OMNARA_INSTALLER_URL=" + server.URL + "/install/omnarad.sh",
 		"OMNARA_HOME=" + omnaraHome,
 		"NO_PROXY=127.0.0.1",
 		"no_proxy=127.0.0.1",

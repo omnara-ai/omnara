@@ -1,6 +1,7 @@
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
 import { createClient, createConfig } from './generated/client'
+import { client as specDefaultClient } from './generated/client.gen'
 
 export type OmnaraClient = ReturnType<typeof createClient>
 
@@ -53,7 +54,7 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     }),
   )
   client.setConfig({
-    ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
+    baseUrl: options.baseUrl ?? specDefaultClient.getConfig().baseUrl,
     credentials: options.credentials,
     headers: options.headers,
   })

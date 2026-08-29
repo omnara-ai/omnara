@@ -20,7 +20,7 @@ import (
 func TestBuildManagedMachineEnv(t *testing.T) {
 	startupScript := "echo ready\n"
 	env, err := BuildManagedMachineEnv(
-		"  https://app.omnara.test///  ",
+		OmnaraURLs{APIURL: "  https://api.omnara.test/v1///  ", InstallerURL: " https://app.omnara.test/install/omnarad.sh "},
 		"machine-token",
 		startupScript,
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
@@ -28,7 +28,8 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}
-	if len(env) != 5 || env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
+	if len(env) != 6 || env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
+		env["OMNARA_INSTALLER_URL"] != "https://app.omnara.test/install/omnarad.sh" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 		env[startupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) ||
 		env["APP_ENV"] != "production" ||
@@ -38,11 +39,12 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 }
 
 func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
-	env, err := BuildManagedMachineEnv("https://app.omnara.test", "machine-token", "", nil)
+	env, err := BuildManagedMachineEnv(OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"}, "machine-token", "", nil)
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}
-	if len(env) != 2 || env["OMNARA_API_URL"] != "https://app.omnara.test/api/v1" ||
+	if len(env) != 3 || env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
+		env["OMNARA_INSTALLER_URL"] != "https://app.omnara.test/install/omnarad.sh" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
 		t.Fatalf("managed machine env = %+v", env)
 	}
@@ -50,7 +52,7 @@ func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
 
 func TestBuildManagedMachineEnvRejectsReservedMachineEnv(t *testing.T) {
 	_, err := BuildManagedMachineEnv(
-		"https://app.omnara.test",
+		OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
 		"machine-token",
 		"",
 		map[string]string{"omnara_api_url": "spoofed"},
@@ -80,7 +82,8 @@ func TestManagedMachineStartupRunsStartupScriptBeforeDaemon(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL="+server.URL,
+		"OMNARA_API_URL="+server.URL+"/api/v1",
+		"OMNARA_INSTALLER_URL="+server.URL+"/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
@@ -122,7 +125,8 @@ func TestManagedMachineStartupDoesNotExposeStartupPayloadToDaemon(t *testing.T) 
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL="+server.URL,
+		"OMNARA_API_URL="+server.URL+"/api/v1",
+		"OMNARA_INSTALLER_URL="+server.URL+"/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
@@ -148,7 +152,7 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	}
 	reports := make(chan failureReport, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+		if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 			r.Header.Get("Content-Type") != "text/plain" {
 			http.NotFound(w, r)
 			return
@@ -187,7 +191,8 @@ func TestManagedMachineStartupFailurePreventsDaemonStart(t *testing.T) {
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL="+server.URL,
+		"OMNARA_API_URL="+server.URL+"/api/v1",
+		"OMNARA_INSTALLER_URL="+server.URL+"/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
@@ -231,7 +236,8 @@ func TestManagedMachineStartupBlocksDaemonUntilStartupScriptFinishes(t *testing.
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL="+server.URL,
+		"OMNARA_API_URL="+server.URL+"/api/v1",
+		"OMNARA_INSTALLER_URL="+server.URL+"/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
@@ -366,7 +372,7 @@ func TestManagedMachineStartupDoesNotWaitForBackgroundOutput(t *testing.T) {
 		}
 		reports := make(chan failureReport, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
+			if r.URL.Path != "/api/v1/daemon/failures" || r.Header.Get("Authorization") != "Bearer machine-token" ||
 				r.Header.Get("Content-Type") != "text/plain" {
 				http.NotFound(w, r)
 				return
@@ -459,7 +465,8 @@ func runManagedStartupWithFileOutput(
 	cmd.Env = append(os.Environ(),
 		"HOME="+dir,
 		managedBootstrapScriptTestEnv(ManagedBootScript()),
-		"OMNARA_API_URL="+serverURL,
+		"OMNARA_API_URL="+serverURL+"/api/v1",
+		"OMNARA_INSTALLER_URL="+serverURL+"/install/omnarad.sh",
 		"OMNARA_MACHINE_TOKEN=machine-token",
 		startupScriptEnvVar+"="+startupScriptPayload,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),

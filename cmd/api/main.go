@@ -144,7 +144,7 @@ func main() {
 	}
 	replicaID := uuid.New()
 
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.OmnaraURLs())
 	for _, defaultPoolTemplate := range cfg.DefaultMachinePools {
 		if err := machinePoolManager.ValidateDefaultMachinePool(defaultPoolTemplate); err != nil {
 			log.Error("validate default machine pool", "error", err)
@@ -441,6 +441,7 @@ func apiOptions(
 	opts = append(opts, httpapi.WithPasswordAuthEnabled(cfg.AuthSignupEnabled, cfg.AuthPasswordResetEnabled))
 	if cfg.PublicURL != "" {
 		opts = append(opts, httpapi.WithPublicURL(cfg.PublicURL))
+		opts = append(opts, httpapi.WithPublicAPIURL(cfg.OmnaraURLs().APIURL))
 	}
 	if cfg.BillingURL != "" {
 		opts = append(opts, httpapi.WithBillingURL(cfg.BillingURL))

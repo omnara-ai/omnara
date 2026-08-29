@@ -21,11 +21,11 @@ const (
 )
 
 type provider struct {
-	api             apiClient
-	apiToken        string
-	apiBaseURL      string
-	omnaraPublicURL string
-	wakeTransport   http.RoundTripper
+	api           apiClient
+	apiToken      string
+	apiBaseURL    string
+	omnara        providers.OmnaraURLs
+	wakeTransport http.RoundTripper
 }
 
 func (p *provider) apiForMetro(metro string) apiClient {
@@ -89,7 +89,7 @@ func (p *provider) ProvisionMachine(
 	}
 
 	env, err := providers.BuildManagedMachineEnv(
-		p.omnaraPublicURL,
+		p.omnara,
 		machineToken,
 		options.StartupScript,
 		machineEnv,

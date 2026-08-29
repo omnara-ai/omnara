@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -82,6 +83,7 @@ type Config struct {
 	SMTPRequireTLS                    bool
 	AuthConnectors                    []AuthConnectorConfig
 	PublicURL                         string
+	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
 	DaemonReleaseURL                  string
@@ -255,6 +257,7 @@ func Load() (Config, error) {
 		SMTPRequireTLS:                    smtpRequireTLS,
 		AuthConnectors:                    authConnectors,
 		PublicURL:                         normalizePublicURL(getenv("OMNARA_PUBLIC_URL", "")),
+		PublicAPIURL:                      normalizePublicURL(getenv("OMNARA_PUBLIC_API_URL", "")),
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
@@ -386,6 +389,20 @@ func LoadMigrate() (Config, error) {
 
 func normalizePublicURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+func (cfg Config) OmnaraURLs() providers.OmnaraURLs {
+	if cfg.PublicURL == "" {
+		return providers.OmnaraURLs{}
+	}
+	apiURL := cfg.PublicAPIURL
+	if apiURL == "" {
+		apiURL = cfg.PublicURL + "/api/v1"
+	}
+	return providers.OmnaraURLs{
+		APIURL:       apiURL,
+		InstallerURL: cfg.PublicURL + "/install/omnarad.sh",
+	}
 }
 
 func (cfg Config) ValidateAPI() error {
@@ -662,6 +679,16 @@ func (cfg Config) EffectiveWebServing() WebServingMode {
 func (cfg Config) validatePublicURL(required bool) error {
 	if required && !cfg.AllowInsecureDev && cfg.PublicURL == "" {
 		return fmt.Errorf("OMNARA_PUBLIC_URL is required outside local development")
+	}
+	if cfg.PublicAPIURL != "" {
+		if err := validateHTTPURL("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
+			return err
+		}
+		if !cfg.AllowInsecureDev {
+			if err := requireHTTPSOrLocalhost("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
+				return err
+			}
+		}
 	}
 	if cfg.PublicURL != "" {
 		if err := validateHTTPOrigin("OMNARA_PUBLIC_URL", cfg.PublicURL); err != nil {

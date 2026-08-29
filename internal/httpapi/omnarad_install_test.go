@@ -18,12 +18,12 @@ import (
 
 func TestOmnaradInstallRoute(t *testing.T) {
 	releaseURL := "https://releases.omnara.test/omnarad/latest"
-	apiURL := "https://app.omnara.test"
-	server := mustNewUnitServer(t, WithDaemonReleaseURL(releaseURL), WithPublicURL(apiURL))
+	apiURL := "https://api.omnara.test/v1"
+	server := mustNewUnitServer(t, WithDaemonReleaseURL(releaseURL), WithPublicAPIURL(apiURL))
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(
 		recorder,
-		httptest.NewRequest(http.MethodGet, apiURL+omnaradInstallPath, nil),
+		httptest.NewRequest(http.MethodGet, "https://app.omnara.test"+omnaradInstallPath, nil),
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("installer status = %d, want %d", recorder.Code, http.StatusOK)
@@ -41,7 +41,7 @@ func TestOmnaradInstallRoute(t *testing.T) {
 	if !strings.Contains(body, "default_release_url='"+releaseURL+"'") {
 		t.Fatal("installer does not contain the configured release URL")
 	}
-	if !strings.Contains(body, "default_api_url='"+apiURL+"/api/v1'") {
+	if !strings.Contains(body, "default_api_url='"+apiURL+"'") {
 		t.Fatal("installer does not contain the configured API URL")
 	}
 	if !strings.Contains(body, `install --release-manifest-url "$release_manifest_url"`) {

@@ -40,7 +40,7 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	}
 	machineProvider, err := (Definition{}).NewProvider(
 		config,
-		providers.RuntimeConfig{PublicURL: omnaraPublicURL, ProviderAuthToken: token},
+		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{APIURL: omnaraPublicURL + "/api/v1", InstallerURL: omnaraPublicURL + "/install/omnarad.sh"}, ProviderAuthToken: token},
 	)
 	if err != nil {
 		t.Fatalf("new live daytona provider: %v", err)

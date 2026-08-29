@@ -5,7 +5,6 @@ import {
   DEFAULT_ISSUER_URL,
   migrateLegacyBaseUrl,
   resolveUrls,
-  selfHostedApiUrl,
 } from './config.ts'
 
 describe('resolveUrls', () => {
@@ -22,14 +21,21 @@ describe('resolveUrls', () => {
     ).toEqual({ apiUrl: 'https://env.example/api/v1', issuerUrl: 'https://env.example' })
   })
 
-  it('derives the API root from a self-hosted issuer when api_url is not set', () => {
-    expect(resolveUrls({ issuer_url: 'https://self-hosted.example/' }, {})).toEqual({
-      apiUrl: 'https://self-hosted.example/api/v1',
-      issuerUrl: 'https://self-hosted.example/',
+  it('keeps the hosted API root when only the issuer is overridden', () => {
+    expect(resolveUrls({ issuer_url: 'https://self-hosted.example' }, {})).toEqual({
+      apiUrl: DEFAULT_API_URL,
+      issuerUrl: 'https://self-hosted.example',
     })
     expect(resolveUrls({}, { OMNARA_ISSUER_URL: 'https://self-hosted.example' })).toEqual({
-      apiUrl: 'https://self-hosted.example/api/v1',
+      apiUrl: DEFAULT_API_URL,
       issuerUrl: 'https://self-hosted.example',
+    })
+  })
+
+  it('keeps the hosted issuer when only the API root is overridden', () => {
+    expect(resolveUrls({ api_url: 'https://self-hosted.example/api/v1' }, {})).toEqual({
+      apiUrl: 'https://self-hosted.example/api/v1',
+      issuerUrl: DEFAULT_ISSUER_URL,
     })
   })
 
@@ -46,15 +52,6 @@ describe('resolveUrls', () => {
       apiUrl: 'https://api.self-hosted.example/v1',
       issuerUrl: 'https://self-hosted.example',
     })
-  })
-})
-
-describe('selfHostedApiUrl', () => {
-  it('appends the /api/v1 mount to the origin', () => {
-    expect(selfHostedApiUrl('https://self-hosted.example')).toBe(
-      'https://self-hosted.example/api/v1',
-    )
-    expect(selfHostedApiUrl('http://localhost:8080/')).toBe('http://localhost:8080/api/v1')
   })
 })
 
