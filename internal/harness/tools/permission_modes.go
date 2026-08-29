@@ -431,6 +431,39 @@ func uploadArtifactPermissionChallenge(
 	)
 }
 
+func downloadArtifactPermissionChallenge(
+	ctx context.Context,
+	executor Executor,
+	turn Turn,
+	call model.ToolCall,
+	mode permissionModeContext,
+) (toolpermission.Request, error) {
+	resolved, err := resolveDownloadArtifactRequest(call.Input)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	binding, err := executor.ResolveMachineExecutionTarget(ctx, turn, resolved.MachineRef)
+	if err != nil {
+		return toolpermission.Request{}, executor.machinePreparationError(err)
+	}
+	authorizationInput, err := downloadArtifactAuthorizationInput(
+		binding.ID,
+		resolved.ArtifactID,
+		resolved.Path,
+	)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(
+		call,
+		mode,
+		authorizationInput,
+		interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID},
+		interactionform.ContextItem{Label: "Destination", Value: resolved.Path},
+		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
+	)
+}
+
 func (e Executor) machinePreparationError(cause error) error {
 	unavailable, err := machineUnavailableToolResult(cause)
 	if err != nil {

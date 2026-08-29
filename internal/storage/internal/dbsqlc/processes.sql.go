@@ -517,8 +517,10 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 	return i, err
 }
 
-const getDaemonArtifactUploadScope = `-- name: GetDaemonArtifactUploadScope :one
-SELECT process.project_id, process.agent_id
+const getDaemonArtifactProcessScope = `-- name: GetDaemonArtifactProcessScope :one
+SELECT process.project_id,
+       process.agent_id,
+       COALESCE(tool_call.input->>'artifact_id', '')::text AS artifact_id
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -528,24 +530,31 @@ WHERE process.org_id = $1
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
   AND tool_call.type = 'built_in'
-  AND tool_call.name = 'upload_artifact'
+  AND tool_call.name = $4
 `
 
-type GetDaemonArtifactUploadScopeParams struct {
+type GetDaemonArtifactProcessScopeParams struct {
 	OrgID      uuid.UUID
 	MachineID  uuid.UUID
 	ToolCallID uuid.UUID
+	ToolName   string
 }
 
-type GetDaemonArtifactUploadScopeRow struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
+type GetDaemonArtifactProcessScopeRow struct {
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ArtifactID string
 }
 
-func (q *Queries) GetDaemonArtifactUploadScope(ctx context.Context, arg GetDaemonArtifactUploadScopeParams) (GetDaemonArtifactUploadScopeRow, error) {
-	row := q.db.QueryRow(ctx, getDaemonArtifactUploadScope, arg.OrgID, arg.MachineID, arg.ToolCallID)
-	var i GetDaemonArtifactUploadScopeRow
-	err := row.Scan(&i.ProjectID, &i.AgentID)
+func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaemonArtifactProcessScopeParams) (GetDaemonArtifactProcessScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonArtifactProcessScope,
+		arg.OrgID,
+		arg.MachineID,
+		arg.ToolCallID,
+		arg.ToolName,
+	)
+	var i GetDaemonArtifactProcessScopeRow
+	err := row.Scan(&i.ProjectID, &i.AgentID, &i.ArtifactID)
 	return i, err
 }
 

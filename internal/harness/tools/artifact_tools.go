@@ -32,6 +32,24 @@ type uploadArtifactAuthorization struct {
 	Path                  string `json:"path"`
 }
 
+type downloadArtifactRequest struct {
+	ArtifactID string          `json:"artifact_id"`
+	Path       string          `json:"path"`
+	MachineRef json.RawMessage `json:"machine_ref,omitempty"`
+}
+
+type resolvedDownloadArtifactRequest struct {
+	ArtifactID string
+	Path       string
+	MachineRef string
+}
+
+type downloadArtifactAuthorization struct {
+	AgentMachineBindingID string `json:"agent_machine_binding_id"`
+	ArtifactID            string `json:"artifact_id"`
+	Path                  string `json:"path"`
+}
+
 func validateUploadArtifactInput(input json.RawMessage) error {
 	_, err := resolveUploadArtifactRequest(input)
 	return err
@@ -72,6 +90,60 @@ func uploadArtifactAuthorizationInput(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal upload_artifact authorization: %w", err)
+	}
+	return input, nil
+}
+
+func validateDownloadArtifactInput(input json.RawMessage) error {
+	_, err := resolveDownloadArtifactRequest(input)
+	return err
+}
+
+func resolveDownloadArtifactRequest(raw json.RawMessage) (resolvedDownloadArtifactRequest, error) {
+	var input downloadArtifactRequest
+	if err := decodeSingleStrictJSON(raw, &input, "download_artifact request"); err != nil {
+		return resolvedDownloadArtifactRequest{}, fmt.Errorf("parse download_artifact request: %w", err)
+	}
+	artifactID := input.ArtifactID
+	if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
+		return resolvedDownloadArtifactRequest{}, errors.New("artifact_id must be a valid artifact ID")
+	}
+	if input.Path == "" {
+		return resolvedDownloadArtifactRequest{}, errors.New("path is required")
+	}
+	if strings.Contains(input.Path, "\x00") {
+		return resolvedDownloadArtifactRequest{}, errors.New("path cannot contain NUL")
+	}
+	machineRef := ""
+	if len(input.MachineRef) > 0 {
+		var rawMachineRef *string
+		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
+			return resolvedDownloadArtifactRequest{}, fmt.Errorf("parse machine_ref: %w", err)
+		}
+		if rawMachineRef == nil {
+			return resolvedDownloadArtifactRequest{}, errors.New("machine_ref cannot be null")
+		}
+		machineRef = strings.TrimSpace(*rawMachineRef)
+	}
+	return resolvedDownloadArtifactRequest{
+		ArtifactID: artifactID,
+		Path:       input.Path,
+		MachineRef: machineRef,
+	}, nil
+}
+
+func downloadArtifactAuthorizationInput(
+	bindingID storage.ID,
+	artifactID string,
+	path string,
+) (json.RawMessage, error) {
+	input, err := marshalJSON(downloadArtifactAuthorization{
+		AgentMachineBindingID: bindingID.String(),
+		ArtifactID:            artifactID,
+		Path:                  path,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal download_artifact authorization: %w", err)
 	}
 	return input, nil
 }
@@ -121,5 +193,59 @@ func uploadArtifactProcessInput(
 		ShellSelector:  processcmd.ShellDefault,
 		InitialWaitMS:  processaction.MaxWaitMilliseconds,
 		TimeoutSeconds: uploadArtifactProcessTimeoutSeconds,
+	}
+}
+
+func runDownloadArtifact(
+	ctx context.Context,
+	call transactionalToolContext,
+) (transactionalPhaseResult, error) {
+	resolved, err := resolveDownloadArtifactRequest(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	binding, err := resolveMachineExecutionTargetForToolCall(ctx, call.Reader, resolved.MachineRef)
+	if err != nil {
+		return processToolMachineResolutionError(err)
+	}
+	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
+	if err != nil {
+		return nil, fmt.Errorf("encode tool call id: %w", err)
+	}
+	authorizationInput, err := downloadArtifactAuthorizationInput(
+		binding.ID,
+		resolved.ArtifactID,
+		resolved.Path,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return startProcessTool(
+		ctx,
+		call,
+		binding,
+		authorizationInput,
+		downloadArtifactProcessInput(toolCallID, resolved.ArtifactID, resolved.Path),
+	)
+}
+
+func downloadArtifactProcessInput(
+	toolCallID string,
+	artifactID string,
+	path string,
+) executionstore.CreateProcessInput {
+	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
+	command := fmt.Sprintf(
+		`"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact %s %s %s`,
+		toolCallID,
+		artifactID,
+		encodedPath,
+	)
+	return executionstore.CreateProcessInput{
+		IOMode:         processcmd.IOModePipe,
+		Command:        command,
+		ShellSelector:  processcmd.ShellDefault,
+		InitialWaitMS:  processaction.MaxWaitMilliseconds,
+		TimeoutSeconds: 0,
 	}
 }

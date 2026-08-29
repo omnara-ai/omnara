@@ -9,6 +9,7 @@ export const recommendedMachineToolNames = [
   'list_machines',
   'inspect_machine',
   'upload_artifact',
+  'download_artifact',
 ] as const
 
 interface MachineSourceSelection {

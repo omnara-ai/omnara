@@ -75,15 +75,23 @@ func (s strictOpenAPIServer) getArtifactContent(
 		}
 		return nil, apierror.ProjectScoped(err)
 	}
-	return getArtifactContent200Response{content: content, artifact: artifact}, nil
+	return artifactContentResponse{content: content, artifact: artifact}, nil
 }
 
-type getArtifactContent200Response struct {
+type artifactContentResponse struct {
 	content  []byte
 	artifact artifactstore.ArtifactRecord
 }
 
-func (response getArtifactContent200Response) VisitGetArtifactContentResponse(w http.ResponseWriter) error {
+func (response artifactContentResponse) VisitGetArtifactContentResponse(w http.ResponseWriter) error {
+	return response.write(w)
+}
+
+func (response artifactContentResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
+	return response.write(w)
+}
+
+func (response artifactContentResponse) write(w http.ResponseWriter) error {
 	contentType := response.artifact.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"

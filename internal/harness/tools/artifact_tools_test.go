@@ -121,3 +121,92 @@ func TestUploadArtifactProcessInput(t *testing.T) {
 		t.Fatalf("upload process input = %+v, want command %q", input, wantCommand)
 	}
 }
+
+func TestResolveDownloadArtifactRequest(t *testing.T) {
+	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+	if err != nil {
+		t.Fatalf("encode artifact id: %v", err)
+	}
+	resolved, err := resolveDownloadArtifactRequest(json.RawMessage(
+		`{"artifact_id":"` + artifactID + `","path":"downloads/report.pdf","machine_ref":"  mchr_machine1  "}`,
+	))
+	if err != nil {
+		t.Fatalf("resolve download_artifact: %v", err)
+	}
+	if resolved.ArtifactID != artifactID || resolved.Path != "downloads/report.pdf" ||
+		resolved.MachineRef != "mchr_machine1" {
+		t.Fatalf("resolved download_artifact = %+v", resolved)
+	}
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "invalid artifact id", raw: `{"artifact_id":"not-an-artifact","path":"a"}`, want: "valid artifact ID"},
+		{name: "empty path", raw: `{"artifact_id":"` + artifactID + `","path":""}`, want: "path is required"},
+		{
+			name: "nul path",
+			raw:  `{"artifact_id":"` + artifactID + `","path":"bad\u0000path"}`,
+			want: "path cannot contain NUL",
+		},
+		{
+			name: "null machine ref",
+			raw:  `{"artifact_id":"` + artifactID + `","path":"a","machine_ref":null}`,
+			want: "machine_ref cannot be null",
+		},
+		{name: "unknown field", raw: `{"artifact_id":"` + artifactID + `","path":"a","extra":true}`, want: "unknown field"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := resolveDownloadArtifactRequest(json.RawMessage(test.raw))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDownloadArtifactAuthorizationPinsBindingArtifactAndPath(t *testing.T) {
+	bindingID := uuid.New()
+	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+	if err != nil {
+		t.Fatalf("encode artifact id: %v", err)
+	}
+	raw, err := downloadArtifactAuthorizationInput(bindingID, artifactID, "downloads/report.pdf")
+	if err != nil {
+		t.Fatalf("build download authorization: %v", err)
+	}
+	var authorization downloadArtifactAuthorization
+	if err := json.Unmarshal(raw, &authorization); err != nil {
+		t.Fatalf("decode download authorization: %v", err)
+	}
+	if authorization.AgentMachineBindingID != bindingID.String() ||
+		authorization.ArtifactID != artifactID || authorization.Path != "downloads/report.pdf" {
+		t.Fatalf("download authorization = %+v", authorization)
+	}
+}
+
+func TestDownloadArtifactProcessInput(t *testing.T) {
+	toolCallID, err := publicid.Encode(publicid.KindToolCall, uuid.New())
+	if err != nil {
+		t.Fatalf("encode tool call id: %v", err)
+	}
+	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+	if err != nil {
+		t.Fatalf("encode artifact id: %v", err)
+	}
+	path := "downloads/a file.pdf"
+	input := downloadArtifactProcessInput(toolCallID, artifactID, path)
+	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
+	wantCommand := `"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact ` +
+		toolCallID + " " + artifactID + " " + encodedPath
+	if input.Command != wantCommand ||
+		input.ShellSelector != processcmd.ShellDefault ||
+		input.IOMode != processcmd.IOModePipe ||
+		input.Cwd != "" ||
+		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
+		input.TimeoutSeconds != 0 {
+		t.Fatalf("download process input = %+v, want command %q", input, wantCommand)
+	}
+}

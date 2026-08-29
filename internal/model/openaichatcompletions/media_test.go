@@ -14,6 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
+func mediaTestPublicID(id string) string {
+	return modelcontext.ArtifactPublicID(id)
+}
+
 func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	resolved := mediaTestResolved()
@@ -52,14 +56,16 @@ func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 		t.Fatalf("unexpected messages: %s", prepared.Body)
 	}
 	content := payload.Messages[0].Content
-	if len(content) != 3 || content[0].Type != "text" || content[1].Type != "image_url" || content[2].Type != "text" {
+	if len(content) != 4 || content[0].Type != "text" || content[1].Type != "text" ||
+		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		content[2].Type != "image_url" || content[3].Type != "text" {
 		t.Fatalf("unexpected content layout: %s", prepared.Body)
 	}
-	if content[1].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
-		t.Fatalf("unexpected image URL: %+v", content[1].ImageURL)
+	if content[2].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
+		t.Fatalf("unexpected image URL: %+v", content[2].ImageURL)
 	}
-	if !strings.Contains(content[2].Text, mediaTestDocumentID) {
-		t.Fatalf("document fallback lost media ref: %+v", content[2])
+	if !strings.Contains(content[3].Text, mediaTestPublicID(mediaTestDocumentID)) {
+		t.Fatalf("document fallback lost media ref: %+v", content[3])
 	}
 	if prepared.InputTokenEstimate < 25_000 || prepared.InputTokenEstimate >= 30_000 {
 		t.Fatalf("prepared estimate = %d, want image charge without PDF fallback bytes", prepared.InputTokenEstimate)
@@ -81,7 +87,7 @@ func TestPrepareKeepsUnresolvedMediaAsText(t *testing.T) {
 	if strings.Contains(body, "image_url") {
 		t.Fatalf("unresolved media must not render as image_url: %s", prepared.Body)
 	}
-	if !strings.Contains(body, mediaTestImageID) {
+	if !strings.Contains(body, mediaTestPublicID(mediaTestImageID)) {
 		t.Fatalf("unresolved media ref missing textual fallback: %s", prepared.Body)
 	}
 }
@@ -98,7 +104,7 @@ func TestPrepareKeepsAssistantMediaReferenceWhenSwitchingFormats(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	body := string(prepared.Body)
-	if !strings.Contains(body, mediaTestImageID) {
+	if !strings.Contains(body, mediaTestPublicID(mediaTestImageID)) {
 		t.Fatalf("assistant media reference was lost during canonical format conversion: %s", prepared.Body)
 	}
 	if strings.Contains(body, "provider_item_id") {
@@ -116,7 +122,7 @@ func TestToolResultPreservesResolvedImageAsTextualReference(t *testing.T) {
 		Name:         "inspect_image",
 		ContentParts: content,
 	})
-	if !strings.Contains(got, "before image") || !strings.Contains(got, mediaTestImageID) ||
+	if !strings.Contains(got, "before image") || !strings.Contains(got, mediaTestPublicID(mediaTestImageID)) ||
 		!strings.Contains(got, "after image") {
 		t.Fatalf("resolved image tool result lost content: %q", got)
 	}

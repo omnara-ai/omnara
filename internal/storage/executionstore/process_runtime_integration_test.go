@@ -1169,7 +1169,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	}
 }
 
-func TestUploadArtifactPublishesMediaRefWithoutParsingTerminalOutput(t *testing.T) {
+func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		createArtifact bool
@@ -1304,15 +1304,17 @@ func TestUploadArtifactPublishesMediaRefWithoutParsingTerminalOutput(t *testing.
 				toolCall.ID,
 			)
 			if test.createArtifact {
-				wantMediaRefContent := []byte(
-					`[{"type":"media_ref","artifact_id":"` + artifactID.String() +
+				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
+				wantContent := []byte(
+					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
+						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
-				if !sameJSON(toolCall.ResultContentParts, wantMediaRefContent) {
+				if !sameJSON(toolCall.ResultContentParts, wantContent) {
 					t.Fatalf(
 						"GetToolCall content = %s, want %s",
 						toolCall.ResultContentParts,
-						wantMediaRefContent,
+						wantContent,
 					)
 				}
 				toolCallByProvider, found, err := fixture.Store.Execution().GetToolCallByProviderCall(
@@ -1325,16 +1327,20 @@ func TestUploadArtifactPublishesMediaRefWithoutParsingTerminalOutput(t *testing.
 				if err != nil {
 					t.Fatalf("get completed tool call by provider call: %v", err)
 				}
-				if !found || !sameJSON(toolCallByProvider.ResultContentParts, wantMediaRefContent) {
+				if !found || !sameJSON(toolCallByProvider.ResultContentParts, wantContent) {
 					t.Fatalf(
 						"GetToolCallByProviderCall content = %s, found=%t, want %s",
 						toolCallByProvider.ResultContentParts,
 						found,
-						wantMediaRefContent,
+						wantContent,
 					)
 				}
-				if result.Outcome != test.wantOutcome || !sameJSON(result.ResultContentParts, []byte(`[]`)) {
-					t.Fatalf("upload model result = %+v, want succeeded with no domain content", result)
+				wantModelContent := []byte(
+					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID + `"}}]`,
+				)
+				if result.Outcome != test.wantOutcome ||
+					!sameJSON(result.ResultContentParts, wantModelContent) {
+					t.Fatalf("upload model result = %+v, want %s", result, wantModelContent)
 				}
 				var blockKind string
 				var storedArtifactID uuid.UUID
@@ -1345,6 +1351,7 @@ FROM content_blocks block
 JOIN tool_call_results result ON result.agent_id = block.agent_id
   AND result.id = block.owner_tool_call_result_id
 WHERE result.agent_id = $1 AND result.tool_call_id = $2
+  AND block.block_kind = 'artifact'
 `, fixture.AgentID, toolCallID).Scan(
 					&blockKind,
 					&storedArtifactID,
@@ -1374,11 +1381,11 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				foundEvent := false
 				for _, event := range events {
 					if event.ToolCallID == toolCallID {
-						foundEvent = sameJSON(event.ContentBlocks, wantMediaRefContent)
+						foundEvent = sameJSON(event.ContentBlocks, wantContent)
 					}
 				}
 				if !foundEvent {
-					t.Fatalf("upload event missing content %s: %+v", wantMediaRefContent, events)
+					t.Fatalf("upload event missing content %s: %+v", wantContent, events)
 				}
 				compactionEvents, err := fixture.Store.Execution().ListCompactionSourceEvents(
 					ctx,
@@ -1394,11 +1401,11 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				for _, event := range compactionEvents {
 					if event.ToolName == "upload_artifact" &&
 						event.ToolOutcome == string(executionstore.ToolResultOutcomeSucceeded) {
-						foundCompactionResult = sameJSON(event.ContentParts, []byte(`[]`))
+						foundCompactionResult = sameJSON(event.ContentParts, wantModelContent)
 					}
 				}
 				if !foundCompactionResult {
-					t.Fatalf("upload artifact entered compaction context: %+v", compactionEvents)
+					t.Fatalf("upload artifact compaction result = %+v, want %s", compactionEvents, wantModelContent)
 				}
 			} else {
 				wantResult, err := json.Marshal([]map[string]any{{

@@ -13300,3 +13300,63 @@ export type UploadDaemonArtifactResponses = {
 };
 
 export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];
+
+export type DownloadDaemonArtifactData = {
+    body?: never;
+    path: {
+        toolCallID: ToolCallId;
+        artifactID: ArtifactId;
+    };
+    query?: never;
+    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content';
+};
+
+export type DownloadDaemonArtifactErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadDaemonArtifactError = DownloadDaemonArtifactErrors[keyof DownloadDaemonArtifactErrors];
+
+export type DownloadDaemonArtifactResponses = {
+    /**
+     * Artifact bytes, served with the artifact's stored content type.
+     */
+    200: Blob | File;
+};
+
+export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];

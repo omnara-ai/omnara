@@ -2866,6 +2866,32 @@ func createDaemonProcessFixtureWithToolCalls(
 	toolName string,
 	additionalToolCalls []model.ToolCall,
 ) daemonProcessFixture {
+	return createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now,
+		name,
+		toolName,
+		additionalToolCalls,
+		nil,
+	)
+}
+
+func createDaemonProcessFixtureWithToolInputBuilder(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	store *storage.Store,
+	project publicHTTPProject,
+	now time.Time,
+	name string,
+	toolName string,
+	additionalToolCalls []model.ToolCall,
+	primaryToolInputBuilder func(storage.ID) json.RawMessage,
+) daemonProcessFixture {
 	t.Helper()
 	_, err := storagetest.CreateVerifiedUser(
 		ctx,
@@ -2937,6 +2963,7 @@ func createDaemonProcessFixtureWithToolCalls(
 		toolName,
 		machine.DisplayName,
 		additionalToolCalls,
+		primaryToolInputBuilder,
 	)
 	process, err := storagetest.StartProcessForToolCall(
 		ctx,
@@ -2998,6 +3025,7 @@ func createHTTPProcessToolCall(
 		toolName,
 		machineName,
 		nil,
+		nil,
 	)
 	return agent, toolCall, lock, binding
 }
@@ -3012,6 +3040,7 @@ func createHTTPProcessToolCallBatch(
 	toolName string,
 	machineName string,
 	additionalToolCalls []model.ToolCall,
+	primaryToolInputBuilder func(storage.ID) json.RawMessage,
 ) (
 	executionstore.AgentRecord,
 	executionstore.ToolCallRecord,
@@ -3074,7 +3103,11 @@ func createHTTPProcessToolCallBatch(
 	)
 	modelContext := modelCall.Context
 	providerResponseID := "resp_" + name
-	primaryToolCall := model.ToolCall{ID: "call_" + name, Name: toolName, Input: json.RawMessage(`{}`)}
+	primaryToolInput := json.RawMessage(`{}`)
+	if primaryToolInputBuilder != nil {
+		primaryToolInput = primaryToolInputBuilder(agent.ID)
+	}
+	primaryToolCall := model.ToolCall{ID: "call_" + name, Name: toolName, Input: primaryToolInput}
 	responseToolCalls := append([]model.ToolCall{primaryToolCall}, additionalToolCalls...)
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
 		"http-test",

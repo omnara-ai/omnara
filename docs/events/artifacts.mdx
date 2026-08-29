@@ -12,9 +12,11 @@ The event log stays lightweight because it never embeds file bytes. When inline 
 
 In the dashboard, artifacts appear as downloadable cards or attachment chips on the conversation timeline; rendering your own timeline means resolving each `media_ref` with the two endpoints on this page.
 
+Model context identifies conversation attachments by their public `artifact_id`, allowing an agent with [`download_artifact`](/tools/built-in#download_artifact) to copy one to an attached machine.
+
 ## Artifacts uploaded by an agent
 
-A successful [`upload_artifact`](/tools/built-in#upload_artifact) result contains a `media_ref`. Read its `artifact_id` from the tool result, then use the metadata and content endpoints below to display or download the artifact.
+A successful [`upload_artifact`](/tools/built-in#upload_artifact) result contains the public `artifact_id` as structured data and a `media_ref` for presentation. Use the ID with the metadata and content endpoints below.
 
 The relevant fields in the resulting event look like this:
 
@@ -24,6 +26,12 @@ The relevant fields in the resulting event look like this:
   "tool_call_id": "tcl_wz3jehcyd5n6a2bfgik7mv4qtr",
   "outcome": "succeeded",
   "content_blocks": [
+    {
+      "type": "structured_data",
+      "value": {
+        "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw"
+      }
+    },
     {
       "type": "media_ref",
       "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw",
@@ -89,7 +97,7 @@ Full schema and playground: [Get artifact content](/api-reference/endpoints/even
 | --- | --- |
 | Inline `media` block on an [input](/events/sending-input#attach-files-and-images) | Persisted as an artifact; the stored event shows a `media_ref`. |
 | Inline `media` block on a [custom tool result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call) | Same conversion — submission accepts bytes, the timeline stores a reference. |
-| `upload_artifact` | The durable tool result stores a `media_ref`. |
+| `upload_artifact` | The durable tool result stores the artifact ID and a `media_ref`. |
 | Model output with media | The `model_output` event references it. |
 
 There's no general-purpose public endpoint for creating artifacts; they're created during agent interactions.

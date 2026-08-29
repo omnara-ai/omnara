@@ -6436,6 +6436,45 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+      - name: artifactID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ArtifactID'
+    get:
+      operationId: downloadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Download daemon artifact
+      security:
+        - machineDaemonAuth: []
+      responses:
+        '200':
+          description: Artifact bytes, served with the artifact's stored content type.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
