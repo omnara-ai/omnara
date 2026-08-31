@@ -3758,7 +3758,7 @@ paths:
             previews use `model_output_delta`, and stream-closing errors use
             `error`; none carries an SSE `id`, so reconnects resume from the
             last durable event. The response closes after every `error` frame.
-            Raw clients reconnect when its stable code is
+            Raw clients reconnect when the error's stable code is
             `service_unavailable` and treat other current codes as terminal.
             Heartbeats are SSE comments and carry no JSON payload.
           content:

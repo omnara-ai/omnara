@@ -11,11 +11,15 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/multitracer"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -33,6 +37,86 @@ type controlledAgentNotificationSubscriber struct {
 	eventCallbacks chan func(context.Context)
 	deltaCallbacks chan func(context.Context, json.RawMessage)
 	toolCallbacks  chan func(context.Context, notifications.ToolCallUpdatedCommitted)
+}
+
+type eventProjectionQueryCounter struct {
+	count atomic.Int64
+}
+
+func (c *eventProjectionQueryCounter) TraceQueryStart(
+	ctx context.Context,
+	_ *pgx.Conn,
+	data pgx.TraceQueryStartData,
+) context.Context {
+	if strings.HasPrefix(data.SQL, "-- name: ListAgentEventsForRead :many") {
+		c.count.Add(1)
+	}
+	return ctx
+}
+
+func (*eventProjectionQueryCounter) TraceQueryEnd(
+	context.Context,
+	*pgx.Conn,
+	pgx.TraceQueryEndData,
+) {
+}
+
+func poolWithQueryTracer(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	tracer pgx.QueryTracer,
+) *pgxpool.Pool {
+	t.Helper()
+	config := pool.Config()
+	config.ConnConfig.Tracer = multitracer.New(config.ConnConfig.Tracer, tracer)
+	tracedPool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open traced integration database: %v", err)
+	}
+	t.Cleanup(tracedPool.Close)
+	return tracedPool
+}
+
+func withAgentEventReconciliationInterval(interval time.Duration) Option {
+	return func(server *Server) {
+		server.agentEventReconciliationInterval = interval
+	}
+}
+
+type droppingAgentEventWakeupPublisher struct {
+	attempts chan uuid.UUID
+}
+
+func (p *droppingAgentEventWakeupPublisher) PublishAgentEventWakeup(
+	ctx context.Context,
+	agentID uuid.UUID,
+) error {
+	select {
+	case p.attempts <- agentID:
+		return errors.New("simulated dropped agent event wakeup")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func waitForAgentEventWakeupAttempt(
+	t *testing.T,
+	ctx context.Context,
+	attempts <-chan uuid.UUID,
+	wantAgentID uuid.UUID,
+) {
+	t.Helper()
+	for {
+		select {
+		case agentID := <-attempts:
+			if agentID == wantAgentID {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatalf("wait for dropped agent event wakeup: %v", ctx.Err())
+		}
+	}
 }
 
 func (s *controlledAgentNotificationSubscriber) SubscribeAgentEventWakeups(
@@ -65,7 +149,9 @@ func (s *controlledAgentNotificationSubscriber) SubscribeAgentToolCallUpdates(
 func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 	t.Parallel()
 	setupCtx := context.Background()
-	pool := openIntegrationDB(t, setupCtx)
+	basePool := openIntegrationDB(t, setupCtx)
+	queryCounter := &eventProjectionQueryCounter{}
+	pool := poolWithQueryTracer(t, setupCtx, basePool, queryCounter)
 	store := newIntegrationStore(pool)
 	timer := clock.NewMock()
 	subscriber := &controlledAgentNotificationSubscriber{
@@ -80,6 +166,7 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 		WithAgentEventWakeupSubscriber(subscriber),
 		WithAgentStreamDeltaSubscriber(subscriber),
 		WithAgentToolCallUpdateSubscriber(subscriber),
+		withAgentEventReconciliationInterval(time.Hour),
 	)
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "sse-heartbeat")
@@ -166,6 +253,13 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("wait for heartbeat: %v", ctx.Err())
 	}
+	projectionQueriesAfterInitialDrain := queryCounter.count.Load()
+	if projectionQueriesAfterInitialDrain != 1 {
+		t.Fatalf(
+			"initial event projection queries=%d, want 1",
+			projectionQueriesAfterInitialDrain,
+		)
+	}
 
 	requestJSONWithHeaders(
 		t,
@@ -240,6 +334,13 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 			t.Fatalf("wait for heartbeat %d: %v", heartbeatNumber, ctx.Err())
 		}
 	}
+	if got := queryCounter.count.Load(); got != projectionQueriesAfterInitialDrain {
+		t.Fatalf(
+			"event projection queries after tool update, delta, and heartbeats=%d, want %d",
+			got,
+			projectionQueriesAfterInitialDrain,
+		)
+	}
 	wakeup(ctx)
 	sawID := false
 	for {
@@ -254,12 +355,166 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 			}
 			if sawID && strings.HasPrefix(result.line, "data: ") &&
 				strings.Contains(result.line, "found after durable wakeup") {
+				if got := queryCounter.count.Load(); got != projectionQueriesAfterInitialDrain+1 {
+					t.Fatalf(
+						"event projection queries after durable wakeup=%d, want %d",
+						got,
+						projectionQueriesAfterInitialDrain+1,
+					)
+				}
 				return
 			}
 		case <-ctx.Done():
 			t.Fatalf("wakeup did not deliver durable event %d: %v", wantSequence, ctx.Err())
 		}
 	}
+}
+
+func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := openIntegrationDB(t, ctx)
+
+	redisClient := integrationredis.OpenClient(t)
+	bus, err := notifications.NewRedisBus(redisClient, nil)
+	if err != nil {
+		t.Fatalf("create redis bus: %v", err)
+	}
+	presence, err := notifications.NewRedisPresenceStore(redisClient)
+	if err != nil {
+		t.Fatalf("create presence store: %v", err)
+	}
+	droppedWakeups := &droppingAgentEventWakeupPublisher{attempts: make(chan uuid.UUID, 8)}
+	publisher, err := notifications.NewRoutedPublisher(
+		notifications.RoutedPublisherPorts{
+			DaemonWakeups:     bus,
+			AgentEventWakeups: droppedWakeups,
+			ToolCallUpdates:   bus,
+			WorkerControls:    bus,
+		},
+		presence,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create routed publisher: %v", err)
+	}
+	t.Cleanup(publisher.Close)
+
+	timer := clock.NewMock()
+	keyWrapper := integrationKeyWrapper()
+	store := storage.NewStore(
+		pool,
+		storage.WithSecretKeyWrapper(keyWrapper),
+		storage.WithPostCommitPublisher(publisher),
+	)
+	server := mustNewServer(
+		t,
+		store,
+		WithSecretKeyWrapper(keyWrapper),
+		WithTimer(timer),
+		WithAgentEventWakeupSubscriber(bus),
+		WithAgentToolCallUpdateSubscriber(bus),
+		WithAgentStreamDeltaSubscriber(bus),
+		withAgentEventReconciliationInterval(time.Hour),
+	)
+	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
+	project := bootstrapPublicHTTPProject(t, handler, "sse-dropped-wakeup")
+	launch := launchPublicHTTPAgent(
+		t,
+		handler,
+		project,
+		"sse-dropped-wakeup",
+		project.AdminToken,
+		http.StatusCreated,
+	)
+	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
+	if err != nil {
+		t.Fatalf("decode agent id: %v", err)
+	}
+	waitForAgentEventWakeupAttempt(t, ctx, droppedWakeups.attempts, agentID)
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		httpServer.URL+project.ProjectPath+"/agents/"+agentPublicID+"/events/stream",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("build sse request: %v", err)
+	}
+	for key, value := range authHeaders(project.AdminToken) {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Last-Event-ID", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("sse request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sse status=%d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	if !scanner.Scan() || scanner.Text() != ": ok" {
+		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
+	}
+	timer.Add(agentEventStreamHeartbeatInterval)
+	if !scanner.Scan() || scanner.Text() != "" ||
+		!scanner.Scan() || scanner.Text() != ": heartbeat" {
+		t.Fatalf("sse stream missing initial heartbeat: %q", scanner.Text())
+	}
+
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents/"+agentPublicID+"/inputs",
+		`{"content_blocks":[{"type":"text","text":"recovered without redis"}]}`,
+		"idem-sse-dropped-wakeup",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	if err != nil {
+		t.Fatalf("claim agent work: %v", err)
+	}
+	if !found || len(claim.Model.AdmittedInputTurn.Events) != 1 {
+		t.Fatalf("claim did not admit dropped-wakeup input: found=%v claim=%+v", found, claim)
+	}
+	wantSequence := claim.Model.AdmittedInputTurn.Events[0].Sequence
+	waitForAgentEventWakeupAttempt(t, ctx, droppedWakeups.attempts, agentID)
+
+	timer.Add(agentEventStreamHeartbeatInterval)
+	if !scanner.Scan() || scanner.Text() != "" ||
+		!scanner.Scan() || scanner.Text() != ": heartbeat" {
+		t.Fatalf("same SSE connection did not remain idle and open: %q", scanner.Text())
+	}
+	if err := server.agentEventStreamReconciler.reconcile(ctx); err != nil {
+		t.Fatalf("reconcile event stream: %v", err)
+	}
+
+	sawID := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "id: "+strconv.FormatInt(wantSequence, 10) {
+			sawID = true
+			continue
+		}
+		if sawID && strings.HasPrefix(line, "data: ") &&
+			strings.Contains(line, "recovered without redis") {
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read reconciled SSE event: %v", err)
+	}
+	t.Fatalf("reconciliation did not deliver durable event %d", wantSequence)
 }
 
 func TestPublicAuthenticatedInputFlow(t *testing.T) {

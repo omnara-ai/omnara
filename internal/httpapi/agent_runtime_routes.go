@@ -776,6 +776,23 @@ func (s *Server) streamAgentEvents(
 		}
 		defer func() { _ = streamSubscription.Unsubscribe() }()
 	}
+	if s.agentEventStreamReconciler == nil {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
+	}
+	reconciliation, ok := s.agentEventStreamReconciler.register(agent.ID, after, notify)
+	if !ok {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
+	}
+	defer reconciliation.unregister()
+	streamCtx, cancelStream := context.WithCancel(r.Context())
+	//nolint:contextcheck // server shutdown must also cancel this request-derived stream context
+	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), cancelStream)
+	defer func() {
+		stopCloseWatch()
+		cancelStream()
+	}()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
@@ -788,8 +805,16 @@ func (s *Server) streamAgentEvents(
 	flusher.Flush()
 	completedModelCallContexts := map[string]struct{}{}
 	for {
-		records, err := s.store.Execution().ListAgentEventsForRead(r.Context(), project.ID, agent.ID, after, 100)
+		select {
+		case <-streamCtx.Done():
+			return
+		default:
+		}
+		records, err := s.store.Execution().ListAgentEventsForRead(streamCtx, project.ID, agent.ID, after, 100)
 		if err != nil {
+			if streamCtx.Err() != nil {
+				return
+			}
 			if !writeSSEJSONFrame(
 				w,
 				"error",
@@ -834,6 +859,7 @@ func (s *Server) streamAgentEvents(
 				completedModelCallContexts[contextID] = struct{}{}
 			}
 			after = record.Sequence
+			reconciliation.advance(after)
 			flusher.Flush()
 		}
 		if len(records) == 100 {
@@ -849,7 +875,7 @@ func (s *Server) streamAgentEvents(
 			default:
 			}
 			select {
-			case <-r.Context().Done():
+			case <-streamCtx.Done():
 				return
 			case <-notify:
 				break waitForDurableWakeup

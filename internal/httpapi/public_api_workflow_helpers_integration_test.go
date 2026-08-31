@@ -344,6 +344,7 @@ func mustNewServer(t testing.TB, store *storage.Store, opts ...Option) *Server {
 	if err != nil {
 		t.Fatalf("create http api server: %v", err)
 	}
+	t.Cleanup(server.Close)
 	return server
 }
 

@@ -3696,7 +3696,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when its stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 
