@@ -20,7 +20,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		)
 	}
 	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
-		if occurrence.MessageRole != modelprotocol.RoleUser ||
+		if (occurrence.MessageRole != modelprotocol.RoleUser && !occurrence.IsToolResult()) ||
 			occurrence.Media.Kind != modelcontext.AttachmentKindImage {
 			continue
 		}
@@ -113,8 +113,43 @@ func chatImagePart(resolved modelcontext.ResolvedMedia) (map[string]any, bool) {
 	return map[string]any{"type": "image_url", "image_url": map[string]string{"url": dataURL}}, true
 }
 
-func toolResultOutput(result modelcontext.ToolResultRef) string {
-	return textContentFromParts(result.ContentParts, nil)
+func toolResultOutput(
+	result modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
+) string {
+	return textContentFromParts(result.ContentParts, media)
+}
+
+func toolResultMediaContent(
+	result modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
+) []any {
+	var parts []map[string]json.RawMessage
+	if err := json.Unmarshal(result.ContentParts, &parts); err != nil {
+		return nil
+	}
+	var blocks []any
+	for _, part := range parts {
+		if jsonFieldText(part["type"]) != "media_ref" {
+			continue
+		}
+		artifactID := jsonFieldText(part["artifact_id"])
+		resolved, ok := media[artifactID]
+		if !ok {
+			continue
+		}
+		block, ok := chatImagePart(resolved)
+		if !ok {
+			continue
+		}
+		blocks = append(blocks, map[string]any{
+			"type": "text",
+			"text": "Attachment returned by tool " + result.Name + ". artifact_id: " +
+				modelcontext.ArtifactPublicID(artifactID),
+		})
+		blocks = append(blocks, block)
+	}
+	return blocks
 }
 
 func textContentFromParts(

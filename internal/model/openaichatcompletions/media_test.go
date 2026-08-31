@@ -112,7 +112,24 @@ func TestPrepareKeepsAssistantMediaReferenceWhenSwitchingFormats(t *testing.T) {
 	}
 }
 
-func TestToolResultPreservesResolvedImageAsTextualReference(t *testing.T) {
+func TestProjectRenderedMediaIncludesToolResultImages(t *testing.T) {
+	client := Client{ProviderModelSlug: "gpt-test"}
+	rendered := client.ProjectRenderedMedia(modelcontext.Bundle{
+		ToolResults: []modelcontext.ToolResultRef{{
+			Name:                "inspect_image",
+			SourceEventSequence: 1,
+			ContentParts: json.RawMessage(
+				`[{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"}]`,
+			),
+		}},
+		ResolvedMedia: mediaTestResolved(),
+	})
+	if len(rendered) != 1 || rendered[0].Media.ArtifactID != mediaTestImageID {
+		t.Fatalf("rendered media = %+v, want tool-result image", rendered)
+	}
+}
+
+func TestToolResultOutputOmitsResolvedImageFromText(t *testing.T) {
 	content := json.RawMessage(`[
 		{"type":"text","text":"before image"},
 		{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"},
@@ -121,13 +138,90 @@ func TestToolResultPreservesResolvedImageAsTextualReference(t *testing.T) {
 	got := toolResultOutput(modelcontext.ToolResultRef{
 		Name:         "inspect_image",
 		ContentParts: content,
-	})
-	if !strings.Contains(got, "before image") || !strings.Contains(got, mediaTestPublicID(mediaTestImageID)) ||
-		!strings.Contains(got, "after image") {
+	}, mediaTestResolved())
+	if !strings.Contains(got, "before image") || !strings.Contains(got, "after image") {
 		t.Fatalf("resolved image tool result lost content: %q", got)
 	}
-	if strings.Contains(got, mediaTestImageData) {
-		t.Fatalf("text-only tool result unexpectedly inlined image bytes: %q", got)
+	if strings.Contains(got, mediaTestPublicID(mediaTestImageID)) || strings.Contains(got, mediaTestImageData) {
+		t.Fatalf("resolved image leaked into text-only tool result: %q", got)
+	}
+}
+
+func TestPrepareAddsToolResultImageAfterAllToolMessages(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "gpt-test",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{
+				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"capture"}]`)},
+				messageAtSequence(assistantToolCallMessage("mcc_1", "tcl_text", "tcl_image"), 2),
+			},
+			ToolResults: []modelcontext.ToolResultRef{
+				{
+					ToolCallID:         "tcl_text",
+					ModelCallContextID: "mcc_1",
+					ProviderCallID:     "call_text",
+					Name:               "read_status",
+					Input:              json.RawMessage(`{}`),
+					ContentParts:       json.RawMessage(`[{"type":"text","text":"ready"}]`),
+				},
+				{
+					ToolCallID:         "tcl_image",
+					ModelCallContextID: "mcc_1",
+					ProviderCallID:     "call_image",
+					Name:               "screenshot",
+					Input:              json.RawMessage(`{}`),
+					ContentParts: json.RawMessage(`[
+						{"type":"structured_data","value":{"outcome":"succeeded"}},
+						{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"}
+					]`),
+				},
+			},
+			ResolvedMedia: mediaTestResolved(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		Messages []struct {
+			Role       string          `json:"role"`
+			Content    json.RawMessage `json:"content"`
+			ToolCallID string          `json:"tool_call_id"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if len(payload.Messages) != 5 ||
+		payload.Messages[2].Role != string(chatRoleTool) ||
+		payload.Messages[2].ToolCallID != "call_text" ||
+		payload.Messages[3].Role != string(chatRoleTool) ||
+		payload.Messages[3].ToolCallID != "call_image" ||
+		payload.Messages[4].Role != string(chatRoleUser) {
+		t.Fatalf("tool-result image message ordering is wrong: %s", prepared.Body)
+	}
+	if string(payload.Messages[3].Content) != `"{\"outcome\":\"succeeded\"}"` {
+		t.Fatalf("image tool result text = %s, want succeeded outcome", payload.Messages[3].Content)
+	}
+	var content []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+	}
+	if err := json.Unmarshal(payload.Messages[4].Content, &content); err != nil {
+		t.Fatalf("decode image message: %v", err)
+	}
+	if len(content) != 2 || content[0].Type != "text" || content[1].Type != "image_url" ||
+		!strings.Contains(content[0].Text, "screenshot") ||
+		!strings.Contains(content[0].Text, mediaTestPublicID(mediaTestImageID)) ||
+		content[1].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
+		t.Fatalf("unexpected tool-result image content: %s", payload.Messages[4].Content)
 	}
 }
 
