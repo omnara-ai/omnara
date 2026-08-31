@@ -40,7 +40,7 @@ export function ShownArtifactCard({
   const previewable = previewContentTypes.has(contentType)
   const contentQuery = getArtifactContentOptions({ client, path, parseAs: 'blob' })
   const contentURL = client.buildUrl({
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
     path,
   })
   const download = useMutation({

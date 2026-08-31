@@ -137,7 +137,7 @@ func TestWriteDaemonConfigUpdatesAPIURLAfterValidatingExistingBinding(t *testing
 	if err != nil {
 		t.Fatalf("load updated daemon config: %v", err)
 	}
-	if config.APIURL != proposed.URL || config.MachineToken != "stored-token" ||
+	if config.APIURL != proposed.URL+"/api/v1" || config.MachineToken != "stored-token" ||
 		config.InstallationID != "inst-a" || config.MachineID != "mch-a" {
 		t.Fatalf("updated daemon config = %+v", *config)
 	}
@@ -249,7 +249,7 @@ func TestWriteDaemonConfigRejectsInvalidAuthAtAPIURLOverride(t *testing.T) {
 	setDaemonEnvironment(t, home, server.URL, "")
 
 	err = writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
-	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL
+	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL + "/api/v1"
 	if err == nil || err.Error() != want {
 		t.Fatalf("configure daemon error = %v, want %q", err, want)
 	}
@@ -271,7 +271,7 @@ func TestWriteDaemonConfigRejectsInvalidAuthWithoutWriting(t *testing.T) {
 	setDaemonEnvironment(t, home, server.URL, "bad-token")
 
 	err := writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
-	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL
+	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL + "/api/v1"
 	if err == nil || err.Error() != want {
 		t.Fatalf("configure daemon error = %v, want %q", err, want)
 	}
@@ -532,6 +532,25 @@ func TestLoadDaemonConfigMigratesLegacyHostedAPIURL(t *testing.T) {
 	}
 }
 
+func TestLoadDaemonConfigMigratesLegacySelfHostedOriginAPIURL(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	writeTestDaemonConfig(t, home, daemonConfig{
+		SchemaVersion:  daemonConfigVersion,
+		APIURL:         "https://omnara.example.com",
+		InstallationID: "inst-legacy",
+		MachineID:      "mch-legacy",
+		MachineToken:   "legacy-token",
+		RunnerPath:     "/bin",
+	})
+	config, err := loadDaemonConfig(home)
+	if err != nil {
+		t.Fatalf("load daemon config: %v", err)
+	}
+	if config.APIURL != "https://omnara.example.com/api/v1" {
+		t.Fatalf("api_url = %q, want %q", config.APIURL, "https://omnara.example.com/api/v1")
+	}
+}
+
 func TestLoadRuntimeConfigAppliesTemporaryEnvironment(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	writeTestDaemonConfig(t, home, daemonConfig{
@@ -568,7 +587,7 @@ func TestLoadRuntimeConfigAppliesTemporaryEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load runtime config: %v", err)
 	}
-	if config.APIURL != "https://other.example.com" || config.MachineToken != "environment-token" ||
+	if config.APIURL != "https://other.example.com/api/v1" || config.MachineToken != "environment-token" ||
 		config.DaemonVersion != version ||
 		config.ExpectedInstallationID != "inst-stored" || config.ExpectedMachineID != "mch-stored" ||
 		config.RunnerPath != "/environment/bin" {
