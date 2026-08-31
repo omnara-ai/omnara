@@ -219,6 +219,7 @@ export function AgentConfigMcpServersField({
                             }
                             disabled={permissionProfile == null}
                             onValueChange={(mode) => {
+                              if (mode === '') return
                               updateServer(server.id, { permission: { mode, parameters: {} } })
                             }}
                           >

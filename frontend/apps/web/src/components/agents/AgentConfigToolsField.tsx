@@ -190,7 +190,9 @@ function PermissionModeSelect({
   return (
     <Select
       value={value}
-      onValueChange={onChange}
+      onValueChange={(mode) => {
+        if (mode !== '') onChange(mode)
+      }}
       disabled={entry == null || entry.permission_modes.length === 1}
     >
       <SelectTrigger size="sm" className="w-36">
