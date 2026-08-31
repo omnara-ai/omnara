@@ -114,8 +114,7 @@ export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedU
 export function migrateLegacyBaseUrl(file: ConfigFile): ConfigFile | undefined {
   const { base_url: baseUrl, ...rest } = file
   if (baseUrl === undefined) return undefined
-  if (baseUrl === DEFAULT_ISSUER_URL || rest.issuer_url !== undefined) return rest
-  return { ...rest, issuer_url: baseUrl }
+  return rest
 }
 
 export function loadConfig(): CliConfig {

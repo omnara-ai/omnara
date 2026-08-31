@@ -55,17 +55,14 @@ describe('migrateLegacyBaseUrl', () => {
     expect(migrateLegacyBaseUrl({ token: 'omnara_pat_v1_test' })).toBeUndefined()
   })
 
-  it('drops a legacy base_url that points at the hosted web app', () => {
+  it('drops a legacy base_url and keeps the rest of the config', () => {
     expect(
-      migrateLegacyBaseUrl({ base_url: DEFAULT_ISSUER_URL, token: 'omnara_pat_v1_test' }),
+      migrateLegacyBaseUrl({
+        base_url: 'https://self-hosted.example',
+        token: 'omnara_pat_v1_test',
+      }),
     ).toEqual({
       token: 'omnara_pat_v1_test',
-    })
-  })
-
-  it('turns a self-hosted base_url into the issuer_url', () => {
-    expect(migrateLegacyBaseUrl({ base_url: 'https://self-hosted.example' })).toEqual({
-      issuer_url: 'https://self-hosted.example',
     })
   })
 
