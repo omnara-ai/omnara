@@ -39,7 +39,10 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 			"allowed_images":  []string{image},
 			"allowed_regions": []string{region},
 		}),
-		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{APIURL: omnaraPublicURL + "/api/v1", InstallerURL: omnaraPublicURL + "/install/omnarad.sh"}, ProviderAuthToken: token},
+		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{
+			APIURL:       omnaraPublicURL + "/api/v1",
+			InstallerURL: omnaraPublicURL + "/install/omnarad.sh",
+		}, ProviderAuthToken: token},
 	)
 	if err != nil {
 		t.Fatalf("new blaxel provider: %v", err)

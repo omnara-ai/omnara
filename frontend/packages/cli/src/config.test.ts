@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  DEFAULT_API_URL,
-  DEFAULT_ISSUER_URL,
-  migrateLegacyBaseUrl,
-  resolveUrls,
-} from './config.ts'
+import { DEFAULT_API_URL, DEFAULT_ISSUER_URL, migrateLegacyBaseUrl, resolveUrls } from './config.ts'
 
 describe('resolveUrls', () => {
   it('defaults to the hosted API root for requests and the hosted app for the issuer', () => {

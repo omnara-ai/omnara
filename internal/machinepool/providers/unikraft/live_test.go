@@ -37,7 +37,10 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 	})
 	machineProvider, err := (Definition{}).NewProvider(
 		mustRawJSON(t, map[string]any{"allowed_images": []string{image}, "allowed_metros": []string{"*"}}),
-		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{APIURL: omnaraPublicURL + "/api/v1", InstallerURL: omnaraPublicURL + "/install/omnarad.sh"}, ProviderAuthToken: apiKey},
+		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{
+			APIURL:       omnaraPublicURL + "/api/v1",
+			InstallerURL: omnaraPublicURL + "/install/omnarad.sh",
+		}, ProviderAuthToken: apiKey},
 	)
 	if err != nil {
 		t.Fatalf("new unikraft provider: %v", err)

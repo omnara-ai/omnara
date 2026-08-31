@@ -20,7 +20,10 @@ import (
 func TestBuildManagedMachineEnv(t *testing.T) {
 	startupScript := "echo ready\n"
 	env, err := BuildManagedMachineEnv(
-		OmnaraURLs{APIURL: "  https://api.omnara.test/v1///  ", InstallerURL: " https://app.omnara.test/install/omnarad.sh "},
+		OmnaraURLs{
+			APIURL:       "  https://api.omnara.test/v1///  ",
+			InstallerURL: " https://app.omnara.test/install/omnarad.sh ",
+		},
 		"machine-token",
 		startupScript,
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
@@ -39,7 +42,10 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 }
 
 func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
-	env, err := BuildManagedMachineEnv(OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"}, "machine-token", "", nil)
+	env, err := BuildManagedMachineEnv(OmnaraURLs{
+		APIURL:       "https://api.omnara.test/v1",
+		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+	}, "machine-token", "", nil)
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}

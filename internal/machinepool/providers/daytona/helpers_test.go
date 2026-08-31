@@ -45,8 +45,11 @@ func testMachineProvisioning(
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api:    api,
-		omnara: providers.OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		api: api,
+		omnara: providers.OmnaraURLs{
+			APIURL:       "https://api.omnara.test/v1",
+			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+		},
 	}
 }
 

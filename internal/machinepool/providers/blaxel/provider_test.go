@@ -663,7 +663,10 @@ func newTestProvider(api apiClient) *provider {
 		api:       api,
 		workspace: "omnara",
 		apiToken:  "api-token",
-		omnara:    providers.OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		omnara: providers.OmnaraURLs{
+			APIURL:       "https://api.omnara.test/v1",
+			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+		},
 	}
 }
 
