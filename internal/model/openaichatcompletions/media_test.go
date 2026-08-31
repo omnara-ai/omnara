@@ -219,6 +219,7 @@ func TestPrepareAddsToolResultImageAfterAllToolMessages(t *testing.T) {
 	}
 	if len(content) != 2 || content[0].Type != "text" || content[1].Type != "image_url" ||
 		!strings.Contains(content[0].Text, "screenshot") ||
+		!strings.Contains(content[0].Text, "tool_call_id: call_image") ||
 		!strings.Contains(content[0].Text, mediaTestPublicID(mediaTestImageID)) ||
 		content[1].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
 		t.Fatalf("unexpected tool-result image content: %s", payload.Messages[4].Content)

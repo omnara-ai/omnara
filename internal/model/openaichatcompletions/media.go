@@ -144,8 +144,8 @@ func toolResultMediaContent(
 		}
 		blocks = append(blocks, map[string]any{
 			"type": "text",
-			"text": "Attachment returned by tool " + result.Name + ". artifact_id: " +
-				modelcontext.ArtifactPublicID(artifactID),
+			"text": "Attachment returned by tool " + result.Name + ". tool_call_id: " +
+				result.ProviderCallID + ". artifact_id: " + modelcontext.ArtifactPublicID(artifactID),
 		})
 		blocks = append(blocks, block)
 	}
