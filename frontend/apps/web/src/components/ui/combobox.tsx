@@ -11,7 +11,7 @@ function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxPr
     <div className="relative">
       <ComboboxPrimitive.Input
         className={cn(
-          'border-input shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:ring-destructive/40 h-9 w-full rounded-md border bg-transparent pl-3 pr-9 text-sm outline-none transition-[color,box-shadow] focus-visible:ring-[3px]',
+          'border-input shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base h-9 w-full rounded-md border bg-transparent pl-3 pr-9 text-base outline-none transition-[color,box-shadow] focus-visible:ring-[3px] md:text-sm',
           className,
         )}
         {...props}
@@ -44,7 +44,7 @@ function ComboboxChipsInput({
   return (
     <ComboboxPrimitive.Input
       className={cn(
-        'placeholder:text-muted-foreground h-6 min-w-28 flex-1 bg-transparent px-1 text-sm outline-none',
+        'placeholder:text-muted-foreground pointer-coarse:text-base h-6 min-w-28 flex-1 bg-transparent px-1 text-base outline-none md:text-sm',
         className,
       )}
       {...props}

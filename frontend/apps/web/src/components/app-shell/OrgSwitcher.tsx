@@ -18,6 +18,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -25,6 +26,7 @@ export function OrgSwitcher() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { orgs, activeOrg, setActiveOrgId } = useActiveOrg()
+  const { setOpenMobile } = useSidebar()
   const { data: pendingInvitations } = usePendingInvitationsQuery()
   const [newOrgOpen, setNewOrgOpen] = useState(false)
   const pendingCount = pendingInvitations?.data.length ?? 0
@@ -35,6 +37,7 @@ export function OrgSwitcher() {
   async function switchOrganization(id: string) {
     if (id === activeOrg.id) return
     setActiveOrgId(id)
+    setOpenMobile(false)
     await navigate({ to: '/', replace: true })
   }
 
@@ -106,7 +109,13 @@ export function OrgSwitcher() {
         )}
       </SidebarMenu>
 
-      <CreateOrgDialog open={newOrgOpen} onOpenChange={setNewOrgOpen} />
+      <CreateOrgDialog
+        open={newOrgOpen}
+        onOpenChange={(open) => {
+          setNewOrgOpen(open)
+          if (!open) setOpenMobile(false)
+        }}
+      />
     </>
   )
 }

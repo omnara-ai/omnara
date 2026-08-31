@@ -92,7 +92,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       variant="ghost"
       size="icon"
       className={cn(
-        'text-muted-foreground hover:text-foreground size-8',
+        'text-muted-foreground hover:text-foreground size-10 sm:size-8',
         state === 'failed' && 'text-destructive hover:text-destructive',
       )}
       aria-label={copyLabels[state](label)}
@@ -125,7 +125,7 @@ function Code({
   return (
     <pre
       className={cn(
-        'code-highlight overflow-x-auto whitespace-pre-wrap break-words px-6 py-5 font-mono text-sm leading-6',
+        'code-highlight overflow-x-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-sm leading-6 sm:px-6 sm:py-5',
         emphasis ? 'text-foreground font-medium' : 'text-muted-foreground',
         className,
       )}
@@ -156,10 +156,10 @@ export function CodeBlock({
 }) {
   return (
     <div className={cn('bg-card relative rounded-xl border', className)}>
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
         <CopyButton text={toContent(content).copy} label={label} />
       </div>
-      <div className="pr-14">
+      <div className="pr-12 sm:pr-14">
         <Code content={content} />
       </div>
     </div>
@@ -182,19 +182,23 @@ export function CodeTabsBlock({
   return (
     <div className={cn('bg-card relative rounded-xl border', className)}>
       <Tabs value={value} onValueChange={setValue}>
-        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-          <TabsList variant="line" aria-label={label} className="gap-1 p-0">
+        <div className="flex flex-col items-stretch gap-2 border-b px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+          <TabsList
+            variant="line"
+            aria-label={label}
+            className="w-full max-w-full justify-start gap-1 overflow-x-auto p-0 sm:w-fit"
+          >
             {tabs.map((tab) => (
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
-                className="text-muted-foreground data-[state=active]:bg-secondary! data-[state=active]:text-secondary-foreground! h-8 rounded-md px-3.5 transition-[color,background-color] after:hidden data-[state=active]:shadow-none"
+                className="text-muted-foreground data-[state=active]:bg-secondary! data-[state=active]:text-secondary-foreground! h-10 shrink-0 rounded-md px-3 transition-[color,background-color] after:hidden data-[state=active]:shadow-none sm:h-8 sm:px-3.5"
               >
                 {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             {active && (
               <CopyButton
                 text={toContent(active.content).copy}

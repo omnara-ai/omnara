@@ -113,7 +113,7 @@ export function ProjectAccessEditor({
   }
 
   return (
-    <Table className="table-fixed">
+    <Table className="min-w-[22rem] table-fixed sm:min-w-0">
       <colgroup>
         <col />
         <col className="w-36" />
@@ -130,7 +130,7 @@ export function ProjectAccessEditor({
                   setAccess.mutate({ projectID: grant.project_id, role })
                 }}
               >
-                <SelectTrigger className="h-8 w-full capitalize">
+                <SelectTrigger className="h-10 w-full capitalize sm:h-8">
                   <SelectValue>{grant.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -177,7 +177,7 @@ export function ProjectAccessEditor({
                 setSelectedRole(value as (typeof PROJECT_ROLES)[number])
               }}
             >
-              <SelectTrigger className="h-8 w-full capitalize">
+              <SelectTrigger className="h-10 w-full capitalize sm:h-8">
                 <SelectValue>{selectedRole}</SelectValue>
               </SelectTrigger>
               <SelectContent>
