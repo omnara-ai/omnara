@@ -55,10 +55,10 @@ describe('migrateLegacyBaseUrl', () => {
     expect(migrateLegacyBaseUrl({ token: 'omnara_pat_v1_test' })).toBeUndefined()
   })
 
-  it('drops a legacy base_url and keeps the rest of the config', () => {
+  it('drops the legacy hosted base_url and uses the new hosted defaults', () => {
     expect(
       migrateLegacyBaseUrl({
-        base_url: 'https://self-hosted.example',
+        base_url: `${DEFAULT_ISSUER_URL}/`,
         token: 'omnara_pat_v1_test',
       }),
     ).toEqual({
@@ -66,9 +66,29 @@ describe('migrateLegacyBaseUrl', () => {
     })
   })
 
-  it('keeps an issuer_url that was already saved', () => {
+  it('migrates a legacy custom base_url to both new URL fields', () => {
     expect(
-      migrateLegacyBaseUrl({ base_url: 'https://old.example', issuer_url: 'https://new.example' }),
-    ).toEqual({ issuer_url: 'https://new.example' })
+      migrateLegacyBaseUrl({
+        base_url: 'https://self-hosted.example/',
+        token: 'omnara_pat_v1_test',
+      }),
+    ).toEqual({
+      api_url: 'https://self-hosted.example/api/v1',
+      issuer_url: 'https://self-hosted.example',
+      token: 'omnara_pat_v1_test',
+    })
+  })
+
+  it('keeps new URL fields that were already saved', () => {
+    expect(
+      migrateLegacyBaseUrl({
+        base_url: 'https://old.example',
+        api_url: 'https://api.new.example/v1',
+        issuer_url: 'https://app.new.example',
+      }),
+    ).toEqual({
+      api_url: 'https://api.new.example/v1',
+      issuer_url: 'https://app.new.example',
+    })
   })
 })
