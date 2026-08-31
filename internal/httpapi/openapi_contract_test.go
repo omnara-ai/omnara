@@ -1298,7 +1298,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	}))
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
 		source,
 	)
 	req.ContentLength = int64(len(body))

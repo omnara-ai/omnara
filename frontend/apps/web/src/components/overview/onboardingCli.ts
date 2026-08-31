@@ -64,7 +64,6 @@ export function chatCommands(input: {
   const sdk = `import { bearerToken, createOmnaraClient, sdk } from '@omnara/sdk'
 
 const client = createOmnaraClient({
-  baseUrl: '${input.origin}',
   auth: bearerToken(process.env.OMNARA_TOKEN),
 })
 

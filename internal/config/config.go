@@ -680,6 +680,9 @@ func (cfg Config) validatePublicURL(required bool) error {
 	if required && !cfg.AllowInsecureDev && cfg.PublicURL == "" {
 		return fmt.Errorf("OMNARA_PUBLIC_URL is required outside local development")
 	}
+	if cfg.PublicAPIURL != "" && cfg.PublicURL == "" {
+		return errors.New("OMNARA_PUBLIC_URL is required when OMNARA_PUBLIC_API_URL is set")
+	}
 	if cfg.PublicAPIURL != "" {
 		if err := validateHTTPURL("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
 			return err

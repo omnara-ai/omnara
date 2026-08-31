@@ -122,6 +122,20 @@ func TestValidateAPIRejectsInvalidPublicAPIURL(t *testing.T) {
 	}
 }
 
+func TestValidateAPIRejectsPublicAPIURLWithoutPublicURL(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PUBLIC_URL", "")
+	t.Setenv("OMNARA_PUBLIC_API_URL", "https://api.example.com/v1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_URL") {
+		t.Fatalf("expected OMNARA_PUBLIC_URL dependency error, got %v", err)
+	}
+}
+
 func TestLoadOpenRouterAttributionEnv(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_OPENROUTER_SITE_URL", " https://self-host.example/ ")

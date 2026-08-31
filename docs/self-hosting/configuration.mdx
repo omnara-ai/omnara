@@ -17,7 +17,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_PUBLIC_URL` | Public origin for the app and API; used in emails, OAuth callbacks, and daemon bootstrap config. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance. | — | Yes |
-| `OMNARA_PUBLIC_API_URL` | Public base URL of the versioned API as daemons and machines reach it, including the version path. Set it when the API is served from a different host than `OMNARA_PUBLIC_URL`. HTTPS outside localhost. | `OMNARA_PUBLIC_URL` + `/api/v1` | No |
+| `OMNARA_PUBLIC_API_URL` | Public base URL of the versioned API as daemons and machines reach it, including the version path. Set it identically on API, worker, and maintenance when the API is served from a different host than `OMNARA_PUBLIC_URL`. HTTPS outside localhost. | `OMNARA_PUBLIC_URL` + `/api/v1` | No |
 | `OMNARA_BILLING_URL` | External billing page linked from the dashboard; the UI appends `?org={org-id}`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the dashboard. | — | No |
 | `OMNARA_API_ADDR` | Public listen address of `api` | `:8080` | No |
 | `OMNARA_API_METRICS_ADDR` | `api` health/metrics listener | `:8081` | No |

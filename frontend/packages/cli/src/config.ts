@@ -114,13 +114,7 @@ export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedU
 export function migrateLegacyBaseUrl(file: ConfigFile): ConfigFile | undefined {
   const { base_url: baseUrl, ...rest } = file
   if (baseUrl === undefined) return undefined
-  const legacyBaseUrl = baseUrl.replace(/\/+$/, '')
-  if (legacyBaseUrl === DEFAULT_ISSUER_URL) return rest
-  return {
-    ...rest,
-    api_url: rest.api_url ?? `${legacyBaseUrl}/api/v1`,
-    issuer_url: rest.issuer_url ?? legacyBaseUrl,
-  }
+  return rest
 }
 
 export function loadConfig(): CliConfig {
