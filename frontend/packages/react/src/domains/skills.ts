@@ -5,7 +5,6 @@ import {
   type ListSkillsData,
   sdk,
   type SkillOwnerInput,
-  type UpdateSkillRequest,
 } from '@omnara/sdk'
 import {
   getSkillOptions,
@@ -158,11 +157,13 @@ export function useCreateSkill(orgID: string) {
   })
 }
 
+export type UpdateSkillUpload = { archive: Blob | File } | { skill_md: string }
+
 export function useUpdateSkill(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ skillID, body }: { skillID: string; body: UpdateSkillRequest }) => {
+    mutationFn: async ({ skillID, body }: { skillID: string; body: UpdateSkillUpload }) => {
       const { data } = await sdk.updateSkill({
         path: { orgID, skillID },
         body,

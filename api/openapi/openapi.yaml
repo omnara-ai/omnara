@@ -7717,28 +7717,31 @@ components:
         archive:
           type: string
           format: binary
-    SkillArchiveUpdate:
+    UpdateSkillRequest:
       type: object
-      additionalProperties: false
-      required: [archive]
       properties:
         archive:
           type: string
           format: binary
-    SkillMdUpdate:
-      type: object
-      additionalProperties: false
-      required: [skill_md]
-      properties:
         skill_md:
           type: string
           description: >-
             Replacement SKILL.md content. Every other file in the current
             revision's archive is preserved unchanged.
-    UpdateSkillRequest:
       oneOf:
-        - $ref: '#/components/schemas/SkillArchiveUpdate'
-        - $ref: '#/components/schemas/SkillMdUpdate'
+        - type: object
+          additionalProperties: false
+          required: [archive]
+          properties:
+            archive:
+              type: string
+              format: binary
+        - type: object
+          additionalProperties: false
+          required: [skill_md]
+          properties:
+            skill_md:
+              type: string
     Skill:
       type: object
       additionalProperties: false

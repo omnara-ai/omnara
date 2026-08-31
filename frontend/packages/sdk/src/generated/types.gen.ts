@@ -689,18 +689,17 @@ export type CreateSkillRequest = {
     archive: Blob | File;
 };
 
-export type SkillArchiveUpdate = {
+export type UpdateSkillRequest = ({
     archive: Blob | File;
-};
-
-export type SkillMdUpdate = {
+} | {
+    skill_md: string;
+}) & {
+    archive?: Blob | File;
     /**
      * Replacement SKILL.md content. Every other file in the current revision's archive is preserved unchanged.
      */
-    skill_md: string;
+    skill_md?: string;
 };
-
-export type UpdateSkillRequest = SkillArchiveUpdate | SkillMdUpdate;
 
 export type Skill = {
     id: SkillId;

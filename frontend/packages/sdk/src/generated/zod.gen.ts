@@ -497,18 +497,17 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
-export const zSkillArchiveUpdate = z.object({
-    archive: z.string()
-});
-
-export const zSkillMdUpdate = z.object({
-    skill_md: z.string()
-});
-
-export const zUpdateSkillRequest = z.union([
-    zSkillArchiveUpdate,
-    zSkillMdUpdate
-]);
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
 
 export const zSkillFile = z.object({
     path: z.string(),
