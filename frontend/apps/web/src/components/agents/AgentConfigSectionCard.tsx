@@ -11,7 +11,7 @@ export function AgentConfigSectionCard({
 }) {
   return (
     <section className="bg-card rounded-xl border">
-      <div className="flex items-center justify-between gap-3 px-5 py-3">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
         <h3 className="text-sm font-semibold">{title}</h3>
         {action}
       </div>

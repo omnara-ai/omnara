@@ -29,13 +29,14 @@ export const sidebarToggleActiveClass =
   'bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-400'
 
 export function AgentSidebarToggle() {
-  const { open, toggleSidebar } = useSidebar()
+  const { isMobile, open, openMobile, toggleSidebar } = useSidebar()
+  const sidebarOpen = isMobile ? openMobile : open
   return (
     <Button
       size="icon"
       variant="ghost"
-      aria-label={open ? 'Hide agent details' : 'Show agent details'}
-      className={cn('text-muted-foreground', open && sidebarToggleActiveClass)}
+      aria-label={sidebarOpen ? 'Hide agent details' : 'Show agent details'}
+      className={cn('text-muted-foreground', sidebarOpen && sidebarToggleActiveClass)}
       onClick={toggleSidebar}
     >
       <InfoIcon />
@@ -180,7 +181,7 @@ function AgentCronGroup({
           <Button
             size="sm"
             variant="ghost"
-            className="text-muted-foreground h-7 px-2"
+            className="text-muted-foreground h-9 px-2 sm:h-7"
             onClick={onAdd}
           >
             <PlusIcon />
