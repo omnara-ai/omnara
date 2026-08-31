@@ -210,7 +210,7 @@ func insertAgentConfigTx(
 	if isNilID(input.ConfiguredModelID) {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}
-	if err := validateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
+	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
 	row, err := qtx.UpsertAgentConfigByHash(
@@ -289,7 +289,11 @@ func insertAgentConfigTx(
 	return record, nil
 }
 
-func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries, input CreateAgentConfigInput) error {
+func lockAndValidateAgentConfigModelContractTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+) error {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		input.CompiledDefinition,
 		input.CompilerVersion,
