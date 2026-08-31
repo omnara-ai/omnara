@@ -39,8 +39,16 @@ export const zCreatedResourceListSort = z.enum([
     'created_at'
 ]).default('-created_at');
 
+export const zAgentConfigErrorIssue = z.object({
+    path: z.string(),
+    message: z.string(),
+    line: z.int().gte(1).optional(),
+    column: z.int().gte(1).optional()
+});
+
 export const zError = z.object({
     error: z.string(),
+    issues: z.array(zAgentConfigErrorIssue).optional(),
     code: z.enum([
         'invalid_request',
         'unauthorized',
@@ -4438,3 +4446,13 @@ export const zUploadDaemonArtifactQuery = z.object({
  * Artifact created.
  */
 export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
+
+export const zDownloadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId,
+    artifactID: zArtifactId
+});
+
+/**
+ * Artifact bytes, served with the artifact's stored content type.
+ */
+export const zDownloadDaemonArtifactResponse = z.string();

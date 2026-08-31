@@ -53,8 +53,9 @@ const (
 		"(e.g. curl) on the machine where the service runs instead."
 	uploadArtifactToolDescription = "Create an artifact from a regular file on an attached machine. " +
 		"The file must be non-empty and at most 10 MiB. " +
-		"The result includes artifact metadata after a successful upload. " +
-		"machine_ref is only needed when multiple machines are available."
+		"The result includes artifact metadata after a successful upload."
+	downloadArtifactToolDescription = "Copy an existing artifact to an attached machine. " +
+		"The result includes a process_id; use the process tools to inspect the transfer if it is still running."
 )
 
 type Catalog struct {
@@ -260,6 +261,9 @@ func buildDefaultCatalog() (Catalog, error) {
 		return Catalog{}, err
 	}
 	if entries[ToolNameUploadArtifact], err = uploadArtifactTool(machineRef); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameDownloadArtifact], err = downloadArtifactTool(machineRef); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
@@ -472,6 +476,28 @@ func uploadArtifactTool(machineRef map[string]any) (Entry, error) {
 				"type":      "string",
 				"minLength": 1,
 				"description": "Path to a regular file on the selected machine. " +
+					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
+			},
+			"machine_ref": machineRef,
+		},
+	)
+}
+
+func downloadArtifactTool(machineRef map[string]any) (Entry, error) {
+	return toolEntry(
+		ToolNameDownloadArtifact,
+		downloadArtifactToolDescription,
+		[]string{"artifact_id", "path"},
+		map[string]any{
+			"artifact_id": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Public artifact_id provided alongside a conversation attachment.",
+			},
+			"path": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Destination path on the selected machine. The parent directory must exist. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},
 			"machine_ref": machineRef,

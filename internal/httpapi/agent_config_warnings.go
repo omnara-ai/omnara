@@ -18,6 +18,7 @@ var recommendedMachineTools = [...]string{
 	toolcatalog.ToolNameListMachines,
 	toolcatalog.ToolNameInspectMachine,
 	toolcatalog.ToolNameUploadArtifact,
+	toolcatalog.ToolNameDownloadArtifact,
 }
 
 func agentConfigWarnings(contract agentconfig.RuntimeContract) []openapi.Warning {

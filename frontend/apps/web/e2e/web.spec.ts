@@ -13,6 +13,7 @@ const createdOrgName = 'zz web created organization'
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
+const onboardingEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ONBOARDING_EMAIL')
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
@@ -501,5 +502,58 @@ test('denies agent creation when the project lacks manage permission', async ({ 
     page.getByText('You don’t have permission to create agents in this project.'),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toHaveCount(0)
+  expect(failures).toEqual([])
+})
+
+test('walks a new organization through onboarding to its first chat', async ({ page }) => {
+  const failures = installFailureTracking(page)
+  await signIn(page, onboardingEmail, '/')
+
+  await expect(page.getByRole('heading', { name: 'Launch your first agent' })).toBeVisible()
+  const step = (index: number) => page.locator(`[data-step="${index}"]`)
+
+  await expect(step(1)).toHaveAttribute('data-status', 'active')
+  await expect(step(1)).toContainText('npx omnara login')
+  await expect(step(2)).toHaveAttribute('data-status', 'upcoming')
+  await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
+
+  await page.getByRole('tab', { name: 'Browser' }).click()
+  await expect(step(1)).toHaveAttribute('data-status', 'active')
+  await expect(page.getByRole('radio', { name: /General agent/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await page.getByRole('radio', { name: /Deep researcher/ }).click()
+  await page.getByRole('button', { name: 'Customize first' }).click()
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+    'Deep researcher',
+  )
+  await page.getByRole('button', { name: 'OK' }).click()
+  await expect(page.getByText('Customized as Deep researcher')).toBeVisible()
+  await page.getByRole('button', { name: 'Create profile' }).click()
+
+  await expect(step(1)).toHaveAttribute('data-status', 'done')
+  await expect(step(1).getByRole('link', { name: 'Deep researcher' })).toBeVisible()
+  await expect(step(2)).toHaveAttribute('data-status', 'active')
+  await expect(page.getByRole('button', { name: 'Create chat' })).toBeVisible()
+
+  await page.getByRole('tab', { name: 'CLI' }).click()
+  await expect(step(1)).toHaveAttribute('data-status', 'done')
+  await expect(step(2)).toHaveAttribute('data-status', 'done')
+  await expect(step(3)).toHaveAttribute('data-status', 'active')
+  await expect(step(3)).toContainText('npx omnara agents launch')
+  await page.getByRole('tab', { name: 'TypeScript SDK' }).click()
+  await expect(step(3)).toContainText('sdk.createAgent(')
+  await page.getByRole('tab', { name: 'cURL' }).click()
+  await expect(step(3)).toContainText('curl "')
+  await page.getByRole('button', { name: 'Run' }).click()
+
+  await expect(step(3)).toHaveAttribute('data-status', 'done')
+  await expect(step(3).getByRole('button', { name: 'Run' })).toHaveCount(0)
+  const openChat = step(3).getByRole('link', { name: 'Open chat' })
+  await expect(openChat).toBeVisible()
+  await openChat.click()
+  await expect(page).toHaveURL(new RegExp(`/projects/proj_[a-z2-7]+/agents/agt_[a-z2-7]+$`))
+
   expect(failures).toEqual([])
 })

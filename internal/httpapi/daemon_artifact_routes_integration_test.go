@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 )
 
@@ -268,6 +269,205 @@ func TestUploadDaemonArtifactValidatesFilenameAndBody(t *testing.T) {
 	)
 }
 
+func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServerWithStoreOptions(
+		pool,
+		[]storage.Option{storage.WithBlobStore(integrationblob.MustOpen(t, ctx))},
+	)
+	project := bootstrapPublicHTTPProject(t, handler, "daemon-artifact-download")
+	store := integrationStoreForHandler(t, handler)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	var artifactID string
+	fixture := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now,
+		"daemon-artifact-download-success",
+		"download_artifact",
+		nil,
+		func(agentID storage.ID) json.RawMessage {
+			artifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+				ProjectID:   project.ProjectUUID,
+				AgentID:     agentID,
+				ContentType: "application/pdf",
+				Filename:    "report.pdf",
+				Content:     []byte("pdf bytes"),
+			})
+			if err != nil {
+				t.Fatalf("create artifact: %v", err)
+			}
+			artifactID = testPublicID(t, publicid.KindArtifact, artifact.ID)
+			input, err := json.Marshal(map[string]string{"artifact_id": artifactID, "path": "report.pdf"})
+			if err != nil {
+				t.Fatalf("marshal download tool input: %v", err)
+			}
+			return input
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		fixture.authority(),
+		fixture.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept download process: found=%t err=%v", found, err)
+	}
+
+	recorder := requestDaemonArtifactDownload(
+		t,
+		handler,
+		fixture.Token,
+		fixture.ToolCallUUID,
+		artifactID,
+		http.StatusOK,
+	)
+	if recorder.Body.String() != "pdf bytes" ||
+		recorder.Header().Get("Content-Type") != "application/pdf" ||
+		recorder.Header().Get("Content-Disposition") != `attachment; filename="report.pdf"` {
+		t.Fatalf("download response headers=%v body=%q", recorder.Header(), recorder.Body.String())
+	}
+
+	otherArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID:   project.ProjectUUID,
+		AgentID:     fixture.AgentUUID,
+		ContentType: "text/plain",
+		Filename:    "other.txt",
+		Content:     []byte("other bytes"),
+	})
+	if err != nil {
+		t.Fatalf("create other artifact: %v", err)
+	}
+	requestDaemonArtifactDownload(
+		t,
+		handler,
+		fixture.Token,
+		fixture.ToolCallUUID,
+		testPublicID(t, publicid.KindArtifact, otherArtifact.ID),
+		http.StatusNotFound,
+	)
+
+	otherFixture := createDaemonProcessFixture(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(time.Second),
+		"daemon-artifact-download-other-agent",
+		"download_artifact",
+	)
+	otherAgentArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID:   project.ProjectUUID,
+		AgentID:     otherFixture.AgentUUID,
+		ContentType: "text/plain",
+		Filename:    "private.txt",
+		Content:     []byte("private bytes"),
+	})
+	if err != nil {
+		t.Fatalf("create other-agent artifact: %v", err)
+	}
+	otherAgentArtifactID := testPublicID(t, publicid.KindArtifact, otherAgentArtifact.ID)
+	crossAgent := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(2*time.Second),
+		"daemon-artifact-download-cross-agent",
+		"download_artifact",
+		nil,
+		func(storage.ID) json.RawMessage {
+			input, err := json.Marshal(map[string]string{
+				"artifact_id": otherAgentArtifactID,
+				"path":        "private.txt",
+			})
+			if err != nil {
+				t.Fatalf("marshal cross-agent tool input: %v", err)
+			}
+			return input
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		crossAgent.authority(),
+		crossAgent.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept cross-agent process: found=%t err=%v", found, err)
+	}
+	requestDaemonArtifactDownload(
+		t,
+		handler,
+		crossAgent.Token,
+		crossAgent.ToolCallUUID,
+		otherAgentArtifactID,
+		http.StatusNotFound,
+	)
+
+	wrongTool := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(3*time.Second),
+		"daemon-artifact-download-wrong-tool",
+		"run_command",
+		nil,
+		func(storage.ID) json.RawMessage {
+			input, err := json.Marshal(map[string]string{"artifact_id": artifactID, "path": "report.pdf"})
+			if err != nil {
+				t.Fatalf("marshal wrong-tool input: %v", err)
+			}
+			return input
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		wrongTool.authority(),
+		wrongTool.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept wrong-tool process: found=%t err=%v", found, err)
+	}
+	requestDaemonArtifactDownload(
+		t,
+		handler,
+		wrongTool.Token,
+		wrongTool.ToolCallUUID,
+		artifactID,
+		http.StatusNotFound,
+	)
+}
+
+func requestDaemonArtifactDownload(
+	t *testing.T,
+	handler http.Handler,
+	token string,
+	toolCallID storage.ID,
+	artifactID string,
+	wantStatus int,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	publicToolCallID := testPublicID(t, publicid.KindToolCall, toolCallID)
+	path := "/api/v1/daemon/tool-calls/" + publicToolCallID +
+		"/artifacts/" + artifactID + "/content"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != wantStatus {
+		t.Fatalf("artifact download status = %d, want %d body=%s", recorder.Code, wantStatus, recorder.Body.String())
+	}
+	return recorder
+}
+
 func requestDaemonArtifactUpload(
 	t *testing.T,
 	handler http.Handler,
@@ -322,7 +522,7 @@ func requestDaemonArtifactUploadForToolCall(
 	return response
 }
 
-func TestDaemonArtifactUploadScopeRejectsWrongMachine(t *testing.T) {
+func TestDaemonArtifactProcessScopeRejectsWrongMachine(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
@@ -346,11 +546,12 @@ func TestDaemonArtifactUploadScopeRejectsWrongMachine(t *testing.T) {
 	); err != nil || !found {
 		t.Fatalf("accept upload process: found=%t err=%v", found, err)
 	}
-	_, found, err := store.Execution().GetDaemonArtifactUploadScope(
+	_, found, err := store.Execution().GetDaemonArtifactProcessScope(
 		ctx,
 		fixture.OrgUUID,
 		storage.ID{1},
 		fixture.ToolCallUUID,
+		"upload_artifact",
 	)
 	if err != nil {
 		t.Fatalf("load wrong-machine scope: %v", err)

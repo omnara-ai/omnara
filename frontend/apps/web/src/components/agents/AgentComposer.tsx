@@ -1,4 +1,5 @@
 import type { UseAgentChatResult } from '@omnara/react'
+import { useMessageScroller } from '@shadcn/react/message-scroller'
 import { type KeyboardEvent, type SyntheticEvent, useState } from 'react'
 
 import { SendHorizontal, Square } from '@/components/icons'
@@ -18,6 +19,7 @@ export function AgentComposer({
   cancelError?: Error | null
   canOperate: boolean
 }) {
+  const { scrollToEnd } = useMessageScroller()
   const [text, setText] = useState('')
   const working = chat.isWorking
   const canSend = canOperate && chat.historyStatus === 'success' && text.trim() !== ''
@@ -27,6 +29,7 @@ export function AgentComposer({
     const content = text.trim()
     setText('')
     try {
+      scrollToEnd()
       await chat.sendMessage({ text: content })
     } catch {
       setText(content)

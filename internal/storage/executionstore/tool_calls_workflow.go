@@ -262,11 +262,19 @@ func uploadArtifactProcessToolResultContentParts(
 	if err != nil {
 		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
 	}
-	contentParts, err := marshalJSON([]map[string]any{{
-		"type":                       "media_ref",
-		"artifact_id":                artifact.ID.String(),
-		"exclude_from_model_context": true,
-	}})
+	contentParts, err := marshalJSON([]map[string]any{
+		{
+			"type": "structured_data",
+			"value": map[string]any{
+				"artifact_id": publicResourceID(publicid.KindArtifact, artifact.ID),
+			},
+		},
+		{
+			"type":                       "media_ref",
+			"artifact_id":                artifact.ID.String(),
+			"exclude_from_model_context": true,
+		},
+	})
 	return ToolResultOutcomeSucceeded, contentParts, err
 }
 

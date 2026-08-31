@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Artifacts | `upload_artifact` |
+| Artifacts | `upload_artifact`, `download_artifact` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 
@@ -168,7 +168,13 @@ Use `upload_artifact` to make a regular file on an attached machine available fo
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context or delivered through external integrations.
+On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id` and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context or delivered through external integrations.
+
+### `download_artifact`
+
+Use `download_artifact` to copy a conversation artifact to an attached machine. Pass the artifact's public `artifact_id` and the exact destination `path`; provide `machine_ref` when the agent has more than one machine. Relative and `~`-relative paths are supported, the parent directory must already exist, and an existing destination is replaced atomically.
+
+Quick transfers return their terminal process result. If a transfer is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
 ## Integrations
 

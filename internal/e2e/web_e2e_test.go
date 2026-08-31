@@ -102,6 +102,39 @@ func TestWebE2E(t *testing.T) {
 		authz.OrgRoleMember,
 		authz.ProjectRoleViewer,
 	)
+	onboardingProject := env.bootstrapProjectViaAPI(
+		t,
+		ctx,
+		"web-onboarding",
+		webE2EProviderConfig,
+		webE2EModelName,
+	)
+	onboardingOrgID, err := publicid.Decode(publicid.KindOrganization, onboardingProject.orgID)
+	if err != nil {
+		t.Fatalf("decode onboarding organization id: %v", err)
+	}
+	onboardingProjectID, err := publicid.Decode(publicid.KindProject, onboardingProject.projectID)
+	if err != nil {
+		t.Fatalf("decode onboarding project id: %v", err)
+	}
+	onboardingProfileID, err := publicid.Decode(publicid.KindAgentProfile, onboardingProject.agentID)
+	if err != nil {
+		t.Fatalf("decode onboarding profile id: %v", err)
+	}
+	if err := store.Execution().DeleteAgentProfile(ctx, onboardingProjectID, onboardingProfileID); err != nil {
+		t.Fatalf("delete bootstrapped onboarding profile: %v", err)
+	}
+	onboardingEmail := "web-onboarding-" + env.seed + "@example.com"
+	createWebE2EUser(
+		t,
+		ctx,
+		store,
+		onboardingOrgID,
+		onboardingProjectID,
+		onboardingEmail,
+		authz.OrgRoleAdmin,
+		authz.ProjectRoleAdmin,
+	)
 	switchOrg, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID:         adminUserID,
 		Name:           webE2ESwitchOrgName,
@@ -157,6 +190,7 @@ func TestWebE2E(t *testing.T) {
 		"OMNARA_WEB_E2E_ADMIN_EMAIL="+adminEmail,
 		"OMNARA_WEB_E2E_VIEWER_EMAIL="+viewerEmail,
 		"OMNARA_WEB_E2E_INVITEE_EMAIL="+inviteeEmail,
+		"OMNARA_WEB_E2E_ONBOARDING_EMAIL="+onboardingEmail,
 		"OMNARA_WEB_E2E_PASSWORD="+webE2EPassword,
 		"OMNARA_WEB_E2E_PROVIDER_CONFIG="+webE2EProviderConfig,
 		"OMNARA_WEB_E2E_MODEL_NAME="+webE2EModelName,

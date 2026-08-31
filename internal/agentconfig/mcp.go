@@ -74,20 +74,20 @@ func compileMCPServers(
 	for serverKey, server := range source {
 		endpoint, err := ValidateMCPURL(server.URL, opts.AllowInsecureLocalMCPHTTP)
 		if err != nil {
-			return nil, fmt.Errorf("mcp server %q: %w", serverKey, err)
+			return nil, issueAt(jsonPointer("mcp", serverKey, "url"), err)
 		}
 		var tools map[string]MCPToolCompiled
 		if len(server.Tools) > 0 {
 			tools, err = compileMCPTools(serverKey, server.Tools)
 			if err != nil {
-				return nil, fmt.Errorf("mcp server %q: %w", serverKey, err)
+				return nil, issueAt(jsonPointer("mcp", serverKey, "tools"), err)
 			}
 		}
 		var auth *MCPAuthCompiled
 		if server.Auth != nil {
 			auth, err = compileMCPAuth(server.Auth, opts)
 			if err != nil {
-				return nil, fmt.Errorf("mcp server %q: %w", serverKey, err)
+				return nil, issueAt(jsonPointer("mcp", serverKey, "auth"), err)
 			}
 		}
 		permission := toolcatalog.DefaultMCPToolPermission()
@@ -97,7 +97,7 @@ func compileMCPServers(
 				toolcatalog.MCPToolPermissionModes(),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("mcp server %q permission: %w", serverKey, err)
+				return nil, issueAt(jsonPointer("mcp", serverKey, "permission"), err)
 			}
 		}
 		compiled[serverKey] = MCPServerCompiled{
@@ -114,30 +114,30 @@ func compileMCPServers(
 func compileMCPAuth(source *AgentConfigMCPAuthSource, opts CompileOptions) (*MCPAuthCompiled, error) {
 	secretID := strings.TrimSpace(source.SecretID)
 	if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
-		return nil, fmt.Errorf("auth.secret_id must be a secret public id: %w", err)
+		return nil, issuef(jsonPointer("secret_id"), "must be a secret public id: %w", err)
 	}
 	expectedKind, err := mcpAuthSecretKind(source.Type)
 	if err != nil {
-		return nil, fmt.Errorf("auth.type: %w", err)
+		return nil, issueAt(jsonPointer("type"), err)
 	}
 	service := strings.TrimSpace(source.Service)
 	region := strings.TrimSpace(source.Region)
 	switch source.Type {
 	case MCPAuthTypeSigV4:
 		if service == "" {
-			return nil, errors.New("auth.service is required for sigv4")
+			return nil, issuef(jsonPointer("service"), "is required for sigv4")
 		}
 		if region == "" {
-			return nil, errors.New("auth.region is required for sigv4")
+			return nil, issuef(jsonPointer("region"), "is required for sigv4")
 		}
 	default:
 		if service != "" || region != "" {
-			return nil, errors.New("auth.service and auth.region require auth.type sigv4")
+			return nil, issuef(jsonPointer("type"), "service and region require type sigv4")
 		}
 	}
 	if opts.ValidateSecretID != nil {
 		if err := opts.ValidateSecretID(secretID, expectedKind); err != nil {
-			return nil, fmt.Errorf("auth.secret_id: %w", err)
+			return nil, issueOr(jsonPointer("secret_id"), err)
 		}
 	}
 	return &MCPAuthCompiled{
@@ -216,7 +216,7 @@ func compileMCPTools(serverKey string, source map[string]AgentConfigMCPToolSourc
 	compiled := make(map[string]MCPToolCompiled, len(source))
 	for remoteName, tool := range source {
 		if err := toolcatalog.ValidateMCPRuntimeToolName(serverKey, remoteName); err != nil {
-			return nil, err
+			return nil, issueAt(jsonPointer(remoteName), err)
 		}
 		var permission *toolpermission.Selection
 		if tool.Permission != nil {
@@ -225,7 +225,7 @@ func compileMCPTools(serverKey string, source map[string]AgentConfigMCPToolSourc
 				toolcatalog.MCPToolPermissionModes(),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("mcp tool %q permission: %w", remoteName, err)
+				return nil, issueAt(jsonPointer(remoteName, "permission"), err)
 			}
 			permission = &normalized
 		}

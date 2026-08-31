@@ -30,7 +30,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"run_command", "read_process", "upload_artifact"},
+		[]string{"run_command", "read_process", "upload_artifact", "download_artifact"},
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
