@@ -382,6 +382,7 @@ export function projectAgentChat(data: AgentChatData): {
           id: localInput.id,
           delivery_mode: 'optimistic',
           text: optimisticBacklogText(localInput),
+          attachmentCount: localInput.attachmentCount ?? localInput.attachments?.length ?? 0,
         })
       }
       continue

@@ -17,7 +17,7 @@ interface AgentInputBacklogScope {
 
 export type AgentInputBacklogItem =
   | AgentInput
-  | { id: string; delivery_mode: 'optimistic'; text: string }
+  | { id: string; delivery_mode: 'optimistic'; text: string; attachmentCount: number }
 
 export interface AgentInputBacklogMove {
   inputID: string

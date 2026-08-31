@@ -279,6 +279,7 @@ export function AgentComposer({
           onPaste={(event) => {
             const files = event.clipboardData.files
             if (files.length === 0 || !ready || model == null || busyRef.current) return
+            event.preventDefault()
             void addFiles(files)
           }}
         />
@@ -288,6 +289,8 @@ export function AgentComposer({
               type="button"
               variant="outline"
               size="sm"
+              className="size-10 rounded-full px-0 sm:h-8 sm:w-auto sm:rounded-md sm:px-2.5 [&_[data-slot=button-label]]:hidden sm:[&_[data-slot=button-label]]:inline"
+              aria-label="Stop agent"
               disabled={!canOperate || cancelPending}
               loading={cancelPending}
               icon={<Square className="size-3 fill-current" />}

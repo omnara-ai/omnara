@@ -130,13 +130,13 @@ describe('projectAgentChat input lifecycle', () => {
   it('keeps a busy send in the backlog while its server row is absent', () => {
     const result = projectAgentChat({
       ...base,
-      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'backlog' }],
+      localInputs: [{ id: 'key-1', text: 'Hello', attachmentCount: 1, placement: 'backlog' }],
       backlogInputs: [],
     })
 
     expect(result.messages).toEqual([])
     expect(result.backlogInputs).toMatchObject([
-      { id: 'key-1', delivery_mode: 'optimistic', text: 'Hello' },
+      { id: 'key-1', delivery_mode: 'optimistic', text: 'Hello', attachmentCount: 1 },
     ])
   })
 

@@ -160,7 +160,7 @@ export class AgentChatSession {
       throw new Error('Agent messages must contain text or an attachment')
     }
     this.connect()
-    const normalized = { text, attachments }
+    const normalized = { text, attachments, attachmentCount: attachments.length }
     const previous = this.lastFailedSend
     const id =
       previous != null && sameMessage(previous, normalized) ? previous.id : crypto.randomUUID()

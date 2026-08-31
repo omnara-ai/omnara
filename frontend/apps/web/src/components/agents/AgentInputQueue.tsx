@@ -26,7 +26,9 @@ import { startTransition, useOptimistic } from 'react'
 import { errorMessage } from '@/lib/submit-status'
 
 function inputPreview(input: AgentInputBacklogItem) {
-  if (input.delivery_mode === 'optimistic') return { text: input.text, attachmentCount: 0 }
+  if (input.delivery_mode === 'optimistic') {
+    return { text: input.text, attachmentCount: input.attachmentCount }
+  }
   const blocks = input.content_blocks?.filter((block) => block.metadata?.omnara_hidden !== 'true')
   const attachmentCount = blocks?.filter((block) => block.type === 'media_ref').length ?? 0
   const text = blocks

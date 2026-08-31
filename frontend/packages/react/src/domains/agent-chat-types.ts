@@ -35,6 +35,7 @@ export interface LocalAgentInput {
   id: string
   text: string
   attachments?: AgentChatAttachmentInput[]
+  attachmentCount?: number
   placement: 'conversation' | 'backlog'
   agentInputID?: string
 }

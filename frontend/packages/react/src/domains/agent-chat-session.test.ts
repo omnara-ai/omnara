@@ -567,7 +567,9 @@ describe('AgentChatSession input lifecycle', () => {
     ])
     await send
     expect(read(session).error).toBeUndefined()
-    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    expect(session.getData().localInputs).toMatchObject([
+      { agentInputID: 'input-1', attachmentCount: 1 },
+    ])
     expect(session.getData().localInputs[0]?.attachments).toBeUndefined()
     session.disconnect()
   })

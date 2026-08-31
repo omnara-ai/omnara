@@ -108,13 +108,16 @@ describe('AgentInputQueue', () => {
     const html = renderToStaticMarkup(
       <AgentInputQueue
         {...queueProps}
-        backlog={backlog([{ id: 'key-1', delivery_mode: 'optimistic', text: 'Message' }])}
+        backlog={backlog([
+          { id: 'key-1', delivery_mode: 'optimistic', text: 'Message', attachmentCount: 1 },
+        ])}
       />,
     )
 
     expect(html).toContain('Sending…')
     expect(html).not.toContain('Send now')
     expect(html).toContain('disabled')
+    expect(html).toContain('lucide-file')
   })
 
   it('keeps multiple steering inputs in their authoritative FIFO order', () => {
