@@ -1,5 +1,7 @@
 import { type AgentInput, ApiError, type OmnaraClient, sdk } from '@omnara/sdk'
 
+import type { AgentChatMessageInput, LocalAgentInput } from './agent-chat-types'
+
 const maxReconnectDelayMs = 30_000
 
 export function reconnectBackoff(baseDelayMs: number, consecutiveFailures: number): number {
@@ -25,11 +27,29 @@ export function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+export function sameMessage(
+  previous: LocalAgentInput,
+  message: Required<AgentChatMessageInput>,
+): boolean {
+  const previousAttachments = previous.attachments ?? []
+  if (previous.text !== message.text || previousAttachments.length !== message.attachments.length) {
+    return false
+  }
+  return previousAttachments.every((attachment, index) => {
+    const candidate = message.attachments[index]
+    return (
+      attachment.data === candidate?.data &&
+      attachment.mediaType === candidate.mediaType &&
+      attachment.filename === candidate.filename
+    )
+  })
+}
+
 export async function createAgentChatInput(
   client: OmnaraClient,
   path: { orgID: string; projectID: string; agentID: string },
   id: string,
-  text: string,
+  message: Required<AgentChatMessageInput>,
   signal?: AbortSignal,
 ): Promise<AgentInput> {
   const { data } = await sdk.createAgentInput({
@@ -43,7 +63,13 @@ export async function createAgentChatInput(
           text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
           metadata: { omnara_hidden: 'true' },
         },
-        { type: 'text', text },
+        ...(message.text === '' ? [] : [{ type: 'text' as const, text: message.text }]),
+        ...message.attachments.map((attachment) => ({
+          type: 'media' as const,
+          media_type: attachment.mediaType,
+          filename: attachment.filename,
+          data: attachment.data,
+        })),
       ],
     },
     ...(signal == null ? {} : { signal }),

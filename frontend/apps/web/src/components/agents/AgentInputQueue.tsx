@@ -20,14 +20,15 @@ import {
   reorderAgentInputBacklog,
   type UseAgentChatResult,
 } from '@omnara/react'
-import { GripVertical, X } from 'lucide-react'
+import { File, GripVertical, X } from 'lucide-react'
 import { startTransition, useOptimistic } from 'react'
 
 import { errorMessage } from '@/lib/submit-status'
 
 function inputPreview(input: AgentInputBacklogItem) {
-  if (input.delivery_mode === 'optimistic') return input.text
+  if (input.delivery_mode === 'optimistic') return { text: input.text, attachmentCount: 0 }
   const blocks = input.content_blocks?.filter((block) => block.metadata?.omnara_hidden !== 'true')
+  const attachmentCount = blocks?.filter((block) => block.type === 'media_ref').length ?? 0
   const text = blocks
     ?.flatMap((block) =>
       block.type === 'text'
@@ -41,8 +42,16 @@ function inputPreview(input: AgentInputBacklogItem) {
     )
     .filter(Boolean)
     .join('\n')
-  if (text != null && text !== '') return text
-  return blocks?.some((block) => block.type === 'media_ref') ? 'Attachment' : 'Message'
+  if (text != null && text !== '') return { text, attachmentCount }
+  return {
+    text:
+      attachmentCount === 0
+        ? 'Message'
+        : attachmentCount === 1
+          ? 'Attachment'
+          : `${String(attachmentCount)} attachments`,
+    attachmentCount,
+  }
 }
 
 export function AgentInputQueue({
@@ -150,6 +159,7 @@ function QueueRow({
 }) {
   const pending = input.delivery_mode === 'optimistic'
   const sending = input.delivery_mode === 'steering'
+  const preview = inputPreview(input)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: input.id,
     disabled: pending || !reorderable || !canOperate || actionPending,
@@ -184,7 +194,12 @@ function QueueRow({
       <span className="text-muted-foreground w-8 shrink-0 text-xs font-medium tabular-nums">
         {sending ? 'Now' : queueIndex === 0 ? 'Next' : queueIndex + 1}
       </span>
-      <p className="text-foreground min-w-0 flex-1 truncate text-sm">{inputPreview(input)}</p>
+      <p className="text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+        {preview.attachmentCount > 0 && (
+          <File className="text-muted-foreground size-3.5 shrink-0" />
+        )}
+        <span className="truncate">{preview.text}</span>
+      </p>
       {sending || pending ? (
         <button
           type="button"

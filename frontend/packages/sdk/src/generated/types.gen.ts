@@ -1394,8 +1394,11 @@ export type TextContentBlock = {
 
 export type InlineMediaContentBlock = {
     type: 'media';
-    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     filename?: string;
+    /**
+     * Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
+     */
     data: string;
     metadata?: ContentBlockMetadata;
 };

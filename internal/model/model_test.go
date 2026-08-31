@@ -249,6 +249,27 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 		t.Fatalf("file modality error = %v, want unsupported file input modality", err)
 	}
 
+	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInlineText
+	prepareInput.Context = bundle
+	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
+		t.Fatalf("inline text document: %v", err)
+	}
+
+	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInline
+	bundle.RenderedMedia[0].Media.MediaType = "application/pdf"
+	prepareInput.Context = bundle
+	client.apiVariant = modelprotocol.APIVariantOpenRouter
+	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
+		t.Fatalf("OpenRouter PDF: %v", err)
+	}
+
+	bundle.RenderedMedia[0].Media.MediaType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	prepareInput.Context = bundle
+	_, err = PrepareForSend(context.Background(), client, prepareInput)
+	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
+		t.Fatalf("OpenRouter Office file modality error = %v, want unsupported input modality", err)
+	}
+
 	client.capabilities.InputModalities = []string{"text", "image", "file"}
 	client.capabilities.OutputModalities = []string{"audio"}
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
@@ -352,12 +373,13 @@ type prepareForSendClient struct {
 	prepared     PreparedRequest
 	err          error
 	capabilities Capabilities
+	apiVariant   modelprotocol.APIVariant
 }
 
 func (c prepareForSendClient) RequestedProviderModelSlug() string { return "prepare-test" }
 func (prepareForSendClient) APIFormat() modelprotocol.APIFormat   { return "test" }
-func (prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
-	return "default"
+func (c prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
+	return c.apiVariant
 }
 
 func (c prepareForSendClient) Prepare(context.Context, PrepareInput) (PreparedRequest, error) {

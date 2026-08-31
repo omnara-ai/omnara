@@ -3,7 +3,6 @@ import type {
   AgentEventStreamData,
   AgentInput,
   AgentInputEvent,
-  AgentInputKind,
   Error as APIError,
   MediaRefContentBlock,
   ModelOutputDelta,
@@ -13,20 +12,15 @@ import type {
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
 
+import type {
+  AgentChatData,
+  AgentChatStatus,
+  LocalAgentInput,
+  OmnaraMessageMetadata,
+} from './agent-chat-types'
 import type { AgentInputBacklogItem } from './agent-input-backlog'
 
 export type { ModelOutputDelta } from '@omnara/sdk'
-
-export interface OmnaraMessageMetadata {
-  eventId?: string
-  eventKind?: string
-  inputKind?: AgentInputKind
-  actorId?: string
-  sequence?: number
-  turnId?: string
-  turnSequence?: number
-  createdAt?: string
-}
 
 // A type alias preserves the finite data-part keys required for discriminated narrowing.
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -37,6 +31,10 @@ export type OmnaraUIData = {
   media: {
     artifactId?: string
     excludeFromModelContext?: MediaRefContentBlock['exclude_from_model_context']
+    data?: string
+    mediaType?: string
+    filename?: string
+    sizeBytes?: number
   }
 }
 
@@ -272,26 +270,6 @@ export function agentEventsToMessages(
   return messages
 }
 
-export type AgentChatStatus = 'submitted' | 'streaming' | 'ready' | 'error'
-
-export interface LocalAgentInput {
-  id: string
-  text: string
-  placement: 'conversation' | 'backlog'
-  agentInputID?: string
-}
-
-/** The chat's raw state: durable events, live deltas, and local send state. */
-export interface AgentChatData {
-  events: AgentEvent[]
-  deltas: ModelOutputDelta[]
-  localInputs: LocalAgentInput[]
-  backlogInputs: AgentInput[]
-  error: Error | undefined
-  /** True while older history may still be unloaded (see agentEventsToMessages). */
-  hasOlderEvents: boolean
-}
-
 export function hasToolCalls(event: AgentEvent): boolean {
   return (
     event.event_kind === 'model_output' &&
@@ -340,6 +318,12 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
     }
   }
   return undefined
+}
+
+function optimisticBacklogText(input: LocalAgentInput): string {
+  if (input.text !== '') return input.text
+  const filenames = input.attachments?.map((attachment) => attachment.filename).join(', ')
+  return filenames == null || filenames === '' ? 'Attachment' : filenames
 }
 
 /**
@@ -391,30 +375,38 @@ export function projectAgentChat(data: AgentChatData): {
       (localInput.agentInputID == null ? undefined : backlogByID.get(localInput.agentInputID)) ??
       backlogByKey.get(localInput.id)
     const serverRequiresBacklog =
-      backlogInput?.delivery_mode === 'queued' &&
-      (isWorking || firstBacklogInputID !== backlogInput.id)
+      backlogInput != null && (isWorking || firstBacklogInputID !== backlogInput.id)
     if (localInput.placement === 'backlog' || serverRequiresBacklog) {
       if (backlogInput == null) {
         optimisticBacklogInputs.push({
           id: localInput.id,
           delivery_mode: 'optimistic',
-          text: localInput.text,
+          text: optimisticBacklogText(localInput),
         })
       }
       continue
     }
     if (backlogInput != null) hiddenBacklogInputIDs.add(backlogInput.id)
     localMessageCount += 1
+    const parts: OmnaraUIMessage['parts'] = []
+    if (localInput.text !== '') {
+      parts.push({
+        type: 'text',
+        id: `local:${localInput.id}:text`,
+        text: localInput.text,
+      })
+    }
+    for (const [index, attachment] of (localInput.attachments ?? []).entries()) {
+      parts.push({
+        type: 'data-media',
+        id: `local:${localInput.id}:media:${String(index)}`,
+        data: attachment,
+      })
+    }
     messages.push({
       id: `local:${localInput.id}`,
       role: 'user',
-      parts: [
-        {
-          type: 'text',
-          id: `local:${localInput.id}:text`,
-          text: localInput.text,
-        },
-      ],
+      parts,
     })
   }
   const backlogInputs: AgentInputBacklogItem[] = [

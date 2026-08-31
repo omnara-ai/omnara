@@ -61,17 +61,22 @@ describe('AgentInputQueue', () => {
     firstQueued.content_blocks = [
       { type: 'text', text: 'Hidden web context', metadata: { omnara_hidden: 'true' } },
       { type: 'text', text: 'Raw message', metadata: { omnara_display_text: 'First queued' } },
+      { type: 'media_ref', artifact_id: 'artifact-with-text' },
     ]
     const steering = input('input-2', 'Send me', 'steering')
     const attachment = input('input-3', '')
-    attachment.content_blocks = [{ type: 'media_ref', artifact_id: 'artifact' }]
+    attachment.content_blocks = [
+      { type: 'media_ref', artifact_id: 'artifact-1' },
+      { type: 'media_ref', artifact_id: 'artifact-2' },
+    ]
 
     const html = renderToStaticMarkup(
       <AgentInputQueue {...queueProps} backlog={backlog([steering, firstQueued, attachment])} />,
     )
 
     expect(html.indexOf('Send me')).toBeLessThan(html.indexOf('First queued'))
-    expect(html).toContain('Attachment')
+    expect(html).toContain('2 attachments')
+    expect(html.match(/lucide-file/g)).toHaveLength(2)
     expect(html).toContain('Now')
     expect(html).toContain('Next')
     expect(html).toContain('>2</span>')
