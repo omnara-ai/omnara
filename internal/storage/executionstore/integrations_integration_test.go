@@ -433,20 +433,15 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 	)
 	input.IntegrationKind = "workspace_single_agent"
 
-	blockingTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin integration agent blocker: %v", err)
-	}
-	defer func() { _ = blockingTx.Rollback(ctx) }()
+	blockingTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(blockingTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
 	); err != nil {
 		t.Fatalf("lock integration agent: %v", err)
 	}
-	archiveDone := make(chan error, 1)
 	archiveActor := mustOmnaraActorParams(t, admin.ID)
-	go func() {
+	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := store.Execution().IntegrationArchiveAgentOnce(
 			context.Background(),
 			testOrgID,
@@ -454,41 +449,25 @@ func TestIntegrationInstallRechecksAgentAfterArchiveWait(t *testing.T) {
 			agent.ID,
 			archiveActor,
 		)
-		archiveDone <- archiveErr
-	}()
+		return archiveErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
-	type installResult struct {
-		record integrationstore.IntegrationInstallRecord
-		err    error
-	}
-	installDone := make(chan installResult, 1)
-	go func() {
-		record, installErr := store.Integrations().UpsertIntegrationInstall(
+	installDone := integrationdb.RunAsync(func() (integrationstore.IntegrationInstallRecord, error) {
+		return store.Integrations().UpsertIntegrationInstall(
 			context.Background(),
 			input,
 		)
-		installDone <- installResult{record: record, err: installErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration agent blocker: %v", err)
 	}
-	select {
-	case err := <-archiveDone:
-		if err != nil {
-			t.Fatalf("archive integration agent: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for agent archival")
+	if err := integrationdb.Await(t, archiveDone, "agent archival"); err != nil {
+		t.Fatalf("archive integration agent: %v", err)
 	}
-	var result installResult
-	select {
-	case result = <-installDone:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for integration install")
-	}
-	if !errors.Is(result.err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("install after agent archive error = %v, want state transition conflict", result.err)
+	result := integrationdb.Await(t, installDone, "integration install")
+	if !errors.Is(result.Err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("install after agent archive error = %v, want state transition conflict", result.Err)
 	}
 	var installCount int
 	if err := pool.QueryRow(
@@ -536,20 +515,15 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 		ProviderRefKind:      "thread",
 	}
 
-	blockingTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin integration target agent blocker: %v", err)
-	}
-	defer func() { _ = blockingTx.Rollback(ctx) }()
+	blockingTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(blockingTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
 	); err != nil {
 		t.Fatalf("lock integration target agent: %v", err)
 	}
-	archiveDone := make(chan error, 1)
 	archiveActor := mustOmnaraActorParams(t, admin.ID)
-	go func() {
+	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := store.Execution().IntegrationArchiveAgentOnce(
 			context.Background(),
 			testOrgID,
@@ -557,36 +531,25 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 			agent.ID,
 			archiveActor,
 		)
-		archiveDone <- archiveErr
-	}()
+		return archiveErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
-	targetDone := make(chan error, 1)
-	go func() {
+	targetDone := integrationdb.RunAsyncError(func() error {
 		_, targetErr := store.Integrations().CreateIntegrationTarget(
 			context.Background(),
 			targetInput,
 		)
-		targetDone <- targetErr
-	}()
+		return targetErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration target agent blocker: %v", err)
 	}
-	select {
-	case err := <-archiveDone:
-		if err != nil {
-			t.Fatalf("archive integration target agent: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for agent archival")
+	if err := integrationdb.Await(t, archiveDone, "agent archival"); err != nil {
+		t.Fatalf("archive integration target agent: %v", err)
 	}
-	select {
-	case err := <-targetDone:
-		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-			t.Fatalf("target after agent archive error = %v, want state transition conflict", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for integration target creation")
+	if err := integrationdb.Await(t, targetDone, "integration target creation"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("target after agent archive error = %v, want state transition conflict", err)
 	}
 	var targetCount int
 	if err := pool.QueryRow(
@@ -642,11 +605,7 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 				ProviderRefKind:      "thread",
 			}
 
-			blockingTx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin integration install blocker: %v", err)
-			}
-			defer func() { _ = blockingTx.Rollback(ctx) }()
+			blockingTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := dbsqlc.New(blockingTx).LockIntegrationInstallForMutation(
 				ctx,
 				dbsqlc.LockIntegrationInstallForMutationParams{
@@ -656,29 +615,24 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 			); err != nil {
 				t.Fatalf("lock integration install: %v", err)
 			}
-			type targetResult struct {
-				record integrationstore.IntegrationTargetRecord
-				err    error
-			}
-			targetDone := make(chan targetResult, 1)
-			deleteDone := make(chan error, 1)
+			var targetDone <-chan integrationdb.AsyncResult[integrationstore.IntegrationTargetRecord]
+			var deleteDone <-chan error
 			startTarget := func() {
-				go func() {
-					record, targetErr := store.Integrations().CreateIntegrationTarget(
+				targetDone = integrationdb.RunAsync(func() (integrationstore.IntegrationTargetRecord, error) {
+					return store.Integrations().CreateIntegrationTarget(
 						context.Background(),
 						targetInput,
 					)
-					targetDone <- targetResult{record: record, err: targetErr}
-				}()
+				})
 			}
 			startDelete := func() {
-				go func() {
-					deleteDone <- store.Integrations().DeleteIntegrationInstallOnceForIntegration(
+				deleteDone = integrationdb.RunAsyncError(func() error {
+					return store.Integrations().DeleteIntegrationInstallOnceForIntegration(
 						context.Background(),
 						testProjectID,
 						install.ID,
 					)
-				}()
+				})
 			}
 			if targetWins {
 				startTarget()
@@ -693,26 +647,16 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 			if err := blockingTx.Commit(ctx); err != nil {
 				t.Fatalf("release integration install blocker: %v", err)
 			}
-			var targetOutcome targetResult
-			select {
-			case targetOutcome = <-targetDone:
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for integration target creation")
-			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete integration install: %v", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for integration install deletion")
+			targetOutcome := integrationdb.Await(t, targetDone, "integration target creation")
+			if err := integrationdb.Await(t, deleteDone, "integration install deletion"); err != nil {
+				t.Fatalf("delete integration install: %v", err)
 			}
 			if targetWins {
-				if targetOutcome.err != nil || !targetOutcome.record.Created {
-					t.Fatalf("target creation before deletion = %+v err=%v", targetOutcome.record, targetOutcome.err)
+				if targetOutcome.Err != nil || !targetOutcome.Value.Created {
+					t.Fatalf("target creation before deletion = %+v err=%v", targetOutcome.Value, targetOutcome.Err)
 				}
-			} else if !errors.Is(targetOutcome.err, storeerr.ErrNotFound) {
-				t.Fatalf("target creation after deletion error = %v, want not found", targetOutcome.err)
+			} else if !errors.Is(targetOutcome.Err, storeerr.ErrNotFound) {
+				t.Fatalf("target creation after deletion error = %v, want not found", targetOutcome.Err)
 			}
 			var activeTargets int
 			if err := pool.QueryRow(
@@ -849,11 +793,7 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build scope deletion actor: %v", err)
 			}
-			controlTx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin integration install control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := dbsqlc.New(controlTx).LockIntegrationInstallForMutation(
 				ctx,
 				dbsqlc.LockIntegrationInstallForMutationParams{
@@ -864,18 +804,16 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 				t.Fatalf("lock integration install for scope contention: %v", err)
 			}
 
-			installDeleteDone := make(chan error, 1)
-			go func() {
-				installDeleteDone <- store.Integrations().DeleteIntegrationInstallOnceForIntegration(
+			installDeleteDone := integrationdb.RunAsyncError(func() error {
+				return store.Integrations().DeleteIntegrationInstallOnceForIntegration(
 					context.Background(),
 					testProjectID,
 					install.ID,
 				)
-			}()
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 
-			scopeDeleteDone := make(chan error, 1)
-			go func() {
+			scopeDeleteDone := integrationdb.RunAsyncError(func() error {
 				if scope == "project" {
 					_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 						context.Background(),
@@ -883,16 +821,15 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 						testProjectID,
 						actor,
 					)
-					scopeDeleteDone <- deleteErr
-					return
+					return deleteErr
 				}
 				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 					context.Background(),
 					testOrgID,
 					actor,
 				)
-				scopeDeleteDone <- deleteErr
-			}()
+				return deleteErr
+			})
 			gateQuery := "LockProjectLifecycleExclusive"
 			if scope == "organization" {
 				gateQuery = "LockOrganizationLifecycleExclusive"
@@ -902,21 +839,11 @@ func TestIntegrationInstallDeletionSerializesWithScopeDeletion(t *testing.T) {
 				t.Fatalf("release integration install control transaction: %v", err)
 			}
 
-			select {
-			case err := <-installDeleteDone:
-				if err != nil {
-					t.Fatalf("delete integration install before %s deletion: %v", scope, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for integration install deletion")
+			if err := integrationdb.Await(t, installDeleteDone, "integration install deletion"); err != nil {
+				t.Fatalf("delete integration install before %s deletion: %v", scope, err)
 			}
-			select {
-			case err := <-scopeDeleteDone:
-				if err != nil {
-					t.Fatalf("delete %s after integration install: %v", scope, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatalf("timed out waiting for %s deletion", scope)
+			if err := integrationdb.Await(t, scopeDeleteDone, scope+" deletion"); err != nil {
+				t.Fatalf("delete %s after integration install: %v", scope, err)
 			}
 
 			var activeInstallCount, activeTargetCount int
@@ -1786,11 +1713,7 @@ func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
 		"seed",
 	)
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin integration input control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
@@ -1799,8 +1722,7 @@ func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
 	}
 
 	idempotencyKey := "Ev-input-disable-race"
-	inputDone := make(chan error, 1)
-	go func() {
+	inputDone := integrationdb.RunAsyncError(func() error {
 		_, _, createErr := store.Execution().CreateIntegrationTargetContentInput(
 			context.Background(),
 			executionstore.CreateIntegrationTargetContentInput{
@@ -1812,8 +1734,8 @@ func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
 				IdempotencyKey:       idempotencyKey,
 			},
 		)
-		inputDone <- createErr
-	}()
+		return createErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	applied, err := store.Integrations().DisableIntegrationInstall(
 		ctx,
@@ -1832,13 +1754,8 @@ func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release integration input control transaction: %v", err)
 	}
-	select {
-	case err := <-inputDone:
-		if !errors.Is(err, storeerr.ErrUnauthorized) {
-			t.Fatalf("input admitted after install disable error = %v, want ErrUnauthorized", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for integration input admission")
+	if err := integrationdb.Await(t, inputDone, "integration input admission"); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("input admitted after install disable error = %v, want ErrUnauthorized", err)
 	}
 
 	_, found, err := store.Execution().GetIntegrationTargetInputByIdempotency(

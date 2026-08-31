@@ -400,11 +400,6 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 
 func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 	t.Parallel()
-	type artifactOutcome struct {
-		record artifactstore.ArtifactRecord
-		err    error
-	}
-
 	t.Run("artifact wins", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -425,11 +420,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("build project deletion actor: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin artifact creation control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
 			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
@@ -437,9 +428,8 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("lock agent before artifact creation: %v", err)
 		}
 
-		artifactDone := make(chan artifactOutcome, 1)
-		go func() {
-			record, createErr := store.Artifacts().CreateArtifact(
+		artifactDone := integrationdb.RunAsync(func() (artifactstore.ArtifactRecord, error) {
+			return store.Artifacts().CreateArtifact(
 				ctx,
 				artifactstore.CreateArtifactInput{
 					ProjectID:   testProjectID,
@@ -448,41 +438,26 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 					Content:     []byte("artifact wins"),
 				},
 			)
-			artifactDone <- artifactOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release artifact creation control transaction: %v", err)
 		}
 
-		var outcome artifactOutcome
-		select {
-		case outcome = <-artifactDone:
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for artifact creation")
-		}
-		if outcome.err != nil {
-			t.Fatalf("create artifact before project deletion: %v", outcome.err)
-		}
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project after artifact creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		artifact := integrationdb.AwaitSuccess(t, artifactDone, "create artifact before project deletion")
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project after artifact creation: %v", err)
 		}
 		var agentState string
 		var projectDeleted, artifactExists bool
@@ -496,7 +471,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			 WHERE agent.id = $1 AND project.id = $2`,
 			agentID,
 			testProjectID,
-			outcome.record.ID,
+			artifact.ID,
 		).Scan(&agentState, &projectDeleted, &artifactExists); err != nil {
 			t.Fatalf("load artifact creation winner state: %v", err)
 		}
@@ -533,11 +508,7 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("build project deletion actor: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin project deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
 			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID},
@@ -545,21 +516,19 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 			t.Fatalf("lock agent before project deletion: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 
-		artifactDone := make(chan artifactOutcome, 1)
-		go func() {
-			record, createErr := store.Artifacts().CreateArtifact(
+		artifactDone := integrationdb.RunAsync(func() (artifactstore.ArtifactRecord, error) {
+			return store.Artifacts().CreateArtifact(
 				ctx,
 				artifactstore.CreateArtifactInput{
 					ProjectID:   testProjectID,
@@ -568,29 +537,18 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 					Content:     []byte("deletion wins"),
 				},
 			)
-			artifactDone <- artifactOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project before artifact creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project before artifact creation: %v", err)
 		}
-		var outcome artifactOutcome
-		select {
-		case outcome = <-artifactDone:
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for artifact creation")
-		}
-		if !errors.Is(outcome.err, storeerr.ErrStateTransitionConflict) {
-			t.Fatalf("artifact after project deletion error = %v, want state transition conflict", outcome.err)
+		outcome := integrationdb.Await(t, artifactDone, "artifact creation")
+		if !errors.Is(outcome.Err, storeerr.ErrStateTransitionConflict) {
+			t.Fatalf("artifact after project deletion error = %v, want state transition conflict", outcome.Err)
 		}
 		var artifactCount int
 		if err := pool.QueryRow(

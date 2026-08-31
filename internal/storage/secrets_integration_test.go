@@ -920,11 +920,7 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 		t.Fatalf("acquire OAuth refresh lease acquired=%v err=%v", acquired, err)
 	}
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin OAuth lease control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	if err := controlTx.QueryRow(ctx, `
 		SELECT owner_token
 		FROM secret_oauth_refresh_leases
@@ -934,8 +930,7 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 		t.Fatalf("lock OAuth refresh lease: %v", err)
 	}
 
-	rotationDone := make(chan error, 1)
-	go func() {
+	rotationDone := integrationdb.RunAsyncError(func() error {
 		_, rotateErr := store.Secrets().RotateProjectAvailableOAuthSecret(
 			context.Background(),
 			secretstore.RotateProjectAvailableOAuthSecretInput{
@@ -948,12 +943,11 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 				),
 			},
 		)
-		rotationDone <- rotateErr
-	}()
+		return rotateErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecretOAuthRefreshLease", 1)
 
-	revocationDone := make(chan error, 1)
-	go func() {
+	revocationDone := integrationdb.RunAsyncError(func() error {
 		_, revokeErr := store.Secrets().DeleteSecretGrant(
 			context.Background(),
 			secretstore.DeleteSecretGrantInput{
@@ -961,8 +955,8 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 				Actor: userPrincipal(admin.ID),
 			},
 		)
-		revocationDone <- revokeErr
-	}()
+		return revokeErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecret", 1)
 	select {
 	case err := <-revocationDone:
@@ -977,13 +971,8 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 		"rotate OAuth secret": rotationDone,
 		"revoke secret grant": revocationDone,
 	} {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("%s: %v", operation, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting to %s", operation)
+		if err := integrationdb.Await(t, done, operation); err != nil {
+			t.Fatalf("%s: %v", operation, err)
 		}
 	}
 	if _, err := store.Secrets().GetSecretGrant(
@@ -1121,11 +1110,7 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("create secret: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin reference control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(ctx, dbsqlc.LockResourceCreationParams{
 			ResourceKind: "machine_pools",
 			Scope:        testOrgID.String(),
@@ -1134,52 +1119,33 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 		}
 
 		poolName := "Secret Reference Winner Pool"
-		type createOutcome struct {
-			record executionstore.MachinePoolRecord
-			err    error
-		}
-		createDone := make(chan createOutcome, 1)
-		go func() {
-			record, createErr := createMachinePoolReferencingSecretForTest(
+		createDone := integrationdb.RunAsync(func() (executionstore.MachinePoolRecord, error) {
+			return createMachinePoolReferencingSecretForTest(
 				ctx,
 				store,
 				poolName,
 				secret.ID,
 			)
-			createDone <- createOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Secrets().DeleteSecretOnceForIntegration(ctx, secretstore.DeleteSecretInput{
 				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
 			})
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecret", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release reference control transaction: %v", err)
 		}
 
-		select {
-		case outcome := <-createDone:
-			if outcome.err != nil {
-				t.Fatalf("create machine pool before secret deletion: %v", outcome.err)
-			}
-			if outcome.record.ProviderAuthSecretID != secret.ID {
-				t.Fatalf("machine pool secret = %s, want %s", outcome.record.ProviderAuthSecretID, secret.ID)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for machine pool creation")
+		created := integrationdb.AwaitSuccess(t, createDone, "create machine pool before secret deletion")
+		if created.ProviderAuthSecretID != secret.ID {
+			t.Fatalf("machine pool secret = %s, want %s", created.ProviderAuthSecretID, secret.ID)
 		}
-		select {
-		case err := <-deleteDone:
-			if !errors.Is(err, storeerr.ErrConflict) {
-				t.Fatalf("delete newly referenced secret error = %v, want ErrConflict", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for secret deletion")
+		if err := integrationdb.Await(t, deleteDone, "secret deletion"); !errors.Is(err, storeerr.ErrConflict) {
+			t.Fatalf("delete newly referenced secret error = %v, want ErrConflict", err)
 		}
 	})
 
@@ -1200,11 +1166,7 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("create secret: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := controlTx.Exec(
 			ctx,
 			`SELECT id FROM secret_versions WHERE org_id = $1 AND secret_id = $2 AND id = $3 FOR UPDATE`,
@@ -1215,46 +1177,34 @@ func TestSecretReferenceAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("lock secret version: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Secrets().DeleteSecretOnceForIntegration(ctx, secretstore.DeleteSecretInput{
 				OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(admin.ID),
 			})
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteSecretVersions", 1)
 
 		poolName := "Secret Deletion Winner Pool"
-		createDone := make(chan error, 1)
-		go func() {
+		createDone := integrationdb.RunAsyncError(func() error {
 			_, createErr := createMachinePoolReferencingSecretForTest(
 				ctx,
 				store,
 				poolName,
 				secret.ID,
 			)
-			createDone <- createErr
-		}()
+			return createErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecretForReference", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete secret before reference creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for secret deletion")
+		if err := integrationdb.Await(t, deleteDone, "secret deletion"); err != nil {
+			t.Fatalf("delete secret before reference creation: %v", err)
 		}
-		select {
-		case err := <-createDone:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("create machine pool after secret deletion error = %v, want ErrNotFound", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for machine pool creation")
+		if err := integrationdb.Await(t, createDone, "machine pool creation"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("create machine pool after secret deletion error = %v, want ErrNotFound", err)
 		}
 		var activePoolCount, versionCount int
 		if err := pool.QueryRow(

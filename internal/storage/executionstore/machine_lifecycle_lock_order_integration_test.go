@@ -24,11 +24,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 	ctx := context.Background()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "create-revoke")
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin lifecycle lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockMachinePoolForUpdate(
 		ctx,
@@ -37,13 +33,8 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		t.Fatalf("lock machine pool for lifecycle order: %v", err)
 	}
 
-	type createOutcome struct {
-		result executionstore.CreatePoolMachineResult
-		err    error
-	}
-	createDone := make(chan createOutcome, 1)
-	go func() {
-		result, createErr := executeToolCallOnceForLockOrder[executionstore.CreatePoolMachineResult](
+	createDone := integrationdb.RunAsync(func() (executionstore.CreatePoolMachineResult, error) {
+		return executeToolCallOnceForLockOrder[executionstore.CreatePoolMachineResult](
 			ctx,
 			fixture.store,
 			fixture.transaction(fixture.createToolCallID),
@@ -52,8 +43,7 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
-		createDone <- createOutcome{result: result, err: createErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	agentLockCtx, cancelAgentLock := context.WithTimeout(ctx, 2*time.Second)
@@ -65,46 +55,30 @@ func TestPoolMachineCreationAndGrantRevocationSerializePoolBeforeAgent(t *testin
 		t.Fatalf("lock agent while pool-machine creation waits for pool: %v", err)
 	}
 
-	type revokeOutcome struct {
-		result executionstore.DeleteProjectMachinePoolGrantResult
-		err    error
-	}
-	revokeDone := make(chan revokeOutcome, 1)
-	go func() {
-		result, revokeErr := fixture.store.Execution().IntegrationDeleteProjectMachinePoolGrantOnce(
+	revokeDone := integrationdb.RunAsync(func() (executionstore.DeleteProjectMachinePoolGrantResult, error) {
+		return fixture.store.Execution().IntegrationDeleteProjectMachinePoolGrantOnce(
 			ctx,
 			testOrgID,
 			testProjectID,
 			fixture.poolGrant.ID,
 		)
-		revokeDone <- revokeOutcome{result: result, err: revokeErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release lifecycle lock control transaction: %v", err)
 	}
 
-	var created executionstore.CreatePoolMachineResult
-	select {
-	case outcome := <-createDone:
-		if outcome.err != nil {
-			t.Fatalf("create pool machine in one transaction attempt: %v", outcome.err)
-		}
-		created = outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pool-machine creation")
+	createOutcome := integrationdb.Await(t, createDone, "pool-machine creation")
+	if createOutcome.Err != nil {
+		t.Fatalf("create pool machine in one transaction attempt: %v", createOutcome.Err)
 	}
-	var revoked executionstore.DeleteProjectMachinePoolGrantResult
-	select {
-	case outcome := <-revokeDone:
-		if outcome.err != nil {
-			t.Fatalf("revoke project machine-pool grant: %v", outcome.err)
-		}
-		revoked = outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project machine-pool grant revocation")
+	created := createOutcome.Value
+	revokeOutcome := integrationdb.Await(t, revokeDone, "project machine-pool grant revocation")
+	if revokeOutcome.Err != nil {
+		t.Fatalf("revoke project machine-pool grant: %v", revokeOutcome.Err)
 	}
+	revoked := revokeOutcome.Value
 
 	if !created.Created {
 		t.Fatalf("pool-machine creation result = %+v, want a new machine", created)
@@ -191,11 +165,7 @@ tools:
 				fixture.now.Add(7*time.Second),
 			)
 
-			controlTx, err := fixture.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin multi-pool control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 			controlQ := dbsqlc.New(controlTx)
 			if _, err := controlQ.LockMachinePoolForLifecycle(
 				ctx,
@@ -207,13 +177,8 @@ tools:
 				t.Fatalf("lock second source pool: %v", err)
 			}
 
-			type launchOutcome struct {
-				result executionstore.LaunchAgentResult
-				err    error
-			}
-			launchDone := make(chan launchOutcome, 1)
-			go func() {
-				result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(
+			launchDone := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+				return fixture.store.Execution().IntegrationLaunchAgentOnce(
 					context.Background(),
 					executionstore.LaunchAgentInput{
 						ProjectID:      testProjectID,
@@ -223,8 +188,7 @@ tools:
 						IdempotencyKey: "multi-pool-launch-" + slug,
 					},
 				)
-				launchDone <- launchOutcome{result: result, err: launchErr}
-			}()
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 			grantLockCtx, cancelGrantLock := context.WithTimeout(ctx, 2*time.Second)
@@ -241,16 +205,12 @@ tools:
 				t.Fatalf("release multi-pool control transaction: %v", err)
 			}
 
-			select {
-			case outcome := <-launchDone:
-				if outcome.err != nil {
-					t.Fatalf("launch multi-pool agent: %v", outcome.err)
-				}
-				if len(outcome.result.MachineBindings) != 0 {
-					t.Fatalf("multi-pool zero-initial launch bindings = %+v", outcome.result.MachineBindings)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for multi-pool launch")
+			outcome := integrationdb.Await(t, launchDone, "multi-pool launch")
+			if outcome.Err != nil {
+				t.Fatalf("launch multi-pool agent: %v", outcome.Err)
+			}
+			if len(outcome.Value.MachineBindings) != 0 {
+				t.Fatalf("multi-pool zero-initial launch bindings = %+v", outcome.Value.MachineBindings)
 			}
 		})
 	}
@@ -265,11 +225,7 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 		t.Fatalf("create pool machine: %v", err)
 	}
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin machine lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockMachineForLifecycle(
 		ctx,
@@ -278,13 +234,8 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 		t.Fatalf("lock machine for lifecycle order: %v", err)
 	}
 
-	type deleteOutcome struct {
-		result executionstore.PoolMachineRecord
-		err    error
-	}
-	deleteDone := make(chan deleteOutcome, 1)
-	go func() {
-		result, deleteErr := executeToolCallOnceForLockOrder[executionstore.PoolMachineRecord](
+	deleteDone := integrationdb.RunAsync(func() (executionstore.PoolMachineRecord, error) {
+		return executeToolCallOnceForLockOrder[executionstore.PoolMachineRecord](
 			ctx,
 			fixture.store,
 			fixture.transaction(fixture.deleteToolCallID),
@@ -293,8 +244,7 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 				acceptedPoolMachineCompletionForTest,
 			),
 		)
-		deleteDone <- deleteOutcome{result: result, err: deleteErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
 	agentLockCtx, cancelAgentLock := context.WithTimeout(ctx, 2*time.Second)
@@ -309,18 +259,14 @@ func TestDeletePoolMachineLocksMachineBeforeAgent(t *testing.T) {
 		t.Fatalf("release machine lock control transaction: %v", err)
 	}
 
-	select {
-	case outcome := <-deleteDone:
-		if outcome.err != nil {
-			t.Fatalf("delete pool machine in one transaction attempt: %v", outcome.err)
-		}
-		if outcome.result.Machine.LifecycleState != "deleting" ||
-			outcome.result.Machine.LifecycleReasonCode != "machine_tool_delete" ||
-			outcome.result.Binding.DeleteToolCallID != fixture.deleteToolCallID {
-			t.Fatalf("deleted pool machine = %+v", outcome.result)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pool-machine tool deletion")
+	deleteOutcome := integrationdb.Await(t, deleteDone, "pool-machine tool deletion")
+	if deleteOutcome.Err != nil {
+		t.Fatalf("delete pool machine in one transaction attempt: %v", deleteOutcome.Err)
+	}
+	if deleteOutcome.Value.Machine.LifecycleState != "deleting" ||
+		deleteOutcome.Value.Machine.LifecycleReasonCode != "machine_tool_delete" ||
+		deleteOutcome.Value.Binding.DeleteToolCallID != fixture.deleteToolCallID {
+		t.Fatalf("deleted pool machine = %+v", deleteOutcome.Value)
 	}
 }
 
@@ -418,11 +364,7 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		t.Fatalf("queue lower-ID process: %v", err)
 	}
 
-	controlTx, err := fixture.Store.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin agent-order control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.Store.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockAgentInProject(
 		ctx,
@@ -431,14 +373,13 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		t.Fatalf("lock lower-ID agent: %v", err)
 	}
 
-	deleteDone := make(chan error, 1)
-	go func() {
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.Store.Execution().IntegrationDeleteMachineOnce(
 			context.Background(),
 			executionstore.DeleteMachineInput{OrgID: fixture.OrgID, MachineID: fixture.MachineID},
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.Store.pool, "LockAgentInProject", 1)
 
 	probeCtx, cancelProbe := context.WithTimeout(ctx, 2*time.Second)
@@ -452,13 +393,8 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release agent-order control transaction: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete machine in one transaction attempt: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for machine deletion")
+	if err := integrationdb.Await(t, deleteDone, "machine deletion"); err != nil {
+		t.Fatalf("delete machine in one transaction attempt: %v", err)
 	}
 
 	currentHigher, err := fixture.Store.Execution().GetProcess(
@@ -521,11 +457,7 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 		t.Fatalf("claim pool machine deletion claimed=%v err=%v", claimed, err)
 	}
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin pool lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockMachinePoolForLifecycle(
 		ctx,
@@ -534,15 +466,14 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 		t.Fatalf("lock pool before deletion completion: %v", err)
 	}
 
-	completeDone := make(chan error, 1)
-	go func() {
-		completeDone <- fixture.store.Execution().CompletePoolMachineDeletion(
+	completeDone := integrationdb.RunAsyncError(func() error {
+		return fixture.store.Execution().CompletePoolMachineDeletion(
 			ctx,
 			testOrgID,
 			deleted.Machine.ID,
 			deleting.Machine.DeleteAttempts,
 		)
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	machineLockCtx, cancelMachineLock := context.WithTimeout(ctx, 2*time.Second)
@@ -556,13 +487,8 @@ func TestCompletePoolMachineDeletionLocksPoolBeforeMachine(t *testing.T) {
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release pool lock control transaction: %v", err)
 	}
-	select {
-	case err := <-completeDone:
-		if err != nil {
-			t.Fatalf("complete pool machine deletion: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pool-machine deletion completion")
+	if err := integrationdb.Await(t, completeDone, "pool-machine deletion completion"); err != nil {
+		t.Fatalf("complete pool machine deletion: %v", err)
 	}
 	current, err := fixture.store.Execution().GetMachine(ctx, testOrgID, deleted.Machine.ID)
 	if err != nil {
@@ -597,11 +523,7 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 				t.Fatalf("create BYO machine: %v", err)
 			}
 
-			controlTx, err := fixture.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin machine lock control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 			if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
 				ctx,
 				dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.ID},
@@ -609,10 +531,9 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 				t.Fatalf("lock machine for daemon token contention: %v", err)
 			}
 
-			tokenDone := make(chan error, 1)
-			deleteDone := make(chan error, 1)
+			var tokenDone, deleteDone <-chan error
 			startToken := func() {
-				go func() {
+				tokenDone = integrationdb.RunAsyncError(func() error {
 					_, tokenErr := fixture.store.Execution().CreateBYOMachineDaemonToken(
 						context.Background(),
 						executionstore.CreateBYOMachineDaemonTokenInput{
@@ -621,17 +542,17 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 							Name:      "contention token",
 						},
 					)
-					tokenDone <- tokenErr
-				}()
+					return tokenErr
+				})
 			}
 			startDelete := func() {
-				go func() {
+				deleteDone = integrationdb.RunAsyncError(func() error {
 					_, deleteErr := fixture.store.Execution().IntegrationDeleteMachineOnce(
 						context.Background(),
 						executionstore.DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
 					)
-					deleteDone <- deleteErr
-				}()
+					return deleteErr
+				})
 			}
 			if tokenWins {
 				startToken()
@@ -647,25 +568,15 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 				t.Fatalf("release machine lock control transaction: %v", err)
 			}
 
-			var tokenErr error
-			select {
-			case tokenErr = <-tokenDone:
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for daemon token creation")
-			}
+			tokenErr := integrationdb.Await(t, tokenDone, "daemon token creation")
 			if tokenWins && tokenErr != nil {
 				t.Fatalf("create daemon token before deletion: %v", tokenErr)
 			}
 			if !tokenWins && !errors.Is(tokenErr, storeerr.ErrNotFound) {
 				t.Fatalf("create daemon token after deletion error = %v, want not found", tokenErr)
 			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete BYO machine: %v", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for BYO machine deletion")
+			if err := integrationdb.Await(t, deleteDone, "BYO machine deletion"); err != nil {
+				t.Fatalf("delete BYO machine: %v", err)
 			}
 
 			var tokenCount, revokedCount int
@@ -739,11 +650,7 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 		t.Fatalf("build project deletion actor: %v", err)
 	}
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin explicit machine lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockMachineForLifecycle(
 		ctx,
@@ -752,26 +659,24 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 		t.Fatalf("lock explicit machine for lifecycle order: %v", err)
 	}
 
-	projectDeleteDone := make(chan error, 1)
-	go func() {
+	projectDeleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			testOrgID,
 			testProjectID,
 			actor,
 		)
-		projectDeleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
-	machineDeleteDone := make(chan error, 1)
-	go func() {
+	machineDeleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachineOnce(
 			ctx,
 			executionstore.DeleteMachineInput{OrgID: testOrgID, MachineID: machine.ID},
 		)
-		machineDeleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
@@ -781,13 +686,8 @@ func TestProjectAndMachineDeletionSerializeOnExplicitMachine(t *testing.T) {
 		"project deletion": projectDeleteDone,
 		"machine deletion": machineDeleteDone,
 	} {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("%s after machine lock release: %v", label, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for %s", label)
+		if err := integrationdb.Await(t, done, label); err != nil {
+			t.Fatalf("%s after machine lock release: %v", label, err)
 		}
 	}
 
@@ -852,11 +752,7 @@ model:
 		time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC),
 	)
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin project lifecycle control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	controlQ := dbsqlc.New(controlTx)
 	if err := controlQ.LockProjectLifecycleExclusive(
 		ctx,
@@ -865,21 +761,15 @@ model:
 		t.Fatalf("lock project lifecycle exclusively: %v", err)
 	}
 
-	type launchOutcome struct {
-		result executionstore.LaunchAgentResult
-		err    error
-	}
-	launchDone := make(chan launchOutcome, 1)
-	go func() {
-		result, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+	launchDone := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+		return store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			ProfileID:      profile.ID,
 			AgentConfigID:  profile.CurrentConfigID,
 			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID},
 			IdempotencyKey: "project-profile-order",
 		})
-		launchDone <- launchOutcome{result: result, err: launchErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
 
 	profileLockCtx, cancelProfileLock := context.WithTimeout(ctx, 2*time.Second)
@@ -894,16 +784,12 @@ model:
 		t.Fatalf("release project lifecycle control transaction: %v", err)
 	}
 
-	select {
-	case outcome := <-launchDone:
-		if outcome.err != nil {
-			t.Fatalf("launch after project lifecycle release: %v", outcome.err)
-		}
-		if !outcome.result.Created {
-			t.Fatalf("launch result = %+v, want a new agent", outcome.result)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for agent launch")
+	outcome := integrationdb.Await(t, launchDone, "agent launch")
+	if outcome.Err != nil {
+		t.Fatalf("launch after project lifecycle release: %v", outcome.Err)
+	}
+	if !outcome.Value.Created {
+		t.Fatalf("launch result = %+v, want a new agent", outcome.Value)
 	}
 }
 
@@ -964,11 +850,7 @@ tools:
 		fixture.now.Add(7*time.Second),
 	)
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin pool and environment lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockMachinePoolForUpdate(
 		ctx,
@@ -977,21 +859,15 @@ tools:
 		t.Fatalf("lock shared machine pool: %v", err)
 	}
 
-	type launchOutcome struct {
-		result executionstore.LaunchAgentResult
-		err    error
-	}
-	launchDone := make(chan launchOutcome, 1)
-	go func() {
-		result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+	launchDone := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+		return fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			ProfileID:      profile.ID,
 			AgentConfigID:  profile.CurrentConfigID,
 			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 			IdempotencyKey: "shared-environment-launch",
 		})
-		launchDone <- launchOutcome{result: result, err: launchErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 1)
 
 	environmentCtx, cancelEnvironment := context.WithTimeout(ctx, 2*time.Second)
@@ -1003,46 +879,30 @@ tools:
 		t.Fatalf("lock machine environment while launch waits for pool: %v", err)
 	}
 
-	type configChangeOutcome struct {
-		result executionstore.ChangeAgentConfigResult
-		err    error
-	}
-	configDone := make(chan configChangeOutcome, 1)
-	go func() {
-		result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
+	configDone := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
+		return fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
 			CreateAgentConfigInput: changeInputFromRecord(nextConfig),
 			AgentID:                fixture.agent.ID,
 			ActorType:              identitystore.PrincipalTypeUser,
 			ActorID:                fixture.userID,
 			IdempotencyKey:         "shared-environment-change",
 		})
-		configDone <- configChangeOutcome{result: result, err: changeErr}
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForLifecycle", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release pool and environment lock control transaction: %v", err)
 	}
-	var launched executionstore.LaunchAgentResult
-	select {
-	case outcome := <-launchDone:
-		if outcome.err != nil {
-			t.Fatalf("launch after pool lock release: %v", outcome.err)
-		}
-		launched = outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for launch")
+	launchOutcome := integrationdb.Await(t, launchDone, "launch")
+	if launchOutcome.Err != nil {
+		t.Fatalf("launch after pool lock release: %v", launchOutcome.Err)
 	}
-	var changed executionstore.ChangeAgentConfigResult
-	select {
-	case outcome := <-configDone:
-		if outcome.err != nil {
-			t.Fatalf("configuration reconciliation after pool lock release: %v", outcome.err)
-		}
-		changed = outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for configuration reconciliation")
+	launched := launchOutcome.Value
+	configOutcome := integrationdb.Await(t, configDone, "configuration reconciliation")
+	if configOutcome.Err != nil {
+		t.Fatalf("configuration reconciliation after pool lock release: %v", configOutcome.Err)
 	}
+	changed := configOutcome.Value
 
 	if len(launched.MachineBindings) != 1 || launched.MachineBindings[0].MachineID != machine.ID {
 		t.Fatalf("launched machine bindings = %+v, want explicit machine %s", launched.MachineBindings, machine.ID)
@@ -1079,11 +939,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			fixture.now.Add(6*time.Second),
 		)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin explicit launch control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockMachineEnvironmentKey(
 			ctx,
 			dbsqlc.LockMachineEnvironmentKeyParams{MachineID: explicit.machine.ID},
@@ -1091,40 +947,36 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t.Fatalf("lock explicit machine environment: %v", err)
 		}
 
-		launchDone := make(chan launchAttemptOutcome, 1)
-		go func() {
-			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+		launchDone := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+			return fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 				ProjectID:      testProjectID,
 				ProfileID:      profile.ID,
 				AgentConfigID:  profile.CurrentConfigID,
 				LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 				IdempotencyKey: "explicit-launch-wins",
 			})
-			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
 
-		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
-		go func() {
-			result, revokeErr := fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
+		revokeDone := integrationdb.RunAsync(func() (executionstore.ProjectMachineGrantRecord, error) {
+			return fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
 				ctx,
 				testOrgID,
 				testProjectID,
 				explicit.grant.ID,
 			)
-			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit launch control transaction: %v", err)
 		}
 
-		launched := receiveLaunchAttempt(t, launchDone)
+		launched := integrationdb.AwaitSuccess(t, launchDone, "launch in one transaction attempt")
 		if !launched.Created || len(launched.MachineBindings) != 1 ||
 			launched.MachineBindings[0].MachineID != explicit.machine.ID {
 			t.Fatalf("launch result = %+v", launched)
 		}
-		revoked := receiveGrantRevocationAttempt(t, revokeDone)
+		revoked := integrationdb.AwaitSuccess(t, revokeDone, "grant revocation in one transaction attempt")
 		if revoked.ID != explicit.grant.ID {
 			t.Fatalf("revoked grant = %s, want %s", revoked.ID, explicit.grant.ID)
 		}
@@ -1153,11 +1005,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			fixture.now.Add(6*time.Second),
 		)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin explicit revocation control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
 			ctx,
 			dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: explicit.machine.ID},
@@ -1165,42 +1013,33 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t.Fatalf("lock explicit machine: %v", err)
 		}
 
-		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
-		go func() {
-			result, revokeErr := fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
+		revokeDone := integrationdb.RunAsync(func() (executionstore.ProjectMachineGrantRecord, error) {
+			return fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
 				ctx,
 				testOrgID,
 				testProjectID,
 				explicit.grant.ID,
 			)
-			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
-		launchDone := make(chan launchAttemptOutcome, 1)
-		go func() {
-			result, launchErr := fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+		launchDone := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+			return fixture.store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 				ProjectID:      testProjectID,
 				ProfileID:      profile.ID,
 				AgentConfigID:  profile.CurrentConfigID,
 				LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.userID},
 				IdempotencyKey: "explicit-revoke-launch",
 			})
-			launchDone <- launchAttemptOutcome{result: result, err: launchErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit revocation control transaction: %v", err)
 		}
 
-		receiveGrantRevocationAttempt(t, revokeDone)
-		select {
-		case outcome := <-launchDone:
-			if !errors.Is(outcome.err, storeerr.ErrNotFound) {
-				t.Fatalf("launch after revocation error = %v, want not found", outcome.err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected launch")
+		integrationdb.AwaitSuccess(t, revokeDone, "grant revocation in one transaction attempt")
+		if outcome := integrationdb.Await(t, launchDone, "rejected launch"); !errors.Is(outcome.Err, storeerr.ErrNotFound) {
+			t.Fatalf("launch after revocation error = %v, want not found", outcome.Err)
 		}
 		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, NilID, 0, 0)
 		var agentCount int
@@ -1233,11 +1072,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			fixture.now.Add(6*time.Second),
 		)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin explicit config control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockMachineEnvironmentKey(
 			ctx,
 			dbsqlc.LockMachineEnvironmentKeyParams{MachineID: explicit.machine.ID},
@@ -1245,9 +1080,8 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t.Fatalf("lock explicit machine environment: %v", err)
 		}
 
-		configDone := make(chan configChangeAttemptOutcome, 1)
-		go func() {
-			result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(
+		configDone := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
+			return fixture.store.Execution().IntegrationChangeAgentConfigOnce(
 				ctx,
 				executionstore.ChangeAgentConfigInput{
 					CreateAgentConfigInput: changeInputFromRecord(nextConfig),
@@ -1257,30 +1091,27 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 					IdempotencyKey:         "explicit-config-wins",
 				},
 			)
-			configDone <- configChangeAttemptOutcome{result: result, err: changeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineEnvironmentKey", 1)
 
-		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
-		go func() {
-			result, revokeErr := fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
+		revokeDone := integrationdb.RunAsync(func() (executionstore.ProjectMachineGrantRecord, error) {
+			return fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
 				ctx,
 				testOrgID,
 				testProjectID,
 				explicit.grant.ID,
 			)
-			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit config control transaction: %v", err)
 		}
 
-		changed := receiveConfigChangeAttempt(t, configDone)
+		changed := integrationdb.AwaitSuccess(t, configDone, "config change in one transaction attempt")
 		if changed.AgentConfig.ID != nextConfig.ID {
 			t.Fatalf("activated config = %s, want %s", changed.AgentConfig.ID, nextConfig.ID)
 		}
-		receiveGrantRevocationAttempt(t, revokeDone)
+		integrationdb.AwaitSuccess(t, revokeDone, "grant revocation in one transaction attempt")
 		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, fixture.agent.ID, 0, 1)
 		assertAgentCurrentConfig(t, ctx, fixture, fixture.agent.ID, nextConfig.ID)
 	})
@@ -1298,11 +1129,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			fixture.now.Add(6*time.Second),
 		)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin explicit config revocation control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
 			ctx,
 			dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: explicit.machine.ID},
@@ -1310,21 +1137,18 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t.Fatalf("lock explicit machine: %v", err)
 		}
 
-		revokeDone := make(chan grantRevocationAttemptOutcome, 1)
-		go func() {
-			result, revokeErr := fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
+		revokeDone := integrationdb.RunAsync(func() (executionstore.ProjectMachineGrantRecord, error) {
+			return fixture.store.Execution().IntegrationDeleteProjectMachineGrantOnce(
 				ctx,
 				testOrgID,
 				testProjectID,
 				explicit.grant.ID,
 			)
-			revokeDone <- grantRevocationAttemptOutcome{result: result, err: revokeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
 
-		configDone := make(chan configChangeAttemptOutcome, 1)
-		go func() {
-			result, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(
+		configDone := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
+			return fixture.store.Execution().IntegrationChangeAgentConfigOnce(
 				ctx,
 				executionstore.ChangeAgentConfigInput{
 					CreateAgentConfigInput: changeInputFromRecord(nextConfig),
@@ -1334,21 +1158,15 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 					IdempotencyKey:         "explicit-revoke-config",
 				},
 			)
-			configDone <- configChangeAttemptOutcome{result: result, err: changeErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 2)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release explicit config revocation control transaction: %v", err)
 		}
 
-		receiveGrantRevocationAttempt(t, revokeDone)
-		select {
-		case outcome := <-configDone:
-			if !errors.Is(outcome.err, storeerr.ErrNotFound) {
-				t.Fatalf("config change after revocation error = %v, want not found", outcome.err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected config change")
+		integrationdb.AwaitSuccess(t, revokeDone, "grant revocation in one transaction attempt")
+		if outcome := integrationdb.Await(t, configDone, "rejected config change"); !errors.Is(outcome.Err, storeerr.ErrNotFound) {
+			t.Fatalf("config change after revocation error = %v, want not found", outcome.Err)
 		}
 		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, fixture.agent.ID, 0, 0)
 		assertAgentCurrentConfig(t, ctx, fixture, fixture.agent.ID, fixture.agent.CurrentConfigID)
@@ -1359,21 +1177,6 @@ type explicitGrantLifecycleFixture struct {
 	machine    executionstore.MachineRecord
 	grant      executionstore.ProjectMachineGrantRecord
 	configYAML string
-}
-
-type launchAttemptOutcome struct {
-	result executionstore.LaunchAgentResult
-	err    error
-}
-
-type configChangeAttemptOutcome struct {
-	result executionstore.ChangeAgentConfigResult
-	err    error
-}
-
-type grantRevocationAttemptOutcome struct {
-	result executionstore.ProjectMachineGrantRecord
-	err    error
 }
 
 func createExplicitGrantLifecycleFixture(
@@ -1416,51 +1219,6 @@ machine_sources:
 tools:
   run_command: {}
 `, machine.DisplayName),
-	}
-}
-
-func receiveLaunchAttempt(t *testing.T, done <-chan launchAttemptOutcome) executionstore.LaunchAgentResult {
-	t.Helper()
-	select {
-	case outcome := <-done:
-		if outcome.err != nil {
-			t.Fatalf("launch in one transaction attempt: %v", outcome.err)
-		}
-		return outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for launch")
-		return executionstore.LaunchAgentResult{}
-	}
-}
-
-func receiveConfigChangeAttempt(t *testing.T, done <-chan configChangeAttemptOutcome) executionstore.ChangeAgentConfigResult {
-	t.Helper()
-	select {
-	case outcome := <-done:
-		if outcome.err != nil {
-			t.Fatalf("config change in one transaction attempt: %v", outcome.err)
-		}
-		return outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for config change")
-		return executionstore.ChangeAgentConfigResult{}
-	}
-}
-
-func receiveGrantRevocationAttempt(
-	t *testing.T,
-	done <-chan grantRevocationAttemptOutcome,
-) executionstore.ProjectMachineGrantRecord {
-	t.Helper()
-	select {
-	case outcome := <-done:
-		if outcome.err != nil {
-			t.Fatalf("grant revocation in one transaction attempt: %v", outcome.err)
-		}
-		return outcome.result
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for grant revocation")
-		return executionstore.ProjectMachineGrantRecord{}
 	}
 }
 
@@ -1599,11 +1357,7 @@ func TestPoolMachineToolOperationsEnterProjectLifecycle(t *testing.T) {
 				}
 			}
 
-			controlTx, err := fixture.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin project tool control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 			if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 				ctx,
 				dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -1611,40 +1365,28 @@ func TestPoolMachineToolOperationsEnterProjectLifecycle(t *testing.T) {
 				t.Fatalf("lock agent for project deletion: %v", err)
 			}
 
-			deleteDone := make(chan error, 1)
 			actor := scopeDeletionActor(t, fixture)
-			go func() {
+			deleteDone := integrationdb.RunAsyncError(func() error {
 				_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 					context.Background(),
 					testOrgID,
 					testProjectID,
 					actor,
 				)
-				deleteDone <- deleteErr
-			}()
+				return deleteErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-			operationDone := make(chan error, 1)
-			go func() { operationDone <- runOperation() }()
+			operationDone := integrationdb.RunAsyncError(runOperation)
 			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release project tool control transaction: %v", err)
 			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete project: %v", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for project deletion")
+			if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+				t.Fatalf("delete project: %v", err)
 			}
-			select {
-			case err := <-operationDone:
-				if !errors.Is(err, storeerr.ErrNotFound) {
-					t.Fatalf("%s pool machine after project deletion error = %v, want not found", operation, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatalf("timed out waiting for pool machine %s", operation)
+			if err := integrationdb.Await(t, operationDone, "pool machine "+operation); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("%s pool machine after project deletion error = %v, want not found", operation, err)
 			}
 		})
 	}
@@ -1678,11 +1420,7 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 		t.Fatalf("create project admission target machine: %v", err)
 	}
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin source lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockAgentInProject(
 		ctx,
@@ -1691,20 +1429,19 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 		t.Fatalf("lock agent for project deletion: %v", err)
 	}
 
-	deleteDone := make(chan error, 1)
-	go func() {
+	actor := scopeDeletionActor(t, fixture)
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			testOrgID,
 			testProjectID,
-			scopeDeletionActor(t, fixture),
+			actor,
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	poolGrantDone := make(chan error, 1)
-	go func() {
+	poolGrantDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := fixture.store.Execution().CreateProjectMachinePoolGrant(
 			ctx,
 			executionstore.CreateProjectMachinePoolGrantInput{
@@ -1714,10 +1451,9 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 				IdempotencyKey: "project-admission-pool-grant",
 			},
 		)
-		poolGrantDone <- createErr
-	}()
-	explicitGrantDone := make(chan error, 1)
-	go func() {
+		return createErr
+	})
+	explicitGrantDone := integrationdb.RunAsyncError(func() error {
 		_, _, createErr := fixture.store.Execution().CreateProjectMachineGrant(
 			ctx,
 			executionstore.CreateProjectMachineGrantInput{
@@ -1727,32 +1463,22 @@ func TestProjectGrantCreationWaitingBehindDeletionRejectsInactiveProject(t *test
 				IdempotencyKey: "project-admission-explicit-grant",
 			},
 		)
-		explicitGrantDone <- createErr
-	}()
+		return createErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete project: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project deletion")
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+		t.Fatalf("delete project: %v", err)
 	}
 	for label, done := range map[string]<-chan error{
 		"machine-pool grant": poolGrantDone,
 		"explicit grant":     explicitGrantDone,
 	} {
-		select {
-		case err := <-done:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("%s creation after project deletion error = %v, want not found", label, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for %s creation", label)
+		if err := integrationdb.Await(t, done, label+" creation"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("%s creation after project deletion error = %v, want not found", label, err)
 		}
 	}
 
@@ -1784,11 +1510,7 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 	ctx := context.Background()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "mcp-project-delete")
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin source lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -1796,20 +1518,19 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 		t.Fatalf("lock agent for project deletion: %v", err)
 	}
 
-	deleteDone := make(chan error, 1)
-	go func() {
+	actor := scopeDeletionActor(t, fixture)
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			testOrgID,
 			testProjectID,
-			scopeDeletionActor(t, fixture),
+			actor,
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	reconcileDone := make(chan error, 1)
-	go func() {
+	reconcileDone := integrationdb.RunAsyncError(func() error {
 		_, reconcileErr := fixture.store.Execution().ReconcileAgentMCPConnections(
 			ctx,
 			testProjectID,
@@ -1819,28 +1540,18 @@ func TestMCPReconciliationWaitingBehindProjectDeletionRejectsInactiveProject(t *
 				URL:       "https://example.com/mcp",
 			}},
 		)
-		reconcileDone <- reconcileErr
-	}()
+		return reconcileErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete project: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project deletion")
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+		t.Fatalf("delete project: %v", err)
 	}
-	select {
-	case err := <-reconcileDone:
-		if !errors.Is(err, storeerr.ErrNotFound) {
-			t.Fatalf("mcp reconciliation after project deletion error = %v, want not found", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for mcp reconciliation")
+	if err := integrationdb.Await(t, reconcileDone, "mcp reconciliation"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("mcp reconciliation after project deletion error = %v, want not found", err)
 	}
 
 	var connectionCount int
@@ -1863,11 +1574,7 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 	ctx := context.Background()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "mcp-archive")
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin agent lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -1875,9 +1582,8 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 		t.Fatalf("lock agent before archive: %v", err)
 	}
 
-	archiveDone := make(chan error, 1)
 	actor := scopeDeletionActor(t, fixture)
-	go func() {
+	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
 			testOrgID,
@@ -1885,12 +1591,11 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 			fixture.agent.ID,
 			actor,
 		)
-		archiveDone <- archiveErr
-	}()
+		return archiveErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	reconcileDone := make(chan error, 1)
-	go func() {
+	reconcileDone := integrationdb.RunAsyncError(func() error {
 		_, reconcileErr := fixture.store.Execution().ReconcileAgentMCPConnections(
 			ctx,
 			testProjectID,
@@ -1900,28 +1605,18 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 				URL:       "https://example.com/mcp",
 			}},
 		)
-		reconcileDone <- reconcileErr
-	}()
+		return reconcileErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release agent lock control transaction: %v", err)
 	}
-	select {
-	case err := <-archiveDone:
-		if err != nil {
-			t.Fatalf("archive agent: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for agent archival")
+	if err := integrationdb.Await(t, archiveDone, "agent archival"); err != nil {
+		t.Fatalf("archive agent: %v", err)
 	}
-	select {
-	case err := <-reconcileDone:
-		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-			t.Fatalf("mcp reconciliation after archive error = %v, want state transition conflict", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for mcp reconciliation")
+	if err := integrationdb.Await(t, reconcileDone, "mcp reconciliation"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("mcp reconciliation after archive error = %v, want state transition conflict", err)
 	}
 
 	var connectionCount int
@@ -1973,21 +1668,15 @@ model:
 
 	rejectedInput := acceptedInput
 	rejectedInput.IdempotencyKey = "config-after-archive"
-	changeDone := make(chan error, 1)
-	go func() {
+	changeDone := integrationdb.RunAsyncError(func() error {
 		_, changeErr := fixture.store.Execution().IntegrationChangeAgentConfigOnce(ctx, rejectedInput)
-		changeDone <- changeErr
-	}()
+		return changeErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	releaseArchive()
-	select {
-	case err := <-changeDone:
-		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-			t.Fatalf("new config change after archive error = %v, want state transition conflict", err)
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for rejected config change")
+	if err := integrationdb.Await(t, changeDone, "rejected config change"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("new config change after archive error = %v, want state transition conflict", err)
 	}
 
 	replayed, err := fixture.store.Execution().ChangeAgentConfig(ctx, acceptedInput)
@@ -2035,21 +1724,15 @@ func TestPoolMachineCreationWaitingBehindAgentArchiveRejectsArchivedAgent(t *tes
 
 	releaseArchive := startAgentArchiveBlockedAtAgent(t, ctx, fixture)
 
-	createDone := make(chan error, 1)
-	go func() {
+	createDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := fixture.createMachineOnce(ctx)
-		createDone <- createErr
-	}()
+		return createErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	releaseArchive()
-	select {
-	case err := <-createDone:
-		if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-			t.Fatalf("pool-machine creation after archive error = %v, want state transition conflict", err)
-		}
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for rejected pool-machine creation")
+	if err := integrationdb.Await(t, createDone, "rejected pool-machine creation"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("pool-machine creation after archive error = %v, want state transition conflict", err)
 	}
 
 	var machineCount, bindingCount int
@@ -2088,20 +1771,15 @@ func startAgentArchiveBlockedAtAgent(
 	fixture machineLifecycleLockOrderFixture,
 ) func() {
 	t.Helper()
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin agent archive control transaction: %v", err)
-	}
-	t.Cleanup(func() { _ = controlTx.Rollback(context.Background()) })
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 	); err != nil {
 		t.Fatalf("lock agent before archive: %v", err)
 	}
-	archiveDone := make(chan error, 1)
 	actor := scopeDeletionActor(t, fixture)
-	go func() {
+	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
 			testOrgID,
@@ -2109,21 +1787,16 @@ func startAgentArchiveBlockedAtAgent(
 			fixture.agent.ID,
 			actor,
 		)
-		archiveDone <- archiveErr
-	}()
+		return archiveErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 	return func() {
 		t.Helper()
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release agent archive control transaction: %v", err)
 		}
-		select {
-		case err := <-archiveDone:
-			if err != nil {
-				t.Fatalf("archive agent after source lock: %v", err)
-			}
-		case <-ctx.Done():
-			t.Fatal("timed out waiting for agent archive")
+		if err := integrationdb.Await(t, archiveDone, "agent archive"); err != nil {
+			t.Fatalf("archive agent after source lock: %v", err)
 		}
 	}
 }
@@ -2137,11 +1810,7 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 ) machineLifecycleLockOrderFixture {
 	t.Helper()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, label)
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin archive control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockAgentInProject(
 		ctx,
@@ -2150,9 +1819,8 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 		t.Fatalf("lock agent before archive: %v", err)
 	}
 
-	archiveDone := make(chan error, 1)
 	actor := scopeDeletionActor(t, fixture)
-	go func() {
+	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
 			testOrgID,
@@ -2160,31 +1828,20 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 			fixture.agent.ID,
 			actor,
 		)
-		archiveDone <- archiveErr
-	}()
+		return archiveErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	deleteDone := make(chan error, 1)
-	go func() { deleteDone <- deleteScope(fixture) }()
+	deleteDone := integrationdb.RunAsyncError(func() error { return deleteScope(fixture) })
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, deletionGateQuery, 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release archive control transaction: %v", err)
 	}
-	select {
-	case err := <-archiveDone:
-		if err != nil {
-			t.Fatalf("archive agent that won the source gate: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for agent archival")
+	if err := integrationdb.Await(t, archiveDone, "agent archival"); err != nil {
+		t.Fatalf("archive agent that won the source gate: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete scope after concurrent agent archival: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for scope deletion")
+	if err := integrationdb.Await(t, deleteDone, "scope deletion"); err != nil {
+		t.Fatalf("delete scope after concurrent agent archival: %v", err)
 	}
 	return fixture
 }

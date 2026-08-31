@@ -240,11 +240,7 @@ func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
 			t.Fatalf("build project deletion actor: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin machine connection control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(
 			ctx,
 			dbsqlc.LockResourceCreationParams{
@@ -255,13 +251,8 @@ func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
 			t.Fatalf("lock machine creation: %v", err)
 		}
 
-		type connectionOutcome struct {
-			result executionstore.ConnectBYOMachineResult
-			err    error
-		}
-		connectDone := make(chan connectionOutcome, 1)
-		go func() {
-			result, connectErr := store.Execution().ConnectBYOMachine(
+		connectDone := integrationdb.RunAsync(func() (executionstore.ConnectBYOMachineResult, error) {
+			return store.Execution().ConnectBYOMachine(
 				ctx,
 				executionstore.ConnectBYOMachineInput{
 					OrgID:       testOrgID,
@@ -270,42 +261,26 @@ func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
 					TokenName:   "connection-wins",
 				},
 			)
-			connectDone <- connectionOutcome{result: result, err: connectErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockResourceCreation", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release machine connection control transaction: %v", err)
 		}
 
-		var connected executionstore.ConnectBYOMachineResult
-		select {
-		case outcome := <-connectDone:
-			if outcome.err != nil {
-				t.Fatalf("connect machine before project deletion: %v", outcome.err)
-			}
-			connected = outcome.result
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for machine connection")
-		}
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project after machine connection: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		connected := integrationdb.AwaitSuccess(t, connectDone, "connect machine before project deletion")
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project after machine connection: %v", err)
 		}
 
 		var machineActive, tokenActive bool
@@ -357,11 +332,7 @@ WHERE machine.org_id = $1 AND machine.id = $4
 			t.Fatalf("build project deletion actor: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin project deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := controlTx.Exec(
 			ctx,
 			`SELECT id FROM projects WHERE org_id = $1 AND id = $2 FOR UPDATE`,
@@ -371,20 +342,18 @@ WHERE machine.org_id = $1 AND machine.id = $4
 			t.Fatalf("lock project row: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProject", 1)
 
-		connectDone := make(chan error, 1)
-		go func() {
+		connectDone := integrationdb.RunAsyncError(func() error {
 			_, connectErr := store.Execution().ConnectBYOMachine(
 				ctx,
 				executionstore.ConnectBYOMachineInput{
@@ -394,28 +363,18 @@ WHERE machine.org_id = $1 AND machine.id = $4
 					TokenName:   "deletion-wins",
 				},
 			)
-			connectDone <- connectErr
-		}()
+			return connectErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project before machine connection: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project before machine connection: %v", err)
 		}
-		select {
-		case err := <-connectDone:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("machine connection after project deletion error = %v, want not found", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected machine connection")
+		if err := integrationdb.Await(t, connectDone, "rejected machine connection"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("machine connection after project deletion error = %v, want not found", err)
 		}
 
 		var machineCount, tokenCount int
@@ -451,11 +410,7 @@ SELECT (SELECT count(*)::integer
 			t.Fatalf("build organization deletion actor: %v", err)
 		}
 
-		controlTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin organization deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := controlTx.Exec(
 			ctx,
 			`SELECT id FROM orgs WHERE id = $1 FOR UPDATE`,
@@ -464,19 +419,17 @@ SELECT (SELECT count(*)::integer
 			t.Fatalf("lock organization row: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
 
-		connectDone := make(chan error, 1)
-		go func() {
+		connectDone := integrationdb.RunAsyncError(func() error {
 			_, connectErr := store.Execution().ConnectBYOMachine(
 				ctx,
 				executionstore.ConnectBYOMachineInput{
@@ -485,28 +438,18 @@ SELECT (SELECT count(*)::integer
 					TokenName:   "organization-deletion-wins",
 				},
 			)
-			connectDone <- connectErr
-		}()
+			return connectErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release organization deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete organization before machine connection: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for organization deletion")
+		if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+			t.Fatalf("delete organization before machine connection: %v", err)
 		}
-		select {
-		case err := <-connectDone:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("machine connection after organization deletion error = %v, want not found", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected organization machine connection")
+		if err := integrationdb.Await(t, connectDone, "rejected organization machine connection"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("machine connection after organization deletion error = %v, want not found", err)
 		}
 
 		var machineCount, tokenCount int

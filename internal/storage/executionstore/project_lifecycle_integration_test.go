@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -25,11 +24,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-child-create-wins")
 		actor := scopeDeletionActor(t, fixture)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin project child control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(
 			ctx,
 			dbsqlc.LockResourceCreationParams{
@@ -40,13 +35,8 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("lock project profile creation: %v", err)
 		}
 
-		type profileOutcome struct {
-			record executionstore.AgentProfileRecord
-			err    error
-		}
-		profileDone := make(chan profileOutcome, 1)
-		go func() {
-			record, createErr := fixture.store.Execution().CreateAgentProfile(
+		profileDone := integrationdb.RunAsync(func() (executionstore.AgentProfileRecord, error) {
+			return fixture.store.Execution().CreateAgentProfile(
 				ctx,
 				executionstore.CreateAgentProfileInput{
 					ProjectID:       testProjectID,
@@ -55,42 +45,30 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 					IdempotencyKey:  "concurrent-project-child",
 				},
 			)
-			profileDone <- profileOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project child control transaction: %v", err)
 		}
 
-		var created executionstore.AgentProfileRecord
-		select {
-		case outcome := <-profileDone:
-			if outcome.err != nil {
-				t.Fatalf("create profile before project deletion: %v", outcome.err)
-			}
-			created = outcome.record
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project child creation")
+		profileOutcome := integrationdb.Await(t, profileDone, "project child creation")
+		if profileOutcome.Err != nil {
+			t.Fatalf("create profile before project deletion: %v", profileOutcome.Err)
 		}
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project after child creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		created := profileOutcome.Value
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project after child creation: %v", err)
 		}
 		var activeProfileCount, deletedProfileCount int
 		if err := fixture.pool.QueryRow(
@@ -118,11 +96,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-delete-child")
 		actor := scopeDeletionActor(t, fixture)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin project deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
 			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -130,20 +104,18 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("lock project agent: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-		profileDone := make(chan error, 1)
-		go func() {
+		profileDone := integrationdb.RunAsyncError(func() error {
 			_, createErr := fixture.store.Execution().CreateAgentProfile(
 				ctx,
 				executionstore.CreateAgentProfileInput{
@@ -153,28 +125,18 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 					IdempotencyKey:  "rejected-project-child",
 				},
 			)
-			profileDone <- createErr
-		}()
+			return createErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release project deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project before child creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project before child creation: %v", err)
 		}
-		select {
-		case err := <-profileDone:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("profile creation after project deletion error = %v, want not found", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected project child creation")
+		if err := integrationdb.Await(t, profileDone, "rejected project child creation"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("profile creation after project deletion error = %v, want not found", err)
 		}
 		var profileCount int
 		if err := fixture.pool.QueryRow(
@@ -219,11 +181,7 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				t.Fatalf("load model grant for contention: %v", err)
 			}
 
-			controlTx, err := fixture.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin grant update control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 			controlQ := dbsqlc.New(controlTx)
 			if updateWins {
 				if _, err := controlQ.LockMachinePoolForLifecycle(
@@ -251,11 +209,10 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				t.Fatalf("lock agent for project deletion contention: %v", err)
 			}
 
-			poolUpdateDone := make(chan error, 1)
-			modelUpdateDone := make(chan error, 1)
+			var poolUpdateDone, modelUpdateDone <-chan error
 			startUpdates := func() {
 				description := "updated before deletion"
-				go func() {
+				poolUpdateDone = integrationdb.RunAsyncError(func() error {
 					_, updateErr := fixture.store.Execution().UpdateProjectMachinePoolGrant(
 						context.Background(),
 						executionstore.UpdateProjectMachinePoolGrantInput{
@@ -265,9 +222,9 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 							Description: &description,
 						},
 					)
-					poolUpdateDone <- updateErr
-				}()
-				go func() {
+					return updateErr
+				})
+				modelUpdateDone = integrationdb.RunAsyncError(func() error {
 					supportsTools := false
 					_, updateErr := fixture.store.Models().UpdateProjectModelGrant(
 						context.Background(),
@@ -281,21 +238,21 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 							},
 						},
 					)
-					modelUpdateDone <- updateErr
-				}()
+					return updateErr
+				})
 			}
 
-			deleteDone := make(chan error, 1)
+			var deleteDone <-chan error
 			startDelete := func() {
-				go func() {
+				deleteDone = integrationdb.RunAsyncError(func() error {
 					_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 						context.Background(),
 						testOrgID,
 						testProjectID,
 						actor,
 					)
-					deleteDone <- deleteErr
-				}()
+					return deleteErr
+				})
 			}
 
 			if updateWins {
@@ -318,25 +275,16 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 				"machine-pool grant update": poolUpdateDone,
 				"model grant update":        modelUpdateDone,
 			} {
-				select {
-				case err := <-done:
-					if updateWins && err != nil {
-						t.Fatalf("%s before deletion: %v", label, err)
-					}
-					if !updateWins && !errors.Is(err, storeerr.ErrNotFound) {
-						t.Fatalf("%s after deletion error = %v, want not found", label, err)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatalf("timed out waiting for %s", label)
+				err := integrationdb.Await(t, done, label)
+				if updateWins && err != nil {
+					t.Fatalf("%s before deletion: %v", label, err)
+				}
+				if !updateWins && !errors.Is(err, storeerr.ErrNotFound) {
+					t.Fatalf("%s after deletion error = %v, want not found", label, err)
 				}
 			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete project during grant updates: %v", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for project deletion")
+			if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+				t.Fatalf("delete project during grant updates: %v", err)
 			}
 
 			var poolGrantCount, modelGrantCount int
@@ -370,11 +318,7 @@ func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
 		"project-secret-delete",
 	)
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin project secret control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	if _, err := dbsqlc.New(controlTx).LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: testOrgID, ID: secretID},
@@ -382,8 +326,7 @@ func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
 		t.Fatalf("lock project secret: %v", err)
 	}
 
-	secretDone := make(chan error, 1)
-	go func() {
+	secretDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Secrets().DeleteSecretOnceForIntegration(
 			context.Background(),
 			secretstore.DeleteSecretInput{
@@ -392,40 +335,29 @@ func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
 				Actor:    userPrincipal(fixture.userID),
 			},
 		)
-		secretDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockSecret", 1)
 
-	projectDone := make(chan error, 1)
-	go func() {
+	projectDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			context.Background(),
 			testOrgID,
 			testProjectID,
 			actor,
 		)
-		projectDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release project secret control transaction: %v", err)
 	}
 
-	select {
-	case err := <-secretDone:
-		if err != nil {
-			t.Fatalf("delete secret before project deletion: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for secret deletion")
+	if err := integrationdb.Await(t, secretDone, "secret deletion"); err != nil {
+		t.Fatalf("delete secret before project deletion: %v", err)
 	}
-	select {
-	case err := <-projectDone:
-		if err != nil {
-			t.Fatalf("delete project after secret deletion: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project deletion")
+	if err := integrationdb.Await(t, projectDone, "project deletion"); err != nil {
+		t.Fatalf("delete project after secret deletion: %v", err)
 	}
 
 	var activeSecretCount, versionCount int
@@ -464,30 +396,24 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create existing actor: %v", err)
 	}
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin actor lifecycle control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
 	); err != nil {
 		t.Fatalf("lock project agent: %v", err)
 	}
-	deleteDone := make(chan error, 1)
-	go func() {
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			context.Background(),
 			testOrgID,
 			testProjectID,
 			actor,
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
-	putDone := make(chan error, 1)
-	go func() {
+	putDone := integrationdb.RunAsyncError(func() error {
 		displayName := "Created too late"
 		_, putErr := fixture.store.Execution().PutActor(
 			context.Background(),
@@ -498,11 +424,10 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 				DisplayName:      &displayName,
 			},
 		)
-		putDone <- putErr
-	}()
-	updateDone := make(chan error, 1)
-	go func() {
-		updateDone <- fixture.store.Execution().UpdateActorDisplayName(
+		return putErr
+	})
+	updateDone := integrationdb.RunAsyncError(func() error {
+		return fixture.store.Execution().UpdateActorDisplayName(
 			context.Background(),
 			executionstore.UpdateActorDisplayNameInput{
 				ProjectID:        testProjectID,
@@ -512,34 +437,19 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 				DisplayName:      "Updated too late",
 			},
 		)
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release actor lifecycle control transaction: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete project before actor writes: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project deletion")
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+		t.Fatalf("delete project before actor writes: %v", err)
 	}
-	select {
-	case err := <-putDone:
-		if !errors.Is(err, storeerr.ErrNotFound) {
-			t.Fatalf("put actor after project deletion error = %v, want not found", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for actor creation")
+	if err := integrationdb.Await(t, putDone, "actor creation"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("put actor after project deletion error = %v, want not found", err)
 	}
-	select {
-	case err := <-updateDone:
-		if !errors.Is(err, storeerr.ErrNotFound) {
-			t.Fatalf("update actor after project deletion error = %v, want not found", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for actor update")
+	if err := integrationdb.Await(t, updateDone, "actor update"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("update actor after project deletion error = %v, want not found", err)
 	}
 	var existingName string
 	if err := fixture.pool.QueryRow(
@@ -572,11 +482,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-child-create-wins")
 		actor := scopeDeletionActor(t, fixture)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin organization child control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(
 			ctx,
 			dbsqlc.LockResourceCreationParams{
@@ -587,13 +493,8 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("lock organization invitation creation: %v", err)
 		}
 
-		type invitationOutcome struct {
-			record identitystore.OrgInvitationRecord
-			err    error
-		}
-		invitationDone := make(chan invitationOutcome, 1)
-		go func() {
-			record, createErr := fixture.store.Identity().CreateOrgInvitation(
+		invitationDone := integrationdb.RunAsync(func() (identitystore.OrgInvitationRecord, error) {
+			return fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
 					OrgID: testOrgID,
@@ -601,41 +502,29 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 					Role:  "member",
 				},
 			)
-			invitationDone <- invitationOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release organization child control transaction: %v", err)
 		}
 
-		var created identitystore.OrgInvitationRecord
-		select {
-		case outcome := <-invitationDone:
-			if outcome.err != nil {
-				t.Fatalf("create invitation before organization deletion: %v", outcome.err)
-			}
-			created = outcome.record
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for organization child creation")
+		invitationOutcome := integrationdb.Await(t, invitationDone, "organization child creation")
+		if invitationOutcome.Err != nil {
+			t.Fatalf("create invitation before organization deletion: %v", invitationOutcome.Err)
 		}
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete organization after child creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for organization deletion")
+		created := invitationOutcome.Value
+		if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+			t.Fatalf("delete organization after child creation: %v", err)
 		}
 		var invitationCount int
 		if err := fixture.pool.QueryRow(
@@ -655,11 +544,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-delete-child")
 		actor := scopeDeletionActor(t, fixture)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin organization deletion control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 			ctx,
 			dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -667,19 +552,17 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			t.Fatalf("lock organization agent: %v", err)
 		}
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-		invitationDone := make(chan error, 1)
-		go func() {
+		invitationDone := integrationdb.RunAsyncError(func() error {
 			_, createErr := fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
@@ -688,28 +571,18 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 					Role:  "member",
 				},
 			)
-			invitationDone <- createErr
-		}()
+			return createErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release organization deletion control transaction: %v", err)
 		}
 
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete organization before child creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for organization deletion")
+		if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+			t.Fatalf("delete organization before child creation: %v", err)
 		}
-		select {
-		case err := <-invitationDone:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("invitation creation after organization deletion error = %v, want not found", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for rejected organization child creation")
+		if err := integrationdb.Await(t, invitationDone, "rejected organization child creation"); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("invitation creation after organization deletion error = %v, want not found", err)
 		}
 		var invitationCount int
 		if err := fixture.pool.QueryRow(
@@ -770,11 +643,7 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 		t.Fatalf("create target organization API key: %v", err)
 	}
 
-	controlTx, err := fixture.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin source lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockAgentInProject(
 		ctx,
@@ -783,63 +652,50 @@ func TestProjectMembershipAdmissionWaitingBehindDeletionRejectsInactiveProject(t
 		t.Fatalf("lock agent for project deletion: %v", err)
 	}
 
-	deleteDone := make(chan error, 1)
 	actor := scopeDeletionActor(t, fixture)
-	go func() {
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			testOrgID,
 			testProjectID,
 			actor,
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	userRoleDone := make(chan error, 1)
-	go func() {
+	userRoleDone := integrationdb.RunAsyncError(func() error {
 		_, addErr := fixture.store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 			OrgID:     testOrgID,
 			ProjectID: testProjectID,
 			UserID:    targetUser.ID,
 			Role:      "viewer",
 		})
-		userRoleDone <- addErr
-	}()
-	keyRoleDone := make(chan error, 1)
-	go func() {
+		return addErr
+	})
+	keyRoleDone := integrationdb.RunAsyncError(func() error {
 		_, addErr := fixture.store.Identity().SetOrgAPIKeyProjectRole(ctx, identitystore.OrgAPIKeyProjectRoleInput{
 			OrgID:     testOrgID,
 			KeyID:     targetKey.Record.ID,
 			ProjectID: testProjectID,
 			Role:      "developer",
 		})
-		keyRoleDone <- addErr
-	}()
+		return addErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release source lock control transaction: %v", err)
 	}
-	select {
-	case err := <-deleteDone:
-		if err != nil {
-			t.Fatalf("delete project: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for project deletion")
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+		t.Fatalf("delete project: %v", err)
 	}
 	for label, done := range map[string]<-chan error{
 		"user project role":         userRoleDone,
 		"organization API key role": keyRoleDone,
 	} {
-		select {
-		case err := <-done:
-			if !errors.Is(err, storeerr.ErrNotFound) {
-				t.Fatalf("%s after project deletion error = %v, want not found", label, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for %s", label)
+		if err := integrationdb.Await(t, done, label); !errors.Is(err, storeerr.ErrNotFound) {
+			t.Fatalf("%s after project deletion error = %v, want not found", label, err)
 		}
 	}
 

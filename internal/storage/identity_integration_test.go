@@ -6450,11 +6450,7 @@ func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *te
 	store := NewStore(pool)
 	user := mustCreateIdentityUser(t, ctx, store, "org-key-lock-order@example.com", "Org Key Lock Order")
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin principal lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(controlTx).LockUserForUpdate(
 		ctx,
 		dbsqlc.LockUserForUpdateParams{ID: user.ID},
@@ -6462,8 +6458,7 @@ func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *te
 		t.Fatalf("lock principal for contention: %v", err)
 	}
 
-	keyDone := make(chan error, 1)
-	go func() {
+	keyDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := store.Identity().CreateOrgAPIKeyWithPlaintext(
 			context.Background(),
 			identitystore.CreateOrgAPIKeyInput{
@@ -6473,12 +6468,11 @@ func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *te
 				OrgRole:         "member",
 			},
 		)
-		keyDone <- createErr
-	}()
+		return createErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
 
-	membershipDone := make(chan error, 1)
-	go func() {
+	membershipDone := integrationdb.RunAsyncError(func() error {
 		_, addErr := store.Identity().AddOrgMembership(
 			context.Background(),
 			identitystore.AddOrgMembershipInput{
@@ -6487,8 +6481,8 @@ func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *te
 				Role:   "member",
 			},
 		)
-		membershipDone <- addErr
-	}()
+		return addErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
@@ -6498,13 +6492,8 @@ func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *te
 		"create organization API key": keyDone,
 		"add organization membership": membershipDone,
 	} {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("%s: %v", operation, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting to %s", operation)
+		if err := integrationdb.Await(t, done, operation); err != nil {
+			t.Fatalf("%s: %v", operation, err)
 		}
 	}
 }
@@ -6523,11 +6512,7 @@ func TestRemoveOrgMemberLocksPrincipalBeforeMembership(t *testing.T) {
 		t.Fatalf("add organization member: %v", err)
 	}
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin member lock control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockUserForUpdate(
 		ctx,
@@ -6536,13 +6521,12 @@ func TestRemoveOrgMemberLocksPrincipalBeforeMembership(t *testing.T) {
 		t.Fatalf("lock member principal: %v", err)
 	}
 
-	removeDone := make(chan error, 1)
-	go func() {
-		removeDone <- store.Identity().RemoveOrgMember(
+	removeDone := integrationdb.RunAsyncError(func() error {
+		return store.Identity().RemoveOrgMember(
 			context.Background(),
 			identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
 		)
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
 
 	probeCtx, cancelProbe := context.WithTimeout(ctx, 2*time.Second)
@@ -6556,13 +6540,8 @@ func TestRemoveOrgMemberLocksPrincipalBeforeMembership(t *testing.T) {
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release member lock control transaction: %v", err)
 	}
-	select {
-	case err := <-removeDone:
-		if err != nil {
-			t.Fatalf("remove organization member: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for member removal")
+	if err := integrationdb.Await(t, removeDone, "member removal"); err != nil {
+		t.Fatalf("remove organization member: %v", err)
 	}
 }
 
@@ -6574,11 +6553,7 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
 	member := createSecretTestUser(t, ctx, store, "Admission Race Member", "member")
 
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin membership control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(controlTx).LockUserOrgMembership(
 		ctx,
 		dbsqlc.LockUserOrgMembershipParams{OrgID: testOrgID, UserID: member.ID},
@@ -6586,17 +6561,15 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 		t.Fatalf("lock membership: %v", err)
 	}
 
-	removeDone := make(chan error, 1)
-	go func() {
-		removeDone <- store.Identity().RemoveOrgMember(
+	removeDone := integrationdb.RunAsyncError(func() error {
+		return store.Identity().RemoveOrgMember(
 			context.Background(),
 			identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
 		)
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserOrgMembership", 1)
 
-	secretDone := make(chan error, 1)
-	go func() {
+	secretDone := integrationdb.RunAsyncError(func() error {
 		_, _, createErr := store.Secrets().CreateSecret(
 			context.Background(),
 			secretstore.CreateSecretInput{
@@ -6608,10 +6581,9 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 				Actor:       userPrincipal(member.ID),
 			},
 		)
-		secretDone <- createErr
-	}()
-	skillDone := make(chan error, 1)
-	go func() {
+		return createErr
+	})
+	skillDone := integrationdb.RunAsyncError(func() error {
 		_, createErr := store.Skills().CreateSkillRevision(
 			context.Background(),
 			skillstore.CreateSkillInput{
@@ -6627,32 +6599,22 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 				Actor: userPrincipal(member.ID),
 			},
 		)
-		skillDone <- createErr
-	}()
+		return createErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
 
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release membership control transaction: %v", err)
 	}
-	select {
-	case err := <-removeDone:
-		if err != nil {
-			t.Fatalf("remove organization member: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for member removal")
+	if err := integrationdb.Await(t, removeDone, "member removal"); err != nil {
+		t.Fatalf("remove organization member: %v", err)
 	}
 	for operation, done := range map[string]<-chan error{
 		"create user-owned secret": secretDone,
 		"create user-owned skill":  skillDone,
 	} {
-		select {
-		case err := <-done:
-			if !errors.Is(err, storeerr.ErrUnauthorized) {
-				t.Fatalf("%s error = %v, want unauthorized", operation, err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting to %s", operation)
+		if err := integrationdb.Await(t, done, operation); !errors.Is(err, storeerr.ErrUnauthorized) {
+			t.Fatalf("%s error = %v, want unauthorized", operation, err)
 		}
 	}
 	var activeSecrets, activeSkills int
@@ -6710,11 +6672,7 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 				t.Fatalf("grant user-owned secret: %v", err)
 			}
 
-			controlTx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin teardown order control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := dbsqlc.New(controlTx).LockSecret(
 				ctx,
 				dbsqlc.LockSecretParams{OrgID: testOrgID, ID: secret.ID},
@@ -6722,18 +6680,20 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 				t.Fatalf("lock user-owned secret: %v", err)
 			}
 
-			teardownDone := make(chan error, 1)
+			var teardownDone <-chan error
 			waitQuery := "DeleteUserOwnedSecretsForOrgMember"
 			if deleteAccount {
 				waitQuery = "DeleteUserOwnedSecretsForUser"
-				go func() { teardownDone <- store.Identity().DeleteUserAccount(context.Background(), member.ID) }()
+				teardownDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
+				})
 			} else {
-				go func() {
-					teardownDone <- store.Identity().RemoveOrgMember(
+				teardownDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().RemoveOrgMember(
 						context.Background(),
 						identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
 					)
-				}()
+				})
 			}
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, waitQuery, 1)
 
@@ -6741,16 +6701,15 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build project deletion actor: %v", err)
 			}
-			projectDone := make(chan error, 1)
-			go func() {
+			projectDone := integrationdb.RunAsyncError(func() error {
 				_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 					context.Background(),
 					testOrgID,
 					testProjectID,
 					actor,
 				)
-				projectDone <- deleteErr
-			}()
+				return deleteErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release teardown order control transaction: %v", err)
@@ -6759,13 +6718,8 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 				name:             teardownDone,
 				"delete project": projectDone,
 			} {
-				select {
-				case err := <-done:
-					if err != nil {
-						t.Fatalf("%s: %v", operation, err)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatalf("timed out waiting to %s", operation)
+				if err := integrationdb.Await(t, done, operation); err != nil {
+					t.Fatalf("%s: %v", operation, err)
 				}
 			}
 		})
@@ -6794,11 +6748,7 @@ func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 				}
 			}
 
-			controlTx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin owner exit control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := dbsqlc.New(controlTx).LockOrg(
 				ctx,
 				dbsqlc.LockOrgParams{ID: testOrgID},
@@ -6806,21 +6756,22 @@ func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 				t.Fatalf("lock organization: %v", err)
 			}
 
-			accountDone := make(chan error, 1)
-			roleDone := make(chan error, 1)
+			var accountDone, roleDone <-chan error
 			startAccountDelete := func() {
-				go func() { accountDone <- store.Identity().DeleteUserAccount(context.Background(), first.ID) }()
+				accountDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().DeleteUserAccount(context.Background(), first.ID)
+				})
 			}
 			startRoleUpdate := func() {
-				go func() {
+				roleDone = integrationdb.RunAsyncError(func() error {
 					_, updateErr := store.Identity().UpdateOrgMemberRole(
 						context.Background(),
 						identitystore.UpdateOrgMemberRoleInput{
 							OrgID: testOrgID, UserID: second.ID, Role: "member",
 						},
 					)
-					roleDone <- updateErr
-				}()
+					return updateErr
+				})
 			}
 			if accountWins {
 				startAccountDelete()
@@ -6836,18 +6787,8 @@ func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release owner exit control transaction: %v", err)
 			}
-			var accountErr error
-			select {
-			case accountErr = <-accountDone:
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for account deletion")
-			}
-			var roleErr error
-			select {
-			case roleErr = <-roleDone:
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for organization role update")
-			}
+			accountErr := integrationdb.Await(t, accountDone, "account deletion")
+			roleErr := integrationdb.Await(t, roleDone, "organization role update")
 			if accountWins {
 				if accountErr != nil || !errors.Is(roleErr, storeerr.ErrUnauthorized) {
 					t.Fatalf("account-first outcome account=%v role=%v", accountErr, roleErr)
@@ -6895,27 +6836,21 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 				t.Fatalf("build organization deletion actor: %v", err)
 			}
 
-			controlTx, err := pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin organization deletion control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
 				t.Fatalf("lock organization: %v", err)
 			}
-			deleteDone := make(chan error, 1)
-			go func() {
+			deleteDone := integrationdb.RunAsyncError(func() error {
 				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 					context.Background(),
 					testOrgID,
 					actor,
 				)
-				deleteDone <- deleteErr
-			}()
+				return deleteErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
 
-			mutationDone := make(chan error, 1)
-			go func() {
+			mutationDone := integrationdb.RunAsyncError(func() error {
 				if operation == "update" {
 					_, updateErr := store.Identity().UpdateOrgAPIKey(
 						context.Background(),
@@ -6924,8 +6859,7 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 							ActorPrincipal: userPrincipal(admin.ID), Name: "Too late",
 						},
 					)
-					mutationDone <- updateErr
-					return
+					return updateErr
 				}
 				_, revokeErr := store.Identity().RevokeOrgAPIKey(
 					context.Background(),
@@ -6933,27 +6867,17 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 					key.Record.ID,
 					userPrincipal(admin.ID),
 				)
-				mutationDone <- revokeErr
-			}()
+				return revokeErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release organization deletion control transaction: %v", err)
 			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete organization: %v", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for organization deletion")
+			if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+				t.Fatalf("delete organization: %v", err)
 			}
-			select {
-			case err := <-mutationDone:
-				if !errors.Is(err, storeerr.ErrNotFound) {
-					t.Fatalf("%s key after organization deletion error = %v, want not found", operation, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatalf("timed out waiting to %s organization API key", operation)
+			if err := integrationdb.Await(t, mutationDone, operation+" organization API key"); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("%s key after organization deletion error = %v, want not found", operation, err)
 			}
 		})
 	}

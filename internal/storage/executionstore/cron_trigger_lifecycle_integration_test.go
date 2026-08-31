@@ -21,11 +21,7 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "cron-create-wins")
 		actor := scopeDeletionActor(t, fixture)
 
-		controlTx, err := fixture.pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin cron creation control transaction: %v", err)
-		}
-		defer func() { _ = controlTx.Rollback(ctx) }()
+		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(
 			ctx,
 			dbsqlc.LockResourceCreationParams{
@@ -36,52 +32,35 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 			t.Fatalf("lock cron trigger creation: %v", err)
 		}
 
-		type createOutcome struct {
-			record executionstore.CronTriggerRecord
-			err    error
-		}
-		createDone := make(chan createOutcome, 1)
-		go func() {
-			record, createErr := fixture.store.Execution().CreateCronTrigger(
+		createDone := integrationdb.RunAsync(func() (executionstore.CronTriggerRecord, error) {
+			return fixture.store.Execution().CreateCronTrigger(
 				context.Background(),
 				cronTriggerInput("Cron Before Deletion", fixture.agent.ID, true),
 			)
-			createDone <- createOutcome{record: record, err: createErr}
-		}()
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockResourceCreation", 1)
 
-		deleteDone := make(chan error, 1)
-		go func() {
+		deleteDone := integrationdb.RunAsyncError(func() error {
 			_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 				context.Background(),
 				testOrgID,
 				testProjectID,
 				actor,
 			)
-			deleteDone <- deleteErr
-		}()
+			return deleteErr
+		})
 		integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleExclusive", 1)
 		if err := controlTx.Commit(ctx); err != nil {
 			t.Fatalf("release cron creation control transaction: %v", err)
 		}
 
-		var created executionstore.CronTriggerRecord
-		select {
-		case outcome := <-createDone:
-			if outcome.err != nil {
-				t.Fatalf("create cron trigger before project deletion: %v", outcome.err)
-			}
-			created = outcome.record
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for cron trigger creation")
+		createOutcome := integrationdb.Await(t, createDone, "cron trigger creation")
+		if createOutcome.Err != nil {
+			t.Fatalf("create cron trigger before project deletion: %v", createOutcome.Err)
 		}
-		select {
-		case err := <-deleteDone:
-			if err != nil {
-				t.Fatalf("delete project after cron trigger creation: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for project deletion")
+		created := createOutcome.Value
+		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+			t.Fatalf("delete project after cron trigger creation: %v", err)
 		}
 
 		var activeCount, deletedCount int
@@ -119,11 +98,7 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 				}
 			}
 
-			controlTx, err := fixture.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin project deletion control transaction: %v", err)
-			}
-			defer func() { _ = controlTx.Rollback(ctx) }()
+			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 			if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 				ctx,
 				dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: fixture.agent.ID},
@@ -131,27 +106,24 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 				t.Fatalf("lock project agent: %v", err)
 			}
 
-			deleteDone := make(chan error, 1)
-			go func() {
+			deleteDone := integrationdb.RunAsyncError(func() error {
 				_, deleteErr := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 					context.Background(),
 					testOrgID,
 					testProjectID,
 					actor,
 				)
-				deleteDone <- deleteErr
-			}()
+				return deleteErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-			admissionDone := make(chan error, 1)
-			go func() {
+			admissionDone := integrationdb.RunAsyncError(func() error {
 				if operation == "create" {
 					_, createErr := fixture.store.Execution().CreateCronTrigger(
 						context.Background(),
 						cronTriggerInput("Cron Rejected Create", fixture.agent.ID, true),
 					)
-					admissionDone <- createErr
-					return
+					return createErr
 				}
 				enabled := true
 				_, updateErr := fixture.store.Execution().UpdateCronTrigger(
@@ -162,28 +134,18 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 						Enabled:   &enabled,
 					},
 				)
-				admissionDone <- updateErr
-			}()
+				return updateErr
+			})
 			integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockProjectLifecycleShared", 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release project deletion control transaction: %v", err)
 			}
 
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete project before cron trigger %s: %v", operation, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for project deletion")
+			if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+				t.Fatalf("delete project before cron trigger %s: %v", operation, err)
 			}
-			select {
-			case err := <-admissionDone:
-				if !errors.Is(err, storeerr.ErrNotFound) {
-					t.Fatalf("cron trigger %s after deletion error = %v, want not found", operation, err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatalf("timed out waiting for rejected cron trigger %s", operation)
+			if err := integrationdb.Await(t, admissionDone, "rejected cron trigger "+operation); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("cron trigger %s after deletion error = %v, want not found", operation, err)
 			}
 
 			if operation == "create" {
