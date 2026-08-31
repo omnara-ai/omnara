@@ -5,9 +5,8 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
   type SyntheticEvent,
-  useCallback,
   useEffect,
-  useMemo,
+  useEffectEvent,
   useRef,
   useState,
 } from 'react'
@@ -32,13 +31,10 @@ function SelectedAttachment({
   disabled: boolean
   onRemove: () => void
 }) {
-  const previewURL = useMemo(
-    () =>
-      attachment.kind === 'image'
-        ? `data:${attachment.mediaType};base64,${attachment.data}`
-        : undefined,
-    [attachment.data, attachment.kind, attachment.mediaType],
-  )
+  const previewURL =
+    attachment.kind === 'image'
+      ? `data:${attachment.mediaType};base64,${attachment.data}`
+      : undefined
 
   return (
     <div className="bg-muted/40 flex w-56 max-w-full shrink-0 items-center gap-2 rounded-lg border p-1 pr-1.5">
@@ -59,7 +55,7 @@ function SelectedAttachment({
         type="button"
         variant="ghost"
         size="icon"
-        className="size-6 shrink-0 rounded-full"
+        className="shrink-0 rounded-full sm:size-6"
         aria-label={`Remove ${attachment.file.name}`}
         disabled={disabled}
         onClick={onRemove}
@@ -122,43 +118,45 @@ export function AgentComposer({
     } catch {
       setText(content)
       setAttachments(selected)
-    } finally {
-      busyRef.current = false
-      setSubmitting(false)
     }
+    busyRef.current = false
+    setSubmitting(false)
   }
 
-  const addFiles = useCallback(
-    async (files: FileList | readonly File[] | null) => {
-      if (files == null || files.length === 0 || model == null || busyRef.current) return
-      busyRef.current = true
-      setAddingFiles(true)
-      setAttachmentError(undefined)
-      try {
-        if (attachments.length + files.length > maxAttachmentCount) {
-          throw new Error(`You can attach up to ${String(maxAttachmentCount)} files.`)
-        }
-        const selectedFiles = Array.from(files)
-        const totalBytes = [...attachments.map(({ file }) => file), ...selectedFiles].reduce(
-          (sum, file) => sum + file.size,
-          0,
-        )
-        if (totalBytes > maxTotalAttachmentBytes) {
-          throw new Error('Attachments exceed the 24 MB combined limit.')
-        }
-        const selected = await Promise.all(
-          selectedFiles.map((file) => selectAgentAttachment(file, model)),
-        )
-        setAttachments((current) => [...current, ...selected])
-      } catch (error) {
-        setAttachmentError(error instanceof Error ? error.message : 'Could not attach the file.')
-      } finally {
-        busyRef.current = false
-        setAddingFiles(false)
-      }
-    },
-    [attachments, model],
-  )
+  async function addFiles(files: FileList | readonly File[] | null) {
+    if (files == null || files.length === 0 || model == null || busyRef.current) return
+    if (attachments.length + files.length > maxAttachmentCount) {
+      setAttachmentError(`You can attach up to ${String(maxAttachmentCount)} files.`)
+      return
+    }
+    const selectedFiles = Array.from(files)
+    const totalBytes = [...attachments.map(({ file }) => file), ...selectedFiles].reduce(
+      (sum, file) => sum + file.size,
+      0,
+    )
+    if (totalBytes > maxTotalAttachmentBytes) {
+      setAttachmentError('Attachments exceed the 24 MB combined limit.')
+      return
+    }
+
+    busyRef.current = true
+    setAddingFiles(true)
+    setAttachmentError(undefined)
+    try {
+      const selected = await Promise.all(
+        selectedFiles.map((file) => selectAgentAttachment(file, model)),
+      )
+      setAttachments((current) => [...current, ...selected])
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : 'Could not attach the file.')
+    }
+    busyRef.current = false
+    setAddingFiles(false)
+  }
+
+  const addDroppedFiles = useEffectEvent((files: FileList | null) => {
+    void addFiles(files)
+  })
 
   useEffect(() => {
     const acceptsFiles = ready && model != null && !busy
@@ -182,7 +180,7 @@ export function AgentComposer({
       if (!hasFiles(event)) return
       event.preventDefault()
       setDragging(false)
-      if (acceptsFiles) void addFiles(event.dataTransfer?.files ?? null)
+      if (acceptsFiles) addDroppedFiles(event.dataTransfer?.files ?? null)
     }
 
     window.addEventListener('dragover', onDragOver)
@@ -193,7 +191,7 @@ export function AgentComposer({
       window.removeEventListener('dragleave', onDragLeave)
       window.removeEventListener('drop', onDrop)
     }
-  }, [addFiles, busy, model, ready])
+  }, [busy, model, ready])
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     void addFiles(event.target.files)
@@ -237,7 +235,7 @@ export function AgentComposer({
       {chat.error && <p className="text-destructive px-2 pb-2 text-xs">{chat.error.message}</p>}
       {cancelError && <p className="text-destructive px-2 pb-2 text-xs">{cancelError.message}</p>}
       {attachmentError && (
-        <p role="alert" className="text-destructive px-2 pb-2 text-xs">
+        <p role="alert" className="text-destructive break-words px-2 pb-2 text-xs">
           {attachmentError}
         </p>
       )}
@@ -254,7 +252,7 @@ export function AgentComposer({
           type="button"
           variant="secondary"
           size="icon"
-          className="size-9 shrink-0 rounded-full"
+          className="shrink-0 rounded-full"
           aria-label="Add files"
           title="Add files"
           disabled={!ready || model == null || busy}
@@ -295,13 +293,13 @@ export function AgentComposer({
               icon={<Square className="size-3 fill-current" />}
               onClick={() => void onCancel().catch(() => undefined)}
             >
-              Stop agent
+              Stop
             </Button>
           )}
           <Button
             type="submit"
             size="icon"
-            className="size-9 rounded-full"
+            className="rounded-full"
             aria-label="Send message"
             title="Send message"
             disabled={!canSend}
