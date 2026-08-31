@@ -89,7 +89,7 @@ export function AgentView() {
 
   return (
     <SidebarProvider
-      className="h-[calc(100svh-3rem)] min-h-0 overflow-hidden"
+      className="h-full min-h-0 overflow-hidden"
       style={{ '--sidebar-width': '20rem' } as CSSProperties}
     >
       <MessageScrollerProvider key={agentId} autoScroll>

@@ -104,7 +104,7 @@ export function AgentConfigMcpServersField({
           type="button"
           size="icon"
           variant="ghost"
-          className="text-muted-foreground size-8"
+          className="text-muted-foreground size-10 sm:size-8"
           disabled={permissionProfile == null}
           aria-label="Add server"
           onClick={() => {
@@ -219,6 +219,7 @@ export function AgentConfigMcpServersField({
                             }
                             disabled={permissionProfile == null}
                             onValueChange={(mode) => {
+                              if (mode === '') return
                               updateServer(server.id, { permission: { mode, parameters: {} } })
                             }}
                           >

@@ -31,6 +31,7 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
           {
             id: 'name',
             header: 'Name',
+            className: 'w-40 md:w-auto',
             cell: (apiKey) => <span className="font-medium">{apiKey.name}</span>,
           },
           {

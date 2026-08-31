@@ -211,8 +211,8 @@ export function CreateAgentFormView({
         void submit('launch')
       }}
     >
-      {/* Negative margins offset the scroll container's p-6 so the scroll region and the pinned bar reach the pane edges. */}
-      <div className="-mx-6 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6">
+      {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
+      <div className="-mx-4 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
             items={[
@@ -298,18 +298,19 @@ export function CreateAgentFormView({
           </FieldGroup>
         </div>
       </div>
-      <div className="bg-sidebar -mx-6 -mb-6 flex items-center justify-between gap-4 border-t px-8 py-3.5">
+      <div className="bg-sidebar -mx-4 -mb-4 flex flex-col gap-3 border-t px-4 py-3.5 sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
         <Button
           type="button"
           variant="ghost"
           disabled={isSubmitting}
+          className="w-full sm:w-auto"
           onClick={() => {
             void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
           }}
         >
           Cancel
         </Button>
-        <div className="flex items-center gap-4">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
           {launchError && webConfig?.billingURL ? (
             <p className="text-destructive whitespace-pre-wrap text-sm" role="alert">
               <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
@@ -322,13 +323,19 @@ export function CreateAgentFormView({
             variant="outline"
             disabled={!canSubmit}
             loading={pendingAction === 'profile'}
+            className="w-full sm:w-auto"
             onClick={() => {
               void submit('profile')
             }}
           >
             Create profile
           </Button>
-          <Button type="submit" disabled={!canSubmit} loading={pendingAction === 'launch'}>
+          <Button
+            type="submit"
+            disabled={!canSubmit}
+            loading={pendingAction === 'launch'}
+            className="w-full sm:w-auto"
+          >
             Create & launch agent
           </Button>
         </div>

@@ -173,7 +173,10 @@ export function CombinedEnvOverlayEditor({
           {combinedRows.map((row) => {
             const unset = row.kind === 'text' ? row.value === null : row.secretId === null
             return (
-              <div key={row.id} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+              <div
+                key={row.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[1fr_auto_1fr_auto]"
+              >
                 <Input
                   value={row.key}
                   autoComplete="off"
