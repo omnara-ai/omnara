@@ -2,15 +2,14 @@ import { type SkillListSort, type SkillOwnerScope, useSkills } from '@omnara/rea
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
-import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
+import { SkillDetails } from '@/components/skills/SkillDetails'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
-import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -109,6 +108,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
                   orgId={activeOrg.id}
                   skill={skill}
                   canDelete={canManage}
+                  canUpdate={canManage}
                   canGrant={canManage && owner.kind !== 'project'}
                 />
               ),
@@ -118,17 +118,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
           isFiltered={list.isFiltering}
           pagination={paged.pagination}
           getRowId={(skill) => skill.id}
-          rowExpanded={(skill) => (
-            <DetailList
-              items={[
-                { label: 'ID', value: skill.id, mono: true },
-                { label: 'Revision ID', value: skill.revision_id, mono: true },
-                { label: 'Description', value: skill.description },
-                { label: 'Created', value: formatDateTime(skill.created_at) },
-                { label: 'Updated', value: formatDateTime(skill.updated_at) },
-              ]}
-            />
-          )}
+          rowExpanded={(skill) => <SkillDetails orgId={activeOrg.id} skill={skill} />}
           isPending={query.isPending}
           isError={query.isError}
           onRetry={() => {

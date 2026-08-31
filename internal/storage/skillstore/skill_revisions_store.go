@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
@@ -15,12 +16,6 @@ import (
 )
 
 func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput) (SkillRecord, error) {
-	if err := s.validateCreateSkillInput(ctx, input); err != nil {
-		return SkillRecord{}, err
-	}
-	if s.blobs == nil {
-		return SkillRecord{}, errors.New("skill storage requires a blob store")
-	}
 	skillID, identityExists, err := s.findSkillIdentity(ctx, input)
 	if err != nil {
 		return SkillRecord{}, err
@@ -31,7 +26,21 @@ func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput)
 			return SkillRecord{}, fmt.Errorf("generate skill id: %w", err)
 		}
 	}
+	return s.createSkillRevisionForIdentity(ctx, skillID, identityExists, input)
+}
 
+func (s *Store) createSkillRevisionForIdentity(
+	ctx context.Context,
+	skillID uuid.UUID,
+	identityExists bool,
+	input CreateSkillInput,
+) (SkillRecord, error) {
+	if err := s.validateCreateSkillInput(ctx, input); err != nil {
+		return SkillRecord{}, err
+	}
+	if s.blobs == nil {
+		return SkillRecord{}, errors.New("skill storage requires a blob store")
+	}
 	for {
 		publicID, err := publicid.Encode(publicid.KindSkill, skillID)
 		if err != nil {
@@ -81,6 +90,52 @@ func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput)
 		}
 		return insertResult.record, nil
 	}
+}
+
+type CreateSkillRevisionForSkillInput struct {
+	OrgID        uuid.UUID
+	SkillID      uuid.UUID
+	Name         string
+	Description  string
+	SkillMd      string
+	ArchiveBytes []byte
+	Actor        identitystore.PrincipalRecord
+}
+
+func (s *Store) CreateSkillRevisionForSkill(
+	ctx context.Context,
+	input CreateSkillRevisionForSkillInput,
+) (SkillRecord, error) {
+	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) {
+		return SkillRecord{}, invalidSkillRequest("org and skill are required")
+	}
+	record, err := s.getSkill(ctx, input.OrgID, input.SkillID)
+	if err != nil {
+		return SkillRecord{}, err
+	}
+	if err := s.authorizeSkillManage(ctx, record, input.Actor); err != nil {
+		if errors.Is(err, storeerr.ErrUnauthorized) {
+			return SkillRecord{}, storeerr.ErrNotFound
+		}
+		return SkillRecord{}, err
+	}
+	if input.Name != record.Name {
+		return SkillRecord{}, invalidSkillName(
+			"SKILL.md frontmatter `name` %q must match the skill's name %q",
+			input.Name, record.Name,
+		)
+	}
+	return s.createSkillRevisionForIdentity(ctx, record.ID, true, CreateSkillInput{
+		OrgID:          input.OrgID,
+		OwnerKind:      record.OwnerKind,
+		OwnerProjectID: record.OwnerProjectID,
+		OwnerUserID:    record.OwnerUserID,
+		Name:           input.Name,
+		Description:    input.Description,
+		SkillMd:        input.SkillMd,
+		ArchiveBytes:   input.ArchiveBytes,
+		Actor:          input.Actor,
+	})
 }
 
 func (s *Store) insertSkillRevision(
