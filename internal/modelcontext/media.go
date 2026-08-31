@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 )
@@ -361,8 +362,20 @@ func MediaRefText(part map[string]json.RawMessage) string {
 	if json.Unmarshal(part["artifact_id"], &artifactID) != nil || artifactID == "" {
 		return ""
 	}
-	return "A prior attachment with artifact ID " + artifactID +
+	return "A prior attachment with artifact ID " + ArtifactPublicID(artifactID) +
 		" is not included in the current model context."
+}
+
+func ArtifactPublicID(artifactID string) string {
+	id, err := storage.ParseID(artifactID)
+	if err != nil || id == storage.NilID {
+		return artifactID
+	}
+	publicArtifactID, err := publicid.Encode(publicid.KindArtifact, id)
+	if err != nil {
+		return artifactID
+	}
+	return publicArtifactID
 }
 
 func ResolvedMediaOccurrences(bundle Bundle) []ResolvedMediaOccurrence {

@@ -24,6 +24,7 @@ const templateToolNames = [
   'web_search',
   'web_fetch',
   'upload_artifact',
+  'download_artifact',
 ] as const
 
 const generalAgent: AgentTemplate = {

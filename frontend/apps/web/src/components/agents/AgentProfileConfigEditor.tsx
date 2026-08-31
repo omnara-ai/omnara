@@ -1,5 +1,5 @@
 import { useCreateAgentConfig, useUpdateAgentProfile } from '@omnara/react'
-import { type AgentProfile, ApiError } from '@omnara/sdk'
+import type { AgentProfile } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
@@ -7,6 +7,7 @@ import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { Button } from '@/components/ui/button'
 import { FieldGroup } from '@/components/ui/field'
+import { type ConfigSubmitError, configSubmitError, noConfigError } from '@/lib/agent-config-issues'
 
 export function AgentProfileConfigEditor({
   orgId,
@@ -39,12 +40,12 @@ export function AgentProfileConfigEditor({
     onModeChange,
     onDirtyChange,
   })
-  const [error, setError] = useState('')
+  const [error, setError] = useState<ConfigSubmitError>(noConfigError)
   const pending = createConfig.isPending || updateProfile.isPending
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError('')
+    setError(noConfigError)
     try {
       const config = await createConfig.mutateAsync({ source: editor.yaml, source_format: 'yaml' })
       await updateProfile.mutateAsync({
@@ -53,7 +54,7 @@ export function AgentProfileConfigEditor({
         expected_current_config_id: profile.current_config_id,
       })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not update agent profile')
+      setError(configSubmitError(err, 'Could not update agent profile'))
     }
   }
 
@@ -71,13 +72,16 @@ export function AgentProfileConfigEditor({
           projectId={projectId}
           yamlFieldId="agent-profile-config-yaml"
           yamlFieldClassName="h-[28rem]"
+          issues={error.issues}
         />
         {profile.current_config.source === undefined && editor.yaml.trim() === '' && (
           <p className="text-muted-foreground text-sm">
             The current source is unavailable. Paste the replacement YAML configuration.
           </p>
         )}
-        {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
+        {error.message && (
+          <p className="text-destructive whitespace-pre-wrap text-sm">{error.message}</p>
+        )}
         {canManage && (
           <div className="flex items-center justify-end gap-2">
             {editor.dirty && !pending && (

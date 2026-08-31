@@ -16,6 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (s strictOpenAPIServer) UploadDaemonArtifact(
@@ -30,11 +32,12 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	uploadScope, found, err := s.server.store.Execution().GetDaemonArtifactUploadScope(
+	uploadScope, found, err := s.server.store.Execution().GetDaemonArtifactProcessScope(
 		ctx,
 		scope.OrgID,
 		scope.MachineID,
 		toolCallID,
+		toolcatalog.ToolNameUploadArtifact,
 	)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -91,4 +94,48 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	return openapi.UploadDaemonArtifact201JSONResponse{
 		ArtifactId: artifactID,
 	}, nil
+}
+
+func (s strictOpenAPIServer) DownloadDaemonArtifact(
+	ctx context.Context,
+	request openapi.DownloadDaemonArtifactRequestObject,
+) (openapi.DownloadDaemonArtifactResponseObject, error) {
+	scope, scopeErr := machineDaemonScopeFromContext(ctx)
+	if scopeErr != nil {
+		return nil, *scopeErr
+	}
+	toolCallID, ok := parseOpenAPIPublicID(publicid.KindToolCall, request.ToolCallID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	artifactID, ok := parseOpenAPIPublicID(publicid.KindArtifact, request.ArtifactID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	downloadScope, found, err := s.server.store.Execution().GetDaemonArtifactProcessScope(
+		ctx,
+		scope.OrgID,
+		scope.MachineID,
+		toolCallID,
+		toolcatalog.ToolNameDownloadArtifact,
+	)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	if !found || downloadScope.ArtifactID != request.ArtifactID {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	content, artifact, err := s.server.store.Artifacts().GetArtifactBlob(
+		ctx,
+		downloadScope.ProjectID,
+		downloadScope.AgentID,
+		artifactID,
+	)
+	if err != nil {
+		if storeerr.IsNotFound(err) {
+			return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		}
+		return nil, apierror.OrgScoped(err)
+	}
+	return artifactContentResponse{content: content, artifact: artifact}, nil
 }

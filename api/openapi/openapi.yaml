@@ -6441,6 +6441,45 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+      - name: artifactID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ArtifactID'
+    get:
+      operationId: downloadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Download daemon artifact
+      security:
+        - machineDaemonAuth: []
+      responses:
+        '200':
+          description: Artifact bytes, served with the artifact's stored content type.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -6710,6 +6749,27 @@ components:
       description: Sort order for named resources that expose a created timestamp.
       default: -created_at
       enum: [name, -name, -created_at, created_at]
+    AgentConfigErrorIssue:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      properties:
+        path:
+          type: string
+          description: >-
+            JSON Pointer (RFC 6901) to the offending field in the submitted document.
+            An empty string refers to the whole document.
+        message:
+          type: string
+          description: Human-readable description of the problem with this field.
+        line:
+          type: integer
+          minimum: 1
+          description: 1-based line of the offending field in the submitted source, when it can be located.
+        column:
+          type: integer
+          minimum: 1
+          description: 1-based column of the offending field in the submitted source, when it can be located.
     Error:
       type: object
       additionalProperties: false
@@ -6718,6 +6778,13 @@ components:
         error:
           type: string
           description: Human-readable error message. Do not match on it programmatically.
+        issues:
+          type: array
+          description: >-
+            Field-level problems when a submitted document (such as an agent config source)
+            failed validation. Absent for errors that are not about a specific field.
+          items:
+            $ref: '#/components/schemas/AgentConfigErrorIssue'
         code:
           type: string
           description: Stable error code for programmatic handling.

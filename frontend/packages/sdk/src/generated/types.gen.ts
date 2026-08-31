@@ -29,11 +29,34 @@ export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' |
  */
 export type CreatedResourceListSort = 'name' | '-name' | '-created_at' | 'created_at';
 
+export type AgentConfigErrorIssue = {
+    /**
+     * JSON Pointer (RFC 6901) to the offending field in the submitted document. An empty string refers to the whole document.
+     */
+    path: string;
+    /**
+     * Human-readable description of the problem with this field.
+     */
+    message: string;
+    /**
+     * 1-based line of the offending field in the submitted source, when it can be located.
+     */
+    line?: number;
+    /**
+     * 1-based column of the offending field in the submitted source, when it can be located.
+     */
+    column?: number;
+};
+
 export type Error = {
     /**
      * Human-readable error message. Do not match on it programmatically.
      */
     error: string;
+    /**
+     * Field-level problems when a submitted document (such as an agent config source) failed validation. Absent for errors that are not about a specific field.
+     */
+    issues?: Array<AgentConfigErrorIssue>;
     /**
      * Stable error code for programmatic handling.
      */
@@ -13277,3 +13300,63 @@ export type UploadDaemonArtifactResponses = {
 };
 
 export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];
+
+export type DownloadDaemonArtifactData = {
+    body?: never;
+    path: {
+        toolCallID: ToolCallId;
+        artifactID: ArtifactId;
+    };
+    query?: never;
+    url: '/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content';
+};
+
+export type DownloadDaemonArtifactErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadDaemonArtifactError = DownloadDaemonArtifactErrors[keyof DownloadDaemonArtifactErrors];
+
+export type DownloadDaemonArtifactResponses = {
+    /**
+     * Artifact bytes, served with the artifact's stored content type.
+     */
+    200: Blob | File;
+};
+
+export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];

@@ -333,6 +333,20 @@ func TestInstallLifecycleEvents(t *testing.T) {
 	}
 }
 
+func TestBotOrSelfEventIgnoresSlackSystemUser(t *testing.T) {
+	event := Event{
+		Type:        "message",
+		User:        "USLACK",
+		Text:        "You have been removed from #general",
+		Channel:     "D123",
+		ChannelType: "im",
+		TS:          "111.222",
+	}
+	if !BotOrSelfEvent("U_BOT", event) {
+		t.Fatal("BotOrSelfEvent for Slack system notification = false, want true")
+	}
+}
+
 func TestDecodeEventsEnvelopeNameUpdates(t *testing.T) {
 	raw := []byte(`{"type":"event_callback","team_id":"T123","api_app_id":"A123",` +
 		`"event_id":"Ev1","event":{"type":"user_profile_changed","user":{"id":"U123",` +
