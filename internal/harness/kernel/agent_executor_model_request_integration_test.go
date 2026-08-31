@@ -3,6 +3,7 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1148,11 +1149,20 @@ WHERE context.project_id = $1
 	}
 }
 
-func TestAgentExecutorRoutesSerializedProviderRequestOverflowThroughCompactionBeforeSend(t *testing.T) {
+func TestAgentExecutorRoutesProviderMeasuredRequestOverflowThroughCompactionBeforeSend(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgent(t, ctx, "openai/serialized-overflow-history-model", now)
+	agentID, userID := fixture.createAgentWithModelOptions(
+		t,
+		ctx,
+		"openai/provider-measured-overflow-model",
+		now,
+		kernelConfiguredModelOptions{
+			ContextWindowTokens: intPtrForKernelCompactionTest(10_000),
+			MaxOutputTokens:     intPtrForKernelCompactionTest(500),
+		},
+	)
 	firstTurn := fixture.admitContentInputTurn(
 		t,
 		ctx,
@@ -1162,17 +1172,18 @@ func TestAgentExecutorRoutesSerializedProviderRequestOverflowThroughCompactionBe
 		now.Add(time.Millisecond),
 	)
 	modelClient := &sequenceKernelModel{
-		providerModelSlug:          "serialized-overflow-history-model",
+		providerModelSlug:          "provider-measured-overflow-model",
 		preparedInputTokenEstimate: 500,
-		preparedInputTokenEstimates: []int{
-			100,
-			200_000,
+		capabilities: model.Capabilities{
+			ContextWindowTokens: 10_000,
+			MaxOutputTokens:     500,
 		},
 		responses: []model.Response{
 			{
 				ID:         "resp-historical-turn",
 				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "historical work completed"}},
 				StopReason: model.StopReasonEndTurn,
+				Usage:      model.Usage{InputTokens: 8_400, OutputTokens: 100},
 			},
 			{
 				ID:         "resp-compaction-summary",
@@ -1215,14 +1226,15 @@ func TestAgentExecutorRoutesSerializedProviderRequestOverflowThroughCompactionBe
 	)
 	currentNow = now.Add(13 * time.Millisecond)
 	if err := executor.ExecuteModelWork(ctx, secondTurn); err != nil {
-		t.Fatalf("execute serialized overflow turn: %v", err)
+		t.Fatalf("execute provider-measured overflow turn: %v", err)
 	}
 
 	var state executionstore.ModelCallState
 	var recoveryKind executionstore.ModelCallRecoveryKind
 	var errorCode string
+	var errorDetails json.RawMessage
 	if err := fixture.Pool.QueryRow(ctx, `
-SELECT context.state, context.recovery_kind, context.error_code
+SELECT context.state, context.recovery_kind, context.error_code, context.error_details
 FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
@@ -1231,17 +1243,21 @@ WHERE context.project_id = $1
 		&state,
 		&recoveryKind,
 		&errorCode,
+		&errorDetails,
 	); err != nil {
-		t.Fatalf("load compactable serialized overflow attempt: %v", err)
+		t.Fatalf("load compactable provider-measured overflow attempt: %v", err)
 	}
 	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryCompact ||
 		errorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
-			"compactable serialized overflow attempt = %q/%q/%q",
+			"compactable provider-measured overflow attempt = %q/%q/%q",
 			state,
 			recoveryKind,
 			errorCode,
 		)
+	}
+	if !bytes.Contains(errorDetails, []byte(`"provider_usage_estimate"`)) {
+		t.Fatalf("compaction trigger omitted provider usage estimate: %s", errorDetails)
 	}
 	var compactionDependencies int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -1255,6 +1271,6 @@ WHERE context.project_id = $1
 		t.Fatalf("count compactable serialized overflow dependencies: %v", err)
 	}
 	if compactionDependencies != 1 {
-		t.Fatalf("serialized overflow compaction dependencies = %d, want 1", compactionDependencies)
+		t.Fatalf("provider-measured overflow compaction dependencies = %d, want 1", compactionDependencies)
 	}
 }

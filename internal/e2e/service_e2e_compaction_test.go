@@ -344,7 +344,7 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 				failModelRequest(w, http.StatusBadRequest, "first request unexpectedly used the compaction prompt: %+v", body)
 				return
 			}
-			writeOpenAIFunctionCall(
+			writeOpenAIFunctionCallWithUsage(
 				w,
 				failModelRequest,
 				"resp_tool_before_split_compaction",
@@ -353,6 +353,8 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 				map[string]any{
 					"command": "printf '" + commandNeedle + "\\n' " + strings.Repeat("&& true ", 80),
 				},
+				1_250,
+				100,
 			)
 		case 2:
 			instructions, _ := body["instructions"].(string)

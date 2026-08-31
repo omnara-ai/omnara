@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -246,6 +247,11 @@ func (e AgentExecutor) executeModelStep(
 			Context:     bundle,
 			Policy:      policy,
 			ErrorSource: modelErrorSourceForClient(client),
+			ProviderUsageIdentity: &modelcontext.ModelRequestIdentity{
+				AgentConfigID:             claim.Context.AgentConfigID.String(),
+				ConfiguredModelRevisionID: claim.Context.ConfiguredModelRevisionID.String(),
+				ProviderRequestIdentity:   resolved.ProviderRequestIdentity,
+			},
 		},
 	)
 	if err != nil {
@@ -337,6 +343,16 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
+	logent.ModelInputTokenEstimate(ctx, logent.ModelInputTokenEstimateRecord{
+		RequestedProviderModelSlug: client.RequestedProviderModelSlug(),
+		ServedProviderModelSlug:    response.ServedProviderModelSlug,
+		APIFormat:                  apiFormat,
+		APIVariant:                 apiVariant,
+		EstimatedTokens:            prepared.InputBudget.EstimatedInputTokens,
+		LocalEstimatedTokens:       prepared.InputTokenEstimate,
+		EstimatedMediaTokens:       prepared.InputMediaTokenEstimate,
+		ProviderReportedTokens:     response.Usage.InputTokens,
+	})
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,

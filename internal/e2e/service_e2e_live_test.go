@@ -317,7 +317,7 @@ WHERE call.project_id = $1
 	}
 }
 
-func assertLiveToolResultSummarized(
+func assertLiveToolResultRetainedAcrossCheckpoint(
 	t *testing.T,
 	ctx context.Context,
 	env *serviceE2EEnvironment,
@@ -325,10 +325,12 @@ func assertLiveToolResultSummarized(
 ) {
 	t.Helper()
 	var callSequence, resultSequence, summarizedThrough int64
+	var summary string
 	if err := env.db.QueryRow(ctx, `
 SELECT call.source_event_sequence,
        result_event.sequence,
-       checkpoint.summarized_through_event_sequence
+       checkpoint.summarized_through_event_sequence,
+       checkpoint.summary
 FROM tool_call_read_projection call
 JOIN tool_call_results result
   ON result.agent_id = call.agent_id
@@ -339,21 +341,23 @@ JOIN agent_events result_event
  AND result_event.event_kind = 'tool_result'
 JOIN context_checkpoints checkpoint
   ON checkpoint.agent_id = call.agent_id
- AND strpos(checkpoint.summary, $4) > 0
 WHERE call.project_id = $1
   AND call.agent_id = $2
   AND call.name = $3
 ORDER BY checkpoint.created_at DESC, checkpoint.id DESC
-LIMIT 1`, projectUUID, agentUUID, toolName, toolResult).Scan(
+LIMIT 1`, projectUUID, agentUUID, toolName).Scan(
 		&callSequence,
 		&resultSequence,
 		&summarizedThrough,
+		&summary,
 	); err != nil {
-		t.Fatalf("query summarized live tool boundary: %v", err)
+		t.Fatalf("query retained live tool boundary: %v", err)
 	}
-	if callSequence >= resultSequence || resultSequence > summarizedThrough {
+	retainedExactly := callSequence > summarizedThrough && resultSequence > summarizedThrough
+	retainedInSummary := resultSequence <= summarizedThrough && strings.Contains(summary, toolResult)
+	if callSequence >= resultSequence || (!retainedExactly && !retainedInSummary) {
 		t.Fatalf(
-			"live compaction cut tool boundary call=%d result=%d summarized_through=%d",
+			"live compaction lost tool result call=%d result=%d summarized_through=%d",
 			callSequence,
 			resultSequence,
 			summarizedThrough,
@@ -850,7 +854,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	project.createInput(t, ctx, agentID, secondPrompt)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`, projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken).
+		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) = 0`, projectUUID, agentUUID, projectLabel, rawPaddingToken).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -923,7 +927,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		opts.RequireProviderReportedCost,
 	)
 	assertLiveToolResultEvidence(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
-	assertLiveToolResultSummarized(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
+	assertLiveToolResultRetainedAcrossCheckpoint(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
 
 	var beforeRecallSequence int64
 	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).

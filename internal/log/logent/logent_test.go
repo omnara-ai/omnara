@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -102,6 +103,31 @@ func TestLogEntitiesAttachCanonicalFields(t *testing.T) {
 				"model_request.body_byte_limit":              float64(31_998_976),
 			},
 			banned: []string{"artifact_id", "content", "media_data"},
+		},
+		{
+			name: "Model input token estimate",
+			attach: func(ctx context.Context) {
+				ModelInputTokenEstimate(ctx, ModelInputTokenEstimateRecord{
+					RequestedProviderModelSlug: "gpt-requested",
+					ServedProviderModelSlug:    "gpt-served",
+					APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
+					APIVariant:                 modelprotocol.APIVariantDefault,
+					EstimatedTokens:            1_200,
+					LocalEstimatedTokens:       900,
+					EstimatedMediaTokens:       300,
+					ProviderReportedTokens:     1_100,
+				})
+			},
+			want: map[string]any{
+				"model_request.requested_provider_model_slug": "gpt-requested",
+				"model_request.api_format":                    string(modelprotocol.APIFormatOpenAIResponses),
+				"model_request.api_variant":                   string(modelprotocol.APIVariantDefault),
+				"model_request.input_tokens.estimated":        float64(1_200),
+				"model_request.input_tokens.local_estimated":  float64(900),
+				"model_request.input_tokens.media_estimated":  float64(300),
+				"model_response.served_provider_model_slug":   "gpt-served",
+				"model_response.input_tokens.reported":        float64(1_100),
+			},
 		},
 		{
 			name: "Machine skips config blobs",

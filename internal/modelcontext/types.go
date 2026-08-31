@@ -89,6 +89,20 @@ type Message struct {
 	Content              json.RawMessage                      `json:"content"`
 	ProviderReplay       json.RawMessage                      `json:"-"`
 	ProviderReplaySource modelenvelope.ProviderReplayIdentity `json:"-"`
+	ProviderUsageAnchor  *ProviderUsageAnchor                 `json:"-"`
+}
+
+type ModelRequestIdentity struct {
+	AgentConfigID             string
+	ConfiguredModelRevisionID string
+	ProviderRequestIdentity   modelenvelope.ProviderReplayIdentity
+}
+
+type ProviderUsageAnchor struct {
+	Identity           ModelRequestIdentity
+	InputEventSequence int64
+	InputTokens        int
+	OutputTokens       int
 }
 
 type ToolSpec struct {
@@ -130,6 +144,7 @@ type MachinePoolRef struct {
 
 type CheckpointRef struct {
 	ID                             string `json:"-"`
+	EventSequence                  int64  `json:"-"`
 	SummarizedThroughEventSequence int64  `json:"summarized_through_event_sequence"`
 	Summary                        string `json:"summary"`
 }
