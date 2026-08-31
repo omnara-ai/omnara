@@ -71,7 +71,7 @@ export function AgentConfigToolsField({
               type="button"
               size="icon"
               variant="ghost"
-              className="text-muted-foreground size-8"
+              className="text-muted-foreground size-10 sm:size-8"
               disabled={availableTools.length === 0}
               aria-label="Add tools"
             >
@@ -105,9 +105,12 @@ export function AgentConfigToolsField({
             const entry = catalogByName.get(tool.name)
             const description = toolDescriptions[tool.name]
             return (
-              <div key={tool.name} className="flex items-center gap-3 px-5 py-2.5">
+              <div
+                key={tool.name}
+                className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5"
+              >
                 <div
-                  className="-my-2.5 flex min-w-0 flex-1 items-center self-stretch py-2.5"
+                  className="-my-2.5 flex min-w-0 flex-1 basis-full items-center self-stretch py-2.5 sm:basis-auto"
                   onPointerEnter={() => {
                     setOpenDescription(tool.name)
                   }}
@@ -193,7 +196,7 @@ function PermissionModeSelect({
       onValueChange={onChange}
       disabled={entry == null || entry.permission_modes.length === 1}
     >
-      <SelectTrigger size="sm" className="w-36">
+      <SelectTrigger size="sm" className="min-w-0 flex-1 sm:w-36 sm:flex-none">
         <SelectValue>{permissionModeLabel(entry, value)}</SelectValue>
       </SelectTrigger>
       <SelectContent>

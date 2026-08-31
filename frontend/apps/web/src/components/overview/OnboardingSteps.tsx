@@ -5,7 +5,11 @@ import { cn } from '@/lib/utils'
 export type StepStatus = 'done' | 'active' | 'upcoming'
 
 export function OnboardingSteps({ children }: { children: ReactNode }) {
-  return <div className="relative flex flex-col gap-12 pb-12 pt-4">{children}</div>
+  return (
+    <div className="relative flex flex-col gap-6 pb-8 pt-2 sm:gap-12 sm:pb-12 sm:pt-4">
+      {children}
+    </div>
+  )
 }
 
 export function OnboardingStep({
@@ -54,8 +58,8 @@ export function OnboardingStep({
         data-status={status}
         aria-current={status === 'active' ? 'step' : undefined}
         className={cn(
-          'relative flex pl-3 transition-opacity duration-500',
-          status === 'done' && 'my-6',
+          'relative flex transition-opacity duration-500 sm:pl-3',
+          status === 'done' && 'sm:my-6',
           status === 'upcoming' && 'pointer-events-none select-none opacity-40',
         )}
       >
@@ -64,7 +68,7 @@ export function OnboardingStep({
             aria-hidden="true"
             data-slot="step-rail"
             className={cn(
-              'absolute -left-[43px] w-px transition-colors duration-700',
+              'absolute -left-[43px] hidden w-px transition-colors duration-700 sm:block',
               'top-[20px]',
               status === 'done' && nextStatus === 'done'
                 ? '-bottom-[105px]'
@@ -82,7 +86,7 @@ export function OnboardingStep({
         <span
           aria-hidden="true"
           className={cn(
-            'bg-background absolute -left-12 top-[9px] size-[11px] rounded-full border-2 transition-colors duration-500',
+            'bg-background absolute -left-12 top-[9px] hidden size-[11px] rounded-full border-2 transition-colors duration-500 sm:block',
             status === 'done' && 'border-blue-500/80',
             status === 'active' && 'border-foreground',
             status === 'upcoming' && 'border-muted-foreground',
@@ -90,22 +94,22 @@ export function OnboardingStep({
         />
         <div
           className={cn(
-            '-m-6 min-w-0 flex-1 rounded-2xl p-px',
+            'min-w-0 flex-1 rounded-2xl p-px sm:-m-6',
             status === 'done' && 'bg-gradient-to-r from-blue-500/25 to-transparent',
             status === 'done' && statusChanged && 'animate-in fade-in-0 duration-500',
           )}
         >
           <div
             className={cn(
-              'min-w-0 rounded-[15px] p-[23px]',
+              'min-w-0 rounded-[15px] p-[15px] sm:p-[23px]',
               status === 'done' &&
                 'bg-background bg-gradient-to-r from-blue-500/[0.07] to-transparent',
             )}
           >
-            <div className="flex min-w-0 flex-col gap-8">
-              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5">
+            <div className="flex min-w-0 flex-col gap-5 sm:gap-8">
+              <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6">
                 <div className="flex flex-col gap-1.5">
-                  <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+                  <h3 className="flex items-center gap-2 text-lg font-semibold tracking-tight sm:text-xl">
                     {status === 'done' ? doneTitle : title}
                     {pending && status !== 'done' && (
                       <span

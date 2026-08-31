@@ -139,7 +139,7 @@ export function CreateModelProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         {phase.step === 'provider' ? (
           <>
             <DialogHeader>

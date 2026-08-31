@@ -45,6 +45,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  keyboardShortcut = true,
   className,
   style,
   children,
@@ -53,6 +54,7 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  keyboardShortcut?: boolean
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = useState(false)
@@ -72,6 +74,8 @@ function SidebarProvider({
   }
 
   useEffect(() => {
+    if (!keyboardShortcut) return
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
@@ -83,7 +87,7 @@ function SidebarProvider({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isMobile, open, setOpenProp])
+  }, [isMobile, keyboardShortcut, open, setOpenProp])
 
   const state = open ? 'expanded' : 'collapsed'
 

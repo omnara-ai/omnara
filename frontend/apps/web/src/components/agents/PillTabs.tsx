@@ -10,13 +10,13 @@ export function PillTabs<T extends string>({
   tabs: { value: T; label: string }[]
 }) {
   return (
-    <div className="bg-muted inline-flex rounded-lg p-1">
+    <div className="bg-muted inline-flex max-w-full overflow-x-auto rounded-lg p-1">
       {tabs.map((tab) => (
         <button
           key={tab.value}
           type="button"
           className={cn(
-            'rounded-md px-3 py-1 text-sm font-medium transition-colors',
+            'h-10 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors sm:h-auto sm:py-1',
             value === tab.value
               ? 'bg-background text-foreground'
               : 'text-muted-foreground hover:text-foreground',

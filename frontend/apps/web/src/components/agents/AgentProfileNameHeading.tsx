@@ -49,7 +49,7 @@ export function AgentProfileNameHeading({
       {nameDraft !== null ? (
         <div>
           <form
-            className="flex items-center gap-1"
+            className="flex min-w-0 items-center gap-1"
             onSubmit={(event) => {
               void submitRename(event)
             }}
@@ -60,7 +60,7 @@ export function AgentProfileNameHeading({
               aria-label="Profile name"
               required
               value={nameDraft}
-              className="border-border focus-visible:border-border -mx-1 h-auto w-96 rounded-none border-0 border-b px-1 py-0 text-2xl font-bold tracking-tight shadow-none focus-visible:ring-0 md:text-2xl dark:bg-transparent"
+              className="border-border focus-visible:border-border -mx-1 h-auto w-full min-w-0 max-w-96 rounded-none border-0 border-b px-1 py-0 text-2xl font-bold tracking-tight shadow-none focus-visible:ring-0 sm:h-auto md:text-2xl dark:bg-transparent"
               onChange={(event) => {
                 setNameDraft(event.target.value)
               }}

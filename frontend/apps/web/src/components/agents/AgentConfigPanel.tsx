@@ -164,10 +164,11 @@ function AgentConfigPanelEditor({
           issues={error.issues}
         />
       </FieldGroup>
-      <div className="bg-background sticky bottom-0 z-10 mt-auto flex items-center justify-between gap-4 border-t py-3">
+      <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <Button
           type="button"
           variant="ghost"
+          className="w-full sm:w-auto"
           onClick={() => {
             if (editor.dirty && !window.confirm(discardConfigEditsPrompt)) return
             onClose()
@@ -175,12 +176,12 @@ function AgentConfigPanelEditor({
         >
           Cancel editing
         </Button>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           {error.message && (
             <p className="text-destructive whitespace-pre-wrap text-sm">{error.message}</p>
           )}
           {canManage && editor.dirty && !updateConfig.isPending && (
-            <Button type="button" variant="ghost" onClick={onDiscard}>
+            <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onDiscard}>
               Discard changes
             </Button>
           )}
@@ -189,6 +190,7 @@ function AgentConfigPanelEditor({
               type="submit"
               disabled={updateConfig.isPending || !editor.dirty || editor.saveBlocked}
               loading={updateConfig.isPending}
+              className="w-full sm:w-auto"
             >
               Save config
             </Button>
