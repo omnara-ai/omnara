@@ -46,7 +46,7 @@ export function profileCreateSpec(input: {
 export const chatMessage = 'Hi! What can you do?'
 
 export function chatCommands(input: {
-  origin: string
+  apiUrl: string
   orgId: string
   projectId: string
   profileId: string
@@ -64,6 +64,7 @@ export function chatCommands(input: {
   const sdk = `import { bearerToken, createOmnaraClient, sdk } from '@omnara/sdk'
 
 const client = createOmnaraClient({
+  baseUrl: '${input.apiUrl}',
   auth: bearerToken(process.env.OMNARA_TOKEN),
 })
 
@@ -73,7 +74,7 @@ const launched = await sdk.createAgent({
   body: { profile: '${input.profileId}', config: '${input.configId}', message: '${message}' },
 })
 console.log(launched.data.agent.id)`
-  const curl = `curl "${input.origin}/api/v1/orgs/${input.orgId}/projects/${input.projectId}/agents" \\
+  const curl = `curl "${input.apiUrl}/orgs/${input.orgId}/projects/${input.projectId}/agents" \\
   -H "Authorization: Bearer $OMNARA_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{ "profile": "${input.profileId}", "config": "${input.configId}", "message": "${message}" }'`

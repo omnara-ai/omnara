@@ -16,13 +16,7 @@ import type { Command } from 'commander'
 import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
-import {
-  type CliConfig,
-  configFilePath,
-  readConfigFile,
-  readConfigFileForUpdate,
-  updateConfigFile,
-} from './config.ts'
+import { type CliConfig, configFilePath, readConfigFile, updateConfigFile } from './config.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
 
@@ -134,7 +128,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .option('--token-name <name>', 'name for the created API token')
     .action(async (options: LoginOptions) => {
       await runCliAction(async () => {
-        readConfigFileForUpdate()
+        updateConfigFile({})
         const report = canPromptInteractively()
           ? interactiveReporter(cli.issuerUrl)
           : plainReporter()

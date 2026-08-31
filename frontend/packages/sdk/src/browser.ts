@@ -19,6 +19,7 @@ export interface AuthConnector {
 
 export interface WebConfig {
   billingURL?: string
+  apiURL?: string
 }
 
 function cookieValue(name: string): string | undefined {
@@ -93,8 +94,8 @@ export async function listAuthConnectors(): Promise<AuthConnector[]> {
 export async function fetchWebConfig(): Promise<WebConfig> {
   const response = await fetch('/api/web-config', { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = (await response.json()) as { billing_url?: string }
-  return { billingURL: data.billing_url }
+  const data = (await response.json()) as { billing_url?: string; api_url?: string }
+  return { billingURL: data.billing_url, apiURL: data.api_url }
 }
 
 export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPending> {

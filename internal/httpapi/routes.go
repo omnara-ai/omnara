@@ -73,10 +73,14 @@ func (s *Server) openapiYAMLRoute(w http.ResponseWriter, _ *http.Request) {
 
 type webConfigResponse struct {
 	BillingURL string `json:"billing_url,omitempty"`
+	APIURL     string `json:"api_url,omitempty"`
 }
 
 func (s *Server) webConfigRoute(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, webConfigResponse{BillingURL: s.billingURL})
+	writeJSON(w, http.StatusOK, webConfigResponse{
+		BillingURL: s.billingURL,
+		APIURL:     s.publicAPIURL,
+	})
 }
 
 type healthzResponse struct {

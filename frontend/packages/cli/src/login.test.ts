@@ -30,7 +30,6 @@ const mocks = vi.hoisted(() => ({
       clientId: 'omnara-cli',
     }),
   ),
-  readConfigFileForUpdate: vi.fn(() => ({})),
   updateConfigFile: vi.fn((patch: Record<string, unknown>) => patch),
 }))
 
@@ -50,7 +49,6 @@ vi.mock('@omnara/sdk', async (importOriginal) => ({
 vi.mock('./config.ts', () => ({
   configFilePath: () => '/tmp/omnara-config.json',
   readConfigFile: mocks.readConfigFile,
-  readConfigFileForUpdate: mocks.readConfigFileForUpdate,
   updateConfigFile: mocks.updateConfigFile,
 }))
 
@@ -122,20 +120,20 @@ describe('login', () => {
     })
   })
 
-  it('validates the config before starting the device flow', async () => {
+  it('verifies the config can be written before starting the device flow', async () => {
     const program = new Command()
     const cli: CliConfig = {
       client: {} as CliConfig['client'],
       apiUrl: 'https://self-hosted.example/api/v1',
       issuerUrl: 'https://self-hosted.example',
     }
-    mocks.readConfigFileForUpdate.mockImplementationOnce(() => {
-      throw new Error('invalid config')
+    mocks.updateConfigFile.mockImplementationOnce(() => {
+      throw new Error('config is not writable')
     })
     registerLoginCommand(program, cli)
 
     await expect(program.parseAsync(['node', 'omnara', 'login', '--no-browser'])).rejects.toThrow(
-      'invalid config',
+      'config is not writable',
     )
 
     expect(mocks.startDeviceAuth).not.toHaveBeenCalled()
