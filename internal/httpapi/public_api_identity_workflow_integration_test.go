@@ -1211,7 +1211,7 @@ func TestBearerAuthStorageErrorReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
-func TestBearerAuthCancellationReturnsClientClosedRequest(t *testing.T) {
+func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -1227,11 +1227,11 @@ func TestBearerAuthCancellationReturnsClientClosedRequest(t *testing.T) {
 	cancel()
 	req = req.WithContext(requestCtx)
 	rec := performRequest(handler, req)
-	if rec.Code != statusClientClosedRequest {
-		t.Fatalf("expected canceled bearer auth to return %d, got %d body=%s", statusClientClosedRequest, rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected canceled bearer auth to return 503, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if rec.Body.Len() != 0 {
-		t.Fatalf("expected canceled bearer auth body to be empty, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "authentication unavailable") {
+		t.Fatalf("expected authentication unavailable body, got %s", rec.Body.String())
 	}
 }
 

@@ -121,9 +121,6 @@ func (s *Server) auth(next http.Handler) http.Handler {
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal)))
 					return
 				}
-				if handleCanceledRequest(w, r) {
-					return
-				}
 				if !errors.Is(err, storeerr.ErrUnauthorized) {
 					logent.AuthFailedError(
 						r.Context(),
@@ -166,9 +163,6 @@ func (s *Server) auth(next http.Handler) http.Handler {
 					ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 					ctx = context.WithValue(ctx, browserCSRFHashContextKey{}, csrfHash)
 					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-				if handleCanceledRequest(w, r) {
 					return
 				}
 				if !errors.Is(err, storeerr.ErrUnauthorized) {

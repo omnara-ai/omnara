@@ -16,13 +16,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
-func TestMaintenanceRecoveryCrossesWakeupAndRuntimeLockBatchBoundaries(t *testing.T) {
+func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
@@ -93,97 +92,10 @@ WHERE project_id = $1
 	if reaped != agentCount {
 		t.Fatalf("reaped stale locks = %d, want %d", reaped, agentCount)
 	}
-	assertMaintenanceCursorCounts(t, ctx, pool, testProjectID, agentCount, 0, "runtime_lock_reap")
-
-	if tag, err := pool.Exec(ctx, `DELETE FROM agent_wakeups wake USING agents agent WHERE agent.id = wake.agent_id AND agent.project_id = $1`, testProjectID); err != nil {
-		t.Fatalf("delete reaper wakeups before rebuild: %v", err)
-	} else if tag.RowsAffected() != agentCount {
-		t.Fatalf("deleted reaper wakeups = %d, want %d", tag.RowsAffected(), agentCount)
-	}
-	rebuilt, err := store.Execution().RebuildMissingAgentWakeupsForAllProjects(ctx)
-	if err != nil {
-		t.Fatalf("rebuild wakeups across maintenance cursor: %v", err)
-	}
-	if rebuilt != agentCount {
-		t.Fatalf("rebuilt wakeups = %d, want %d", rebuilt, agentCount)
-	}
-	assertMaintenanceCursorCounts(t, ctx, pool, testProjectID, agentCount, 0, "maintenance_rebuild")
+	assertRuntimeLockReapCounts(t, ctx, pool, testProjectID, agentCount, 0)
 }
 
-func TestMaintenanceRecoveryRebuildsWakeupsAcrossProjects(t *testing.T) {
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
-	user := mustCreateProjectDeveloperUser(
-		t,
-		ctx,
-		store,
-		"maintenance-global@example.com",
-		"Maintenance Global",
-	)
-	secondProjectID := seedAdditionalProjectForTest(t, ctx, pool, "maintenance_global")
-	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
-		OrgID:     testOrgID,
-		ProjectID: secondProjectID,
-		UserID:    user.ID,
-		Role:      "developer",
-	}); err != nil {
-		t.Fatalf("add second project membership: %v", err)
-	}
-
-	projectIDs := []ID{testProjectID, secondProjectID}
-	agentIDs := make([]ID, 0, len(projectIDs))
-	for index, projectID := range projectIDs {
-		configID := mustCreateAgentConfig(
-			t,
-			ctx,
-			store,
-			projectID,
-			fmt.Sprintf("maintenance-global-%d", index),
-			now,
-		)
-		agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
-			ProjectID:       projectID,
-			CurrentConfigID: configID,
-		})
-		if err != nil {
-			t.Fatalf("create project %s agent: %v", projectID, err)
-		}
-		if _, _, _, err := store.Execution().CreateAgentContentInput(
-			ctx,
-			executionstore.CreateAgentContentInputInput{
-				ProjectID:      projectID,
-				AgentID:        agent.ID,
-				Actor:          mustOmnaraActorParams(t, user.ID),
-				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"global maintenance work"}]`),
-				IdempotencyKey: fmt.Sprintf("maintenance-global-input-%d", index),
-			},
-		); err != nil {
-			t.Fatalf("create project %s input: %v", projectID, err)
-		}
-		agentIDs = append(agentIDs, agent.ID)
-	}
-	if tag, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1::uuid[])`, agentIDs); err != nil {
-		t.Fatalf("delete cross-project wakeups: %v", err)
-	} else if tag.RowsAffected() != int64(len(agentIDs)) {
-		t.Fatalf("deleted cross-project wakeups = %d, want %d", tag.RowsAffected(), len(agentIDs))
-	}
-
-	rebuilt, err := store.Execution().RebuildMissingAgentWakeupsForAllProjects(ctx)
-	if err != nil {
-		t.Fatalf("rebuild cross-project wakeups: %v", err)
-	}
-	if rebuilt != int64(len(agentIDs)) {
-		t.Fatalf("rebuilt cross-project wakeups = %d, want %d", rebuilt, len(agentIDs))
-	}
-	for _, projectID := range projectIDs {
-		assertMaintenanceCursorCounts(t, ctx, pool, projectID, 1, 0, "maintenance_rebuild")
-	}
-}
-
-func assertMaintenanceCursorCounts(
+func assertRuntimeLockReapCounts(
 	t *testing.T,
 	ctx context.Context,
 	pool interface {
@@ -191,7 +103,6 @@ func assertMaintenanceCursorCounts(
 	},
 	projectID ID,
 	wantWakeups, wantLocks int,
-	wakeupReason string,
 ) {
 	t.Helper()
 	var wakeups, locks int
@@ -203,12 +114,12 @@ SELECT count(*) FILTER (WHERE wake.metadata->>'reason' = $2),
 FROM agent_wakeups wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1
-`, projectID, wakeupReason).Scan(&wakeups, &locks); err != nil {
-		t.Fatalf("count maintenance cursor state: %v", err)
+`, projectID, "runtime_lock_reap").Scan(&wakeups, &locks); err != nil {
+		t.Fatalf("count runtime-lock reap state: %v", err)
 	}
 	if wakeups != wantWakeups || locks != wantLocks {
 		t.Fatalf(
-			"maintenance cursor wakeups/locks = %d/%d, want %d/%d",
+			"runtime-lock reap wakeups/locks = %d/%d, want %d/%d",
 			wakeups,
 			locks,
 			wantWakeups,
@@ -255,18 +166,9 @@ func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T
 	); err != nil {
 		t.Fatalf("release runtime before model context: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild unstarted turn wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups for unstarted turn, want 1", rebuilt)
-	}
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("rebuilt unstarted-turn wakeups = %d, want 1", wakeups)
+		t.Fatalf("unstarted-turn wakeups = %d, want 1", wakeups)
 	}
 	recoveredClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
 		ctx,
@@ -415,16 +317,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if !wakeupAt.Equal(*contextRecord.RetryAt) {
 		t.Fatalf("interrupted wakeup = %s, want retry_at %s", wakeupAt, contextRecord.RetryAt)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild failed abandoned context wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups for failed abandoned context, want 1", rebuilt)
-	}
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
 	if turn, err := fixture.Store.q.CurrentContinuableAgentTurn(
 		ctx,
 		dbsqlc.CurrentContinuableAgentTurnParams{ProjectID: testProjectID, AgentID: fixture.AgentID},
@@ -434,7 +327,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("recoverable failed context current turn = %+v, want turn %s", turn, claim.Model.TurnID)
 	}
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("rebuilt recoverable-context wakeups = %d, want 1", wakeups)
+		t.Fatalf("recoverable-context wakeups = %d, want 1", wakeups)
 	}
 	if _, err := fixture.Store.pool.Exec(
 		ctx,

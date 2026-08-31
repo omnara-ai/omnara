@@ -99,6 +99,9 @@ func TestFromError(t *testing.T) {
 					tt.err, got.Status, got.Code, tt.wantStatus, tt.wantCode,
 				)
 			}
+			if !errors.Is(got, tt.err) {
+				t.Fatalf("FromError(%v) does not preserve its cause", tt.err)
+			}
 		})
 	}
 }

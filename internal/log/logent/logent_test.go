@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -290,17 +289,17 @@ func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
 	pollAt := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 
 	ctx, event := MaintenanceLoop(ctx, 5*time.Second, pollAt)
-	MaintenanceLoopResult(ctx, 2, nil, 5, nil)
+	MaintenanceLoopResult(ctx, 0, nil, true, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"message":                                 "maintenance.loop",
-		"event.name":                              "maintenance.loop",
-		"maintenance.loop.interval":               float64(5_000_000_000),
-		"maintenance.reap_runtime_locks.count":    float64(2),
-		"maintenance.rebuild_agent_wakeups.count": float64(5),
-		"maintenance.loop.worked":                 true,
+		"level":                                "info",
+		"message":                              "maintenance.loop",
+		"event.name":                           "maintenance.loop",
+		"maintenance.loop.interval":            float64(5_000_000_000),
+		"maintenance.reap_runtime_locks.count": float64(0),
+		"maintenance.loop.worked":              true,
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
@@ -311,80 +310,47 @@ func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
 	}
 }
 
+func TestMaintenanceLoopIdleSuccessIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
+
+	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
+	MaintenanceLoopResult(ctx, 0, nil, false, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "debug" {
+		t.Fatalf("level = %v, want debug in %+v", got, record)
+	}
+}
+
 func TestMaintenanceLoopAttachesTaskErrors(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
 
 	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
+	reapErr := errors.New("reap failed")
+	cleanupErr := errors.New("cleanup failed")
 	MaintenanceLoopResult(
 		ctx,
-		1,
-		errors.New("reap failed"),
 		0,
-		errors.New("rebuild failed"),
+		reapErr,
+		false,
+		errors.Join(reapErr, cleanupErr),
 	)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"level":                                   "error",
-		"error.message":                           "reap failed",
-		"maintenance.reap_runtime_locks.count":    float64(1),
-		"maintenance.reap_runtime_locks.error":    "reap failed",
-		"maintenance.rebuild_agent_wakeups.count": float64(0),
-		"maintenance.rebuild_agent_wakeups.error": "rebuild failed",
-		"maintenance.loop.worked":                 true,
+		"level":                                "error",
+		"error.message":                        "reap failed\ncleanup failed",
+		"maintenance.reap_runtime_locks.count": float64(0),
+		"maintenance.reap_runtime_locks.error": "reap failed",
+		"maintenance.loop.worked":              false,
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
 		}
-	}
-}
-
-func TestMaintenanceLoopIgnoresTaskCancellationDuringShutdown(t *testing.T) {
-	var buf bytes.Buffer
-	ctx, cancel := context.WithCancel(log.WithLogger(context.Background(), testLogger(&buf)))
-	cancel()
-
-	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
-	canceledErr := fmt.Errorf("maintenance task: %w", context.Canceled)
-	MaintenanceLoopResult(
-		ctx,
-		0,
-		canceledErr,
-		0,
-		canceledErr,
-	)
-	event.Done(context.Background())
-
-	record := oneRecord(t, &buf)
-	if got := record["level"]; got != "info" {
-		t.Fatalf("level = %v, want info in %+v", got, record)
-	}
-	for _, key := range []string{
-		"error.message",
-		"maintenance.reap_runtime_locks.error",
-		"maintenance.rebuild_agent_wakeups.error",
-	} {
-		if _, ok := record[key]; ok {
-			t.Fatalf("%s present in shutdown event %+v", key, record)
-		}
-	}
-}
-
-func TestIsCanceledDuringShutdownRequiresBothCancellationSignals(t *testing.T) {
-	canceledCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-	canceledErr := fmt.Errorf("maintenance task: %w", context.Canceled)
-
-	if !IsCanceledDuringShutdown(canceledCtx, canceledErr) {
-		t.Fatal("shutdown cancellation was not recognized")
-	}
-	if IsCanceledDuringShutdown(context.Background(), canceledErr) {
-		t.Fatal("live operation cancellation was recognized as shutdown")
-	}
-	if IsCanceledDuringShutdown(canceledCtx, errors.New("failed")) {
-		t.Fatal("operation failure was recognized as shutdown cancellation")
 	}
 }
 

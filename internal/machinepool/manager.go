@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -26,6 +27,7 @@ const (
 	providerFailureRetryDelay           = time.Minute
 	providerProvisionRetryAttempts      = 4
 	poolMachineReconcileConcurrency     = 8
+	maximumReportedReconcileErrors      = 10
 )
 
 var providerProvisionRetryDelays = [...]time.Duration{
@@ -798,19 +800,27 @@ func runBoundedReconcile(
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var firstErr error
+	var reconcileErrs []error
+	var suppressedErrors int
 	started := 0
+	recordErr := func(err error) {
+		if ctxErr := ctx.Err(); ctxErr != nil && errutil.OnlyMatches(err, ctxErr) {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(reconcileErrs) < maximumReportedReconcileErrors {
+			reconcileErrs = append(reconcileErrs, err)
+		} else {
+			suppressedErrors++
+		}
+	}
 
 	for i := range count {
 		select {
 		case <-ctx.Done():
-			mu.Lock()
-			if firstErr == nil {
-				firstErr = ctx.Err()
-			}
-			mu.Unlock()
 			wg.Wait()
-			return started, firstErr
+			return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
 		case sem <- struct{}{}:
 		}
 
@@ -821,29 +831,34 @@ func runBoundedReconcile(
 			defer func() { <-sem }()
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = fmt.Errorf(
-							"machine reconciliation %d panicked: %v",
-							i,
-							recovered,
-						)
-					}
-					mu.Unlock()
+					recordErr(fmt.Errorf(
+						"machine reconciliation %d panicked: %v",
+						i,
+						recovered,
+					))
 				}
 			}()
 			if err := run(ctx, i); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
+				recordErr(err)
 			}
 		}()
 	}
 
 	wg.Wait()
-	return started, firstErr
+	return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
+}
+
+func boundedReconcileError(reconcileErrs []error, suppressedErrors int, interruption error) error {
+	if suppressedErrors > 0 {
+		reconcileErrs = append(reconcileErrs, fmt.Errorf(
+			"%d additional machine reconciliation errors omitted",
+			suppressedErrors,
+		))
+	}
+	if err := errors.Join(reconcileErrs...); err != nil {
+		return err
+	}
+	return interruption
 }
 
 func provisionBackoff(attempts int32) time.Duration {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -24,7 +25,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
 const (
@@ -33,6 +33,22 @@ const (
 	providerRuntimeRecheckInterval         = 30 * time.Second
 	idleMachineReconcileInterval           = time.Minute
 )
+
+type maintenanceOutcome struct {
+	interrupted bool
+	err         error
+}
+
+func completedMaintenanceOutcome(ctx context.Context, err error) maintenanceOutcome {
+	outcome := maintenanceOutcome{
+		interrupted: errors.Is(ctx.Err(), context.Canceled),
+		err:         err,
+	}
+	if outcome.interrupted && errutil.OnlyMatches(err, context.Canceled) {
+		outcome.err = nil
+	}
+	return outcome
+}
 
 func main() {
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -216,10 +232,12 @@ func runProviderRuntimeMaintenanceLoop(
 	for {
 		started := time.Now()
 		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
-		recordProviderRuntimePass(recorder, operation, stats, err, ctx.Err(), time.Since(started))
-		if err != nil && ctx.Err() == nil {
-			log.Error("provider runtime reconciliation", "operation", operation, "error", err, "stats", stats)
-		} else if stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0 {
+		outcome := completedMaintenanceOutcome(ctx, err)
+		recordProviderRuntimePass(recorder, operation, stats, outcome, time.Since(started))
+		if outcome.err != nil {
+			log.Error("provider runtime reconciliation", "operation", operation, "error", outcome.err, "stats", stats)
+		} else if !outcome.interrupted &&
+			(stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0) {
 			log.Info("provider runtime reconciliation", "operation", operation, "stats", stats)
 		}
 		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
@@ -258,11 +276,10 @@ func recordProviderRuntimePass(
 	recorder *metrics.ProviderRuntimeRecorder,
 	operation metrics.ProviderRuntimeOperation,
 	stats machinepool.RuntimeReconciliationStats,
-	err error,
-	shutdownErr error,
+	outcome maintenanceOutcome,
 	duration time.Duration,
 ) {
-	result := providerRuntimeResult(err, shutdownErr)
+	result := providerRuntimeResult(outcome)
 	recorder.RecordPass(operation, result, duration)
 	for event, count := range map[metrics.ProviderRuntimeEvent]int{
 		metrics.ProviderRuntimeEventPages:                 stats.Pages,
@@ -287,14 +304,14 @@ func recordProviderRuntimePass(
 	}
 }
 
-func providerRuntimeResult(err, shutdownErr error) metrics.ProviderRuntimeResult {
-	if err == nil {
-		return metrics.ProviderRuntimeResultSuccess
+func providerRuntimeResult(outcome maintenanceOutcome) metrics.ProviderRuntimeResult {
+	if outcome.err != nil {
+		return metrics.ProviderRuntimeResultError
 	}
-	if errors.Is(err, context.Canceled) && shutdownErr != nil {
+	if outcome.interrupted {
 		return metrics.ProviderRuntimeResultCanceled
 	}
-	return metrics.ProviderRuntimeResultError
+	return metrics.ProviderRuntimeResultSuccess
 }
 
 func jitteredMaintenanceDelay(interval time.Duration) time.Duration {
@@ -347,62 +364,58 @@ func runCoreMaintenanceTick(
 			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
 		}
 	}()
-	var reapedRuntimeLocks int64
-	var expiredUnreachableTools int64
-	var expiredDaemonRuntimes int
-	var rebuilt int64
-	var authCleanup identitystore.AuthStateCleanupResult
-	var reapRuntimeLocksErr error
-	var expireUnreachableToolsErr error
-	var expireDaemonRuntimesErr error
-	var rebuildErr error
-	var authCleanupErr error
-	reapedRuntimeLocks, reapRuntimeLocksErr = store.Execution().ReapExpiredAgentRuntimeLocks(
+	reapedRuntimeLocks, reapRuntimeLocksErr := store.Execution().ReapExpiredAgentRuntimeLocks(
 		ctx,
 		runtimeLockReapBatchSize,
 	)
-	if records, err := store.Execution().EndExpiredDaemonRuntimes(ctx, 100); err != nil {
-		expireDaemonRuntimesErr = err
-	} else {
+	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, reapRuntimeLocksErr)
+	records, expireDaemonRuntimesErr := store.Execution().EndExpiredDaemonRuntimes(ctx, 100)
+	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, expireDaemonRuntimesErr)
+	var expiredDaemonRuntimes int
+	if expireDaemonRuntimesErr == nil {
 		expiredDaemonRuntimes = len(records)
 	}
-	expiredUnreachableTools, expireUnreachableToolsErr =
+	expiredUnreachableTools, expireUnreachableToolsErr :=
 		store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
 			ctx,
 			executionstore.ProcessToolMachineUnreachableGrace,
 		)
-	rebuilt, rebuildErr = store.Execution().RebuildMissingAgentWakeupsForAllProjects(ctx)
-	authCleanup, authCleanupErr = store.Identity().CleanupInactiveAuthState(ctx)
-	logent.MaintenanceLoopResult(
-		ctx,
-		reapedRuntimeLocks,
-		reapRuntimeLocksErr,
-		rebuilt,
-		rebuildErr,
-	)
-	if expireDaemonRuntimesErr != nil {
-		if !logent.IsCanceledDuringShutdown(ctx, expireDaemonRuntimesErr) {
-			log.Error("expire daemon runtimes", "error", expireDaemonRuntimesErr)
-		}
-	} else if expiredDaemonRuntimes > 0 {
-		log.Info("expired daemon runtimes", "count", expiredDaemonRuntimes)
-	}
-	if expireUnreachableToolsErr != nil {
-		if !logent.IsCanceledDuringShutdown(ctx, expireUnreachableToolsErr) {
-			log.Error("expire machine-unreachable process tool calls", "error", expireUnreachableToolsErr)
-		}
-	} else if expiredUnreachableTools > 0 {
-		log.Info("expired machine-unreachable process tool calls", "count", expiredUnreachableTools)
-	}
+	expireUnreachableToolsOutcome := completedMaintenanceOutcome(ctx, expireUnreachableToolsErr)
+	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
+	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
 		authCleanup.DeletedDeviceFlows > 0
-	if authCleanupErr != nil {
-		if !logent.IsCanceledDuringShutdown(ctx, authCleanupErr) {
-			log.Error("cleanup inactive auth state", "error", authCleanupErr)
-		}
-	} else if authCleanupDeleted {
+	worked := reapedRuntimeLocks > 0 ||
+		expiredDaemonRuntimes > 0 ||
+		expiredUnreachableTools > 0 ||
+		authCleanupDeleted
+	logent.MaintenanceLoopResult(
+		ctx,
+		reapedRuntimeLocks,
+		reapRuntimeLocksOutcome.err,
+		worked,
+		errors.Join(
+			reapRuntimeLocksOutcome.err,
+			expireDaemonRuntimesOutcome.err,
+			expireUnreachableToolsOutcome.err,
+			authCleanupOutcome.err,
+		),
+	)
+	if expireDaemonRuntimesOutcome.err != nil {
+		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
+	} else if !expireDaemonRuntimesOutcome.interrupted && expiredDaemonRuntimes > 0 {
+		log.Info("expired daemon runtimes", "count", expiredDaemonRuntimes)
+	}
+	if expireUnreachableToolsOutcome.err != nil {
+		log.Error("expire machine-unreachable process tool calls", "error", expireUnreachableToolsOutcome.err)
+	} else if !expireUnreachableToolsOutcome.interrupted && expiredUnreachableTools > 0 {
+		log.Info("expired machine-unreachable process tool calls", "count", expiredUnreachableTools)
+	}
+	if authCleanupOutcome.err != nil {
+		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
+	} else if !authCleanupOutcome.interrupted && authCleanupDeleted {
 		log.Info(
 			"cleaned inactive auth state",
 			"deleted_inactive_tokens",
@@ -434,11 +447,10 @@ func runMachinePoolMaintenanceLoop(
 				log,
 				machinePoolManager.ReconcileIdleDeletion,
 			)
-			if err != nil {
-				if !logent.IsCanceledDuringShutdown(ctx, err) {
-					log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
-				}
-			} else if candidateCount > 0 {
+			outcome := completedMaintenanceOutcome(ctx, err)
+			if outcome.err != nil {
+				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", outcome.err)
+			} else if !outcome.interrupted && candidateCount > 0 {
 				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
 			}
 			if candidateCount < machinepool.DefaultReconcileBatchSize {
@@ -474,24 +486,24 @@ func runMachinePoolMaintenanceTick(
 	machinePoolManager *machinepool.Manager,
 ) {
 	defer recoverMachinePoolMaintenancePanic(log)
-	if attempted, err := machinePoolManager.ReconcileProvisioning(
+	provisioned, provisionErr := machinePoolManager.ReconcileProvisioning(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,
-	); err != nil {
-		if !logent.IsCanceledDuringShutdown(ctx, err) {
-			log.Error("reconcile machine provisioning", "attempted_count", attempted, "error", err)
-		}
-	} else if attempted > 0 {
-		log.Info("attempted machine provisioning reconcile", "attempted_count", attempted)
+	)
+	provisionOutcome := completedMaintenanceOutcome(ctx, provisionErr)
+	if provisionOutcome.err != nil {
+		log.Error("reconcile machine provisioning", "attempted_count", provisioned, "error", provisionOutcome.err)
+	} else if !provisionOutcome.interrupted && provisioned > 0 {
+		log.Info("attempted machine provisioning reconcile", "attempted_count", provisioned)
 	}
-	if attempted, err := machinePoolManager.ReconcileCleanup(
+	cleaned, cleanupErr := machinePoolManager.ReconcileCleanup(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,
-	); err != nil {
-		if !logent.IsCanceledDuringShutdown(ctx, err) {
-			log.Error("reconcile machine cleanup", "attempted_count", attempted, "error", err)
-		}
-	} else if attempted > 0 {
-		log.Info("attempted machine cleanup reconcile", "attempted_count", attempted)
+	)
+	cleanupOutcome := completedMaintenanceOutcome(ctx, cleanupErr)
+	if cleanupOutcome.err != nil {
+		log.Error("reconcile machine cleanup", "attempted_count", cleaned, "error", cleanupOutcome.err)
+	} else if !cleanupOutcome.interrupted && cleaned > 0 {
+		log.Info("attempted machine cleanup reconcile", "attempted_count", cleaned)
 	}
 }

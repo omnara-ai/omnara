@@ -22,6 +22,7 @@ import (
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -415,8 +416,12 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 }
 
 func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
+	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
-	handlerErr := apierror.ProjectScoped(context.Canceled)
+	handlerErr := apierror.FromCode(
+		openapi.ErrorCodeServiceUnavailable,
+		"mapped dependency failure",
+	).WithCause(context.Canceled)
 	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
 	}))
@@ -427,17 +432,129 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != statusClientClosedRequest {
-		t.Fatalf("status=%d want=%d", rec.Code, statusClientClosedRequest)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
 	}
-	if rec.Body.Len() != 0 {
-		t.Fatalf("body=%q want empty", rec.Body.String())
+	var body openapi.Error
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response body: %v\n%s", err, rec.Body.String())
+	}
+	if body.Code != openapi.ErrorCodeServiceUnavailable {
+		t.Fatalf("response code=%q want=%q", body.Code, openapi.ErrorCodeServiceUnavailable)
 	}
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "info",
-		"http.status_code":           float64(statusClientClosedRequest),
-		"http.response_bytes":        float64(0),
+		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.response_bytes":        float64(rec.Body.Len()),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	if _, ok := event["error.message"]; ok {
+		t.Fatalf("canceled request has error.message in event %+v", event)
+	}
+}
+
+func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.FromCode(
+		openapi.ErrorCodeServiceUnavailable,
+		"mapped dependency failure",
+	).WithCause(errors.New("query agent row: connection refused"))
+	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logpkg.Error(r.Context(), context.Canceled)
+		openAPIResponseErrorHandler(w, r, handlerErr)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "error",
+		"error.message":              errors.Join(context.Canceled, handlerErr).Error(),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+}
+
+func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handler := requestLog(log)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		logpkg.Error(r.Context(), context.Canceled)
+		panic("boom")
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusInternalServerError)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "error",
+		"error.message":              "context canceled\nhttp handler panicked: boom",
+		"http.status_code":           float64(http.StatusInternalServerError),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	stack, _ := event["error.stack"].(string)
+	if !strings.Contains(stack, "TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled") {
+		t.Fatalf("error.stack missing panic origin in event %+v", event)
+	}
+}
+
+func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
+	const clientClosedTelemetryStatus = 499
+	buf, log := newRequestEventCapture()
+	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logent.AuthFailedError(
+			r.Context(),
+			logent.AuthSchemeBearer,
+			logent.TokenKindPersonalAccess,
+			logent.AuthResultUnavailable,
+			context.Canceled,
+		)
+		apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "info",
+		"auth.result":                string(logent.AuthResultUnavailable),
+		"http.status_code":           float64(clientClosedTelemetryStatus),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
 	} {

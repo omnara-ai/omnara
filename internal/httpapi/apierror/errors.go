@@ -93,10 +93,20 @@ type ResponseError struct {
 	Code    openapi.ErrorCode
 	Message string
 	Issues  []openapi.AgentConfigErrorIssue
+	cause   error
 }
 
 func (err ResponseError) Error() string {
 	return err.Message
+}
+
+func (err ResponseError) Unwrap() error {
+	return err.cause
+}
+
+func (err ResponseError) WithCause(cause error) ResponseError {
+	err.cause = cause
+	return err
 }
 
 func FromCode(code openapi.ErrorCode, additionalText string) ResponseError {
@@ -130,19 +140,24 @@ func (err ResponseError) body() openapi.Error {
 }
 
 func FromError(err error) ResponseError {
+	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
 	if errors.Is(err, pgx.ErrNoRows) {
-		return FromCode(openapi.ErrorCodeNotFound, err.Error())
-	}
-	for _, mapping := range sentinelCodes {
-		if !errors.Is(err, mapping.sentinel) {
-			continue
+		responseErr = FromCode(openapi.ErrorCodeNotFound, err.Error())
+	} else {
+		for _, mapping := range sentinelCodes {
+			if !errors.Is(err, mapping.sentinel) {
+				continue
+			}
+			if mapping.opaque {
+				responseErr = FromCode(mapping.code, "")
+			} else {
+				responseErr = FromCode(mapping.code, err.Error())
+			}
+			break
 		}
-		if mapping.opaque {
-			return FromCode(mapping.code, "")
-		}
-		return FromCode(mapping.code, err.Error())
 	}
-	return FromCode(openapi.ErrorCodeInternalError, "")
+	responseErr.cause = err
+	return responseErr
 }
 
 func UserScoped(err error) ResponseError {

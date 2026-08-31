@@ -317,11 +317,6 @@ func validateResponseContract(request *http.Request, recorder *responseContractR
 		recorder.status = http.StatusOK
 		recorder.buffering = shouldBufferResponse(request, http.StatusOK)
 	}
-	if errors.Is(request.Context().Err(), context.Canceled) &&
-		recorder.status == statusClientClosedRequest &&
-		recorder.body.Len() == 0 {
-		return
-	}
 	contract, err := loadResponseContract()
 	if err != nil {
 		panic(fmt.Sprintf("load openapi response contract: %v", err))

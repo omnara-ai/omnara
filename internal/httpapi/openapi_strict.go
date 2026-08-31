@@ -15,8 +15,6 @@ type strictOpenAPIServer struct {
 	server *Server
 }
 
-const statusClientClosedRequest = 499
-
 var _ openapi.StrictServerInterface = strictOpenAPIServer{}
 
 func (s *Server) strictOpenAPIHandler() openapi.ServerInterface {
@@ -61,28 +59,8 @@ func writeOpenAPIRequestError(w http.ResponseWriter, r *http.Request, err error)
 }
 
 func openAPIResponseErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
-	if handleCanceledRequest(w, r) {
-		return
-	}
 	logpkg.Error(r.Context(), err)
 	apierror.WriteError(w, err)
-}
-
-func handleCanceledRequest(w http.ResponseWriter, r *http.Request) bool {
-	if !errors.Is(r.Context().Err(), context.Canceled) {
-		return false
-	}
-	fields := logpkg.Fields{
-		"http.request.cancel_cause":  context.Cause(r.Context()).Error(),
-		"http.request.cancel_source": "request_context",
-	}
-	if deadline, ok := r.Context().Deadline(); ok {
-		fields["http.request.deadline"] = deadline.UTC()
-	}
-	logpkg.Attach(r.Context(), fields)
-	logpkg.Level(r.Context(), logpkg.InfoLevel)
-	w.WriteHeader(statusClientClosedRequest)
-	return true
 }
 
 func (s *Server) rejectEncodedSlashPathValues(next http.Handler) http.Handler {
