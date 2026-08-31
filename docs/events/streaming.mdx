@@ -71,7 +71,7 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `model_output_delta` | A live preview while the model responds | No |
 | `error` | A stream-closing error; retry only `service_unavailable` | No |
 
-Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. Live delivery notifications provide the immediate path but are best-effort. The service periodically reconciles active streams against durable history, so a missed notification is recovered without reconnecting. Reconnecting with `Last-Event-ID` also catches up every saved event after the cursor. A simplified exchange looks like:
+Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. While a connection remains open, the server keeps it caught up from its last delivered saved sequence. After a disconnect, reconnecting with `Last-Event-ID` catches up every saved event after that cursor. A simplified exchange looks like:
 
 ```text
 event: model_output_delta
@@ -106,7 +106,7 @@ curl -N "$BASE/agents/$AGENT/events/stream?stream_deltas=true" \
 
 The server sends every saved event after sequence 3, then continues live. Deltas produced while disconnected are not replayed, but the completed `model_output` event is.
 
-The TypeScript SDK owns this loop for you. `openAgentEventStream` follows the durable stream until you abort it and resumes after the last delivered durable sequence. It retries HTTP 408, 429, and 5xx responses; fetch or reader disconnects; unexpected end-of-response; 35 seconds without SSE activity while actively waiting; and in-band `service_unavailable` errors. Retries use bounded jittered backoff. Other HTTP, API, request, and contract errors are terminal and thrown.
+The TypeScript SDK owns this loop for you. `openAgentEventStream` follows the durable stream until you stop it, automatically reconnects after transient HTTP, transport, and `service_unavailable` failures, and resumes after the last delivered saved sequence. Other API and contract errors are thrown.
 
 ```ts
 const controller = new AbortController()
@@ -125,7 +125,7 @@ for await (const frame of openAgentEventStream({
 }
 ```
 
-Aborting the signal or breaking out of the loop closes the physical response normally. If a `next()` read is already pending, use the abort signal for prompt cancellation; an iterator `return()` waits behind that read. A reconnect can miss best-effort delta and tool lifecycle frames, so discard connection-scoped previews and refresh any authoritative state you project outside the durable event timeline.
+Use the abort signal when you need to stop the stream promptly; breaking out of the loop also closes it. A reconnect can miss best-effort delta and tool lifecycle frames, so discard connection-scoped previews and refresh any authoritative state you project outside the saved event timeline.
 
 <Info>
 Full schema and playground: [Stream events](/api-reference/endpoints/events/stream-events).
