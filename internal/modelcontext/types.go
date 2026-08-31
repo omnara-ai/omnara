@@ -33,8 +33,6 @@ type Bundle struct {
 	ToolSpecs             []ToolSpec               `json:"tool_specs"`
 	ToolResults           []ToolResultRef          `json:"tool_results"`
 	AvailableMachinePools []MachinePoolRef         `json:"machine_pools,omitempty"`
-	ActiveProcesses       []ActiveProcessRef       `json:"active_processes,omitempty"`
-	AttachedMachines      []AttachedMachineRef     `json:"attached_machines,omitempty"`
 	IntegrationTargets    []IntegrationTargetRef   `json:"integration_targets,omitempty"`
 	ContextCheckpoint     *CheckpointRef           `json:"context_checkpoint,omitempty"`
 	ResolvedMedia         map[string]ResolvedMedia `json:"resolved_media,omitempty"`
@@ -113,21 +111,6 @@ type ToolResultRef struct {
 	Input               json.RawMessage                  `json:"input"`
 	Outcome             executionstore.ToolResultOutcome `json:"-"`
 	ContentParts        json.RawMessage                  `json:"content_parts"`
-}
-
-type ActiveProcessRef struct {
-	ProcessID     string `json:"process_id"`
-	State         string `json:"state"`
-	CommandLabel  string `json:"command_label,omitempty"`
-	Command       string `json:"command,omitempty"`
-	ShellSelector string `json:"shell_selector,omitempty"`
-	Cwd           string `json:"cwd,omitempty"`
-}
-
-type AttachedMachineRef struct {
-	MachineRef  string `json:"machine_ref"`
-	Description string `json:"description,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
 }
 
 type IntegrationTargetRef struct {

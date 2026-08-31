@@ -1,8 +1,8 @@
 import { type AuthConnector, listAuthConnectors } from '@omnara/sdk/browser'
 import { useQuery } from '@tanstack/react-query'
-import { KeyRound } from 'lucide-react'
 
 import { LastUsedBadge } from '@/components/auth/LastUsedBadge'
+import { KeyRound } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { FieldSeparator } from '@/components/ui/field'
 

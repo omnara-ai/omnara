@@ -1,7 +1,7 @@
 import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
-import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
@@ -72,6 +72,7 @@ export function MachinePoolFields({
               onValueChange={(name) => {
                 setValue('name', name)
               }}
+              error={<ResourceNameFieldError value={values.name} />}
             />
           </div>
           <MachinePoolInputField
@@ -141,13 +142,6 @@ export function MachinePoolFields({
           }}
         />
       )}
-      <MachinePoolAdvancedSection
-        orgId={orgId}
-        enabled={enabled}
-        clusterManaged={clusterEdit}
-        values={values}
-        setValue={setValue}
-      />
       {!clusterEdit && (
         <CredentialSecretField
           key={values.provider}

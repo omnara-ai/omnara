@@ -9,6 +9,7 @@
 coverage.out
 coverage.html
 tmp/
+mcp-registry-snapshot/
 /bin/
 research/
 plans/

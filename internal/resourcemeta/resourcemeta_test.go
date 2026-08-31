@@ -41,6 +41,10 @@ func TestValidate(t *testing.T) {
 		{name: "empty key", metadata: Metadata{"": "value"}},
 		{name: "oversized key", metadata: Metadata{strings.Repeat("k", MaxKeyLength+1): "v"}},
 		{name: "oversized value", metadata: Metadata{"k": strings.Repeat("v", MaxValueLength+1)}},
+		{name: "NUL key", metadata: Metadata{"before\x00after": "value"}},
+		{name: "NUL value", metadata: Metadata{"key": "before\x00after"}},
+		{name: "invalid UTF-8 key", metadata: Metadata{string([]byte{0xff}): "value"}},
+		{name: "invalid UTF-8 value", metadata: Metadata{"key": string([]byte{0xff})}},
 		{name: "too many entries", metadata: tooManyEntries},
 	}
 	for _, tt := range invalid {

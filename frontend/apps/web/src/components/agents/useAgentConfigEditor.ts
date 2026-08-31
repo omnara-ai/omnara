@@ -6,6 +6,7 @@ import {
   initialAgentConfigModeState,
   yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
+import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
   useAgentBuilderForm,
@@ -28,7 +29,8 @@ export function useAgentConfigEditor({
 }) {
   const [session, setSession] = useState(() => createBasicConfigSession(source))
   const builderSession = canManage && session.initialDraft != null ? session : null
-  const form = useAgentBuilderForm(session)
+  const [restored] = useState(takeMcpBuilderOAuthRestore)
+  const form = useAgentBuilderForm(session, restored?.draft)
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
     initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),

@@ -15,6 +15,8 @@ import (
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -60,9 +62,12 @@ type Server struct {
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
+	mcpClient                           mcp.Client
+	sigV4CredentialCache                *mcp.SigV4CredentialCache
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
+	mcpRegistry                         *mcpregistry.Registry
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
@@ -182,9 +187,9 @@ func WithDefaultMachinePools(defaultPoolTemplates []executionstore.DefaultMachin
 	}
 }
 
-func WithDefaultModelProvider(defaultProviderTemplate *modelstore.DefaultModelProviderTemplate) Option {
+func WithDefaultModelProvider(template *modelstore.DefaultModelProviderTemplate) Option {
 	return func(s *Server) {
-		s.defaultModelProvider = defaultProviderTemplate
+		s.defaultModelProvider = template
 	}
 }
 
@@ -203,6 +208,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
+	}
+}
+
+func WithMCPRegistry(registry *mcpregistry.Registry) Option {
+	return func(s *Server) {
+		s.mcpRegistry = registry
 	}
 }
 
@@ -406,6 +417,11 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
+	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
+	server.sigV4CredentialCache, err = mcp.NewSigV4CredentialCache()
+	if err != nil {
+		return nil, err
+	}
 	return server, nil
 }
 

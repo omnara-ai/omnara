@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -93,6 +92,7 @@ type MachineSourceCompiled struct {
 	MachinePoolID                 string                     `json:"machine_pool_id,omitempty"`
 	MaxMachines                   int                        `json:"max_machines,omitempty"`
 	InitialNumMachines            int                        `json:"initial_num_machines,omitempty"`
+	DeleteAfterIdleMinutes        *int                       `json:"delete_after_idle_minutes,omitempty"`
 	Cwd                           string                     `json:"cwd,omitempty"`
 	MachineCPU                    *int                       `json:"machine_cpu,omitempty"`
 	MachineMemoryMB               *int                       `json:"machine_memory_mb,omitempty"`
@@ -157,13 +157,13 @@ type ResolvedModelSelection struct {
 }
 
 func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, error) {
-	source, err := ParseSource(format, raw)
+	source, root, err := parseSource(format, raw)
 	if err != nil {
 		return Result{}, err
 	}
 	compiled, err := compile(source, opts)
 	if err != nil {
-		return Result{}, err
+		return Result{}, validationErrorFrom(err, root)
 	}
 	canonical, err := json.Marshal(compiled)
 	if err != nil {
@@ -249,21 +249,21 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.Skills = skills
 	}
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
-		return Compiled{}, fmt.Errorf("model %q does not support tools", compiledModel.sourceName)
+		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", compiledModel.sourceName)
 	}
 	return compiled, nil
 }
 
 func compileModel(source AgentConfigModelSource, opts CompileOptions) (compiledModelResult, error) {
-	if strings.TrimSpace(source.ProviderConfig) == "" {
-		return compiledModelResult{}, errors.New("model.provider_config is required")
+	if source.ProviderConfig == "" {
+		return compiledModelResult{}, issuef(jsonPointer("model", "provider_config"), "is required")
 	}
-	if strings.TrimSpace(source.Name) == "" {
-		return compiledModelResult{}, errors.New("configured model name is required")
+	if source.Name == "" {
+		return compiledModelResult{}, issuef(jsonPointer("model", "name"), "is required")
 	}
 	compiled := compiledModelResult{
-		sourceProviderConfig: strings.TrimSpace(source.ProviderConfig),
-		sourceName:           strings.TrimSpace(source.Name),
+		sourceProviderConfig: source.ProviderConfig,
+		sourceName:           source.Name,
 	}
 	compiled.model = ModelCompiled{
 		ContextWindowTokens:    source.ContextWindowTokens,
@@ -278,7 +278,7 @@ func compileModel(source AgentConfigModelSource, opts CompileOptions) (compiledM
 	}
 	resolved, err := opts.ResolveModelSelection(compiled.sourceProviderConfig, compiled.sourceName)
 	if err != nil {
-		return compiledModelResult{}, err
+		return compiledModelResult{}, issueOr(jsonPointer("model"), err)
 	}
 	compiled.configuredModelID = resolved.ConfiguredModelID
 	compiled.model.ConfiguredModelID = resolved.ConfiguredModelID
@@ -309,25 +309,26 @@ func implicitlyEnablesSkillTool(compiled Compiled) bool {
 // at invocation time.
 func compileSkills(skillIDs []string, opts CompileOptions) ([]SkillCompiled, error) {
 	if opts.ResolveSkillID == nil {
-		return nil, fmt.Errorf("skills require a ResolveSkillID callback")
+		return nil, issuef(jsonPointer("skills"), "skills require a ResolveSkillID callback")
 	}
 	resolved := make([]SkillResolution, 0, len(skillIDs))
 	for i, skillID := range skillIDs {
 		rec, err := opts.ResolveSkillID(skillID)
 		if err != nil {
-			return nil, fmt.Errorf("skills[%d]: %w", i, err)
+			return nil, issueOr(jsonPointer("skills", i), err)
 		}
 		if rec.PublicID == "" || rec.Name == "" {
-			return nil, fmt.Errorf("skills[%d]: resolver returned incomplete record", i)
+			return nil, issuef(jsonPointer("skills", i), "resolver returned incomplete record")
 		}
 		resolved = append(resolved, rec)
 	}
 	seenNames := make(map[string]string, len(resolved))
 	compiledSkills := make([]SkillCompiled, 0, len(resolved))
-	for _, rec := range resolved {
+	for i, rec := range resolved {
 		if existing, ok := seenNames[rec.Name]; ok {
-			return nil, fmt.Errorf(
-				"skills: name %q is attached more than once (skills %s and %s); "+
+			return nil, issuef(
+				jsonPointer("skills", i),
+				"name %q is attached more than once (skills %s and %s); "+
 					"skill names must be unique across the agent's attached set",
 				rec.Name,
 				existing,
@@ -348,14 +349,14 @@ func compileBuiltInTool(
 ) (ToolCompiled, error) {
 	entry, ok := catalog.Lookup(name)
 	if !ok {
-		return ToolCompiled{}, fmt.Errorf("tool %q is not registered", name)
+		return ToolCompiled{}, issuef(jsonPointer("tools", name), "tool %q is not registered", name)
 	}
 	permission := entry.DefaultPermission
 	if source.Permission != nil {
 		var err error
 		permission, err = toolpermission.ValidateSelection(*source.Permission, entry.PermissionModes)
 		if err != nil {
-			return ToolCompiled{}, fmt.Errorf("tool %q permission: %w", name, err)
+			return ToolCompiled{}, issueAt(jsonPointer("tools", name, "permission"), err)
 		}
 	}
 	compiled := ToolCompiled{
@@ -372,23 +373,23 @@ func compileCustomTool(
 	catalog toolcatalog.Catalog,
 ) (ToolCompiled, error) {
 	if toolcatalog.UsesMCPRuntimeNamespace(name) {
-		return ToolCompiled{}, fmt.Errorf("tool %q: custom tool name uses the reserved MCP tool namespace", name)
+		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name uses the reserved MCP tool namespace")
 	}
 	if _, ok := catalog.Lookup(name); ok {
-		return ToolCompiled{}, fmt.Errorf("tool %q: custom tool name collides with a built-in tool", name)
+		return ToolCompiled{}, issuef(jsonPointer("tools", name), "custom tool name collides with a built-in tool")
 	}
 	schema, err := valueToCanonicalJSON(source.InputSchema)
 	if err != nil {
-		return ToolCompiled{}, fmt.Errorf("tool %q input_schema: %w", name, err)
+		return ToolCompiled{}, issueAt(jsonPointer("tools", name, "input_schema"), err)
 	}
 	if err := validateCustomInputSchema(schema); err != nil {
-		return ToolCompiled{}, fmt.Errorf("tool %q input_schema: %w", name, err)
+		return ToolCompiled{}, issueAt(jsonPointer("tools", name, "input_schema"), err)
 	}
 	permission := toolcatalog.DefaultCustomToolPermission()
 	if source.Permission != nil {
 		permission, err = toolpermission.ValidateSelection(*source.Permission, toolcatalog.CustomToolPermissionModes())
 		if err != nil {
-			return ToolCompiled{}, fmt.Errorf("tool %q permission: %w", name, err)
+			return ToolCompiled{}, issueAt(jsonPointer("tools", name, "permission"), err)
 		}
 	}
 	return ToolCompiled{
@@ -421,13 +422,13 @@ func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptio
 		}
 		if machine.MachineID != "" {
 			if seenSources[machine.MachineID] {
-				return nil, fmt.Errorf("machine_sources[%d] duplicates a machine id", index)
+				return nil, issuef(jsonPointer("machine_sources", index, "machine_name"), "duplicates a machine id")
 			}
 			seenSources[machine.MachineID] = true
 		}
 		if machine.MachinePoolID != "" {
 			if seenSources[machine.MachinePoolID] {
-				return nil, fmt.Errorf("machine_sources[%d] duplicates a machine pool id", index)
+				return nil, issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "duplicates a machine pool id")
 			}
 			seenSources[machine.MachinePoolID] = true
 		}
@@ -441,33 +442,39 @@ func compileMachineSource(
 	index int,
 	opts CompileOptions,
 ) (MachineSourceCompiled, error) {
-	machineName := strings.TrimSpace(source.MachineName)
-	machinePoolName := strings.TrimSpace(source.MachinePoolName)
+	machineName := source.MachineName
+	machinePoolName := source.MachinePoolName
 	cwd := strings.TrimSpace(source.Cwd)
 	description := strings.TrimSpace(source.Description)
 	if strings.ContainsRune(cwd, 0) {
-		return MachineSourceCompiled{}, fmt.Errorf("machine_sources[%d].cwd cannot contain NUL", index)
+		return MachineSourceCompiled{}, issuef(jsonPointer("machine_sources", index, "cwd"), "cannot contain NUL")
 	}
 	if err := validateMachineSourceSecrets(source, index, opts); err != nil {
 		return MachineSourceCompiled{}, err
 	}
 	if machineName != "" {
 		if hasMachineProvisioningFields(source) {
-			return MachineSourceCompiled{}, fmt.Errorf(
-				"machine_sources[%d] machine provisioning fields are only valid for machine_pool_name sources",
-				index,
+			return MachineSourceCompiled{}, issuef(
+				jsonPointer("machine_sources", index),
+				"machine provisioning fields are only valid for machine_pool_name sources",
 			)
 		}
 		if source.MaxMachines != nil {
-			return MachineSourceCompiled{}, fmt.Errorf(
-				"machine_sources[%d].max_machines is only valid for machine_pool_name sources",
-				index,
+			return MachineSourceCompiled{}, issuef(
+				jsonPointer("machine_sources", index, "max_machines"),
+				"is only valid for machine_pool_name sources",
 			)
 		}
 		if source.InitialNumMachines != nil {
-			return MachineSourceCompiled{}, fmt.Errorf(
-				"machine_sources[%d].initial_num_machines is only valid for machine_pool_name sources",
-				index,
+			return MachineSourceCompiled{}, issuef(
+				jsonPointer("machine_sources", index, "initial_num_machines"),
+				"is only valid for machine_pool_name sources",
+			)
+		}
+		if source.DeleteAfterIdleMinutes != nil {
+			return MachineSourceCompiled{}, issuef(
+				jsonPointer("machine_sources", index, "delete_after_idle_minutes"),
+				"is only valid for machine_pool_name sources",
 			)
 		}
 		machineID, err := resolveMachineSourceMachineName(machineName, index, opts.ResolveMachineName)
@@ -494,6 +501,7 @@ func compileMachineSource(
 		MachinePoolID:                 machinePoolID,
 		MaxMachines:                   maxMachines,
 		InitialNumMachines:            initialNumMachines,
+		DeleteAfterIdleMinutes:        source.DeleteAfterIdleMinutes,
 		Cwd:                           cwd,
 		MachineCPU:                    source.MachineCPU,
 		MachineMemoryMB:               source.MachineMemoryMB,
@@ -510,15 +518,15 @@ func resolveMachineSourceMachineName(
 	resolve func(string) (string, error),
 ) (string, error) {
 	if resolve == nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_name resolver is required", index)
+		return "", issuef(jsonPointer("machine_sources", index, "machine_name"), "resolver is required")
 	}
 	resolved, err := resolve(machineName)
 	if err != nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_name: %w", index, err)
+		return "", issueOr(jsonPointer("machine_sources", index, "machine_name"), err)
 	}
 	resolved = strings.ToLower(strings.TrimSpace(resolved))
 	if _, err := publicid.Decode(publicid.KindMachine, resolved); err != nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_name resolved to invalid public id: %w", index, err)
+		return "", issuef(jsonPointer("machine_sources", index, "machine_name"), "resolved to invalid public id: %w", err)
 	}
 	return resolved, nil
 }
@@ -529,15 +537,15 @@ func resolveMachineSourceMachinePoolName(
 	resolve func(string) (string, error),
 ) (string, error) {
 	if resolve == nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_pool_name resolver is required", index)
+		return "", issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolver is required")
 	}
 	resolved, err := resolve(machinePoolName)
 	if err != nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_pool_name: %w", index, err)
+		return "", issueOr(jsonPointer("machine_sources", index, "machine_pool_name"), err)
 	}
 	resolved = strings.ToLower(strings.TrimSpace(resolved))
 	if _, err := publicid.Decode(publicid.KindMachinePool, resolved); err != nil {
-		return "", fmt.Errorf("machine_sources[%d].machine_pool_name resolved to invalid public id: %w", index, err)
+		return "", issuef(jsonPointer("machine_sources", index, "machine_pool_name"), "resolved to invalid public id: %w", err)
 	}
 	return resolved, nil
 }
@@ -557,7 +565,7 @@ func validateMachineSourceSecrets(source AgentConfigMachineSource, index int, op
 			continue
 		}
 		if err := opts.ValidateSecretID(*secretID, secrets.KindGeneric); err != nil {
-			return fmt.Errorf("machine_sources[%d].secret_env_overlay.%s: %w", index, key, err)
+			return issueOr(jsonPointer("machine_sources", index, "secret_env_overlay", key), err)
 		}
 	}
 	return nil
@@ -576,22 +584,22 @@ func compilePoolMachineCounts(source AgentConfigMachineSource, index int) (int, 
 		initialNumMachines = 0
 	}
 	if maxMachines < 0 {
-		return 0, 0, fmt.Errorf("machine_sources[%d].max_machines cannot be negative", index)
+		return 0, 0, issuef(jsonPointer("machine_sources", index, "max_machines"), "cannot be negative")
 	}
 	if initialNumMachines < 0 {
-		return 0, 0, fmt.Errorf("machine_sources[%d].initial_num_machines cannot be negative", index)
+		return 0, 0, issuef(jsonPointer("machine_sources", index, "initial_num_machines"), "cannot be negative")
 	}
 	if maxMachines > math.MaxInt32 {
-		return 0, 0, fmt.Errorf("machine_sources[%d].max_machines must fit the machine pool capacity range", index)
+		return 0, 0, issuef(jsonPointer("machine_sources", index, "max_machines"), "must fit the machine pool capacity range")
 	}
 	if initialNumMachines > math.MaxInt32 {
-		return 0, 0, fmt.Errorf(
-			"machine_sources[%d].initial_num_machines must fit the machine pool capacity range",
-			index,
+		return 0, 0, issuef(
+			jsonPointer("machine_sources", index, "initial_num_machines"),
+			"must fit the machine pool capacity range",
 		)
 	}
 	if initialNumMachines > maxMachines {
-		return 0, 0, fmt.Errorf("machine_sources[%d].initial_num_machines cannot exceed max_machines", index)
+		return 0, 0, issuef(jsonPointer("machine_sources", index, "initial_num_machines"), "cannot exceed max_machines")
 	}
 	return maxMachines, initialNumMachines, nil
 }

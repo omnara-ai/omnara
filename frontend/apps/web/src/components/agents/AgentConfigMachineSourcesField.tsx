@@ -1,4 +1,3 @@
-import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -6,7 +5,9 @@ import {
   PoolSourceCombobox,
 } from '@/components/agents/AgentConfigMachineSourceComboboxes'
 import { SourceOverridesSection } from '@/components/agents/AgentConfigMachineSourceOverrides'
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { type BasicMachineSource, newMachineSource } from '@/components/agents/useAgentBuilderForm'
+import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Field, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
 export function AgentConfigMachineSourcesField({
   orgId,
@@ -59,59 +61,52 @@ export function AgentConfigMachineSourcesField({
   }, [onUnavailableIdsChange, sources, unavailableIds])
 
   return (
-    <Field className="gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Machine sources</FieldLabel>
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="bg-muted/40 size-8"
-                aria-label="Add source"
-              >
-                <PlusIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => {
-                  onSourcesChange([...sources, newMachineSource('pool')])
-                }}
-              >
-                Machine pool
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => {
-                  onSourcesChange([...sources, newMachineSource('machine')])
-                }}
-              >
-                BYO machine
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-      {showMissingToolsWarning && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2"
-        >
-          <p className="text-sm">Some machine tools are missing.</p>
-          <Button type="button" size="sm" variant="outline" onClick={onAddMissingTools}>
-            Add missing tools
-          </Button>
-        </div>
-      )}
-      {sources.length > 0 && (
-        <div className="space-y-3">
-          {sources.map((source) => (
-            <div
-              key={source.id}
-              className="border-border bg-muted/40 space-y-4 rounded-lg border p-4"
+    <AgentConfigSectionCard
+      title="Machine sources"
+      action={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="text-muted-foreground size-8"
+              aria-label="Add source"
             >
+              <PlusIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => {
+                onSourcesChange([...sources, newMachineSource('pool')])
+              }}
+            >
+              Machine pool
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                onSourcesChange([...sources, newMachineSource('machine')])
+              }}
+            >
+              BYO machine
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    >
+      {showMissingToolsWarning || sources.length > 0 ? (
+        <div className="divide-y">
+          {showMissingToolsWarning && (
+            <div role="alert" className="flex items-center justify-between gap-3 px-5 py-3">
+              <p className="text-sm">Some machine tools are missing.</p>
+              <Button type="button" size="sm" variant="outline" onClick={onAddMissingTools}>
+                Add missing tools
+              </Button>
+            </div>
+          )}
+          {sources.map((source) => (
+            <div key={source.id} className="space-y-4 px-5 py-4">
               <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
                 <Field>
                   <RequiredFieldLabel htmlFor={`${source.id}-source`}>
@@ -132,6 +127,7 @@ export function AgentConfigMachineSourcesField({
                           managementKind: pool?.management_kind ?? '',
                           machineCpu: '',
                           machineMemoryGb: '',
+                          deleteAfterIdleMinutes: '',
                           providerOptions: emptyProviderOptions,
                           envRows: [],
                           secretEnvRows: [],
@@ -197,6 +193,10 @@ export function AgentConfigMachineSourcesField({
                       }}
                     />
                   )}
+                  <ResourceNameFieldError
+                    value={source.name}
+                    fieldLabel={source.kind === 'pool' ? 'Machine pool name' : 'Machine name'}
+                  />
                   {unavailableIds.has(source.id) && (
                     <p className="text-destructive text-sm">
                       {source.kind === 'pool'
@@ -285,7 +285,7 @@ export function AgentConfigMachineSourcesField({
             </div>
           ))}
         </div>
-      )}
-    </Field>
+      ) : null}
+    </AgentConfigSectionCard>
   )
 }

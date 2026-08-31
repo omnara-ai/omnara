@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
@@ -126,6 +127,7 @@ type MachinePoolRecord struct {
 	MinMachineMemoryMB            *int            `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int            `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int            `json:"max_machine_memory_mb"`
+	DeleteAfterIdleMinutes        *int            `json:"delete_after_idle_minutes"`
 	Metadata                      json.RawMessage `json:"metadata"`
 	DeletedAt                     *time.Time      `json:"deleted_at,omitempty"`
 	CreatedAt                     time.Time       `json:"created_at"`
@@ -180,6 +182,7 @@ type CreateMachinePoolInput struct {
 	MinMachineMemoryMB            *int
 	MaxMachineCPU                 *int
 	MaxMachineMemoryMB            *int
+	DeleteAfterIdleMinutes        *int
 	Metadata                      resourcemeta.Metadata
 }
 
@@ -204,6 +207,7 @@ type UpdateMachinePoolInput struct {
 	MinMachineMemoryMB            patch.NullableInt
 	MaxMachineCPU                 patch.NullableInt
 	MaxMachineMemoryMB            patch.NullableInt
+	DeleteAfterIdleMinutes        patch.NullableInt
 	Metadata                      resourcemeta.Metadata
 }
 
@@ -227,13 +231,26 @@ type DefaultMachinePoolTemplate struct {
 	MinMachineMemoryMB            *int                  `json:"min_machine_memory_mb"`
 	MaxMachineCPU                 *int                  `json:"max_machine_cpu"`
 	MaxMachineMemoryMB            *int                  `json:"max_machine_memory_mb"`
+	DeleteAfterIdleMinutes        *int                  `json:"delete_after_idle_minutes"`
 	Metadata                      resourcemeta.Metadata `json:"metadata"`
+}
+
+const poolMachineDisplayNamePrefix = "Instance of "
+
+func poolMachineDisplayName(poolName string) string {
+	maxPoolNameCodePoints := resourcename.MaxCodePoints - len([]rune(poolMachineDisplayNamePrefix))
+	poolNameCodePoints := []rune(poolName)
+	if len(poolNameCodePoints) > maxPoolNameCodePoints {
+		poolNameCodePoints = poolNameCodePoints[:maxPoolNameCodePoints]
+		poolNameCodePoints = []rune(strings.TrimRight(string(poolNameCodePoints), " "))
+	}
+	return poolMachineDisplayNamePrefix + string(poolNameCodePoints)
 }
 
 func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) CreateMachinePoolInput {
 	return CreateMachinePoolInput{
 		OrgID:                         orgID,
-		Name:                          strings.TrimSpace(defaultPoolTemplate.Name),
+		Name:                          defaultPoolTemplate.Name,
 		ManagementKind:                management.Cluster,
 		Description:                   defaultPoolTemplate.Description,
 		Provider:                      defaultPoolTemplate.Provider,
@@ -253,6 +270,7 @@ func (defaultPoolTemplate DefaultMachinePoolTemplate) createInput(orgID ID) Crea
 		MinMachineMemoryMB:            defaultPoolTemplate.MinMachineMemoryMB,
 		MaxMachineCPU:                 defaultPoolTemplate.MaxMachineCPU,
 		MaxMachineMemoryMB:            defaultPoolTemplate.MaxMachineMemoryMB,
+		DeleteAfterIdleMinutes:        defaultPoolTemplate.DeleteAfterIdleMinutes,
 		Metadata:                      defaultPoolTemplate.Metadata,
 	}
 }
@@ -262,9 +280,11 @@ func ValidateDefaultMachinePoolTemplate(
 	machinePoolProviders MachinePoolProviders,
 ) error {
 	input := defaultPoolTemplate.createInput(NilID)
-	if input.Name == "" {
-		return errors.New("name is required")
+	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
+	if err != nil {
+		return err
 	}
+	input.Name = canonicalName
 	defaults, err := prepareMachinePoolConfigInput(&input)
 	if err != nil {
 		return err
@@ -389,19 +409,24 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
 		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
 		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		sameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
 		sameMetadata(record.Metadata, input.Metadata)
 }
 
 func prepareMachinePoolCreateInput(
 	input *CreateMachinePoolInput,
 ) (machinePoolDefaults, error) {
-	input.Name = strings.TrimSpace(input.Name)
 	if input.ManagementKind == "" {
 		input.ManagementKind = management.Tenant
 	}
 	if isNilID(input.OrgID) || input.Name == "" || input.Provider == "" {
 		return machinePoolDefaults{}, errors.New("org, name, and provider are required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", input.Name)
+	if err != nil {
+		return machinePoolDefaults{}, err
+	}
+	input.Name = normalizedName
 	switch input.ManagementKind {
 	case management.Tenant:
 	case management.Cluster:
@@ -451,6 +476,13 @@ func prepareMachinePoolConfigInput(
 	if input.MaxMachineMemoryMB != nil && (*input.MaxMachineMemoryMB <= 0 || *input.MaxMachineMemoryMB > math.MaxInt32) {
 		return machinePoolDefaults{}, fmt.Errorf(
 			"max_machine_memory_mb must be between 1 and %d when set",
+			math.MaxInt32,
+		)
+	}
+	if input.DeleteAfterIdleMinutes != nil &&
+		(*input.DeleteAfterIdleMinutes < 5 || *input.DeleteAfterIdleMinutes > math.MaxInt32) {
+		return machinePoolDefaults{}, fmt.Errorf(
+			"delete_after_idle_minutes must be between 5 and %d when set",
 			math.MaxInt32,
 		)
 	}
@@ -594,6 +626,7 @@ func insertMachinePool(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -666,6 +699,7 @@ func (s *Store) UpdateMachinePool(
 		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        intPtrFromSQLC(locked.DeleteAfterIdleMinutes),
 		Metadata:                      lockedMetadata,
 	}
 	if input.Name != nil {
@@ -722,13 +756,17 @@ func (s *Store) UpdateMachinePool(
 	if input.MaxMachineMemoryMB.Set {
 		merged.MaxMachineMemoryMB = input.MaxMachineMemoryMB.Value
 	}
+	if input.DeleteAfterIdleMinutes.Set {
+		merged.DeleteAfterIdleMinutes = input.DeleteAfterIdleMinutes.Value
+	}
 	if input.Metadata != nil {
 		merged.Metadata = input.Metadata
 	}
-	merged.Name = strings.TrimSpace(merged.Name)
-	if merged.Name == "" {
-		return MachinePoolRecord{}, storeerr.InvalidRequest(errors.New("name is required"))
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", merged.Name)
+	if err != nil {
+		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
+	merged.Name = normalizedName
 	poolDefaults, err := prepareMachinePoolConfigInput(&merged)
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
@@ -841,6 +879,7 @@ func updateMachinePoolRow(
 		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 }

@@ -83,17 +83,18 @@ func TestReconcileDefaults(t *testing.T) {
 		},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:              user.ID,
-		Name:                "Defaults Org",
-		IdempotencyKey:      "defaults-org",
-		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{initialPool},
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: initialProvider, CredentialValue: "provider-token",
-		},
+		UserID:                        user.ID,
+		Name:                          "Defaults Org",
+		IdempotencyKey:                "defaults-org",
+		DefaultMachinePools:           []executionstore.DefaultMachinePoolTemplate{initialPool},
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
+	)
 	providerInvalidPool := initialPool
 	providerInvalidPool.MaxTotalCPU = intPtrForMachinePoolTest(99)
 	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
@@ -156,16 +157,12 @@ model:
   provider_config: ` + initialProvider.Name + `
   name: ` + model.Name + `
 `
-		supportsTools := model.SupportsTools
 		compiled, err := agentconfig.Compile(
 			agentconfig.SourceFormatYAML,
 			[]byte(source),
 			agentconfig.CompileOptions{
 				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-					return agentconfig.ResolvedModelSelection{
-						ConfiguredModelID: model.ID.String(),
-						SupportsTools:     &supportsTools,
-					}, nil
+					return resolvedTestModelSelection(model), nil
 				},
 			},
 		)
@@ -176,6 +173,7 @@ model:
 			ProjectID:               created.Project.ID,
 			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  source,
+			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
 			CompilerVersion:         agentconfig.CompilerVersion,
@@ -272,7 +270,8 @@ model:
 		    min_machine_cpu = 1,
 		    min_machine_memory_mb = 512,
 		    max_machine_cpu = 4,
-		    max_machine_memory_mb = 2048
+		    max_machine_memory_mb = 2048,
+		    delete_after_idle_minutes = 30
 		WHERE org_id = $1
 	`, created.Org.ID, string(organizationSecretEnv)); err != nil {
 		t.Fatalf("set pool organization fields and limits: %v", err)
@@ -313,6 +312,7 @@ model:
 	desiredPool.MinMachineMemoryMB = intPtrForMachinePoolTest(512)
 	desiredPool.MaxMachineCPU = intPtrForMachinePoolTest(1)
 	desiredPool.MaxMachineMemoryMB = intPtrForMachinePoolTest(512)
+	desiredPool.DeleteAfterIdleMinutes = intPtrForMachinePoolTest(60)
 	desiredProvider := initialProvider
 	desiredProvider.BaseURL = "https://new.example.com/v1"
 	desiredProvider.RequestTimeoutMS = 120000
@@ -370,7 +370,8 @@ model:
 		poolRecord.MinMachineCpu == nil || *poolRecord.MinMachineCpu != 1 ||
 		poolRecord.MinMachineMemoryMb == nil || *poolRecord.MinMachineMemoryMb != 512 ||
 		poolRecord.MaxMachineCpu == nil || *poolRecord.MaxMachineCpu != 4 ||
-		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 2048 {
+		poolRecord.MaxMachineMemoryMb == nil || *poolRecord.MaxMachineMemoryMb != 2048 ||
+		poolRecord.DeleteAfterIdleMinutes == nil || *poolRecord.DeleteAfterIdleMinutes != 30 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
 	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
@@ -592,17 +593,18 @@ func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:              user.ID,
-		Name:                "Reconcile Lock Org",
-		IdempotencyKey:      "reconcile-lock-org",
-		DefaultMachinePools: initialPools,
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: initialProvider, CredentialValue: "provider-token",
-		},
+		UserID:                        user.ID,
+		Name:                          "Reconcile Lock Org",
+		IdempotencyKey:                "reconcile-lock-org",
+		DefaultMachinePools:           initialPools,
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create lock-order org: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
+	)
 	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, initialProvider.Name)
 	if err != nil {
 		t.Fatalf("get lock-order provider: %v", err)
@@ -898,16 +900,17 @@ func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-project-delete@example.com", "Defaults Owner")
 	providerTemplate := defaultReconciliationModelProviderTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:         user.ID,
-		Name:           "Reconcile Project Deletion",
-		IdempotencyKey: "reconcile-project-delete",
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: providerTemplate, CredentialValue: "provider-token",
-		},
+		UserID:                        user.ID,
+		Name:                          "Reconcile Project Deletion",
+		IdempotencyKey:                "reconcile-project-delete",
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, providerTemplate, "provider-token",
+	)
 	provider, err := store.Models().GetModelProviderConfigByName(
 		ctx,
 		created.Org.ID,
@@ -1133,17 +1136,18 @@ func TestReconcileDefaultsSerializesModelBeforePoolForAgentWorkflows(t *testing.
 	poolTemplate := defaultReconciliationPoolTemplate("reconcile-launch-order-pool")
 	providerTemplate := defaultReconciliationModelProviderTemplate()
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:              user.ID,
-		Name:                "Reconcile Launch Order",
-		IdempotencyKey:      "reconcile-launch-order",
-		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{poolTemplate},
-		DefaultModelProvider: &modelstore.ProvisionedDefaultModelProvider{
-			Template: providerTemplate, CredentialValue: "provider-token",
-		},
+		UserID:                        user.ID,
+		Name:                          "Reconcile Launch Order",
+		IdempotencyKey:                "reconcile-launch-order",
+		DefaultMachinePools:           []executionstore.DefaultMachinePoolTemplate{poolTemplate},
+		ProvisionDefaultModelProvider: true,
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, providerTemplate, "provider-token",
+	)
 	poolRow, err := testQueries(store).GetMachinePoolByName(
 		ctx,
 		dbsqlc.GetMachinePoolByNameParams{OrgID: created.Org.ID, Name: poolTemplate.Name},
@@ -1202,11 +1206,12 @@ model:
 	if err != nil {
 		t.Fatalf("create launch config: %v", err)
 	}
+	configOrderAgentName := "Reconcile Config Order Agent"
 	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:     created.Project.ID,
 		AgentConfigID: config.ID,
 		LaunchedBy:    userPrincipal(user.ID),
-		Name:          "Reconcile Config Order Agent",
+		Name:          &configOrderAgentName,
 	})
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
@@ -1317,12 +1322,13 @@ machine_sources:
 	}()
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	launchDone := make(chan error, 1)
+	launchOrderAgentName := "Reconcile Launch Order Agent"
 	go func() {
 		_, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      created.Project.ID,
 			AgentConfigID:  nextConfig.ID,
 			LaunchedBy:     userPrincipal(user.ID),
-			Name:           "Reconcile Launch Order Agent",
+			Name:           &launchOrderAgentName,
 			IdempotencyKey: "reconcile-launch-order-agent",
 		})
 		launchDone <- launchErr

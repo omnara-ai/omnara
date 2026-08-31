@@ -31,6 +31,14 @@ type rejectingMachinePoolProviders struct {
 	reject bool
 }
 
+func intPtrFromSQLCForTest(value *int32) *int {
+	if value == nil {
+		return nil
+	}
+	converted := int(*value)
+	return &converted
+}
+
 func requireCurrentAgentLaunchReplay(
 	t *testing.T,
 	replayed executionstore.LaunchAgentResult,
@@ -161,6 +169,7 @@ func createDefaultMachinePoolForTest(
 		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
 		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
 		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -184,7 +193,7 @@ func getAgentMachineBindingForTest(
 	err := store.pool.QueryRow(ctx, `
 		SELECT id, org_id, project_id, agent_id, create_tool_call_id, delete_tool_call_id,
 		       machine_id, machine_ref, binding_kind, state, description, cwd, env_overlay,
-		       secret_env_overlay, metadata, created_at, updated_at
+		       secret_env_overlay, metadata, created_at, updated_at, delete_after_idle_minutes
 		FROM agent_machine_bindings
 		WHERE project_id = $1 AND agent_id = $2 AND id = $3
 	`, projectID, agentID, bindingID).Scan(
@@ -205,28 +214,30 @@ func getAgentMachineBindingForTest(
 		&row.Metadata,
 		&row.CreatedAt,
 		&row.UpdatedAt,
+		&row.DeleteAfterIdleMinutes,
 	)
 	if err != nil {
 		t.Fatalf("get agent machine binding: %v", err)
 	}
 	return executionstore.AgentMachineBindingRecord{
-		ID:               row.ID,
-		OrgID:            row.OrgID,
-		ProjectID:        row.ProjectID,
-		AgentID:          row.AgentID,
-		CreateToolCallID: idFromSQLCPtrForTest(row.CreateToolCallID),
-		DeleteToolCallID: idFromSQLCPtrForTest(row.DeleteToolCallID),
-		MachineID:        row.MachineID,
-		MachineRef:       row.MachineRef,
-		BindingKind:      executionstore.AgentMachineBindingKind(row.BindingKind),
-		State:            executionstore.AgentMachineBindingState(row.State),
-		Description:      row.Description,
-		Cwd:              row.Cwd,
-		EnvOverlay:       row.EnvOverlay,
-		SecretEnvOverlay: row.SecretEnvOverlay,
-		Metadata:         row.Metadata,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		ID:                     row.ID,
+		OrgID:                  row.OrgID,
+		ProjectID:              row.ProjectID,
+		AgentID:                row.AgentID,
+		CreateToolCallID:       idFromSQLCPtrForTest(row.CreateToolCallID),
+		DeleteToolCallID:       idFromSQLCPtrForTest(row.DeleteToolCallID),
+		MachineID:              row.MachineID,
+		MachineRef:             row.MachineRef,
+		BindingKind:            executionstore.AgentMachineBindingKind(row.BindingKind),
+		State:                  executionstore.AgentMachineBindingState(row.State),
+		Description:            row.Description,
+		Cwd:                    row.Cwd,
+		EnvOverlay:             row.EnvOverlay,
+		SecretEnvOverlay:       row.SecretEnvOverlay,
+		DeleteAfterIdleMinutes: intPtrFromSQLCForTest(row.DeleteAfterIdleMinutes),
+		Metadata:               row.Metadata,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 }
 
@@ -5437,6 +5448,7 @@ model:
 		t.Fatalf("profile launch should use profile name, got agent=%+v", retargetedLaunch.Agent)
 	}
 
+	explicitName := "Explicit Name"
 	named, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -5444,7 +5456,7 @@ model:
 			ProfileID:      profile.ID,
 			AgentConfigID:  retargetedConfigID,
 			LaunchedBy:     userPrincipal(user.ID),
-			Name:           "Explicit Name",
+			Name:           &explicitName,
 			Message:        "named",
 			IdempotencyKey: "idem-launch-named",
 		},
@@ -5454,6 +5466,25 @@ model:
 	}
 	if named.Agent.Name != "Explicit Name" {
 		t.Fatalf("explicit launch name should override profile name, got agent=%+v", named.Agent)
+	}
+	emptyName := ""
+	unnamed, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  retargetedConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           &emptyName,
+			Message:        "unnamed",
+			IdempotencyKey: "idem-launch-unnamed",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch explicitly unnamed agent: %v", err)
+	}
+	if unnamed.Agent.Name != "" {
+		t.Fatalf("explicit empty name should not inherit profile name, got agent=%+v", unnamed.Agent)
 	}
 
 	pinned, err := store.Execution().LaunchAgent(
@@ -5494,13 +5525,14 @@ model:
 		t.Fatalf("config-only launch should use requested config and have no name, got agent=%+v", configOnly.Agent)
 	}
 
+	configOnlyName := "Config Only Named"
 	configOnlyNamed, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			AgentConfigID:  retargetedConfigID,
 			LaunchedBy:     userPrincipal(user.ID),
-			Name:           "Config Only Named",
+			Name:           &configOnlyName,
 			Message:        "config only named",
 			IdempotencyKey: "idem-launch-config-only-named",
 		},

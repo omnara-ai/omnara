@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 type OnboardingAction = { kind: 'idle' } | { kind: 'creating' } | { kind: 'error'; message: string }
@@ -104,11 +106,12 @@ export function Onboarding() {
                       }))
                     }}
                   />
+                  <ResourceNameFieldError value={state.name} />
                 </Field>
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={creating || state.name.trim() === ''}
+                  disabled={creating || !resourceNameValid(state.name)}
                   loading={creating}
                 >
                   Create organization

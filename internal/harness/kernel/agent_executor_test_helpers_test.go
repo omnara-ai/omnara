@@ -1264,7 +1264,12 @@ func (c *fakeKernelMCPClient) Call(context.Context, mcp.Conn, string, json.RawMe
 	return nil, errors.New("unexpected generic mcp call")
 }
 
-func (c *fakeKernelMCPClient) ListTools(_ context.Context, conn mcp.Conn, requestID int64) ([]*sdkmcp.Tool, error) {
+func (c *fakeKernelMCPClient) ListTools(
+	_ context.Context,
+	conn mcp.Conn,
+	requestID int64,
+	_ string,
+) (mcp.ToolsPage, error) {
 	c.mu.Lock()
 	c.listToolsCount++
 	agentID := c.expectedAgentIDLocked()
@@ -1275,15 +1280,15 @@ func (c *fakeKernelMCPClient) ListTools(_ context.Context, conn mcp.Conn, reques
 	}
 	c.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return mcp.ToolsPage{}, err
 	}
 	if requestID <= 0 {
-		return nil, fmt.Errorf("request id = %d, want positive", requestID)
+		return mcp.ToolsPage{}, fmt.Errorf("request id = %d, want positive", requestID)
 	}
 	if conn.MCPSessionID != agentID || conn.ProtocolVersion != c.protocolVersion {
-		return nil, fmt.Errorf("unexpected list conn: %+v", conn)
+		return mcp.ToolsPage{}, fmt.Errorf("unexpected list conn: %+v", conn)
 	}
-	return c.tools, nil
+	return mcp.ToolsPage{Tools: c.tools}, nil
 }
 
 func (c *fakeKernelMCPClient) CallTool(

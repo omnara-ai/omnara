@@ -658,6 +658,15 @@ func completeAcceptedProcessActionsWithoutEvidenceTx(
 	if err != nil {
 		return fmt.Errorf("mark accepted process actions unknown: %w", err)
 	}
+	if len(rows) > 0 {
+		if err := qtx.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
+			ProjectID: rows[0].ProjectID,
+			AgentID:   rows[0].AgentID,
+			ProcessID: rows[0].ProcessID,
+		}); err != nil {
+			return fmt.Errorf("touch process activity: %w", err)
+		}
+	}
 	for _, row := range rows {
 		record := processActionRecordFromSQLC(row)
 		if err := completeTerminalProcessActionToolCallTx(

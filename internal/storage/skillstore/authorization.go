@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -48,7 +49,10 @@ func (s *Store) validateCreateSkillInput(ctx context.Context, input CreateSkillI
 		return err
 	}
 	if input.Name == "" {
-		return invalidSkillRequest("skill name is required")
+		return invalidSkillName("skill name is required")
+	}
+	if err := skills.ValidateName(input.Name); err != nil {
+		return invalidSkillName("skill name %v", err)
 	}
 	if input.Description == "" {
 		return invalidSkillRequest("skill description is required")

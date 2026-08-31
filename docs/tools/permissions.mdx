@@ -11,7 +11,7 @@ Omnara has exactly three kinds of tools, distinguished by *who executes them*:
 | Kind | Executed by | Declared as | Default permission |
 | --- | --- | --- | --- |
 | **Built-in** | Omnara | A name from the [built-in set](/tools/built-in), e.g. `web_search` | `always_allow` |
-| **MCP** | A [Model Context Protocol](https://modelcontextprotocol.io) server you point at | An entry under `mcp:`, exposed as `mcp__<server>__<tool>` | `always_ask` |
+| **MCP** | A [Model Context Protocol](https://modelcontextprotocol.io) server you point at | An entry under `mcp:`, exposed as `mcp__{server}__{tool}` | `always_ask` |
 | **Custom** | **Your own system**, via the API | `type: custom` with a description and input schema | `always_allow` |
 
 ## Permission modes

@@ -3,7 +3,13 @@ export interface FormattedOutput {
   columns?: readonly string[]
 }
 
-export type OutputFormat<Response> = (data: Response) => FormattedOutput
+export interface FormatContext {
+  baseUrl: string
+}
+
+export type OutputFormat<Response> = (data: Response, context: FormatContext) => FormattedOutput
+
+type ContextFreeFormat<Response> = (data: Response, context?: FormatContext) => FormattedOutput
 
 interface ListEnvelope<Item> {
   data: Item[]
@@ -26,7 +32,7 @@ function pickFields<Value extends object>(
 
 export function formatTable<Item extends object>(
   columns: readonly FieldName<Item>[],
-): OutputFormat<ListEnvelope<Item>> {
+): ContextFreeFormat<ListEnvelope<Item>> {
   return (response) => ({
     value: {
       data: response.data.map((item) => pickFields(item, columns)),
@@ -36,10 +42,10 @@ export function formatTable<Item extends object>(
   })
 }
 
-export function formatRecord<Value extends object>(): OutputFormat<Value> {
+export function formatRecord<Value extends object>(): ContextFreeFormat<Value> {
   return (data) => ({ value: data })
 }
 
-export function formatVoid(message = 'ok'): OutputFormat<void> {
+export function formatVoid(message = 'ok'): ContextFreeFormat<void> {
   return () => ({ value: message })
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -30,6 +29,10 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	}
 	if input.Now.IsZero() {
 		return Bundle{}, fmt.Errorf("modelcontext build time is required")
+	}
+	agentPublicID, err := publicid.Encode(publicid.KindAgent, input.AgentID)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("encode agent public id: %w", err)
 	}
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	if input.AgentConfigSnapshot != nil {
@@ -131,7 +134,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		TurnID:             input.TurnID,
 		OpeningInputIDs:    input.OpeningInputIDs,
 		InputEventSequence: watermark,
-		SystemPrompt:       defaultSystemPromptForContract(contract, toolSpecs, catalogSkills),
+		SystemPrompt:       defaultSystemPromptForContract(agentPublicID, contract, toolSpecs, catalogSkills),
 	}
 	bundle.ContextCheckpoint = checkpointRef
 	if len(toolSpecs) > 0 {
@@ -160,57 +163,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	)
 	if err != nil {
 		return Bundle{}, err
-	}
-	var activeProcesses []executionstore.ActiveProcessRecord
-	if ProcessContextEnabled(toolSpecs) {
-		activeProcesses, err = b.Store.ListActiveProcessesForContext(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-		)
-		if err != nil {
-			return Bundle{}, err
-		}
-	}
-	var executableMachineBindings []executionstore.AgentMachineBindingRecord
-	if MachineContextEnabled(toolSpecs) {
-		executableMachineBindings, err = b.Store.ListExecutableAgentMachineBindings(
-			ctx,
-			input.ProjectID,
-			input.AgentID,
-		)
-		if err != nil {
-			return Bundle{}, err
-		}
-	}
-	bundle.ActiveProcesses = make([]ActiveProcessRef, 0, len(activeProcesses))
-	for _, work := range activeProcesses {
-		processID, err := publicid.Encode(publicid.KindProcess, work.ID)
-		if err != nil {
-			return Bundle{}, err
-		}
-		bundle.ActiveProcesses = append(
-			bundle.ActiveProcesses,
-			ActiveProcessRef{
-				ProcessID:     processID,
-				State:         string(work.State),
-				CommandLabel:  processcmd.CommandLabel(work.Command),
-				Command:       work.Command,
-				ShellSelector: string(work.ShellSelector),
-				Cwd:           work.Cwd,
-			},
-		)
-	}
-	bundle.AttachedMachines = make([]AttachedMachineRef, 0, len(executableMachineBindings))
-	for _, binding := range executableMachineBindings {
-		bundle.AttachedMachines = append(
-			bundle.AttachedMachines,
-			AttachedMachineRef{
-				MachineRef:  binding.MachineRef,
-				Description: binding.Description,
-				Cwd:         binding.Cwd,
-			},
-		)
 	}
 	if IntegrationTargetContextEnabled(toolSpecs) {
 		bundle.IntegrationTargets = make([]IntegrationTargetRef, 0, len(integrationTargets))
@@ -308,11 +260,12 @@ func HasAnyTool(specs []ToolSpec, names ...string) bool {
 }
 
 func defaultSystemPromptForContract(
+	agentPublicID string,
 	contract agentconfig.RuntimeContract,
 	toolSpecs []ToolSpec,
 	skills []skillstore.SkillRecord,
 ) string {
-	parts := []string{DefaultSystemPrompt()}
+	parts := []string{DefaultSystemPrompt(), "Your Omnara agent ID is `" + agentPublicID + "`."}
 	if guidance := capabilityGuidance(toolSpecs); guidance != "" {
 		parts = append(parts, guidance)
 	}

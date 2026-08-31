@@ -126,7 +126,7 @@ func TestFromErrorHidesOpaqueSentinelDetail(t *testing.T) {
 		"operator policy detail: %w",
 		storeerr.ErrManagedWorkAdmissionDenied,
 	))
-	if admission.Message != "new managed work is temporarily unavailable" {
+	if admission.Message != "Insufficient Omnara credits." {
 		t.Fatalf("managed admission message = %q, want opaque base message", admission.Message)
 	}
 }
@@ -255,5 +255,36 @@ func TestUnknownCodeIsOpaque(t *testing.T) {
 	if got.Status != http.StatusInternalServerError || got.Code != openapi.ErrorCodeInternalError ||
 		got.Message != "internal server error" {
 		t.Fatalf("FromCode(unknown) = %+v, want opaque internal error", got)
+	}
+}
+
+func TestWithIssuesWritesFieldLevelIssues(t *testing.T) {
+	line := 4
+	err := WithIssues(
+		openapi.ErrorCodeInvalidRequest,
+		"agent config is invalid: model.name: required field is missing",
+		[]openapi.AgentConfigErrorIssue{{Path: "/model/name", Message: "required field is missing", Line: &line}},
+	)
+	recorder := httptest.NewRecorder()
+	WriteError(recorder, err)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	var response openapi.Error
+	if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &response); decodeErr != nil {
+		t.Fatalf("decode response: %v", decodeErr)
+	}
+	if response.Error != "invalid request: agent config is invalid: model.name: required field is missing" {
+		t.Fatalf("message = %q", response.Error)
+	}
+	if response.Issues == nil || len(*response.Issues) != 1 {
+		t.Fatalf("issues = %+v, want one issue", response.Issues)
+	}
+	issue := (*response.Issues)[0]
+	if issue.Path != "/model/name" || issue.Line == nil || *issue.Line != 4 || issue.Column != nil {
+		t.Fatalf("issue = %+v", issue)
+	}
+	if plain := Body(openapi.ErrorCodeInvalidRequest, "x"); plain.Issues != nil {
+		t.Fatalf("issue-less body should omit issues, got %+v", plain.Issues)
 	}
 }

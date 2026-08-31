@@ -18,7 +18,10 @@ import (
 type migrationSet struct {
 	directory        string
 	releaseTagPrefix string
+	allowGo          bool
 }
+
+const goMigrationRegistryPath = "migrations/go_migrations.go"
 
 var migrationSets = []migrationSet{
 	{
@@ -28,11 +31,12 @@ var migrationSets = []migrationSet{
 	{
 		directory:        "migrations",
 		releaseTagPrefix: "cluster-v",
+		allowGo:          true,
 	},
 }
 
 type snapshot interface {
-	listSQL(directory string) ([]string, error)
+	listMigrations(directory string) ([]string, error)
 	readFile(filePath string) ([]byte, error)
 }
 
@@ -70,24 +74,47 @@ func compareReleasedRepository(root, releaseRefRoot string) error {
 
 func checkSnapshot(source snapshot) error {
 	for _, set := range migrationSets {
-		files, err := source.listSQL(set.directory)
+		files, err := source.listMigrations(set.directory)
 		if err != nil {
 			return fmt.Errorf("list %s: %w", set.directory, err)
 		}
 		if len(files) == 0 {
-			return fmt.Errorf("%s contains no SQL migrations", set.directory)
+			return fmt.Errorf("%s contains no migrations", set.directory)
 		}
-		for _, filePath := range files {
+		previousFile := ""
+		previousVersion := 0
+		for index, filePath := range files {
 			if err := validateMigrationPath(set, filePath); err != nil {
 				return err
 			}
+			version, err := strconv.Atoi(path.Base(filePath)[:6])
+			if err != nil {
+				return fmt.Errorf("parse migration version for %s: %w", filePath, err)
+			}
+			if index > 0 && version == previousVersion {
+				return fmt.Errorf(
+					"%s duplicates migration version %06d from %s",
+					filePath,
+					version,
+					previousFile,
+				)
+			}
+			if expected := index + 1; version != expected {
+				return fmt.Errorf(
+					"%s must be migration %06d; run make migration-fix after rebasing",
+					filePath,
+					expected,
+				)
+			}
+			previousFile = filePath
+			previousVersion = version
 		}
 	}
 	return nil
 }
 
 func compareMigrationSet(set migrationSet, base snapshot, current currentSnapshot) error {
-	baseFiles, err := base.listSQL(set.directory)
+	baseFiles, err := base.listMigrations(set.directory)
 	if err != nil {
 		return fmt.Errorf("list released %s: %w", set.directory, err)
 	}
@@ -224,12 +251,13 @@ func validateMigrationPath(set migrationSet, filePath string) error {
 	if filePath == "" || filepath.ToSlash(filePath) != filePath || path.Clean(filePath) != filePath {
 		return fmt.Errorf("migration path %q is not canonical", filePath)
 	}
-	if path.Dir(filePath) != set.directory || path.Ext(filePath) != ".sql" {
+	extension := path.Ext(filePath)
+	if path.Dir(filePath) != set.directory || extension != ".sql" && !(set.allowGo && extension == ".go") {
 		return fmt.Errorf("migration path %q is outside %s", filePath, set.directory)
 	}
 	base := path.Base(filePath)
-	if len(base) < 12 || base[6] != '_' || !allDecimal(base[:6]) || base[7:len(base)-4] == "" {
-		return fmt.Errorf("migration path %q does not use NNNNNN_name.sql", filePath)
+	if len(base) < 8+len(extension) || base[6] != '_' || !allDecimal(base[:6]) || base[7:len(base)-len(extension)] == "" {
+		return fmt.Errorf("migration path %q does not use NNNNNN_name%s", filePath, extension)
 	}
 	return nil
 }
@@ -245,20 +273,21 @@ func allDecimal(value string) bool {
 
 type worktreeSnapshot struct{ root string }
 
-func (snapshot worktreeSnapshot) listSQL(directory string) ([]string, error) {
+func (snapshot worktreeSnapshot) listMigrations(directory string) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(snapshot.root, filepath.FromSlash(directory)))
 	if err != nil {
 		return nil, err
 	}
 	var files []string
 	for _, entry := range entries {
-		if path.Ext(entry.Name()) != ".sql" {
+		filePath := path.Join(directory, entry.Name())
+		if !isMigrationFile(filePath) {
 			continue
 		}
 		if entry.Type()&fs.ModeSymlink != 0 || !entry.Type().IsRegular() {
 			return nil, fmt.Errorf("%s/%s must be a regular file", directory, entry.Name())
 		}
-		files = append(files, path.Join(directory, entry.Name()))
+		files = append(files, filePath)
 	}
 	sort.Strings(files)
 	return files, nil
@@ -297,7 +326,7 @@ func (snapshot gitSnapshot) verifyCommit() error {
 	return nil
 }
 
-func (snapshot gitSnapshot) listSQL(directory string) ([]string, error) {
+func (snapshot gitSnapshot) listMigrations(directory string) ([]string, error) {
 	command := snapshot.command("ls-tree", "-r", "-z", "--name-only", snapshot.ref, "--", directory)
 	output, err := command.Output()
 	if err != nil {
@@ -306,12 +335,20 @@ func (snapshot gitSnapshot) listSQL(directory string) ([]string, error) {
 	var files []string
 	for _, candidate := range bytes.Split(output, []byte{0}) {
 		filePath := string(candidate)
-		if filePath != "" && path.Dir(filePath) == directory && path.Ext(filePath) == ".sql" {
+		if filePath != "" && path.Dir(filePath) == directory && isMigrationFile(filePath) {
 			files = append(files, filePath)
 		}
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func isMigrationFile(filePath string) bool {
+	if filePath == goMigrationRegistryPath {
+		return false
+	}
+	extension := path.Ext(filePath)
+	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(filePath, "_test.go")
 }
 
 func (snapshot gitSnapshot) readFile(filePath string) ([]byte, error) {

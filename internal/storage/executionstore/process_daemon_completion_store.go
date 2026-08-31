@@ -83,7 +83,15 @@ func (s *Store) MarkProcessStarted(
 	}
 	resultCommitted := false
 	var committedResult json.RawMessage
-	if !isNilID(record.ToolCallID) {
+	completeToolCallOnStart, err := shouldCompleteLinkedToolCallOnProcessStartTx(
+		ctx,
+		tx,
+		record,
+	)
+	if err != nil {
+		return DaemonProcessReportApplication{}, err
+	}
+	if completeToolCallOnStart {
 		startedRecord := record
 		startedRecord.State = ProcessStateRunning
 		result, err := startedProcessToolResult(startedRecord, input.Result)
@@ -291,19 +299,41 @@ func (s *Store) CompleteDaemonProcess(
 	resultCommitted := false
 	var committedResult json.RawMessage
 	if reportMatchesProcess && !isNilID(record.ToolCallID) {
+		toolCall, err := getToolCallTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			record.ToolCallID,
+		)
+		if err != nil {
+			return DaemonProcessReportApplication{}, fmt.Errorf("load linked tool call: %w", err)
+		}
 		outcome, result, resultErr := processToolResult(record)
 		if resultErr != nil {
 			return DaemonProcessReportApplication{}, resultErr
 		}
-		if len(input.Result) > 0 && string(input.Result) != "null" {
-			result, err = commandTerminalToolResult(record.ID, input.Result)
+		var contentParts json.RawMessage
+		if outcome == ToolResultOutcomeSucceeded && isUploadArtifactToolCall(toolCall) {
+			outcome, contentParts, err = uploadArtifactProcessToolResultContentParts(
+				ctx,
+				qtx,
+				record,
+			)
 			if err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
-		}
-		contentParts, err := ToolResultContentParts(result)
-		if err != nil {
-			return DaemonProcessReportApplication{}, err
+		} else {
+			if len(input.Result) > 0 && string(input.Result) != "null" {
+				result, err = commandTerminalToolResult(record.ID, input.Result)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			}
+			contentParts, err = ToolResultContentParts(result)
+			if err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
 		}
 		toolRow, err := qtx.CompleteToolCallFromProcess(
 			ctx,
@@ -434,6 +464,27 @@ func (s *Store) CompleteDaemonProcess(
 	}, nil
 }
 
+func shouldCompleteLinkedToolCallOnProcessStartTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	process ProcessRecord,
+) (bool, error) {
+	if isNilID(process.ToolCallID) {
+		return false, nil
+	}
+	toolCall, err := getToolCallTx(
+		ctx,
+		tx,
+		process.ProjectID,
+		process.AgentID,
+		process.ToolCallID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("load linked tool call: %w", err)
+	}
+	return !isUploadArtifactToolCall(toolCall), nil
+}
+
 func daemonProcessForReportTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -502,31 +553,21 @@ func (s *Store) GetProcessByToolCall(
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
 
-func (s *Store) ListActiveProcessesForContext(
-	ctx context.Context,
-	projectID, agentID ID,
-) ([]ActiveProcessRecord, error) {
-	if isNilID(projectID) || isNilID(agentID) {
-		return nil, errors.New("project and agent are required")
-	}
-	return listActiveProcessesForContext(ctx, s.q, projectID, agentID)
-}
-
-func (r *ToolCallReader) ListActiveProcessesForContext(
+func (r *ToolCallReader) ListActiveProcesses(
 	ctx context.Context,
 ) ([]ActiveProcessRecord, error) {
 	t := r.transaction
-	return listActiveProcessesForContext(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+	return listActiveProcesses(ctx, t.q, t.input.ProjectID, t.input.AgentID)
 }
 
-func listActiveProcessesForContext(
+func listActiveProcesses(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID ID,
 ) ([]ActiveProcessRecord, error) {
-	rows, err := q.ListActiveProcessesForContext(
+	rows, err := q.ListActiveProcesses(
 		ctx,
-		dbsqlc.ListActiveProcessesForContextParams{ProjectID: projectID, AgentID: agentID},
+		dbsqlc.ListActiveProcessesParams{ProjectID: projectID, AgentID: agentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list active processes: %w", err)

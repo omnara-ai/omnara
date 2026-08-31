@@ -1,9 +1,9 @@
 import { useCreateSlackSetup } from '@omnara/react'
 import { type AgentProfile } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
-import { Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 
+import { Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,

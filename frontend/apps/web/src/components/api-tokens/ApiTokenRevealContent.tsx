@@ -1,6 +1,6 @@
-import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 
+import { Check, Copy } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'

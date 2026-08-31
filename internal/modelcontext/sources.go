@@ -31,14 +31,6 @@ type ExecutionStore interface {
 		afterSequence int64,
 		watermark int64,
 	) ([]executionstore.ToolCallRecord, error)
-	ListActiveProcessesForContext(
-		ctx context.Context,
-		projectID, agentID storage.ID,
-	) ([]executionstore.ActiveProcessRecord, error)
-	ListExecutableAgentMachineBindings(
-		ctx context.Context,
-		projectID, agentID storage.ID,
-	) ([]executionstore.AgentMachineBindingRecord, error)
 	ListMachinePoolSources(
 		ctx context.Context,
 		projectID, agentID, agentConfigID storage.ID,

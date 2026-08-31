@@ -124,8 +124,13 @@ export function useArchiveAgent(orgID: string, projectID: string) {
       const { data } = await sdk.archiveAgent({ path: { orgID, projectID, agentID }, client })
       return data
     },
-    onSuccess: async () => {
+    onSuccess: async (data, agentID) => {
+      const agentQueryKey = getAgentQueryKey({ path: { orgID, projectID, agentID }, client })
+      queryClient.setQueryData<GetAgentResponse>(agentQueryKey, (current) =>
+        current === undefined ? current : { ...current, agent: data.agent },
+      )
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: agentQueryKey }),
         queryClient.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
         }),

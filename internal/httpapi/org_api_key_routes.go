@@ -6,6 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -163,7 +164,11 @@ func (s strictOpenAPIServer) UpdateOrgAPIKey(
 		ActorPrincipal: principal,
 	}
 	if request.Body.Name != nil {
-		input.Name = *request.Body.Name
+		canonicalName, err := resourcename.CanonicalizeRequired("org api key name", *request.Body.Name)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+		input.Name = canonicalName
 	}
 	if request.Body.OrgRole != nil {
 		input.OrgRole = string(*request.Body.OrgRole)

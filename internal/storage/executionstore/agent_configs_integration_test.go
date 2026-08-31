@@ -15,6 +15,27 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+func TestCreateAgentConfigRejectsInvalidSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID,
+		Source: `
+instruction: test
+model:
+  provider_config: " openai-prod"
+  name: test
+`,
+		SourceFormat: "yaml",
+	})
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("create agent config error = %v, want invalid request", err)
+	}
+}
+
 func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

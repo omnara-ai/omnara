@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/metrics"
+	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -28,6 +31,7 @@ const (
 	runtimeLockReapBatchSize         int32 = 100
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
+	idleMachineReconcileInterval           = time.Minute
 )
 
 func main() {
@@ -154,6 +158,34 @@ func main() {
 			},
 		)
 	}()
+	defaultModelProviderDone := make(chan struct{})
+	if cfg.DefaultModelProvider == nil {
+		close(defaultModelProviderDone)
+	} else {
+		hostedHTTPClient := metrics.NewObservedHTTPClient(
+			&http.Client{Timeout: modelprovider.HostedCredentialProvisionTimeout},
+			metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient),
+			metrics.WithHTTPClientPathLabel(modelprovider.HostedCredentialPath),
+		)
+		runner := defaultprovider.NewRunner(
+			store.Organizations(),
+			modelprovider.HTTPHostedCredentialProvisioner{
+				BaseURL:    cfg.HostedAPIURL,
+				Token:      cfg.HostedAPIToken,
+				HTTPClient: hostedHTTPClient,
+			},
+			*cfg.DefaultModelProvider,
+		)
+		go func() {
+			defer close(defaultModelProviderDone)
+			runDefaultModelProviderProvisioningLoop(
+				ctx,
+				logger,
+				runner,
+				cfg.MaintenanceInterval,
+			)
+		}()
+	}
 
 	exitCode := runCoreMaintenanceLoop(
 		ctx,
@@ -167,6 +199,7 @@ func main() {
 	<-machineLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
@@ -386,8 +419,24 @@ func runMachinePoolMaintenanceLoop(
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var nextIdleReconcileAt time.Time
 	for {
 		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
+		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
+			candidateCount, err := runIdleMachineDeletionMaintenanceTick(
+				ctx,
+				log,
+				machinePoolManager.ReconcileIdleDeletion,
+			)
+			if err != nil {
+				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", err)
+			} else if candidateCount > 0 {
+				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
+			}
+			if candidateCount < machinepool.DefaultReconcileBatchSize {
+				nextIdleReconcileAt = now.Add(idleMachineReconcileInterval)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -396,16 +445,27 @@ func runMachinePoolMaintenanceLoop(
 	}
 }
 
+func runIdleMachineDeletionMaintenanceTick(
+	ctx context.Context,
+	log *slog.Logger,
+	reconcile func(context.Context, int32) (int, error),
+) (candidateCount int, err error) {
+	defer recoverMachinePoolMaintenancePanic(log)
+	return reconcile(ctx, machinepool.DefaultReconcileBatchSize)
+}
+
+func recoverMachinePoolMaintenancePanic(log *slog.Logger) {
+	if recovered := recover(); recovered != nil {
+		log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
+	}
+}
+
 func runMachinePoolMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	machinePoolManager *machinepool.Manager,
 ) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
-		}
-	}()
+	defer recoverMachinePoolMaintenancePanic(log)
 	if attempted, err := machinePoolManager.ReconcileProvisioning(
 		ctx,
 		machinepool.DefaultReconcileBatchSize,

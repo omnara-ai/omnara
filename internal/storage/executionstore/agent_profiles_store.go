@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -24,6 +25,11 @@ func (s *Store) CreateAgentProfile(
 	if input.Name == "" {
 		return AgentProfileRecord{}, errors.New("agent profile name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", input.Name)
+	if err != nil {
+		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if isNilID(input.CurrentConfigID) {
 		return AgentProfileRecord{}, errors.New("current config is required")
 	}
@@ -235,8 +241,13 @@ func (s *Store) RenameAgentProfile(
 		return AgentProfileRecord{}, errors.New("project and profile are required")
 	}
 	if input.Name == "" {
-		return AgentProfileRecord{}, errors.New("name is required")
+		return AgentProfileRecord{}, errors.New("agent profile name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", input.Name)
+	if err != nil {
+		return AgentProfileRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("begin rename agent profile: %w", err)

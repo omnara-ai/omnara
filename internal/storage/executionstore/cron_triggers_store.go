@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -85,6 +86,11 @@ func (s *Store) CreateCronTrigger(
 	if input.Name == "" {
 		return CronTriggerRecord{}, errors.New("cron trigger name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", input.Name)
+	if err != nil {
+		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if isNilID(input.Target.ID) {
 		return CronTriggerRecord{}, errors.New("cron trigger target is required")
 	}
@@ -286,14 +292,13 @@ func (s *Store) UpdateCronTrigger(
 	}
 	previous := record
 	if input.Name != nil {
-		if *input.Name == "" {
-			return CronTriggerRecord{}, fmt.Errorf(
-				"cron trigger name cannot be empty: %w",
-				storeerr.ErrInvalidRequest,
-			)
-		}
 		record.Name = *input.Name
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("cron trigger name", record.Name)
+	if err != nil {
+		return CronTriggerRecord{}, storeerr.InvalidRequest(err)
+	}
+	record.Name = normalizedName
 	if input.CronExpression != nil {
 		record.CronExpression = *input.CronExpression
 	}

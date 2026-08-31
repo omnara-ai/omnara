@@ -195,7 +195,7 @@ func publicToolResultFromRecord(
 }
 
 func publicAgentInputResponseFromRecord(record executionstore.AgentInputRecord) (openapi.AgentInput, error) {
-	return publicAgentInputResponseFromRecordWithContent(record, nil)
+	return publicAgentInputResponseFromRecordWithContent(record, record.ContentBlocks)
 }
 
 func publicAgentInputResponseFromRecordWithContent(
@@ -228,6 +228,9 @@ func publicAgentInputResponseFromRecordWithContent(
 			return openapi.AgentInput{}, err
 		}
 		response.ActorId = &actorID
+	}
+	if inputKind == openapi.AgentInputKindContent && record.InputIdempotencyKey != "" {
+		response.InputIdempotencyKey = &record.InputIdempotencyKey
 	}
 	if len(contentBlocks) != 0 {
 		blocks, err := publicAgentInputContentBlocks(contentBlocks)
@@ -358,7 +361,7 @@ func publicAgentInputEvent(
 		}
 		event.ActorId = &actorID
 	}
-	if record.InputIdempotencyKey != "" {
+	if inputKind == openapi.AgentInputKindContent && record.InputIdempotencyKey != "" {
 		event.InputIdempotencyKey = &record.InputIdempotencyKey
 	}
 	if record.ControlType != "" {

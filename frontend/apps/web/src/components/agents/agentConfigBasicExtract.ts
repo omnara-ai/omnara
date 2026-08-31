@@ -5,10 +5,12 @@ import type {
   BasicConfig,
   BasicMachineSource,
   BasicMcpServer,
+  BasicMcpTool,
 } from '@/components/agents/useAgentBuilderForm'
 import {
   emptyProviderOptions,
   type EnvOverlayRow,
+  idleDeletionMinutesValid,
   type ProviderOptionsDraft,
   type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
@@ -22,6 +24,7 @@ const permission = z.strictObject({
 
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
+const idleDeletionMinutes = z.number().refine(idleDeletionMinutesValid).optional()
 const overlay = z.record(z.string(), z.string().nullable()).optional()
 const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
 
@@ -36,6 +39,7 @@ const poolEntry = z.strictObject({
   machine_pool_name: z.string(),
   initial_num_machines: nonNegativeCount,
   max_machines: nonNegativeCount,
+  delete_after_idle_minutes: idleDeletionMinutes,
   machine_cpu: positiveCount,
   machine_memory_mb: positiveCount,
   machine_provider_options_overlay: providerOptionsOverlay,
@@ -55,11 +59,17 @@ const mcpAuth = z.discriminatedUnion('type', [
   }),
 ])
 
+const mcpToolEntry = z.strictObject({
+  enabled: z.boolean().nullable().optional(),
+  permission: permission.optional(),
+})
+
 const mcpEntry = z.strictObject({
   url: z.string(),
   permission: permission.optional(),
   default_enabled: z.boolean().nullable().optional(),
   auth: mcpAuth.optional(),
+  tools: z.record(z.string(), mcpToolEntry).optional(),
 })
 
 const toolEntry = z.strictObject({
@@ -68,10 +78,12 @@ const toolEntry = z.strictObject({
   permission: permission.optional(),
 })
 
+const optionalText = z.string().nullable().optional()
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
-  instruction: z.string(),
-  model: z.looseObject({ provider_config: z.string(), name: z.string() }),
+  instruction: optionalText,
+  model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
@@ -91,9 +103,9 @@ export function extractBasicConfig(js: unknown): BasicConfig | null {
   }
 
   return {
-    instruction: normalizeMultiline(doc.instruction),
-    providerConfig: doc.model.provider_config,
-    modelName: doc.model.name,
+    instruction: normalizeMultiline(doc.instruction ?? ''),
+    providerConfig: doc.model?.provider_config ?? '',
+    modelName: doc.model?.name ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => ({
       name,
@@ -132,6 +144,7 @@ function machineSourceDraft(
     defaultCwd: entry.cwd ?? '',
     initialNumMachines: countDraft(isPool ? entry.initial_num_machines : undefined),
     maxMachines: countDraft(isPool ? entry.max_machines : undefined),
+    deleteAfterIdleMinutes: countDraft(isPool ? entry.delete_after_idle_minutes : undefined),
     machineCpu: countDraft(isPool ? entry.machine_cpu : undefined),
     machineMemoryGb: memoryGbDraft(isPool ? entry.machine_memory_mb : undefined),
     providerOptions: providerOverlay.options,
@@ -179,5 +192,12 @@ function mcpServerDraft(name: string, entry: z.infer<typeof mcpEntry>): BasicMcp
     secretId: auth?.secret_id ?? '',
     service: auth?.type === 'sigv4' ? auth.service : '',
     region: auth?.type === 'sigv4' ? auth.region : '',
+    tools: Object.entries(entry.tools ?? {}).map(
+      ([name, tool]): BasicMcpTool => ({
+        name,
+        enabled: tool.enabled ?? null,
+        permission: permissionDraft(tool.permission),
+      }),
+    ),
   }
 }

@@ -7,16 +7,19 @@ import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField
 import { addMissingMachineTools, hasMissingMachineTools } from '@/components/agents/builtInTools'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
+import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 export function AgentConfigBasicForm({
   orgId,
   projectId,
   form,
+  agentName,
 }: {
   orgId: string
   projectId: string
   form: AgentBuilderForm
+  agentName?: string
 }) {
   const toolCatalog = useToolCatalog()
   const showMissingMachineTools =
@@ -27,7 +30,7 @@ export function AgentConfigBasicForm({
     <FieldGroup className="gap-8">
       <Field>
         <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
-          Agent Instructions
+          Instructions
         </RequiredFieldLabel>
         <Textarea
           id="agent-config-basic-instruction"
@@ -40,47 +43,44 @@ export function AgentConfigBasicForm({
           }}
         />
       </Field>
-      <div className="space-y-2">
-        <p className="text-muted-foreground text-right text-sm">Optional</p>
-        <div className="bg-muted/15 divide-y overflow-hidden rounded-xl">
-          <div className="p-5">
-            <AgentConfigMachineSourcesField
-              orgId={orgId}
-              projectId={projectId}
-              sources={form.machineSources}
-              onSourcesChange={form.setMachineSources}
-              onUnavailableIdsChange={form.reportUnavailableSourceIds}
-              showMissingToolsWarning={showMissingMachineTools}
-              onAddMissingTools={() => {
-                form.setTools(addMissingMachineTools(form.tools))
-              }}
-            />
-          </div>
-          <div className="p-5">
-            <AgentConfigToolsField
-              catalog={toolCatalog.data}
-              tools={form.tools}
-              onToolsChange={form.setTools}
-            />
-          </div>
-          <div className="p-5">
-            <AgentConfigSkillsField
-              orgId={orgId}
-              projectId={projectId}
-              selectedIds={form.skillIds}
-              onSelectedIdsChange={form.setSkillIds}
-              onUnavailableIdsChange={form.reportUnavailableSkillIds}
-            />
-          </div>
-          <div className="p-5">
-            <AgentConfigMcpServersField
-              orgId={orgId}
-              projectId={projectId}
-              permissionProfile={toolCatalog.data?.mcp_tool_permissions}
-              servers={form.mcpServers}
-              onServersChange={form.setMcpServers}
-            />
-          </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 pt-2">
+          <Separator className="flex-1" />
+          <span className="text-muted-foreground shrink-0 text-xs">Optional</span>
+        </div>
+        <div className="flex flex-col gap-3">
+          <AgentConfigMachineSourcesField
+            orgId={orgId}
+            projectId={projectId}
+            sources={form.machineSources}
+            onSourcesChange={form.setMachineSources}
+            onUnavailableIdsChange={form.reportUnavailableSourceIds}
+            showMissingToolsWarning={showMissingMachineTools}
+            onAddMissingTools={() => {
+              form.setTools(addMissingMachineTools(form.tools))
+            }}
+          />
+          <AgentConfigToolsField
+            catalog={toolCatalog.data}
+            tools={form.tools}
+            onToolsChange={form.setTools}
+          />
+          <AgentConfigSkillsField
+            orgId={orgId}
+            projectId={projectId}
+            selectedIds={form.skillIds}
+            onSelectedIdsChange={form.setSkillIds}
+            onUnavailableIdsChange={form.reportUnavailableSkillIds}
+          />
+          <AgentConfigMcpServersField
+            orgId={orgId}
+            projectId={projectId}
+            permissionProfile={toolCatalog.data?.mcp_tool_permissions}
+            servers={form.mcpServers}
+            onServersChange={form.setMcpServers}
+            builderDraft={form.draft}
+            agentName={agentName}
+          />
         </div>
       </div>
     </FieldGroup>

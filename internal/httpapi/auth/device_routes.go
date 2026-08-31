@@ -7,6 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -29,6 +30,18 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
+	clientName, err := resourcename.CanonicalizeAllowEmpty("client_name", body.ClientName)
+	if err != nil {
+		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+		return
+	}
+	body.ClientName = clientName
+	tokenName, err := resourcename.CanonicalizeAllowEmpty("token_name", body.TokenName)
+	if err != nil {
+		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
+		return
+	}
+	body.TokenName = tokenName
 	if !h.requireAuthRateLimits(
 		w,
 		r,

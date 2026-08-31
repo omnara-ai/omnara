@@ -2,8 +2,16 @@ import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
+import {
+  currentProfileConfigId,
+  renderConfigSource,
+  resolveConfigId,
+  zConfigAttachment,
+  zConfigSourceAttachment,
+} from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
@@ -40,7 +48,33 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgent,
         format: formatRecord(),
         path: schemas.zCreateAgentPath,
-        body: schemas.zCreateAgentBody,
+        body: zConfigAttachment.extend({
+          profile: schemas.zAgentProfileId.optional(),
+          name: schemas.zAgentName.optional(),
+          message: z.string().optional(),
+        }),
+        transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
+          profile,
+          name,
+          message,
+          config: await resolveConfigId(client, path, attachment),
+        }),
+      }),
+      op({
+        verb: 'update',
+        summary: "Replace a running agent's config",
+        fn: sdk.updateAgentConfig,
+        format: (response) => formatRecord()(response.agent_config),
+        path: schemas.zUpdateAgentConfigPath,
+        body: zConfigSourceAttachment.extend({
+          expected_current_config_id: schemas.zAgentConfigId
+            .optional()
+            .describe('fail unless the agent still runs this config'),
+        }),
+        transformBody: ({ expected_current_config_id, ...attachment }) => ({
+          ...renderConfigSource(attachment),
+          expected_current_config_id,
+        }),
       }),
       op({
         verb: 'cancel',
@@ -305,11 +339,18 @@ export const commandGroups: CommandGroup[] = [
       }),
       op({
         verb: 'create',
-        summary: 'Create a machine',
-        fn: sdk.createMachine,
-        format: formatRecord(),
-        path: schemas.zCreateMachinePath,
-        body: schemas.zCreateMachineBody,
+        summary: 'Create a machine with a daemon token and show how to install omnarad',
+        fn: sdk.connectByoMachine,
+        format: formatMachineSetup,
+        path: schemas.zConnectByoMachinePath,
+        body: schemas.zConnectByoMachineBody,
+      }),
+      flowOp({
+        verb: 'create-local',
+        summary: 'Create a machine and install omnarad on this machine',
+        path: schemas.zConnectByoMachinePath,
+        body: zMachineSetupBody,
+        run: runMachineCreateLocal,
       }),
       op({
         verb: 'update',
@@ -595,7 +636,31 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: schemas.zCreateAgentProfileBody,
+        body: zConfigAttachment.extend({ name: schemas.zResourceName }),
+        transformBody: async ({ name, ...attachment }, { client, path }) => ({
+          name,
+          config: await resolveConfigId(client, path, attachment),
+        }),
+      }),
+      op({
+        verb: 'update',
+        summary: 'Point an agent profile at a new config',
+        fn: sdk.updateAgentProfile,
+        format: formatRecord(),
+        path: schemas.zUpdateAgentProfilePath,
+        body: zConfigAttachment.extend({
+          expected_current_config_id: schemas.zAgentConfigId
+            .optional()
+            .describe('fail unless the profile still points at this config'),
+        }),
+        transformBody: async ({ expected_current_config_id, ...attachment }, { client, path }) => {
+          const expected =
+            expected_current_config_id ?? (await currentProfileConfigId(client, path))
+          return {
+            config: await resolveConfigId(client, path, attachment),
+            expected_current_config_id: expected,
+          }
+        },
       }),
       op({
         verb: 'rename',

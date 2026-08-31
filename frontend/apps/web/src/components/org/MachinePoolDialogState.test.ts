@@ -20,9 +20,13 @@ describe('machine pool memory inputs', () => {
       secretId: 'secret_1',
       memoryGb: '1.25',
       maxMachines: '3',
+      deleteAfterIdleMinutes: '30',
     }
 
     expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '0' })).toBe(false)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '4' })).toBe(false)
+    expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '5' })).toBe(true)
     expect(derivedMemoryTotalCapPlaceholder(values.memoryGb, values.maxMachines)).toBe('3.75')
     expect(machinePoolCreateRequest(values)).toMatchObject({
       provider: 'blaxel',
@@ -31,6 +35,7 @@ describe('machine pool memory inputs', () => {
       default_machine_memory_mb: 1280,
       max_total_memory_mb: 3840,
       max_machine_memory_mb: 1280,
+      delete_after_idle_minutes: 30,
     })
   })
 
@@ -51,6 +56,29 @@ describe('machine pool memory inputs', () => {
     })
     expect(machinePoolCreateRequest(values)).not.toHaveProperty('max_total_cpu')
   })
+})
+
+describe('machine pool names', () => {
+  const validValues = {
+    ...machinePoolFormDefaults,
+    image: 'alpine:latest',
+    workspace: 'workspace',
+    secretId: 'secret_1',
+  }
+
+  it('preserves an accepted name exactly on create', () => {
+    const values = { ...validValues, name: 'R&D Pool 😀' }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values).name).toBe('R&D Pool 😀')
+  })
+
+  it.each([' pool', 'pool ', 'x'.repeat(65), 'pool\u200dname'])(
+    'rejects invalid name %j',
+    (name) => {
+      expect(machinePoolFormValid({ ...validValues, name })).toBe(false)
+    },
+  )
 })
 
 describe('machine pool edit state', () => {
@@ -98,6 +126,7 @@ describe('machine pool edit state', () => {
       maxTotalMemoryGb: '7.5',
       minMachineMemoryGb: '0.5',
       maxMachineMemoryGb: '2',
+      deleteAfterIdleMinutes: '',
       secretId: 'sec_provider',
       runtimeProtectionEnabled: true,
     })
@@ -111,7 +140,7 @@ describe('machine pool edit state', () => {
 
     const request = machinePoolUpdateRequest(pool, {
       ...values,
-      name: ' updated ',
+      name: 'R&D updated 😀',
       description: ' updated description ',
       workspace: 'new-workspace',
       image: 'new-image',
@@ -123,7 +152,7 @@ describe('machine pool edit state', () => {
     })
 
     expect(request).toMatchObject({
-      name: 'updated',
+      name: 'R&D updated 😀',
       description: 'updated description',
       default_machine_memory_mb: 1537,
       default_machine_env: {},
@@ -218,6 +247,7 @@ describe('machine pool edit state', () => {
       minMachineMemoryGb: '1',
       maxMachineCpu: '4',
       maxMachineMemoryGb: '4',
+      deleteAfterIdleMinutes: '15',
     }
 
     expect(machinePoolFormValid(edited, 'cluster-edit')).toBe(true)
@@ -231,6 +261,7 @@ describe('machine pool edit state', () => {
       min_machine_memory_mb: 1024,
       max_machine_cpu: 4,
       max_machine_memory_mb: 4096,
+      delete_after_idle_minutes: 15,
     })
   })
 
@@ -310,6 +341,7 @@ function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     min_machine_memory_mb: null,
     max_machine_cpu: 1,
     max_machine_memory_mb: 1024,
+    delete_after_idle_minutes: null,
     metadata: {},
     created_at: '2026-08-18T00:00:00Z',
     updated_at: '2026-08-18T00:00:00Z',

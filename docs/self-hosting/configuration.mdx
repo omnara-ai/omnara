@@ -17,7 +17,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `OMNARA_PUBLIC_URL` | Public origin for the app and API; used in emails, OAuth callbacks, and daemon bootstrap config. Origin only, no path; HTTPS outside localhost. Set identically on API, worker, and maintenance. | — | Yes |
-| `OMNARA_BILLING_URL` | External billing page linked from the web app; the UI appends `?org=<org-id>`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the web app. | — | No |
+| `OMNARA_BILLING_URL` | External billing page linked from the dashboard; the UI appends `?org={org-id}`. HTTPS outside localhost, no query parameters. Leave unset to hide billing in the dashboard. | — | No |
 | `OMNARA_API_ADDR` | Public listen address of `api` | `:8080` | No |
 | `OMNARA_API_METRICS_ADDR` | `api` health/metrics listener | `:8081` | No |
 | `OMNARA_WORKER_METRICS_ADDR` | `worker` health/metrics listener | `:8082` | No |
@@ -83,8 +83,8 @@ GitHub uses `kind:"github"` (endpoints default to github.com; GitHub-compatible 
 
 ```sh
 OMNARA_AUTH_CONNECTORS_JSON='[
-  {"slug":"github","kind":"github","display_name":"GitHub","client_id":"<id>","client_secret":"<secret>"},
-  {"slug":"google","kind":"oidc","display_name":"Google","issuer":"https://accounts.google.com","client_id":"<id>","client_secret":"<secret>","email_trust_policy":"verified_email"}
+  {"slug":"github","kind":"github","display_name":"GitHub","client_id":"{id}","client_secret":"{secret}"},
+  {"slug":"google","kind":"oidc","display_name":"Google","issuer":"https://accounts.google.com","client_id":"{id}","client_secret":"{secret}","email_trust_policy":"verified_email"}
 ]'
 ```
 
@@ -145,6 +145,34 @@ Provider notes:
 - Blaxel images must be sandbox images built or pushed through Blaxel (custom images must include `sandbox-api`), and unlimited persistence requires quota Tier 2 or higher — Tier 0 and Tier 1 cap sandbox lifetimes at 7 and 30 days.
 - Daytona snapshots are allowed by name, must be active in the selected target, must allow sandboxes to reach `OMNARA_PUBLIC_URL`, and their API-resolved CPU and memory count against the pool caps.
 - For Unikraft and Blaxel, `sleep_after_ms` enables scale-to-zero after that many milliseconds of daemon inactivity; omit or `0` disables it, and enabled values must be at least `30000`.
+
+### Operator-provisioned default model provider
+
+An installation can give each new organization a model provider without storing
+the upstream credential in configuration. Leave these variables unset to let
+organization owners configure providers themselves.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
+| `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
+
+The credential service contract has these invariants:
+
+- `POST /model-provider-credentials` receives the organization ID, creator user
+  ID, and provider template. A successful response is `201` with
+  `{"credential_value":"..."}`; `202` and `5xx` are retryable, while `409`
+  represents a durable identity or provisioner conflict.
+- The organization ID is the stable issuance identity. The same request may be
+  repeated until Omnara commits the credential, provider, models, grants, and job
+  completion together. The credential service must recover ambiguous issuance
+  without returning an unusable credential.
+- Organization creation never depends on credential issuance. The API attempts
+  provisioning after commit, and maintenance retries failures.
+- Apply migrations before deploying both binaries. The API and maintenance must
+  use the same template, credential-service configuration, and secret-encryption
+  key ring.
 
 ### Host daemon configuration
 

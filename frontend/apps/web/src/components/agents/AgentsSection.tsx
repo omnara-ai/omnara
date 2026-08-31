@@ -5,7 +5,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 
@@ -70,14 +69,16 @@ export function AgentsTable({
       <DataTable
         columns={[
           {
-            id: 'id',
-            header: 'ID',
-            cell: (agent) => <span className="truncate font-mono text-xs">{agent.id}</span>,
-          },
-          {
             id: 'name',
             header: 'Name',
-            cell: (agent) => <span className="font-medium">{agent.name || 'Agent'}</span>,
+            cell: (agent) => (
+              <span className="flex items-baseline gap-2.5 overflow-hidden">
+                <span className="font-medium">{agent.name || 'Agent'}</span>
+                <span className="text-muted-foreground/70 truncate font-mono text-xs">
+                  {agent.id}
+                </span>
+              </span>
+            ),
           },
           {
             id: 'model',
@@ -85,7 +86,7 @@ export function AgentsTable({
             cell: (agent) =>
               agent.model ? (
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{agent.model.name}</span>
+                  <span className="truncate font-mono text-xs">{agent.model.name}</span>
                   <span className="text-muted-foreground truncate text-xs">
                     {agent.model.provider_config}
                   </span>
@@ -99,11 +100,7 @@ export function AgentsTable({
             id: 'state',
             header: 'State',
             className: 'w-28',
-            cell: (agent) => (
-              <Badge variant="outline" className="capitalize">
-                {agent.state}
-              </Badge>
-            ),
+            cell: (agent) => <span className="capitalize">{agent.state}</span>,
           },
           {
             id: 'actions',

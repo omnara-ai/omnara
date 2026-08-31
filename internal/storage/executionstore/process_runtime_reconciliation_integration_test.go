@@ -1148,6 +1148,19 @@ func TestRuntimeRegistrationResolvesTerminalMutationWithoutLocalState(
 			executionstore.ProcessActionKindWrite,
 			true,
 		)
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE processes
+SET last_activity_at = statement_timestamp() - interval '20 minutes'
+WHERE id = $1
+`, process.ID); err != nil {
+		t.Fatalf("backdate process activity: %v", err)
+	}
+	var activityBefore time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&activityBefore); err != nil {
+		t.Fatalf("load process activity before reconciliation: %v", err)
+	}
 	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
 		ctx,
 		executionstore.RegisterDaemonRuntimeInput{
@@ -1161,6 +1174,15 @@ func TestRuntimeRegistrationResolvesTerminalMutationWithoutLocalState(
 	)
 	if err != nil {
 		t.Fatalf("register replacement runtime: %v", err)
+	}
+	var activityAfter time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&activityAfter); err != nil {
+		t.Fatalf("load process activity after reconciliation: %v", err)
+	}
+	if !activityAfter.After(activityBefore) {
+		t.Fatalf("process activity after accepted action reconciliation = %s, want after %s", activityAfter, activityBefore)
 	}
 	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
 		ctx,

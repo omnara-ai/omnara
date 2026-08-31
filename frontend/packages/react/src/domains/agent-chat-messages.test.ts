@@ -1,3 +1,4 @@
+import type { AgentInput } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -15,8 +16,133 @@ import {
   userInputEvent,
 } from './agent-chat-test-support'
 
+function backlogInput(id: string, text: string, inputIdempotencyKey?: string): AgentInput {
+  return {
+    id,
+    agent_id: 'agent',
+    state: 'received',
+    delivery_mode: 'queued',
+    input_kind: 'content',
+    input_idempotency_key: inputIdempotencyKey,
+    content_blocks: [{ type: 'text', text }],
+    queued_at: '2026-07-14T00:00:00Z',
+  }
+}
+
+describe('projectAgentChat input lifecycle', () => {
+  const base = {
+    events: [],
+    deltas: [],
+    error: undefined,
+    hasOlderEvents: false,
+  }
+
+  it('keeps an idle send in the conversation while the server backlog copy waits for admission', () => {
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'conversation' }],
+      backlogInputs: [backlogInput('input-1', 'Hello', 'key-1')],
+    })
+
+    expect(result.messages.flatMap(messageText)).toEqual(['Hello'])
+    expect(result.backlogInputs).toEqual([])
+    expect(result.isWorking).toBe(false)
+  })
+
+  it('moves a stale conversation placement into the backlog when another turn starts', () => {
+    const queued = backlogInput('input-1', 'Hello', 'key-1')
+    const result = projectAgentChat({
+      ...base,
+      events: [
+        userInputEvent({ agent_input_id: 'other-input', input_idempotency_key: 'other-key' }),
+      ],
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'conversation' }],
+      backlogInputs: [queued],
+    })
+
+    expect(result.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(result.backlogInputs).toEqual([queued])
+    expect(result.isWorking).toBe(true)
+  })
+
+  it('moves a stale conversation placement behind an earlier backlog input', () => {
+    const earlier = backlogInput('input-1', 'Earlier', 'key-1')
+    const queued = backlogInput('input-2', 'Hello', 'key-2')
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'key-2', text: 'Hello', placement: 'conversation' }],
+      backlogInputs: [earlier, queued],
+    })
+
+    expect(result.messages).toEqual([])
+    expect(result.backlogInputs).toEqual([earlier, queued])
+    expect(result.isWorking).toBe(false)
+  })
+
+  it('keeps a busy send in the authoritative backlog', () => {
+    const queued = backlogInput('input-1', 'Hello', 'key-1')
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'backlog' }],
+      backlogInputs: [queued],
+    })
+
+    expect(result.messages).toEqual([])
+    expect(result.backlogInputs).toEqual([queued])
+    expect(result.isWorking).toBe(false)
+  })
+
+  it('keeps a busy send in the backlog while its server row is absent', () => {
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'backlog' }],
+      backlogInputs: [],
+    })
+
+    expect(result.messages).toEqual([])
+    expect(result.backlogInputs).toMatchObject([
+      { id: 'key-1', delivery_mode: 'optimistic', text: 'Hello' },
+    ])
+  })
+
+  it('lets the durable event dominate stale backlog and local copies', () => {
+    const durable = userInputEvent({
+      agent_input_id: 'input-1',
+      input_idempotency_key: 'key-1',
+    })
+    const result = projectAgentChat({
+      ...base,
+      events: [durable],
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'backlog', agentInputID: 'input-1' }],
+      backlogInputs: [backlogInput('input-1', 'Hello', 'key-1')],
+    })
+
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.id).toBe(durable.id)
+    expect(result.backlogInputs).toEqual([])
+  })
+
+  it('correlates a lost response through the backlog idempotency key', () => {
+    const queued = backlogInput('input-1', 'Same text', 'own-key')
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'own-key', text: 'Same text', placement: 'backlog' }],
+      backlogInputs: [queued, backlogInput('input-2', 'Same text', 'teammate-key')],
+    })
+
+    expect(result.messages).toEqual([])
+    expect(result.backlogInputs.map((input) => input.id)).toEqual(['input-1', 'input-2'])
+  })
+})
+
 describe('projectAgentChat delta previews', () => {
-  const emptyData = { events: [], pendingInput: null, error: undefined, hasOlderEvents: false }
+  const emptyData = {
+    events: [],
+    localInputs: [],
+    backlogInputs: [],
+    error: undefined,
+    hasOlderEvents: false,
+  }
 
   function previewDelta(
     seq: number,
@@ -218,6 +344,34 @@ describe('agentEventsToMessages', () => {
     ])
   })
 
+  it('exposes failed built-in tool error codes without trusting external tools', () => {
+    const result = toolResultEvent({
+      outcome: 'failed',
+      content_blocks: [
+        {
+          type: 'structured_data',
+          value: { error_code: 'managed_work_admission_denied' },
+        },
+      ],
+    })
+    const builtIn = agentEventsToMessages([event({ content_blocks: [toolCallBlock()] }), result])
+    expect(builtIn[0]?.parts[0]).toMatchObject({
+      type: 'dynamic-tool',
+      toolType: 'built_in',
+      toolErrorCode: 'managed_work_admission_denied',
+    })
+    for (const toolType of ['custom', 'mcp'] as const) {
+      const external = agentEventsToMessages([
+        event({
+          content_blocks: [{ ...toolCallBlock(), tool_type: toolType }],
+        }),
+        result,
+      ])
+      expect(external[0]?.parts[0]).toMatchObject({ type: 'dynamic-tool', toolType })
+      expect(external[0]?.parts[0]).not.toHaveProperty('toolErrorCode')
+    }
+  })
+
   it('hides content blocks explicitly marked omnara_hidden', () => {
     const messages = agentEventsToMessages([
       userInputEvent({
@@ -300,6 +454,40 @@ describe('agentEventsToMessages', () => {
         id: 'turn:turn',
         role: 'assistant',
         parts: [{ type: 'data-media', data: { artifactId: 'art_render' } }],
+      },
+    ])
+  })
+
+  it('places media_ref tool results after the technical tool part', () => {
+    const messages = agentEventsToMessages([
+      event({ content_blocks: [toolCallBlock()] }),
+      toolResultEvent({
+        content_blocks: [
+          {
+            type: 'media_ref',
+            artifact_id: 'art_upload',
+            exclude_from_model_context: true,
+          },
+        ],
+      }),
+    ])
+
+    expect(messages[0]?.parts).toMatchObject([
+      {
+        type: 'dynamic-tool',
+        output: {
+          contentBlocks: [
+            {
+              type: 'media_ref',
+              artifact_id: 'art_upload',
+              exclude_from_model_context: true,
+            },
+          ],
+        },
+      },
+      {
+        type: 'data-media',
+        data: { artifactId: 'art_upload', excludeFromModelContext: true },
       },
     ])
   })

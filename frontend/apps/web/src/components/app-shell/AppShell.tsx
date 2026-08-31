@@ -1,10 +1,10 @@
-import { ArrowUpRight, BookOpen } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { NavUser } from '@/components/app-shell/NavUser'
 import { OrganizationNav } from '@/components/app-shell/OrganizationNav'
 import { OrgSwitcher } from '@/components/app-shell/OrgSwitcher'
 import { ProjectsNav } from '@/components/app-shell/ProjectsNav'
+import { ArrowUpRight, BookOpen } from '@/components/icons'
 import {
   Sidebar,
   SidebarContent,

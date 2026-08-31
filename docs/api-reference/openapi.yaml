@@ -268,10 +268,10 @@ paths:
       summary: Create organization
       description: |
         Creates the organization and its local default resources atomically.
-        When supplied, the idempotency key determines the proposed organization
-        ID. Reusing it after a completed request returns the existing
-        organization without another hosted call. A failed retry uses the same
-        proposed ID. Without a key, each request is a fresh attempt.
+        An idempotency key determines the proposed organization ID; replaying it
+        returns the existing organization. Without a key, each request is a fresh
+        attempt. Optional default-provider provisioning begins after commit and
+        retries asynchronously without failing organization creation.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2277,6 +2277,104 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /mcp-servers:
+    get:
+      operationId: listMCPServers
+      tags: [Configs and Profiles]
+      summary: Search the MCP server registry
+      description: Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: Free-text query matched against server name, title, description, and remote URLs. Each term matches as a prefix.
+        - name: remote_url
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+          description: Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Registry servers matching the query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMCPServersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/mcp-servers/tools:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    post:
+      operationId: listMCPServerTools
+      tags: [Configs and Profiles]
+      summary: List an MCP server's tools
+      description: Connects to a remote MCP server over streamable HTTP, completes the initialize handshake, and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPServerToolsRequest'
+      responses:
+        '200':
+          description: Tools advertised by the MCP server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServerToolsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPServerAuthRequiredError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}:
     parameters:
       - name: orgID
@@ -3879,14 +3977,14 @@ paths:
     get:
       operationId: listQueuedBacklogInputs
       tags: [Agents]
-      summary: List queued backlog inputs
-      description: Items are ordered by queue position, then queued_at ascending, then id ascending.
+      summary: List waiting backlog inputs
+      description: Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
       parameters:
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Queued backlog inputs.
+          description: Waiting backlog inputs.
           content:
             application/json:
               schema:
@@ -4768,6 +4866,7 @@ paths:
       tags: [Machines]
       summary: Connect a BYO machine
       security:
+        - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
       requestBody:
@@ -5645,8 +5744,9 @@ paths:
       summary: Update machine pool
       description: >-
         Tenant-managed pools support every request field. Cluster-managed pools only allow changes to
-        default CPU and memory, environment and secret environment variables, and provider-supported
-        per-machine CPU and memory limits. Other cluster-managed changes are rejected with 409 Conflict.
+        default CPU and memory, environment and secret environment variables, provider-supported
+        per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes
+        are rejected with 409 Conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6281,6 +6381,101 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/tool-calls/{toolCallID}/artifact:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    post:
+      operationId: uploadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Upload daemon artifact
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Artifact created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadArtifactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: The uploaded artifact is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content:
+    parameters:
+      - name: toolCallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+      - name: artifactID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ArtifactID'
+    get:
+      operationId: downloadDaemonArtifact
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Download daemon artifact
+      security:
+        - machineDaemonAuth: []
+      responses:
+        '200':
+          description: Artifact bytes, served with the artifact's stored content type.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -6523,6 +6718,23 @@ components:
               code:
                 $ref: '#/components/schemas/ServerErrorCode'
   schemas:
+    ResourceName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      x-omnara-unicode-normalization: NFC
+      description: Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+    AgentName:
+      type: string
+      maxLength: 64
+      x-omnara-unicode-normalization: NFC
+      description: Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
+    SkillName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      description: Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
     ResourceListSort:
       type: string
       description: Sort order for named resources that expose created and modified timestamps.
@@ -6533,6 +6745,27 @@ components:
       description: Sort order for named resources that expose a created timestamp.
       default: -created_at
       enum: [name, -name, -created_at, created_at]
+    AgentConfigErrorIssue:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      properties:
+        path:
+          type: string
+          description: >-
+            JSON Pointer (RFC 6901) to the offending field in the submitted document.
+            An empty string refers to the whole document.
+        message:
+          type: string
+          description: Human-readable description of the problem with this field.
+        line:
+          type: integer
+          minimum: 1
+          description: 1-based line of the offending field in the submitted source, when it can be located.
+        column:
+          type: integer
+          minimum: 1
+          description: 1-based column of the offending field in the submitted source, when it can be located.
     Error:
       type: object
       additionalProperties: false
@@ -6541,6 +6774,13 @@ components:
         error:
           type: string
           description: Human-readable error message. Do not match on it programmatically.
+        issues:
+          type: array
+          description: >-
+            Field-level problems when a submitted document (such as an agent config source)
+            failed validation. Absent for errors that are not about a specific field.
+          items:
+            $ref: '#/components/schemas/AgentConfigErrorIssue'
         code:
           type: string
           description: Stable error code for programmatic handling.
@@ -6741,8 +6981,7 @@ components:
       required: [name, credential_secret_id]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         preset:
           type: string
           enum: [openai, openrouter, anthropic]
@@ -6823,7 +7062,7 @@ components:
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
@@ -6916,9 +7155,8 @@ components:
       required: [name, provider_model_slug, context_window_tokens]
       properties:
         name:
-          type: string
-          minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -6974,9 +7212,8 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
-          minLength: 1
-          description: Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
         provider_model_slug:
           type: string
           minLength: 1
@@ -7038,8 +7275,8 @@ components:
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         name:
-          type: string
-          description: Admin-facing configured model name used by agent YAML as model.name.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name.
         current_revision_id:
           $ref: '#/components/schemas/ConfiguredModelRevisionID'
         provider_model_slug:
@@ -7288,10 +7525,10 @@ components:
         model_provider_config_id:
           $ref: '#/components/schemas/ModelProviderConfigID'
         name:
-          type: string
-          description: Admin-facing configured model name used by agent YAML as model.name.
+          $ref: '#/components/schemas/ResourceName'
+          description: User-assigned configured model name used by agent YAML as model.name.
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
           description: Name of the provider config that owns this model, used by agent YAML as model.provider_config.
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -7443,7 +7680,7 @@ components:
         owner:
           $ref: '#/components/schemas/SkillOwner'
         name:
-          type: string
+          $ref: '#/components/schemas/SkillName'
         revision_id:
           $ref: '#/components/schemas/SkillRevisionID'
         revision:
@@ -7572,8 +7809,7 @@ components:
           type: string
           minLength: 1
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         return_to:
           type: string
         client_id:
@@ -7849,16 +8085,275 @@ components:
           $ref: '#/components/schemas/ToolPermissionProfile'
         mcp_tool_permissions:
           $ref: '#/components/schemas/ToolPermissionProfile'
+    MCPRegistryHeader:
+      type: object
+      additionalProperties: false
+      required: [name, is_required, is_secret]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        is_required:
+          type: boolean
+        is_secret:
+          type: boolean
+    MCPRegistryRemote:
+      type: object
+      additionalProperties: false
+      required: [type, url]
+      properties:
+        type:
+          type: string
+          description: Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
+        url:
+          type: string
+        headers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryHeader'
+    MCPRegistryIcon:
+      type: object
+      additionalProperties: false
+      required: [src]
+      properties:
+        src:
+          type: string
+          description: Absolute https URL of the icon image.
+        mime_type:
+          type: string
+        sizes:
+          type: array
+          items:
+            type: string
+          description: Icon sizes as `WxH` strings, or `any` for scalable images.
+        theme:
+          type: string
+          description: Theme the icon is intended for, `light` or `dark`, when the publisher specifies one.
+    MCPRegistryServer:
+      type: object
+      additionalProperties: false
+      required: [name, description, version, status, updated_at, remotes, icons]
+      properties:
+        name:
+          type: string
+          description: Reverse-DNS registry name, for example `io.github.owner/server`.
+        title:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        website_url:
+          type: string
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        remotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryRemote'
+        icons:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryIcon'
+    ListMCPServersResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPRegistryServer'
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or null when this is the last page.
+    MCPServerToolsRequest:
+      type: object
+      additionalProperties: false
+      required: [url, auth]
+      properties:
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+        auth:
+          $ref: '#/components/schemas/MCPServerAuth'
+    MCPServerAuth:
+      description: How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+      oneOf:
+        - $ref: '#/components/schemas/MCPServerAuthNone'
+        - $ref: '#/components/schemas/MCPServerAuthBearer'
+        - $ref: '#/components/schemas/MCPServerAuthOAuth'
+        - $ref: '#/components/schemas/MCPServerAuthSigV4'
+      discriminator:
+        propertyName: type
+        mapping:
+          none: '#/components/schemas/MCPServerAuthNone'
+          bearer: '#/components/schemas/MCPServerAuthBearer'
+          oauth: '#/components/schemas/MCPServerAuthOAuth'
+          sigv4: '#/components/schemas/MCPServerAuthSigV4'
+    MCPServerAuthNone:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [none]
+    MCPServerAuthBearer:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+          enum: [bearer]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: A generic secret whose value is sent as the bearer token.
+    MCPServerAuthOAuth:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+          enum: [oauth]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: An oauth_token_set secret. An expired access token is refreshed and the refreshed token set is stored as a new secret version.
+    MCPServerAuthSigV4:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id, service, region]
+      properties:
+        type:
+          type: string
+          enum: [sigv4]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: An aws_credentials secret used to sign requests.
+        service:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: AWS signing service name, for example `bedrock-agentcore`.
+        region:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: AWS signing region, for example `us-east-1`.
+    MCPServerAuthRequiredError:
+      type: object
+      additionalProperties: false
+      required: [error, code, auth]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message. Do not match on it programmatically.
+        code:
+          type: string
+          enum: [unprocessable]
+        auth:
+          $ref: '#/components/schemas/MCPServerAuthHint'
+    MCPServerAuthHint:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [oauth, bearer]
+          description: '`oauth` when the server advertises an OAuth authorization server per the MCP authorization spec; `bearer` when it rejects unauthenticated requests without OAuth metadata, which usually means a static API token.'
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Scopes the server requested or supports, when advertised.
+        authorization_server:
+          type: string
+          description: Issuer URL of the OAuth authorization server, when advertised.
+    MCPServerToolsResponse:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, server_info, tools]
+      properties:
+        protocol_version:
+          type: string
+          description: MCP protocol version negotiated with the server.
+        server_info:
+          $ref: '#/components/schemas/MCPServerInfo'
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPServerTool'
+    MCPServerInfo:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        website_url:
+          type: string
+    MCPServerTool:
+      type: object
+      additionalProperties: false
+      required: [name, input_schema]
+      properties:
+        name:
+          type: string
+          description: Tool name as advertised by the server. Referenced from agent config `mcp_servers.<key>.tools.<name>`.
+        title:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for the tool's arguments.
+        output_schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for the tool's structured result, when the server advertises one.
+        annotations:
+          $ref: '#/components/schemas/MCPServerToolAnnotations'
+    MCPServerToolAnnotations:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+        read_only_hint:
+          type: boolean
+        destructive_hint:
+          type: boolean
+        idempotent_hint:
+          type: boolean
+        open_world_hint:
+          type: boolean
     AgentConfigModel:
       type: object
       additionalProperties: false
       required: [provider_config, name, provider_model_slug, configured_model_id, current_revision_id, api_format, api_variant, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities]
       properties:
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         name:
-          type: string
-          description: Configured model name selected by this agent config, rendered from the current configured model display record.
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name selected by this agent config, rendered from the current configured model record.
         provider_model_slug:
           type: string
           description: Exact provider model slug on the configured model's current revision at response time.
@@ -7938,7 +8433,7 @@ components:
       required: [name, config]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         config:
           $ref: '#/components/schemas/AgentConfigID'
     UpdateAgentProfileRequest:
@@ -7956,7 +8451,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
     AgentProfile:
       type: object
       additionalProperties: false
@@ -7969,7 +8464,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
         current_generation:
@@ -8062,7 +8557,7 @@ components:
       required: [name, target, cron, message_template]
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
         cron:
@@ -8079,7 +8574,7 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         cron:
           $ref: '#/components/schemas/CronExpression'
         timezone:
@@ -8100,7 +8595,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
         cron:
@@ -8154,8 +8649,8 @@ components:
         config:
           $ref: '#/components/schemas/AgentConfigID'
         name:
-          type: string
-          description: Display name for the launched agent. Defaults to the profile name when launching from a profile.
+          $ref: '#/components/schemas/AgentName'
+          description: Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
         message:
           type: string
     Agent:
@@ -8175,7 +8670,7 @@ components:
           type: string
           enum: [active, archived]
         name:
-          type: string
+          $ref: '#/components/schemas/AgentName'
         integration_target:
           $ref: '#/components/schemas/IntegrationTarget'
         current_config_id:
@@ -8194,9 +8689,9 @@ components:
       required: [provider_config, name]
       properties:
         provider_config:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
     IntegrationTarget:
       type: object
       additionalProperties: false
@@ -8384,6 +8879,9 @@ components:
           enum: [media_ref]
         artifact_id:
           $ref: '#/components/schemas/ArtifactID'
+        exclude_from_model_context:
+          type: boolean
+          description: Whether the referenced artifact is excluded from later model context.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     ReasoningContentBlock:
@@ -8522,6 +9020,9 @@ components:
         actor_id:
           description: Actor this input is attributed to. Absent when the input has no actor attribution.
           $ref: '#/components/schemas/ActorID'
+        input_idempotency_key:
+          type: string
+          description: Idempotency key supplied when this content input was created. Absent for other input kinds.
         content_blocks:
           type: array
           items:
@@ -9728,8 +10229,7 @@ components:
         owner:
           $ref: '#/components/schemas/SecretOwnerInput'
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
         material:
@@ -9740,8 +10240,7 @@ components:
       minProperties: 1
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
     SecretVersionRequest:
@@ -9780,7 +10279,7 @@ components:
         owner:
           $ref: '#/components/schemas/SecretOwner'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         kind:
           $ref: '#/components/schemas/SecretKind'
         metadata:
@@ -9899,8 +10398,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     CreateOrganizationResponse:
       type: object
       additionalProperties: false
@@ -9920,7 +10418,7 @@ components:
         id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -9948,7 +10446,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         org_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         email:
           type: string
           format: email
@@ -9984,8 +10482,7 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     PersonalAccessToken:
       type: object
       additionalProperties: false
@@ -9996,7 +10493,7 @@ components:
         user_id:
           $ref: '#/components/schemas/UserID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         token_id:
           type: string
           description: Stable non-secret display identifier. It is not embedded in the bearer token.
@@ -10035,7 +10532,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         token_id:
           type: string
           description: Stable non-secret display identifier. It is not embedded in the bearer token.
@@ -10062,8 +10559,7 @@ components:
       required: [name, org_role]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         org_role:
           $ref: '#/components/schemas/OrgAPIKeyRole'
     CreateOrgAPIKeyResponse:
@@ -10083,8 +10579,7 @@ components:
       minProperties: 1
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         org_role:
           $ref: '#/components/schemas/OrgAPIKeyRole'
     ListOrgAPIKeysResponse:
@@ -10197,8 +10692,7 @@ components:
       required: [name, provider, default_machine_provider_options, provider_auth_secret_id, max_total_machines]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -10273,6 +10767,12 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
+          type: integer
+          format: int32
+          minimum: 5
+          maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
@@ -10280,8 +10780,7 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         default_machine_cpu:
@@ -10352,19 +10851,25 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
+          type: [integer, "null"]
+          format: int32
+          minimum: 5
+          maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         description:
@@ -10438,6 +10943,12 @@ components:
           type: [integer, "null"]
           format: int32
           minimum: 1
+          maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
+          type: [integer, "null"]
+          format: int32
+          minimum: 5
           maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
@@ -10527,7 +11038,7 @@ components:
             - $ref: '#/components/schemas/MachinePoolID'
             - type: "null"
         display_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -10584,8 +11095,7 @@ components:
       required: [display_name]
       properties:
         display_name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         cwd:
@@ -10603,17 +11113,33 @@ components:
     ConnectBYOMachineRequest:
       type: object
       additionalProperties: false
-      required: [display_name, project_ids]
+      required: [display_name]
       properties:
         display_name:
+          $ref: '#/components/schemas/ResourceName'
+        description:
           type: string
-          minLength: 1
+        cwd:
+          type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        secret_env:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
+        metadata:
+          $ref: '#/components/schemas/MachineMetadata'
         project_ids:
           type: array
           maxItems: 100
           uniqueItems: true
           items:
             $ref: '#/components/schemas/ProjectID'
+        token_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Optional daemon token name. Omitted values default to daemon.
     ConnectBYOMachineResponse:
       type: object
       additionalProperties: false
@@ -10658,7 +11184,7 @@ components:
         source_kind:
           $ref: '#/components/schemas/MachineSourceKind'
         display_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         description:
           type: string
         provider:
@@ -10797,7 +11323,7 @@ components:
     ProjectMachinePoolGrant:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at]
+      required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ProjectMachinePoolGrantID'
@@ -10870,6 +11396,18 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -10946,6 +11484,17 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
         metadata:
           $ref: '#/components/schemas/Metadata'
     UpdateProjectMachinePoolGrantRequest:
@@ -11018,6 +11567,18 @@ components:
           format: int32
           minimum: 1
           maximum: 2147483647
+        delete_after_idle_minutes:
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          oneOf:
+            - const: 0
+            - type: integer
+              minimum: 5
+              maximum: 2147483647
+            - type: "null"
         metadata:
           $ref: '#/components/schemas/Metadata'
     ListProjectMachinePoolGrantsResponse:
@@ -11050,7 +11611,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         management_kind:
           $ref: '#/components/schemas/ManagementKind'
         description:
@@ -11066,7 +11627,8 @@ components:
       additionalProperties: false
       properties:
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
+          description: Optional token name. Omitted values default to daemon.
         metadata:
           $ref: '#/components/schemas/Metadata'
     MachineDaemonToken:
@@ -11081,7 +11643,7 @@ components:
         machine_id:
           $ref: '#/components/schemas/MachineID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -11297,14 +11859,20 @@ components:
           $ref: '#/components/schemas/InstallationID'
         machine_id:
           $ref: '#/components/schemas/MachineID'
+    UploadArtifactResponse:
+      type: object
+      additionalProperties: false
+      required: [artifact_id]
+      properties:
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
     CreateProjectRequest:
       type: object
       additionalProperties: false
       required: [name]
       properties:
         name:
-          type: string
-          minLength: 1
+          $ref: '#/components/schemas/ResourceName'
     ProjectFields:
       type: object
       description: Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
@@ -11315,7 +11883,7 @@ components:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -11402,7 +11970,7 @@ components:
         id:
           $ref: '#/components/schemas/OrganizationID'
         name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         role:
           type: string
           description: The authenticated user's role in this organization.
@@ -11486,7 +12054,7 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         project_name:
-          type: string
+          $ref: '#/components/schemas/ResourceName'
         role:
           type: string
           description: The member's role on the project (admin, developer, operator, or viewer).

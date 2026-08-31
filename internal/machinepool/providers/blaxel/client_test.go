@@ -275,7 +275,7 @@ func TestBlaxelRESTClientListsSandboxesWithVersionedCursor(t *testing.T) {
 			query.Get("limit") != "200" ||
 			query.Get("q") != "omnara-mch-" ||
 			query.Has("showTerminated") ||
-			query.Get("sort") != "name:asc" {
+			query.Has("sort") {
 			t.Errorf("unexpected list query: %s", r.URL.RawQuery)
 			return
 		}

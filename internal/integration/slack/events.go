@@ -334,7 +334,8 @@ func RemoteUserEvent(workspaceID string, event Event) bool {
 }
 
 func BotOrSelfEvent(botUserID string, event Event) bool {
-	return event.User == "" || event.User == botUserID || event.BotID != "" || event.Subtype == "bot_message"
+	return event.User == "" || event.User == botUserID || event.User == "USLACK" || event.BotID != "" ||
+		event.Subtype == "bot_message"
 }
 
 func DisabledInstallEvent(botUserID string, event Event) bool {

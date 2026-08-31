@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -84,19 +85,21 @@ func (p *provider) ObserveRuntimeStates(
 	for _, index := range validIndexes {
 		target := targets[index]
 		matches := listed[target.ProviderResourceID]
-		if len(matches) != 1 {
+		if len(matches) == 0 {
 			continue
 		}
-		expectedName, _ := expectedSandboxName(target)
-		if !sandboxOwnedBy(
-			matches[0], expectedName, target.InstallationID, target.MachineID,
-		) {
-			continue
-		}
-		state := normalizedSandboxRuntimeState(matches[0])
-		if state != providers.RuntimeStateUnknown {
-			observations[index].State = state
-			continue
+		if len(matches) == 1 {
+			expectedName, _ := expectedSandboxName(target)
+			if !sandboxOwnedBy(
+				matches[0], expectedName, target.InstallationID, target.MachineID,
+			) {
+				continue
+			}
+			state := normalizedSandboxRuntimeState(matches[0])
+			if state != providers.RuntimeStateUnknown {
+				observations[index].State = state
+				continue
+			}
 		}
 
 		observation, err := observeRuntimeState(ctx, api, target)
@@ -161,9 +164,11 @@ func listTargetSandboxes(
 		}
 		for _, candidate := range page.Sandboxes {
 			if _, wanted := targetNames[candidate.Metadata.Name]; wanted {
-				if len(matches[candidate.Metadata.Name]) < 2 {
+				matched := matches[candidate.Metadata.Name]
+				if len(matched) == 0 ||
+					(len(matched) == 1 && !sameRuntimeSandbox(matched[0], candidate)) {
 					matches[candidate.Metadata.Name] = append(
-						matches[candidate.Metadata.Name], candidate,
+						matched, candidate,
 					)
 				}
 			}
@@ -180,6 +185,13 @@ func listTargetSandboxes(
 		seenCursors[page.NextCursor] = struct{}{}
 		cursor = page.NextCursor
 	}
+}
+
+func sameRuntimeSandbox(left, right sandbox) bool {
+	return left.Metadata.Name == right.Metadata.Name &&
+		maps.Equal(left.Metadata.Labels, right.Metadata.Labels) &&
+		left.State == right.State &&
+		left.Status == right.Status
 }
 
 func expectedSandboxName(target providers.RuntimeTarget) (string, bool) {

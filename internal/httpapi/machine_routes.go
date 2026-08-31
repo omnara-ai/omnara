@@ -84,12 +84,20 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
-		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	env, err := rawJSONFromPointer(request.Body.Env)
+	if err != nil {
+		return nil, err
 	}
-	projectIDs := make([]storage.ID, 0, len(request.Body.ProjectIds))
-	for _, projectID := range request.Body.ProjectIds {
+	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	if err != nil {
+		return nil, err
+	}
+	requestProjectIDs := []openapi.ProjectID{}
+	if request.Body.ProjectIds != nil {
+		requestProjectIDs = *request.Body.ProjectIds
+	}
+	projectIDs := make([]storage.ID, 0, len(requestProjectIDs))
+	for _, projectID := range requestProjectIDs {
 		parsed, ok := parseOpenAPIPublicID(publicid.KindProject, projectID)
 		if !ok {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
@@ -104,11 +112,20 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 		}
 		projectIDs = append(projectIDs, parsed)
 	}
+	tokenName := "daemon"
+	if request.Body.TokenName != nil && *request.Body.TokenName != "" {
+		tokenName = *request.Body.TokenName
+	}
 	result, err := s.server.store.Execution().ConnectBYOMachine(ctx, executionstore.ConnectBYOMachineInput{
 		OrgID:       org.ID,
 		DisplayName: request.Body.DisplayName,
+		Description: stringValue(request.Body.Description),
+		Cwd:         stringValue(request.Body.Cwd),
+		Env:         env,
+		SecretEnv:   secretEnv,
+		Metadata:    request.Body.Metadata,
 		ProjectIDs:  projectIDs,
-		TokenName:   "web-console",
+		TokenName:   tokenName,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -586,7 +603,7 @@ func (s strictOpenAPIServer) createBYOMachineDaemonToken(
 		body = *request.Body
 	}
 	name := "daemon"
-	if body.Name != nil && *body.Name != "" {
+	if body.Name != nil {
 		name = *body.Name
 	}
 	metadata := body.Metadata

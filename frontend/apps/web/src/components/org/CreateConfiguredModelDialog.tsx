@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -63,7 +64,7 @@ export function CreateConfiguredModelDialog({
         if (!model && provider) {
           model = await createConfiguredModel.mutateAsync({
             modelProviderConfigID: provider.id,
-            name: value.name.trim(),
+            name: value.name,
             provider_model_slug: value.providerModelSlug.trim(),
             context_window_tokens: Number(value.contextWindowTokens),
             ...(value.maxOutputTokens === ''
@@ -107,11 +108,7 @@ export function CreateConfiguredModelDialog({
   }
 
   function applyDiscoveredModel(model: DiscoveredProviderModel) {
-    for (const [fieldName, fieldValue] of discoveredModelPrefill(
-      providerById(form.state.values.providerId)?.name,
-      form.state.values,
-      model,
-    )) {
+    for (const [fieldName, fieldValue] of discoveredModelPrefill(form.state.values, model)) {
       form.setFieldValue(fieldName, fieldValue)
     }
   }
@@ -144,10 +141,7 @@ export function CreateConfiguredModelDialog({
                   providers={providers}
                   value={field.state.value}
                   onChange={(nextValue) => {
-                    for (const [fieldName, fieldValue] of providerChangeReset(
-                      providerById(field.state.value)?.name,
-                      form.state.values,
-                    )) {
+                    for (const [fieldName, fieldValue] of providerChangeReset(form.state.values)) {
                       form.setFieldValue(fieldName, fieldValue)
                     }
                     field.handleChange(nextValue)
@@ -168,6 +162,7 @@ export function CreateConfiguredModelDialog({
                       field.handleChange(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={field.state.value} />
                 </Field>
               )}
             </form.Field>

@@ -1,6 +1,6 @@
-import type { ComponentProps } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 type MachinePoolInputFieldProps = Omit<
@@ -13,6 +13,7 @@ type MachinePoolInputFieldProps = Omit<
   onValueChange: (value: string) => void
   description?: string
   descriptionHref?: string
+  error?: ReactNode
 }
 
 export function MachinePoolInputField({
@@ -22,11 +23,16 @@ export function MachinePoolInputField({
   onValueChange,
   description,
   descriptionHref,
+  error,
   ...inputProps
 }: MachinePoolInputFieldProps) {
   return (
     <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      {inputProps.required ? (
+        <RequiredFieldLabel htmlFor={id}>{label}</RequiredFieldLabel>
+      ) : (
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      )}
       <Input
         {...inputProps}
         id={id}
@@ -35,6 +41,7 @@ export function MachinePoolInputField({
           onValueChange(event.target.value)
         }}
       />
+      {error}
       {description && (
         <FieldDescription>
           {description}{' '}

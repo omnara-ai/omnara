@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -754,7 +753,6 @@ func completeMachinePoolCreateInputForTest(
 			t,
 			ctx,
 			store,
-			"machine-pool-provider-auth-"+strings.ToLower(strings.ReplaceAll(input.Name, " ", "-")),
 			"test-token",
 		)
 	}
@@ -765,14 +763,14 @@ func createMachinePoolProviderAuthSecretForTest(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	name, value string,
+	value string,
 ) ID {
 	t.Helper()
 	suffix, err := newSecretUUID()
 	if err != nil {
 		t.Fatalf("generate machine pool provider auth secret suffix: %v", err)
 	}
-	name = name + "-" + suffix.String()
+	name := "machine-pool-auth-" + suffix.String()
 	admin := createSecretTestUser(t, ctx, store, name+" admin", "admin")
 	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,

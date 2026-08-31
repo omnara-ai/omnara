@@ -1,5 +1,9 @@
 import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
 
+import { resourceNameValid } from '@/lib/resource-name'
+
+import { configuredModelSuggestedName } from './CreateConfiguredModelDialogState'
+
 export const modelProviderOptions = [
   { value: 'openai', label: 'OpenAI', keyPlaceholder: 'sk-…' },
   { value: 'openrouter', label: 'OpenRouter', keyPlaceholder: 'sk-or-v1-…' },
@@ -60,7 +64,7 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
 
 export function createModelProviderFormValid(values: CreateModelProviderFormValues) {
   return (
-    values.name.trim() !== '' &&
+    resourceNameValid(values.name) &&
     values.secretId !== '' &&
     (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim()))
   )
@@ -71,14 +75,13 @@ export function providerSecretName(provider: ModelProviderOption) {
 }
 
 export function configuredModelRequestForDiscoveredModel(
-  providerName: string,
   model: DiscoveredProviderModel,
 ): CreateConfiguredModelRequest {
   if (model.context_window_tokens === undefined || model.context_window_tokens < 2) {
     throw new Error(`No context window was reported for ${model.slug}`)
   }
   return {
-    name: `${providerName} - ${model.slug}`,
+    name: configuredModelSuggestedName(model.slug),
     provider_model_slug: model.slug,
     context_window_tokens: model.context_window_tokens,
     ...(model.max_output_tokens === undefined

@@ -199,6 +199,64 @@ func TestCancelAgentPreservesProcessAfterRunCommandReturnsHandle(t *testing.T) {
 	)
 }
 
+func TestCancelAcceptedProcessActionRestartsProcessActivity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "cancel_accepted_action_activity")
+	process, action, toolCallID := createTerminalProcessActionForLifecycleTest(
+		t,
+		ctx,
+		fixture,
+		"cancel_accepted_action_activity",
+		"write_process",
+		executionstore.ProcessActionKindWrite,
+		true,
+	)
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE processes
+SET last_activity_at = statement_timestamp() - interval '20 minutes'
+WHERE id = $1
+`, process.ID); err != nil {
+		t.Fatalf("backdate process activity: %v", err)
+	}
+	var before time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&before); err != nil {
+		t.Fatalf("load process activity before cancel: %v", err)
+	}
+	if _, err := fixture.Store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		Actor:     mustOmnaraActorParams(t, fixture.UserID),
+	}); err != nil {
+		t.Fatalf("cancel agent: %v", err)
+	}
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx,
+		testProjectID,
+		fixture.AgentID,
+		toolCallID,
+	)
+	if err != nil {
+		t.Fatalf("get canceled process action: %v", err)
+	}
+	if !found || updated.ID != action.ID ||
+		updated.State != executionstore.ProcessActionStateUnknown ||
+		updated.StateReasonCode != "agent_canceled_after_grant" {
+		t.Fatalf("canceled process action = found %t %+v", found, updated)
+	}
+	var after time.Time
+	if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT last_activity_at FROM processes WHERE id = $1
+`, process.ID).Scan(&after); err != nil {
+		t.Fatalf("load process activity after cancel: %v", err)
+	}
+	if !after.After(before) {
+		t.Fatalf("process activity after accepted action cancellation = %s, want after %s", after, before)
+	}
+}
+
 func TestProcessReadinessAndAgentCancellationResolveAtomically(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

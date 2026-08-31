@@ -4,9 +4,9 @@ import type {
   InteractionFormOption,
   ResolveAgentInteractionRequest,
 } from '@omnara/sdk'
-import { KeyRound, MessageCircleQuestion } from 'lucide-react'
 import { useState } from 'react'
 
+import { KeyRound, MessageCircleQuestion } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'

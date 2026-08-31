@@ -1,11 +1,12 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
-import { PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { PlusIcon } from '@/components/icons'
 import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
 import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
@@ -121,6 +122,8 @@ export function AgentConfigModelField({
           }
           disabled={grantsQuery.isError || selectedQuery.isError}
         />
+        <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
+        <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
         {unavailable && (
           <p className="text-destructive text-sm">
             The configured model “{value.modelName}” ({value.providerConfig}) is no longer available

@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -64,6 +65,7 @@ func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (o
 		MinMachineMemoryMb:            nullableInt32FromIntPtr(record.MinMachineMemoryMB),
 		MaxMachineCpu:                 nullableInt32FromIntPtr(record.MaxMachineCPU),
 		MaxMachineMemoryMb:            nullableInt32FromIntPtr(record.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        nullableInt32FromIntPtr(record.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 		CreatedAt:                     record.CreatedAt,
 		UpdatedAt:                     record.UpdatedAt,
@@ -159,6 +161,11 @@ func (s strictOpenAPIServer) createMachinePool(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", request.Body.Name)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	request.Body.Name = canonicalName
 	description := ""
 	if request.Body.Description != nil {
 		description = *request.Body.Description
@@ -211,6 +218,7 @@ func (s strictOpenAPIServer) createMachinePool(
 		MinMachineMemoryMB:            intPtrFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 intPtrFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            intPtrFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        intPtrFromInt32(request.Body.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -276,6 +284,13 @@ func (s strictOpenAPIServer) updateMachinePool(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	if request.Body.Name != nil {
+		canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", *request.Body.Name)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+		request.Body.Name = &canonicalName
+	}
 	poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, request.PoolID)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
@@ -326,6 +341,7 @@ func (s strictOpenAPIServer) updateMachinePool(
 		MinMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MinMachineMemoryMb),
 		MaxMachineCPU:                 nullableIntPatchFromInt32(request.Body.MaxMachineCpu),
 		MaxMachineMemoryMB:            nullableIntPatchFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        nullableIntPatchFromInt32(request.Body.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {

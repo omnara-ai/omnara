@@ -107,6 +107,10 @@ func invalidSkillRequest(format string, args ...any) error {
 	return storeerr.InvalidRequest(fmt.Errorf("invalid skill request: %s", detail))
 }
 
+func invalidSkillName(format string, args ...any) error {
+	return storeerr.Tag(storeerr.ErrInvalidSkillName, invalidSkillRequest(format, args...))
+}
+
 func isNilUUID(value uuid.UUID) bool {
 	return value == uuid.Nil
 }

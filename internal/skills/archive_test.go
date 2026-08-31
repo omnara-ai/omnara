@@ -201,6 +201,15 @@ func TestExtractMetadataRejectsInvalidNameGrammar(t *testing.T) {
 	}
 }
 
+func TestValidateNameLengthBoundary(t *testing.T) {
+	if err := ValidateName(strings.Repeat("a", MaxSkillNameChars)); err != nil {
+		t.Fatalf("ValidateName at limit: %v", err)
+	}
+	if err := ValidateName(strings.Repeat("a", MaxSkillNameChars+1)); err == nil {
+		t.Fatal("ValidateName above limit succeeded")
+	}
+}
+
 func TestExtractMetadataRejectsOversizedDescription(t *testing.T) {
 	body := "---\nname: pdf-tools\ndescription: " +
 		strings.Repeat("x", MaxSkillDescriptionChars+1) +

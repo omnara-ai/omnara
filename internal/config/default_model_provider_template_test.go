@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,13 +20,13 @@ func TestLoadDefaultModelProviderTemplate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
 provisioner: " openrouter "
-name: " omnara-openrouter "
-credential_secret_name: " omnara-openrouter-key "
+name: "omnara-openrouter"
+credential_secret_name: "omnara-openrouter-key"
 api_format: " openai-chat-completions "
 api_variant: " openrouter "
 base_url: " https://openrouter.ai/api/v1/ "
 models:
-  - name: " claude-sonnet-4.5 "
+  - name: "claude-sonnet-4.5"
     provider_model_slug: " anthropic/claude-sonnet-4.5 "
     context_window_tokens: 200000
     max_output_tokens: 64000
@@ -83,7 +84,7 @@ func TestLoadDefaultModelProviderExample(t *testing.T) {
 	}
 }
 
-func TestDefaultModelProviderTemplateProvisionerIsAPIOnly(t *testing.T) {
+func TestDefaultModelProviderTemplateRequiresCredentialService(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -106,8 +107,13 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateMaintenance(); err != nil {
-		t.Fatalf("ValidateMaintenance error = %v, want nil", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
+			t.Fatalf("Validate%s error = %v, want missing hosted API URL", name, err)
+		}
 	}
 	if cfg.DefaultModelProvider == nil ||
 		len(cfg.DefaultModelProvider.Models) != 1 ||
@@ -119,9 +125,25 @@ models:
 			cfg.DefaultModelProvider,
 		)
 	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_URL") {
-		t.Fatalf("ValidateAPI error = %v, want missing hosted API URL", err)
+}
+
+func TestHostedCredentialServiceRequiresDefaultModelProviderTemplate(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
+	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil ||
+			!strings.Contains(err.Error(), "OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE") {
+			t.Fatalf("Validate%s error = %v, want missing default model provider template", name, err)
+		}
 	}
 }
 
@@ -197,7 +219,62 @@ models:
 	}
 }
 
-func TestDefaultModelProviderTemplateAPIRequiresHostedAPIToken(t *testing.T) {
+func TestLoadDefaultModelProviderTemplateRejectsBoundaryWhitespaceNames(t *testing.T) {
+	tests := []struct {
+		name           string
+		providerName   string
+		credentialName string
+		modelName      string
+		want           string
+	}{
+		{
+			name:           "provider config name",
+			providerName:   " omnara-openrouter",
+			credentialName: "omnara-openrouter-key",
+			modelName:      "glm-4.6",
+			want:           "model provider config name must not start or end with whitespace",
+		},
+		{
+			name:           "credential secret name",
+			providerName:   "omnara-openrouter",
+			credentialName: "omnara-openrouter-key ",
+			modelName:      "glm-4.6",
+			want:           "credential secret name must not start or end with whitespace",
+		},
+		{
+			name:           "configured model name",
+			providerName:   "omnara-openrouter",
+			credentialName: "omnara-openrouter-key",
+			modelName:      " glm-4.6",
+			want:           "configured model name must not start or end with whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`
+provisioner: openrouter
+name: %q
+credential_secret_name: %q
+api_format: openai-chat-completions
+base_url: https://openrouter.ai/api/v1
+models:
+  - name: %q
+    provider_model_slug: z-ai/glm-4.6
+    context_window_tokens: 128000
+`, tt.providerName, tt.credentialName, tt.modelName)
+			path := writeDefaultModelProviderTemplateTestFile(t, body)
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Load error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultModelProviderTemplateRequiresHostedAPIToken(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := writeDefaultModelProviderTemplateTestFile(t, `
 provisioner: openrouter
@@ -218,9 +295,13 @@ models:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
-		t.Fatalf("ValidateAPI error = %v, want missing hosted API token", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil || !strings.Contains(err.Error(), "OMNARA_HOSTED_API_TOKEN") {
+			t.Fatalf("Validate%s error = %v, want missing hosted API token", name, err)
+		}
 	}
 }
 
@@ -262,9 +343,14 @@ models:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if err := cfg.ValidateAPI(); err == nil ||
-		!strings.Contains(err.Error(), "hosted credential request exceeds size limit") {
-		t.Fatalf("ValidateAPI error = %v, want hosted request size limit", err)
+	for name, validate := range map[string]func() error{
+		"API":         cfg.ValidateAPI,
+		"maintenance": cfg.ValidateMaintenance,
+	} {
+		if err := validate(); err == nil ||
+			!strings.Contains(err.Error(), "hosted credential request exceeds size limit") {
+			t.Fatalf("Validate%s error = %v, want hosted request size limit", name, err)
+		}
 	}
 }
 

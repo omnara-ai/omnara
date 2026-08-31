@@ -14,7 +14,7 @@ graph LR
     D -.dials out.-> CP["Omnara control plane"]
 ```
 
-The daemon connects outbound to the control plane, so the container needs no inbound ports. If it disconnects, the [agent remains durable](/how-omnara-works#the-log-is-the-agent); commands against the machine return retryable errors until it reconnects.
+The daemon connects outbound to the control plane, so the container needs no inbound ports. If it disconnects, the [agent remains durable](/concepts); commands against the machine return retryable errors until it reconnects.
 
 ## The pieces
 
@@ -29,7 +29,7 @@ Four files do the work. The [repository README](https://github.com/omnara-ai/omn
 
 ## Register the machine
 
-In the console: open **Machines** and click **Connect machine**. Pick the machine *name* — agent configs reference machines by name, so choose something stable — and the project whose agents may use it, then copy the machine token (shown once). The script feeds that token to the daemon:
+In the dashboard: open **Machines** and click **Connect machine**. Pick the machine *name* — agent configs reference machines by name, so choose something stable — and the project whose agents may use it, then copy the machine token (shown once). The script feeds that token to the daemon:
 
 ```sh
 cd examples/sharepoint-mount
@@ -51,7 +51,7 @@ instruction: |
   before making destructive changes.
 model:
   provider_config: openai-prod
-  name: openai-prod - gpt-5.6
+  name: gpt-5.6
 machine_sources:
   - machine_name: sharepoint-docs    # the name from Connect machine
     cwd: /mnt/sharepoint
@@ -72,7 +72,7 @@ tools:
 
 The image includes tools such as `pandoc` and `openpyxl`; the instruction tells the agent how to use them.
 
-Launch an agent from this config ([console or API](/agents/overview#launch-an-agent)) and verify:
+Launch an agent from this config ([dashboard or API](/agents/overview#launch-an-agent)) and verify:
 
 ```text
 Ask the agent: run `pwd && ls -la`

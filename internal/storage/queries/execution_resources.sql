@@ -1,6 +1,6 @@
 -- name: InsertMachinePool :one
-INSERT INTO machine_pools(org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, created_at, updated_at)
-SELECT orgs.id, sqlc.arg(name), sqlc.arg(management_kind), sqlc.arg(description), sqlc.arg(provider), sqlc.narg(default_machine_cpu)::integer, sqlc.narg(default_machine_memory_mb)::integer, sqlc.arg(default_machine_env)::jsonb, sqlc.arg(default_machine_secret_env)::jsonb, sqlc.arg(default_machine_provider_options)::jsonb, sqlc.arg(default_cwd), sqlc.arg(provider_config), sqlc.narg(provider_auth_secret_id)::uuid, sqlc.arg(provider_auth_env_var), sqlc.arg(runtime_protection_enabled)::boolean, sqlc.arg(max_total_machines)::integer, sqlc.narg(max_total_cpu)::integer, sqlc.narg(max_total_memory_mb)::integer, sqlc.narg(min_machine_cpu)::integer, sqlc.narg(min_machine_memory_mb)::integer, sqlc.narg(max_machine_cpu)::integer, sqlc.narg(max_machine_memory_mb)::integer, sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
+INSERT INTO machine_pools(org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at)
+SELECT orgs.id, sqlc.arg(name), sqlc.arg(management_kind), sqlc.arg(description), sqlc.arg(provider), sqlc.narg(default_machine_cpu)::integer, sqlc.narg(default_machine_memory_mb)::integer, sqlc.arg(default_machine_env)::jsonb, sqlc.arg(default_machine_secret_env)::jsonb, sqlc.arg(default_machine_provider_options)::jsonb, sqlc.arg(default_cwd), sqlc.arg(provider_config), sqlc.narg(provider_auth_secret_id)::uuid, sqlc.arg(provider_auth_env_var), sqlc.arg(runtime_protection_enabled)::boolean, sqlc.arg(max_total_machines)::integer, sqlc.narg(max_total_cpu)::integer, sqlc.narg(max_total_memory_mb)::integer, sqlc.narg(min_machine_cpu)::integer, sqlc.narg(min_machine_memory_mb)::integer, sqlc.narg(max_machine_cpu)::integer, sqlc.narg(max_machine_memory_mb)::integer, sqlc.narg(delete_after_idle_minutes)::integer, sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
 FROM orgs
 LEFT JOIN secrets provider_auth_secret ON provider_auth_secret.org_id = orgs.id
   AND provider_auth_secret.id = sqlc.narg(provider_auth_secret_id)::uuid
@@ -15,15 +15,15 @@ WHERE orgs.id = sqlc.arg(org_id)
     (sqlc.arg(management_kind) = 'cluster' AND sqlc.narg(provider_auth_secret_id)::uuid IS NULL AND sqlc.arg(provider_auth_env_var) <> '')
   )
 ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
-RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb;
+RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes;
 
 -- name: GetMachinePool :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
 
 -- name: LockMachinePoolForUpdate :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR UPDATE;
@@ -48,13 +48,14 @@ SET name = sqlc.arg(name),
     min_machine_memory_mb = sqlc.narg(min_machine_memory_mb)::integer,
     max_machine_cpu = sqlc.narg(max_machine_cpu)::integer,
     max_machine_memory_mb = sqlc.narg(max_machine_memory_mb)::integer,
+    delete_after_idle_minutes = sqlc.narg(delete_after_idle_minutes)::integer,
     metadata = sqlc.arg(metadata),
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
   AND management_kind = sqlc.arg(management_kind)
   AND deleted_at IS NULL
-RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb;
+RETURNING id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes;
 
 -- name: ClearMachinePoolRuntimeMismatch :exec
 UPDATE machines
@@ -131,7 +132,7 @@ WHERE org_id = sqlc.arg(org_id)
 RETURNING id, project_id;
 
 -- name: GetMachinePoolForLifecycle :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id);
 
@@ -151,7 +152,7 @@ SELECT id, org_id, name, management_kind, description, provider, default_machine
        provider_auth_secret_id, provider_auth_env_var, max_total_machines,
        max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb,
        metadata, deleted_at, created_at, updated_at, runtime_protection_enabled,
-       min_machine_cpu, min_machine_memory_mb,
+       min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes,
        coalesce(usage.active_machines, 0)::integer AS active_machines,
        coalesce(usage.active_cpu, 0)::bigint AS active_cpu,
        coalesce(usage.active_memory_mb, 0)::bigint AS active_memory_mb,
@@ -239,18 +240,18 @@ WHERE org_id = sqlc.arg(org_id)
 ORDER BY id;
 
 -- name: GetMachinePoolByName :one
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND name = sqlc.arg(name) AND deleted_at IS NULL;
 
 -- name: ListClusterManagedMachinePools :many
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND management_kind = 'cluster' AND deleted_at IS NULL
 ORDER BY name, id;
 
 -- name: ListClusterManagedMachinePoolsByName :many
-SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb
+SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE name = sqlc.arg(name) AND management_kind = 'cluster' AND deleted_at IS NULL
 ORDER BY org_id, id;
@@ -647,6 +648,12 @@ WHERE cleanup_reason_code <> ''
 ORDER BY created_at, id
 LIMIT sqlc.arg(limit_count)::integer;
 
+-- name: ListExpiredIdlePoolMachines :many
+SELECT org_id, machine_id
+FROM expired_idle_pool_machine_candidates
+ORDER BY org_id, machine_id
+LIMIT sqlc.arg(limit_count)::integer;
+
 -- name: LockPoolMachineDeletionAttemptForLifecycle :one
 SELECT id, machine_pool_id
 FROM machines
@@ -760,6 +767,29 @@ FROM candidate
 WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.id = candidate.id
 RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, candidate.can_finalize_missing_provider_resource;
+
+-- name: ClaimExpiredIdlePoolMachineDeletion :one
+WITH candidate AS MATERIALIZED (
+  SELECT machine_id AS id
+  FROM expired_idle_pool_machine_candidates
+  WHERE org_id = sqlc.arg(org_id)
+    AND machine_id = sqlc.arg(id)
+)
+UPDATE machines machine
+SET lifecycle_state = 'deleting',
+    lifecycle_changed_at = statement_timestamp(),
+    lifecycle_version = machine.lifecycle_version + 1,
+    lifecycle_reason_code = 'idle_timeout',
+    lifecycle_reason_message = 'machine exceeded its idle deletion policy',
+    next_reconcile_after = statement_timestamp() + sqlc.arg(claim_timeout_seconds)::bigint * interval '1 second',
+    delete_attempts = machine.delete_attempts + 1,
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
+    updated_at = statement_timestamp()
+FROM candidate
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = candidate.id
+RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, false AS can_finalize_missing_provider_resource;
 
 -- name: RecordPoolMachineDeletionResource :one
 UPDATE machines

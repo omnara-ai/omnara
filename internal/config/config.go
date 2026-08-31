@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -101,6 +102,7 @@ type Config struct {
 	OpenRouterAppCategories           []string
 	HostedAPIURL                      string
 	HostedAPIToken                    string
+	MCPRegistrySnapshotPath           string
 }
 
 type AuthConnectorConfig struct {
@@ -271,6 +273,7 @@ func Load() (Config, error) {
 		OpenRouterAppCategories:           openRouterAppCategories,
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
+		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
 	}
 	if defaultMachinePoolTemplatesPath := getenv(
 		"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES",
@@ -391,6 +394,9 @@ func (cfg Config) ValidateAPI() error {
 	}
 	if err := validatePortWithName("OMNARA_API_METRICS_ADDR", cfg.APIMetricsAddr); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MCPRegistrySnapshotPath) {
+		return errors.New("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH must be an absolute path")
 	}
 	if !cfg.AllowInsecureDev && cfg.DatabaseURL == "" {
 		return fmt.Errorf(
@@ -699,6 +705,12 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
+	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
+		return err
+	}
+	if err := cfg.validateHostedAPIConfig(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -717,6 +729,11 @@ func (cfg Config) validateHostedAPIConfig() error {
 	configured := cfg.HostedAPIURL != "" || cfg.HostedAPIToken != ""
 	if !required && !configured {
 		return nil
+	}
+	if cfg.DefaultModelProvider == nil {
+		return errors.New(
+			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE is required when hosted API access is configured",
+		)
 	}
 	if cfg.HostedAPIURL == "" {
 		return errors.New("OMNARA_HOSTED_API_URL is required when hosted API access is configured")

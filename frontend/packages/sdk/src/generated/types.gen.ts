@@ -5,6 +5,21 @@ export type ClientOptions = {
 };
 
 /**
+ * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+ */
+export type ResourceName = string;
+
+/**
+ * Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
+ */
+export type AgentName = string;
+
+/**
+ * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export type SkillName = string;
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' | '-created_at' | 'created_at';
@@ -14,11 +29,34 @@ export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' |
  */
 export type CreatedResourceListSort = 'name' | '-name' | '-created_at' | 'created_at';
 
+export type AgentConfigErrorIssue = {
+    /**
+     * JSON Pointer (RFC 6901) to the offending field in the submitted document. An empty string refers to the whole document.
+     */
+    path: string;
+    /**
+     * Human-readable description of the problem with this field.
+     */
+    message: string;
+    /**
+     * 1-based line of the offending field in the submitted source, when it can be located.
+     */
+    line?: number;
+    /**
+     * 1-based column of the offending field in the submitted source, when it can be located.
+     */
+    column?: number;
+};
+
 export type Error = {
     /**
      * Human-readable error message. Do not match on it programmatically.
      */
     error: string;
+    /**
+     * Field-level problems when a submitted document (such as an agent config source) failed validation. Absent for errors that are not about a specific field.
+     */
+    issues?: Array<AgentConfigErrorIssue>;
     /**
      * Stable error code for programmatic handling.
      */
@@ -127,7 +165,7 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
  * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export type CreateModelProviderConfigRequest = {
-    name: string;
+    name: ResourceName;
     preset?: 'openai' | 'openrouter' | 'anthropic';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
@@ -183,7 +221,7 @@ export type ModelProviderConfig = {
     id: ModelProviderConfigId;
     org_id: OrganizationId;
     management_kind: ManagementKind;
-    name: string;
+    name: ResourceName;
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
@@ -247,9 +285,9 @@ export type ModelProviderConfigList = {
 
 export type CreateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
+     * User-assigned configured model name used by agent YAML as model.name. Names are unique within an active model provider config and can be renamed without changing existing agents.
      */
-    name: string;
+    name: ResourceName;
     /**
      * Exact provider model slug sent to the provider endpoint.
      */
@@ -299,9 +337,9 @@ export type CreateConfiguredModelRequest = {
  */
 export type UpdateConfiguredModelRequest = {
     /**
-     * Admin-facing configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
+     * User-assigned configured model name used by agent YAML as model.name. Renaming affects future YAML resolution but does not change existing agents.
      */
-    name?: string;
+    name?: ResourceName;
     /**
      * Exact provider model slug sent to the provider endpoint.
      */
@@ -352,9 +390,9 @@ export type ConfiguredModel = {
     model_provider_config_id: ModelProviderConfigId;
     management_kind: ManagementKind;
     /**
-     * Admin-facing configured model name used by agent YAML as model.name.
+     * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: string;
+    name: ResourceName;
     current_revision_id: ConfiguredModelRevisionId;
     /**
      * Exact provider model slug sent to the provider endpoint by the current revision.
@@ -560,13 +598,13 @@ export type ConfiguredModelSummary = {
     org_id: OrganizationId;
     model_provider_config_id: ModelProviderConfigId;
     /**
-     * Admin-facing configured model name used by agent YAML as model.name.
+     * User-assigned configured model name used by agent YAML as model.name.
      */
-    name: string;
+    name: ResourceName;
     /**
      * Name of the provider config that owns this model, used by agent YAML as model.provider_config.
      */
-    provider_config: string;
+    provider_config: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -655,7 +693,7 @@ export type Skill = {
     id: SkillId;
     org_id: OrganizationId;
     owner: SkillOwner;
-    name: string;
+    name: SkillName;
     revision_id: SkillRevisionId;
     /**
      * Latest revision number of the skill.
@@ -723,7 +761,7 @@ export type ListSkillGrantsResponse = {
 export type McpoAuthStartRequest = {
     owner: SecretOwnerInput;
     mcp_url: string;
-    name: string;
+    name: ResourceName;
     return_to?: string;
     client_id?: string;
     client_secret?: string;
@@ -861,12 +899,195 @@ export type ToolCatalog = {
     mcp_tool_permissions: ToolPermissionProfile;
 };
 
-export type AgentConfigModel = {
-    provider_config: string;
+export type McpRegistryHeader = {
+    name: string;
+    description?: string;
+    is_required: boolean;
+    is_secret: boolean;
+};
+
+export type McpRegistryRemote = {
     /**
-     * Configured model name selected by this agent config, rendered from the current configured model display record.
+     * Transport type as published in the registry. Always `streamable-http`; other transports are dropped when the snapshot is built.
+     */
+    type: string;
+    url: string;
+    headers?: Array<McpRegistryHeader>;
+};
+
+export type McpRegistryIcon = {
+    /**
+     * Absolute https URL of the icon image.
+     */
+    src: string;
+    mime_type?: string;
+    /**
+     * Icon sizes as `WxH` strings, or `any` for scalable images.
+     */
+    sizes?: Array<string>;
+    /**
+     * Theme the icon is intended for, `light` or `dark`, when the publisher specifies one.
+     */
+    theme?: string;
+};
+
+export type McpRegistryServer = {
+    /**
+     * Reverse-DNS registry name, for example `io.github.owner/server`.
      */
     name: string;
+    title?: string;
+    description: string;
+    version: string;
+    website_url?: string;
+    status: string;
+    updated_at: string;
+    remotes: Array<McpRegistryRemote>;
+    icons: Array<McpRegistryIcon>;
+};
+
+export type ListMcpServersResponse = {
+    data: Array<McpRegistryServer>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
+export type McpServerToolsRequest = {
+    /**
+     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     */
+    url: string;
+    auth: McpServerAuth;
+};
+
+/**
+ * How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+ */
+export type McpServerAuth = ({
+    type: 'none';
+} & McpServerAuthNone) | ({
+    type: 'bearer';
+} & McpServerAuthBearer) | ({
+    type: 'oauth';
+} & McpServerAuthOAuth) | ({
+    type: 'sigv4';
+} & McpServerAuthSigV4);
+
+export type McpServerAuthNone = {
+    type: 'none';
+};
+
+export type McpServerAuthBearer = {
+    type: 'bearer';
+    /**
+     * A generic secret whose value is sent as the bearer token.
+     */
+    secret_id: SecretId;
+};
+
+export type McpServerAuthOAuth = {
+    type: 'oauth';
+    /**
+     * An oauth_token_set secret. An expired access token is refreshed and the refreshed token set is stored as a new secret version.
+     */
+    secret_id: SecretId;
+};
+
+export type McpServerAuthSigV4 = {
+    type: 'sigv4';
+    /**
+     * An aws_credentials secret used to sign requests.
+     */
+    secret_id: SecretId;
+    /**
+     * AWS signing service name, for example `bedrock-agentcore`.
+     */
+    service: string;
+    /**
+     * AWS signing region, for example `us-east-1`.
+     */
+    region: string;
+};
+
+export type McpServerAuthRequiredError = {
+    /**
+     * Human-readable error message. Do not match on it programmatically.
+     */
+    error: string;
+    code: 'unprocessable';
+    auth: McpServerAuthHint;
+};
+
+export type McpServerAuthHint = {
+    /**
+     * `oauth` when the server advertises an OAuth authorization server per the MCP authorization spec; `bearer` when it rejects unauthenticated requests without OAuth metadata, which usually means a static API token.
+     */
+    type: 'oauth' | 'bearer';
+    /**
+     * Scopes the server requested or supports, when advertised.
+     */
+    scopes?: Array<string>;
+    /**
+     * Issuer URL of the OAuth authorization server, when advertised.
+     */
+    authorization_server?: string;
+};
+
+export type McpServerToolsResponse = {
+    /**
+     * MCP protocol version negotiated with the server.
+     */
+    protocol_version: string;
+    server_info: McpServerInfo;
+    tools: Array<McpServerTool>;
+};
+
+export type McpServerInfo = {
+    name: string;
+    version: string;
+    title?: string;
+    description?: string;
+    website_url?: string;
+};
+
+export type McpServerTool = {
+    /**
+     * Tool name as advertised by the server. Referenced from agent config `mcp_servers.<key>.tools.<name>`.
+     */
+    name: string;
+    title?: string;
+    description?: string;
+    /**
+     * JSON Schema for the tool's arguments.
+     */
+    input_schema: {
+        [key: string]: unknown;
+    };
+    /**
+     * JSON Schema for the tool's structured result, when the server advertises one.
+     */
+    output_schema?: {
+        [key: string]: unknown;
+    };
+    annotations?: McpServerToolAnnotations;
+};
+
+export type McpServerToolAnnotations = {
+    title?: string;
+    read_only_hint?: boolean;
+    destructive_hint?: boolean;
+    idempotent_hint?: boolean;
+    open_world_hint?: boolean;
+};
+
+export type AgentConfigModel = {
+    provider_config: ResourceName;
+    /**
+     * Configured model name selected by this agent config, rendered from the current configured model record.
+     */
+    name: ResourceName;
     /**
      * Exact provider model slug on the configured model's current revision at response time.
      */
@@ -914,7 +1135,7 @@ export type AgentConfig = {
 };
 
 export type CreateAgentProfileRequest = {
-    name: string;
+    name: ResourceName;
     config: AgentConfigId;
 };
 
@@ -924,14 +1145,14 @@ export type UpdateAgentProfileRequest = {
 };
 
 export type RenameAgentProfileRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    name: string;
+    name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
     current_config: AgentConfig;
@@ -991,7 +1212,7 @@ export type CronTriggerFailureReport = {
 };
 
 export type CreateCronTriggerRequest = {
-    name: string;
+    name: ResourceName;
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone?: CronTimezone;
@@ -1000,7 +1221,7 @@ export type CreateCronTriggerRequest = {
 };
 
 export type UpdateCronTriggerRequest = {
-    name?: string;
+    name?: ResourceName;
     cron?: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
@@ -1011,7 +1232,7 @@ export type CronTrigger = {
     id: CronTriggerId;
     org_id: OrganizationId;
     project_id: ProjectId;
-    name: string;
+    name: ResourceName;
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone: CronTimezone;
@@ -1045,9 +1266,9 @@ export type CreateAgentRequest = {
     profile?: AgentProfileId;
     config: AgentConfigId;
     /**
-     * Display name for the launched agent. Defaults to the profile name when launching from a profile.
+     * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
-    name?: string;
+    name?: AgentName;
     message?: string;
 };
 
@@ -1057,7 +1278,7 @@ export type Agent = {
     project_id: ProjectId;
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
-    name: string;
+    name: AgentName;
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
@@ -1067,8 +1288,8 @@ export type Agent = {
 };
 
 export type AgentModel = {
-    provider_config: string;
-    name: string;
+    provider_config: ResourceName;
+    name: ResourceName;
 };
 
 export type IntegrationTarget = {
@@ -1161,6 +1382,10 @@ export type InlineMediaContentBlock = {
 export type MediaRefContentBlock = {
     type: 'media_ref';
     artifact_id: ArtifactId;
+    /**
+     * Whether the referenced artifact is excluded from later model context.
+     */
+    exclude_from_model_context?: boolean;
     metadata?: ContentBlockMetadata;
 };
 
@@ -1248,6 +1473,10 @@ export type AgentInput = {
      * Actor this input is attributed to. Absent when the input has no actor attribution.
      */
     actor_id?: ActorId;
+    /**
+     * Idempotency key supplied when this content input was created. Absent for other input kinds.
+     */
+    input_idempotency_key?: string;
     content_blocks?: Array<AgentInputContentBlock>;
     queued_at: Timestamp;
 };
@@ -1928,13 +2157,13 @@ export type SecretMaterial = ({
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
-    name: string;
+    name: ResourceName;
     metadata?: Metadata;
     material: SecretMaterial;
 };
 
 export type UpdateSecretRequest = {
-    name?: string;
+    name?: ResourceName;
     metadata?: Metadata;
 };
 
@@ -1953,7 +2182,7 @@ export type Secret = {
     org_id: OrganizationId;
     management_kind: ManagementKind;
     owner: SecretOwner;
-    name: string;
+    name: ResourceName;
     kind: SecretKind;
     metadata: Metadata;
     current_version_number: number;
@@ -2013,7 +2242,7 @@ export type ListSecretGrantsResponse = {
 };
 
 export type CreateOrganizationRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type CreateOrganizationResponse = {
@@ -2024,7 +2253,7 @@ export type CreateOrganizationResponse = {
 
 export type Organization = {
     id: OrganizationId;
-    name: string;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2039,7 +2268,7 @@ export type OrganizationMembership = {
 export type OrgInvitation = {
     id: OrgInvitationId;
     org_id: OrganizationId;
-    org_name: string;
+    org_name: ResourceName;
     email: string;
     org_role: string;
     created_at: Timestamp;
@@ -2059,13 +2288,13 @@ export type CreateOrgInvitationRequest = {
 };
 
 export type CreatePersonalAccessTokenRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 export type PersonalAccessToken = {
     id: PersonalAccessTokenId;
     user_id: UserId;
-    name: string;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -2091,7 +2320,7 @@ export type OrgApiKeyRole = 'admin' | 'member';
 export type OrgApiKey = {
     id: OrgApiKeyId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     /**
      * Stable non-secret display identifier. It is not embedded in the bearer token.
      */
@@ -2108,7 +2337,7 @@ export type OrgApiKey = {
 };
 
 export type CreateOrgApiKeyRequest = {
-    name: string;
+    name: ResourceName;
     org_role: OrgApiKeyRole;
 };
 
@@ -2121,7 +2350,7 @@ export type CreateOrgApiKeyResponse = {
 };
 
 export type UpdateOrgApiKeyRequest = {
-    name?: string;
+    name?: ResourceName;
     org_role?: OrgApiKeyRole;
 };
 
@@ -2167,7 +2396,7 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
 });
 
 export type CreateMachinePoolRequestBase = {
-    name: string;
+    name: ResourceName;
     description?: string;
     provider: string;
     default_machine_cpu?: number;
@@ -2203,11 +2432,15 @@ export type CreateMachinePoolRequestBase = {
     min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
+    /**
+     * Idle minutes before deleting a machine from this pool. Omit to leave the pool default unset; a grant or agent source may still override it.
+     */
+    delete_after_idle_minutes?: number;
     metadata?: MachineMetadata;
 };
 
 export type UpdateMachinePoolRequest = {
-    name?: string;
+    name?: ResourceName;
     description?: string;
     default_machine_cpu?: number | null;
     default_machine_memory_mb?: number | null;
@@ -2242,13 +2475,17 @@ export type UpdateMachinePoolRequest = {
     min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
+    /**
+     * Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
+     */
+    delete_after_idle_minutes?: number | null;
     metadata?: MachineMetadata;
 };
 
 export type MachinePool = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2285,6 +2522,10 @@ export type MachinePool = {
     min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
+    /**
+     * Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
+     */
+    delete_after_idle_minutes: number | null;
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -2320,7 +2561,7 @@ export type Machine = {
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
     machine_pool_id?: MachinePoolId | null;
-    display_name: string;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2347,7 +2588,7 @@ export type Machine = {
 };
 
 export type CreateMachineRequest = {
-    display_name: string;
+    display_name: ResourceName;
     description?: string;
     cwd?: string;
     env?: {
@@ -2360,8 +2601,21 @@ export type CreateMachineRequest = {
 };
 
 export type ConnectByoMachineRequest = {
-    display_name: string;
-    project_ids: Array<ProjectId>;
+    display_name: ResourceName;
+    description?: string;
+    cwd?: string;
+    env?: {
+        [key: string]: string;
+    };
+    secret_env?: {
+        [key: string]: SecretId;
+    };
+    metadata?: MachineMetadata;
+    project_ids?: Array<ProjectId>;
+    /**
+     * Optional daemon token name. Omitted values default to daemon.
+     */
+    token_name?: ResourceName;
 };
 
 export type ConnectByoMachineResponse = {
@@ -2391,7 +2645,7 @@ export type MachineSummaryFields = {
     id: MachineId;
     org_id: OrganizationId;
     source_kind: MachineSourceKind;
-    display_name: string;
+    display_name: ResourceName;
     description: string;
     provider: string;
     lifecycle_state: MachineLifecycleState;
@@ -2490,6 +2744,10 @@ export type ProjectMachinePoolGrant = {
     min_machine_memory_mb: number | null;
     max_machine_cpu: number | null;
     max_machine_memory_mb: number | null;
+    /**
+     * Idle minutes before deleting a machine created through this grant. Zero disables deletion for this grant; null inherits the pool default.
+     */
+    delete_after_idle_minutes: 0 | number | null;
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -2523,6 +2781,10 @@ export type CreateProjectMachinePoolGrantRequest = {
     min_machine_memory_mb?: number;
     max_machine_cpu?: number;
     max_machine_memory_mb?: number;
+    /**
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
+     */
+    delete_after_idle_minutes?: 0 | number;
     metadata?: Metadata;
 };
 
@@ -2550,6 +2812,10 @@ export type UpdateProjectMachinePoolGrantRequest = {
     min_machine_memory_mb?: number | null;
     max_machine_cpu?: number | null;
     max_machine_memory_mb?: number | null;
+    /**
+     * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
+     */
+    delete_after_idle_minutes?: 0 | number | null;
     metadata?: Metadata;
 };
 
@@ -2566,7 +2832,7 @@ export type ProjectMachinePoolGrantListItem = {
 export type MachinePoolSummary = {
     id: MachinePoolId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     management_kind: ManagementKind;
     description: string;
     provider: string;
@@ -2575,7 +2841,10 @@ export type MachinePoolSummary = {
 };
 
 export type CreateMachineDaemonTokenRequest = {
-    name?: string;
+    /**
+     * Optional token name. Omitted values default to daemon.
+     */
+    name?: ResourceName;
     metadata?: Metadata;
 };
 
@@ -2583,7 +2852,7 @@ export type MachineDaemonToken = {
     id: MachineDaemonTokenId;
     org_id: OrganizationId;
     machine_id: MachineId;
-    name: string;
+    name: ResourceName;
     metadata: Metadata;
     created_at: Timestamp;
     last_used_at: Timestamp | null;
@@ -2684,8 +2953,12 @@ export type BootstrapDaemonResponse = {
     machine_id: MachineId;
 };
 
+export type UploadArtifactResponse = {
+    artifact_id: ArtifactId;
+};
+
 export type CreateProjectRequest = {
-    name: string;
+    name: ResourceName;
 };
 
 /**
@@ -2694,7 +2967,7 @@ export type CreateProjectRequest = {
 export type ProjectFields = {
     id: ProjectId;
     org_id: OrganizationId;
-    name: string;
+    name: ResourceName;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -2746,7 +3019,7 @@ export type CurrentUserIdentity = {
 
 export type CurrentUserOrg = {
     id: OrganizationId;
-    name: string;
+    name: ResourceName;
     /**
      * The authenticated user's role in this organization.
      */
@@ -2808,7 +3081,7 @@ export type SetProjectMembershipRequest = {
 
 export type ProjectMembershipGrant = {
     project_id: ProjectId;
-    project_name: string;
+    project_name: ResourceName;
     /**
      * The member's role on the project (admin, developer, operator, or viewer).
      */
@@ -6780,6 +7053,152 @@ export type GetToolCatalogResponses = {
 
 export type GetToolCatalogResponse = GetToolCatalogResponses[keyof GetToolCatalogResponses];
 
+export type ListMcpServersData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Free-text query matched against server name, title, description, and remote URLs. Each term matches as a prefix.
+         */
+        q?: string;
+        /**
+         * Only return servers with a remote at exactly this URL. Matching is case-insensitive and ignores the scheme and trailing slashes, so `MCP.linear.app/mcp/` matches `https://mcp.linear.app/mcp`.
+         */
+        remote_url?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/api/v1/mcp-servers';
+};
+
+export type ListMcpServersErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMcpServersError = ListMcpServersErrors[keyof ListMcpServersErrors];
+
+export type ListMcpServersResponses = {
+    /**
+     * Registry servers matching the query.
+     */
+    200: ListMcpServersResponse;
+};
+
+export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServersResponses];
+
+export type ListMcpServerToolsData = {
+    body: McpServerToolsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools';
+};
+
+export type ListMcpServerToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+     */
+    422: McpServerAuthRequiredError;
+    /**
+     * An upstream service required to satisfy the request failed.
+     */
+    502: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMcpServerToolsError = ListMcpServerToolsErrors[keyof ListMcpServerToolsErrors];
+
+export type ListMcpServerToolsResponses = {
+    /**
+     * Tools advertised by the MCP server.
+     */
+    200: McpServerToolsResponse;
+};
+
+export type ListMcpServerToolsResponse = ListMcpServerToolsResponses[keyof ListMcpServerToolsResponses];
+
 export type GetAgentConfigData = {
     body?: never;
     path: {
@@ -8972,7 +9391,7 @@ export type ListQueuedBacklogInputsError = ListQueuedBacklogInputsErrors[keyof L
 
 export type ListQueuedBacklogInputsResponses = {
     /**
-     * Queued backlog inputs.
+     * Waiting backlog inputs.
      */
     200: ListAgentInputsResponse;
 };
@@ -12812,3 +13231,132 @@ export type GetDaemonSkillArchiveResponses = {
 };
 
 export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof GetDaemonSkillArchiveResponses];
+
+export type UploadDaemonArtifactData = {
+    body: Blob | File;
+    path: {
+        toolCallID: ToolCallId;
+    };
+    query: {
+        filename: string;
+    };
+    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifact';
+};
+
+export type UploadDaemonArtifactErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The uploaded artifact is too large.
+     */
+    413: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UploadDaemonArtifactError = UploadDaemonArtifactErrors[keyof UploadDaemonArtifactErrors];
+
+export type UploadDaemonArtifactResponses = {
+    /**
+     * Artifact created.
+     */
+    201: UploadArtifactResponse;
+};
+
+export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];
+
+export type DownloadDaemonArtifactData = {
+    body?: never;
+    path: {
+        toolCallID: ToolCallId;
+        artifactID: ArtifactId;
+    };
+    query?: never;
+    url: '/api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content';
+};
+
+export type DownloadDaemonArtifactErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadDaemonArtifactError = DownloadDaemonArtifactErrors[keyof DownloadDaemonArtifactErrors];
+
+export type DownloadDaemonArtifactResponses = {
+    /**
+     * Artifact bytes, served with the artifact's stored content type.
+     */
+    200: Blob | File;
+};
+
+export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];

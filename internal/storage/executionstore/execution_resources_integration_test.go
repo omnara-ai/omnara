@@ -410,7 +410,6 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"machine-binding-conflict",
 		"secret-value",
 	)
 	machine, err := store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{

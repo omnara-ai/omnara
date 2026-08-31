@@ -142,6 +142,20 @@ func TestDefaultMachinePoolTemplateRejectsNegativeMinimums(t *testing.T) {
 	}
 }
 
+func TestDefaultMachinePoolTemplateRejectsBoundaryWhitespaceName(t *testing.T) {
+	maxTotalMachines := int32(1)
+	t.Setenv("TEST_DEFAULT_POOL_TOKEN", "kraft-token")
+	_, err := defaultMachinePoolTemplateFromFile(defaultMachinePoolTemplateFile{
+		Name:               " default-pool ",
+		Provider:           "unikraft",
+		ProviderAuthEnvVar: "TEST_DEFAULT_POOL_TOKEN",
+		MaxTotalMachines:   &maxTotalMachines,
+	}, "pools[0]")
+	if err == nil || !strings.Contains(err.Error(), "must not start or end with whitespace") {
+		t.Fatalf("error = %v, want boundary whitespace rejection", err)
+	}
+}
+
 func TestLoadDefaultBlaxelMachinePoolTemplateWithoutCPU(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "default-pool.yaml")
 	if err := os.WriteFile(path, []byte(`

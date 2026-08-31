@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -484,7 +483,7 @@ func listMachinePoolSources(
 	if err != nil {
 		return nil, err
 	}
-	configSource, err := agentconfig.ParseStoredSource(
+	configSource, err := agentconfig.ParseSource(
 		agentconfig.SourceFormat(config.SourceFormat),
 		[]byte(config.Source),
 	)
@@ -514,7 +513,7 @@ func listMachinePoolSources(
 		}
 		out = append(out, MachinePoolSourceRecord{
 			MachinePoolID:   source.MachinePoolID,
-			MachinePoolName: strings.TrimSpace(configSource.MachineSources[source.Index].MachinePoolName),
+			MachinePoolName: configSource.MachineSources[source.Index].MachinePoolName,
 			Description:     source.Contract.Description,
 		})
 	}
@@ -743,7 +742,7 @@ func createPoolMachineBindingTx(
 		OrgID:                  input.OrgID,
 		MachinePoolID:          &poolGrant.MachinePoolID,
 		SourceKind:             string(MachineSourceKindPool),
-		DisplayName:            "Instance of " + poolGrant.PoolName,
+		DisplayName:            poolMachineDisplayName(poolGrant.PoolName),
 		Description:            input.Description,
 		Provider:               poolGrant.Provider,
 		LifecycleState:         string(MachineLifecycleStateProvisioning),
@@ -778,39 +777,41 @@ func createPoolMachineBindingTx(
 		return AgentMachineBindingRecord{}, fmt.Errorf("insert generated project machine grant: %w", err)
 	}
 	return insertAgentMachineBindingTx(ctx, qtx, insertAgentMachineBindingInput{
-		ProjectID:             input.ProjectID,
-		AgentID:               input.AgentID,
-		ProjectMachineGrantID: grantRow.ID,
-		MachineRef:            input.MachineRef,
-		BindingKind:           MachineBindingKindPool,
-		Description:           input.Description,
-		Cwd:                   input.ResolvedMachine.BindingConfig.Cwd,
-		EnvOverlay:            bindingEnvOverlay,
-		SecretEnvOverlay:      bindingSecretEnvOverlay,
-		Metadata:              json.RawMessage(`{}`),
-		CreateToolCallID:      input.CreateToolCallID,
+		ProjectID:              input.ProjectID,
+		AgentID:                input.AgentID,
+		ProjectMachineGrantID:  grantRow.ID,
+		MachineRef:             input.MachineRef,
+		BindingKind:            MachineBindingKindPool,
+		Description:            input.Description,
+		Cwd:                    input.ResolvedMachine.BindingConfig.Cwd,
+		EnvOverlay:             bindingEnvOverlay,
+		SecretEnvOverlay:       bindingSecretEnvOverlay,
+		DeleteAfterIdleMinutes: input.ResolvedMachine.BindingConfig.DeleteAfterIdleMinutes,
+		Metadata:               json.RawMessage(`{}`),
+		CreateToolCallID:       input.CreateToolCallID,
 	})
 }
 
 func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineRecord {
 	binding := AgentMachineBindingRecord{
-		ID:               row.ID,
-		OrgID:            row.OrgID,
-		ProjectID:        row.ProjectID,
-		AgentID:          row.AgentID,
-		CreateToolCallID: idFromSQLCPtr(row.CreateToolCallID),
-		DeleteToolCallID: idFromSQLCPtr(row.DeleteToolCallID),
-		MachineID:        row.MachineID,
-		MachineRef:       row.MachineRef,
-		BindingKind:      AgentMachineBindingKind(row.BindingKind),
-		State:            AgentMachineBindingState(row.State),
-		Description:      row.Description,
-		Cwd:              row.Cwd,
-		EnvOverlay:       row.EnvOverlay,
-		SecretEnvOverlay: row.SecretEnvOverlay,
-		Metadata:         row.Metadata,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		ID:                     row.ID,
+		OrgID:                  row.OrgID,
+		ProjectID:              row.ProjectID,
+		AgentID:                row.AgentID,
+		CreateToolCallID:       idFromSQLCPtr(row.CreateToolCallID),
+		DeleteToolCallID:       idFromSQLCPtr(row.DeleteToolCallID),
+		MachineID:              row.MachineID,
+		MachineRef:             row.MachineRef,
+		BindingKind:            AgentMachineBindingKind(row.BindingKind),
+		State:                  AgentMachineBindingState(row.State),
+		Description:            row.Description,
+		Cwd:                    row.Cwd,
+		EnvOverlay:             row.EnvOverlay,
+		SecretEnvOverlay:       row.SecretEnvOverlay,
+		DeleteAfterIdleMinutes: intPtrFromSQLC(row.DeleteAfterIdleMinutes),
+		Metadata:               row.Metadata,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 	machine := machineRecordFromSQLC(
 		row.MachineID,

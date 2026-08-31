@@ -110,6 +110,33 @@ func TestProviderRuntimeMaintenanceLoopRecoversAndContinuesAfterPanic(t *testing
 	}
 }
 
+func TestIdleMachineDeletionMaintenanceTickRecoversAndAllowsNextTick(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	calls := 0
+	reconcile := func(context.Context, int32) (int, error) {
+		calls++
+		if calls == 1 {
+			panic("test panic")
+		}
+		return 1, nil
+	}
+
+	if candidateCount, err := runIdleMachineDeletionMaintenanceTick(
+		context.Background(),
+		logger,
+		reconcile,
+	); candidateCount != 0 || err != nil {
+		t.Fatalf("result after panic = (%d, %v), want (0, nil)", candidateCount, err)
+	}
+	if candidateCount, err := runIdleMachineDeletionMaintenanceTick(
+		context.Background(),
+		logger,
+		reconcile,
+	); candidateCount != 1 || err != nil {
+		t.Fatalf("result after recovery = (%d, %v), want (1, nil)", candidateCount, err)
+	}
+}
+
 func TestProviderRuntimeResultDistinguishesShutdownCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name        string

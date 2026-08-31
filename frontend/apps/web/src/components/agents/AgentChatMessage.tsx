@@ -1,13 +1,20 @@
 import { type OmnaraUIMessage, useOmnaraClient } from '@omnara/react'
 import { getActorOptions } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
-import { Brain, Check, ChevronRight, CircleDashed, Terminal } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 
 import { AgentAttachment } from '@/components/agents/AgentAttachment'
+import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
+import { ShownArtifactCard } from '@/components/agents/ShownArtifactCard'
+import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
+import {
+  isInsufficientCreditsModelError,
+  isInsufficientCreditsToolError,
+} from '@/lib/insufficient-credits'
+import { useWebConfig } from '@/lib/web-config'
 
 function ActorLabel({
   actorID,
@@ -110,16 +117,26 @@ export function AgentChatMessage({
   currentActorId,
   orgID,
   projectID,
+  agentID,
 }: {
   message: OmnaraUIMessage
   currentActorId?: string
   orgID: string
   projectID: string
+  agentID: string
 }) {
+  const { data: webConfig } = useWebConfig()
   const metadata = message.metadata
   const mine =
     message.role === 'user' &&
     (metadata == null || (metadata.actorId != null && metadata.actorId === currentActorId))
+  const showInsufficientCredits =
+    Boolean(webConfig?.billingURL) &&
+    message.parts.some(
+      (part) =>
+        (part.type === 'data-model-error' && isInsufficientCreditsModelError(part.data.text)) ||
+        (part.type === 'dynamic-tool' && isInsufficientCreditsToolError(part.toolErrorCode)),
+    )
 
   return (
     <Message align={mine ? 'end' : 'start'}>
@@ -172,6 +189,9 @@ export function AgentChatMessage({
             return <AgentConfigDivider key={part.id} action={part.data.action} />
           }
           if (part.type === 'data-model-error') {
+            if (showInsufficientCredits && isInsufficientCreditsModelError(part.data.text)) {
+              return null
+            }
             return (
               <Bubble key={part.id} align="start" variant="destructive">
                 <BubbleContent className="whitespace-pre-wrap">{part.data.text}</BubbleContent>
@@ -179,11 +199,31 @@ export function AgentChatMessage({
             )
           }
           if (part.type === 'data-media') {
+            if (part.data.excludeFromModelContext === true && part.data.artifactId != null) {
+              return (
+                <ShownArtifactCard
+                  key={part.id}
+                  artifactID={part.data.artifactId}
+                  orgID={orgID}
+                  projectID={projectID}
+                  agentID={agentID}
+                />
+              )
+            }
             return <AgentAttachment key={part.id} artifactId={part.data.artifactId} />
           }
-          if (part.type === 'dynamic-tool') return <ToolPart key={part.id} part={part} />
+          if (part.type === 'dynamic-tool') {
+            return <ToolPart key={part.id} part={part} />
+          }
           return null
         })}
+        {showInsufficientCredits && (
+          <Bubble align="start" variant="destructive">
+            <BubbleContent className="whitespace-pre-wrap">
+              <InsufficientCreditsMessage billingHref={webConfig?.billingHref} />
+            </BubbleContent>
+          </Bubble>
+        )}
       </MessageContent>
     </Message>
   )

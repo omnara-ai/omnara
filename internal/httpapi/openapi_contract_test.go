@@ -3,9 +3,11 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +22,7 @@ import (
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"gopkg.in/yaml.v3"
 )
 
@@ -139,6 +142,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		Components struct {
 			SecuritySchemes map[string]any `yaml:"securitySchemes"`
 			Schemas         map[string]struct {
+				MaxLength            int            `yaml:"maxLength"`
 				Pattern              string         `yaml:"pattern"`
 				Required             []string       `yaml:"required"`
 				Properties           map[string]any `yaml:"properties"`
@@ -156,6 +160,12 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	if got := doc.Components.Schemas["ProjectID"].Pattern; got != `^proj_[a-z2-7]{26}$` {
 		t.Fatalf("ProjectID pattern = %q, want proj_ public ID prefix", got)
+	}
+	if got := doc.Components.Schemas["ResourceName"].MaxLength; got != resourcename.MaxCodePoints {
+		t.Fatalf("ResourceName maxLength = %d, want %d", got, resourcename.MaxCodePoints)
+	}
+	if got := doc.Components.Schemas["SkillName"].MaxLength; got != 64 {
+		t.Fatalf("SkillName maxLength = %d, want 64", got)
 	}
 	if _, ok := doc.Components.SecuritySchemes["machineDaemonAuth"]; !ok {
 		t.Fatal("machineDaemonAuth security scheme is required for daemon routes")
@@ -259,6 +269,8 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/api/v1/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/api/v1/daemon/runtimes/{runtimeID}/sleep", "post"},
 		{"/api/v1/daemon/skills/{skillID}/archive", "get"},
+		{"/api/v1/daemon/tool-calls/{toolCallID}/artifact", "post"},
+		{"/api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", "get"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -284,7 +296,6 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 
 	browserOnlyMutations := map[string]bool{
 		"post /api/v1/personal-access-tokens":                               true,
-		"post /api/v1/orgs/{orgID}/machines/connect":                        true,
 		"post /api/v1/orgs/{orgID}/api-keys":                                true,
 		"patch /api/v1/orgs/{orgID}/api-keys/{keyID}":                       true,
 		"post /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
@@ -292,11 +303,12 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"delete /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /api/v1/daemon/bootstrap":                  true,
-		"post /api/v1/daemon/failures":                   true,
-		"post /api/v1/daemon/runtimes":                   true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/end":   true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/sleep": true,
+		"post /api/v1/daemon/bootstrap":                        true,
+		"post /api/v1/daemon/failures":                         true,
+		"post /api/v1/daemon/runtimes":                         true,
+		"post /api/v1/daemon/runtimes/{runtimeID}/end":         true,
+		"post /api/v1/daemon/runtimes/{runtimeID}/sleep":       true,
+		"post /api/v1/daemon/tool-calls/{toolCallID}/artifact": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -339,6 +351,78 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+
+	const resourceNameRef = "#/components/schemas/ResourceName"
+	exceptions := map[string]string{
+		"Agent.name":              "#/components/schemas/AgentName",
+		"CreateAgentRequest.name": "#/components/schemas/AgentName",
+		"Skill.name":              "#/components/schemas/SkillName",
+		"Actor.display_name":      "",
+		"CreateMachinePoolRequestBase.provider_config":   "",
+		"CreateSlackSetupRequest.app_name":               "",
+		"CurrentUserIdentity.display_name":               "",
+		"DiscoveredProviderModel.display_name":           "",
+		"ExternalActorParams.display_name":               "",
+		"IntegrationInstall.provider_agent_display_name": "",
+		"IntegrationTarget.display_name":                 "",
+		"MachinePool.provider_config":                    "",
+		"MCPRegistryHeader.name":                         "",
+		"MCPRegistryServer.name":                         "",
+		"MCPServerInfo.name":                             "",
+		"MCPServerTool.name":                             "",
+		"ModelOutputToolUseStreamBlock.tool_name":        "",
+		"ModelToolCallContentBlock.name":                 "",
+		"OrgMember.display_name":                         "",
+		"ToolCall.name":                                  "",
+		"ToolCatalogEntry.name":                          "",
+		"ToolPermissionMode.name":                        "",
+		"UpdateMachinePoolRequest.provider_config":       "",
+	}
+
+	var failures []string
+	for schemaName, schema := range doc.Components.Schemas {
+		for propertyName := range schema.Properties {
+			if !openAPINameProperty(propertyName) {
+				continue
+			}
+			key := schemaName + "." + propertyName
+			expectedRef := resourceNameRef
+			if exception, ok := exceptions[key]; ok {
+				expectedRef = exception
+				delete(exceptions, key)
+			}
+			property := openAPIPropertySchema(t, schema.Properties, propertyName)
+			actualRef, _ := property["$ref"].(string)
+			if actualRef != expectedRef {
+				failures = append(failures, fmt.Sprintf("%s: $ref = %q, want %q", key, actualRef, expectedRef))
+			}
+		}
+	}
+	for property := range exceptions {
+		failures = append(failures, property+": name-contract exception does not exist")
+	}
+	slices.Sort(failures)
+	if len(failures) > 0 {
+		t.Fatalf("OpenAPI name contracts are incomplete:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func openAPINameProperty(property string) bool {
+	return property == "name" || property == "display_name" || property == "provider_config" ||
+		strings.HasSuffix(property, "_name")
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {
@@ -684,6 +768,46 @@ func TestOpenAPIRequestValidatorRejectsSchemaViolations(t *testing.T) {
 	}
 }
 
+func TestOpenAPIRequestValidatorAllowsOnlyAgentNamesToBeEmpty(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
+	projectID := testPublicID(t, publicid.KindProject, httpTestProjectID)
+	machineID := testPublicID(t, publicid.KindMachine, testHTTPID(42))
+	configID := testPublicID(t, publicid.KindAgentConfig, testHTTPID(43))
+	tests := []struct {
+		name string
+		path string
+		body string
+		want int
+	}{
+		{
+			name: "agent",
+			path: "/api/v1/orgs/" + orgID + "/projects/" + projectID + "/agents",
+			body: `{"config":"` + configID + `","name":""}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "machine daemon token",
+			path: "/api/v1/orgs/" + orgID + "/machines/" + machineID + "/daemon-tokens",
+			body: `{"name":""}`,
+			want: http.StatusBadRequest,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != test.want {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 	handler := newOpenAPIValidatorTestHandler(t)
 	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
@@ -699,8 +823,25 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			name: "unikraft",
 			body: `{"provider":"unikraft",` + common +
 				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
-				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":5}`,
 			want: http.StatusNoContent,
+		},
+		{
+			name: "unikraft rejects zero idle deletion",
+			body: `{"provider":"unikraft",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":0}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "unikraft invalid idle deletion minutes",
+			body: `{"provider":"unikraft",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,` +
+				`"delete_after_idle_minutes":4}`,
+			want: http.StatusBadRequest,
 		},
 		{
 			name: "unikraft missing cpu",
@@ -773,6 +914,86 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 				"/api/v1/orgs/"+orgID+"/machine-pools",
 				strings.NewReader(tt.body),
 			)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenAPIRequestValidatorEnforcesMachinePoolGrantIdleDeletionMinutes(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	orgID := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
+	projectID := testPublicID(t, publicid.KindProject, httpTestProjectID)
+	poolID := testPublicID(t, publicid.KindMachinePool, testHTTPID(30))
+	poolGrantID := testPublicID(t, publicid.KindProjectMachinePoolGrant, testHTTPID(31))
+	createPath := "/api/v1/orgs/" + orgID + "/projects/" + projectID + "/machine-pool-grants"
+	updatePath := createPath + "/" + poolGrantID
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{
+			name:   "create disabled",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":0}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "create invalid",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":4}`,
+			want:   http.StatusBadRequest,
+		},
+		{
+			name:   "create enabled",
+			method: http.MethodPost,
+			path:   createPath,
+			body:   `{"machine_pool_id":"` + poolID + `","delete_after_idle_minutes":5}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update inherited",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":null}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update disabled",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":0}`,
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "update invalid",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":4}`,
+			want:   http.StatusBadRequest,
+		},
+		{
+			name:   "update enabled",
+			method: http.MethodPatch,
+			path:   updatePath,
+			body:   `{"delete_after_idle_minutes":5}`,
+			want:   http.StatusNoContent,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 
@@ -968,6 +1189,42 @@ func TestOpenAPIRequestValidatorRejectsTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestOpenAPIResourceNameLengthCountsUnicodeCodePoints(t *testing.T) {
+	handler := newOpenAPIValidatorTestHandler(t)
+	for _, test := range []struct {
+		name       string
+		value      string
+		wantStatus int
+	}{
+		{name: "at limit", value: strings.Repeat("😀", resourcename.MaxCodePoints), wantStatus: http.StatusNoContent},
+		{name: "above limit", value: strings.Repeat("界", resourcename.MaxCodePoints+1), wantStatus: http.StatusBadRequest},
+		{
+			name:       "decomposed at submitted limit",
+			value:      strings.Repeat("e\u0301", resourcename.MaxCodePoints/2),
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "decomposed above submitted limit",
+			value:      strings.Repeat("e\u0301", resourcename.MaxCodePoints/2+1),
+			wantStatus: http.StatusBadRequest,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{"name": test.value})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), test.wantStatus)
+			}
+		})
+	}
+}
+
 func TestOpenAPIRequestValidatorRejectsBodyOnNoBodyOperation(t *testing.T) {
 	handler := newOpenAPIValidatorTestHandler(t)
 	invitationID := "oinv_" + strings.Repeat("a", 26)
@@ -995,6 +1252,55 @@ func TestOpenAPIRequestValidatorRejectsBodyOnNoBodyOperation(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("empty body status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
+	}
+}
+
+type trackingReadCloser struct {
+	reader    io.Reader
+	bytesRead int
+}
+
+func (r *trackingReadCloser) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	r.bytesRead += n
+	return n, err
+}
+
+func (*trackingReadCloser) Close() error {
+	return nil
+}
+
+func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+	validator, err := newOpenAPIRequestValidator()
+	if err != nil {
+		t.Fatalf("create openapi request validator: %v", err)
+	}
+	body := []byte{0, 1, 2, 3, 255}
+	source := &trackingReadCloser{reader: bytes.NewReader(body)}
+	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if source.bytesRead != 0 {
+			t.Fatalf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+		}
+		got, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read preserved body: %v", err)
+		}
+		if !bytes.Equal(got, body) {
+			t.Fatalf("preserved body = %v, want %v", got, body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		source,
+	)
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusNoContent)
 	}
 }
 

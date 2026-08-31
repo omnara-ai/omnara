@@ -88,7 +88,12 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
-      WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
+      WHEN block.block_kind = 'artifact' THEN
+        jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text) ||
+        CASE
+          WHEN block.exclude_from_model_context THEN jsonb_build_object('exclude_from_model_context', true)
+          ELSE '{}'::jsonb
+        END
     END
     ORDER BY block.ordinal, block.id
   ) FILTER (WHERE block.id IS NOT NULL AND block.block_kind IN ('text', 'structured_data', 'artifact')), '[]'::jsonb) AS content_parts
@@ -115,7 +120,12 @@ LEFT JOIN LATERAL (
     CASE
       WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
       WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
-      WHEN block.block_kind = 'artifact' THEN jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text)
+      WHEN block.block_kind = 'artifact' THEN
+        jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id::text) ||
+        CASE
+          WHEN block.exclude_from_model_context THEN jsonb_build_object('exclude_from_model_context', true)
+          ELSE '{}'::jsonb
+        END
     END
     ORDER BY block.ordinal, block.id
   ) FILTER (WHERE block.id IS NOT NULL AND block.block_kind IN ('text', 'structured_data', 'artifact')), '[]'::jsonb) AS content_parts
@@ -734,6 +744,7 @@ LEFT JOIN LATERAL (
   ) FILTER (
     WHERE block.id IS NOT NULL
       AND block.block_kind IN ('text', 'structured_data', 'artifact')
+      AND NOT block.exclude_from_model_context
   ), '[]'::jsonb) AS content_parts
   FROM content_blocks block
   WHERE block.agent_id = result.agent_id

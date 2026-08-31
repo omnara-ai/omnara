@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -69,8 +70,9 @@ type MachineEnvironmentOverlay struct {
 }
 
 type MachineBindingConfig struct {
-	Cwd                string
-	EnvironmentOverlay MachineEnvironmentOverlay
+	Cwd                    string
+	EnvironmentOverlay     MachineEnvironmentOverlay
+	DeleteAfterIdleMinutes *int
 }
 
 type ResolvedPoolMachine struct {
@@ -236,8 +238,9 @@ func (s *Store) ResolvePoolMachineTx(
 		MachineCwd:         resolveMachineCwd(poolGrant.DefaultCwd, poolGrant.GrantDefaultCwd),
 		MachineEnvironment: machineEnv,
 		BindingConfig: MachineBindingConfig{
-			Cwd:                agentMachine.Cwd,
-			EnvironmentOverlay: bindingEnvironmentOverlay,
+			Cwd:                    agentMachine.Cwd,
+			EnvironmentOverlay:     bindingEnvironmentOverlay,
+			DeleteAfterIdleMinutes: agentMachine.DeleteAfterIdleMinutes,
 		},
 	}, nil
 }
@@ -911,8 +914,14 @@ func resolveProcessCwd(machineCwd, bindingCwd, requestedCwd string) string {
 	if requestedCwd == "" {
 		return base
 	}
+	if processcmd.IsHomeRelativePath(requestedCwd) {
+		return requestedCwd
+	}
 	if path.IsAbs(requestedCwd) || base == "" {
 		return path.Clean(requestedCwd)
+	}
+	if processcmd.IsHomeRelativePath(base) {
+		return strings.TrimSuffix(base, "/") + "/" + requestedCwd
 	}
 	return path.Join(base, requestedCwd)
 }

@@ -1,8 +1,9 @@
+import type * as sdkModule from '@omnara/sdk'
 import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CliConfig } from './config.ts'
-import { registerLoginCommand } from './login.ts'
+import { loginTokenName, registerLoginCommand } from './login.ts'
 
 const mocks = vi.hoisted(() => ({
   bearerToken: vi.fn(() => ({ authenticate: vi.fn() })),
@@ -31,7 +32,8 @@ const mocks = vi.hoisted(() => ({
   updateConfigFile: vi.fn((patch: Record<string, unknown>) => patch),
 }))
 
-vi.mock('@omnara/sdk', () => ({
+vi.mock('@omnara/sdk', async (importOriginal) => ({
+  cliLoginTokenName: (await importOriginal<typeof sdkModule>()).cliLoginTokenName,
   bearerToken: mocks.bearerToken,
   createOmnaraClient: mocks.createOmnaraClient,
   pollDeviceAuthToken: mocks.pollDeviceAuthToken,
@@ -54,8 +56,25 @@ vi.mock('./interactive.ts', () => ({
 }))
 
 vi.mock('./output.ts', () => ({
+  CliInputError: class CliInputError extends Error {},
   runCliAction: (action: () => void | Promise<void>) => Promise.resolve(action()),
 }))
+
+describe('loginTokenName', () => {
+  it('preserves an explicit valid name exactly', () => {
+    expect(loginTokenName('CLI on R&D workstation', 'ignored')).toBe('CLI on R&D workstation')
+  })
+
+  it('rejects an invalid explicit name', () => {
+    expect(() => loginTokenName(' CLI token ', 'ignored')).toThrow(
+      'Resource name must not start or end with whitespace',
+    )
+  })
+
+  it('uses a valid fallback when the generated hostname name is invalid', () => {
+    expect(loginTokenName(undefined, 'x'.repeat(64))).toBe('Omnara CLI')
+  })
+})
 
 describe('login', () => {
   beforeEach(() => {

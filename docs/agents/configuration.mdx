@@ -4,9 +4,17 @@ description: Define agents with YAML or JSON
 icon: "file-code"
 ---
 
+import AgentConfigCreate from '/snippets/agent-config-create.mdx'
+import AgentConfigProfileCreate from '/snippets/agent-config-profile-create.mdx'
+import AgentConfigProfileAdvance from '/snippets/agent-config-profile-advance.mdx'
+
 An agent config is a YAML or JSON document that defines the agent's instruction, model, tools, permissions, and machines.
 
 Configs are immutable: changing the definition creates a new config ID (`acfg_…`). Submitting the same definition again returns the same ID.
+
+YAML and JSON configs refer to model providers, configured models, BYO machines, and machine pools by their human-readable names. When a config is created, Omnara resolves those names and stores the resources' immutable IDs in the compiled config. Renaming a resource therefore does not change an existing config or an agent already using it. Recompiling saved source resolves its names again against the current resources, so an old name may stop resolving or may resolve to a different resource if that name has since been reused.
+
+Provider names are unique within an organization, model names within a provider, and BYO machine and machine-pool names within an organization. Machine and pool resolution also requires the project to have access to the selected resource.
 
 The example below includes every major section. If you are creating your first agent, start with the smaller config in the [Quickstart](/quickstart).
 
@@ -17,7 +25,7 @@ instruction: |
   Run read-only commands freely; ask before anything destructive.
 model:
   provider_config: openai-prod
-  name: openai-prod - gpt-5.6
+  name: gpt-5.6
   reasoning:
     effort: high
 tools:
@@ -63,12 +71,12 @@ skills:
 
 ## Model
 
-`model` selects a model configured in Omnara. `provider_config` is the name of a [model provider](/organization/model-providers), and `name` must exactly match one of its configured models. Models added through the console include the provider prefix, such as `openai-prod - gpt-5.6`. The model must also be available to the project.
+`model` selects a model configured in Omnara. `provider_config` is the name of a [model provider](/organization/model-providers), and `name` must exactly match one of its configured models. The model must also be available to the project.
 
 ```yaml
 model:
   provider_config: openai-prod
-  name: openai-prod - gpt-5.6
+  name: gpt-5.6
   cache_retention: short
   reasoning:
     effort: high
@@ -141,25 +149,21 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 ## Create a config
 
 <Tabs>
-<Tab title="Console">
-  There is no separate config step in the console: writing a config in the **Builder** or **YAML** editor while creating an [agent](/agents/overview#launch-an-agent) or an [agent profile](#create-a-profile) creates it when you submit. Validation errors surface inline in the editor, pointing at the offending field.
-</Tab>
 <Tab title="API">
-  `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created:
+  The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  ```bash
-  jq -n --rawfile src agent.yaml '{source: $src, source_format: "yaml"}' |
-  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-configs" \
-    -H "Authorization: Bearer $OMNARA_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d @-
-  ```
+  `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
 
-  The response includes the config ID and final model settings after config overrides and project limits are applied. Validation errors identify the field that needs to be fixed.
+  <AgentConfigCreate />
+
+  The response includes the config ID and final model settings after config overrides and project limits are applied. The CLI uploads the config first, reusing the existing ID when the same definition was already created. Validation errors identify the field that needs to be fixed.
 
   <Info>
   Full schema and playground: [Create agent config](/api-reference/endpoints/configs-and-profiles/create-agent-config) · [Get agent config](/api-reference/endpoints/configs-and-profiles/get-agent-config).
   </Info>
+</Tab>
+<Tab title="Dashboard">
+  There is no separate config step in the dashboard: writing a config in the **Builder** or **YAML** editor while creating an [agent](/agents/overview#launch-an-agent) or an [agent profile](#create-a-profile) creates it when you submit. Validation errors surface inline in the editor, pointing at the offending field.
 </Tab>
 </Tabs>
 
@@ -172,60 +176,46 @@ Updating a profile points it to a new immutable config. Future launches use the 
 ### Create a profile
 
 <Tabs>
-<Tab title="Console">
-  In your project, open **Agent Profiles** and click **New agent profile**. Name it (**Profile name**), then define the config in the **Builder** form or the **YAML** editor — the console creates the config and the profile in one step. Click **Create profile**.
-</Tab>
 <Tab title="API">
   Point a name at an existing config:
 
-  ```bash
-  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-profiles" \
-    -H "Authorization: Bearer $OMNARA_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "name": "Support triage",
-      "config": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7"
-    }'
-  ```
+  <AgentConfigProfileCreate />
 
-  The response starts with `current_generation: 1`; the generation increases each time the profile moves to a new config.
+  The response starts with `current_generation: 1`; the generation increases each time the profile moves to a new config. With the CLI, pass `--file agent.yaml` instead of `--config` to create the config and the profile in one step.
 
   <Info>
   Full schema and playground: [Create agent profile](/api-reference/endpoints/configs-and-profiles/create-agent-profile).
   </Info>
+</Tab>
+<Tab title="Dashboard">
+  In your project, open **Agent Profiles** and click **New agent profile**. Name it (**Profile name**), then define the config in the **Builder** form or the **YAML** editor — the dashboard creates the config and the profile in one step. Click **Create profile**.
 </Tab>
 </Tabs>
 
 ### Advance a profile to a new config
 
 <Tabs>
-<Tab title="Console">
-  Open the profile's row menu and click **Edit**. Change the YAML and click **Save revision**. The console creates a new config and updates the profile. If someone else updated it first, your save fails instead of overwriting their change.
-</Tab>
 <Tab title="API">
-  Create the new config first, then update the profile. Send `expected_current_config_id` so the request fails with `409` if someone changed the profile after you read it:
+  With the REST API and the SDK, create the new config first, then update the profile, sending `expected_current_config_id` so the request fails with `409` if someone changed the profile after you read it. One CLI command does all of that — it creates the new config, reads the profile's current config, and points the profile at the new one:
 
-  ```bash
-  curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agent-profiles/aprf_3jehcyd5n6a2bfgik7mv4qtrwz/config" \
-    -H "Authorization: Bearer $OMNARA_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "config": "acfg_n6a2bfgik7mv4qtrwz3jehcyd5",
-      "expected_current_config_id": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7"
-    }'
-  ```
+  <AgentConfigProfileAdvance />
+
+  With the CLI, pass `--expected-current-config-id acfg_…` to pin the expected version yourself.
 
   <Info>
   Full schema and playground: [Update agent profile](/api-reference/endpoints/configs-and-profiles/update-agent-profile).
   </Info>
 </Tab>
+<Tab title="Dashboard">
+  Open the profile's row menu and click **Edit**. Change the YAML and click **Save revision**. The dashboard creates a new config and updates the profile. If someone else updated it first, your save fails instead of overwriting their change.
+</Tab>
 </Tabs>
 
 ### Use or delete a profile
 
-To launch from a profile, select it under **New agent** or pass `profile` and `config` to the API. See [Launch an agent](/agents/overview#launch-an-agent).
+To launch from a profile, select it under **New agent**, pass `--profile` to `omnara agents launch`, or pass `profile` and `config` to the API. See [Launch an agent](/agents/overview#launch-an-agent).
 
-Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the console, open the profile's row menu and click **Delete**. An active integration that uses the profile must be removed first. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
+Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the dashboard, open the profile's row menu and click **Delete**, or run `omnara profiles delete {agent-profile-id}`. An active integration that uses the profile must be removed first. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
 
 ## Next
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -121,10 +123,7 @@ func decodeContentBlock(
 	}
 	metadata, err := resourcemeta.FromJSON(fields["metadata"])
 	if err != nil {
-		return "", nil, nil, errors.New("metadata must be a JSON object with string values")
-	}
-	if err := metadata.Validate(); err != nil {
-		return "", nil, nil, fmt.Errorf("metadata: %w", err)
+		return "", nil, nil, fmt.Errorf("invalid metadata: %w", err)
 	}
 	return kind, metadata, fields, nil
 }
@@ -143,6 +142,9 @@ func parseTextContentBlock(
 	if err := json.Unmarshal(rawText, &text); err != nil {
 		return CreateContentBlockInput{}, errors.New("text must be a string")
 	}
+	if err := dbsafe.Text(text); err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("text %w", err)
+	}
 	return CreateContentBlockInput{
 		BlockKind:   ContentBlockKindText,
 		TextContent: text,
@@ -152,17 +154,33 @@ func parseTextContentBlock(
 func parseMediaRefContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "artifact_id"); err != nil {
+	if err := rejectContentBlockFields(fields, "artifact_id", "exclude_from_model_context"); err != nil {
 		return CreateContentBlockInput{}, err
 	}
 	artifactID, err := requiredArtifactID(fields["artifact_id"])
 	if err != nil {
 		return CreateContentBlockInput{}, err
 	}
+	excludeFromModelContext, err := optionalBool(fields["exclude_from_model_context"])
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("exclude_from_model_context %w", err)
+	}
 	return CreateContentBlockInput{
-		BlockKind:  ContentBlockKindArtifact,
-		ArtifactID: artifactID,
+		BlockKind:               ContentBlockKindArtifact,
+		ArtifactID:              artifactID,
+		ExcludeFromModelContext: excludeFromModelContext,
 	}, nil
+}
+
+func optionalBool(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false, nil
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, errors.New("must be a boolean")
+	}
+	return value, nil
 }
 
 func parseStructuredDataContentBlock(
@@ -175,10 +193,25 @@ func parseStructuredDataContentBlock(
 	if !ok {
 		return CreateContentBlockInput{}, errors.New("value is required")
 	}
+	value, err := normalizeContentBlockJSONForStorage(value)
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("value %w", err)
+	}
 	return CreateContentBlockInput{
 		BlockKind:      ContentBlockKindStructuredData,
 		StructuredData: value,
 	}, nil
+}
+
+func normalizeContentBlockJSONForStorage(value json.RawMessage) (json.RawMessage, error) {
+	normalized, err := jsoncanonical.Normalize(value)
+	if err != nil {
+		return nil, errors.New("is not valid JSON")
+	}
+	if err := dbsafe.JSONStrings(normalized); err != nil {
+		return nil, fmt.Errorf("JSON string %w", err)
+	}
+	return normalized, nil
 }
 
 func rejectContentBlockFields(
@@ -255,13 +288,15 @@ func marshalAgentInputContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string                `json:"type"`
-			ArtifactID string                `json:"artifact_id"`
-			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			ArtifactID              string                `json:"artifact_id"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:       "media_ref",
-			ArtifactID: block.ArtifactID.String(),
-			Metadata:   metadata,
+			Type:                    "media_ref",
+			ArtifactID:              block.ArtifactID.String(),
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)
@@ -315,13 +350,15 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("media_ref requires an artifact")
 		}
 		return marshalJSON(struct {
-			Type       string                `json:"type"`
-			ArtifactID string                `json:"artifact_id"`
-			Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			ArtifactID              string                `json:"artifact_id"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:       "media_ref",
-			ArtifactID: block.ArtifactID.String(),
-			Metadata:   metadata,
+			Type:                    "media_ref",
+			ArtifactID:              block.ArtifactID.String(),
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported block kind %q", block.BlockKind)

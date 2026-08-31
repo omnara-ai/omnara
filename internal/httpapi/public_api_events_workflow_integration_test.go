@@ -189,13 +189,19 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		authHeaders(authorPAT.Token),
 	)
 	backlogData := backlog["data"].([]any)
-	if len(backlogData) != 2 ||
-		backlogData[0].(map[string]any)["id"] != firstInput["id"] ||
-		backlogData[1].(map[string]any)["id"] != secondInputID {
+	if len(backlogData) != 3 ||
+		backlogData[0].(map[string]any)["id"] != thirdInputID ||
+		backlogData[1].(map[string]any)["id"] != firstInput["id"] ||
+		backlogData[2].(map[string]any)["id"] != secondInputID {
 		t.Fatalf(
-			"queued backlog should exclude steering input, got %+v",
+			"backlog should list steering before queued inputs, got %+v",
 			backlogData,
 		)
+	}
+	for index, wantKey := range []string{"idem-input-third", "idem-input-first", "idem-input-second"} {
+		if backlogData[index].(map[string]any)["input_idempotency_key"] != wantKey {
+			t.Fatalf("backlog input %d idempotency key = %+v, want %q", index, backlogData[index], wantKey)
+		}
 	}
 	viewerBacklog := requestJSONWithHeaders(
 		t,
@@ -207,9 +213,11 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(viewerPAT.Token),
 	)
-	if len(viewerBacklog["data"].([]any)) != 2 {
+	viewerBacklogData := viewerBacklog["data"].([]any)
+	if len(viewerBacklogData) != 3 ||
+		!publicEventTextEquals(viewerBacklogData[0].(map[string]any), "third") {
 		t.Fatalf(
-			"viewer should be able to read queued backlog, got %+v",
+			"viewer should be able to read waiting backlog content, got %+v",
 			viewerBacklog,
 		)
 	}
@@ -273,7 +281,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	if reordered["data"].([]any)[0].(map[string]any)["id"] != secondInputID {
+	if reordered["data"].([]any)[1].(map[string]any)["id"] != secondInputID {
 		t.Fatalf("expected moved input at front, got %+v", reordered)
 	}
 	requestJSONWithHeaders(
@@ -296,8 +304,12 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	if len(promoted["data"].([]any)) != 1 {
-		t.Fatalf("promoted input should leave backlog: %+v", promoted)
+	promotedData := promoted["data"].([]any)
+	if len(promotedData) != 3 ||
+		promotedData[0].(map[string]any)["id"] != thirdInputID ||
+		promotedData[1].(map[string]any)["id"] != secondInputID ||
+		promotedData[1].(map[string]any)["delivery_mode"] != "steering" {
+		t.Fatalf("promoted input should remain in the steering backlog: %+v", promoted)
 	}
 	requestJSONWithHeaders(
 		t,

@@ -69,6 +69,19 @@ afterEach(() => {
 })
 
 describe('Device authorization decisions', () => {
+  it('redirects to the overview after approving', async () => {
+    sdk.approveDeviceAuth.mockResolvedValue(undefined)
+    await renderDeviceAuth()
+
+    await act(async () => {
+      button('Approve').click()
+      await Promise.resolve()
+    })
+
+    expect(sdk.approveDeviceAuth).toHaveBeenCalledWith('ABCD-EFGH')
+    expect(window.location.pathname).toBe('/')
+  })
+
   it('marks Deny, rather than Approve, as busy while denial is pending', async () => {
     await renderDeviceAuth()
 

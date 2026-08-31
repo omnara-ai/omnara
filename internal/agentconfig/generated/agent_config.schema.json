@@ -108,6 +108,18 @@
         "cwd": {
           "type": "string"
         },
+        "delete_after_idle_minutes": {
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "maximum": 2147483647,
+              "minimum": 5,
+              "type": "integer"
+            }
+          ]
+        },
         "description": {
           "type": "string"
         },
@@ -151,13 +163,15 @@
           "type": "integer"
         },
         "machine_name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "machine_pool_name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "machine_provider_options_overlay": {
@@ -222,13 +236,15 @@
           "type": "integer"
         },
         "name": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "provider_config": {
+          "maxLength": 64,
           "minLength": 1,
-          "pattern": "\\S",
+          "pattern": "^\\S(?:.*\\S)?$",
           "type": "string"
         },
         "reasoning": {

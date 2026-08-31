@@ -35,13 +35,15 @@ type AgentInputRecord struct {
 	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
 	RejectedReason      string                 `json:"rejected_reason,omitempty"`
 	Metadata            json.RawMessage        `json:"metadata"`
+	ContentBlocks       json.RawMessage        `json:"-"`
 }
 
 type AgentInputQueueCursor struct {
-	Set       bool
-	InputRank int64
-	QueuedAt  time.Time
-	ID        ID
+	Set          bool
+	DeliveryMode AgentInputDeliveryMode
+	InputRank    int64
+	QueuedAt     time.Time
+	ID           ID
 }
 
 const agentInputRankStride int64 = 1024

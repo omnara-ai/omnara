@@ -252,7 +252,8 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
+       block.artifact_id, block.tool_call_id, block.exclude_from_model_context,
+       block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -290,14 +291,15 @@ inserted AS (
   INSERT INTO content_blocks(
     agent_id, owner_kind, owner_agent_input_id,
     owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
-    text_content, structured_data, artifact_id, tool_call_id, metadata, created_at
+    text_content, structured_data, artifact_id, tool_call_id,
+    exclude_from_model_context, metadata, created_at
   )
   SELECT
     sqlc.arg(agent_id), sqlc.arg(owner_kind),
     sqlc.narg(owner_agent_input_id)::uuid, sqlc.narg(owner_model_output_id)::uuid,
     sqlc.narg(owner_tool_call_result_id)::uuid, sqlc.arg(ordinal), sqlc.arg(block_kind),
     sqlc.narg(text_content), sqlc.narg(structured_data)::jsonb, sqlc.narg(artifact_id)::uuid, sqlc.narg(tool_call_id)::uuid,
-    sqlc.arg(metadata)::jsonb, content_owner.created_at
+    sqlc.arg(exclude_from_model_context), sqlc.arg(metadata)::jsonb, content_owner.created_at
   FROM content_owner
   RETURNING id, agent_id, owner_kind, owner_agent_input_id,
             owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
@@ -325,7 +327,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND block.owner_model_output_id = sqlc.arg(model_output_id)
 ORDER BY block.ordinal ASC, block.id ASC;
 
--- name: ListContentBlocksForAgentInput :many
+-- name: ListContentBlocksForAgentInputs :many
 SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
@@ -335,8 +337,8 @@ FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
   AND block.agent_id = sqlc.arg(agent_id)
-  AND block.owner_agent_input_id = sqlc.arg(agent_input_id)
-ORDER BY block.ordinal ASC, block.id ASC;
+  AND block.owner_agent_input_id = ANY(sqlc.arg(agent_input_ids)::uuid[])
+ORDER BY block.owner_agent_input_id ASC, block.ordinal ASC, block.id ASC;
 
 -- name: GetToolCallProviderCallID :one
 SELECT provider_call_id

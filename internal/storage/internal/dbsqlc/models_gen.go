@@ -85,23 +85,24 @@ type AgentInteractionReadProjection struct {
 }
 
 type AgentMachineBinding struct {
-	ID               uuid.UUID
-	OrgID            uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	CreateToolCallID *uuid.UUID
-	DeleteToolCallID *uuid.UUID
-	MachineID        uuid.UUID
-	MachineRef       string
-	BindingKind      string
-	State            string
-	Description      string
-	Cwd              string
-	EnvOverlay       json.RawMessage
-	SecretEnvOverlay json.RawMessage
-	Metadata         json.RawMessage
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                     uuid.UUID
+	OrgID                  uuid.UUID
+	ProjectID              uuid.UUID
+	AgentID                uuid.UUID
+	CreateToolCallID       *uuid.UUID
+	DeleteToolCallID       *uuid.UUID
+	MachineID              uuid.UUID
+	MachineRef             string
+	BindingKind            string
+	State                  string
+	Description            string
+	Cwd                    string
+	EnvOverlay             json.RawMessage
+	SecretEnvOverlay       json.RawMessage
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	DeleteAfterIdleMinutes *int32
 }
 
 type AgentMcpConnection struct {
@@ -229,6 +230,11 @@ type EffectiveResourceLimit struct {
 	MaxActiveCronTriggersPerProject           int64
 }
 
+type ExpiredIdlePoolMachineCandidate struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+}
+
 type IntegrationInstall struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
@@ -309,6 +315,7 @@ type MachinePool struct {
 	RuntimeProtectionEnabled      bool
 	MinMachineCpu                 *int32
 	MinMachineMemoryMb            *int32
+	DeleteAfterIdleMinutes        *int32
 }
 
 type ModelProviderConfig struct {
@@ -391,6 +398,7 @@ type Process struct {
 	ExitSignal            string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	LastActivityAt        time.Time
 }
 
 type ProcessAction struct {

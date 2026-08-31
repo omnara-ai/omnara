@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -29,7 +30,11 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 	qtx := s.q.WithTx(tx)
 	targets := make([]defaultMachinePoolReconciliation, 0, len(rows))
 	for _, template := range templates {
-		name := template.createInput(NilID).Name
+		name, err := resourcename.CanonicalizeRequired("machine pool name", template.Name)
+		if err != nil {
+			return nil, fmt.Errorf("default machine pool: %w", err)
+		}
+		template.Name = name
 		for _, row := range rows {
 			if row.Name != name {
 				continue
@@ -151,4 +156,5 @@ func preserveClusterMachinePoolEditableFields(
 	desired.MinMachineMemoryMB = current.MinMachineMemoryMB
 	desired.MaxMachineCPU = current.MaxMachineCPU
 	desired.MaxMachineMemoryMB = current.MaxMachineMemoryMB
+	desired.DeleteAfterIdleMinutes = current.DeleteAfterIdleMinutes
 }

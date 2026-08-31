@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 const (
@@ -43,11 +44,12 @@ func (subprocessRunnerLauncher) Prepare(
 	assignment ProcessAssignment,
 ) (*processRuntime, error) {
 	if assignment.PreparationError == "" {
-		canonicalCwd, err := filepath.Abs(assignment.Process.Cwd)
+		canonicalCwd, err := canonicalProcessCwd(assignment.Process.Cwd)
 		if err != nil {
-			return nil, err
+			assignment.PreparationError = err.Error()
+		} else {
+			assignment.Process.Cwd = canonicalCwd
 		}
-		assignment.Process.Cwd = canonicalCwd
 	}
 	machine, err := c.machineStore()
 	if err != nil {
@@ -319,6 +321,14 @@ func (subprocessRunnerLauncher) Prepare(
 		return runtime, fail(err)
 	}
 	return runtime, nil
+}
+
+func canonicalProcessCwd(cwd string) (string, error) {
+	cwd, err := processcmd.ExpandHomeRelativePath(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve process working directory home: %w", err)
+	}
+	return filepath.Abs(cwd)
 }
 
 func (r *ipcProcessRunner) prepare(

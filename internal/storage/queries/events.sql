@@ -81,7 +81,11 @@ LEFT JOIN LATERAL (
       ELSE NULL
     END
     ORDER BY block.ordinal, block.id
-  ) FILTER (WHERE block.id IS NOT NULL AND block.block_kind IN ('text', 'structured_data', 'artifact', 'reasoning', 'tool_call', 'error')), '[]'::jsonb) AS content_parts
+  ) FILTER (
+    WHERE block.id IS NOT NULL
+      AND block.block_kind IN ('text', 'structured_data', 'artifact', 'reasoning', 'tool_call', 'error')
+      AND NOT block.exclude_from_model_context
+  ), '[]'::jsonb) AS content_parts
   FROM content_blocks block
   LEFT JOIN tool_calls tool_block_call
     ON tool_block_call.agent_id = block.agent_id

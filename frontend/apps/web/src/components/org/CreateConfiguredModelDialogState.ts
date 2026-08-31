@@ -1,5 +1,7 @@
 import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 
+import { resourceNameSuggestion, resourceNameValid } from '@/lib/resource-name'
+
 export interface ConfiguredModelFormValues {
   /** Provider id; '' falls back to the first available provider. */
   providerId: string
@@ -28,21 +30,21 @@ type DiscoveredModelPrefillField =
   | 'maxOutputTokens'
   | 'defaultMaxOutputTokens'
 
-function isGeneratedName(providerName: string, values: ConfiguredModelFormValues) {
-  return values.name === `${providerName} - ${values.providerModelSlug}`
+export function configuredModelSuggestedName(providerModelSlug: string) {
+  return resourceNameSuggestion(providerModelSlug, 'Configured model')
+}
+
+function isGeneratedName(values: ConfiguredModelFormValues) {
+  return values.name === configuredModelSuggestedName(values.providerModelSlug)
 }
 
 export function discoveredModelPrefill(
-  providerName: string | undefined,
   values: ConfiguredModelFormValues,
   model: DiscoveredProviderModel,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (
-    providerName !== undefined &&
-    (values.name.trim() === '' || isGeneratedName(providerName, values))
-  ) {
-    updates.push(['name', `${providerName} - ${model.slug}`])
+  if (values.name === '' || isGeneratedName(values)) {
+    updates.push(['name', configuredModelSuggestedName(model.slug)])
   }
   updates.push([
     'contextWindowTokens',
@@ -63,7 +65,6 @@ export function discoveredModelPrefill(
 }
 
 export function providerChangeReset(
-  previousProviderName: string | undefined,
   values: ConfiguredModelFormValues,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [
@@ -72,7 +73,7 @@ export function providerChangeReset(
     ['maxOutputTokens', ''],
     ['defaultMaxOutputTokens', ''],
   ]
-  if (previousProviderName !== undefined && isGeneratedName(previousProviderName, values)) {
+  if (isGeneratedName(values)) {
     updates.push(['name', ''])
   }
   return updates
@@ -97,7 +98,7 @@ export function configuredModelFormValid(
       (values.maxOutputTokens === '' || defaultMaxOutputTokensValue <= maxOutputTokensValue))
   return (
     Boolean(provider) &&
-    values.name.trim() !== '' &&
+    resourceNameValid(values.name) &&
     values.providerModelSlug.trim() !== '' &&
     Number.isInteger(contextWindowTokensValue) &&
     contextWindowTokensValue > 1 &&

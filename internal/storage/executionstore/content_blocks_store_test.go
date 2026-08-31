@@ -3,6 +3,7 @@ package executionstore
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -13,7 +14,7 @@ func TestToolResultContentBlocksCanonicalizeToPersistedShape(t *testing.T) {
 	input := json.RawMessage(`[
 		{"type":"text","text":"before"},
 		{"type":"structured_data","value":{"runtime_lock_id":"domain value","items":[1,true,null]}},
-		{"type":"media_ref","artifact_id":"` + artifactID + `"},
+		{"type":"media_ref","artifact_id":"` + artifactID + `","exclude_from_model_context":true},
 		{"type":"text","text":"after"}
 	]`)
 	blocks, err := parseToolResultContentBlocks(input)
@@ -99,6 +100,12 @@ func TestToolResultContentBlocksRejectUnpersistedEnvelopeFields(t *testing.T) {
 				`[{"type":"media_ref","artifact_id":"018ffc6b-7f1a-7828-8687-93aa210f5f4a","provider_replay":{"item":{"id":"ig_1"}}}]`,
 			),
 		},
+		{
+			name: "invalid model context exclusion",
+			input: json.RawMessage(
+				`[{"type":"media_ref","artifact_id":"018ffc6b-7f1a-7828-8687-93aa210f5f4a","exclude_from_model_context":"yes"}]`,
+			),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -119,6 +126,96 @@ func TestToolResultContentBlocksAllowEmptyText(t *testing.T) {
 	if len(blocks) != 1 || blocks[0].BlockKind != ContentBlockKindText ||
 		blocks[0].TextContent != "" {
 		t.Fatalf("empty text blocks = %+v, want one empty text block", blocks)
+	}
+}
+
+func TestContentBlocksRejectDatabaseUnsafeStrings(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		parse func(json.RawMessage) ([]CreateContentBlockInput, error)
+		input json.RawMessage
+	}{
+		{
+			name:  "agent input text",
+			parse: parseAgentInputContentBlocks,
+			input: json.RawMessage(`[{"type":"text","text":"before\u0000after"}]`),
+		},
+		{
+			name:  "tool result text",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(`[{"type":"text","text":"before\u0000after"}]`),
+		},
+		{
+			name:  "structured data value",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"structured_data","value":{"nested":["before\u0000after"]}}]`,
+			),
+		},
+		{
+			name:  "structured data key",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"structured_data","value":{"before\u0000after":true}}]`,
+			),
+		},
+		{
+			name:  "metadata key",
+			parse: parseAgentInputContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"text","text":"safe","metadata":{"before\u0000after":"value"}}]`,
+			),
+		},
+		{
+			name:  "metadata value",
+			parse: parseToolResultContentBlocks,
+			input: json.RawMessage(
+				`[{"type":"text","text":"safe","metadata":{"key":"before\u0000after"}}]`,
+			),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.parse(test.input)
+			if !errors.Is(err, storeerr.ErrInvalidRequest) ||
+				!strings.Contains(err.Error(), "U+0000") {
+				t.Fatalf("database-unsafe content error = %v, want invalid request for U+0000", err)
+			}
+		})
+	}
+}
+
+func TestStructuredDataNormalizesUnpairedSurrogates(t *testing.T) {
+	blocks, err := parseToolResultContentBlocks(json.RawMessage(
+		`[{"type":"structured_data","value":{"\ud800":"before\ud800after"}}]`,
+	))
+	if err != nil {
+		t.Fatalf("parse structured data: %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(blocks[0].StructuredData, &decoded); err != nil {
+		t.Fatalf("decode normalized structured data %s: %v", blocks[0].StructuredData, err)
+	}
+	if decoded["\uFFFD"] != "before\uFFFDafter" {
+		t.Fatalf("normalized structured data = %s, want replacement characters", blocks[0].StructuredData)
+	}
+}
+
+func TestStructuredDataNormalizesInvalidUTF8(t *testing.T) {
+	input := append(
+		[]byte(`[{"type":"structured_data","value":{"message":"before`),
+		0xff,
+	)
+	input = append(input, []byte(`after"}}]`)...)
+	blocks, err := parseToolResultContentBlocks(input)
+	if err != nil {
+		t.Fatalf("parse structured data: %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(blocks[0].StructuredData, &decoded); err != nil {
+		t.Fatalf("decode normalized structured data %s: %v", blocks[0].StructuredData, err)
+	}
+	if decoded["message"] != "before\uFFFDafter" {
+		t.Fatalf("normalized structured data = %s, want replacement character", blocks[0].StructuredData)
 	}
 }
 

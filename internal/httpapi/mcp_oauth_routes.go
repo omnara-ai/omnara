@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -114,13 +115,15 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
+	canonicalName, err := resourcename.CanonicalizeRequired("secret name", body.Name)
+	if err != nil {
+		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
+	}
+	body.Name = canonicalName
 	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
 		err := apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 			"mcp oauth requires a configured public URL and secret encryption keys")
-		return openapi.MCPOAuthStartResponse{}, &err, nil
-	}
-	if body.Name == "" {
-		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
 	metadata := body.Metadata

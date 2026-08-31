@@ -13,6 +13,12 @@ export {
   type UseAgentChatResult,
 } from './domains/agent-chat'
 export {
+  type AgentInputBacklogItem,
+  type AgentInputBacklogMove,
+  reorderAgentInputBacklog,
+  useAgentInputBacklog,
+} from './domains/agent-input-backlog'
+export {
   useAgentInteractions,
   useCancelAgent,
   useResolveAgentInteraction,
@@ -97,6 +103,16 @@ export {
   useMachines,
   useProjectMachines,
 } from './domains/machines'
+export {
+  findServerByRemoteUrl,
+  normalizeRemoteUrl,
+  type ServerListFilters,
+  type ServerListOptions,
+  useServerInfo,
+  useServerInfoLookup,
+  useServers,
+} from './domains/mcp-registry'
+export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,

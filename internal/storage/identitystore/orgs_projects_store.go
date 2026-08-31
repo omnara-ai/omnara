@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -57,8 +58,13 @@ func (s *Store) ProvisionOrganizationTx(
 		return CreateOrgForUserRecord{}, errors.New("org id and user id are required")
 	}
 	if input.Name == "" {
-		return CreateOrgForUserRecord{}, errors.New("org name is required")
+		return CreateOrgForUserRecord{}, errors.New("organization name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("organization name", input.Name)
+	if err != nil {
+		return CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -198,13 +204,6 @@ func (s *Store) ProvisionOrganizationTx(
 	}, nil
 }
 
-func (s *Store) PreflightOrgCreationCapacity(ctx context.Context, userID ID) error {
-	if isNilID(userID) {
-		return errors.New("user id is required")
-	}
-	return checkOrgCreationCapacity(ctx, s.q, userID)
-}
-
 func (s *Store) CreateProjectForPrincipal(
 	ctx context.Context,
 	input CreateProjectForPrincipalInput,
@@ -218,6 +217,11 @@ func (s *Store) CreateProjectForPrincipal(
 	if input.Name == "" {
 		return ProjectRecord{}, errors.New("project name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("project name", input.Name)
+	if err != nil {
+		return ProjectRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return ProjectRecord{}, fmt.Errorf("begin create project: %w", err)
@@ -402,7 +406,7 @@ func (s *Store) GetOrgCreationReplay(
 		return CreateOrgForUserRecord{}, false, errors.New("idempotency key is required")
 	}
 	if input.Name == "" {
-		return CreateOrgForUserRecord{}, false, errors.New("org name is required")
+		return CreateOrgForUserRecord{}, false, errors.New("organization name is required")
 	}
 	scopedIdempotencyKey := scopedOrgIdempotencyKey(input.UserID, input.IdempotencyKey)
 	orgRow, err := s.q.GetOrgByIdempotencyKey(ctx, dbsqlc.GetOrgByIdempotencyKeyParams{

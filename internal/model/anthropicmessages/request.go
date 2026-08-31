@@ -236,16 +236,6 @@ func buildMessages(
 	if historyAdded {
 		messages = markLastMessageCacheBreakpoint(messages, cacheControl(policy.CacheRetention))
 	}
-	if modelcontext.HasExecutionContext(bundle) {
-		messages = appendMessageBlocks(messages, anthropicRoleUser, []any{textBlock{
-			Type: "text",
-			Text: "<active_runtime_context>\n" + modelcontext.ExecutionContextContent(
-				bundle.ActiveProcesses,
-				bundle.AttachedMachines,
-			) +
-				"\n</active_runtime_context>",
-		}})
-	}
 	if len(messages) > 0 && messages[0].Role == anthropicRoleAssistant {
 		messages = append(
 			[]message{{Role: anthropicRoleUser, Content: []any{textBlock{Type: "text", Text: "Continue."}}}},
@@ -326,6 +316,9 @@ func renderAnthropicContent(
 			artifactID := jsonFieldText(part["artifact_id"])
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := anthropicMediaBlock(resolved); ok {
+					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
+						blocks = append(blocks, textBlock{Type: "text", Text: "artifact_id: " + ref})
+					}
 					blocks = append(blocks, block)
 				}
 				continue

@@ -622,7 +622,7 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 				t,
 				ctx,
 				store,
-				"target-install-delete-"+label,
+				"install-delete-"+label,
 			)
 			installInput := slackIntegrationInstallInput(
 				NilID,

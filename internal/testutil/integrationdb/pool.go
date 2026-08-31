@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 const (
@@ -194,7 +195,12 @@ func migratedTemplateDatabase(
 	createTestDatabase(t, ctx, dsn, databaseName)
 	pool := openPoolForDatabase(t, ctx, dsn, databaseName)
 	db := stdlib.OpenDBFromPool(pool)
-	err = dbmigrate.ApplyPostgres(ctx, db, os.DirFS(migrationsDir))
+	err = dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		os.DirFS(migrationsDir),
+		schemamigrations.GoMigrations()...,
+	)
 	_ = db.Close()
 	if err != nil {
 		pool.Close()

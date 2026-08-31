@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { CreatePersonalAccessTokenDialog } from '@/components/api-tokens/CreatePersonalAccessTokenDialog'
 import { PersonalAccessTokenRowActions } from '@/components/api-tokens/PersonalAccessTokenRowActions'
 import { DataTable } from '@/components/data-table/DataTable'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
@@ -66,9 +65,9 @@ export function PersonalAccessTokensSection() {
             className: 'w-24',
             cell: (token) =>
               token.revoked_at ? (
-                <Badge variant="outline">Revoked</Badge>
+                <span>Revoked</span>
               ) : (
-                <Badge variant="secondary">Active</Badge>
+                <span className="text-muted-foreground">Active</span>
               ),
           },
           {

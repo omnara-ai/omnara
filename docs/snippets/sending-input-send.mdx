@@ -1,0 +1,38 @@
+<CodeGroup>
+```bash REST
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: reply-8f2c1a" \
+  -d '{
+    "content_blocks": [
+      { "type": "text", "text": "Also check whether the deadline moved." }
+    ]
+  }'
+```
+
+```typescript SDK
+const input = await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  headers: { 'Idempotency-Key': 'reply-8f2c1a' },
+  body: {
+    content_blocks: [
+      { type: 'text', text: 'Also check whether the deadline moved.' },
+    ],
+  },
+})
+console.log(input.data.agent_input)
+```
+</CodeGroup>
+
+```json
+{
+  "agent_input": {
+    "id": "ain_2bfgik7mv4qtrwz3jehcyd5n6a",
+    "state": "received",
+    "delivery_mode": "queued",
+    "...": "..."
+  }
+}
+```

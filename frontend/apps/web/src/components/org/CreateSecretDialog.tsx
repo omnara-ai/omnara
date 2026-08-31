@@ -2,6 +2,7 @@ import { useCreateSecret, useGrantSecretToProject, useStartSecretMcpOAuth } from
 import type { SecretOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useReducer } from 'react'
 
+import { isMcpOAuthLoginUrl } from '@/components/agents/mcpOAuthLogin'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import {
   Select,
   SelectContent,
@@ -23,6 +25,7 @@ import {
 } from '@/components/ui/select'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { savePendingMcpSecretGrants } from '@/lib/pending-mcp-secret-grants'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
@@ -52,13 +55,13 @@ export function CreateSecretDialog({
   const [state, dispatch] = useReducer(secretDialogReducer, undefined, newSecretDialogState)
 
   const validMcpUrl =
-    state.secret.kind === 'mcp_oauth' && isValidMcpUrl(state.secret.serverUrl.trim())
+    state.secret.kind === 'mcp_oauth' && isMcpOAuthLoginUrl(state.secret.serverUrl.trim())
   const oauthMaterial =
     state.secret.kind === 'oauth_token_set'
       ? oauthTokenSetMaterial(state.secret.entries)
       : undefined
   const valid =
-    state.name.trim() !== '' &&
+    resourceNameValid(state.name) &&
     (state.secret.kind === 'generic'
       ? state.secret.value !== ''
       : state.secret.kind === 'aws_credentials'
@@ -145,6 +148,7 @@ export function CreateSecretDialog({
                   dispatch({ type: 'set-name', name: event.target.value })
                 }}
               />
+              <ResourceNameFieldError value={state.name} />
             </Field>
             <Field>
               <FieldLabel htmlFor="secret-kind">Kind</FieldLabel>
@@ -236,13 +240,4 @@ export function CreateSecretDialog({
       </DialogContent>
     </Dialog>
   )
-}
-
-function isValidMcpUrl(value: string) {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:'
-  } catch {
-    return false
-  }
 }

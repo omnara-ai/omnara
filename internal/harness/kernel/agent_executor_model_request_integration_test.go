@@ -6,11 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -33,6 +36,19 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
+	if err != nil {
+		t.Fatalf("load managed-admission agent: %v", err)
+	}
+	attachKernelSlackTarget(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		agent.AgentProfileID,
+		"managed-admission",
+		"C_MANAGED_ADMISSION:1.0",
+	)
 	turn := fixture.admitContentInputTurn(
 		t,
 		ctx,
@@ -50,14 +66,37 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		}},
 	}
 	resolver := &selectionRecordingResolver{client: modelClient}
+	postCount := 0
+	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			postCount++
+			if req.URL.Path != "/api/chat.postMessage" {
+				t.Fatalf("Slack runtime message path = %q", req.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(
+					`{"ok":true,"channel":"C_MANAGED_ADMISSION","ts":"2.0"}`,
+				)),
+				Request: req,
+			}, nil
+		},
+	)}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: resolver,
-		ToolExecutor:  tools.Executor{Store: fixture.Store},
-		Now:           func() time.Time { return now.Add(2 * time.Millisecond) },
+		ToolExecutor: tools.Executor{
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
+		},
+		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("execute denied managed model work: %v", err)
+	}
+	if postCount != 1 {
+		t.Fatalf("Slack runtime message post count = %d, want 1", postCount)
 	}
 	if len(resolver.selections) != 0 || modelClient.preparedCount() != 0 || modelClient.respondedCount() != 0 {
 		t.Fatalf(
@@ -76,13 +115,14 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		string(modelprotocol.ErrorKindRuntime),
 		storeerr.ManagedWorkAdmissionDeniedCode,
 	)
-	var state, recoveryKind, errorKind, errorCode, apiFormat, requestID, responseID string
+	var state, recoveryKind, errorKind, errorCode, errorMessage, apiFormat, requestID, responseID string
 	var retryAbsent bool
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT context.state,
        coalesce(context.recovery_kind, ''),
        context.error_kind,
        context.error_code,
+       context.error_message,
        context.api_format,
        context.provider_request_id,
        context.provider_response_id,
@@ -96,6 +136,7 @@ WHERE context.project_id = $1
 		&recoveryKind,
 		&errorKind,
 		&errorCode,
+		&errorMessage,
 		&apiFormat,
 		&requestID,
 		&responseID,
@@ -105,14 +146,16 @@ WHERE context.project_id = $1
 	}
 	if state != string(executionstore.ModelCallContextFailed) || recoveryKind != "" ||
 		errorKind != string(modelprotocol.ErrorKindRuntime) ||
-		errorCode != storeerr.ManagedWorkAdmissionDeniedCode || apiFormat != "" ||
+		errorCode != storeerr.ManagedWorkAdmissionDeniedCode ||
+		errorMessage != "Insufficient Omnara credits." || apiFormat != "" ||
 		requestID != "" || responseID != "" || !retryAbsent {
 		t.Fatalf(
-			"denied context = %q/%q/%q/%q api=%q request=%q response=%q retry_absent=%v",
+			"denied context = %q/%q/%q/%q message=%q api=%q request=%q response=%q retry_absent=%v",
 			state,
 			recoveryKind,
 			errorKind,
 			errorCode,
+			errorMessage,
 			apiFormat,
 			requestID,
 			responseID,
@@ -698,6 +741,19 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	agentID, userID := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, kernelTestProjectID, agentID)
+	if err != nil {
+		t.Fatalf("load irreducible-overflow agent: %v", err)
+	}
+	attachKernelSlackTarget(
+		t,
+		ctx,
+		fixture,
+		agentID,
+		agent.AgentProfileID,
+		"irreducible-overflow",
+		"C_IRREDUCIBLE_OVERFLOW:1.0",
+	)
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug:          "serialized-overflow-model",
@@ -708,14 +764,50 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
+	postCount := 0
+	postedText := ""
+	var postedDecodeErr error
+	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			postCount++
+			if req.URL.Path != "/api/chat.postMessage" {
+				t.Fatalf("Slack runtime message path = %q", req.URL.Path)
+			}
+			var postedMessage struct {
+				Text string `json:"text"`
+			}
+			postedDecodeErr = json.NewDecoder(req.Body).Decode(&postedMessage)
+			postedText = postedMessage.Text
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(
+					`{"ok":true,"channel":"C_IRREDUCIBLE_OVERFLOW","ts":"2.0"}`,
+				)),
+				Request: req,
+			}, nil
+		},
+	)}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
-		ToolExecutor:  tools.Executor{Store: fixture.Store},
-		Now:           func() time.Time { return now.Add(2 * time.Millisecond) },
+		ToolExecutor: tools.Executor{
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
+		},
+		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 		t.Fatalf("execute turn: %v", err)
+	}
+	if postedDecodeErr != nil {
+		t.Fatalf("decode Slack runtime message: %v", postedDecodeErr)
+	}
+	if postCount != 1 {
+		t.Fatalf("Slack runtime message post count = %d, want 1", postCount)
+	}
+	if postedText != slack.AgentRequestFailureMessage {
+		t.Fatalf("Slack runtime message text = %q", postedText)
 	}
 	if len(modelClient.respondHadSink) != 0 {
 		t.Fatalf("provider respond calls = %d, want none", len(modelClient.respondHadSink))

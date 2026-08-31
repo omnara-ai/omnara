@@ -17,6 +17,7 @@ import { FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
+import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
 import {
   machinePoolCreateRequest,
   machinePoolFormDefaults,
@@ -119,6 +120,19 @@ export function CreateMachinePoolDialog({
                 </form.Subscribe>
               )}
             </form.Field>
+            <form.Subscribe selector={(state) => state.values}>
+              {(values) => (
+                <MachinePoolAdvancedSection
+                  orgId={orgId}
+                  enabled={open}
+                  clusterManaged={false}
+                  values={values}
+                  setValue={(key, value) => {
+                    form.setFieldValue(key, value as never)
+                  }}
+                />
+              )}
+            </form.Subscribe>
             {phase.error && <p className="text-destructive text-sm">{phase.error}</p>}
             <DialogFooter>
               <form.Subscribe

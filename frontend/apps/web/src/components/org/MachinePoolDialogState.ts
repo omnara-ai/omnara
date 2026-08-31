@@ -10,6 +10,7 @@ import {
   optionalInt,
   optionalIntOrNull,
   optionalNonNegativeInt32Valid,
+  optionalPoolIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
   secretEnvFromRows,
   type SecretEnvOverlayRow,
@@ -22,6 +23,7 @@ import {
   memoryGbToMb,
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import {
   isMachinePoolProvider,
@@ -58,6 +60,7 @@ export interface MachinePoolFormValues {
   minMachineMemoryGb: string
   maxMachineCpu: string
   maxMachineMemoryGb: string
+  deleteAfterIdleMinutes: string
   /** Secret id; '' until one is selected. */
   secretId: string
   projectGrantIds: string[]
@@ -86,6 +89,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   minMachineMemoryGb: '',
   maxMachineCpu: '',
   maxMachineMemoryGb: '',
+  deleteAfterIdleMinutes: '',
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
@@ -181,7 +185,7 @@ export function machinePoolFormValid(
             memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
   return (
     (clusterEdit ||
-      (values.name.trim() !== '' &&
+      (resourceNameValid(values.name) &&
         values.image.trim() !== '' &&
         values.location.trim() !== '' &&
         (!provider.requiresWorkspace || values.workspace.trim() !== '') &&
@@ -192,6 +196,7 @@ export function machinePoolFormValid(
     envOverlayRowsValid(values.envRows) &&
     secretEnvOverlayRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&
+    optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
     (clusterEdit || optionalNonNegativeInt32Valid(values.maxTotalCpu)) &&
     optionalNonNegativeInt32Valid(values.minMachineCpu) &&
@@ -206,7 +211,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   const memoryMb = memoryGbToMb(values.memoryGb)
   const maxMachines = Number(values.maxMachines)
   const common = {
-    name: values.name.trim(),
+    name: values.name,
     description: stringOrUndefined(values.description),
     provider_auth_secret_id: values.secretId,
     max_total_machines: maxMachines,
@@ -214,6 +219,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
     runtime_protection_enabled: values.runtimeProtectionEnabled,
+    delete_after_idle_minutes: optionalInt(values.deleteAfterIdleMinutes),
   }
   const startupScript =
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
@@ -307,6 +313,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
       definition.resources.memoryMb === 'provider-resolved'
         ? ''
         : memoryGbDraft(pool.max_machine_memory_mb),
+    deleteAfterIdleMinutes: numberDraft(pool.delete_after_idle_minutes),
     secretId: pool.provider_auth_secret_id ?? '',
     projectGrantIds: [],
     runtimeProtectionEnabled: pool.runtime_protection_enabled,
@@ -343,7 +350,7 @@ export function machinePoolUpdateRequest(
   const memoryMb = memoryMbFromDraft(values.memoryGb, originalMemoryMb)
   const maxMachines = Number(values.maxMachines)
   const common = {
-    name: values.name.trim(),
+    name: values.name,
     description: values.description.trim(),
     default_machine_env: envFromRows(values.envRows) ?? {},
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
@@ -352,6 +359,7 @@ export function machinePoolUpdateRequest(
     provider_auth_secret_id: values.secretId,
     runtime_protection_enabled: values.runtimeProtectionEnabled,
     max_total_machines: maxMachines,
+    delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
     case 'unikraft':
@@ -429,6 +437,7 @@ function clusterMachinePoolUpdateRequest(
   const common = {
     default_machine_env: envFromRows(values.envRows) ?? {},
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
+    delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
   switch (values.provider) {
     case 'unikraft':

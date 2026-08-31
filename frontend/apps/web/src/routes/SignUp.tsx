@@ -1,11 +1,11 @@
 import { requestSignup } from '@omnara/sdk/browser'
 import { Link } from '@tanstack/react-router'
-import { MailCheck } from 'lucide-react'
 import type { SyntheticEvent } from 'react'
 import { useState } from 'react'
 
 import { AuthHeading, AuthLayout } from '@/components/auth/AuthLayout'
 import { SocialButtons } from '@/components/auth/SocialButtons'
+import { MailCheck } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'

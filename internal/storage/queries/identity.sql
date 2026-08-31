@@ -733,6 +733,11 @@ WITH candidates AS MATERIALIZED (
           FROM org_memberships membership
           WHERE membership.user_id = users.id
       )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM default_model_provider_provisioning_jobs job
+          WHERE job.creator_user_id = users.id
+      )
     ORDER BY users.created_at, users.id
     LIMIT sqlc.arg(limit_count)
 ),

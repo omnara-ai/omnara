@@ -94,7 +94,8 @@ func (s *Service) GetOrCreateTarget(
 		})
 		if err != nil {
 			return integrationstore.IntegrationTargetRecord{}, executionstore.LaunchAgentResult{}, fmt.Errorf(
-				"launch agent for integration target: %w",
+				"%w: %w",
+				storeerr.ErrAgentLaunchFailed,
 				err,
 			)
 		}

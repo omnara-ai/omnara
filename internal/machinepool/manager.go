@@ -417,6 +417,32 @@ func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error)
 	)
 }
 
+func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, error) {
+	candidates, err := m.Execution.ListExpiredIdlePoolMachines(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	_, err = runBoundedReconcile(
+		ctx,
+		len(candidates),
+		poolMachineReconcileConcurrency,
+		func(ctx context.Context, i int) error {
+			candidate := candidates[i]
+			claim, claimed, err := m.Execution.ClaimExpiredIdlePoolMachineDeletion(
+				ctx,
+				candidate.OrgID,
+				candidate.MachineID,
+			)
+			if err != nil || !claimed {
+				return err
+			}
+			_, err = m.deleteClaimedMachine(ctx, claim, nil)
+			return err
+		},
+	)
+	return len(candidates), err
+}
+
 func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error) {
 	return runBoundedReconcile(
 		ctx,

@@ -1,11 +1,35 @@
 package processcmd
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestExpandHomeRelativePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "~", want: home},
+		{path: "~/", want: home},
+		{path: "~/repo/../file", want: filepath.Join(home, "file")},
+		{path: "relative/file", want: "relative/file"},
+		{path: "~other/file", want: "~other/file"},
+	} {
+		got, err := ExpandHomeRelativePath(test.path)
+		if err != nil {
+			t.Fatalf("expand %q: %v", test.path, err)
+		}
+		if got != test.want {
+			t.Fatalf("expand %q = %q, want %q", test.path, got, test.want)
+		}
+	}
+}
 
 func TestResolveShellCommandDefaultUsesExecutionOS(t *testing.T) {
 	cases := []struct {

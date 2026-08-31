@@ -79,7 +79,7 @@ func processRecordFromAcceptSQLC(row dbsqlc.AcceptDaemonProcessRow) ProcessRecor
 	}
 }
 
-func activeProcessRecordFromSQLC(row dbsqlc.ListActiveProcessesForContextRow) ActiveProcessRecord {
+func activeProcessRecordFromSQLC(row dbsqlc.ListActiveProcessesRow) ActiveProcessRecord {
 	return ActiveProcessRecord{
 		ID:              row.ID,
 		State:           ProcessState(row.State),

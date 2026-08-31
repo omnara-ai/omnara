@@ -64,6 +64,7 @@ type RuntimeMachine struct {
 	MachinePoolID                 string
 	MaxMachines                   int
 	InitialNumMachines            int
+	DeleteAfterIdleMinutes        *int
 	Cwd                           string
 	MachineCPU                    *int
 	MachineMemoryMB               *int
@@ -95,6 +96,7 @@ func RuntimeContractFromCompiled(
 	}
 	var compiled Compiled
 	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("parse compiled agent config: %w", err)
 	}

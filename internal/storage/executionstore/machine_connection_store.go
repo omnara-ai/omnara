@@ -2,10 +2,12 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -16,6 +18,11 @@ const maxConnectBYOMachineProjectIDs = 100
 type ConnectBYOMachineInput struct {
 	OrgID       ID
 	DisplayName string
+	Description string
+	Cwd         string
+	Env         json.RawMessage
+	SecretEnv   json.RawMessage
+	Metadata    resourcemeta.Metadata
 	ProjectIDs  []ID
 	TokenName   string
 }
@@ -46,6 +53,11 @@ func (s *Store) ConnectBYOMachine(
 	machineInput, environment, machineMetadata, err := prepareDaemonMachineCreate(CreateDaemonMachineInput{
 		OrgID:       input.OrgID,
 		DisplayName: input.DisplayName,
+		Description: input.Description,
+		Cwd:         input.Cwd,
+		Env:         input.Env,
+		SecretEnv:   input.SecretEnv,
+		Metadata:    input.Metadata,
 	})
 	if err != nil {
 		return ConnectBYOMachineResult{}, storeerr.InvalidRequest(err)

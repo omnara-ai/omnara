@@ -1,6 +1,5 @@
-import { fetchWebConfig } from '@omnara/sdk/browser'
-import { useQuery } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
+
 import {
   BrainCircuit,
   CreditCard,
@@ -10,8 +9,7 @@ import {
   Server,
   Sparkles,
   Users,
-} from 'lucide-react'
-
+} from '@/components/icons'
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -19,8 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
-import { canManageOrg } from '@/lib/permissions'
-import { useActiveOrg } from '@/lib/use-active-org'
+import { useWebConfig } from '@/lib/web-config'
 
 const resources = [
   { to: '/' as const, label: 'Overview', icon: House },
@@ -34,9 +31,7 @@ const resources = [
 
 export function OrganizationNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const { activeOrg } = useActiveOrg()
-  const webConfigQuery = useQuery({ queryKey: ['web-config'], queryFn: fetchWebConfig })
-  const billingURL = webConfigQuery.data?.billingURL
+  const { data: webConfig } = useWebConfig()
 
   return (
     <SidebarGroup>
@@ -52,10 +47,10 @@ export function OrganizationNav() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
-          {billingURL && canManageOrg(activeOrg.role) && (
+          {webConfig?.billingHref && (
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
-                <a href={`${billingURL}?org=${activeOrg.id}`}>
+                <a href={webConfig.billingHref}>
                   <CreditCard />
                   <span>Credits</span>
                 </a>

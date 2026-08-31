@@ -416,14 +416,15 @@ inserted AS (
   INSERT INTO content_blocks(
     agent_id, owner_kind, owner_agent_input_id,
     owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
-    text_content, structured_data, artifact_id, tool_call_id, metadata, created_at
+    text_content, structured_data, artifact_id, tool_call_id,
+    exclude_from_model_context, metadata, created_at
   )
   SELECT
     $2, $6,
     $3::uuid, $4::uuid,
     $5::uuid, $7, $8,
     $9, $10::jsonb, $11::uuid, $12::uuid,
-    $13::jsonb, content_owner.created_at
+    $13, $14::jsonb, content_owner.created_at
   FROM content_owner
   RETURNING id, agent_id, owner_kind, owner_agent_input_id,
             owner_model_output_id, owner_tool_call_result_id, ordinal, block_kind,
@@ -440,19 +441,20 @@ JOIN agents agent ON agent.id = inserted.agent_id
 `
 
 type InsertContentBlockParams struct {
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	OwnerAgentInputID     *uuid.UUID
-	OwnerModelOutputID    *uuid.UUID
-	OwnerToolCallResultID *uuid.UUID
-	OwnerKind             string
-	Ordinal               int32
-	BlockKind             string
-	TextContent           *string
-	StructuredData        *json.RawMessage
-	ArtifactID            *uuid.UUID
-	ToolCallID            *uuid.UUID
-	Metadata              json.RawMessage
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	OwnerAgentInputID       *uuid.UUID
+	OwnerModelOutputID      *uuid.UUID
+	OwnerToolCallResultID   *uuid.UUID
+	OwnerKind               string
+	Ordinal                 int32
+	BlockKind               string
+	TextContent             *string
+	StructuredData          *json.RawMessage
+	ArtifactID              *uuid.UUID
+	ToolCallID              *uuid.UUID
+	ExcludeFromModelContext bool
+	Metadata                json.RawMessage
 }
 
 type InsertContentBlockRow struct {
@@ -486,6 +488,7 @@ func (q *Queries) InsertContentBlock(ctx context.Context, arg InsertContentBlock
 		arg.StructuredData,
 		arg.ArtifactID,
 		arg.ToolCallID,
+		arg.ExcludeFromModelContext,
 		arg.Metadata,
 	)
 	var i InsertContentBlockRow
@@ -885,7 +888,7 @@ func (q *Queries) InsertTypedAgentEvent(ctx context.Context, arg InsertTypedAgen
 	return i, err
 }
 
-const listContentBlocksForAgentInput = `-- name: ListContentBlocksForAgentInput :many
+const listContentBlocksForAgentInputs = `-- name: ListContentBlocksForAgentInputs :many
 SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
@@ -895,17 +898,17 @@ FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
   AND block.agent_id = $2
-  AND block.owner_agent_input_id = $3
-ORDER BY block.ordinal ASC, block.id ASC
+  AND block.owner_agent_input_id = ANY($3::uuid[])
+ORDER BY block.owner_agent_input_id ASC, block.ordinal ASC, block.id ASC
 `
 
-type ListContentBlocksForAgentInputParams struct {
-	ProjectID    uuid.UUID
-	AgentID      uuid.UUID
-	AgentInputID *uuid.UUID
+type ListContentBlocksForAgentInputsParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	AgentInputIds []uuid.UUID
 }
 
-type ListContentBlocksForAgentInputRow struct {
+type ListContentBlocksForAgentInputsRow struct {
 	ID                    uuid.UUID
 	ProjectID             uuid.UUID
 	AgentID               uuid.UUID
@@ -923,15 +926,15 @@ type ListContentBlocksForAgentInputRow struct {
 	CreatedAt             time.Time
 }
 
-func (q *Queries) ListContentBlocksForAgentInput(ctx context.Context, arg ListContentBlocksForAgentInputParams) ([]ListContentBlocksForAgentInputRow, error) {
-	rows, err := q.db.Query(ctx, listContentBlocksForAgentInput, arg.ProjectID, arg.AgentID, arg.AgentInputID)
+func (q *Queries) ListContentBlocksForAgentInputs(ctx context.Context, arg ListContentBlocksForAgentInputsParams) ([]ListContentBlocksForAgentInputsRow, error) {
+	rows, err := q.db.Query(ctx, listContentBlocksForAgentInputs, arg.ProjectID, arg.AgentID, arg.AgentInputIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListContentBlocksForAgentInputRow{}
+	items := []ListContentBlocksForAgentInputsRow{}
 	for rows.Next() {
-		var i ListContentBlocksForAgentInputRow
+		var i ListContentBlocksForAgentInputsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
@@ -1036,7 +1039,8 @@ SELECT block.id, agent.project_id, block.agent_id, block.owner_kind,
        block.owner_agent_input_id, block.owner_model_output_id,
        block.owner_tool_call_result_id, block.ordinal, block.block_kind,
        coalesce(block.text_content, '') AS text_content, block.structured_data,
-       block.artifact_id, block.tool_call_id, block.metadata, block.created_at
+       block.artifact_id, block.tool_call_id, block.exclude_from_model_context,
+       block.metadata, block.created_at
 FROM content_blocks block
 JOIN agents agent ON agent.id = block.agent_id
 WHERE agent.project_id = $1
@@ -1052,21 +1056,22 @@ type ListToolCallResultContentBlocksParams struct {
 }
 
 type ListToolCallResultContentBlocksRow struct {
-	ID                    uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	OwnerKind             string
-	OwnerAgentInputID     *uuid.UUID
-	OwnerModelOutputID    *uuid.UUID
-	OwnerToolCallResultID *uuid.UUID
-	Ordinal               int32
-	BlockKind             string
-	TextContent           string
-	StructuredData        *json.RawMessage
-	ArtifactID            *uuid.UUID
-	ToolCallID            *uuid.UUID
-	Metadata              json.RawMessage
-	CreatedAt             time.Time
+	ID                      uuid.UUID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	OwnerKind               string
+	OwnerAgentInputID       *uuid.UUID
+	OwnerModelOutputID      *uuid.UUID
+	OwnerToolCallResultID   *uuid.UUID
+	Ordinal                 int32
+	BlockKind               string
+	TextContent             string
+	StructuredData          *json.RawMessage
+	ArtifactID              *uuid.UUID
+	ToolCallID              *uuid.UUID
+	ExcludeFromModelContext bool
+	Metadata                json.RawMessage
+	CreatedAt               time.Time
 }
 
 func (q *Queries) ListToolCallResultContentBlocks(ctx context.Context, arg ListToolCallResultContentBlocksParams) ([]ListToolCallResultContentBlocksRow, error) {
@@ -1092,6 +1097,7 @@ func (q *Queries) ListToolCallResultContentBlocks(ctx context.Context, arg ListT
 			&i.StructuredData,
 			&i.ArtifactID,
 			&i.ToolCallID,
+			&i.ExcludeFromModelContext,
 			&i.Metadata,
 			&i.CreatedAt,
 		); err != nil {

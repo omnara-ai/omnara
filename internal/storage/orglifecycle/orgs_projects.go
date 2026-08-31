@@ -8,23 +8,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type CreateOrgForUserInput struct {
-	OrgID                ID
-	UserID               ID
-	Name                 string
-	IdempotencyKey       string
-	DefaultMachinePools  []executionstore.DefaultMachinePoolTemplate
-	DefaultModelProvider *modelstore.ProvisionedDefaultModelProvider
+	OrgID                         ID
+	UserID                        ID
+	Name                          string
+	IdempotencyKey                string
+	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
+	ProvisionDefaultModelProvider bool
 }
 
 func (s *Service) CreateOrgForUser(
@@ -35,8 +35,13 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, errors.New("user id is required")
 	}
 	if input.Name == "" {
-		return identitystore.CreateOrgForUserRecord{}, errors.New("org name is required")
+		return identitystore.CreateOrgForUserRecord{}, errors.New("organization name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("organization name", input.Name)
+	if err != nil {
+		return identitystore.CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if isNilID(input.OrgID) {
 		orgID, err := uuid.NewV7()
 		if err != nil {
@@ -71,15 +76,23 @@ func (s *Service) CreateOrgForUser(
 		); err != nil {
 			return identitystore.CreateOrgForUserRecord{}, err
 		}
-		if err := s.createDefaultModelProviderForOrgTx(
-			ctx,
-			tx,
-			record.Org.ID,
-			record.Project.ID,
-			input.UserID,
-			input.DefaultModelProvider,
-		); err != nil {
-			return identitystore.CreateOrgForUserRecord{}, err
+		if input.ProvisionDefaultModelProvider {
+			rows, err := s.q.WithTx(tx).EnqueueDefaultModelProviderProvisioning(
+				ctx,
+				dbsqlc.EnqueueDefaultModelProviderProvisioningParams{
+					OrganizationID: record.Org.ID,
+					CreatorUserID:  input.UserID,
+				},
+			)
+			if err != nil {
+				return identitystore.CreateOrgForUserRecord{}, fmt.Errorf(
+					"enqueue default model provider provisioning: %w",
+					err,
+				)
+			}
+			if rows != 1 {
+				return identitystore.CreateOrgForUserRecord{}, storeerr.ErrStateTransitionConflict
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -589,6 +602,12 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	if err := q.DeleteOrganizationSkillGrants(ctx, dbsqlc.DeleteOrganizationSkillGrantsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization skill grants: %w", err)
+	}
+	if err := q.DeleteDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		dbsqlc.DeleteDefaultModelProviderProvisioningForOrganizationParams{OrganizationID: orgID},
+	); err != nil {
+		return nil, fmt.Errorf("delete default model provider provisioning: %w", err)
 	}
 	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization secrets: %w", err)

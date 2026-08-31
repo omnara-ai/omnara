@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -31,6 +32,11 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 	ctx context.Context,
 	input CreateOrgAPIKeyInput,
 ) (CreatedOrgAPIKey, error) {
+	normalizedName, err := resourcename.CanonicalizeRequired("org api key name", input.Name)
+	if err != nil {
+		return CreatedOrgAPIKey{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	tokenID, token, err := prepareOrgAPIKeyInput(input)
 	if err != nil {
 		return CreatedOrgAPIKey{}, err
@@ -117,9 +123,6 @@ func (s *Store) CreateOrgAPIKeyWithPlaintext(
 func prepareOrgAPIKeyInput(input CreateOrgAPIKeyInput) (string, string, error) {
 	if isNilID(input.OrgID) {
 		return "", "", errors.New("org api key org id is required")
-	}
-	if input.Name == "" {
-		return "", "", errors.New("org api key name is required")
 	}
 	if !orgAPIKeyRoleAllowed(input.OrgRole) {
 		return "", "", fmt.Errorf("org api key role must be %q or %q", authz.OrgRoleAdmin, authz.OrgRoleMember)
@@ -275,6 +278,20 @@ func (s *Store) UpdateOrgAPIKey(
 	current, err := lockActiveOrgAPIKeyTx(ctx, qtx, input.OrgID, input.KeyID, input.ActorPrincipal)
 	if err != nil {
 		return OrgAPIKeyRecord{}, err
+	}
+	effectiveName := current.Name
+	if input.Name != "" {
+		effectiveName = input.Name
+	}
+	if effectiveName == "" {
+		return OrgAPIKeyRecord{}, errors.New("org api key name is required")
+	}
+	normalizedName, err := resourcename.CanonicalizeRequired("org api key name", effectiveName)
+	if err != nil {
+		return OrgAPIKeyRecord{}, storeerr.InvalidRequest(err)
+	}
+	if input.Name != "" {
+		input.Name = normalizedName
 	}
 	var row dbsqlc.OrgApiKey
 	if input.Name != "" {

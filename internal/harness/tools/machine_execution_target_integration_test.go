@@ -269,6 +269,11 @@ tools:
 		Name:  "inspect_machine",
 		Input: json.RawMessage(`{}`),
 	}
+	staleInspectCall := model.ToolCall{
+		ID:    "call_observe-byo-stale-inspect",
+		Name:  "inspect_machine",
+		Input: json.RawMessage(`{"machine_ref":"mchr-missing"}`),
+	}
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
 		t,
 		ctx,
@@ -277,10 +282,17 @@ tools:
 		fixture.UserID,
 		config.ID,
 		"observe-byo",
-		[]model.ToolCall{listCall, inspectCall, mixedInspectCall, createPoolCall, alwaysAllowMixedInspectCall},
+		[]model.ToolCall{
+			listCall,
+			inspectCall,
+			mixedInspectCall,
+			createPoolCall,
+			alwaysAllowMixedInspectCall,
+			staleInspectCall,
+		},
 		fixture.Now.Add(7*time.Second),
 	)
-	for _, index := range []int{0, 3, 4} {
+	for _, index := range []int{0, 3, 4, 5} {
 		if _, err := fixture.Store.Execution().MarkToolCallReady(
 			ctx,
 			executionstore.MarkToolCallReadyInput{
@@ -405,7 +417,8 @@ tools:
 	}
 	mixedBody := toolResultMapFromTestParts(t, mixedResult.ContentParts)
 	if mixedBody["error_code"] != ErrMachineSelectionRequired.Error() ||
-		mixedBody["error"] != "machine_ref is required when multiple machines are available" {
+		mixedBody["error"] != "machine_ref is required when multiple machines are available" ||
+		mixedBody["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("mixed-source inspect_machine result = %+v", mixedBody)
 	}
 	alwaysAllowTurn := turn
@@ -426,6 +439,16 @@ tools:
 			alwaysAllowMixedBody,
 			mixedBody,
 		)
+	}
+	staleResult, err := executor.Dispatch(ctx, alwaysAllowTurn, staleInspectCall)
+	if err != nil {
+		t.Fatalf("dispatch stale inspect_machine: %v", err)
+	}
+	staleBody := toolResultMapFromTestParts(t, staleResult.ContentParts)
+	if staleBody["error_code"] != ErrMachineRefUnavailable.Error() ||
+		staleBody["error"] != "machine_ref is unavailable" ||
+		staleBody["next_action"] != toolcatalog.ToolNameListMachines {
+		t.Fatalf("stale inspect_machine result = %+v", staleBody)
 	}
 }
 
@@ -448,7 +471,7 @@ func assertBYOMachineObservationResult(
 
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	ctx := context.Background()
-	fixture := newMachineDispatchFixture(t, ctx, "approved-machine-target-change")
+	fixture := newMachineDispatchFixture(t, ctx, "approved-target-change")
 	first := createExecutableBinding(
 		t,
 		ctx,
@@ -821,7 +844,8 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 		t.Fatalf("decode result content: %v; raw=%s", unmarshalErr, parts[0].Value)
 	}
 	if body["error_code"] != ErrMachineSelectionRequired.Error() ||
-		body["error"] != "machine_ref is required when multiple machines are available" {
+		body["error"] != "machine_ref is required when multiple machines are available" ||
+		body["next_action"] != toolcatalog.ToolNameListMachines {
 		t.Fatalf("unexpected structured machine selection result: %+v", body)
 	}
 }
@@ -1217,8 +1241,8 @@ func assertManagedWorkAdmissionToolFailure(
 	}
 	body := toolResultMapFromTestParts(t, result.ContentParts)
 	if body["error_code"] != storeerr.ManagedWorkAdmissionDeniedCode ||
-		body["error"] != managedWorkAdmissionDeniedMessage ||
-		body["message"] != managedWorkAdmissionDeniedMessage ||
+		body["error"] != "Insufficient Omnara credits." ||
+		body["message"] != "Insufficient Omnara credits." ||
 		body["retryable"] != false {
 		t.Fatalf("denied tool result = %+v", body)
 	}

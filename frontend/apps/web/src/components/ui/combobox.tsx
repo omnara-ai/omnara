@@ -1,7 +1,7 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox'
-import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 
+import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from '@/components/icons'
 import { cn } from '@/lib/utils'
 
 const Combobox = ComboboxPrimitive.Root

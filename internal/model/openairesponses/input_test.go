@@ -127,52 +127,6 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 	t.Fatalf("function_call_output not found in payload: %s", prepared.Body)
 }
 
-func TestPrepareIncludesExecutionContextInProviderInput(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(
-		context.Background(),
-		model.PrepareInput{
-			Context: modelcontext.Bundle{
-				SystemPrompt: "sys",
-				ActiveProcesses: []modelcontext.ActiveProcessRef{
-					{ProcessID: "prc_1", State: "running", CommandLabel: "go test ./..."},
-				},
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload struct {
-		Input []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode prepared payload: %v", err)
-	}
-	if len(payload.Input) != 1 || payload.Input[0].Role != string(responsesRoleSystem) {
-		t.Fatalf("expected one system active-work input, got %+v", payload.Input)
-	}
-	for _, want := range []string{
-		"Active execution observations",
-		"active_processes",
-		"process_id",
-		"prc_1",
-		"go test ./...",
-	} {
-		if !strings.Contains(payload.Input[0].Content, want) {
-			t.Fatalf("active-work content missing %q: %s", want, payload.Input[0].Content)
-		}
-	}
-	for _, forbidden := range []string{"typed runtime authority", "mach_1", "runtime_lock_id", "machine_id", "argv"} {
-		if strings.Contains(payload.Input[0].Content, forbidden) {
-			t.Fatalf("active-work content leaked %q: %s", forbidden, payload.Input[0].Content)
-		}
-	}
-}
-
 func TestPrepareIncludesAvailableMachinePoolsInProviderInput(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(
@@ -218,60 +172,6 @@ func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
 	}
 	if !strings.Contains(string(prepared.Body), "no machine pools are currently available") {
 		t.Fatalf("missing empty machine-pool context: %s", prepared.Body)
-	}
-}
-
-func TestPreparePlacesExecutionContextAtEndOfProviderInput(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt:      "sys",
-		ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-		Messages: []modelcontext.Message{
-			openAITextMessage(modelprotocol.RoleUser, "latest user message"),
-			messageAtSequence(assistantToolCallMessage("mcc_1", "tcl_1"), 2),
-		},
-		ToolResults: []modelcontext.ToolResultRef{{SourceEventSequence: 1, ToolCallID: "tcl_1",
-			ModelCallContextID: "mcc_1",
-			ProviderCallID:     "call_1",
-			Name:               "run_command",
-			Input:              json.RawMessage(`{"command":"true"}`),
-			ContentParts:       json.RawMessage(`[{"type":"structured_data","value":{"ok":true}}]`),
-		}},
-		AttachedMachines: []modelcontext.AttachedMachineRef{{
-			MachineRef:  "mchr-abc234",
-			Description: "Build machine",
-			Cwd:         "/workspace",
-		}},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload struct {
-		Input []struct {
-			Type    string          `json:"type"`
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode prepared payload: %v", err)
-	}
-	if len(payload.Input) != 5 {
-		t.Fatalf(
-			"expected checkpoint, message, rebuilt call, call output, and active work, got %d: %s",
-			len(payload.Input),
-			prepared.Body,
-		)
-	}
-	last := payload.Input[len(payload.Input)-1]
-	if last.Role != string(responsesRoleSystem) ||
-		!strings.Contains(string(last.Content), "Active execution observations") ||
-		!strings.Contains(string(last.Content), "mchr-abc234") {
-		t.Fatalf("expected active work as final provider input item, got %+v in %s", last, prepared.Body)
-	}
-	if strings.Contains(string(payload.Input[0].Content), "mchr-abc234") ||
-		strings.Contains(string(payload.Input[1].Content), "mchr-abc234") {
-		t.Fatalf("active work leaked into stable prefix: %s", prepared.Body)
 	}
 }
 

@@ -2069,6 +2069,18 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create browser session: %v", err)
 	}
+	for name, body := range map[string]string{
+		"unpaired surrogate": `{"client_name":"CLI\ud800App","token_name":"CLI token"}`,
+		"invalid UTF-8":      `{"client_name":"CLI` + string([]byte{0xff}) + `App","token_name":"CLI token"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := newJSONRequest(http.MethodPost, "http://app.omnara.test/api/auth/device/code", body)
+			rec := performRequest(handler, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("malformed device name status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 
 	req := newJSONRequest(
 		http.MethodPost,

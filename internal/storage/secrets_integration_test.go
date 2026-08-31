@@ -1671,6 +1671,14 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 	if _, _, err := store.Secrets().CreateSecret(ctx, input); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("duplicate owner/name error = %v, want ErrConflict", err)
 	}
+	if _, err := store.Secrets().UpdateSecretMetadata(ctx, secretstore.UpdateSecretMetadataInput{
+		OrgID:    testOrgID,
+		SecretID: first.ID,
+		Name:     " invalid secret ",
+		Actor:    userPrincipal(admin.ID),
+	}); !errors.Is(err, storeerr.ErrInvalidSecretName) {
+		t.Fatalf("update secret with invalid name error = %v, want invalid secret name", err)
+	}
 	renamed, err := store.Secrets().UpdateSecretMetadata(
 		ctx,
 		secretstore.UpdateSecretMetadataInput{

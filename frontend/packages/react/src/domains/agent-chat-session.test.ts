@@ -1,3 +1,4 @@
+import { ApiError } from '@omnara/sdk'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -5,7 +6,6 @@ import {
   chatSdkMocks,
   client,
   connection,
-  controlEvent,
   createChatTestSession,
   event,
   messageText,
@@ -13,15 +13,31 @@ import {
   resetChatTestHarness,
   scope,
   sentIdempotencyKey,
-  setSessionHistory,
   startSession,
   toolCallBlock,
   toolResultEvent,
   userInputEvent,
   waitForSnapshot,
 } from './agent-chat-test-support'
+import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
 const sdkMocks = chatSdkMocks()
+
+function acceptedInput(id: string, text: string) {
+  return {
+    data: {
+      agent_input: {
+        id,
+        agent_id: 'agent',
+        state: 'received',
+        delivery_mode: 'queued' as const,
+        input_kind: 'content' as const,
+        content_blocks: [{ type: 'text' as const, text }],
+        queued_at: '2026-07-14T00:00:00Z',
+      },
+    },
+  }
+}
 
 describe('AgentChatSession input lifecycle', () => {
   beforeEach(resetChatTestHarness)
@@ -137,52 +153,134 @@ describe('AgentChatSession input lifecycle', () => {
         },
       }),
     )
+    const accepted = read(session)
+    expect(accepted.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
+    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
 
     const stream = await connection(0)
     stream.push({
       event: 'agent_input',
       data: userInputEvent({ input_idempotency_key: sentIdempotencyKey() }),
     })
-    const streaming = await waitForSnapshot(session, (s) => s.status === 'streaming')
+    const streaming = await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'input-event'),
+    )
     const userMessages = streaming.messages.filter((message) => message.role === 'user')
     expect(userMessages).toHaveLength(1)
     expect(userMessages[0]?.id).toBe('input-event')
     session.disconnect()
   })
 
-  it('keeps an optimistic input while cancellation races its durable event', async () => {
-    const queryClient = new QueryClient()
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
-    const session = startSession([], client(), queryClient)
+  it('keeps overlapping sends visible through reversed responses and events', async () => {
+    let resolveFirst!: (value: ReturnType<typeof acceptedInput>) => void
+    let resolveSecond!: (value: ReturnType<typeof acceptedInput>) => void
+    sdkMocks.createAgentInput
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
+    const session = startSession()
     const stream = await connection(0)
 
-    await session.sendMessage({ text: 'Hello' })
-    stream.push({
-      event: 'agent_input',
-      data: controlEvent({ sequence: 12 }),
-    })
-    await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(1)
-    })
+    const firstSend = session.sendMessage({ text: 'First' })
+    const firstKey = sentIdempotencyKey(0)
+    const secondSend = session.sendMessage({ text: 'Second' })
+    const secondKey = sentIdempotencyKey(1)
+    expect(read(session).messages.flatMap(messageText)).toEqual(['First', 'Second'])
 
-    const cancelled = read(session)
-    expect(cancelled.status).toBe('submitted')
-    expect(cancelled.messages.at(-1)?.id).toMatch(/^local:/)
-    expect(messageText(cancelled.messages.at(-1))).toEqual(['Hello'])
+    resolveSecond(acceptedInput('input-2', 'Second'))
+    await secondSend
+    expect(read(session).messages.flatMap(messageText)).toEqual(['First', 'Second'])
 
     stream.push({
       event: 'agent_input',
-      data: userInputEvent({ sequence: 13, input_idempotency_key: sentIdempotencyKey() }),
+      data: userInputEvent({
+        id: 'second-event',
+        sequence: 12,
+        agent_input_id: 'input-2',
+        input_idempotency_key: secondKey,
+        content_blocks: [{ type: 'text', text: 'Second' }],
+      }),
     })
-    const durable = await waitForSnapshot(
-      session,
-      (state) => state.messages.at(-1)?.id === 'input-event',
+    await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'second-event'),
     )
-    expect(durable.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+    expect(read(session).messages.flatMap(messageText)).toEqual(['Second', 'First'])
+
+    resolveFirst(acceptedInput('input-1', 'First'))
+    await firstSend
+    stream.push({
+      event: 'agent_input',
+      data: userInputEvent({
+        id: 'first-event',
+        sequence: 13,
+        agent_input_id: 'input-1',
+        input_idempotency_key: firstKey,
+        content_blocks: [{ type: 'text', text: 'First' }],
+      }),
+    })
+    const settled = await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'first-event'),
+    )
+    expect(settled.messages.filter((message) => message.role === 'user')).toHaveLength(2)
+    expect(settled.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
     session.disconnect()
   })
 
-  it('keeps a pending send until its own durable event lands, not any teammate message', async () => {
+  it('revalidates a seeded backlog cache after a send is accepted', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const queryKey = agentInputBacklogQueryKey(sessionClient, scope)
+    queryClient.setQueryData(queryKey, { data: [], next_cursor: null })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const session = startSession([], sessionClient, queryClient)
+    await connection(0)
+
+    await session.sendMessage({ text: 'Hello' }, 'backlog')
+
+    expect(queryClient.getQueryData<{ data: { id: string }[] }>(queryKey)?.data).toMatchObject([
+      { id: 'input-1' },
+    ])
+    expect(invalidate).toHaveBeenCalledWith({ queryKey })
+    session.disconnect()
+  })
+
+  it('does not clear another pending send when one request fails', async () => {
+    let rejectFirst!: (reason: unknown) => void
+    let resolveSecond!: (value: ReturnType<typeof acceptedInput>) => void
+    sdkMocks.createAgentInput
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
+    const session = startSession()
+    const stream = await connection(0)
+
+    const firstSend = session.sendMessage({ text: 'First' })
+    const secondSend = session.sendMessage({ text: 'Second' })
+    const secondKey = sentIdempotencyKey(1)
+    rejectFirst(new ApiError(422, 'first failed'))
+    await expect(firstSend).rejects.toThrow('first failed')
+    expect(read(session).messages.flatMap(messageText)).toEqual(['Second'])
+
+    resolveSecond(acceptedInput('input-2', 'Second'))
+    await secondSend
+    expect(read(session).messages.flatMap(messageText)).toEqual(['Second'])
+    stream.push({
+      event: 'agent_input',
+      data: userInputEvent({
+        id: 'second-event',
+        sequence: 12,
+        agent_input_id: 'input-2',
+        input_idempotency_key: secondKey,
+        content_blocks: [{ type: 'text', text: 'Second' }],
+      }),
+    })
+    const settled = await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'second-event'),
+    )
+    expect(settled.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+    expect(settled.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    session.disconnect()
+  })
+
+  it('keeps teammate and own durable inputs distinct after a send is accepted', async () => {
     const session = startSession()
     await connection(0)
     const stream = await connection(0)
@@ -200,9 +298,9 @@ describe('AgentChatSession input lifecycle', () => {
       }),
     })
     await waitForSnapshot(session, (state) => state.messages.some((m) => m.id === 'teammate-event'))
-    const stillPending = read(session)
-    expect(stillPending.status).toBe('submitted')
-    expect(stillPending.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
+    const teammateLoaded = read(session)
+    expect(teammateLoaded.messages.some((message) => message.id.startsWith('local:'))).toBe(true)
+    expect(teammateLoaded.messages.filter((message) => message.role === 'user')).toHaveLength(2)
 
     stream.push({
       event: 'agent_input',
@@ -212,9 +310,12 @@ describe('AgentChatSession input lifecycle', () => {
         input_idempotency_key: sentIdempotencyKey(),
       }),
     })
-    const durable = await waitForSnapshot(session, (state) => state.status === 'streaming')
+    const durable = await waitForSnapshot(session, (state) =>
+      state.messages.some((message) => message.id === 'own-event'),
+    )
     expect(durable.messages.some((message) => message.id === 'own-event')).toBe(true)
     expect(durable.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(durable.messages.filter((message) => message.role === 'user')).toHaveLength(2)
     session.disconnect()
   })
 
@@ -246,32 +347,76 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('clears a failed send and its error when the durable echo proves the input landed', async () => {
-    sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
+  it.each([
+    ['network error', new Error('response lost')],
+    ['request timeout', new ApiError(408, 'request timed out')],
+    ['rate limit', new ApiError(429, 'rate limited')],
+    ['server error', new ApiError(503, 'service unavailable')],
+  ])(
+    'restores a %s after the confirmation grace and reuses its idempotency key',
+    async (_name, error) => {
+      vi.useFakeTimers()
+      sdkMocks.createAgentInput.mockRejectedValueOnce(error)
+      const queryClient = new QueryClient()
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+      const session = startSession([], client(), queryClient)
+      await connection(0)
+
+      try {
+        const send = session.sendMessage({ text: 'Hello' })
+        const rejected = expect(send).rejects.toThrow()
+        await vi.advanceTimersByTimeAsync(1)
+        await rejected
+        expect(read(session).messages).toEqual([])
+        expect(read(session).error).toBeDefined()
+        expect(invalidate).toHaveBeenCalledWith({
+          queryKey: [expect.objectContaining({ _id: 'listQueuedBacklogInputs' })],
+        })
+
+        await session.sendMessage({ text: 'Hello' })
+        expect(sdkMocks.createAgentInput).toHaveBeenCalledTimes(2)
+        expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+      } finally {
+        session.disconnect()
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it('uses backlog confirmation when the event stream fails during the grace period', async () => {
+    vi.useFakeTimers()
+    sdkMocks.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
     const session = startSession([], client(), queryClient)
-    await connection(0)
     const stream = await connection(0)
 
-    await expect(session.sendMessage({ text: 'Hello' })).rejects.toThrow('response lost')
-    expect(read(session).status).toBe('error')
-    expect(invalidate).not.toHaveBeenCalled()
+    try {
+      const send = session.sendMessage({ text: 'Hello' })
+      const settled = expect(send).resolves.toBeUndefined()
+      const key = sentIdempotencyKey()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(invalidate).toHaveBeenCalled()
 
-    stream.push({
-      event: 'agent_input',
-      data: userInputEvent({ input_idempotency_key: sentIdempotencyKey() }),
-    })
-    const recovered = await waitForSnapshot(session, (state) =>
-      state.messages.some((m) => m.id === 'input-event'),
-    )
-    expect(recovered.error).toBeUndefined()
-    expect(recovered.status).not.toBe('error')
-    expect(recovered.messages.filter((message) => message.role === 'user')).toHaveLength(1)
-    expect(invalidate).toHaveBeenCalledWith(
-      expect.objectContaining({ predicate: expect.any(Function) as unknown }),
-    )
-    session.disconnect()
+      stream.push({
+        event: 'error',
+        data: { code: 'internal_error', error: 'event projection failed' },
+      })
+      stream.end()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(read(session).error?.message).toBe('event projection failed')
+
+      session.confirmBacklogInputs([
+        { ...acceptedInput('input-1', 'Hello').data.agent_input, input_idempotency_key: key },
+      ])
+      await vi.advanceTimersByTimeAsync(1)
+
+      await settled
+      expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
   })
 
   it('resolves a send whose echo landed before its response failed, without an error', async () => {
@@ -299,33 +444,77 @@ describe('AgentChatSession input lifecycle', () => {
     session.disconnect()
   })
 
-  it('clears the lingering optimistic copy when an idempotent resend finds its echo already loaded', async () => {
-    sdkMocks.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
-    const queryClient = new QueryClient()
-    const session = startSession([], client(), queryClient)
+  it('clears a send error when its durable echo arrives after the confirmation grace', async () => {
+    vi.useFakeTimers()
+    sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
+    const session = startSession()
+    const stream = await connection(0)
+
+    try {
+      const send = session.sendMessage({ text: 'Hello' })
+      const key = sentIdempotencyKey()
+      const rejected = expect(send).rejects.toThrow('response lost')
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+      expect(read(session).status).toBe('error')
+
+      stream.push({
+        event: 'agent_input',
+        data: userInputEvent({ input_idempotency_key: key }),
+      })
+      const recovered = await waitForSnapshot(session, (state) => state.error == null)
+
+      expect(recovered.status).not.toBe('error')
+      expect(recovered.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses backlog correlation to confirm a send whose response was lost', async () => {
+    sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
+    const session = startSession()
     await connection(0)
 
-    await expect(session.sendMessage({ text: 'Hello' })).rejects.toThrow('response lost')
-    expect(read(session).status).toBe('error')
+    const send = session.sendMessage({ text: 'Hello' })
+    const key = sentIdempotencyKey()
 
-    const echo = userInputEvent({ input_idempotency_key: sentIdempotencyKey() })
-    setSessionHistory(session, [echo])
-    queryClient.setQueryData(['agent-chat-history', scope.orgID, scope.projectID, scope.agentID], {
-      pages: [{ data: [echo] }],
-      pageParams: [0],
-    })
+    session.confirmBacklogInputs([
+      {
+        id: 'input-1',
+        agent_id: 'agent',
+        state: 'received',
+        delivery_mode: 'queued',
+        input_kind: 'content',
+        input_idempotency_key: key,
+        content_blocks: [{ type: 'text', text: 'Hello' }],
+        queued_at: '2026-07-14T00:00:00Z',
+      },
+    ])
+    await send
+    expect(read(session).error).toBeUndefined()
+    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    session.disconnect()
+  })
 
+  it('optimistically dismisses local backlog inputs and restores them on rollback', async () => {
+    const queryClient = new QueryClient()
+    const sessionClient = client()
+    const session = startSession([], sessionClient, queryClient)
+    await connection(0)
     await session.sendMessage({ text: 'Hello' })
-    expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
-    const settled = read(session)
-    expect(settled.error).toBeUndefined()
-    expect(settled.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
-    expect(settled.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+
+    const rollback = session.beginBacklogInputCancellation(['input-1'])
+    expect(session.getData().localInputs).toEqual([])
+
+    rollback()
+    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
     session.disconnect()
   })
 
   it('restores the composer error state when the send fails', async () => {
-    sdkMocks.createAgentInput.mockRejectedValue(new Error('input rejected'))
+    sdkMocks.createAgentInput.mockRejectedValue(new ApiError(422, 'input rejected'))
     const session = startSession()
     await connection(0)
 

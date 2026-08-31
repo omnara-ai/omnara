@@ -3,7 +3,12 @@ import { parse } from 'yaml'
 
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
-import { type BasicConfig, createBasicConfigSession } from './useAgentBuilderForm'
+import {
+  type BasicConfig,
+  basicConfigValid,
+  createBasicConfigSession,
+  mcpServerNameError,
+} from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
   instruction: 'You are a research assistant.\n\nCite sources.',
@@ -19,6 +24,7 @@ const fullConfig: BasicConfig = {
       defaultCwd: '/workspace',
       initialNumMachines: '2',
       maxMachines: '5',
+      deleteAfterIdleMinutes: '0',
       machineCpu: '4',
       machineMemoryGb: '8',
       providerOptions: emptyProviderOptions,
@@ -34,6 +40,7 @@ const fullConfig: BasicConfig = {
       defaultCwd: '',
       initialNumMachines: '',
       maxMachines: '',
+      deleteAfterIdleMinutes: '',
       machineCpu: '',
       machineMemoryGb: '',
       providerOptions: emptyProviderOptions,
@@ -56,6 +63,7 @@ const fullConfig: BasicConfig = {
       secretId: '',
       service: '',
       region: '',
+      tools: [],
     },
     {
       id: 'mcp-2',
@@ -67,6 +75,7 @@ const fullConfig: BasicConfig = {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+      tools: [],
     },
     {
       id: 'mcp-3',
@@ -78,6 +87,7 @@ const fullConfig: BasicConfig = {
       secretId: 'sec_789',
       service: '',
       region: '',
+      tools: [],
     },
   ],
   skillIds: ['skl_1', 'skl_2'],
@@ -152,6 +162,7 @@ describe('createBasicConfigSession initialDraft', () => {
       defaultCwd: '/workspace',
       initialNumMachines: '2',
       maxMachines: '5',
+      deleteAfterIdleMinutes: '0',
       machineCpu: '4',
       machineMemoryGb: '8',
     })
@@ -168,6 +179,24 @@ describe('createBasicConfigSession initialDraft', () => {
       secretId: 'sec_456',
       service: 'execute-api',
       region: 'us-east-1',
+    })
+  })
+
+  it('treats missing or empty instruction and model fields as blank drafts', () => {
+    expect(mustDeserialize('instruction:\nmodel:\n  provider_config: anthropic\n')).toMatchObject({
+      instruction: '',
+      providerConfig: 'anthropic',
+      modelName: '',
+    })
+    expect(mustDeserialize('model:\n')).toMatchObject({
+      instruction: '',
+      providerConfig: '',
+      modelName: '',
+    })
+    expect(mustDeserialize('{}')).toMatchObject({
+      instruction: '',
+      providerConfig: '',
+      modelName: '',
     })
   })
 
@@ -229,6 +258,50 @@ mcp:
     expect(config.tools).toEqual([{ name: 'ask_question', permission: null }])
     expect(config.mcpServers).toMatchObject([{ name: 'search', permission: null }])
     expect(applyToSource(source, config)).toBe(source)
+  })
+
+  it('round-trips per-tool mcp overrides and drops empty ones', () => {
+    const source = `${minimalYaml}mcp:
+  search:
+    url: https://mcp.example.com
+    tools:
+      web_search:
+        enabled: false
+      fetch:
+        permission:
+          mode: always_allow
+`
+    const config = mustDeserialize(source)
+    expect(config.mcpServers[0]?.tools).toEqual([
+      { name: 'web_search', enabled: false, permission: null },
+      { name: 'fetch', enabled: null, permission: { mode: 'always_allow', parameters: {} } },
+    ])
+    expect(applyToSource(source, config)).toBe(source)
+
+    const [server] = config.mcpServers
+    if (server == null) throw new Error('missing server')
+    const cleared = applyToSource(source, {
+      ...config,
+      mcpServers: [
+        {
+          ...server,
+          tools: [
+            { name: 'web_search', enabled: null, permission: null },
+            { name: 'fetch', enabled: true, permission: null },
+          ],
+        },
+      ],
+    })
+    expect(parse(cleared)).toEqual({
+      ...parse(minimalYaml),
+      mcp: {
+        search: {
+          url: 'https://mcp.example.com',
+          default_enabled: true,
+          tools: { fetch: { enabled: true } },
+        },
+      },
+    })
   })
 
   it('accepts zero machine counts and round-trips them', () => {
@@ -510,6 +583,7 @@ describe('createBasicConfigSession apply', () => {
           secretId: '',
           service: '',
           region: '',
+          tools: [],
         },
       ],
     })
@@ -524,5 +598,62 @@ describe('createBasicConfigSession apply', () => {
       skills: ['skl_1', 'skl_2'],
       tools: { shell: { type: 'built_in' } },
     })
+  })
+})
+
+describe('basic agent config names', () => {
+  it.each([
+    ['provider config', { providerConfig: ' anthropic' }],
+    ['configured model', { modelName: 'claude-sonnet-5 ' }],
+  ])('rejects rather than trims %s references', (_case, patch) => {
+    expect(basicConfigValid({ ...fullConfig, ...patch })).toBe(false)
+  })
+
+  it('rejects rather than trims machine references', () => {
+    const machineSources = fullConfig.machineSources.map((source, index) =>
+      index === 0 ? { ...source, name: ` ${source.name}` } : source,
+    )
+    expect(basicConfigValid({ ...fullConfig, machineSources })).toBe(false)
+  })
+
+  it('rejects rather than trims MCP server keys', () => {
+    const mcpServers = fullConfig.mcpServers.map((server, index) =>
+      index === 0 ? { ...server, name: ` ${server.name}` } : server,
+    )
+    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+  })
+
+  it.each([
+    ['', 'Name is required.'],
+    [' github', 'Name must start with a letter.'],
+    ['1github', 'Name must start with a letter.'],
+    ['git_hub', 'Name may only contain letters, numbers, and hyphens.'],
+    ['a'.repeat(33), 'Name cannot exceed 32 characters.'],
+    ['github', undefined],
+    ['GitHub-2', undefined],
+  ])('reports the MCP server key rule for %j', (name, expected) => {
+    expect(mcpServerNameError(name)).toBe(expected)
+  })
+
+  it('rejects duplicate MCP server keys', () => {
+    const mcpServers = fullConfig.mcpServers.map((server, index) =>
+      index === 1 ? { ...server, name: fullConfig.mcpServers[0]?.name ?? '' } : server,
+    )
+    expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
+  })
+
+  it('preserves accepted resource names except for NFC canonicalization', () => {
+    const config = {
+      ...fullConfig,
+      providerConfig: 'Production Cafe\u0301',
+      modelName: 'Mode\u0301l 5',
+      machineSources: fullConfig.machineSources.map((source, index) =>
+        index === 0 ? { ...source, name: 'Primary Cafe\u0301  Pool' } : source,
+      ),
+    }
+    const roundTripped = mustDeserialize(applyToSource('', config))
+    expect(roundTripped.providerConfig).toBe('Production Café')
+    expect(roundTripped.modelName).toBe('Modél 5')
+    expect(roundTripped.machineSources[0]?.name).toBe('Primary Café  Pool')
   })
 })

@@ -21,6 +21,11 @@ type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseL
     : never
   : never
 
+export interface TransformBodyContext {
+  client: OmnaraClient
+  path: Record<string, unknown>
+}
+
 export interface OperationSpec<Response = never, ParsedBody = never> {
   type: 'op'
   verb: string
@@ -29,13 +34,14 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
   path?: z.ZodObject<z.ZodRawShape>
   query?: z.ZodObject<z.ZodRawShape>
   body?: z.ZodType
-  transformBody?: (body: ParsedBody) => unknown
+  transformBody?: (body: ParsedBody, context: TransformBodyContext) => unknown
   positional?: string[]
   format: OutputFormat<Response>
 }
 
 export interface FlowContext<Path, Body> {
   client: OmnaraClient
+  baseUrl: string
   path: Path
   body: Body
   report: FlowReporter
@@ -43,6 +49,7 @@ export interface FlowContext<Path, Body> {
 
 interface FlowInput {
   client: OmnaraClient
+  baseUrl: string
   path: Record<string, unknown>
   body: unknown
 }
@@ -91,6 +98,7 @@ export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType
     execute: (input) =>
       run({
         client: input.client,
+        baseUrl: input.baseUrl,
         path: parseWithSchema(spec.path, input.path, 'arguments'),
         body: parseWithSchema(spec.body, input.body, 'flags'),
         report: createFlowReporter(spec.summary),
@@ -349,14 +357,19 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
           options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
         const body = deepMerge(base, collectFlagValues(bodyFlags, options))
         const parsed = parseWithSchema(spec.body, body, 'request body')
-        input.body = spec.transformBody ? await spec.transformBody(parsed as never) : parsed
+        input.body = spec.transformBody
+          ? await spec.transformBody(parsed as never, {
+              client: config.client,
+              path: input.path ?? {},
+            })
+          : parsed
       }
       const data = await callOperation(spec, input)
       if (options.json === true) {
         renderResult(data, true)
         return
       }
-      const formatted = spec.format(data as never)
+      const formatted = spec.format(data as never, { baseUrl: config.baseUrl })
       renderResult(formatted.value, false, { columns: formatted.columns })
     })
   })
@@ -376,6 +389,7 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
       const options = command.opts<Record<string, unknown>>()
       await spec.execute({
         client: config.client,
+        baseUrl: config.baseUrl,
         path: await resolvePathValues(plan, args, options, config),
         body: collectFlagValues(bodyFlags, options),
       })

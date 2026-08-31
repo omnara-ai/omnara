@@ -46,7 +46,10 @@ type ProvisionHostedCredentialResponse struct {
 	CredentialValue string `json:"credential_value"`
 }
 
-var ErrHostedCredentialConflict = errors.New("hosted credential setup is blocked by an unresolved attempt")
+var (
+	ErrHostedCredentialPending  = errors.New("hosted credential issuance is pending")
+	ErrHostedCredentialConflict = errors.New("hosted credential issuance conflicts with durable facts")
+)
 
 type HTTPHostedCredentialProvisioner struct {
 	BaseURL    string
@@ -68,7 +71,10 @@ func (p HTTPHostedCredentialProvisioner) ProvisionHostedCredential(
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusCreated {
 		discardHostedErrorBody(response.Body)
-		if response.StatusCode == http.StatusConflict {
+		switch response.StatusCode {
+		case http.StatusAccepted:
+			return ProvisionHostedCredentialResponse{}, ErrHostedCredentialPending
+		case http.StatusConflict:
 			return ProvisionHostedCredentialResponse{}, ErrHostedCredentialConflict
 		}
 		return ProvisionHostedCredentialResponse{}, fmt.Errorf("hosted API returned HTTP %d", response.StatusCode)

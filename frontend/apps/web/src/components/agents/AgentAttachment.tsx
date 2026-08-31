@@ -1,21 +1,10 @@
 import { useDownloadAgentArtifact } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { Paperclip } from 'lucide-react'
 
+import { downloadBlob } from '@/components/agents/downloadBlob'
+import { Paperclip } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { useActiveOrg } from '@/lib/use-active-org'
-
-function saveBlob(content: Blob, filename: string | undefined) {
-  const url = URL.createObjectURL(content)
-  try {
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename == null || filename === '' ? 'attachment' : filename
-    anchor.click()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
 
 /**
  * A chat attachment indicator. The message only carries the artifact
@@ -31,9 +20,10 @@ export function AgentAttachment({ artifactId }: { artifactId?: string }) {
     params.agentId ?? '',
   )
 
-  async function save(artifactID: string) {
+  async function downloadArtifact(artifactID: string) {
     const { artifact, content } = await download.mutateAsync(artifactID)
-    saveBlob(content, artifact.filename?.trim())
+    const filename = artifact.filename?.trim()
+    downloadBlob(content, filename == null || filename === '' ? 'attachment' : filename)
   }
 
   if (artifactId == null) {
@@ -52,7 +42,7 @@ export function AgentAttachment({ artifactId }: { artifactId?: string }) {
         disabled={download.isPending}
         loading={download.isPending}
         icon={<Paperclip className="size-3.5" />}
-        onClick={() => void save(artifactId).catch(() => undefined)}
+        onClick={() => void downloadArtifact(artifactId).catch(() => undefined)}
       >
         Attachment
       </Button>

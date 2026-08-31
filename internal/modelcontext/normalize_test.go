@@ -9,67 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func TestProjectionNormalizerRejectsInvalidExecutionContext(t *testing.T) {
-	base := Bundle{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
-		InputEventSequence: 1,
-	}
-	tests := []struct {
-		name      string
-		processes []ActiveProcessRef
-		machines  []AttachedMachineRef
-	}{
-		{name: "process missing state", processes: []ActiveProcessRef{{ProcessID: "prc_1"}}},
-		{name: "machine missing ref", machines: []AttachedMachineRef{{Description: "Build machine"}}},
-		{
-			name: "duplicate process",
-			processes: []ActiveProcessRef{
-				{ProcessID: "prc_1", State: "running"},
-				{ProcessID: "prc_1", State: "exited"},
-			},
-		},
-		{
-			name: "duplicate machine",
-			machines: []AttachedMachineRef{
-				{MachineRef: "mchr-abc234"},
-				{MachineRef: "mchr-abc234"},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bundle := base
-			bundle.ActiveProcesses = tt.processes
-			bundle.AttachedMachines = tt.machines
-			if err := (ProjectionNormalizer{}).Normalize(bundle); err == nil {
-				t.Fatalf("expected invalid execution context to fail")
-			}
-		})
-	}
-}
-
-func TestProjectionNormalizerAcceptsExecutionContext(t *testing.T) {
-	bundle := Bundle{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		TurnID:             testTurnID,
-		OpeningInputIDs:    []storage.ID{testInputID},
-		InputEventSequence: 1,
-		ActiveProcesses:    []ActiveProcessRef{{ProcessID: "prc_1", State: "running"}},
-		AttachedMachines: []AttachedMachineRef{{
-			MachineRef:  "mchr-abc234",
-			Description: "Build machine",
-			Cwd:         "/workspace",
-		}},
-	}
-	if err := (ProjectionNormalizer{}).Normalize(bundle); err != nil {
-		t.Fatalf("normalize execution context: %v", err)
-	}
-}
-
 func TestProjectionNormalizerRejectsInvalidIntegrationTargets(t *testing.T) {
 	base := Bundle{
 		ProjectID:          testProjectID,

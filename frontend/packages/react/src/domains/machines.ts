@@ -89,7 +89,7 @@ export function useConnectMachine(orgID: string) {
       const { data } = await sdk.connectByoMachine({
         client,
         path: { orgID },
-        body: { display_name: displayName, project_ids: projectIDs },
+        body: { display_name: displayName, project_ids: projectIDs, token_name: 'web-console' },
       })
       return data
     },

@@ -70,26 +70,6 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 	if len(bundle.Messages) > 0 && lastCheckpointEnd > 0 && bundle.Messages[0].Sequence <= lastCheckpointEnd {
 		return fmt.Errorf("transcript tail overlaps checkpoint range")
 	}
-	seenProcesses := map[string]bool{}
-	for _, process := range bundle.ActiveProcesses {
-		if process.ProcessID == "" || process.State == "" {
-			return fmt.Errorf("active process id and state are required")
-		}
-		if seenProcesses[process.ProcessID] {
-			return fmt.Errorf("duplicate active process in context: %s", process.ProcessID)
-		}
-		seenProcesses[process.ProcessID] = true
-	}
-	seenMachines := map[string]bool{}
-	for _, machine := range bundle.AttachedMachines {
-		if machine.MachineRef == "" {
-			return fmt.Errorf("attached machine ref is required")
-		}
-		if seenMachines[machine.MachineRef] {
-			return fmt.Errorf("duplicate attached machine in context: %s", machine.MachineRef)
-		}
-		seenMachines[machine.MachineRef] = true
-	}
 	seenIntegrationTargets := map[string]bool{}
 	currentIntegrationTargets := 0
 	for _, target := range bundle.IntegrationTargets {
