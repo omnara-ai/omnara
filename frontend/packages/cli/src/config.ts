@@ -14,9 +14,12 @@ import {
 } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
 
-export const DEFAULT_BASE_URL = 'https://app.omnara.com'
+export const DEFAULT_API_URL = 'https://api.omnara.com/v1'
+export const DEFAULT_ISSUER_URL = 'https://app.omnara.com'
 
 const zConfigFile = z.looseObject({
+  api_url: z.url().optional(),
+  issuer_url: z.url().optional(),
   base_url: z.url().optional(),
   token: z.string().min(1).optional(),
   org_id: zOrganizationId.optional(),
@@ -27,7 +30,8 @@ export type ConfigFile = z.infer<typeof zConfigFile>
 
 export interface CliConfig {
   client: OmnaraClient
-  baseUrl: string
+  apiUrl: string
+  issuerUrl: string
   defaultOrgId?: string
   defaultProjectId?: string
 }
@@ -95,18 +99,40 @@ export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
   return result.data
 }
 
+export interface ResolvedUrls {
+  apiUrl: string
+  issuerUrl: string
+}
+
+export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedUrls {
+  return {
+    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? DEFAULT_API_URL,
+    issuerUrl: env.OMNARA_ISSUER_URL ?? file.issuer_url ?? DEFAULT_ISSUER_URL,
+  }
+}
+
+export function migrateLegacyBaseUrl(file: ConfigFile): ConfigFile | undefined {
+  const { base_url: baseUrl, ...rest } = file
+  if (baseUrl === undefined) return undefined
+  return rest
+}
+
 export function loadConfig(): CliConfig {
-  const file = readConfigFile()
-  const baseUrl = process.env.OMNARA_BASE_URL ?? file.base_url ?? DEFAULT_BASE_URL
+  const loaded = readConfigFile()
+  const migrated = migrateLegacyBaseUrl(loaded)
+  const file =
+    migrated === undefined ? loaded : updateConfigFile({ ...migrated, base_url: undefined })
+  const { apiUrl, issuerUrl } = resolveUrls(file, process.env)
   const token = process.env.OMNARA_API_KEY ?? file.token
   const client = createOmnaraClient({
-    baseUrl,
+    baseUrl: apiUrl,
     auth: token ? bearerToken(token) : undefined,
     headers: { 'User-Agent': 'omnara-cli' },
   })
   return {
     client,
-    baseUrl,
+    apiUrl,
+    issuerUrl,
     defaultOrgId: process.env.OMNARA_ORG_ID ?? file.org_id,
     defaultProjectId: process.env.OMNARA_PROJECT_ID ?? file.project_id,
   }
@@ -115,7 +141,8 @@ export function loadConfig(): CliConfig {
 interface ConfigOptions {
   org?: string
   project?: string
-  baseUrl?: string
+  apiUrl?: string
+  issuerUrl?: string
 }
 
 function describeValue(
@@ -138,7 +165,9 @@ function printConfig(): void {
   console.log(`config file  ${configFilePath()}`)
   console.log(`org_id       ${describeValue('OMNARA_ORG_ID', file.org_id)}`)
   console.log(`project_id   ${describeValue('OMNARA_PROJECT_ID', file.project_id)}`)
-  console.log(`base_url     ${describeValue('OMNARA_BASE_URL', file.base_url, DEFAULT_BASE_URL)}`)
+  const { apiUrl, issuerUrl } = resolveUrls(file, {})
+  console.log(`api_url      ${describeValue('OMNARA_API_URL', file.api_url, apiUrl)}`)
+  console.log(`issuer_url   ${describeValue('OMNARA_ISSUER_URL', file.issuer_url, issuerUrl)}`)
 }
 
 export function registerConfigCommand(program: Command, cli: CliConfig): void {
@@ -147,13 +176,18 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
     .description('Show or set the default organization and project')
     .option('--org <org-id>', 'save this organization ID as the default')
     .option('--project <project-id>', 'save this project ID as the default')
-    .option('--base-url <url>', 'save this API base URL as the default')
+    .option('--api-url <url>', 'save this API root URL (used for requests) as the default')
+    .option(
+      '--issuer-url <url>',
+      'save this web app origin (used for login and browser links) as the default',
+    )
     .action(async (options: ConfigOptions) => {
       await runCliAction(() => {
         if (
           options.org !== undefined ||
           options.project !== undefined ||
-          options.baseUrl !== undefined
+          options.apiUrl !== undefined ||
+          options.issuerUrl !== undefined
         ) {
           const clearStaleProject = options.org !== undefined && options.project === undefined
           updateConfigFile({
@@ -163,7 +197,8 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
               : options.project !== undefined
                 ? { project_id: options.project }
                 : {}),
-            ...(options.baseUrl !== undefined ? { base_url: options.baseUrl } : {}),
+            ...(options.apiUrl !== undefined ? { api_url: options.apiUrl } : {}),
+            ...(options.issuerUrl !== undefined ? { issuer_url: options.issuerUrl } : {}),
           })
         }
         printConfig()

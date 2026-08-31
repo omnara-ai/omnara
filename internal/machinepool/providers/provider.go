@@ -20,8 +20,13 @@ const (
 	Unikraft = "unikraft"
 )
 
+type OmnaraURLs struct {
+	APIURL       string
+	InstallerURL string
+}
+
 type RuntimeConfig struct {
-	PublicURL         string
+	Omnara            OmnaraURLs
 	ProviderAuthToken string
 }
 

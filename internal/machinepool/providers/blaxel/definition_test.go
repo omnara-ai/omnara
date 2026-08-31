@@ -145,7 +145,10 @@ func TestDefinitionCreatesBlaxel(t *testing.T) {
 	runtimeProvider, err := (Definition{}).NewProvider(
 		json.RawMessage(`{"workspace":"omnara"}`),
 		providers.RuntimeConfig{
-			PublicURL:         "https://app.omnara.test",
+			Omnara: providers.OmnaraURLs{
+				APIURL:       "https://api.omnara.test/v1",
+				InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+			},
 			ProviderAuthToken: "token",
 		},
 	)

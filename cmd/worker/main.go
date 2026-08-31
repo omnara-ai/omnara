@@ -146,7 +146,7 @@ func main() {
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.OmnaraURLs())
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
 		ctx,
 		log,

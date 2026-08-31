@@ -91,8 +91,14 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load generated openapi spec: %v", err)
 	}
-	if len(generated.Servers) != 0 {
-		t.Fatal("OpenAPI paths include the public /api/v1 prefix, so servers must not define a second base URL")
+	for _, server := range generated.Servers {
+		if server.URL == "/api/v1" || server.URL == "https://api.omnara.com/v1" {
+			continue
+		}
+		t.Fatalf("OpenAPI server %q must be the hosted API root or the self-hosted /api/v1 mount", server.URL)
+	}
+	if len(generated.Servers) != 2 {
+		t.Fatalf("OpenAPI servers = %d, want hosted and self-hosted entries", len(generated.Servers))
 	}
 
 	served := httptest.NewRecorder()
@@ -112,15 +118,15 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	}
 	var generatedPaths []string
 	for path := range generated.Paths.Map() {
-		if !strings.HasPrefix(path, "/api/v1/") {
-			t.Fatalf("generated OpenAPI path %q must include the public /api/v1 prefix", path)
+		if strings.HasPrefix(path, openAPIBasePath+"/") {
+			t.Fatalf("generated OpenAPI path %q must be relative to the %s mount", path, openAPIBasePath)
 		}
 		generatedPaths = append(generatedPaths, path)
 	}
 	var checkedInPaths []string
 	for path := range checkedIn.Paths {
-		if !strings.HasPrefix(path, "/api/v1/") {
-			t.Fatalf("checked-in OpenAPI path %q must include the public /api/v1 prefix", path)
+		if strings.HasPrefix(path, openAPIBasePath+"/") {
+			t.Fatalf("checked-in OpenAPI path %q must be relative to the %s mount", path, openAPIBasePath)
 		}
 		checkedInPaths = append(checkedInPaths, path)
 	}
@@ -184,7 +190,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	stream := openAPIResponseContent(
 		t,
 		doc.Paths,
-		"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream",
+		"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream",
 		"get",
 		"200",
 	)
@@ -202,21 +208,21 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	assertJSONResponseSchemaRef(
 		t,
 		doc.Paths,
-		"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events",
+		"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events",
 		"get",
 		"ListAgentEventsResponse",
 	)
 	assertJSONResponseSchemaRef(
 		t,
 		doc.Paths,
-		"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events",
+		"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events",
 		"get",
 		"ListTurnEventsResponse",
 	)
 	assertJSONResponseSchemaRef(
 		t,
 		doc.Paths,
-		"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel",
+		"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel",
 		"post",
 		"CancelAgentResponse",
 	)
@@ -248,7 +254,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	socketResponses := openAPIResponses(
 		t,
 		doc.Paths,
-		"/api/v1/daemon/runtimes/{runtimeID}/socket",
+		"/daemon/runtimes/{runtimeID}/socket",
 		"get",
 	)
 	if _, ok := socketResponses["101"]; !ok {
@@ -262,14 +268,14 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		path   string
 		method string
 	}{
-		{"/api/v1/daemon/bootstrap", "post"},
-		{"/api/v1/daemon/failures", "post"},
-		{"/api/v1/daemon/runtimes", "post"},
-		{"/api/v1/daemon/runtimes/{runtimeID}/socket", "get"},
-		{"/api/v1/daemon/runtimes/{runtimeID}/end", "post"},
-		{"/api/v1/daemon/runtimes/{runtimeID}/sleep", "post"},
-		{"/api/v1/daemon/skills/{skillID}/archive", "get"},
-		{"/api/v1/daemon/tool-calls/{toolCallID}/artifact", "post"},
+		{"/daemon/bootstrap", "post"},
+		{"/daemon/failures", "post"},
+		{"/daemon/runtimes", "post"},
+		{"/daemon/runtimes/{runtimeID}/socket", "get"},
+		{"/daemon/runtimes/{runtimeID}/end", "post"},
+		{"/daemon/runtimes/{runtimeID}/sleep", "post"},
+		{"/daemon/skills/{skillID}/archive", "get"},
+		{"/daemon/tool-calls/{toolCallID}/artifact", "post"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -294,20 +300,20 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 
 	browserOnlyMutations := map[string]bool{
-		"post /api/v1/personal-access-tokens":                               true,
-		"post /api/v1/orgs/{orgID}/api-keys":                                true,
-		"patch /api/v1/orgs/{orgID}/api-keys/{keyID}":                       true,
-		"post /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
-		"put /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":    true,
-		"delete /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
+		"post /personal-access-tokens":                               true,
+		"post /orgs/{orgID}/api-keys":                                true,
+		"patch /orgs/{orgID}/api-keys/{keyID}":                       true,
+		"post /orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
+		"put /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":    true,
+		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /api/v1/daemon/bootstrap":                        true,
-		"post /api/v1/daemon/failures":                         true,
-		"post /api/v1/daemon/runtimes":                         true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/end":         true,
-		"post /api/v1/daemon/runtimes/{runtimeID}/sleep":       true,
-		"post /api/v1/daemon/tool-calls/{toolCallID}/artifact": true,
+		"post /daemon/bootstrap":                        true,
+		"post /daemon/failures":                         true,
+		"post /daemon/runtimes":                         true,
+		"post /daemon/runtimes/{runtimeID}/end":         true,
+		"post /daemon/runtimes/{runtimeID}/sleep":       true,
+		"post /daemon/tool-calls/{toolCallID}/artifact": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -1050,7 +1056,7 @@ func TestOpenAPIRequestValidatorRejectsNoBodyOperationBodies(t *testing.T) {
 			if operationRequiresNonPathParam(item, op) {
 				continue
 			}
-			concrete := concreteOpenAPIPath(path)
+			concrete := concreteOpenAPIPath(openAPIBasePath + path)
 			req := httptest.NewRequest(method, concrete, strings.NewReader(`{"unexpected":true}`))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -1291,7 +1297,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	}))
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		"/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
 		source,
 	)
 	req.ContentLength = int64(len(body))

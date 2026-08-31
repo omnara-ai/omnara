@@ -48,8 +48,8 @@ const (
 type sandboxState string
 
 type provider struct {
-	api             apiClient
-	omnaraPublicURL string
+	api    apiClient
+	omnara providers.OmnaraURLs
 }
 
 func (*provider) ProvisioningTimeout() time.Duration {
@@ -139,7 +139,7 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	env, err := providers.BuildManagedMachineEnv(
-		p.omnaraPublicURL,
+		p.omnara,
 		machineToken,
 		options.StartupScript,
 		machineEnv,

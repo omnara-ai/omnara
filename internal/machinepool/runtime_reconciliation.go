@@ -813,7 +813,7 @@ func (m Manager) providerForRuntimeScope(
 		return nil, errors.New("machine provider credential changed during runtime reconciliation")
 	}
 	runtimeProvider, err := runtimeDefinition.NewRuntimeProvider(candidate.ProviderConfig, providers.RuntimeConfig{
-		PublicURL:         m.PublicURL,
+		Omnara:            m.Omnara,
 		ProviderAuthToken: credential.Token,
 	})
 	if err != nil {

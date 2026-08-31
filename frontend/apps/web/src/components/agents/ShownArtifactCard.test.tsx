@@ -81,7 +81,7 @@ function artifactMetadata({
 }
 
 it('renders image previews from the artifact content endpoint', () => {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   const path = {
     orgID: 'org_test',
     projectID: 'proj_test',

@@ -32,23 +32,28 @@ const (
 )
 
 func BuildManagedMachineEnv(
-	omnaraPublicURL string,
+	omnara OmnaraURLs,
 	machineToken string,
 	startupScript string,
 	machineEnv map[string]string,
 ) (map[string]string, error) {
-	omnaraPublicURL = strings.TrimRight(strings.TrimSpace(omnaraPublicURL), "/")
-	if omnaraPublicURL == "" {
-		return nil, errors.New("public URL is required for managed machine bootstrap")
+	apiURL := strings.TrimRight(strings.TrimSpace(omnara.APIURL), "/")
+	if apiURL == "" {
+		return nil, errors.New("API URL is required for managed machine bootstrap")
 	}
-	env := make(map[string]string, len(machineEnv)+3)
+	installerURL := strings.TrimSpace(omnara.InstallerURL)
+	if installerURL == "" {
+		return nil, errors.New("installer URL is required for managed machine bootstrap")
+	}
+	env := make(map[string]string, len(machineEnv)+4)
 	for key, value := range machineEnv {
 		if strings.HasPrefix(strings.ToUpper(key), "OMNARA_") {
 			return nil, fmt.Errorf("machine env cannot set reserved OMNARA_ key %s", key)
 		}
 		env[key] = value
 	}
-	env["OMNARA_API_URL"] = omnaraPublicURL
+	env["OMNARA_API_URL"] = apiURL
+	env["OMNARA_INSTALLER_URL"] = installerURL
 	env["OMNARA_MACHINE_TOKEN"] = machineToken
 	if startupScript != "" {
 		env[startupScriptEnvVar] = base64.StdEncoding.EncodeToString([]byte(startupScript))

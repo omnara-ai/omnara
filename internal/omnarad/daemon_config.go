@@ -25,7 +25,8 @@ import (
 const (
 	daemonConfigFileName = "daemon.json"
 	daemonConfigVersion  = 1
-	defaultAPIURL        = "https://app.omnara.com"
+	defaultAPIURL        = "https://api.omnara.com/v1"
+	legacyHostedAPIURL   = "https://app.omnara.com"
 	missingTokenError    = "OMNARA_MACHINE_TOKEN is required; " +
 		"rerun from an interactive terminal or set OMNARA_MACHINE_TOKEN"
 )
@@ -142,7 +143,7 @@ func applyDaemonEnvironment(config *daemonConfig) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("OMNARA_API_URL: %w", err)
 		}
-		config.APIURL = apiURL
+		config.APIURL = migrateLegacyAPIURL(apiURL)
 	}
 	if token := os.Getenv("OMNARA_MACHINE_TOKEN"); token != "" {
 		config.MachineToken = token
@@ -216,6 +217,7 @@ func loadDaemonConfig(home string) (*daemonConfig, error) {
 	if apiURL != *document.APIURL {
 		return nil, errors.New("daemon config api_url is not canonical")
 	}
+	apiURL = migrateLegacyAPIURL(apiURL)
 	if *document.MachineToken == "" {
 		return nil, errors.New("daemon config machine_token is required")
 	}
@@ -271,6 +273,17 @@ func readMachineToken(terminal *os.File, output io.Writer) (string, error) {
 		return "", errors.New(missingTokenError)
 	}
 	return token, nil
+}
+
+func migrateLegacyAPIURL(apiURL string) string {
+	if apiURL == legacyHostedAPIURL {
+		return defaultAPIURL
+	}
+	parsed, err := url.Parse(apiURL)
+	if err != nil || parsed.Path != "" {
+		return apiURL
+	}
+	return apiURL + "/api/v1"
 }
 
 func canonicalAPIURL(raw string) (string, error) {

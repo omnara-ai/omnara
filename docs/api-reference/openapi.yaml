@@ -4,6 +4,11 @@ info:
   title: Omnara API
   version: 0.1.0
   description: Public HTTP API contract for Omnara.
+servers:
+  - url: https://api.omnara.com/v1
+    description: Hosted Omnara
+  - url: /api/v1
+    description: Self-hosted Omnara, relative to the deployment origin
 security:
   - bearerAuth: []
   - browserSessionCookie: []
@@ -12002,7 +12007,3 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
-# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1.
-servers:
-  - url: https://api.omnara.com/v1
-    description: Hosted Omnara

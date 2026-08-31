@@ -3,6 +3,7 @@ package daytona
 import (
 	"context"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -44,8 +45,11 @@ func testMachineProvisioning(
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api:             api,
-		omnaraPublicURL: "https://app.omnara.test",
+		api: api,
+		omnara: providers.OmnaraURLs{
+			APIURL:       "https://api.omnara.test/v1",
+			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+		},
 	}
 }
 

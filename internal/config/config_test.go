@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"strings"
 	"testing"
@@ -81,6 +82,43 @@ func TestLoadPublicURL(t *testing.T) {
 	}
 	if cfg.PublicURL != "http://localhost:5173" {
 		t.Fatalf("expected public URL, got %q", cfg.PublicURL)
+	}
+	if urls := cfg.OmnaraURLs(); urls != (providers.OmnaraURLs{
+		APIURL:       "http://localhost:5173/api/v1",
+		InstallerURL: "http://localhost:5173/install/omnarad.sh",
+	}) {
+		t.Fatalf("expected derived omnara URLs, got %+v", urls)
+	}
+}
+
+func TestLoadPublicAPIURL(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
+	t.Setenv("OMNARA_PUBLIC_API_URL", " https://api.example.com/v1/ ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if urls := cfg.OmnaraURLs(); urls != (providers.OmnaraURLs{
+		APIURL:       "https://api.example.com/v1",
+		InstallerURL: "https://app.example.com/install/omnarad.sh",
+	}) {
+		t.Fatalf("expected configured omnara URLs, got %+v", urls)
+	}
+}
+
+func TestValidateAPIRejectsInvalidPublicAPIURL(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
+	t.Setenv("OMNARA_PUBLIC_API_URL", "api.example.com/v1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_API_URL") {
+		t.Fatalf("expected OMNARA_PUBLIC_API_URL validation error, got %v", err)
 	}
 }
 
