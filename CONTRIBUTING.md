@@ -3,7 +3,7 @@
 Thanks for helping improve Omnara. Bug reports, documentation fixes, feature
 ideas, and code contributions are welcome.
 
-Follow the README [Quickstart](README.md#quickstart) for local setup. Report
+Follow the README [Get started](README.md#get-started) section for local setup. Report
 vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Pull requests
