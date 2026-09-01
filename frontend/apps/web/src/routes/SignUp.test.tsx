@@ -64,6 +64,9 @@ describe('signup continuation', () => {
     })
 
     const returnTo = '/device?user_code=ABCDE-F1234'
+    expect(container.querySelector('h1 + p')?.textContent).toContain(
+      'Create an account to approve the CLI login',
+    )
     expect(
       container.querySelector('[data-testid="social-return-to"]')?.getAttribute('data-return-to'),
     ).toBe(returnTo)
@@ -92,6 +95,7 @@ describe('signup continuation', () => {
     })
 
     expect(sdk.requestSignup).toHaveBeenCalledWith('new@example.com', returnTo)
+    expect(container.querySelector('h1 + p')?.textContent).toContain('within 15 minutes')
     expect(
       Array.from(container.querySelectorAll('a'))
         .find((link) => link.textContent === 'Back to sign in')

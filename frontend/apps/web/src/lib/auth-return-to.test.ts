@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { safeReturnTo } from '@/lib/auth-return-to'
+import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 
 describe('safeReturnTo', () => {
   it('preserves a local device path', () => {
@@ -18,5 +18,15 @@ describe('safeReturnTo', () => {
     '/login?return_to=/device',
   ])('rejects unsafe return path %s', (value) => {
     expect(safeReturnTo(value)).toBe('/')
+  })
+})
+
+describe('isDeviceApprovalReturnTo', () => {
+  it.each(['/device', '/device?user_code=ABCDE-F1234'])('recognizes %s', (value) => {
+    expect(isDeviceApprovalReturnTo(value)).toBe(true)
+  })
+
+  it.each(['/', '/devices', '/projects/device'])('ignores %s', (value) => {
+    expect(isDeviceApprovalReturnTo(value)).toBe(false)
   })
 })

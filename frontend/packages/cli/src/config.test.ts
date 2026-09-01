@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { DEFAULT_API_URL, DEFAULT_ISSUER_URL, migrateLegacyBaseUrl, resolveUrls } from './config.ts'
+import {
+  createTokenResolver,
+  DEFAULT_API_URL,
+  DEFAULT_ISSUER_URL,
+  migrateLegacyBaseUrl,
+  resolveUrls,
+} from './config.ts'
 
 describe('resolveUrls', () => {
   it('defaults to the hosted API root for requests and the hosted app for the issuer', () => {
@@ -68,5 +74,40 @@ describe('migrateLegacyBaseUrl', () => {
       issuer_url: 'https://app.new.example',
       token: 'omnara_pat_v1_test',
     })
+  })
+})
+
+describe('createTokenResolver', () => {
+  it('returns the saved token without prompting', async () => {
+    const login = vi.fn(() => Promise.resolve('omnara_pat_v1_new'))
+    const resolve = createTokenResolver({
+      savedToken: 'omnara_pat_v1_saved',
+      canPrompt: () => true,
+      login,
+    })
+
+    await expect(resolve()).resolves.toBe('omnara_pat_v1_saved')
+    expect(login).not.toHaveBeenCalled()
+  })
+
+  it('logs in once when no token is saved and reuses the result', async () => {
+    const login = vi.fn(() => Promise.resolve('omnara_pat_v1_new'))
+    const resolve = createTokenResolver({ savedToken: undefined, canPrompt: () => true, login })
+
+    const [first, second] = await Promise.all([resolve(), resolve()])
+    await expect(resolve()).resolves.toBe('omnara_pat_v1_new')
+    expect(first).toBe('omnara_pat_v1_new')
+    expect(second).toBe('omnara_pat_v1_new')
+    expect(login).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails with a login hint when it cannot prompt', async () => {
+    const login = vi.fn(() => Promise.resolve('omnara_pat_v1_new'))
+    const resolve = createTokenResolver({ savedToken: undefined, canPrompt: () => false, login })
+
+    await expect(resolve()).rejects.toThrow(
+      "not logged in: run 'omnara login' or set OMNARA_API_KEY",
+    )
+    expect(login).not.toHaveBeenCalled()
   })
 })

@@ -2,7 +2,8 @@ import type { OmnaraClient } from '@omnara/sdk'
 import { type Command, InvalidArgumentError } from 'commander'
 import * as z from 'zod'
 
-import { type CliConfig, updateConfigFile } from './config.ts'
+import type { CliConfig } from './config.ts'
+import { updateConfigFile } from './config-file.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { OutputFormat } from './format.ts'
 import {
@@ -342,6 +343,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
   command.option('--json', 'print the raw JSON response')
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       const input: CallInput = { client: config.client }
       if (spec.path) {
@@ -388,6 +390,7 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   for (const flag of bodyFlags) registerFlag(command, flag)
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       await spec.execute({
         client: config.client,
