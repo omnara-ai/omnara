@@ -31,7 +31,7 @@ func markOpenRouterCacheBreakpoints(messages []chatMessage, control *chatCacheCo
 		return messages
 	}
 	last := len(messages) - 1
-	for last >= 0 && messages[last].Role == chatRoleAssistant {
+	for last > 0 && (messages[last].Role == chatRoleAssistant || messages[last].Role == chatRoleSystem) {
 		last--
 	}
 	if last >= 0 {

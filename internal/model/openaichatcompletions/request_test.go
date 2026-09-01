@@ -1115,3 +1115,29 @@ func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastMessage(t *testing
 		t.Fatalf("cache_control marks = %+v, want system and last tool message: %s", marks, prepared.Body)
 	}
 }
+
+func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *testing.T) {
+	client := Client{EndpointPath: testEndpointPath,
+		ProviderModelSlug: "anthropic/claude-sonnet-4",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+		ToolSpecs: []modelcontext.ToolSpec{
+			{Name: toolcatalog.ToolNameCreateMachine},
+			{Name: toolcatalog.ToolNameSendIntegrationMessage},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf("cache_control marks = %+v, want system prompt and last user turn: %s", marks, prepared.Body)
+	}
+}
