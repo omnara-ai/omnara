@@ -130,6 +130,7 @@ export interface DeviceLoginOptions {
 export interface DeviceLoginResult {
   token: string
   orgId?: string
+  projectId?: string
 }
 
 export async function loginWithDevice(options: DeviceLoginOptions): Promise<DeviceLoginResult> {
@@ -167,6 +168,7 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
   })
   const client = createOmnaraClient({ baseUrl: options.apiUrl, auth: bearerToken(token) })
   let orgId = saved.org_id
+  let projectId = saved.project_id
   let loginMessage = 'Logged in'
   let validationWarning: string | undefined
   try {
@@ -175,15 +177,17 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
     if (orgId !== undefined && !me.orgs.some((org) => org.id === orgId)) {
       updateConfigFile({ org_id: undefined, project_id: undefined })
       orgId = undefined
+      projectId = undefined
       report.warn(
         'Cleared the saved default organization and project: this account cannot access them.',
       )
     } else if (
       orgId !== undefined &&
-      saved.project_id !== undefined &&
-      !(await isProjectVisible(client, orgId, saved.project_id))
+      projectId !== undefined &&
+      !(await isProjectVisible(client, orgId, projectId))
     ) {
       updateConfigFile({ project_id: undefined })
+      projectId = undefined
       report.warn('Cleared the saved default project: this account cannot access it.')
     }
   } catch (error) {
@@ -195,5 +199,5 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
   if (process.env.OMNARA_API_KEY !== undefined) {
     report.warn('OMNARA_API_KEY is set and takes precedence over the saved token')
   }
-  return { token, orgId }
+  return { token, orgId, projectId }
 }

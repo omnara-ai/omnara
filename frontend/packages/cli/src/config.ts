@@ -17,9 +17,14 @@ export interface CliConfig {
   client: OmnaraClient
   apiUrl: string
   issuerUrl: string
-  defaultOrgId?: string
-  defaultProjectId?: string
+  readonly defaultOrgId?: string
+  readonly defaultProjectId?: string
   ensureLoggedIn: () => Promise<void>
+}
+
+interface SavedDefaults {
+  orgId?: string
+  projectId?: string
 }
 
 export interface ResolvedUrls {
@@ -70,14 +75,16 @@ export function loadConfig(): CliConfig {
   const file =
     migrated === undefined ? loaded : updateConfigFile({ ...migrated, base_url: undefined })
   const { apiUrl, issuerUrl } = resolveUrls(file, process.env)
+  let saved: SavedDefaults = { orgId: file.org_id, projectId: file.project_id }
   const resolveToken = createTokenResolver({
     savedToken: process.env.OMNARA_API_KEY ?? file.token,
     canPrompt: canPromptInteractively,
     login: async () => {
       const report = createLoginReporter(`Not logged in yet. Log in to ${issuerUrl}`)
-      const { token } = await loginWithDevice({ apiUrl, issuerUrl, browser: true, report })
+      const login = await loginWithDevice({ apiUrl, issuerUrl, browser: true, report })
+      saved = { orgId: login.orgId, projectId: login.projectId }
       report.finish('Continuing')
-      return token
+      return login.token
     },
   })
   const client = createOmnaraClient({
@@ -89,8 +96,12 @@ export function loadConfig(): CliConfig {
     client,
     apiUrl,
     issuerUrl,
-    defaultOrgId: process.env.OMNARA_ORG_ID ?? file.org_id,
-    defaultProjectId: process.env.OMNARA_PROJECT_ID ?? file.project_id,
+    get defaultOrgId() {
+      return process.env.OMNARA_ORG_ID ?? saved.orgId
+    },
+    get defaultProjectId() {
+      return process.env.OMNARA_PROJECT_ID ?? saved.projectId
+    },
     ensureLoggedIn: async () => {
       await resolveToken()
     },

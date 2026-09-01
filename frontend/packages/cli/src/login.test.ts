@@ -3,7 +3,7 @@ import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CliConfig } from './config.ts'
-import { loginTokenName } from './device-login.ts'
+import { loginTokenName, loginWithDevice } from './device-login.ts'
 import { registerLoginCommand } from './login.ts'
 
 const mocks = vi.hoisted(() => ({
@@ -84,6 +84,48 @@ describe('loginTokenName', () => {
 
   it('uses a valid fallback when the generated hostname name is invalid', () => {
     expect(loginTokenName(undefined, 'x'.repeat(64))).toBe('Omnara CLI')
+  })
+})
+
+describe('loginWithDevice', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => patch)
+    vi.restoreAllMocks()
+  })
+
+  it('drops saved defaults the new account cannot access', async () => {
+    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => ({
+      org_id: 'org_00000000000000000000000001',
+      project_id: 'proj_0000000000000000000000001',
+      ...patch,
+    }))
+
+    const result = await loginWithDevice({
+      apiUrl: 'https://self-hosted.example/api/v1',
+      issuerUrl: 'https://self-hosted.example',
+      browser: false,
+      report: {
+        showCode: () => undefined,
+        startWaiting: () => undefined,
+        stopWaiting: () => undefined,
+        success: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        finish: () => undefined,
+      },
+    })
+
+    expect(result).toEqual({ token: 'omnara_pat_v1_test', orgId: undefined, projectId: undefined })
+    expect(mocks.updateConfigFile).toHaveBeenCalledWith({
+      org_id: undefined,
+      project_id: undefined,
+    })
   })
 })
 
