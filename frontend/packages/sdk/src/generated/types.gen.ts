@@ -689,6 +689,18 @@ export type CreateSkillRequest = {
     archive: Blob | File;
 };
 
+export type UpdateSkillRequest = ({
+    archive: Blob | File;
+} | {
+    skill_md: string;
+}) & {
+    archive?: Blob | File;
+    /**
+     * Replacement SKILL.md content. Every other file in the current revision's archive is preserved unchanged.
+     */
+    skill_md?: string;
+};
+
 export type Skill = {
     id: SkillId;
     org_id: OrganizationId;
@@ -701,8 +713,17 @@ export type Skill = {
     revision: number;
     description: string;
     skill_md?: string;
+    /**
+     * Files in the skill archive, including SKILL.md, with paths relative to the skill's top-level directory. Returned when fetching a single skill; omitted from list responses.
+     */
+    files?: Array<SkillFile>;
     created_at: Timestamp;
     updated_at: Timestamp;
+};
+
+export type SkillFile = {
+    path: string;
+    size: number;
 };
 
 export type ListSkillsResponse = {
@@ -5697,12 +5718,88 @@ export type GetSkillError = GetSkillErrors[keyof GetSkillErrors];
 
 export type GetSkillResponses = {
     /**
-     * Visible skill metadata and instructions.
+     * Visible skill metadata, instructions, and archive file listing.
      */
     200: Skill;
 };
 
 export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
+
+export type UpdateSkillData = {
+    body: UpdateSkillRequest;
+    path: {
+        orgID: string;
+        skillID: string;
+    };
+    query?: never;
+    url: '/api/v1/orgs/{orgID}/skills/{skillID}';
+};
+
+export type UpdateSkillErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The uploaded skill archive is too large.
+     */
+    413: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateSkillError = UpdateSkillErrors[keyof UpdateSkillErrors];
+
+export type UpdateSkillResponses = {
+    /**
+     * Skill updated with a new revision.
+     */
+    200: Skill;
+};
+
+export type UpdateSkillResponse = UpdateSkillResponses[keyof UpdateSkillResponses];
 
 export type ListSkillGrantsData = {
     body?: never;

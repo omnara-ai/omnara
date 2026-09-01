@@ -1504,7 +1504,7 @@ paths:
       summary: Get skill through ownership authority
       responses:
         '200':
-          description: Visible skill metadata and instructions.
+          description: Visible skill metadata, instructions, and archive file listing.
           content:
             application/json:
               schema:
@@ -1517,6 +1517,56 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: updateSkill
+      tags: [Skills]
+      summary: Update skill by uploading a new revision
+      description: >-
+        Creates the skill's next revision from either a replacement archive or
+        replacement SKILL.md content (which keeps every other file from the
+        current revision). The SKILL.md frontmatter `name` must match the
+        skill's existing name.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateSkillRequest'
+      responses:
+        '200':
+          description: Skill updated with a new revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: The uploaded skill archive is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -7667,6 +7717,31 @@ components:
         archive:
           type: string
           format: binary
+    UpdateSkillRequest:
+      type: object
+      properties:
+        archive:
+          type: string
+          format: binary
+        skill_md:
+          type: string
+          description: >-
+            Replacement SKILL.md content. Every other file in the current
+            revision's archive is preserved unchanged.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [archive]
+          properties:
+            archive:
+              type: string
+              format: binary
+        - type: object
+          additionalProperties: false
+          required: [skill_md]
+          properties:
+            skill_md:
+              type: string
     Skill:
       type: object
       additionalProperties: false
@@ -7691,10 +7766,29 @@ components:
           type: string
         skill_md:
           type: string
+        files:
+          type: array
+          description: >-
+            Files in the skill archive, including SKILL.md, with paths relative
+            to the skill's top-level directory. Returned when fetching a single
+            skill; omitted from list responses.
+          items:
+            $ref: '#/components/schemas/SkillFile'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    SkillFile:
+      type: object
+      additionalProperties: false
+      required: [path, size]
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+          minimum: 0
     ListSkillsResponse:
       type: object
       additionalProperties: false
