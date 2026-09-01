@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,8 @@ type retainedRuntimeStore struct {
 	renewed                        chan struct{}
 	firstLocalLeaseBudgetStartedAt time.Time
 	renewalCalls                   atomic.Int32
+	claimErr                       error
+	beforeClaimReturn              func()
 }
 
 type modelWorkOnlyExecutor struct{}
@@ -162,7 +165,10 @@ func (s *retainedRuntimeStore) ClaimNextAgentWork(
 	context.Context,
 	executionstore.ClaimNextAgentWorkInput,
 ) (executionstore.ClaimedAgentWork, bool, error) {
-	return s.claim, true, nil
+	if s.beforeClaimReturn != nil {
+		s.beforeClaimReturn()
+	}
+	return s.claim, true, s.claimErr
 }
 
 func (*retainedRuntimeStore) DeleteAgentWakeupIfNoWork(
@@ -562,6 +568,31 @@ func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWorkerLoopRetainsMixedShutdownError(t *testing.T) {
+	var logs strings.Builder
+	logger := slog.New(logpkg.NewJSONHandler(&logs, nil))
+	ctx, cancel := context.WithCancel(logpkg.WithLogger(context.Background(), logger))
+	failure := errors.New("persist worker result")
+	worker := NewWorker(
+		&retainedRuntimeStore{
+			claimErr:          errors.Join(context.Canceled, failure),
+			beforeClaimReturn: cancel,
+		},
+		nil,
+		Options{Log: logger, Capacity: 1},
+	)
+
+	worker.runLoop(ctx)
+
+	record := logs.String()
+	if !strings.Contains(record, `"level":"error"`) {
+		t.Fatalf("worker loop log level is not error: %s", record)
+	}
+	if !strings.Contains(record, failure.Error()) {
+		t.Fatalf("worker loop log does not contain genuine failure: %s", record)
 	}
 }
 

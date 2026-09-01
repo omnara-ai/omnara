@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -147,7 +148,7 @@ func (w *Worker) runLoop(ctx context.Context) {
 		}
 		switch {
 		case err != nil && !recoverable &&
-			!(errors.Is(err, context.Canceled) && ctx.Err() != nil):
+			!(ctx.Err() != nil && errutil.OnlyMatches(err, context.Canceled)):
 			logpkg.Error(loopCtx, err)
 		}
 		event.Done(loopCtx)

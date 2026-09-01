@@ -44,8 +44,7 @@ func (s *Server) orgScope(
 	}
 	allowed, err := s.store.Identity().AuthorizeOrg(ctx, authInput)
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		err := authorizationAPIError(ctx, err)
 		return identitystore.OrgRecord{}, &err
 	}
 	if !allowed {
@@ -57,8 +56,7 @@ func (s *Server) orgScope(
 				Action:    identitystore.OrgActionRead,
 			})
 			if err != nil {
-				logent.AuthorizationCheckFailed(ctx, err)
-				err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+				err := authorizationAPIError(ctx, err)
 				return identitystore.OrgRecord{}, &err
 			}
 		}
@@ -142,8 +140,7 @@ func (s *Server) authorizeProject(
 	}
 	allowed, err := s.store.Identity().AuthorizeProject(ctx, authInput)
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		err := authorizationAPIError(ctx, err)
 		return &err
 	}
 	if !allowed {
@@ -156,8 +153,7 @@ func (s *Server) authorizeProject(
 				Action:    identitystore.ProjectActionRead,
 			})
 			if err != nil {
-				logent.AuthorizationCheckFailed(ctx, err)
-				err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+				err := authorizationAPIError(ctx, err)
 				return &err
 			}
 		}
@@ -174,16 +170,22 @@ func (s *Server) authorizeProject(
 	return nil
 }
 
-func (s *Server) orgManageAllowed(ctx context.Context, orgID storage.ID) bool {
+func (s *Server) authorizeOrgManage(ctx context.Context, orgID storage.ID) error {
 	principal, ok := principalFromContext(ctx)
 	if !ok || !identitystore.IsAccountPrincipal(principal) {
-		return false
+		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
 	allowed, err := s.store.Identity().AuthorizeOrg(
 		ctx,
 		identitystore.AuthorizeOrgInput{Principal: principal, OrgID: orgID, Action: identitystore.OrgActionManage},
 	)
-	return err == nil && allowed
+	if err != nil {
+		return authorizationAPIError(ctx, err)
+	}
+	if !allowed {
+		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	return nil
 }
 
 func (s *Server) machineScope(
@@ -219,8 +221,7 @@ func (s *Server) machineScope(
 	}
 	allowed, err := s.store.Execution().AuthorizeMachine(ctx, authInput)
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		err := authorizationAPIError(ctx, err)
 		return executionstore.MachineRecord{}, &err
 	}
 	if !allowed {
@@ -229,8 +230,7 @@ func (s *Server) machineScope(
 			identitystore.AuthorizeOrgInput{Principal: principal, OrgID: orgID, Action: identitystore.OrgActionManage},
 		)
 		if err != nil {
-			logent.AuthorizationCheckFailed(ctx, err)
-			err := apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+			err := authorizationAPIError(ctx, err)
 			return executionstore.MachineRecord{}, &err
 		}
 		if orgAllowed {
@@ -251,6 +251,11 @@ func (s *Server) machineScope(
 	logent.MachineAuthorization(ctx, authInput, logent.MachineAuthAllowed)
 	logent.Machine(ctx, machine)
 	return machine, nil
+}
+
+func authorizationAPIError(ctx context.Context, err error) apierror.ResponseError {
+	logent.AuthorizationCheckFailed(ctx, err)
+	return apierror.FromError(err)
 }
 
 func (s *Server) agentScope(

@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -68,7 +69,10 @@ func requestLog(log *slog.Logger) middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := logpkg.WithLogger(r.Context(), log)
 			ctx, rec, event := logpkg.HTTPRequest(ctx, w, r)
-			defer event.Done(ctx)
+			defer func() {
+				event.Done(ctx)
+				metrics.SetHTTPRequestStatusCode(ctx, rec.TelemetryStatusCode())
+			}()
 			defer recoverRequestPanic(ctx, rec)
 
 			next.ServeHTTP(rec, r.WithContext(ctx))

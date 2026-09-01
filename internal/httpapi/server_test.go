@@ -418,13 +418,16 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
+	set := metrics.New()
 	handlerErr := apierror.FromCode(
 		openapi.ErrorCodeServiceUnavailable,
 		"mapped dependency failure",
 	).WithCause(context.Canceled)
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/v1/test", requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
-	}))
+	})))
+	handler := metrics.NewHTTPRecorder(set, metrics.SubsystemAPI).Middleware(mux)(mux)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -456,6 +459,20 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	}
 	if _, ok := event["error.message"]; ok {
 		t.Fatalf("canceled request has error.message in event %+v", event)
+	}
+	metricsRec := httptest.NewRecorder()
+	set.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	metricsBody := metricsRec.Body.String()
+	for _, want := range []string{
+		`omnara_api_requests_total{code="499",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_request_duration_seconds_count{code="499",method="get",route="/api/v1/test"} 1`,
+	} {
+		if !strings.Contains(metricsBody, want) {
+			t.Fatalf("metrics output missing %q:\n%s", want, metricsBody)
+		}
+	}
+	if strings.Contains(metricsBody, `code="503",method="get",route="/api/v1/test"`) {
+		t.Fatalf("canceled request recorded as 503:\n%s", metricsBody)
 	}
 }
 
