@@ -79,6 +79,14 @@
             ]
           },
           {
+            "group": "Self-hosting",
+            "pages": [
+              "self-hosting/deployment",
+              "self-hosting/configuration",
+              "self-hosting/architecture"
+            ]
+          },
+          {
             "group": "Agents",
             "pages": [
               "agents/overview",
