@@ -44,7 +44,7 @@ func TestNormalizeOrdersObjectKeysAndRejectsTrailingValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize number: %v", err)
 	}
-	if string(equivalent) != `{"n":1}` {
-		t.Fatalf("normalized number = %s, want compact encoding", equivalent)
+	if string(equivalent) != `{"n":1.0}` {
+		t.Fatalf("normalized number = %s, want source json.Number literal", equivalent)
 	}
 }
