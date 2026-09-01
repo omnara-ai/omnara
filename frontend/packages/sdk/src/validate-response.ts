@@ -40,8 +40,21 @@ export function isUnknownEnumError(error: z.ZodError, data: unknown): boolean {
   return error.issues.every((issue) => isUnknownEnumIssue(issue, data))
 }
 
-export async function validateResponse(schema: z.ZodType, data: unknown): Promise<void> {
+/**
+ * Resolves to the validation error when `data` does not conform to `schema`,
+ * or `undefined` when it does. A value that differs only by enum members this
+ * SDK does not know yet conforms, so newer servers keep working.
+ */
+export async function schemaMismatch(
+  schema: z.ZodType,
+  data: unknown,
+): Promise<z.ZodError | undefined> {
   const result = await schema.safeParseAsync(data)
-  if (result.success || isUnknownEnumError(result.error, data)) return
-  throw result.error
+  if (result.success || isUnknownEnumError(result.error, data)) return undefined
+  return result.error
+}
+
+export async function validateResponse(schema: z.ZodType, data: unknown): Promise<void> {
+  const mismatch = await schemaMismatch(schema, data)
+  if (mismatch != null) throw mismatch
 }

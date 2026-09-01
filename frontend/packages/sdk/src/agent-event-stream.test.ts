@@ -732,4 +732,29 @@ describe('openAgentEventStream', () => {
     expect(states.map((state) => state.state)).toEqual(['connected', 'reconnecting', 'connected'])
     expect(states.at(-1)).toMatchObject({ reconnected: true })
   })
+
+  it('sends client defaults, caller headers, and credentials on the physical request', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(() => Promise.resolve(new Response(null, { status: 401 })))
+    const client = createOmnaraClient({
+      baseUrl: 'https://api.example.test',
+      headers: { 'X-Tenant': 'acme' },
+      credentials: 'include',
+    })
+    client.setConfig({ fetch })
+
+    await collectUntilError(openAgentEventStream({ client, path, headers: { 'Last-Event-ID': 5 } }))
+
+    const request = fetch.mock.calls[0]?.[0] as Request
+    expect(request.url).toBe(
+      'https://api.example.test/orgs/org/projects/project/agents/agent/events/stream',
+    )
+    expect(request.method).toBe('GET')
+    expect(request.credentials).toBe('include')
+    expect(request.headers.get('Accept')).toBe('text/event-stream')
+    expect(request.headers.get('X-Tenant')).toBe('acme')
+    expect(request.headers.get('Last-Event-ID')).toBe('5')
+    expect(request.headers.get('Content-Type')).toBeNull()
+  })
 })

@@ -1,13 +1,16 @@
+import * as z from 'zod'
+
 import type { OmnaraClient } from './client'
 import { ApiError, type ApiErrorCode } from './errors'
-import { streamEvents } from './generated/sdk.gen'
+import { mergeHeaders, type ResolvedRequestOptions } from './generated/client'
 import type {
   AgentEventStreamData,
   Error as ApiErrorBody,
   StreamEventsData,
 } from './generated/types.gen'
-import { zStreamEventsResponse } from './generated/zod.gen'
-import { isUnknownEnumError } from './validate-response'
+import { zError, zStreamEventsResponse } from './generated/zod.gen'
+import { createServerSentEventParser } from './server-sent-events'
+import { schemaMismatch } from './validate-response'
 
 export type AgentEventStreamFrame = Exclude<AgentEventStreamData, ApiErrorBody>
 export type AgentEventStreamErrorKind = 'api' | 'client' | 'contract' | 'http' | 'transport'
@@ -16,18 +19,22 @@ export class AgentEventStreamError extends Error {
   readonly kind: AgentEventStreamErrorKind
   readonly status: number | undefined
   readonly code: ApiErrorCode | undefined
+  /** Delay the server requested before reconnecting, when the response carried Retry-After. */
+  readonly retryAfterMs: number | undefined
 
   constructor({
     kind,
     message,
     status,
     code,
+    retryAfterMs,
     cause,
   }: {
     kind: AgentEventStreamErrorKind
     message: string
     status?: number
     code?: ApiErrorCode
+    retryAfterMs?: number
     cause?: unknown
   }) {
     super(message, { cause })
@@ -35,6 +42,7 @@ export class AgentEventStreamError extends Error {
     this.kind = kind
     this.status = status
     this.code = code
+    this.retryAfterMs = retryAfterMs
   }
 }
 
@@ -56,20 +64,25 @@ export interface OpenAgentEventStreamOptions {
   onConnectionStateChange?: (state: AgentEventStreamConnectionState) => void
 }
 
+const streamUrl: StreamEventsData['url'] =
+  '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream'
 const retryBaseDelayMs = 1_000
 const retryMaximumDelayMs = 30_000
 const retryAfterMaximumDelayMs = 60_000
 const stableConnectionResetMs = 10_000
 const activeReadTimeoutMs = 35_000
 
-function isAborted(signal?: AbortSignal): boolean {
-  return signal?.aborted === true
-}
+// A durable event carries its sequence. The kind is left open so an event
+// kind added after this SDK shipped still advances the resume cursor.
+const zDurableCursor = z.object({
+  event_kind: z.string(),
+  sequence: z.number().int().nonnegative(),
+})
 
 function streamError(
   kind: AgentEventStreamErrorKind,
   message: string,
-  options: { status?: number; code?: ApiErrorCode; cause?: unknown } = {},
+  options: { status?: number; code?: ApiErrorCode; retryAfterMs?: number; cause?: unknown } = {},
 ): AgentEventStreamError {
   return new AgentEventStreamError({ kind, message, ...options })
 }
@@ -81,59 +94,6 @@ function retryable(error: AgentEventStreamError): boolean {
     error.kind === 'http' &&
     (error.status === 408 || error.status === 429 || (error.status != null && error.status >= 500))
   )
-}
-
-function classifyAttemptError(
-  error: unknown,
-  { fetchInvoked, readTimedOut }: { fetchInvoked: boolean; readTimedOut: boolean },
-): AgentEventStreamError {
-  if (error instanceof AgentEventStreamError) return error
-  if (readTimedOut) {
-    return streamError('transport', 'Agent event stream timed out waiting for data', {
-      cause: error,
-    })
-  }
-  if (!fetchInvoked) {
-    return streamError('client', 'Agent event stream request could not be prepared', {
-      cause: error,
-    })
-  }
-  return streamError('transport', 'Agent event stream disconnected', { cause: error })
-}
-
-function isApiErrorBody(data: AgentEventStreamData): data is ApiErrorBody {
-  return (
-    typeof data === 'object' &&
-    'error' in data &&
-    typeof data.error === 'string' &&
-    'code' in data &&
-    typeof data.code === 'string'
-  )
-}
-
-function durableSequence(data: unknown): number | undefined {
-  if (
-    typeof data !== 'object' ||
-    data == null ||
-    !('event_kind' in data) ||
-    typeof data.event_kind !== 'string' ||
-    !('sequence' in data) ||
-    typeof data.sequence !== 'number' ||
-    !Number.isSafeInteger(data.sequence) ||
-    data.sequence < 0
-  ) {
-    return undefined
-  }
-  return data.sequence
-}
-
-async function validateFrame(data: unknown): Promise<AgentEventStreamData> {
-  const parsed = await zStreamEventsResponse.safeParseAsync(data)
-  if (parsed.success) return data as AgentEventStreamData
-  if (isUnknownEnumError(parsed.error, data)) return data as AgentEventStreamData
-  throw streamError('contract', 'Agent event stream received data outside its API contract', {
-    cause: parsed.error,
-  })
 }
 
 function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
@@ -153,7 +113,7 @@ function reconnectDelay(attempt: number): number {
 }
 
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<boolean> {
-  if (isAborted(signal)) return Promise.resolve(false)
+  if (signal?.aborted === true) return Promise.resolve(false)
   return new Promise((resolve) => {
     const timeout = globalThis.setTimeout(() => {
       finish(true)
@@ -170,24 +130,6 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
-function linkedController(signal?: AbortSignal): {
-  controller: AbortController
-  unlink: () => void
-} {
-  const controller = new AbortController()
-  const onAbort = () => {
-    controller.abort(signal?.reason)
-  }
-  if (isAborted(signal)) onAbort()
-  else signal?.addEventListener('abort', onAbort, { once: true })
-  return {
-    controller,
-    unlink: () => {
-      signal?.removeEventListener('abort', onAbort)
-    },
-  }
-}
-
 function notifyConnectionState(
   callback: OpenAgentEventStreamOptions['onConnectionStateChange'],
   state: AgentEventStreamConnectionState,
@@ -199,21 +141,159 @@ function notifyConnectionState(
   }
 }
 
-async function cancelResponseBody(response: Response | undefined): Promise<void> {
-  if (response?.body == null || response.body.locked) return
+// One physical connection ----------------------------------------------------
+
+type ConnectionEvent = { kind: 'connected' } | { kind: 'message'; data: string }
+
+type ConnectionOptions = Pick<OpenAgentEventStreamOptions, 'path' | 'query' | 'headers'>
+
+async function prepareRequest(
+  client: OmnaraClient,
+  { path, query, headers }: ConnectionOptions,
+  signal: AbortSignal,
+): Promise<Request> {
+  const config = client.getConfig()
+  const requestHeaders = mergeHeaders({ Accept: 'text/event-stream' }, config.headers, headers)
+  // The client's default Content-Type describes a request body; this request has none.
+  requestHeaders.delete('Content-Type')
+  const options = {
+    ...config,
+    method: 'GET',
+    url: streamUrl,
+    path,
+    query,
+    headers: requestHeaders,
+    signal,
+  } as ResolvedRequestOptions
+  let request = new Request(client.buildUrl({ url: streamUrl, path, query }), {
+    method: 'GET',
+    headers: requestHeaders,
+    signal,
+    credentials: config.credentials,
+  })
+  for (const interceptor of client.interceptors.request.fns) {
+    if (interceptor != null) request = await interceptor(request, options)
+  }
+  return request
+}
+
+/** One read that must settle within `ms`; otherwise `deadline` is aborted. */
+async function readWithDeadline(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  ms: number,
+  deadline: AbortController,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const timer = globalThis.setTimeout(() => {
+    deadline.abort()
+  }, ms)
   try {
-    await response.body.cancel()
-  } catch {
-    // Cleanup is best effort after the owning reader has already been canceled.
+    return await reader.read()
+  } finally {
+    globalThis.clearTimeout(timer)
   }
 }
 
-function headersForAttempt(
-  headers: StreamEventsData['headers'],
-  acknowledgedSequence: number | undefined,
-): StreamEventsData['headers'] {
-  if (acknowledgedSequence == null) return headers
-  return { ...headers, 'Last-Event-ID': acknowledgedSequence }
+/**
+ * Opens one physical connection: yields `connected` once the response is
+ * accepted, then every server-sent message. It never ends quietly — every
+ * outcome, including the caller's abort, surfaces as a thrown error that the
+ * session classifies.
+ */
+async function* openConnection(
+  client: OmnaraClient,
+  options: ConnectionOptions,
+  callerSignal: AbortSignal | undefined,
+): AsyncGenerator<ConnectionEvent, never> {
+  // `attempt` is aborted by the read deadline alone, so its state means "timed out".
+  const attempt = new AbortController()
+  const signal =
+    callerSignal == null ? attempt.signal : AbortSignal.any([callerSignal, attempt.signal])
+  const prepared = await prepareRequest(client, options, signal).catch((error: unknown) => {
+    throw streamError('client', 'Agent event stream request could not be prepared', {
+      cause: error,
+    })
+  })
+  const response = await (client.getConfig().fetch ?? globalThis.fetch)(prepared).catch(
+    (error: unknown) => {
+      throw streamError('transport', 'Agent event stream disconnected', { cause: error })
+    },
+  )
+  if (response.status !== 200) {
+    const apiError = await ApiError.fromResponse(response)
+    await response.body?.cancel().catch(() => undefined)
+    throw streamError('http', apiError.message, {
+      status: response.status,
+      code: apiError.code,
+      retryAfterMs: parseRetryAfter(response.headers.get('Retry-After')),
+      cause: apiError,
+    })
+  }
+  const mediaType = response.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
+  if (mediaType !== 'text/event-stream') {
+    await response.body?.cancel().catch(() => undefined)
+    throw streamError('contract', 'Agent event stream response is not text/event-stream')
+  }
+  if (response.body == null) {
+    throw streamError('contract', 'Agent event stream response has no body')
+  }
+
+  const reader = response.body.getReader()
+  // A fetch that ignores the signal would leave a read pending forever; settle it directly.
+  const cancelRead = () => {
+    void reader.cancel(signal.reason).catch(() => undefined)
+  }
+  signal.addEventListener('abort', cancelRead, { once: true })
+  try {
+    signal.throwIfAborted()
+    yield { kind: 'connected' }
+    const parser = createServerSentEventParser()
+    const decoder = new TextDecoder()
+    for (;;) {
+      signal.throwIfAborted()
+      const chunk = await readWithDeadline(reader, activeReadTimeoutMs, attempt)
+      if (chunk.done) throw streamError('transport', 'Agent event stream ended unexpectedly')
+      for (const data of parser.push(decoder.decode(chunk.value, { stream: true }))) {
+        yield { kind: 'message', data }
+      }
+    }
+  } catch (error) {
+    if (attempt.signal.aborted) {
+      throw streamError('transport', 'Agent event stream timed out waiting for data', {
+        cause: error,
+      })
+    }
+    throw error instanceof AgentEventStreamError
+      ? error
+      : streamError('transport', 'Agent event stream disconnected', { cause: error })
+  } finally {
+    signal.removeEventListener('abort', cancelRead)
+    await reader.cancel().catch(() => undefined)
+  }
+}
+
+// The logical stream across connections --------------------------------------
+
+async function decodeFrame(text: string): Promise<AgentEventStreamData> {
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch (error) {
+    throw streamError('contract', 'Agent event stream received data that is not JSON', {
+      cause: error,
+    })
+  }
+  const mismatch = await schemaMismatch(zStreamEventsResponse, data)
+  if (mismatch != null) {
+    throw streamError('contract', 'Agent event stream received data outside its API contract', {
+      cause: mismatch,
+    })
+  }
+  return data as AgentEventStreamData
+}
+
+function durableSequence(data: AgentEventStreamData): number | undefined {
+  const cursor = zDurableCursor.safeParse(data)
+  return cursor.success ? cursor.data.sequence : undefined
 }
 
 export async function* openAgentEventStream({
@@ -224,163 +304,63 @@ export async function* openAgentEventStream({
   signal,
   onConnectionStateChange,
 }: OpenAgentEventStreamOptions): AsyncGenerator<AgentEventStreamFrame> {
-  let acknowledgedSequence: number | undefined
+  let cursor: number | undefined
   let consecutiveFailures = 0
   let hasRetried = false
 
-  while (!isAborted(signal)) {
-    const { controller, unlink } = linkedController(signal)
-    let activeResponse: Response | undefined
+  while (true) {
     let connectedAt: number | undefined
-    let connectionError: AgentEventStreamError | undefined
-    let fetchInvoked = false
-    let readTimedOut = false
-    let yieldedApplicationFrame = false
-    let readActive = false
-    let readTimeout: ReturnType<typeof globalThis.setTimeout> | undefined
-    let iterator: AsyncIterator<unknown> | undefined
-    let failure: AgentEventStreamError | undefined
-    let retryAfterMs: number | undefined
-
-    const clearReadTimeout = () => {
-      if (readTimeout != null) globalThis.clearTimeout(readTimeout)
-      readTimeout = undefined
-    }
-    const hasReadTimedOut = () => readTimedOut
-    const touchReadTimeout = () => {
-      if (!readActive) return
-      clearReadTimeout()
-      readTimeout = globalThis.setTimeout(() => {
-        readTimedOut = true
-        controller.abort()
-      }, activeReadTimeoutMs)
-    }
-
-    const configuredFetch = client.getConfig().fetch ?? globalThis.fetch
-    const validatingFetch: typeof fetch = async (input, init) => {
-      fetchInvoked = true
-      const response = await configuredFetch(input, init)
-      activeResponse = response
-      if (response.status !== 200) {
-        const apiError = await ApiError.fromResponse(response)
-        retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'))
-        await cancelResponseBody(response)
-        throw streamError('http', apiError.message, {
-          status: response.status,
-          code: apiError.code,
-          cause: apiError,
-        })
-      }
-      const mediaType = response.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
-      if (mediaType !== 'text/event-stream') {
-        await cancelResponseBody(response)
-        throw streamError('contract', 'Agent event stream response is not text/event-stream')
-      }
-      if (response.body == null) {
-        throw streamError('contract', 'Agent event stream response has no body')
-      }
-      if (isAborted(controller.signal)) {
-        await cancelResponseBody(response)
-        throw controller.signal.reason ?? new DOMException('Aborted', 'AbortError')
-      }
-      connectedAt = Date.now()
-      notifyConnectionState(onConnectionStateChange, {
-        state: 'connected',
-        reconnected: hasRetried,
-      })
-      // The callback may abort before the generated reader owns the response.
-      if (isAborted(controller.signal)) {
-        await cancelResponseBody(response)
-        throw controller.signal.reason ?? new DOMException('Aborted', 'AbortError')
-      }
-      return response
-    }
-
+    let delivered = false
     try {
-      const result = await streamEvents({
+      const connection = openConnection(
         client,
-        path,
-        query,
-        headers: headersForAttempt(headers, acknowledgedSequence),
-        signal: controller.signal,
-        fetch: validatingFetch,
-        responseValidator: undefined,
-        sseMaxRetryAttempts: 1,
-        onSseEvent: touchReadTimeout,
-        onSseError: (error) => {
-          connectionError = classifyAttemptError(error, { fetchInvoked, readTimedOut })
+        {
+          path,
+          query,
+          headers: cursor == null ? headers : { ...headers, 'Last-Event-ID': cursor },
         },
-      })
-      iterator = result.stream[Symbol.asyncIterator]()
-
-      while (!isAborted(signal)) {
-        readActive = true
-        touchReadTimeout()
-        let next: IteratorResult<unknown>
-        try {
-          next = await iterator.next()
-        } finally {
-          readActive = false
-          clearReadTimeout()
-        }
-        if (next.done) {
-          if (hasReadTimedOut()) {
-            throw streamError('transport', 'Agent event stream timed out waiting for data')
-          }
-          throw connectionError ?? streamError('transport', 'Agent event stream ended unexpectedly')
-        }
-
-        const data = await validateFrame(next.value)
-        if (isAborted(signal)) return
-        if (isApiErrorBody(data)) {
-          throw streamError('api', data.error, { code: data.code })
-        }
-        const sequence = durableSequence(data)
-        if (sequence != null && acknowledgedSequence != null && sequence <= acknowledgedSequence) {
+        signal,
+      )
+      for await (const event of connection) {
+        if (event.kind === 'connected') {
+          connectedAt = Date.now()
+          notifyConnectionState(onConnectionStateChange, {
+            state: 'connected',
+            reconnected: hasRetried,
+          })
           continue
         }
-
-        yield data
-        yieldedApplicationFrame = true
-        if (sequence != null) acknowledgedSequence = sequence
+        const data = await decodeFrame(event.data)
+        signal?.throwIfAborted()
+        if ((await schemaMismatch(zError, data)) == null) {
+          const body = data as ApiErrorBody
+          throw streamError('api', body.error, { code: body.code })
+        }
+        const sequence = durableSequence(data)
+        if (sequence != null && cursor != null && sequence <= cursor) continue
+        yield data as AgentEventStreamFrame
+        delivered = true
+        if (sequence != null) cursor = sequence
       }
     } catch (error) {
-      if (!isAborted(signal)) {
-        failure = classifyAttemptError(error, { fetchInvoked, readTimedOut })
+      if (signal?.aborted === true) return
+      if (!(error instanceof AgentEventStreamError) || !retryable(error)) throw error
+      if (
+        delivered ||
+        (connectedAt != null && Date.now() - connectedAt >= stableConnectionResetMs)
+      ) {
+        consecutiveFailures = 0
       }
-    } finally {
-      readActive = false
-      clearReadTimeout()
-      controller.abort()
-      try {
-        await iterator?.return?.()
-      } catch {
-        // The original failure is authoritative; abort already canceled the reader.
-      }
-      // Close responses rejected before the generated reader owns them.
-      await cancelResponseBody(activeResponse)
-      unlink()
+      consecutiveFailures += 1
+      const delayMs = error.retryAfterMs ?? reconnectDelay(consecutiveFailures)
+      notifyConnectionState(onConnectionStateChange, {
+        state: 'reconnecting',
+        attempt: consecutiveFailures,
+        delayMs,
+        error,
+      })
+      hasRetried = true
+      if (!(await abortableDelay(delayMs, signal))) return
     }
-
-    if (isAborted(signal)) return
-    if (failure == null) return
-    if (!retryable(failure)) throw failure
-
-    if (
-      yieldedApplicationFrame ||
-      (connectedAt != null && Date.now() - connectedAt >= stableConnectionResetMs)
-    ) {
-      consecutiveFailures = 0
-    }
-    consecutiveFailures += 1
-    const delayMs = retryAfterMs ?? reconnectDelay(consecutiveFailures)
-    notifyConnectionState(onConnectionStateChange, {
-      state: 'reconnecting',
-      attempt: consecutiveFailures,
-      delayMs,
-      error: failure,
-    })
-    hasRetried = true
-    if (!(await abortableDelay(delayMs, signal))) return
   }
 }
