@@ -46,10 +46,11 @@ test('reconnect discards partial output and stale thinking detail', () => {
   assert.deepEqual(terminal.printed, [])
   assert.match(terminal.previews.at(-1) ?? '', /^agent …/)
 
-  const state = resetConnectionScopedRendering(renderer, {
-    text: 'thinking…',
-    detail: 'stale reasoning',
-  })
+  const state = resetConnectionScopedRendering(
+    renderer,
+    { text: 'thinking…', detail: 'stale reasoning' },
+    new Map(),
+  )
 
   assert.deepEqual(state, { text: 'thinking…' })
   assert.equal(terminal.previews.at(-1), undefined)
@@ -74,4 +75,17 @@ test('durable completion clears only its matching preview context', () => {
   renderer.complete('newer-model-call')
   assert.equal(terminal.previews.at(-1), undefined)
   assert.deepEqual(terminal.printed, [])
+})
+
+test('reconnect drops tool calls only a delta announced and keeps durable ones', () => {
+  const terminal = new FakeTerminal()
+  const renderer = new DeltaRenderer(terminal, 'agent', 'error')
+  const toolCalls = new Map([
+    ['tcl_durable', { name: 'read_file', summary: 'notes.md' }],
+    ['tcl_provisional', { name: 'search', provisional: true }],
+  ])
+
+  resetConnectionScopedRendering(renderer, undefined, toolCalls)
+
+  assert.deepEqual([...toolCalls.keys()], ['tcl_durable'])
 })

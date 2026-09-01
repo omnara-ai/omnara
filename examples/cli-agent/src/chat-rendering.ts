@@ -10,6 +10,13 @@ export interface AgentRenderState {
   detail?: string
 }
 
+export interface ToolCallInfo {
+  name: string
+  summary?: string
+  /** Announced by a best-effort delta and not yet confirmed by a durable event. */
+  provisional?: boolean
+}
+
 export class DeltaRenderer {
   private contextId = ''
   private buffer = ''
@@ -73,10 +80,19 @@ export class DeltaRenderer {
   }
 }
 
+/**
+ * Drops everything that only a live connection vouched for: partial output,
+ * stale reasoning detail, and tool calls announced by deltas. Durable events
+ * are replayed after a reconnect, so what they established is kept.
+ */
 export function resetConnectionScopedRendering(
   renderer: DeltaRenderer,
   state: AgentRenderState | undefined,
+  toolCalls: Map<string, ToolCallInfo>,
 ): AgentRenderState | undefined {
   renderer.discard()
+  for (const [id, tool] of toolCalls) {
+    if (tool.provisional === true) toolCalls.delete(id)
+  }
   return state == null ? undefined : { text: state.text }
 }

@@ -15,6 +15,7 @@ import {
   type AgentRenderState,
   DeltaRenderer,
   resetConnectionScopedRendering,
+  type ToolCallInfo,
 } from './chat-rendering.js'
 import { runConfigCommand } from './commands.js'
 import { promptContentBlocks } from './prompt.js'
@@ -264,11 +265,6 @@ function toolCallSummary(name: string, input: Record<string, unknown>): string |
   return abbreviate(entries.map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', '))
 }
 
-interface ToolCallInfo {
-  name: string
-  summary?: string
-}
-
 function printEvent(
   terminal: Terminal,
   event: AgentEvent,
@@ -498,7 +494,7 @@ export async function runChat(target: ChatTarget): Promise<void> {
         signal: abort.signal,
         onConnectionStateChange: (state) => {
           if (state.state !== 'reconnecting') return
-          agentState = resetConnectionScopedRendering(deltas, agentState)
+          agentState = resetConnectionScopedRendering(deltas, agentState, toolCalls)
           thinkingTail = ''
           renderRunningTools()
         },
@@ -524,7 +520,7 @@ export async function runChat(target: ChatTarget): Promise<void> {
           if (delta.kind === 'block_start') {
             if (delta.block.kind === 'tool_use') {
               if (!toolCalls.has(delta.block.tool_call_id)) {
-                toolCalls.set(delta.block.tool_call_id, { name: delta.block.tool_name })
+                toolCalls.set(delta.block.tool_call_id, { name: delta.block.tool_name, provisional: true })
                 renderRunningTools()
               }
               setAgentState(`calling ${delta.block.tool_name}…`)
