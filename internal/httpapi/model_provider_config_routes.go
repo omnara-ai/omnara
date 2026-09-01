@@ -1221,8 +1221,7 @@ func (s strictOpenAPIServer) authorizeModelProviderCredentialBinding(
 		Action:    identitystore.OrgActionSecretsManage,
 	})
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")
+		return authorizationAPIError(ctx, err)
 	}
 	if !allowed {
 		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")

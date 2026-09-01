@@ -140,6 +140,158 @@ func TestRunBoundedReconcileContinuesAfterError(t *testing.T) {
 	}
 }
 
+func TestRunBoundedReconcileRetainsConcurrentFailures(t *testing.T) {
+	failures := []error{errors.New("provider failed"), errors.New("storage failed")}
+	count, err := runBoundedReconcile(context.Background(), len(failures), len(failures), func(
+		_ context.Context,
+		i int,
+	) error {
+		return failures[i]
+	})
+	if count != len(failures) {
+		t.Fatalf("count = %d, want %d", count, len(failures))
+	}
+	for _, failure := range failures {
+		if !errors.Is(err, failure) {
+			t.Fatalf("err = %v, want retained failure %v", err, failure)
+		}
+	}
+}
+
+func TestRunBoundedReconcileRetainsFailureDuringCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{}, 2)
+	releaseFailure := make(chan struct{})
+	failure := errors.New("provider failed")
+	type result struct {
+		count int
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, i int) error {
+			started <- struct{}{}
+			if i == 0 {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			<-releaseFailure
+			return failure
+		})
+		done <- result{count: count, err: err}
+	}()
+	<-started
+	<-started
+	cancel()
+	close(releaseFailure)
+	got := <-done
+	if got.count != 2 {
+		t.Fatalf("count = %d, want 2", got.count)
+	}
+	if !errors.Is(got.err, failure) {
+		t.Fatalf("err = %v, want %v", got.err, failure)
+	}
+	if errors.Is(got.err, context.Canceled) {
+		t.Fatalf("err = %v, want cancellation separated from genuine failure", got.err)
+	}
+}
+
+func TestRunBoundedReconcileReturnsCancellationWithoutFailures(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{}, 2)
+	type result struct {
+		count int
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, _ int) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		done <- result{count: count, err: err}
+	}()
+	<-started
+	<-started
+	cancel()
+	got := <-done
+	if got.count != 2 {
+		t.Fatalf("count = %d, want 2", got.count)
+	}
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("err = %v, want context canceled", got.err)
+	}
+}
+
+func TestRunBoundedReconcileRetainsMixedCancellationError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	failure := errors.New("storage failed")
+	done := make(chan error, 1)
+	go func() {
+		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+			close(started)
+			<-ctx.Done()
+			return errors.Join(ctx.Err(), failure)
+		})
+		done <- err
+	}()
+	<-started
+	cancel()
+	err := <-done
+	if !errors.Is(err, failure) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want retained cancellation and %v", err, failure)
+	}
+}
+
+func TestRunBoundedReconcileRetainsPanicDuringCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+			close(started)
+			<-ctx.Done()
+			panic("provider failure")
+		})
+		done <- err
+	}()
+	<-started
+	cancel()
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "machine reconciliation 0 panicked: provider failure") {
+		t.Fatalf("err = %v, want provider panic", err)
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want panic separated from cancellation", err)
+	}
+}
+
+func TestRunBoundedReconcileBoundsReportedFailures(t *testing.T) {
+	failures := make([]error, maximumReportedReconcileErrors+2)
+	for i := range failures {
+		failures[i] = fmt.Errorf("failure %d", i)
+	}
+	_, err := runBoundedReconcile(context.Background(), len(failures), 1, func(
+		_ context.Context,
+		i int,
+	) error {
+		return failures[i]
+	})
+	for _, failure := range failures[:maximumReportedReconcileErrors] {
+		if !errors.Is(err, failure) {
+			t.Fatalf("err = %v, want retained failure %v", err, failure)
+		}
+	}
+	if errors.Is(err, failures[maximumReportedReconcileErrors]) {
+		t.Fatalf("err = %v, want excess failure omitted", err)
+	}
+	if !strings.Contains(err.Error(), "2 additional machine reconciliation errors omitted") {
+		t.Fatalf("err = %v, want omitted error count", err)
+	}
+}
+
 func TestRunBoundedReconcileReturnsTaskPanic(t *testing.T) {
 	count, err := runBoundedReconcile(context.Background(), 3, 2, func(_ context.Context, i int) error {
 		if i == 1 {

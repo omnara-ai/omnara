@@ -239,7 +239,7 @@ func TestWorkerLoopCreatesEventAndAttachesWorker(t *testing.T) {
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
 	workerID := testID(12)
 	ctx, event := WorkerLoop(ctx, workerID)
-	WorkerLoopResult(ctx, true)
+	WorkerLoopResult(ctx, true, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
@@ -255,23 +255,51 @@ func TestWorkerLoopCreatesEventAndAttachesWorker(t *testing.T) {
 	}
 }
 
+func TestWorkerLoopIdleSuccessIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
+	ctx, event := WorkerLoop(ctx, testID(12))
+	WorkerLoopResult(ctx, false, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "debug" {
+		t.Fatalf("level = %v, want debug in %+v", got, record)
+	}
+}
+
+func TestWorkerLoopFailureIsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	ctx, event := WorkerLoop(ctx, testID(12))
+	workerErr := errors.New("claim work")
+	WorkerLoopResult(ctx, false, workerErr)
+	log.Error(ctx, workerErr)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "error" {
+		t.Fatalf("level = %v, want error in %+v", got, record)
+	}
+}
+
 func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
 	pollAt := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 
 	ctx, event := MaintenanceLoop(ctx, 5*time.Second, pollAt)
-	MaintenanceLoopResult(ctx, 2, nil, 5, nil)
+	MaintenanceLoopResult(ctx, 0, nil, true, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"message":                                 "maintenance.loop",
-		"event.name":                              "maintenance.loop",
-		"maintenance.loop.interval":               float64(5_000_000_000),
-		"maintenance.reap_runtime_locks.count":    float64(2),
-		"maintenance.rebuild_agent_wakeups.count": float64(5),
-		"maintenance.loop.worked":                 true,
+		"level":                                "info",
+		"message":                              "maintenance.loop",
+		"event.name":                           "maintenance.loop",
+		"maintenance.loop.interval":            float64(5_000_000_000),
+		"maintenance.reap_runtime_locks.count": float64(0),
+		"maintenance.loop.worked":              true,
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
@@ -282,29 +310,43 @@ func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
 	}
 }
 
+func TestMaintenanceLoopIdleSuccessIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
+
+	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
+	MaintenanceLoopResult(ctx, 0, nil, false, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "debug" {
+		t.Fatalf("level = %v, want debug in %+v", got, record)
+	}
+}
+
 func TestMaintenanceLoopAttachesTaskErrors(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
 
 	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
+	reapErr := errors.New("reap failed")
+	cleanupErr := errors.New("cleanup failed")
 	MaintenanceLoopResult(
 		ctx,
-		1,
-		errors.New("reap failed"),
 		0,
-		errors.New("rebuild failed"),
+		reapErr,
+		false,
+		errors.Join(reapErr, cleanupErr),
 	)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"level":                                   "error",
-		"error.message":                           "reap failed",
-		"maintenance.reap_runtime_locks.count":    float64(1),
-		"maintenance.reap_runtime_locks.error":    "reap failed",
-		"maintenance.rebuild_agent_wakeups.count": float64(0),
-		"maintenance.rebuild_agent_wakeups.error": "rebuild failed",
-		"maintenance.loop.worked":                 true,
+		"level":                                "error",
+		"error.message":                        "reap failed\ncleanup failed",
+		"maintenance.reap_runtime_locks.count": float64(0),
+		"maintenance.reap_runtime_locks.error": "reap failed",
+		"maintenance.loop.worked":              false,
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
@@ -515,7 +557,12 @@ func TestMCPInitializationFailureWarns(t *testing.T) {
 }
 
 func testLogger(buf *bytes.Buffer) *slog.Logger {
+	return testLoggerAtLevel(buf, slog.LevelInfo)
+}
+
+func testLoggerAtLevel(buf *bytes.Buffer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{
+		Level: level,
 		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
 			switch attr.Key {
 			case slog.TimeKey:

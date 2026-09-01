@@ -1225,6 +1225,30 @@ func TestBearerAuthStorageErrorReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		t.Fatalf("format valid personal access token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	requestCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(requestCtx)
+	rec := performRequest(handler, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected canceled bearer auth to return 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "authentication unavailable") {
+		t.Fatalf("expected authentication unavailable body, got %s", rec.Body.String())
+	}
+}
+
 func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
