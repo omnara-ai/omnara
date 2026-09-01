@@ -1,6 +1,7 @@
 package openaichatcompletions
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -64,10 +65,7 @@ func markChatMessageCacheBreakpoint(message chatMessage, control *chatCacheContr
 		if !ok {
 			return message
 		}
-		marked := make(map[string]any, len(block)+1)
-		for key, value := range block {
-			marked[key] = value
-		}
+		marked := maps.Clone(block)
 		marked["cache_control"] = control
 		content[len(content)-1] = marked
 	}
