@@ -20,8 +20,8 @@ func TestManagerValidatesDefaultMachinePool(t *testing.T) {
 	cpu := 1
 	memoryMB := 1024
 	manager := Manager{
-		Catalog:   DefaultCatalog(),
-		PublicURL: "https://app.omnara.test",
+		Catalog:      DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	err := manager.ValidateDefaultMachinePool(executionstore.DefaultMachinePoolTemplate{
 		Name:                          "provider-default-pool",
@@ -48,8 +48,8 @@ func TestManagerRejectsDefaultMachineConfigExceedingCaps(t *testing.T) {
 	maxMachineCPU := 4
 	memoryMB := 1024
 	manager := Manager{
-		Catalog:   DefaultCatalog(),
-		PublicURL: "https://app.omnara.test",
+		Catalog:      DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	err := manager.ValidateDefaultMachinePool(executionstore.DefaultMachinePoolTemplate{
 		Name:                          "provider-default-pool",
@@ -78,8 +78,8 @@ func TestManagerRejectsInvalidDefaultMachineConfig(t *testing.T) {
 	cpu := 1
 	memoryMB := 1024
 	manager := Manager{
-		Catalog:   DefaultCatalog(),
-		PublicURL: "https://app.omnara.test",
+		Catalog:      DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	err := manager.ValidateDefaultMachinePool(executionstore.DefaultMachinePoolTemplate{
 		Name:                   "provider-default-pool",

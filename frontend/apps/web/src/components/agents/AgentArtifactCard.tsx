@@ -52,7 +52,7 @@ export function AgentArtifactCard({
     artifactID == null
       ? undefined
       : client.buildUrl({
-          url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
+          url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
           path,
         })
   const inlineURL = data == null ? undefined : `data:${resolvedMediaType};base64,${data}`

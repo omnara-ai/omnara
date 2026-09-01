@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const visibleMachinesPath = "/api/v1/orgs/{orgID}/projects/{projectID}/machines"
+const visibleMachinesPath = "/orgs/{orgID}/projects/{projectID}/machines"
 
 func visibleMachineBody(t *testing.T, extra map[string]any) []byte {
 	t.Helper()

@@ -76,7 +76,7 @@ function artifactMetadata({
 }
 
 it('renders artifact images directly from the content endpoint', () => {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   const path = {
     orgID: 'org_test',
     projectID: 'proj_test',
@@ -120,7 +120,7 @@ it('renders artifact images directly from the content endpoint', () => {
 })
 
 it('renders optimistic attachments with the same card', () => {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
 
   act(() => {
     root.render(
@@ -152,7 +152,7 @@ it('loads artifact metadata for durable attachments', async () => {
     .mockResolvedValue(
       artifactMetadata({ contentType: 'text/plain', filename: 'notes.txt', sizeBytes: 13 }),
     )
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   client.setConfig({ fetch })
 
   act(() => {

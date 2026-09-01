@@ -5,6 +5,7 @@ import {
   bearerToken,
   cliLoginTokenName,
   createOmnaraClient,
+  OMNARA_CLI_OAUTH_CLIENT_ID,
   type OmnaraClient,
   pollDeviceAuthToken,
   sdk,
@@ -15,13 +16,7 @@ import type { Command } from 'commander'
 import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
-import {
-  type CliConfig,
-  configFilePath,
-  readConfigFile,
-  readConfigFileForUpdate,
-  updateConfigFile,
-} from './config.ts'
+import { type CliConfig, configFilePath, readConfigFile, updateConfigFile } from './config.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
 
@@ -53,8 +48,8 @@ interface LoginReporter {
   finish(message?: string): void
 }
 
-function interactiveReporter(baseUrl: string): LoginReporter {
-  intro(`Log in to ${baseUrl}`)
+function interactiveReporter(issuerUrl: string): LoginReporter {
+  intro(`Log in to ${issuerUrl}`)
   const spin = spinner()
   return {
     showCode(userCode, approvalUrl) {
@@ -133,11 +128,13 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .option('--token-name <name>', 'name for the created API token')
     .action(async (options: LoginOptions) => {
       await runCliAction(async () => {
-        readConfigFileForUpdate()
-        const report = canPromptInteractively() ? interactiveReporter(cli.baseUrl) : plainReporter()
+        updateConfigFile({})
+        const report = canPromptInteractively()
+          ? interactiveReporter(cli.issuerUrl)
+          : plainReporter()
         const start = await startDeviceAuth({
-          baseUrl: cli.baseUrl,
-          clientName: 'Omnara CLI',
+          issuerUrl: cli.issuerUrl,
+          clientId: OMNARA_CLI_OAUTH_CLIENT_ID,
           tokenName: loginTokenName(options.tokenName, hostname()),
         })
         report.showCode(start.userCode, start.verificationUriComplete)
@@ -150,7 +147,8 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         let token: string
         try {
           token = await pollDeviceAuthToken({
-            baseUrl: cli.baseUrl,
+            tokenEndpoint: start.tokenEndpoint,
+            clientId: start.clientId,
             deviceCode: start.deviceCode,
             intervalSeconds: start.intervalSeconds,
           })
@@ -159,8 +157,12 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
           throw error
         }
         report.stopWaiting(true)
-        const saved = updateConfigFile({ token, base_url: cli.baseUrl })
-        const client = createOmnaraClient({ baseUrl: cli.baseUrl, auth: bearerToken(token) })
+        const saved = updateConfigFile({
+          token,
+          api_url: cli.apiUrl,
+          issuer_url: cli.issuerUrl,
+        })
+        const client = createOmnaraClient({ baseUrl: cli.apiUrl, auth: bearerToken(token) })
         let orgId = saved.org_id
         let loginMessage = 'Logged in'
         let validationWarning: string | undefined

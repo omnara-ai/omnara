@@ -13,6 +13,8 @@ export {
   DeviceAuthError,
   type DeviceAuthFailureCode,
   type DeviceAuthStart,
+  OAUTH_DEVICE_GRANT_TYPE,
+  OMNARA_CLI_OAUTH_CLIENT_ID,
   pollDeviceAuthToken,
   type PollDeviceAuthTokenOptions,
   startDeviceAuth,

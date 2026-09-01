@@ -48,7 +48,7 @@ func runDownloadArtifactCommand(
 		return fmt.Errorf("load daemon config: %w", err)
 	}
 	endpoint := strings.TrimRight(config.APIURL, "/") +
-		"/api/v1/daemon/tool-calls/" + url.PathEscape(toolCallID) +
+		"/daemon/tool-calls/" + url.PathEscape(toolCallID) +
 		"/artifacts/" + url.PathEscape(artifactID) + "/content"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {

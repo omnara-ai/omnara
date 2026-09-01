@@ -49,14 +49,20 @@ func isLocalOnlyHost(rawHost string) bool {
 }
 
 func (s *Server) publicHostGuard(next http.Handler) http.Handler {
-	if s.publicOrigin.host == "" {
+	if len(s.publicOrigins) == 0 {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.publicOrigin.matchesHost(r.Host) && !(s.allowInsecureLocalHostBypass && isLocalOnlyHost(r.Host)) {
-			s.notFound(w, r)
+		for _, origin := range s.publicOrigins {
+			if origin.matchesHost(r.Host) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		if s.allowInsecureLocalHostBypass && isLocalOnlyHost(r.Host) {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		s.notFound(w, r)
 	})
 }

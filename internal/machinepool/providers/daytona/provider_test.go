@@ -43,7 +43,7 @@ func TestDaytonaProviderProvisionCreatesSandboxAndDaemonSession(t *testing.T) {
 		t.Fatalf("managed env = %#v", api.createRequest.Env)
 	}
 	if api.executedSession != daemonSessionName || !api.executeRequest.RunAsync ||
-		!strings.Contains(api.executeRequest.Command, "/install/omnarad.sh") ||
+		!strings.Contains(api.executeRequest.Command, `"${OMNARA_INSTALLER_URL:?}"`) ||
 		!strings.Contains(api.executeRequest.Command, "start --no-service") {
 		t.Fatalf("daemon session request = session %q request %+v", api.executedSession, api.executeRequest)
 	}

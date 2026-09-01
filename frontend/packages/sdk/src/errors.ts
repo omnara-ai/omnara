@@ -37,7 +37,9 @@ export class ApiError extends Error {
       data = undefined
     }
     if (data && typeof data === 'object') {
-      if ('error' in data && typeof data.error === 'string') {
+      if ('error_description' in data && typeof data.error_description === 'string') {
+        message = data.error_description
+      } else if ('error' in data && typeof data.error === 'string') {
         message = data.error
       }
       if ('code' in data && typeof data.code === 'string') {

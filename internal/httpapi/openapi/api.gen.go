@@ -9109,433 +9109,433 @@ func (t *UpdateSkillRequest) UnmarshalJSON(b []byte) error {
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// BootstrapDaemon Bootstrap daemon
-	// (POST /api/v1/daemon/bootstrap)
+	// (POST /daemon/bootstrap)
 	BootstrapDaemon(w http.ResponseWriter, r *http.Request)
 	// RecordMachineFailure Record machine failure
-	// (POST /api/v1/daemon/failures)
+	// (POST /daemon/failures)
 	RecordMachineFailure(w http.ResponseWriter, r *http.Request, params RecordMachineFailureParams)
 	// RegisterMachineDaemonRuntime Register machine daemon runtime
-	// (POST /api/v1/daemon/runtimes)
+	// (POST /daemon/runtimes)
 	RegisterMachineDaemonRuntime(w http.ResponseWriter, r *http.Request)
 	// EndMachineDaemonRuntime End machine daemon runtime
-	// (POST /api/v1/daemon/runtimes/{runtimeID}/end)
+	// (POST /daemon/runtimes/{runtimeID}/end)
 	EndMachineDaemonRuntime(w http.ResponseWriter, r *http.Request, runtimeID string)
 	// SleepMachineDaemonRuntime Sleep machine daemon runtime
-	// (POST /api/v1/daemon/runtimes/{runtimeID}/sleep)
+	// (POST /daemon/runtimes/{runtimeID}/sleep)
 	SleepMachineDaemonRuntime(w http.ResponseWriter, r *http.Request, runtimeID string)
 	// SocketMachineDaemonRuntime Socket machine daemon runtime
-	// (GET /api/v1/daemon/runtimes/{runtimeID}/socket)
+	// (GET /daemon/runtimes/{runtimeID}/socket)
 	SocketMachineDaemonRuntime(w http.ResponseWriter, r *http.Request, runtimeID string)
 	// GetDaemonSkillArchive Get daemon skill archive
-	// (GET /api/v1/daemon/skills/{skillID}/archive)
+	// (GET /daemon/skills/{skillID}/archive)
 	GetDaemonSkillArchive(w http.ResponseWriter, r *http.Request, skillID string, params GetDaemonSkillArchiveParams)
 	// UploadDaemonArtifact Upload daemon artifact
-	// (POST /api/v1/daemon/tool-calls/{toolCallID}/artifact)
+	// (POST /daemon/tool-calls/{toolCallID}/artifact)
 	UploadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, params UploadDaemonArtifactParams)
 	// DownloadDaemonArtifact Download daemon artifact
-	// (GET /api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
+	// (GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
 	DownloadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, artifactID ArtifactID)
 	// ListPendingInvitations List pending invitations
-	// (GET /api/v1/invitations)
+	// (GET /invitations)
 	ListPendingInvitations(w http.ResponseWriter, r *http.Request, params ListPendingInvitationsParams)
 	// AcceptInvitation Accept invitation
-	// (POST /api/v1/invitations/{invitationID}/accept)
+	// (POST /invitations/{invitationID}/accept)
 	AcceptInvitation(w http.ResponseWriter, r *http.Request, invitationID string)
 	// DeclineInvitation Decline invitation
-	// (POST /api/v1/invitations/{invitationID}/decline)
+	// (POST /invitations/{invitationID}/decline)
 	DeclineInvitation(w http.ResponseWriter, r *http.Request, invitationID string)
 	// ListMCPServers Search the MCP server registry
-	// (GET /api/v1/mcp-servers)
+	// (GET /mcp-servers)
 	ListMCPServers(w http.ResponseWriter, r *http.Request, params ListMCPServersParams)
 	// DeleteCurrentUser Delete the authenticated user's account
-	// (DELETE /api/v1/me)
+	// (DELETE /me)
 	DeleteCurrentUser(w http.ResponseWriter, r *http.Request)
 	// GetCurrentUser Get the authenticated user and their organizations
-	// (GET /api/v1/me)
+	// (GET /me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
 	// CreateOrganization Create organization
-	// (POST /api/v1/orgs)
+	// (POST /orgs)
 	CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams)
 	// DeleteOrganization Delete organization
-	// (DELETE /api/v1/orgs/{orgID})
+	// (DELETE /orgs/{orgID})
 	DeleteOrganization(w http.ResponseWriter, r *http.Request, orgID string)
 	// ListOrgAPIKeys List org API keys
-	// (GET /api/v1/orgs/{orgID}/api-keys)
+	// (GET /orgs/{orgID}/api-keys)
 	ListOrgAPIKeys(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgAPIKeysParams)
 	// CreateOrgAPIKey Create org API key
-	// (POST /api/v1/orgs/{orgID}/api-keys)
+	// (POST /orgs/{orgID}/api-keys)
 	CreateOrgAPIKey(w http.ResponseWriter, r *http.Request, orgID string)
 	// GetOrgAPIKey Get an org API key
-	// (GET /api/v1/orgs/{orgID}/api-keys/{keyID})
+	// (GET /orgs/{orgID}/api-keys/{keyID})
 	GetOrgAPIKey(w http.ResponseWriter, r *http.Request, orgID string, keyID string)
 	// UpdateOrgAPIKey Update an org API key
-	// (PATCH /api/v1/orgs/{orgID}/api-keys/{keyID})
+	// (PATCH /orgs/{orgID}/api-keys/{keyID})
 	UpdateOrgAPIKey(w http.ResponseWriter, r *http.Request, orgID string, keyID string)
 	// ListOrgAPIKeyProjectAccess List an org API key's explicit project role grants
-	// (GET /api/v1/orgs/{orgID}/api-keys/{keyID}/projects)
+	// (GET /orgs/{orgID}/api-keys/{keyID}/projects)
 	ListOrgAPIKeyProjectAccess(w http.ResponseWriter, r *http.Request, orgID string, keyID string)
 	// RemoveOrgAPIKeyProjectRole Remove an org API key's project role grant
-	// (DELETE /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
 	RemoveOrgAPIKeyProjectRole(w http.ResponseWriter, r *http.Request, orgID string, keyID string, projectID string)
 	// SetOrgAPIKeyProjectRole Set an org API key's role on a project
-	// (PUT /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
+	// (PUT /orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
 	SetOrgAPIKeyProjectRole(w http.ResponseWriter, r *http.Request, orgID string, keyID string, projectID string)
 	// RevokeOrgAPIKey Revoke an org API key
-	// (POST /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke)
+	// (POST /orgs/{orgID}/api-keys/{keyID}/revoke)
 	RevokeOrgAPIKey(w http.ResponseWriter, r *http.Request, orgID string, keyID string)
 	// ListOrgInvitations List org invitations
-	// (GET /api/v1/orgs/{orgID}/invitations)
+	// (GET /orgs/{orgID}/invitations)
 	ListOrgInvitations(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgInvitationsParams)
 	// CreateOrgInvitation Create org invitation
-	// (POST /api/v1/orgs/{orgID}/invitations)
+	// (POST /orgs/{orgID}/invitations)
 	CreateOrgInvitation(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteOrgInvitation Delete org invitation
-	// (DELETE /api/v1/orgs/{orgID}/invitations/{invitationID})
+	// (DELETE /orgs/{orgID}/invitations/{invitationID})
 	DeleteOrgInvitation(w http.ResponseWriter, r *http.Request, orgID string, invitationID string)
 	// ListMachinePools List machine pools
-	// (GET /api/v1/orgs/{orgID}/machine-pools)
+	// (GET /orgs/{orgID}/machine-pools)
 	ListMachinePools(w http.ResponseWriter, r *http.Request, orgID string, params ListMachinePoolsParams)
 	// CreateMachinePool Create machine pool
-	// (POST /api/v1/orgs/{orgID}/machine-pools)
+	// (POST /orgs/{orgID}/machine-pools)
 	CreateMachinePool(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteMachinePool Delete machine pool
-	// (DELETE /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (DELETE /orgs/{orgID}/machine-pools/{poolID})
 	DeleteMachinePool(w http.ResponseWriter, r *http.Request, orgID string, poolID string)
 	// GetMachinePool Get machine pool
-	// (GET /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (GET /orgs/{orgID}/machine-pools/{poolID})
 	GetMachinePool(w http.ResponseWriter, r *http.Request, orgID string, poolID string)
 	// UpdateMachinePool Update machine pool
-	// (PUT /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (PUT /orgs/{orgID}/machine-pools/{poolID})
 	UpdateMachinePool(w http.ResponseWriter, r *http.Request, orgID string, poolID string)
 	// ListVisibleMachines List visible machines
-	// (GET /api/v1/orgs/{orgID}/machines)
+	// (GET /orgs/{orgID}/machines)
 	ListVisibleMachines(w http.ResponseWriter, r *http.Request, orgID string, params ListVisibleMachinesParams)
 	// CreateMachine Create machine
-	// (POST /api/v1/orgs/{orgID}/machines)
+	// (POST /orgs/{orgID}/machines)
 	CreateMachine(w http.ResponseWriter, r *http.Request, orgID string, params CreateMachineParams)
 	// ConnectBYOMachine Connect a BYO machine
-	// (POST /api/v1/orgs/{orgID}/machines/connect)
+	// (POST /orgs/{orgID}/machines/connect)
 	ConnectBYOMachine(w http.ResponseWriter, r *http.Request, orgID OrganizationID)
 	// DeleteMachine Delete machine
-	// (DELETE /api/v1/orgs/{orgID}/machines/{machineID})
+	// (DELETE /orgs/{orgID}/machines/{machineID})
 	DeleteMachine(w http.ResponseWriter, r *http.Request, orgID string, machineID string)
 	// GetMachine Get machine
-	// (GET /api/v1/orgs/{orgID}/machines/{machineID})
+	// (GET /orgs/{orgID}/machines/{machineID})
 	GetMachine(w http.ResponseWriter, r *http.Request, orgID string, machineID string)
 	// UpdateMachine Update machine execution defaults
-	// (PATCH /api/v1/orgs/{orgID}/machines/{machineID})
+	// (PATCH /orgs/{orgID}/machines/{machineID})
 	UpdateMachine(w http.ResponseWriter, r *http.Request, orgID string, machineID string)
 	// ListBYOMachineDaemonTokens List byo machine daemon tokens
-	// (GET /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens)
+	// (GET /orgs/{orgID}/machines/{machineID}/daemon-tokens)
 	ListBYOMachineDaemonTokens(w http.ResponseWriter, r *http.Request, orgID string, machineID string, params ListBYOMachineDaemonTokensParams)
 	// CreateBYOMachineDaemonToken Create byo machine daemon token
-	// (POST /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens)
+	// (POST /orgs/{orgID}/machines/{machineID}/daemon-tokens)
 	CreateBYOMachineDaemonToken(w http.ResponseWriter, r *http.Request, orgID string, machineID string)
 	// RevokeMachineDaemonToken Revoke machine daemon token
-	// (POST /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke)
+	// (POST /orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke)
 	RevokeMachineDaemonToken(w http.ResponseWriter, r *http.Request, orgID string, machineID string, tokenID string)
 	// ListOrgMembers List organization members
-	// (GET /api/v1/orgs/{orgID}/members)
+	// (GET /orgs/{orgID}/members)
 	ListOrgMembers(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgMembersParams)
 	// RemoveOrgMember Remove org member
-	// (DELETE /api/v1/orgs/{orgID}/members/{userID})
+	// (DELETE /orgs/{orgID}/members/{userID})
 	RemoveOrgMember(w http.ResponseWriter, r *http.Request, orgID string, userID string)
 	// UpdateOrgMember Update org member role
-	// (PATCH /api/v1/orgs/{orgID}/members/{userID})
+	// (PATCH /orgs/{orgID}/members/{userID})
 	UpdateOrgMember(w http.ResponseWriter, r *http.Request, orgID string, userID string)
 	// ListMemberProjectAccess List a member's explicit project role grants
-	// (GET /api/v1/orgs/{orgID}/members/{userID}/projects)
+	// (GET /orgs/{orgID}/members/{userID}/projects)
 	ListMemberProjectAccess(w http.ResponseWriter, r *http.Request, orgID string, userID string)
 	// RemoveMemberProjectAccess Remove a member's project role grant
-	// (DELETE /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/members/{userID}/projects/{projectID})
 	RemoveMemberProjectAccess(w http.ResponseWriter, r *http.Request, orgID string, userID string, projectID string)
 	// SetMemberProjectAccess Set a member's role on a project
-	// (PUT /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID})
+	// (PUT /orgs/{orgID}/members/{userID}/projects/{projectID})
 	SetMemberProjectAccess(w http.ResponseWriter, r *http.Request, orgID string, userID string, projectID string)
 	// ListModelProviderConfigs List model provider configs
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs)
+	// (GET /orgs/{orgID}/model-provider-configs)
 	ListModelProviderConfigs(w http.ResponseWriter, r *http.Request, orgID string, params ListModelProviderConfigsParams)
 	// CreateModelProviderConfig Create model provider config
-	// (POST /api/v1/orgs/{orgID}/model-provider-configs)
+	// (POST /orgs/{orgID}/model-provider-configs)
 	CreateModelProviderConfig(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteModelProviderConfig Delete model provider config
-	// (DELETE /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (DELETE /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	DeleteModelProviderConfig(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string)
 	// GetModelProviderConfig Get model provider config
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	GetModelProviderConfig(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string)
 	// UpdateModelProviderConfig Update model provider config
-	// (PUT /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	UpdateModelProviderConfig(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string)
 	// GetModelCatalog Get model catalog
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog)
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog)
 	GetModelCatalog(w http.ResponseWriter, r *http.Request, orgID OrganizationID, modelProviderConfigID ModelProviderConfigID)
 	// ListConfiguredModels List configured models
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
 	ListConfiguredModels(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string, params ListConfiguredModelsParams)
 	// CreateConfiguredModel Create configured model
-	// (POST /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
+	// (POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
 	CreateConfiguredModel(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string)
 	// DeleteConfiguredModel Delete configured model
-	// (DELETE /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
+	// (DELETE /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
 	DeleteConfiguredModel(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string, configuredModelID string)
 	// UpdateConfiguredModel Update configured model
-	// (PUT /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
+	// (PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
 	UpdateConfiguredModel(w http.ResponseWriter, r *http.Request, orgID string, modelProviderConfigID string, configuredModelID string)
 	// GetOrgOverview Get org overview
-	// (GET /api/v1/orgs/{orgID}/overview)
+	// (GET /orgs/{orgID}/overview)
 	GetOrgOverview(w http.ResponseWriter, r *http.Request, orgID OrganizationID)
 	// ListVisibleProjects List visible projects
-	// (GET /api/v1/orgs/{orgID}/projects)
+	// (GET /orgs/{orgID}/projects)
 	ListVisibleProjects(w http.ResponseWriter, r *http.Request, orgID string, params ListVisibleProjectsParams)
 	// CreateProject Create project
-	// (POST /api/v1/orgs/{orgID}/projects)
+	// (POST /orgs/{orgID}/projects)
 	CreateProject(w http.ResponseWriter, r *http.Request, orgID string, params CreateProjectParams)
 	// DeleteProject Delete project
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/projects/{projectID})
 	DeleteProject(w http.ResponseWriter, r *http.Request, orgID string, projectID string)
 	// ListActors List project actors
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/actors)
+	// (GET /orgs/{orgID}/projects/{projectID}/actors)
 	ListActors(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListActorsParams)
 	// PutActor Upsert an external actor
-	// (PUT /api/v1/orgs/{orgID}/projects/{projectID}/actors)
+	// (PUT /orgs/{orgID}/projects/{projectID}/actors)
 	PutActor(w http.ResponseWriter, r *http.Request, orgID string, projectID string)
 	// GetActor Get a project actor
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID})
+	// (GET /orgs/{orgID}/projects/{projectID}/actors/{actorID})
 	GetActor(w http.ResponseWriter, r *http.Request, orgID string, projectID string, actorID string)
 	// CreateAgentConfig Create agent config
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-configs)
 	CreateAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string)
 	// GetAgentConfig Get agent config
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
 	GetAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentConfigID string)
 	// ListAgentProfiles List agent profiles
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles)
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	ListAgentProfiles(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListAgentProfilesParams)
 	// CreateAgentProfile Create agent profile
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	CreateAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params CreateAgentProfileParams)
 	// DeleteAgentProfile Delete agent profile
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	DeleteAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// GetAgentProfile Get agent profile
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	GetAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// RenameAgentProfile Rename agent profile
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	RenameAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// UpdateAgentProfile Update agent profile
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
 	UpdateAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string, params UpdateAgentProfileParams)
 	// CreateIntegrationOAuthSetup Create integration OAuth setup
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
 	CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// CreateSlackSetup Create Slack app and OAuth setup
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
 	CreateSlackSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// ListAgents List agents
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents)
 	ListAgents(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListAgentsParams)
 	// CreateAgent Create agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents)
 	CreateAgent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params CreateAgentParams)
 	// GetAgent Get agent
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID})
 	GetAgent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string)
 	// ArchiveAgent Archive agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive)
 	ArchiveAgent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string)
 	// GetArtifact Get artifact
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID})
 	GetArtifact(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, artifactID string)
 	// GetArtifactContent Get artifact content
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content)
 	GetArtifactContent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, artifactID string)
 	// CancelAgent Cancel agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
 	CancelAgent(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string)
 	// UpdateAgentConfig Update agent config
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
 	UpdateAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params UpdateAgentConfigParams)
 	// ListEvents List events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params ListEventsParams)
 	// StreamEvents Stream events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream)
 	StreamEvents(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params StreamEventsParams)
 	// CreateAgentInput Create agent input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs)
 	CreateAgentInput(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params CreateAgentInputParams)
 	// ListQueuedBacklogInputs List waiting backlog inputs
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog)
 	ListQueuedBacklogInputs(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params ListQueuedBacklogInputsParams)
 	// CancelQueuedBacklogInput Cancel queued backlog input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel)
 	CancelQueuedBacklogInput(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, inputID string)
 	// DemoteSteeringInputToQueued Demote steering input to queued
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued)
 	DemoteSteeringInputToQueued(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, inputID string)
 	// MoveQueuedBacklogInput Move queued backlog input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move)
 	MoveQueuedBacklogInput(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, inputID string)
 	// PromoteQueuedInputToSteering Promote queued input to steering
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering)
 	PromoteQueuedInputToSteering(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, inputID string)
 	// ListAgentInteractions List agent interactions
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions)
 	ListAgentInteractions(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params ListAgentInteractionsParams)
 	// ResolveAgentInteraction Resolve agent interaction
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve)
 	ResolveAgentInteraction(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, interactionID string)
 	// ListToolCalls List tool calls
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls)
 	ListToolCalls(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params ListToolCallsParams)
 	// SubmitToolCallResult Submit a result for a ready custom tool call
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result)
 	SubmitToolCallResult(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, toolCallID ToolCallID)
 	// ListTurns List turns
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns)
 	ListTurns(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, params ListTurnsParams)
 	// ListTurnEvents List turn events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events)
 	ListTurnEvents(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentID string, turnID string, params ListTurnEventsParams)
 	// ListCronTriggers List cron triggers
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers)
+	// (GET /orgs/{orgID}/projects/{projectID}/cron-triggers)
 	ListCronTriggers(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListCronTriggersParams)
 	// CreateCronTrigger Create cron trigger
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers)
+	// (POST /orgs/{orgID}/projects/{projectID}/cron-triggers)
 	CreateCronTrigger(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params CreateCronTriggerParams)
 	// DeleteCronTrigger Delete cron trigger
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	DeleteCronTrigger(w http.ResponseWriter, r *http.Request, orgID string, projectID string, cronTriggerID CronTriggerID)
 	// GetCronTrigger Get cron trigger
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (GET /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	GetCronTrigger(w http.ResponseWriter, r *http.Request, orgID string, projectID string, cronTriggerID CronTriggerID)
 	// UpdateCronTrigger Update cron trigger
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	UpdateCronTrigger(w http.ResponseWriter, r *http.Request, orgID string, projectID string, cronTriggerID CronTriggerID)
 	// ListIntegrationInstalls List integration installs
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs)
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
 	ListIntegrationInstalls(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListIntegrationInstallsParams)
 	// DeleteIntegrationInstall Delete integration install
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
 	DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string, integrationInstallID string)
 	// ListProjectMachineGrants List project machine grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectMachineGrantsParams)
 	// CreateProjectMachineGrant Create project machine grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/machine-grants)
 	CreateProjectMachineGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params CreateProjectMachineGrantParams)
 	// DeleteProjectMachineGrant Delete project machine grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/machine-grants/{grantID})
 	DeleteProjectMachineGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, grantID string)
 	// ListProjectMachinePoolGrants List project machine pool grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-pool-grants)
 	ListProjectMachinePoolGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectMachinePoolGrantsParams)
 	// CreateProjectMachinePoolGrant Create project machine pool grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/machine-pool-grants)
 	CreateProjectMachinePoolGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params CreateProjectMachinePoolGrantParams)
 	// DeleteProjectMachinePoolGrant Delete project machine pool grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	DeleteProjectMachinePoolGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, poolGrantID string)
 	// GetProjectMachinePoolGrant Get project machine pool grant
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	GetProjectMachinePoolGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, poolGrantID string)
 	// UpdateProjectMachinePoolGrant Update project machine pool grant
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	UpdateProjectMachinePoolGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, poolGrantID string)
 	// ListVisibleProjectMachines List visible project machines
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machines)
+	// (GET /orgs/{orgID}/projects/{projectID}/machines)
 	ListVisibleProjectMachines(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListVisibleProjectMachinesParams)
 	// ListMCPServerTools List an MCP server's tools
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
+	// (POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
 	ListMCPServerTools(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
 	// ListProjectModelGrants List project model grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/model-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/model-grants)
 	ListProjectModelGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectModelGrantsParams)
 	// CreateProjectModelGrant Create project model grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/model-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/model-grants)
 	CreateProjectModelGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string)
 	// DeleteProjectModelGrant Delete project model grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
 	DeleteProjectModelGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, modelGrantID string)
 	// UpdateProjectModelGrant Update project model grant
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
 	UpdateProjectModelGrant(w http.ResponseWriter, r *http.Request, orgID string, projectID string, modelGrantID string)
 	// ListProjectAvailableSecrets List secrets available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/secrets)
+	// (GET /orgs/{orgID}/projects/{projectID}/secrets)
 	ListProjectAvailableSecrets(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectAvailableSecretsParams)
 	// GetProjectAvailableSecret Get secret available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID})
+	// (GET /orgs/{orgID}/projects/{projectID}/secrets/{secretID})
 	GetProjectAvailableSecret(w http.ResponseWriter, r *http.Request, orgID string, projectID string, secretID string)
 	// ListProjectAvailableSkills List skills available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/skills)
+	// (GET /orgs/{orgID}/projects/{projectID}/skills)
 	ListProjectAvailableSkills(w http.ResponseWriter, r *http.Request, orgID string, projectID ProjectID, params ListProjectAvailableSkillsParams)
 	// ListSecrets List secrets visible through ownership authority
-	// (GET /api/v1/orgs/{orgID}/secrets)
+	// (GET /orgs/{orgID}/secrets)
 	ListSecrets(w http.ResponseWriter, r *http.Request, orgID string, params ListSecretsParams)
 	// CreateSecret Create secret
-	// (POST /api/v1/orgs/{orgID}/secrets)
+	// (POST /orgs/{orgID}/secrets)
 	CreateSecret(w http.ResponseWriter, r *http.Request, orgID string)
 	// StartSecretMCPOAuth Start MCP OAuth for a new secret
-	// (POST /api/v1/orgs/{orgID}/secrets/mcp-oauth)
+	// (POST /orgs/{orgID}/secrets/mcp-oauth)
 	StartSecretMCPOAuth(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteSecret Delete secret
-	// (DELETE /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (DELETE /orgs/{orgID}/secrets/{secretID})
 	DeleteSecret(w http.ResponseWriter, r *http.Request, orgID string, secretID string)
 	// GetSecret Get secret through ownership authority
-	// (GET /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (GET /orgs/{orgID}/secrets/{secretID})
 	GetSecret(w http.ResponseWriter, r *http.Request, orgID string, secretID string)
 	// UpdateSecret Update secret metadata
-	// (PATCH /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (PATCH /orgs/{orgID}/secrets/{secretID})
 	UpdateSecret(w http.ResponseWriter, r *http.Request, orgID string, secretID string)
 	// ListSecretGrants List secret grants
-	// (GET /api/v1/orgs/{orgID}/secrets/{secretID}/grants)
+	// (GET /orgs/{orgID}/secrets/{secretID}/grants)
 	ListSecretGrants(w http.ResponseWriter, r *http.Request, orgID string, secretID string, params ListSecretGrantsParams)
 	// CreateSecretGrant Create secret grant
-	// (POST /api/v1/orgs/{orgID}/secrets/{secretID}/grants)
+	// (POST /orgs/{orgID}/secrets/{secretID}/grants)
 	CreateSecretGrant(w http.ResponseWriter, r *http.Request, orgID string, secretID string)
 	// DeleteSecretGrant Delete secret grant
-	// (DELETE /api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID})
+	// (DELETE /orgs/{orgID}/secrets/{secretID}/grants/{grantID})
 	DeleteSecretGrant(w http.ResponseWriter, r *http.Request, orgID string, secretID string, grantID string)
 	// CreateSecretVersion Create secret version
-	// (POST /api/v1/orgs/{orgID}/secrets/{secretID}/versions)
+	// (POST /orgs/{orgID}/secrets/{secretID}/versions)
 	CreateSecretVersion(w http.ResponseWriter, r *http.Request, orgID string, secretID string)
 	// ListSkills List skills visible through ownership authority
-	// (GET /api/v1/orgs/{orgID}/skills)
+	// (GET /orgs/{orgID}/skills)
 	ListSkills(w http.ResponseWriter, r *http.Request, orgID string, params ListSkillsParams)
 	// CreateSkill Create skill
-	// (POST /api/v1/orgs/{orgID}/skills)
+	// (POST /orgs/{orgID}/skills)
 	CreateSkill(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteSkill Delete skill
-	// (DELETE /api/v1/orgs/{orgID}/skills/{skillID})
+	// (DELETE /orgs/{orgID}/skills/{skillID})
 	DeleteSkill(w http.ResponseWriter, r *http.Request, orgID string, skillID string)
 	// GetSkill Get skill through ownership authority
-	// (GET /api/v1/orgs/{orgID}/skills/{skillID})
+	// (GET /orgs/{orgID}/skills/{skillID})
 	GetSkill(w http.ResponseWriter, r *http.Request, orgID string, skillID string)
 	// UpdateSkill Update skill by uploading a new revision
-	// (POST /api/v1/orgs/{orgID}/skills/{skillID})
+	// (POST /orgs/{orgID}/skills/{skillID})
 	UpdateSkill(w http.ResponseWriter, r *http.Request, orgID string, skillID string)
 	// ListSkillGrants List skill grants
-	// (GET /api/v1/orgs/{orgID}/skills/{skillID}/grants)
+	// (GET /orgs/{orgID}/skills/{skillID}/grants)
 	ListSkillGrants(w http.ResponseWriter, r *http.Request, orgID string, skillID SkillID, params ListSkillGrantsParams)
 	// CreateSkillGrant Create skill grant
-	// (POST /api/v1/orgs/{orgID}/skills/{skillID}/grants)
+	// (POST /orgs/{orgID}/skills/{skillID}/grants)
 	CreateSkillGrant(w http.ResponseWriter, r *http.Request, orgID string, skillID SkillID)
 	// DeleteSkillGrant Delete skill grant
-	// (DELETE /api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID})
+	// (DELETE /orgs/{orgID}/skills/{skillID}/grants/{grantID})
 	DeleteSkillGrant(w http.ResponseWriter, r *http.Request, orgID string, skillID SkillID, grantID SkillGrantID)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
-	// (GET /api/v1/personal-access-tokens)
+	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request, params ListPersonalAccessTokensParams)
 	// CreatePersonalAccessToken Create personal access token
-	// (POST /api/v1/personal-access-tokens)
+	// (POST /personal-access-tokens)
 	CreatePersonalAccessToken(w http.ResponseWriter, r *http.Request)
 	// RevokePersonalAccessToken Revoke a personal access token
-	// (POST /api/v1/personal-access-tokens/{tokenID}/revoke)
+	// (POST /personal-access-tokens/{tokenID}/revoke)
 	RevokePersonalAccessToken(w http.ResponseWriter, r *http.Request, tokenID string)
 	// GetToolCatalog Get tool catalog
-	// (GET /api/v1/tool-catalog)
+	// (GET /tool-catalog)
 	GetToolCatalog(w http.ResponseWriter, r *http.Request)
 }
 
@@ -16951,149 +16951,149 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/personal-access-tokens", wrapper.ListPersonalAccessTokens)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/personal-access-tokens", wrapper.CreatePersonalAccessToken)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/personal-access-tokens/{tokenID}/revoke", wrapper.RevokePersonalAccessToken)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/bootstrap", wrapper.BootstrapDaemon)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/failures", wrapper.RecordMachineFailure)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs", wrapper.CreateOrganization)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}", wrapper.DeleteOrganization)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/me", wrapper.DeleteCurrentUser)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetCurrentUser)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/invitations", wrapper.ListPendingInvitations)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/invitations/{invitationID}/accept", wrapper.AcceptInvitation)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/invitations/{invitationID}/decline", wrapper.DeclineInvitation)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/overview", wrapper.GetOrgOverview)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects", wrapper.ListVisibleProjects)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects", wrapper.CreateProject)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}", wrapper.DeleteProject)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members", wrapper.ListOrgMembers)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members/{userID}", wrapper.RemoveOrgMember)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members/{userID}", wrapper.UpdateOrgMember)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members/{userID}/projects", wrapper.ListMemberProjectAccess)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}", wrapper.RemoveMemberProjectAccess)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}", wrapper.SetMemberProjectAccess)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys", wrapper.ListOrgAPIKeys)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys", wrapper.CreateOrgAPIKey)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}", wrapper.GetOrgAPIKey)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}", wrapper.UpdateOrgAPIKey)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}/revoke", wrapper.RevokeOrgAPIKey)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}/projects", wrapper.ListOrgAPIKeyProjectAccess)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}", wrapper.RemoveOrgAPIKeyProjectRole)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}", wrapper.SetOrgAPIKeyProjectRole)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/invitations", wrapper.ListOrgInvitations)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/invitations", wrapper.CreateOrgInvitation)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/invitations/{invitationID}", wrapper.DeleteOrgInvitation)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills", wrapper.ListSkills)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills", wrapper.CreateSkill)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}", wrapper.DeleteSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}", wrapper.GetSkill)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}", wrapper.UpdateSkill)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}/grants", wrapper.ListSkillGrants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}/grants", wrapper.CreateSkillGrant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}", wrapper.DeleteSkillGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/skills", wrapper.ListProjectAvailableSkills)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets", wrapper.ListSecrets)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets", wrapper.CreateSecret)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/mcp-oauth", wrapper.StartSecretMCPOAuth)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}", wrapper.DeleteSecret)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}", wrapper.GetSecret)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}", wrapper.UpdateSecret)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}/versions", wrapper.CreateSecretVersion)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}/grants", wrapper.ListSecretGrants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}/grants", wrapper.CreateSecretGrant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}", wrapper.DeleteSecretGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs", wrapper.ListIntegrationInstalls)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}", wrapper.DeleteIntegrationInstall)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs", wrapper.CreateAgentConfig)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tool-catalog", wrapper.GetToolCatalog)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/mcp-servers", wrapper.ListMCPServers)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools", wrapper.ListMCPServerTools)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}", wrapper.GetAgentConfig)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.ListAgentProfiles)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.CreateAgentProfile)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.DeleteAgentProfile)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.GetAgentProfile)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.RenameAgentProfile)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config", wrapper.UpdateAgentProfile)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup", wrapper.CreateIntegrationOAuthSetup)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup", wrapper.CreateSlackSetup)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.ListCronTriggers)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.CreateCronTrigger)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.DeleteCronTrigger)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.GetCronTrigger)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.UpdateCronTrigger)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents", wrapper.ListAgents)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents", wrapper.CreateAgent)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}", wrapper.GetAgent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive", wrapper.ArchiveAgent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config", wrapper.UpdateAgentConfig)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs", wrapper.CreateAgentInput)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls", wrapper.ListToolCalls)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result", wrapper.SubmitToolCallResult)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns", wrapper.ListTurns)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events", wrapper.ListTurnEvents)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events", wrapper.ListEvents)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream", wrapper.StreamEvents)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel", wrapper.CancelAgent)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions", wrapper.ListAgentInteractions)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve", wrapper.ResolveAgentInteraction)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog", wrapper.ListQueuedBacklogInputs)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel", wrapper.CancelQueuedBacklogInput)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move", wrapper.MoveQueuedBacklogInput)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering", wrapper.PromoteQueuedInputToSteering)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued", wrapper.DemoteSteeringInputToQueued)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}", wrapper.GetArtifact)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content", wrapper.GetArtifactContent)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machines", wrapper.ListVisibleProjectMachines)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants", wrapper.ListProjectMachineGrants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants", wrapper.CreateProjectMachineGrant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}", wrapper.DeleteProjectMachineGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/secrets", wrapper.ListProjectAvailableSecrets)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}", wrapper.GetProjectAvailableSecret)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/actors", wrapper.ListActors)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/actors", wrapper.PutActor)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}", wrapper.GetActor)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines", wrapper.ListVisibleMachines)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines", wrapper.CreateMachine)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/connect", wrapper.ConnectBYOMachine)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}", wrapper.DeleteMachine)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}", wrapper.GetMachine)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}", wrapper.UpdateMachine)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs", wrapper.ListModelProviderConfigs)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs", wrapper.CreateModelProviderConfig)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.DeleteModelProviderConfig)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.GetModelProviderConfig)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.UpdateModelProviderConfig)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog", wrapper.GetModelCatalog)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models", wrapper.ListConfiguredModels)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models", wrapper.CreateConfiguredModel)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}", wrapper.DeleteConfiguredModel)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}", wrapper.UpdateConfiguredModel)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/model-grants", wrapper.ListProjectModelGrants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/model-grants", wrapper.CreateProjectModelGrant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}", wrapper.DeleteProjectModelGrant)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}", wrapper.UpdateProjectModelGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machine-pools", wrapper.ListMachinePools)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machine-pools", wrapper.CreateMachinePool)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machine-pools/{poolID}", wrapper.DeleteMachinePool)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machine-pools/{poolID}", wrapper.GetMachinePool)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machine-pools/{poolID}", wrapper.UpdateMachinePool)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants", wrapper.ListProjectMachinePoolGrants)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants", wrapper.CreateProjectMachinePoolGrant)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.DeleteProjectMachinePoolGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.GetProjectMachinePoolGrant)
-	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.UpdateProjectMachinePoolGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens", wrapper.ListBYOMachineDaemonTokens)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens", wrapper.CreateBYOMachineDaemonToken)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke", wrapper.RevokeMachineDaemonToken)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/runtimes", wrapper.RegisterMachineDaemonRuntime)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/daemon/runtimes/{runtimeID}/socket", wrapper.SocketMachineDaemonRuntime)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/runtimes/{runtimeID}/end", wrapper.EndMachineDaemonRuntime)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/runtimes/{runtimeID}/sleep", wrapper.SleepMachineDaemonRuntime)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/daemon/skills/{skillID}/archive", wrapper.GetDaemonSkillArchive)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/daemon/tool-calls/{toolCallID}/artifact", wrapper.UploadDaemonArtifact)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", wrapper.DownloadDaemonArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/personal-access-tokens", wrapper.ListPersonalAccessTokens)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/personal-access-tokens", wrapper.CreatePersonalAccessToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/personal-access-tokens/{tokenID}/revoke", wrapper.RevokePersonalAccessToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/bootstrap", wrapper.BootstrapDaemon)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/failures", wrapper.RecordMachineFailure)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs", wrapper.CreateOrganization)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}", wrapper.DeleteOrganization)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/me", wrapper.DeleteCurrentUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me", wrapper.GetCurrentUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/invitations", wrapper.ListPendingInvitations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/invitations/{invitationID}/accept", wrapper.AcceptInvitation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/invitations/{invitationID}/decline", wrapper.DeclineInvitation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/overview", wrapper.GetOrgOverview)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects", wrapper.ListVisibleProjects)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects", wrapper.CreateProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}", wrapper.DeleteProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/members", wrapper.ListOrgMembers)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/members/{userID}", wrapper.RemoveOrgMember)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/members/{userID}", wrapper.UpdateOrgMember)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/members/{userID}/projects", wrapper.ListMemberProjectAccess)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/members/{userID}/projects/{projectID}", wrapper.RemoveMemberProjectAccess)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/members/{userID}/projects/{projectID}", wrapper.SetMemberProjectAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/api-keys", wrapper.ListOrgAPIKeys)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/api-keys", wrapper.CreateOrgAPIKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}", wrapper.GetOrgAPIKey)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}", wrapper.UpdateOrgAPIKey)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}/revoke", wrapper.RevokeOrgAPIKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}/projects", wrapper.ListOrgAPIKeyProjectAccess)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}", wrapper.RemoveOrgAPIKeyProjectRole)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}", wrapper.SetOrgAPIKeyProjectRole)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/invitations", wrapper.ListOrgInvitations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/invitations", wrapper.CreateOrgInvitation)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/invitations/{invitationID}", wrapper.DeleteOrgInvitation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/skills", wrapper.ListSkills)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/skills", wrapper.CreateSkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}", wrapper.DeleteSkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}", wrapper.GetSkill)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}", wrapper.UpdateSkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}/grants", wrapper.ListSkillGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}/grants", wrapper.CreateSkillGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}/grants/{grantID}", wrapper.DeleteSkillGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/skills", wrapper.ListProjectAvailableSkills)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/secrets", wrapper.ListSecrets)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets", wrapper.CreateSecret)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/mcp-oauth", wrapper.StartSecretMCPOAuth)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}", wrapper.DeleteSecret)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}", wrapper.GetSecret)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}", wrapper.UpdateSecret)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/versions", wrapper.CreateSecretVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants", wrapper.ListSecretGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants", wrapper.CreateSecretGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants/{grantID}", wrapper.DeleteSecretGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs", wrapper.ListIntegrationInstalls)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}", wrapper.DeleteIntegrationInstall)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs", wrapper.CreateAgentConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tool-catalog", wrapper.GetToolCatalog)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/mcp-servers", wrapper.ListMCPServers)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/mcp-servers/tools", wrapper.ListMCPServerTools)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}", wrapper.GetAgentConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.ListAgentProfiles)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.CreateAgentProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.DeleteAgentProfile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.GetAgentProfile)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.RenameAgentProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config", wrapper.UpdateAgentProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup", wrapper.CreateIntegrationOAuthSetup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup", wrapper.CreateSlackSetup)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.ListCronTriggers)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.CreateCronTrigger)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.DeleteCronTrigger)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.GetCronTrigger)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.UpdateCronTrigger)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents", wrapper.ListAgents)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents", wrapper.CreateAgent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}", wrapper.GetAgent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive", wrapper.ArchiveAgent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config", wrapper.UpdateAgentConfig)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs", wrapper.CreateAgentInput)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls", wrapper.ListToolCalls)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result", wrapper.SubmitToolCallResult)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns", wrapper.ListTurns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events", wrapper.ListTurnEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events", wrapper.ListEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream", wrapper.StreamEvents)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel", wrapper.CancelAgent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions", wrapper.ListAgentInteractions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve", wrapper.ResolveAgentInteraction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog", wrapper.ListQueuedBacklogInputs)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel", wrapper.CancelQueuedBacklogInput)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move", wrapper.MoveQueuedBacklogInput)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering", wrapper.PromoteQueuedInputToSteering)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued", wrapper.DemoteSteeringInputToQueued)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}", wrapper.GetArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content", wrapper.GetArtifactContent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machines", wrapper.ListVisibleProjectMachines)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-grants", wrapper.ListProjectMachineGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-grants", wrapper.CreateProjectMachineGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}", wrapper.DeleteProjectMachineGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/secrets", wrapper.ListProjectAvailableSecrets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/secrets/{secretID}", wrapper.GetProjectAvailableSecret)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/actors", wrapper.ListActors)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/actors", wrapper.PutActor)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/actors/{actorID}", wrapper.GetActor)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machines", wrapper.ListVisibleMachines)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machines", wrapper.CreateMachine)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machines/connect", wrapper.ConnectBYOMachine)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}", wrapper.DeleteMachine)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}", wrapper.GetMachine)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}", wrapper.UpdateMachine)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs", wrapper.ListModelProviderConfigs)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs", wrapper.CreateModelProviderConfig)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.DeleteModelProviderConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.GetModelProviderConfig)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}", wrapper.UpdateModelProviderConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog", wrapper.GetModelCatalog)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models", wrapper.ListConfiguredModels)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models", wrapper.CreateConfiguredModel)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}", wrapper.DeleteConfiguredModel)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}", wrapper.UpdateConfiguredModel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/model-grants", wrapper.ListProjectModelGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/model-grants", wrapper.CreateProjectModelGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}", wrapper.DeleteProjectModelGrant)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}", wrapper.UpdateProjectModelGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machine-pools", wrapper.ListMachinePools)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machine-pools", wrapper.CreateMachinePool)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.DeleteMachinePool)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.GetMachinePool)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.UpdateMachinePool)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-pool-grants", wrapper.ListProjectMachinePoolGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-pool-grants", wrapper.CreateProjectMachinePoolGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.DeleteProjectMachinePoolGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.GetProjectMachinePoolGrant)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}", wrapper.UpdateProjectMachinePoolGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}/daemon-tokens", wrapper.ListBYOMachineDaemonTokens)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}/daemon-tokens", wrapper.CreateBYOMachineDaemonToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke", wrapper.RevokeMachineDaemonToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/runtimes", wrapper.RegisterMachineDaemonRuntime)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/socket", wrapper.SocketMachineDaemonRuntime)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/end", wrapper.EndMachineDaemonRuntime)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/sleep", wrapper.SleepMachineDaemonRuntime)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/skills/{skillID}/archive", wrapper.GetDaemonSkillArchive)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifact", wrapper.UploadDaemonArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", wrapper.DownloadDaemonArtifact)
 
 	return m
 }
@@ -39004,433 +39004,433 @@ func (response GetToolCatalog5XXJSONResponse) VisitGetToolCatalogResponse(w http
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// BootstrapDaemon Bootstrap daemon
-	// (POST /api/v1/daemon/bootstrap)
+	// (POST /daemon/bootstrap)
 	BootstrapDaemon(ctx context.Context, request BootstrapDaemonRequestObject) (BootstrapDaemonResponseObject, error)
 	// RecordMachineFailure Record machine failure
-	// (POST /api/v1/daemon/failures)
+	// (POST /daemon/failures)
 	RecordMachineFailure(ctx context.Context, request RecordMachineFailureRequestObject) (RecordMachineFailureResponseObject, error)
 	// RegisterMachineDaemonRuntime Register machine daemon runtime
-	// (POST /api/v1/daemon/runtimes)
+	// (POST /daemon/runtimes)
 	RegisterMachineDaemonRuntime(ctx context.Context, request RegisterMachineDaemonRuntimeRequestObject) (RegisterMachineDaemonRuntimeResponseObject, error)
 	// EndMachineDaemonRuntime End machine daemon runtime
-	// (POST /api/v1/daemon/runtimes/{runtimeID}/end)
+	// (POST /daemon/runtimes/{runtimeID}/end)
 	EndMachineDaemonRuntime(ctx context.Context, request EndMachineDaemonRuntimeRequestObject) (EndMachineDaemonRuntimeResponseObject, error)
 	// SleepMachineDaemonRuntime Sleep machine daemon runtime
-	// (POST /api/v1/daemon/runtimes/{runtimeID}/sleep)
+	// (POST /daemon/runtimes/{runtimeID}/sleep)
 	SleepMachineDaemonRuntime(ctx context.Context, request SleepMachineDaemonRuntimeRequestObject) (SleepMachineDaemonRuntimeResponseObject, error)
 	// SocketMachineDaemonRuntime Socket machine daemon runtime
-	// (GET /api/v1/daemon/runtimes/{runtimeID}/socket)
+	// (GET /daemon/runtimes/{runtimeID}/socket)
 	SocketMachineDaemonRuntime(ctx context.Context, request SocketMachineDaemonRuntimeRequestObject) (SocketMachineDaemonRuntimeResponseObject, error)
 	// GetDaemonSkillArchive Get daemon skill archive
-	// (GET /api/v1/daemon/skills/{skillID}/archive)
+	// (GET /daemon/skills/{skillID}/archive)
 	GetDaemonSkillArchive(ctx context.Context, request GetDaemonSkillArchiveRequestObject) (GetDaemonSkillArchiveResponseObject, error)
 	// UploadDaemonArtifact Upload daemon artifact
-	// (POST /api/v1/daemon/tool-calls/{toolCallID}/artifact)
+	// (POST /daemon/tool-calls/{toolCallID}/artifact)
 	UploadDaemonArtifact(ctx context.Context, request UploadDaemonArtifactRequestObject) (UploadDaemonArtifactResponseObject, error)
 	// DownloadDaemonArtifact Download daemon artifact
-	// (GET /api/v1/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
+	// (GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
 	DownloadDaemonArtifact(ctx context.Context, request DownloadDaemonArtifactRequestObject) (DownloadDaemonArtifactResponseObject, error)
 	// ListPendingInvitations List pending invitations
-	// (GET /api/v1/invitations)
+	// (GET /invitations)
 	ListPendingInvitations(ctx context.Context, request ListPendingInvitationsRequestObject) (ListPendingInvitationsResponseObject, error)
 	// AcceptInvitation Accept invitation
-	// (POST /api/v1/invitations/{invitationID}/accept)
+	// (POST /invitations/{invitationID}/accept)
 	AcceptInvitation(ctx context.Context, request AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error)
 	// DeclineInvitation Decline invitation
-	// (POST /api/v1/invitations/{invitationID}/decline)
+	// (POST /invitations/{invitationID}/decline)
 	DeclineInvitation(ctx context.Context, request DeclineInvitationRequestObject) (DeclineInvitationResponseObject, error)
 	// ListMCPServers Search the MCP server registry
-	// (GET /api/v1/mcp-servers)
+	// (GET /mcp-servers)
 	ListMCPServers(ctx context.Context, request ListMCPServersRequestObject) (ListMCPServersResponseObject, error)
 	// DeleteCurrentUser Delete the authenticated user's account
-	// (DELETE /api/v1/me)
+	// (DELETE /me)
 	DeleteCurrentUser(ctx context.Context, request DeleteCurrentUserRequestObject) (DeleteCurrentUserResponseObject, error)
 	// GetCurrentUser Get the authenticated user and their organizations
-	// (GET /api/v1/me)
+	// (GET /me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
 	// CreateOrganization Create organization
-	// (POST /api/v1/orgs)
+	// (POST /orgs)
 	CreateOrganization(ctx context.Context, request CreateOrganizationRequestObject) (CreateOrganizationResponseObject, error)
 	// DeleteOrganization Delete organization
-	// (DELETE /api/v1/orgs/{orgID})
+	// (DELETE /orgs/{orgID})
 	DeleteOrganization(ctx context.Context, request DeleteOrganizationRequestObject) (DeleteOrganizationResponseObject, error)
 	// ListOrgAPIKeys List org API keys
-	// (GET /api/v1/orgs/{orgID}/api-keys)
+	// (GET /orgs/{orgID}/api-keys)
 	ListOrgAPIKeys(ctx context.Context, request ListOrgAPIKeysRequestObject) (ListOrgAPIKeysResponseObject, error)
 	// CreateOrgAPIKey Create org API key
-	// (POST /api/v1/orgs/{orgID}/api-keys)
+	// (POST /orgs/{orgID}/api-keys)
 	CreateOrgAPIKey(ctx context.Context, request CreateOrgAPIKeyRequestObject) (CreateOrgAPIKeyResponseObject, error)
 	// GetOrgAPIKey Get an org API key
-	// (GET /api/v1/orgs/{orgID}/api-keys/{keyID})
+	// (GET /orgs/{orgID}/api-keys/{keyID})
 	GetOrgAPIKey(ctx context.Context, request GetOrgAPIKeyRequestObject) (GetOrgAPIKeyResponseObject, error)
 	// UpdateOrgAPIKey Update an org API key
-	// (PATCH /api/v1/orgs/{orgID}/api-keys/{keyID})
+	// (PATCH /orgs/{orgID}/api-keys/{keyID})
 	UpdateOrgAPIKey(ctx context.Context, request UpdateOrgAPIKeyRequestObject) (UpdateOrgAPIKeyResponseObject, error)
 	// ListOrgAPIKeyProjectAccess List an org API key's explicit project role grants
-	// (GET /api/v1/orgs/{orgID}/api-keys/{keyID}/projects)
+	// (GET /orgs/{orgID}/api-keys/{keyID}/projects)
 	ListOrgAPIKeyProjectAccess(ctx context.Context, request ListOrgAPIKeyProjectAccessRequestObject) (ListOrgAPIKeyProjectAccessResponseObject, error)
 	// RemoveOrgAPIKeyProjectRole Remove an org API key's project role grant
-	// (DELETE /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
 	RemoveOrgAPIKeyProjectRole(ctx context.Context, request RemoveOrgAPIKeyProjectRoleRequestObject) (RemoveOrgAPIKeyProjectRoleResponseObject, error)
 	// SetOrgAPIKeyProjectRole Set an org API key's role on a project
-	// (PUT /api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
+	// (PUT /orgs/{orgID}/api-keys/{keyID}/projects/{projectID})
 	SetOrgAPIKeyProjectRole(ctx context.Context, request SetOrgAPIKeyProjectRoleRequestObject) (SetOrgAPIKeyProjectRoleResponseObject, error)
 	// RevokeOrgAPIKey Revoke an org API key
-	// (POST /api/v1/orgs/{orgID}/api-keys/{keyID}/revoke)
+	// (POST /orgs/{orgID}/api-keys/{keyID}/revoke)
 	RevokeOrgAPIKey(ctx context.Context, request RevokeOrgAPIKeyRequestObject) (RevokeOrgAPIKeyResponseObject, error)
 	// ListOrgInvitations List org invitations
-	// (GET /api/v1/orgs/{orgID}/invitations)
+	// (GET /orgs/{orgID}/invitations)
 	ListOrgInvitations(ctx context.Context, request ListOrgInvitationsRequestObject) (ListOrgInvitationsResponseObject, error)
 	// CreateOrgInvitation Create org invitation
-	// (POST /api/v1/orgs/{orgID}/invitations)
+	// (POST /orgs/{orgID}/invitations)
 	CreateOrgInvitation(ctx context.Context, request CreateOrgInvitationRequestObject) (CreateOrgInvitationResponseObject, error)
 	// DeleteOrgInvitation Delete org invitation
-	// (DELETE /api/v1/orgs/{orgID}/invitations/{invitationID})
+	// (DELETE /orgs/{orgID}/invitations/{invitationID})
 	DeleteOrgInvitation(ctx context.Context, request DeleteOrgInvitationRequestObject) (DeleteOrgInvitationResponseObject, error)
 	// ListMachinePools List machine pools
-	// (GET /api/v1/orgs/{orgID}/machine-pools)
+	// (GET /orgs/{orgID}/machine-pools)
 	ListMachinePools(ctx context.Context, request ListMachinePoolsRequestObject) (ListMachinePoolsResponseObject, error)
 	// CreateMachinePool Create machine pool
-	// (POST /api/v1/orgs/{orgID}/machine-pools)
+	// (POST /orgs/{orgID}/machine-pools)
 	CreateMachinePool(ctx context.Context, request CreateMachinePoolRequestObject) (CreateMachinePoolResponseObject, error)
 	// DeleteMachinePool Delete machine pool
-	// (DELETE /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (DELETE /orgs/{orgID}/machine-pools/{poolID})
 	DeleteMachinePool(ctx context.Context, request DeleteMachinePoolRequestObject) (DeleteMachinePoolResponseObject, error)
 	// GetMachinePool Get machine pool
-	// (GET /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (GET /orgs/{orgID}/machine-pools/{poolID})
 	GetMachinePool(ctx context.Context, request GetMachinePoolRequestObject) (GetMachinePoolResponseObject, error)
 	// UpdateMachinePool Update machine pool
-	// (PUT /api/v1/orgs/{orgID}/machine-pools/{poolID})
+	// (PUT /orgs/{orgID}/machine-pools/{poolID})
 	UpdateMachinePool(ctx context.Context, request UpdateMachinePoolRequestObject) (UpdateMachinePoolResponseObject, error)
 	// ListVisibleMachines List visible machines
-	// (GET /api/v1/orgs/{orgID}/machines)
+	// (GET /orgs/{orgID}/machines)
 	ListVisibleMachines(ctx context.Context, request ListVisibleMachinesRequestObject) (ListVisibleMachinesResponseObject, error)
 	// CreateMachine Create machine
-	// (POST /api/v1/orgs/{orgID}/machines)
+	// (POST /orgs/{orgID}/machines)
 	CreateMachine(ctx context.Context, request CreateMachineRequestObject) (CreateMachineResponseObject, error)
 	// ConnectBYOMachine Connect a BYO machine
-	// (POST /api/v1/orgs/{orgID}/machines/connect)
+	// (POST /orgs/{orgID}/machines/connect)
 	ConnectBYOMachine(ctx context.Context, request ConnectBYOMachineRequestObject) (ConnectBYOMachineResponseObject, error)
 	// DeleteMachine Delete machine
-	// (DELETE /api/v1/orgs/{orgID}/machines/{machineID})
+	// (DELETE /orgs/{orgID}/machines/{machineID})
 	DeleteMachine(ctx context.Context, request DeleteMachineRequestObject) (DeleteMachineResponseObject, error)
 	// GetMachine Get machine
-	// (GET /api/v1/orgs/{orgID}/machines/{machineID})
+	// (GET /orgs/{orgID}/machines/{machineID})
 	GetMachine(ctx context.Context, request GetMachineRequestObject) (GetMachineResponseObject, error)
 	// UpdateMachine Update machine execution defaults
-	// (PATCH /api/v1/orgs/{orgID}/machines/{machineID})
+	// (PATCH /orgs/{orgID}/machines/{machineID})
 	UpdateMachine(ctx context.Context, request UpdateMachineRequestObject) (UpdateMachineResponseObject, error)
 	// ListBYOMachineDaemonTokens List byo machine daemon tokens
-	// (GET /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens)
+	// (GET /orgs/{orgID}/machines/{machineID}/daemon-tokens)
 	ListBYOMachineDaemonTokens(ctx context.Context, request ListBYOMachineDaemonTokensRequestObject) (ListBYOMachineDaemonTokensResponseObject, error)
 	// CreateBYOMachineDaemonToken Create byo machine daemon token
-	// (POST /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens)
+	// (POST /orgs/{orgID}/machines/{machineID}/daemon-tokens)
 	CreateBYOMachineDaemonToken(ctx context.Context, request CreateBYOMachineDaemonTokenRequestObject) (CreateBYOMachineDaemonTokenResponseObject, error)
 	// RevokeMachineDaemonToken Revoke machine daemon token
-	// (POST /api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke)
+	// (POST /orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke)
 	RevokeMachineDaemonToken(ctx context.Context, request RevokeMachineDaemonTokenRequestObject) (RevokeMachineDaemonTokenResponseObject, error)
 	// ListOrgMembers List organization members
-	// (GET /api/v1/orgs/{orgID}/members)
+	// (GET /orgs/{orgID}/members)
 	ListOrgMembers(ctx context.Context, request ListOrgMembersRequestObject) (ListOrgMembersResponseObject, error)
 	// RemoveOrgMember Remove org member
-	// (DELETE /api/v1/orgs/{orgID}/members/{userID})
+	// (DELETE /orgs/{orgID}/members/{userID})
 	RemoveOrgMember(ctx context.Context, request RemoveOrgMemberRequestObject) (RemoveOrgMemberResponseObject, error)
 	// UpdateOrgMember Update org member role
-	// (PATCH /api/v1/orgs/{orgID}/members/{userID})
+	// (PATCH /orgs/{orgID}/members/{userID})
 	UpdateOrgMember(ctx context.Context, request UpdateOrgMemberRequestObject) (UpdateOrgMemberResponseObject, error)
 	// ListMemberProjectAccess List a member's explicit project role grants
-	// (GET /api/v1/orgs/{orgID}/members/{userID}/projects)
+	// (GET /orgs/{orgID}/members/{userID}/projects)
 	ListMemberProjectAccess(ctx context.Context, request ListMemberProjectAccessRequestObject) (ListMemberProjectAccessResponseObject, error)
 	// RemoveMemberProjectAccess Remove a member's project role grant
-	// (DELETE /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/members/{userID}/projects/{projectID})
 	RemoveMemberProjectAccess(ctx context.Context, request RemoveMemberProjectAccessRequestObject) (RemoveMemberProjectAccessResponseObject, error)
 	// SetMemberProjectAccess Set a member's role on a project
-	// (PUT /api/v1/orgs/{orgID}/members/{userID}/projects/{projectID})
+	// (PUT /orgs/{orgID}/members/{userID}/projects/{projectID})
 	SetMemberProjectAccess(ctx context.Context, request SetMemberProjectAccessRequestObject) (SetMemberProjectAccessResponseObject, error)
 	// ListModelProviderConfigs List model provider configs
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs)
+	// (GET /orgs/{orgID}/model-provider-configs)
 	ListModelProviderConfigs(ctx context.Context, request ListModelProviderConfigsRequestObject) (ListModelProviderConfigsResponseObject, error)
 	// CreateModelProviderConfig Create model provider config
-	// (POST /api/v1/orgs/{orgID}/model-provider-configs)
+	// (POST /orgs/{orgID}/model-provider-configs)
 	CreateModelProviderConfig(ctx context.Context, request CreateModelProviderConfigRequestObject) (CreateModelProviderConfigResponseObject, error)
 	// DeleteModelProviderConfig Delete model provider config
-	// (DELETE /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (DELETE /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	DeleteModelProviderConfig(ctx context.Context, request DeleteModelProviderConfigRequestObject) (DeleteModelProviderConfigResponseObject, error)
 	// GetModelProviderConfig Get model provider config
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	GetModelProviderConfig(ctx context.Context, request GetModelProviderConfigRequestObject) (GetModelProviderConfigResponseObject, error)
 	// UpdateModelProviderConfig Update model provider config
-	// (PUT /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
+	// (PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID})
 	UpdateModelProviderConfig(ctx context.Context, request UpdateModelProviderConfigRequestObject) (UpdateModelProviderConfigResponseObject, error)
 	// GetModelCatalog Get model catalog
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog)
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog)
 	GetModelCatalog(ctx context.Context, request GetModelCatalogRequestObject) (GetModelCatalogResponseObject, error)
 	// ListConfiguredModels List configured models
-	// (GET /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
+	// (GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
 	ListConfiguredModels(ctx context.Context, request ListConfiguredModelsRequestObject) (ListConfiguredModelsResponseObject, error)
 	// CreateConfiguredModel Create configured model
-	// (POST /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
+	// (POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models)
 	CreateConfiguredModel(ctx context.Context, request CreateConfiguredModelRequestObject) (CreateConfiguredModelResponseObject, error)
 	// DeleteConfiguredModel Delete configured model
-	// (DELETE /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
+	// (DELETE /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
 	DeleteConfiguredModel(ctx context.Context, request DeleteConfiguredModelRequestObject) (DeleteConfiguredModelResponseObject, error)
 	// UpdateConfiguredModel Update configured model
-	// (PUT /api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
+	// (PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID})
 	UpdateConfiguredModel(ctx context.Context, request UpdateConfiguredModelRequestObject) (UpdateConfiguredModelResponseObject, error)
 	// GetOrgOverview Get org overview
-	// (GET /api/v1/orgs/{orgID}/overview)
+	// (GET /orgs/{orgID}/overview)
 	GetOrgOverview(ctx context.Context, request GetOrgOverviewRequestObject) (GetOrgOverviewResponseObject, error)
 	// ListVisibleProjects List visible projects
-	// (GET /api/v1/orgs/{orgID}/projects)
+	// (GET /orgs/{orgID}/projects)
 	ListVisibleProjects(ctx context.Context, request ListVisibleProjectsRequestObject) (ListVisibleProjectsResponseObject, error)
 	// CreateProject Create project
-	// (POST /api/v1/orgs/{orgID}/projects)
+	// (POST /orgs/{orgID}/projects)
 	CreateProject(ctx context.Context, request CreateProjectRequestObject) (CreateProjectResponseObject, error)
 	// DeleteProject Delete project
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID})
+	// (DELETE /orgs/{orgID}/projects/{projectID})
 	DeleteProject(ctx context.Context, request DeleteProjectRequestObject) (DeleteProjectResponseObject, error)
 	// ListActors List project actors
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/actors)
+	// (GET /orgs/{orgID}/projects/{projectID}/actors)
 	ListActors(ctx context.Context, request ListActorsRequestObject) (ListActorsResponseObject, error)
 	// PutActor Upsert an external actor
-	// (PUT /api/v1/orgs/{orgID}/projects/{projectID}/actors)
+	// (PUT /orgs/{orgID}/projects/{projectID}/actors)
 	PutActor(ctx context.Context, request PutActorRequestObject) (PutActorResponseObject, error)
 	// GetActor Get a project actor
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID})
+	// (GET /orgs/{orgID}/projects/{projectID}/actors/{actorID})
 	GetActor(ctx context.Context, request GetActorRequestObject) (GetActorResponseObject, error)
 	// CreateAgentConfig Create agent config
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-configs)
 	CreateAgentConfig(ctx context.Context, request CreateAgentConfigRequestObject) (CreateAgentConfigResponseObject, error)
 	// GetAgentConfig Get agent config
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
 	GetAgentConfig(ctx context.Context, request GetAgentConfigRequestObject) (GetAgentConfigResponseObject, error)
 	// ListAgentProfiles List agent profiles
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles)
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	ListAgentProfiles(ctx context.Context, request ListAgentProfilesRequestObject) (ListAgentProfilesResponseObject, error)
 	// CreateAgentProfile Create agent profile
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	CreateAgentProfile(ctx context.Context, request CreateAgentProfileRequestObject) (CreateAgentProfileResponseObject, error)
 	// DeleteAgentProfile Delete agent profile
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	DeleteAgentProfile(ctx context.Context, request DeleteAgentProfileRequestObject) (DeleteAgentProfileResponseObject, error)
 	// GetAgentProfile Get agent profile
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	GetAgentProfile(ctx context.Context, request GetAgentProfileRequestObject) (GetAgentProfileResponseObject, error)
 	// RenameAgentProfile Rename agent profile
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID})
 	RenameAgentProfile(ctx context.Context, request RenameAgentProfileRequestObject) (RenameAgentProfileResponseObject, error)
 	// UpdateAgentProfile Update agent profile
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
 	UpdateAgentProfile(ctx context.Context, request UpdateAgentProfileRequestObject) (UpdateAgentProfileResponseObject, error)
 	// CreateIntegrationOAuthSetup Create integration OAuth setup
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
 	CreateIntegrationOAuthSetup(ctx context.Context, request CreateIntegrationOAuthSetupRequestObject) (CreateIntegrationOAuthSetupResponseObject, error)
 	// CreateSlackSetup Create Slack app and OAuth setup
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
+	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
 	CreateSlackSetup(ctx context.Context, request CreateSlackSetupRequestObject) (CreateSlackSetupResponseObject, error)
 	// ListAgents List agents
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents)
 	ListAgents(ctx context.Context, request ListAgentsRequestObject) (ListAgentsResponseObject, error)
 	// CreateAgent Create agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents)
 	CreateAgent(ctx context.Context, request CreateAgentRequestObject) (CreateAgentResponseObject, error)
 	// GetAgent Get agent
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID})
 	GetAgent(ctx context.Context, request GetAgentRequestObject) (GetAgentResponseObject, error)
 	// ArchiveAgent Archive agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive)
 	ArchiveAgent(ctx context.Context, request ArchiveAgentRequestObject) (ArchiveAgentResponseObject, error)
 	// GetArtifact Get artifact
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID})
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID})
 	GetArtifact(ctx context.Context, request GetArtifactRequestObject) (GetArtifactResponseObject, error)
 	// GetArtifactContent Get artifact content
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content)
 	GetArtifactContent(ctx context.Context, request GetArtifactContentRequestObject) (GetArtifactContentResponseObject, error)
 	// CancelAgent Cancel agent
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel)
 	CancelAgent(ctx context.Context, request CancelAgentRequestObject) (CancelAgentResponseObject, error)
 	// UpdateAgentConfig Update agent config
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config)
 	UpdateAgentConfig(ctx context.Context, request UpdateAgentConfigRequestObject) (UpdateAgentConfigResponseObject, error)
 	// ListEvents List events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
 	// StreamEvents Stream events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
 	// CreateAgentInput Create agent input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs)
 	CreateAgentInput(ctx context.Context, request CreateAgentInputRequestObject) (CreateAgentInputResponseObject, error)
 	// ListQueuedBacklogInputs List waiting backlog inputs
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog)
 	ListQueuedBacklogInputs(ctx context.Context, request ListQueuedBacklogInputsRequestObject) (ListQueuedBacklogInputsResponseObject, error)
 	// CancelQueuedBacklogInput Cancel queued backlog input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel)
 	CancelQueuedBacklogInput(ctx context.Context, request CancelQueuedBacklogInputRequestObject) (CancelQueuedBacklogInputResponseObject, error)
 	// DemoteSteeringInputToQueued Demote steering input to queued
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued)
 	DemoteSteeringInputToQueued(ctx context.Context, request DemoteSteeringInputToQueuedRequestObject) (DemoteSteeringInputToQueuedResponseObject, error)
 	// MoveQueuedBacklogInput Move queued backlog input
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move)
 	MoveQueuedBacklogInput(ctx context.Context, request MoveQueuedBacklogInputRequestObject) (MoveQueuedBacklogInputResponseObject, error)
 	// PromoteQueuedInputToSteering Promote queued input to steering
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering)
 	PromoteQueuedInputToSteering(ctx context.Context, request PromoteQueuedInputToSteeringRequestObject) (PromoteQueuedInputToSteeringResponseObject, error)
 	// ListAgentInteractions List agent interactions
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions)
 	ListAgentInteractions(ctx context.Context, request ListAgentInteractionsRequestObject) (ListAgentInteractionsResponseObject, error)
 	// ResolveAgentInteraction Resolve agent interaction
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve)
 	ResolveAgentInteraction(ctx context.Context, request ResolveAgentInteractionRequestObject) (ResolveAgentInteractionResponseObject, error)
 	// ListToolCalls List tool calls
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls)
 	ListToolCalls(ctx context.Context, request ListToolCallsRequestObject) (ListToolCallsResponseObject, error)
 	// SubmitToolCallResult Submit a result for a ready custom tool call
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result)
+	// (POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result)
 	SubmitToolCallResult(ctx context.Context, request SubmitToolCallResultRequestObject) (SubmitToolCallResultResponseObject, error)
 	// ListTurns List turns
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns)
 	ListTurns(ctx context.Context, request ListTurnsRequestObject) (ListTurnsResponseObject, error)
 	// ListTurnEvents List turn events
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events)
+	// (GET /orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events)
 	ListTurnEvents(ctx context.Context, request ListTurnEventsRequestObject) (ListTurnEventsResponseObject, error)
 	// ListCronTriggers List cron triggers
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers)
+	// (GET /orgs/{orgID}/projects/{projectID}/cron-triggers)
 	ListCronTriggers(ctx context.Context, request ListCronTriggersRequestObject) (ListCronTriggersResponseObject, error)
 	// CreateCronTrigger Create cron trigger
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers)
+	// (POST /orgs/{orgID}/projects/{projectID}/cron-triggers)
 	CreateCronTrigger(ctx context.Context, request CreateCronTriggerRequestObject) (CreateCronTriggerResponseObject, error)
 	// DeleteCronTrigger Delete cron trigger
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	DeleteCronTrigger(ctx context.Context, request DeleteCronTriggerRequestObject) (DeleteCronTriggerResponseObject, error)
 	// GetCronTrigger Get cron trigger
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (GET /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	GetCronTrigger(ctx context.Context, request GetCronTriggerRequestObject) (GetCronTriggerResponseObject, error)
 	// UpdateCronTrigger Update cron trigger
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	UpdateCronTrigger(ctx context.Context, request UpdateCronTriggerRequestObject) (UpdateCronTriggerResponseObject, error)
 	// ListIntegrationInstalls List integration installs
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs)
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
 	ListIntegrationInstalls(ctx context.Context, request ListIntegrationInstallsRequestObject) (ListIntegrationInstallsResponseObject, error)
 	// DeleteIntegrationInstall Delete integration install
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
 	DeleteIntegrationInstall(ctx context.Context, request DeleteIntegrationInstallRequestObject) (DeleteIntegrationInstallResponseObject, error)
 	// ListProjectMachineGrants List project machine grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(ctx context.Context, request ListProjectMachineGrantsRequestObject) (ListProjectMachineGrantsResponseObject, error)
 	// CreateProjectMachineGrant Create project machine grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/machine-grants)
 	CreateProjectMachineGrant(ctx context.Context, request CreateProjectMachineGrantRequestObject) (CreateProjectMachineGrantResponseObject, error)
 	// DeleteProjectMachineGrant Delete project machine grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/machine-grants/{grantID})
 	DeleteProjectMachineGrant(ctx context.Context, request DeleteProjectMachineGrantRequestObject) (DeleteProjectMachineGrantResponseObject, error)
 	// ListProjectMachinePoolGrants List project machine pool grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-pool-grants)
 	ListProjectMachinePoolGrants(ctx context.Context, request ListProjectMachinePoolGrantsRequestObject) (ListProjectMachinePoolGrantsResponseObject, error)
 	// CreateProjectMachinePoolGrant Create project machine pool grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/machine-pool-grants)
 	CreateProjectMachinePoolGrant(ctx context.Context, request CreateProjectMachinePoolGrantRequestObject) (CreateProjectMachinePoolGrantResponseObject, error)
 	// DeleteProjectMachinePoolGrant Delete project machine pool grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	DeleteProjectMachinePoolGrant(ctx context.Context, request DeleteProjectMachinePoolGrantRequestObject) (DeleteProjectMachinePoolGrantResponseObject, error)
 	// GetProjectMachinePoolGrant Get project machine pool grant
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (GET /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	GetProjectMachinePoolGrant(ctx context.Context, request GetProjectMachinePoolGrantRequestObject) (GetProjectMachinePoolGrantResponseObject, error)
 	// UpdateProjectMachinePoolGrant Update project machine pool grant
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID})
 	UpdateProjectMachinePoolGrant(ctx context.Context, request UpdateProjectMachinePoolGrantRequestObject) (UpdateProjectMachinePoolGrantResponseObject, error)
 	// ListVisibleProjectMachines List visible project machines
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/machines)
+	// (GET /orgs/{orgID}/projects/{projectID}/machines)
 	ListVisibleProjectMachines(ctx context.Context, request ListVisibleProjectMachinesRequestObject) (ListVisibleProjectMachinesResponseObject, error)
 	// ListMCPServerTools List an MCP server's tools
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
+	// (POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
 	ListMCPServerTools(ctx context.Context, request ListMCPServerToolsRequestObject) (ListMCPServerToolsResponseObject, error)
 	// ListProjectModelGrants List project model grants
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/model-grants)
+	// (GET /orgs/{orgID}/projects/{projectID}/model-grants)
 	ListProjectModelGrants(ctx context.Context, request ListProjectModelGrantsRequestObject) (ListProjectModelGrantsResponseObject, error)
 	// CreateProjectModelGrant Create project model grant
-	// (POST /api/v1/orgs/{orgID}/projects/{projectID}/model-grants)
+	// (POST /orgs/{orgID}/projects/{projectID}/model-grants)
 	CreateProjectModelGrant(ctx context.Context, request CreateProjectModelGrantRequestObject) (CreateProjectModelGrantResponseObject, error)
 	// DeleteProjectModelGrant Delete project model grant
-	// (DELETE /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
+	// (DELETE /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
 	DeleteProjectModelGrant(ctx context.Context, request DeleteProjectModelGrantRequestObject) (DeleteProjectModelGrantResponseObject, error)
 	// UpdateProjectModelGrant Update project model grant
-	// (PATCH /api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
+	// (PATCH /orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID})
 	UpdateProjectModelGrant(ctx context.Context, request UpdateProjectModelGrantRequestObject) (UpdateProjectModelGrantResponseObject, error)
 	// ListProjectAvailableSecrets List secrets available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/secrets)
+	// (GET /orgs/{orgID}/projects/{projectID}/secrets)
 	ListProjectAvailableSecrets(ctx context.Context, request ListProjectAvailableSecretsRequestObject) (ListProjectAvailableSecretsResponseObject, error)
 	// GetProjectAvailableSecret Get secret available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID})
+	// (GET /orgs/{orgID}/projects/{projectID}/secrets/{secretID})
 	GetProjectAvailableSecret(ctx context.Context, request GetProjectAvailableSecretRequestObject) (GetProjectAvailableSecretResponseObject, error)
 	// ListProjectAvailableSkills List skills available to project
-	// (GET /api/v1/orgs/{orgID}/projects/{projectID}/skills)
+	// (GET /orgs/{orgID}/projects/{projectID}/skills)
 	ListProjectAvailableSkills(ctx context.Context, request ListProjectAvailableSkillsRequestObject) (ListProjectAvailableSkillsResponseObject, error)
 	// ListSecrets List secrets visible through ownership authority
-	// (GET /api/v1/orgs/{orgID}/secrets)
+	// (GET /orgs/{orgID}/secrets)
 	ListSecrets(ctx context.Context, request ListSecretsRequestObject) (ListSecretsResponseObject, error)
 	// CreateSecret Create secret
-	// (POST /api/v1/orgs/{orgID}/secrets)
+	// (POST /orgs/{orgID}/secrets)
 	CreateSecret(ctx context.Context, request CreateSecretRequestObject) (CreateSecretResponseObject, error)
 	// StartSecretMCPOAuth Start MCP OAuth for a new secret
-	// (POST /api/v1/orgs/{orgID}/secrets/mcp-oauth)
+	// (POST /orgs/{orgID}/secrets/mcp-oauth)
 	StartSecretMCPOAuth(ctx context.Context, request StartSecretMCPOAuthRequestObject) (StartSecretMCPOAuthResponseObject, error)
 	// DeleteSecret Delete secret
-	// (DELETE /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (DELETE /orgs/{orgID}/secrets/{secretID})
 	DeleteSecret(ctx context.Context, request DeleteSecretRequestObject) (DeleteSecretResponseObject, error)
 	// GetSecret Get secret through ownership authority
-	// (GET /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (GET /orgs/{orgID}/secrets/{secretID})
 	GetSecret(ctx context.Context, request GetSecretRequestObject) (GetSecretResponseObject, error)
 	// UpdateSecret Update secret metadata
-	// (PATCH /api/v1/orgs/{orgID}/secrets/{secretID})
+	// (PATCH /orgs/{orgID}/secrets/{secretID})
 	UpdateSecret(ctx context.Context, request UpdateSecretRequestObject) (UpdateSecretResponseObject, error)
 	// ListSecretGrants List secret grants
-	// (GET /api/v1/orgs/{orgID}/secrets/{secretID}/grants)
+	// (GET /orgs/{orgID}/secrets/{secretID}/grants)
 	ListSecretGrants(ctx context.Context, request ListSecretGrantsRequestObject) (ListSecretGrantsResponseObject, error)
 	// CreateSecretGrant Create secret grant
-	// (POST /api/v1/orgs/{orgID}/secrets/{secretID}/grants)
+	// (POST /orgs/{orgID}/secrets/{secretID}/grants)
 	CreateSecretGrant(ctx context.Context, request CreateSecretGrantRequestObject) (CreateSecretGrantResponseObject, error)
 	// DeleteSecretGrant Delete secret grant
-	// (DELETE /api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID})
+	// (DELETE /orgs/{orgID}/secrets/{secretID}/grants/{grantID})
 	DeleteSecretGrant(ctx context.Context, request DeleteSecretGrantRequestObject) (DeleteSecretGrantResponseObject, error)
 	// CreateSecretVersion Create secret version
-	// (POST /api/v1/orgs/{orgID}/secrets/{secretID}/versions)
+	// (POST /orgs/{orgID}/secrets/{secretID}/versions)
 	CreateSecretVersion(ctx context.Context, request CreateSecretVersionRequestObject) (CreateSecretVersionResponseObject, error)
 	// ListSkills List skills visible through ownership authority
-	// (GET /api/v1/orgs/{orgID}/skills)
+	// (GET /orgs/{orgID}/skills)
 	ListSkills(ctx context.Context, request ListSkillsRequestObject) (ListSkillsResponseObject, error)
 	// CreateSkill Create skill
-	// (POST /api/v1/orgs/{orgID}/skills)
+	// (POST /orgs/{orgID}/skills)
 	CreateSkill(ctx context.Context, request CreateSkillRequestObject) (CreateSkillResponseObject, error)
 	// DeleteSkill Delete skill
-	// (DELETE /api/v1/orgs/{orgID}/skills/{skillID})
+	// (DELETE /orgs/{orgID}/skills/{skillID})
 	DeleteSkill(ctx context.Context, request DeleteSkillRequestObject) (DeleteSkillResponseObject, error)
 	// GetSkill Get skill through ownership authority
-	// (GET /api/v1/orgs/{orgID}/skills/{skillID})
+	// (GET /orgs/{orgID}/skills/{skillID})
 	GetSkill(ctx context.Context, request GetSkillRequestObject) (GetSkillResponseObject, error)
 	// UpdateSkill Update skill by uploading a new revision
-	// (POST /api/v1/orgs/{orgID}/skills/{skillID})
+	// (POST /orgs/{orgID}/skills/{skillID})
 	UpdateSkill(ctx context.Context, request UpdateSkillRequestObject) (UpdateSkillResponseObject, error)
 	// ListSkillGrants List skill grants
-	// (GET /api/v1/orgs/{orgID}/skills/{skillID}/grants)
+	// (GET /orgs/{orgID}/skills/{skillID}/grants)
 	ListSkillGrants(ctx context.Context, request ListSkillGrantsRequestObject) (ListSkillGrantsResponseObject, error)
 	// CreateSkillGrant Create skill grant
-	// (POST /api/v1/orgs/{orgID}/skills/{skillID}/grants)
+	// (POST /orgs/{orgID}/skills/{skillID}/grants)
 	CreateSkillGrant(ctx context.Context, request CreateSkillGrantRequestObject) (CreateSkillGrantResponseObject, error)
 	// DeleteSkillGrant Delete skill grant
-	// (DELETE /api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID})
+	// (DELETE /orgs/{orgID}/skills/{skillID}/grants/{grantID})
 	DeleteSkillGrant(ctx context.Context, request DeleteSkillGrantRequestObject) (DeleteSkillGrantResponseObject, error)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
-	// (GET /api/v1/personal-access-tokens)
+	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(ctx context.Context, request ListPersonalAccessTokensRequestObject) (ListPersonalAccessTokensResponseObject, error)
 	// CreatePersonalAccessToken Create personal access token
-	// (POST /api/v1/personal-access-tokens)
+	// (POST /personal-access-tokens)
 	CreatePersonalAccessToken(ctx context.Context, request CreatePersonalAccessTokenRequestObject) (CreatePersonalAccessTokenResponseObject, error)
 	// RevokePersonalAccessToken Revoke a personal access token
-	// (POST /api/v1/personal-access-tokens/{tokenID}/revoke)
+	// (POST /personal-access-tokens/{tokenID}/revoke)
 	RevokePersonalAccessToken(ctx context.Context, request RevokePersonalAccessTokenRequestObject) (RevokePersonalAccessTokenResponseObject, error)
 	// GetToolCatalog Get tool catalog
-	// (GET /api/v1/tool-catalog)
+	// (GET /tool-catalog)
 	GetToolCatalog(ctx context.Context, request GetToolCatalogRequestObject) (GetToolCatalogResponseObject, error)
 }
 
@@ -44201,238 +44201,239 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
