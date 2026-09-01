@@ -338,13 +338,13 @@ func EffectiveCacheRetention(
 	}
 	if apiFormat == modelprotocol.APIFormatOpenAIChatCompletions &&
 		apiVariant == modelprotocol.APIVariantOpenRouter &&
-		isOpenRouterAnthropicSlug(providerModelSlug) {
+		OpenRouterSupportsCacheControl(providerModelSlug) {
 		return CacheRetentionShort
 	}
 	return CacheRetentionNone
 }
 
-func isOpenRouterAnthropicSlug(providerModelSlug string) bool {
+func OpenRouterSupportsCacheControl(providerModelSlug string) bool {
 	slug := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(providerModelSlug)), "~")
 	return strings.HasPrefix(slug, "anthropic/claude-")
 }

@@ -307,14 +307,13 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 	if _, ok := payload["reasoning_effort"]; ok {
 		t.Fatalf("openrouter payload should use reasoning object, not reasoning_effort: %s", prepared.Body)
 	}
+	if _, ok := payload["cache_control"]; ok {
+		t.Fatalf("openrouter payload should mark content blocks instead of top-level cache_control: %s", prepared.Body)
+	}
 	var header struct {
 		Model               string `json:"model"`
 		MaxCompletionTokens int    `json:"max_completion_tokens"`
-		CacheControl        struct {
-			Type string `json:"type"`
-			TTL  string `json:"ttl"`
-		} `json:"cache_control"`
-		Reasoning struct {
+		Reasoning           struct {
 			Effort string `json:"effort"`
 		} `json:"reasoning"`
 		Provider struct {
@@ -326,12 +325,15 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 	}
 	if header.Model != "anthropic/claude-sonnet-4" ||
 		header.MaxCompletionTokens != 2048 ||
-		header.CacheControl.Type != "ephemeral" ||
-		header.CacheControl.TTL != "1h" ||
 		header.Reasoning.Effort != "high" ||
 		len(header.Provider.Only) != 1 ||
 		header.Provider.Only[0] != "anthropic" {
 		t.Fatalf("unexpected openrouter payload: %+v body=%s", header, prepared.Body)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 1 || marks[0].role != "user" || marks[0].index != 0 ||
+		marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "1h" {
+		t.Fatalf("cache_control marks = %+v, want ephemeral 1h on the last user block: %s", marks, prepared.Body)
 	}
 	var provider map[string]json.RawMessage
 	if err := json.Unmarshal(payload["provider"], &provider); err != nil {
@@ -574,11 +576,7 @@ func TestPrepareOmitsOpenRouterCacheControlForNonClaudeModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	if _, ok := payload["cache_control"]; ok {
+	if strings.Contains(string(prepared.Body), "cache_control") {
 		t.Fatalf("non-Claude OpenRouter payload should omit cache_control: %s", prepared.Body)
 	}
 }
@@ -986,6 +984,45 @@ func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
 	}
 }
 
+type cacheControlMark struct {
+	role    string
+	index   int
+	control chatCacheControl
+}
+
+func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
+	t.Helper()
+	var payload struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var marks []cacheControlMark
+	for index, message := range payload.Messages {
+		var blocks []struct {
+			Type         string            `json:"type"`
+			CacheControl *chatCacheControl `json:"cache_control"`
+		}
+		if json.Unmarshal(message.Content, &blocks) != nil {
+			continue
+		}
+		for _, block := range blocks {
+			if block.CacheControl != nil {
+				marks = append(marks, cacheControlMark{
+					role:    message.Role,
+					index:   index,
+					control: *block.CacheControl,
+				})
+			}
+		}
+	}
+	return marks
+}
+
 func TestPrepareDefaultsOpenRouterCacheControlForClaudeModels(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -1011,24 +1048,70 @@ func TestPrepareDefaultsOpenRouterCacheControlForClaudeModels(t *testing.T) {
 			if err != nil {
 				t.Fatalf("prepare: %v", err)
 			}
-			var payload struct {
-				CacheControl *struct {
-					Type string `json:"type"`
-					TTL  string `json:"ttl"`
-				} `json:"cache_control"`
-			}
-			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-				t.Fatalf("decode payload: %v", err)
-			}
+			marks := cacheControlMarks(t, prepared.Body)
 			if !tc.wantCache {
-				if payload.CacheControl != nil {
+				if len(marks) != 0 {
 					t.Fatalf("cache_control should be omitted: %s", prepared.Body)
 				}
 				return
 			}
-			if payload.CacheControl == nil || payload.CacheControl.Type != "ephemeral" || payload.CacheControl.TTL != "" {
-				t.Fatalf("cache_control = %+v, want ephemeral without ttl: %s", payload.CacheControl, prepared.Body)
+			if len(marks) != 1 || marks[0].role != "user" ||
+				marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "" {
+				t.Fatalf("cache_control marks = %+v, want ephemeral without ttl on the user block: %s", marks, prepared.Body)
 			}
 		})
+	}
+}
+
+func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastMessage(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	replay := testProviderReplay(
+		"anthropic/claude-sonnet-4",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{
+			"role":"assistant",
+			"content":"replayed",
+			"tool_calls":[{"id":"call_1","type":"function","function":{"name":"run_command","arguments":"{}"}}]
+		}`),
+	)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			withToolCallLinks(modelcontext.Message{
+				Role:                 modelprotocol.RoleAssistant,
+				Sequence:             20,
+				ModelCallContextID:   "mcc_1",
+				Content:              json.RawMessage(`[{"type":"text","text":"replayed"}]`),
+				ProviderReplay:       replay.payload,
+				ProviderReplaySource: replay.source,
+			}, "tcl_1"),
+		},
+		ToolResults: []modelcontext.ToolResultRef{{
+			ToolCallID:          "tcl_1",
+			ModelCallContextID:  "mcc_1",
+			ProviderCallID:      "call_1",
+			Name:                "run_command",
+			Input:               json.RawMessage(`{}`),
+			ContentParts:        json.RawMessage(`[{"type":"text","text":"done"}]`),
+			SourceEventSequence: 20,
+			ResultEventSequence: 30,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "tool" || marks[1].index != 3 ||
+		marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "" {
+		t.Fatalf("cache_control marks = %+v, want system and last tool message: %s", marks, prepared.Body)
 	}
 }
