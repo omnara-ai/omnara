@@ -1,6 +1,7 @@
 package modelcontext
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -193,6 +194,8 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 		firstDocumentID := testIDN(135)
 		secondDocumentID := testIDN(136)
 		documentSize := MaxResolvedMediaBytes/2 + 1
+		firstDocument := mediaTestArtifact(firstDocumentID, officeMediaType, documentSize)
+		firstDocument.Filename = "first.docx"
 		store := &fakeContextStore{
 			messages: []executionstore.ContextEventRecord{
 				{
@@ -212,7 +215,7 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 			},
 			watermark: 2,
 			artifacts: []artifactstore.ArtifactRecord{
-				mediaTestArtifact(firstDocumentID, officeMediaType, documentSize),
+				firstDocument,
 				mediaTestArtifact(secondDocumentID, officeMediaType, documentSize),
 			},
 		}
@@ -233,6 +236,9 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 				bundle.ResolvedMedia,
 				store.artifactBlobReads,
 			)
+		}
+		if !bytes.Contains(bundle.Messages[0].Content, []byte("first.docx")) {
+			t.Fatalf("textual projection does not include filename: %s", bundle.Messages[0].Content)
 		}
 	})
 

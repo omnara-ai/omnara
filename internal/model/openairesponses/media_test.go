@@ -3,6 +3,7 @@ package openairesponses
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -127,6 +128,96 @@ func TestPrepareDerivesDocumentFilenameFromMediaType(t *testing.T) {
 	}
 	if strings.Contains(string(prepared.Body), "document.pdf") {
 		t.Fatalf("filename must not assume pdf: %s", prepared.Body)
+	}
+}
+
+func TestOpenAIMediaPartRendersTextDocuments(t *testing.T) {
+	for _, test := range []struct {
+		mediaType string
+		filename  string
+		data      string
+	}{
+		{mediaType: "text/plain", filename: "logo.svg", data: `<svg><circle /></svg>`},
+		{mediaType: "text/markdown", filename: "notes.md", data: "# Notes"},
+	} {
+		part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+			Kind:      modelcontext.AttachmentKindDocument,
+			MediaType: test.mediaType,
+			Filename:  test.filename,
+			Data:      []byte(test.data),
+		})
+		if !ok || part["type"] != responsesContentTypeInputText ||
+			part["text"] != "File: "+strconv.Quote(test.filename)+"\n\n"+test.data {
+			t.Fatalf("text document part = %+v, ok = %t", part, ok)
+		}
+		if _, ok := part["file_data"]; ok {
+			t.Fatalf("text document included file data: %+v", part)
+		}
+	}
+}
+
+func TestOpenAIMediaPartRendersUTF8SpreadsheetsAsText(t *testing.T) {
+	for _, test := range []struct {
+		mediaType string
+		filename  string
+		data      string
+	}{
+		{mediaType: "text/csv", filename: "data.csv", data: "a,b"},
+		{mediaType: "text/tab-separated-values", filename: "data.tsv", data: "a\tb"},
+		{mediaType: "text/x-iif", filename: "data.iif", data: "!TRNS\tTRNSID"},
+	} {
+		part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+			Kind:      modelcontext.AttachmentKindDocument,
+			MediaType: test.mediaType,
+			Filename:  test.filename,
+			Data:      []byte(test.data),
+		})
+		if !ok || part["type"] != responsesContentTypeInputText ||
+			part["text"] != "File: "+strconv.Quote(test.filename)+"\n\n"+test.data {
+			t.Fatalf("spreadsheet part = %+v, ok = %t", part, ok)
+		}
+	}
+}
+
+func TestOpenAIMediaPartKeepsBinarySpreadsheetAsFile(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		Filename:  "data.xlsx",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["filename"] != "data.xlsx" {
+		t.Fatalf("binary spreadsheet part = %+v, ok = %t", part, ok)
+	}
+}
+
+func TestOpenAIMediaPartUsesOpenAITSVMediaTypeForInvalidUTF8(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "text/tab-separated-values",
+		Filename:  "data.tsv",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["file_data"] != "data:text/tsv;base64,/w==" {
+		t.Fatalf("TSV file part = %+v, ok = %t", part, ok)
+	}
+}
+
+func TestOpenAIMediaPartKeepsInvalidUTF8AsFile(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "text/plain",
+		Filename:  "notes.txt",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["filename"] != "notes.txt" || part["file_data"] != "data:text/plain;base64,/w==" {
+		t.Fatalf("invalid UTF-8 document part = %+v, ok = %t", part, ok)
+	}
+	if _, ok := part["text"]; ok {
+		t.Fatalf("invalid UTF-8 document included text: %+v", part)
 	}
 }
 

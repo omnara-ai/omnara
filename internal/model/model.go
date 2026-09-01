@@ -176,7 +176,7 @@ func PrepareForSend(
 	}
 	if err := validateRequestModalities(
 		input.Context,
-		CapabilitiesForClient(client),
+		client,
 		input.ErrorSource,
 	); err != nil {
 		return PreparedRequest{}, err
@@ -252,7 +252,8 @@ func OutputTokenLimitsForClient(
 	}
 }
 
-func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabilities, errorSource string) error {
+func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorSource string) error {
+	capabilities := CapabilitiesForClient(client)
 	if len(capabilities.InputModalities) > 0 {
 		if !containsModality(capabilities.InputModalities, "text") {
 			return ProviderError{
@@ -270,6 +271,11 @@ func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabili
 				requiredModality = "image"
 				requiredDescription = "image"
 			case modelcontext.AttachmentKindDocument:
+				if media.Representation == modelcontext.MediaRepresentationInlineText ||
+					(APIVariantForClient(client) == modelprotocol.APIVariantOpenRouter &&
+						media.Media.MediaType == "application/pdf") {
+					continue
+				}
 				requiredModality = "file"
 				requiredDescription = "file"
 			}
@@ -303,6 +309,10 @@ func containsModality(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func (c Capabilities) AllowsInputModality(modality string) bool {
+	return len(c.InputModalities) == 0 || containsModality(c.InputModalities, modality)
 }
 
 type CacheRetention string

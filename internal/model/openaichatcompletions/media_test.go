@@ -18,12 +18,8 @@ func mediaTestPublicID(id string) string {
 	return modelcontext.ArtifactPublicID(id)
 }
 
-func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
+func TestPrepareBuildsImageAndFileParts(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	resolved := mediaTestResolved()
-	document := resolved[mediaTestDocumentID]
-	document.SizeBytes = 4 * 1024 * 1024
-	resolved[mediaTestDocumentID] = document
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{
 			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[
@@ -31,7 +27,7 @@ func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 				{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"},
 				{"type":"media_ref","artifact_id":"` + mediaTestDocumentID + `"}
 			]`)}},
-			ResolvedMedia: resolved,
+			ResolvedMedia: mediaTestResolved(),
 		},
 	})
 	if err != nil {
@@ -46,6 +42,10 @@ func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 				ImageURL struct {
 					URL string `json:"url"`
 				} `json:"image_url"`
+				File struct {
+					Filename string `json:"filename"`
+					FileData string `json:"file_data"`
+				} `json:"file"`
 			} `json:"content"`
 		} `json:"messages"`
 	}
@@ -56,19 +56,95 @@ func TestPrepareBuildsImagePartsAndTextFallbacks(t *testing.T) {
 		t.Fatalf("unexpected messages: %s", prepared.Body)
 	}
 	content := payload.Messages[0].Content
-	if len(content) != 4 || content[0].Type != "text" || content[1].Type != "text" ||
+	if len(content) != 5 || content[0].Type != "text" ||
+		content[1].Type != "text" ||
 		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
-		content[2].Type != "image_url" || content[3].Type != "text" {
+		content[2].Type != "image_url" ||
+		content[3].Type != "text" ||
+		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) ||
+		content[4].Type != "file" {
 		t.Fatalf("unexpected content layout: %s", prepared.Body)
 	}
 	if content[2].ImageURL.URL != "data:image/png;base64,"+mediaTestImageData {
 		t.Fatalf("unexpected image URL: %+v", content[2].ImageURL)
 	}
-	if !strings.Contains(content[3].Text, mediaTestPublicID(mediaTestDocumentID)) {
-		t.Fatalf("document fallback lost media ref: %+v", content[3])
+	if content[4].File.Filename != "report.pdf" ||
+		content[4].File.FileData != "data:application/pdf;base64,cGRmIGJ5dGVz" {
+		t.Fatalf("unexpected file part: %+v", content[4].File)
 	}
-	if prepared.InputTokenEstimate < 25_000 || prepared.InputTokenEstimate >= 30_000 {
-		t.Fatalf("prepared estimate = %d, want image charge without PDF fallback bytes", prepared.InputTokenEstimate)
+	if strings.Contains(string(prepared.Body), `"media_ref"`) {
+		t.Fatalf("resolved media must not keep the textual fallback: %s", prepared.Body)
+	}
+}
+
+func TestPrepareRendersUTF8DocumentsAsText(t *testing.T) {
+	const textID = "019b18be-0000-7000-8000-00000000c003"
+	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[
+			{"type":"media_ref","artifact_id":"` + textID + `"}
+		]`)}},
+		ResolvedMedia: map[string]modelcontext.ResolvedMedia{textID: {
+			ArtifactID: textID,
+			Kind:       modelcontext.AttachmentKindDocument,
+			MediaType:  "text/markdown",
+			Filename:   "notes.md",
+			Data:       []byte("hello"),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if !strings.Contains(string(prepared.Body), `File: \"notes.md\"\n\nhello`) ||
+		strings.Contains(string(prepared.Body), `"type":"file"`) {
+		t.Fatalf("UTF-8 document was not rendered as text: %s", prepared.Body)
+	}
+}
+
+func TestChatMediaPartRendersUTF8SpreadsheetsAsText(t *testing.T) {
+	for _, test := range []struct {
+		mediaType string
+		filename  string
+		data      string
+	}{
+		{mediaType: "text/csv", filename: "data.csv", data: "a,b"},
+		{mediaType: "text/tab-separated-values", filename: "data.tsv", data: "a\tb"},
+		{mediaType: "text/x-iif", filename: "data.iif", data: "!TRNS\tTRNSID"},
+	} {
+		part, ok := chatMediaPart(modelcontext.ResolvedMedia{
+			Kind:      modelcontext.AttachmentKindDocument,
+			MediaType: test.mediaType,
+			Filename:  test.filename,
+			Data:      []byte(test.data),
+		})
+		text, textOK := part["text"].(string)
+		if !ok || part["type"] != "text" || !textOK || !strings.Contains(text, test.data) {
+			t.Fatalf("spreadsheet part = %+v, ok = %t", part, ok)
+		}
+	}
+}
+
+func TestPrepareKeepsInvalidUTF8TextDocumentAsReference(t *testing.T) {
+	const artifactID = "019b18be-0000-7000-8000-00000000c004"
+	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[
+			{"type":"media_ref","artifact_id":"` + artifactID + `"}
+		]`)}},
+		ResolvedMedia: map[string]modelcontext.ResolvedMedia{artifactID: {
+			ArtifactID: artifactID,
+			Kind:       modelcontext.AttachmentKindDocument,
+			MediaType:  "text/tab-separated-values",
+			Filename:   "data.tsv",
+			Data:       []byte{0xff},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if strings.Contains(body, `"type":"file"`) || !strings.Contains(body, mediaTestPublicID(artifactID)) {
+		t.Fatalf("invalid UTF-8 document was not preserved as a reference: %s", prepared.Body)
 	}
 }
 

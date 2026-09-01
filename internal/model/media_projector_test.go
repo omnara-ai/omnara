@@ -86,9 +86,34 @@ func TestProviderMediaProjectionMatchesSerializedRepresentations(t *testing.T) {
 		want   map[string]string
 	}{
 		{
-			name:   "chat sends only images",
+			name:   "chat sends only supported documents",
 			client: openaichatcompletions.Client{},
-			want:   map[string]string{imageID: modelcontext.MediaRepresentationInline},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline,
+				pdfID:   modelcontext.MediaRepresentationInline,
+				textID:  modelcontext.MediaRepresentationInlineText,
+			},
+		},
+		{
+			name: "openrouter chat sends only supported documents",
+			client: openaichatcompletions.Client{
+				APIVariant: modelprotocol.APIVariantOpenRouter,
+			},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline,
+				pdfID:   modelcontext.MediaRepresentationInline,
+				textID:  modelcontext.MediaRepresentationInlineText,
+			},
+		},
+		{
+			name: "chat omits historical PDF excluded by grant",
+			client: openaichatcompletions.Client{
+				ModelCapabilities: model.Capabilities{InputModalities: []string{"text", "image"}},
+			},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline,
+				textID:  modelcontext.MediaRepresentationInlineText,
+			},
 		},
 		{
 			name:   "anthropic sends supported media",
@@ -105,7 +130,7 @@ func TestProviderMediaProjectionMatchesSerializedRepresentations(t *testing.T) {
 			want: map[string]string{
 				imageID:  modelcontext.MediaRepresentationInline,
 				pdfID:    modelcontext.MediaRepresentationInline,
-				textID:   modelcontext.MediaRepresentationInline,
+				textID:   modelcontext.MediaRepresentationInlineText,
 				officeID: modelcontext.MediaRepresentationInline,
 			},
 		},
