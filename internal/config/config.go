@@ -451,6 +451,9 @@ func (cfg Config) ValidateAPI() error {
 	if cfg.EmailDriver == "sendgrid" && (cfg.SendGridAPIKey == "" || cfg.EmailFrom == "") {
 		return fmt.Errorf("SENDGRID_API_KEY and OMNARA_EMAIL_FROM are required when OMNARA_EMAIL_DRIVER=sendgrid")
 	}
+	if (cfg.EmailDriver == "smtp" || cfg.EmailDriver == "sendgrid") && cfg.PublicURL == "" {
+		return fmt.Errorf("OMNARA_PUBLIC_URL is required when OMNARA_EMAIL_DRIVER is smtp or sendgrid")
+	}
 	if !cfg.AllowInsecureDev && (cfg.AuthSignupEnabled || cfg.AuthPasswordResetEnabled) && cfg.EmailDriver != "smtp" &&
 		cfg.EmailDriver != "sendgrid" {
 		return fmt.Errorf(

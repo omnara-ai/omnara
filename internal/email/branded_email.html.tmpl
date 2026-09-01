@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>{{.Heading}}</title>
+  <style>
+    :root { color-scheme: light dark; supported-color-schemes: light dark; }
+    .logo-for-dark { display: none !important; max-height: 0 !important; overflow: hidden !important; }
+    u + .email-body .logo-for-light { display: none !important; max-height: 0 !important; overflow: hidden !important; }
+    u + .email-body .logo-for-dark {
+      display: block !important;
+      max-height: none !important;
+      overflow: visible !important;
+      mix-blend-mode: difference !important;
+    }
+    [data-ogsc] .logo-for-light { display: none !important; max-height: 0 !important; overflow: hidden !important; }
+    [data-ogsc] .logo-for-dark { display: block !important; max-height: none !important; overflow: visible !important; }
+    u + .email-body .gmail-blend-screen { background: #000000; mix-blend-mode: screen; }
+    u + .email-body .gmail-blend-difference { background: #000000; mix-blend-mode: difference; }
+    @media (prefers-color-scheme: dark) {
+      body, .email-bg { background: #0b0c10 !important; }
+      .email-title, .brand-name { color: #ffffff !important; }
+      .email-copy { color: #aaadb7 !important; }
+      .email-note { color: #858a96 !important; }
+      .logo-for-light { display: none !important; max-height: 0 !important; overflow: hidden !important; }
+      .logo-for-dark { display: block !important; max-height: none !important; overflow: visible !important; }
+    }
+  </style>
+  {{.MSOFontStyle}}
+</head>
+<body
+  class="email-body"
+  style="margin:0;background:#ebecf0;color:#111218;
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    -webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;"
+>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{{.Preheader}}</div>
+  <table
+    role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ebecf0"
+    class="email-bg"
+    style="width:100%;border-collapse:collapse;background:#ebecf0;
+      mso-table-lspace:0pt;mso-table-rspace:0pt;"
+  >
+    <tr>
+      <td align="center" style="padding:64px 24px 72px;">
+        <table
+          role="presentation" width="800" cellpadding="0" cellspacing="0" border="0"
+          class="email-shell"
+          style="width:100%;max-width:800px;border-collapse:collapse;
+            mso-table-lspace:0pt;mso-table-rspace:0pt;"
+        >
+          <tr>
+            <td align="left">
+              <table
+                role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
+                class="email-content"
+                style="width:100%;max-width:600px;border-collapse:collapse;
+                  mso-table-lspace:0pt;mso-table-rspace:0pt;"
+              >
+                <tr>
+                  <td style="padding:0 0 64px;">
+                    <table
+                      role="presentation" cellpadding="0" cellspacing="0" border="0"
+                      style="border-collapse:collapse;"
+                    >
+                      <tr>
+                        {{if .LogoWhiteURL}}
+                        <td width="124" style="width:124px;vertical-align:middle;">
+                          <div
+                            class="logo-for-dark"
+                            style="display:none;max-height:0;overflow:hidden;mso-hide:all;"
+                          >
+                            <img
+                              src="{{.LogoWhiteURL}}" width="124" height="28" alt=""
+                              style="display:block;width:124px;height:28px;border:0;
+                                -ms-interpolation-mode:bicubic;"
+                            >
+                          </div>
+                          <img
+                            class="logo-for-light" src="{{.LogoBlackURL}}"
+                            width="124" height="28" alt="Omnara"
+                            style="display:block;width:124px;height:28px;border:0;-ms-interpolation-mode:bicubic;"
+                          >
+                        </td>
+                        {{else}}
+                        <td style="vertical-align:middle;">
+                          <div
+                            class="brand-name"
+                            style="font-size:20px;line-height:100%;font-weight:700;
+                              letter-spacing:-0.03em;color:#111218;"
+                          >
+                            Omnara
+                          </div>
+                        </td>
+                        {{end}}
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <h1
+                      class="email-title"
+                      style="margin:0 0 20px;font-size:32px;line-height:125%;font-weight:600;
+                        letter-spacing:-0.03em;color:#111218;overflow-wrap:anywhere;word-break:break-word;"
+                    >{{.Heading}}</h1>
+                    {{range .Paragraphs}}
+                    <p
+                      class="email-copy"
+                      style="max-width:480px;margin:0 0 16px;font-size:16px;line-height:160%;
+                        color:#5f6470;overflow-wrap:anywhere;word-break:break-word;"
+                    >{{.}}</p>
+                    {{end}}
+                    {{if .ActionURL}}
+                    <table
+                      role="presentation" cellpadding="0" cellspacing="0" border="0"
+                      style="border-collapse:collapse;margin:32px 0 0;mso-table-lspace:0pt;mso-table-rspace:0pt;"
+                    >
+                      <tr>
+                        <td
+                          bgcolor="#4372cf"
+                          style="border-radius:6px;background:#4372cf;
+                            background-image:linear-gradient(#4372cf,#4372cf);mso-padding-alt:16px 32px;"
+                        >
+                          <a
+                            href="{{.ActionURL}}"
+                            style="display:inline-block;padding:16px 32px;font-size:16px;line-height:100%;
+                              font-weight:700;color:#ffffff;text-decoration:none;border-radius:6px;"
+                          ><span class="gmail-blend-screen"><span
+                            class="gmail-blend-difference"
+                          >{{.ActionLabel}}</span></span></a>
+                        </td>
+                      </tr>
+                    </table>
+                    {{end}}
+                    {{if .Note}}
+                    <p
+                      class="email-note"
+                      style="margin:32px 0 0;font-size:13px;line-height:160%;color:#656b77;"
+                    >{{.Note}}</p>
+                    {{end}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
