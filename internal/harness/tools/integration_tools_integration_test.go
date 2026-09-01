@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -31,6 +33,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -153,6 +156,189 @@ func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
 	}
 	if readbackCount != 0 {
 		t.Fatalf("readback count = %d, want 0 for successful sends", readbackCount)
+	}
+}
+
+func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
+	tests := []struct {
+		name                   string
+		uploadURLFailures      int
+		completionRateLimits   int
+		completionStatus       int
+		loseAfterPath          string
+		wantCode               string
+		wantUploadRequests     int
+		wantCompletionRequests int
+	}{
+		{name: "success", wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{name: "upload URL transient failure", uploadURLFailures: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{name: "completion rate limit", completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
+		{name: "completion failure", completionStatus: http.StatusInternalServerError, wantCode: "delivery_unknown", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{name: "ownership lost before content upload", loseAfterPath: "/files.getUploadURLExternal"},
+		{name: "ownership lost before completion", loseAfterPath: "/upload/v1/artifact", wantUploadRequests: 1},
+	}
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			seed := "send-artifact-" + strconv.Itoa(index)
+			fixture := newIntegrationToolFixtureWithMCP(
+				t,
+				ctx,
+				seed,
+				false,
+				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
+			)
+			artifactContent := []byte("artifact contents")
+			artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+				ProjectID:      toolsTestProjectID,
+				AgentID:        fixture.Agent.ID,
+				ContentType:    "text/plain",
+				Filename:       "report.txt",
+				Content:        artifactContent,
+				MaxBytes:       1024,
+				IdempotencyKey: seed,
+			})
+			if err != nil {
+				t.Fatalf("create artifact: %v", err)
+			}
+			artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
+			if err != nil {
+				t.Fatalf("encode artifact id: %v", err)
+			}
+			requests := make(map[string]int)
+			loseOwnership := func() {
+				if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+					ctx,
+					toolsTestProjectID,
+					fixture.Agent.ID,
+					fixture.Lock.ID,
+				); err != nil {
+					t.Fatalf("release runtime lock: %v", err)
+				}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests[r.URL.Path]++
+				switch r.URL.Path {
+				case "/files.getUploadURLExternal":
+					if requests[r.URL.Path] <= tt.uploadURLFailures {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					if err := r.ParseForm(); err != nil {
+						t.Fatalf("parse upload URL request: %v", err)
+					}
+					if r.Form.Get("filename") != "report.txt" || r.Form.Get("length") != strconv.Itoa(len(artifactContent)) {
+						t.Fatalf("upload URL form = %v", r.Form)
+					}
+					if tt.loseAfterPath == r.URL.Path {
+						loseOwnership()
+					}
+					writeToolTestJSON(w, map[string]any{
+						"ok":         true,
+						"upload_url": "https://files.slack.com/upload/v1/artifact",
+						"file_id":    "F123",
+					})
+				case "/upload/v1/artifact":
+					if r.Header.Get("Authorization") != "" {
+						t.Fatalf("file upload included authorization")
+					}
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Fatalf("read uploaded artifact: %v", err)
+					}
+					if string(body) != string(artifactContent) {
+						t.Fatalf("uploaded artifact = %q", body)
+					}
+					if tt.loseAfterPath == r.URL.Path {
+						loseOwnership()
+					}
+					w.WriteHeader(http.StatusOK)
+				case "/files.completeUploadExternal":
+					var payload struct {
+						Files []struct {
+							ID    string `json:"id"`
+							Title string `json:"title"`
+						} `json:"files"`
+						ChannelID      string `json:"channel_id"`
+						ThreadTS       string `json:"thread_ts"`
+						InitialComment string `json:"initial_comment"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode completion payload: %v", err)
+					}
+					if len(payload.Files) != 1 || payload.Files[0].ID != "F123" || payload.Files[0].Title != "report.txt" ||
+						payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
+						payload.InitialComment != "here is the report" {
+						t.Fatalf("completion payload = %+v", payload)
+					}
+					if requests[r.URL.Path] <= tt.completionRateLimits {
+						w.Header().Set("Retry-After", "0")
+						w.WriteHeader(http.StatusTooManyRequests)
+						return
+					}
+					if tt.completionStatus != 0 {
+						w.WriteHeader(tt.completionStatus)
+						return
+					}
+					writeToolTestJSON(w, map[string]any{"ok": true})
+				default:
+					t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+				}
+			}))
+			defer server.Close()
+
+			executor := Executor{
+				Store:                 fixture.Store,
+				IntegrationHTTPClient: integrationProviderTestClient(server),
+				Now:                   func() time.Time { return fixture.Now.Add(21 * time.Second) },
+			}
+			if tt.loseAfterPath != "" {
+				target, err := executor.currentIntegrationToolTarget(ctx, fixture.turn())
+				if err != nil {
+					t.Fatalf("resolve integration target: %v", err)
+				}
+				slackTarget, err := slackMessageTarget(target)
+				if err != nil {
+					t.Fatalf("resolve Slack target: %v", err)
+				}
+				_, err = executor.dispatchIntegrationArtifactSend(
+					ctx,
+					fixture.turn(),
+					slackTarget,
+					integrationMessageRequest{Text: "here is the report", ArtifactID: artifactID},
+				)
+				if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+					t.Fatalf("artifact send error = %v, want ErrRuntimeLockInactive", err)
+				}
+			} else {
+				call := fixture.recordToolCall(
+					t,
+					ctx,
+					"call_"+seed,
+					"send_integration_message",
+					`{"text":"here is the report","artifact_id":"`+artifactID+`"}`,
+					fixture.Now.Add(20*time.Second),
+				)
+				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
+				if err != nil {
+					t.Fatalf("dispatch artifact send: %v", err)
+				}
+				body := integrationToolResultFromTestParts(t, result.ContentParts)
+				if body.Code != tt.wantCode || body.ProviderMessageID != "" || body.TargetRef != fixture.Target.TargetRef {
+					t.Fatalf("artifact send result = %+v", body)
+				}
+			}
+			wantRequests := map[string]int{
+				"/files.getUploadURLExternal":   1 + tt.uploadURLFailures,
+				"/upload/v1/artifact":           tt.wantUploadRequests,
+				"/files.completeUploadExternal": tt.wantCompletionRequests,
+			}
+			for path, want := range wantRequests {
+				if requests[path] != want {
+					t.Fatalf("requests[%q] = %d, want %d", path, requests[path], want)
+				}
+			}
+		})
 	}
 }
 

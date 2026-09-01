@@ -1,13 +1,16 @@
 package slack
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -61,6 +64,184 @@ type fileInfoResponse struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error"`
 	File  File   `json:"file"`
+}
+
+type getUploadURLExternalResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error"`
+	UploadURL string `json:"upload_url"`
+	FileID    string `json:"file_id"`
+}
+
+type completeUploadExternalResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error"`
+}
+
+func UploadFile(
+	ctx context.Context,
+	client *http.Client,
+	target MessageTarget,
+	filename string,
+	content []byte,
+	beforeRequest func(context.Context) error,
+) (string, APIResult, error) {
+	if err := beforeRequest(ctx); err != nil {
+		return "", APIResult{}, err
+	}
+	var uploadURL getUploadURLExternalResponse
+	result, err := callFormAt(
+		ctx,
+		client,
+		defaultAPIURL,
+		target.BotToken,
+		"files.getUploadURLExternal",
+		url.Values{
+			"filename": {filename},
+			"length":   {strconv.Itoa(len(content))},
+		},
+		&uploadURL,
+	)
+	if err != nil {
+		return "", APIResult{}, err
+	}
+	if result != (APIResult{}) {
+		return "", filePreShareResult(result), nil
+	}
+	if !uploadURL.OK {
+		return "", filePreShareResult(ErrorResult(uploadURL.Error)), nil
+	}
+	if uploadURL.UploadURL == "" || uploadURL.FileID == "" {
+		return "", APIResult{
+			Code:             "transient_failure",
+			TransientFailure: true,
+			Message:          "Slack returned an incomplete file upload URL response.",
+		}, nil
+	}
+	if err := beforeRequest(ctx); err != nil {
+		return "", APIResult{}, err
+	}
+	result, err = uploadFileContent(ctx, client, uploadURL.UploadURL, content)
+	if err != nil {
+		return "", APIResult{}, err
+	}
+	if result != (APIResult{}) {
+		return "", filePreShareResult(result), nil
+	}
+	return uploadURL.FileID, APIResult{}, nil
+}
+
+func CompleteFileUpload(
+	ctx context.Context,
+	client *http.Client,
+	target MessageTarget,
+	fileID string,
+	filename string,
+	initialComment string,
+) (APIResult, error) {
+	payload := map[string]any{
+		"files":           []map[string]string{{"id": fileID, "title": filename}},
+		"channel_id":      target.Channel,
+		"initial_comment": initialComment,
+	}
+	if target.ThreadTS != "" {
+		payload["thread_ts"] = target.ThreadTS
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return APIResult{}, err
+	}
+	var completed completeUploadExternalResponse
+	result, err := callJSONAt(
+		ctx,
+		client,
+		defaultAPIURL,
+		target.BotToken,
+		"files.completeUploadExternal",
+		body,
+		&completed,
+	)
+	if err != nil {
+		return APIResult{}, err
+	}
+	if result != (APIResult{}) {
+		return fileCompletionResult(result), nil
+	}
+	if !completed.OK {
+		return fileCompletionResult(ErrorResult(completed.Error)), nil
+	}
+	return APIResult{}, nil
+}
+
+func uploadFileContent(
+	ctx context.Context,
+	client *http.Client,
+	rawURL string,
+	content []byte,
+) (APIResult, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !allowedSlackFileURL(parsed, "") {
+		return APIResult{
+			Code:             "invalid_file_url",
+			PermanentFailure: true,
+			Message:          "invalid Slack file upload URL",
+		}, nil
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, defaultToolTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, parsed.String(), bytes.NewReader(content))
+	if err != nil {
+		return APIResult{PermanentFailure: true, Message: err.Error()}, nil
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := httpClientWithoutRedirects(client).Do(req)
+	if err != nil {
+		return APIResult{DeliveryUnknown: true, Message: "Slack file upload request failed."}, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return APIResult{
+			RateLimited: true,
+			RetryAfter:  retryAfter(resp.Header.Get("Retry-After")),
+			Message:     "Slack rate limited the file upload request.",
+		}, nil
+	}
+	if resp.StatusCode == http.StatusOK {
+		return APIResult{}, nil
+	}
+	if resp.StatusCode >= 500 {
+		return APIResult{
+			Code:             "transient_failure",
+			TransientFailure: true,
+			Message:          fmt.Sprintf("Slack returned status %d while uploading the file.", resp.StatusCode),
+		}, nil
+	}
+	return APIResult{
+		Code:             "permanent_failure",
+		PermanentFailure: true,
+		Message:          fmt.Sprintf("Slack returned status %d while uploading the file.", resp.StatusCode),
+	}, nil
+}
+
+func filePreShareResult(result APIResult) APIResult {
+	if result.ProviderCode == "missing_scope" {
+		result.Message = "Slack integration must be reauthorized with files:write before it can send artifacts."
+	}
+	if result.DeliveryUnknown {
+		result.Code = "transient_failure"
+		result.TransientFailure = true
+		result.DeliveryUnknown = false
+	}
+	return result
+}
+
+func fileCompletionResult(result APIResult) APIResult {
+	if result.TransientFailure {
+		result.Code = "delivery_unknown"
+		result.TransientFailure = false
+		result.DeliveryUnknown = true
+	}
+	return result
 }
 
 func DownloadEventFiles(

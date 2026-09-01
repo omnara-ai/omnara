@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -178,6 +179,9 @@ func (e Executor) dispatchIntegrationMessageSend(
 	if err != nil {
 		return toolResultContent{}, err
 	}
+	if input.ArtifactID != "" {
+		return e.dispatchIntegrationArtifactSend(ctx, turn, slackTarget, input)
+	}
 
 	agentPublicID, err := publicid.Encode(publicid.KindAgent, turn.AgentID)
 	if err != nil {
@@ -224,32 +228,134 @@ func (e Executor) dispatchIntegrationMessageSend(
 				return e.integrationDeliveryUnknown(target.TargetRef, errors.New(posted.Message))
 			}
 		default:
-			code := posted.Code
-			if code == "" {
-				code = "permanent_failure"
-			}
-			message := posted.Message
-			if message == "" {
-				message = code
-			}
-			content, err := structuredToolResultContent(
-				integrationToolResult{
-					Provider:  integrationstore.IntegrationProviderSlack,
-					Code:      code,
-					TargetRef: target.TargetRef,
-					Message:   message,
-				},
-			)
-			if err != nil {
-				return toolResultContent{}, err
-			}
-			return content, errors.New(message)
+			return integrationSlackFailureResult(target.TargetRef, posted)
 		}
 	}
 	return e.integrationDeliveryUnknown(
 		target.TargetRef,
 		errors.New("message delivery could not be confirmed"),
 	)
+}
+
+func (e Executor) dispatchIntegrationArtifactSend(
+	ctx context.Context,
+	turn Turn,
+	slackTarget slack.MessageTarget,
+	input integrationMessageRequest,
+) (toolResultContent, error) {
+	artifactID, err := publicid.Decode(publicid.KindArtifact, input.ArtifactID)
+	if err != nil {
+		return toolResultContent{}, err
+	}
+	content, artifact, err := e.Store.Artifacts().GetArtifactBlob(
+		ctx,
+		turn.ProjectID,
+		turn.AgentID,
+		artifactID,
+	)
+	if err != nil {
+		return toolResultContent{}, fmt.Errorf("load artifact %s: %w", input.ArtifactID, err)
+	}
+	filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
+	var rateLimitSlept time.Duration
+	attempt := 1
+	var fileID string
+	for {
+		var result slack.APIResult
+		fileID, result, err = slack.UploadFile(
+			ctx,
+			e.IntegrationHTTPClient,
+			slackTarget,
+			filename,
+			content,
+			func(ctx context.Context) error {
+				return e.ensureIntegrationPostOwnership(ctx, turn)
+			},
+		)
+		if err != nil {
+			return toolResultContent{}, err
+		}
+		if fileID != "" {
+			break
+		}
+		switch {
+		case result.RateLimited:
+			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+				return toolResultContent{}, err
+			} else if slept {
+				attempt++
+				continue
+			}
+			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+		case result.TransientFailure && attempt < integrationMessageSendAttempts:
+			attempt++
+			continue
+		default:
+			return integrationSlackFailureResult(slackTarget.TargetRef, result)
+		}
+	}
+	for {
+		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+			return toolResultContent{}, err
+		}
+		result, err := slack.CompleteFileUpload(
+			ctx,
+			e.IntegrationHTTPClient,
+			slackTarget,
+			fileID,
+			filename,
+			input.Text,
+		)
+		if err != nil {
+			return toolResultContent{}, err
+		}
+		switch {
+		case result == (slack.APIResult{}):
+			return e.integrationDelivered(slackTarget.TargetRef, "")
+		case result.RateLimited:
+			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+				return toolResultContent{}, err
+			} else if slept {
+				attempt++
+				continue
+			}
+			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+		case result.DeliveryUnknown:
+			message := result.Message
+			if message == "" {
+				message = "file delivery could not be confirmed"
+			}
+			return e.integrationDeliveryUnknown(slackTarget.TargetRef, errors.New(message))
+		default:
+			return integrationSlackFailureResult(slackTarget.TargetRef, result)
+		}
+	}
+}
+
+func integrationSlackFailureResult(
+	targetRef string,
+	result slack.APIResult,
+) (toolResultContent, error) {
+	code := result.Code
+	if code == "" {
+		code = "permanent_failure"
+	}
+	message := result.Message
+	if message == "" {
+		message = code
+	}
+	content, err := structuredToolResultContent(
+		integrationToolResult{
+			Provider:  integrationstore.IntegrationProviderSlack,
+			Code:      code,
+			TargetRef: targetRef,
+			Message:   message,
+		},
+	)
+	if err != nil {
+		return toolResultContent{}, err
+	}
+	return content, errors.New(message)
 }
 
 func integrationTargetFailureResult(

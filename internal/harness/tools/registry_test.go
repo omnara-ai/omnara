@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -187,6 +188,30 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 		),
 	); err == nil {
 		t.Fatal("model-provided text capability was accepted")
+	}
+}
+
+func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
+	artifactID, err := publicid.Encode(
+		publicid.KindArtifact,
+		integrationToolTestID("integration-message-validator"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRegisteredToolInput(
+		"send_integration_message",
+		json.RawMessage(`{"text":"hello","artifact_id":"`+artifactID+`"}`),
+	); err != nil {
+		t.Fatalf("valid integration message rejected: %v", err)
+	}
+	for _, input := range []json.RawMessage{
+		json.RawMessage(`{"text":"hello","artifact_id":null}`),
+		json.RawMessage(`{"text":"hello","artifact_id":""}`),
+	} {
+		if err := validateRegisteredToolInput("send_integration_message", input); err == nil {
+			t.Fatalf("invalid integration message accepted: %s", input)
+		}
 	}
 }
 

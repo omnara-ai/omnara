@@ -3,21 +3,33 @@ package tools
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 func TestResolveIntegrationMessageRequest(t *testing.T) {
 	t.Parallel()
 
-	request, err := resolveIntegrationMessageRequest(json.RawMessage(`{"text":" hello "}`))
+	artifactID, err := publicid.Encode(
+		publicid.KindArtifact,
+		integrationToolTestID("integration-message-artifact"),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.Text != " hello " {
-		t.Fatalf("text = %q", request.Text)
+	request, err := resolveIntegrationMessageRequest(
+		json.RawMessage(`{"text":" hello ","artifact_id":"` + artifactID + `"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Text != " hello " || request.ArtifactID != artifactID {
+		t.Fatalf("request = %+v", request)
 	}
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"text":" "}`),
 		json.RawMessage(`{"text":null}`),
+		json.RawMessage(`{"text":"hello","artifact_id":"agt_invalid"}`),
 		json.RawMessage(`{"text":"hello","channel":"C123"}`),
 		json.RawMessage(`{"text":"hello"} {}`),
 	} {

@@ -168,7 +168,7 @@ Use `upload_artifact` to make a regular file on an attached machine available fo
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id` and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context or delivered through external integrations.
+On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id` and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context. To deliver one through an external integration, pass its `artifact_id` to `send_integration_message`.
 
 ### `download_artifact`
 
@@ -180,7 +180,7 @@ Quick transfers return their terminal process result. If a transfer is still run
 
 ### `send_integration_message`
 
-Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
+Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass `artifact_id` to attach one artifact owned by the agent. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
 
 ### `set_integration_target`
 

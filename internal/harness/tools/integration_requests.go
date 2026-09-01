@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 var integrationTargetRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*-[a-z2-9]{4}$`)
 
 type integrationMessageRequest struct {
-	Text string `json:"text"`
+	Text       string `json:"text"`
+	ArtifactID string `json:"artifact_id,omitempty"`
 }
 
 type integrationTargetRequest struct {
@@ -25,6 +28,11 @@ func resolveIntegrationMessageRequest(raw json.RawMessage) (integrationMessageRe
 	}
 	if strings.TrimSpace(input.Text) == "" {
 		return integrationMessageRequest{}, errors.New("text is required")
+	}
+	if input.ArtifactID != "" {
+		if _, err := publicid.Decode(publicid.KindArtifact, input.ArtifactID); err != nil {
+			return integrationMessageRequest{}, fmt.Errorf("artifact_id is invalid: %w", err)
+		}
 	}
 	return input, nil
 }
