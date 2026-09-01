@@ -3,9 +3,8 @@ import { getActorOptions } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
 import { Streamdown } from 'streamdown'
 
-import { AgentAttachment } from '@/components/agents/AgentAttachment'
+import { AgentArtifactCard } from '@/components/agents/AgentArtifactCard'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
-import { ShownArtifactCard } from '@/components/agents/ShownArtifactCard'
 import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -199,18 +198,19 @@ export function AgentChatMessage({
             )
           }
           if (part.type === 'data-media') {
-            if (part.data.excludeFromModelContext === true && part.data.artifactId != null) {
-              return (
-                <ShownArtifactCard
-                  key={part.id}
-                  artifactID={part.data.artifactId}
-                  orgID={orgID}
-                  projectID={projectID}
-                  agentID={agentID}
-                />
-              )
-            }
-            return <AgentAttachment key={part.id} artifactId={part.data.artifactId} />
+            return (
+              <AgentArtifactCard
+                key={part.id}
+                artifactID={part.data.artifactId}
+                orgID={orgID}
+                projectID={projectID}
+                agentID={agentID}
+                data={part.data.data}
+                mediaType={part.data.mediaType}
+                filename={part.data.filename}
+                sizeBytes={part.data.sizeBytes}
+              />
+            )
           }
           if (part.type === 'dynamic-tool') {
             return <ToolPart key={part.id} part={part} />

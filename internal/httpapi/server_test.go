@@ -234,13 +234,18 @@ func TestWebConfigRoute(t *testing.T) {
 		name           string
 		opts           []Option
 		wantBillingURL string
+		wantAPIURL     string
 	}{
 		{
-			name:           "billing url set",
-			opts:           []Option{WithBillingURL("https://billing.omnara.test/credits/")},
+			name: "public config set",
+			opts: []Option{
+				WithBillingURL("https://billing.omnara.test/credits/"),
+				WithPublicAPIURL("https://api.omnara.test/v1/"),
+			},
 			wantBillingURL: "https://billing.omnara.test/credits",
+			wantAPIURL:     "https://api.omnara.test/v1",
 		},
-		{name: "billing url unset"},
+		{name: "unset values omitted"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -254,15 +259,20 @@ func TestWebConfigRoute(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode web config: %v", err)
 			}
-			got, ok := body["billing_url"]
-			if tt.wantBillingURL == "" {
-				if ok {
-					t.Fatalf("web config includes billing_url when unset: %v", body)
+			for key, want := range map[string]string{
+				"billing_url": tt.wantBillingURL,
+				"api_url":     tt.wantAPIURL,
+			} {
+				got, ok := body[key]
+				if want == "" {
+					if ok {
+						t.Fatalf("web config includes %s when unset: %v", key, body)
+					}
+					continue
 				}
-				return
-			}
-			if got != tt.wantBillingURL {
-				t.Fatalf("billing_url = %v, want %q", got, tt.wantBillingURL)
+				if got != want {
+					t.Fatalf("%s = %v, want %q", key, got, want)
+				}
 			}
 		})
 	}

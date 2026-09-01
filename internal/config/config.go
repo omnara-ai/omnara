@@ -82,6 +82,7 @@ type Config struct {
 	SMTPRequireTLS                    bool
 	AuthConnectors                    []AuthConnectorConfig
 	PublicURL                         string
+	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
 	DaemonReleaseURL                  string
@@ -228,6 +229,11 @@ func Load() (Config, error) {
 	); err != nil {
 		return Config{}, err
 	}
+	publicURL := normalizePublicURL(getenv("OMNARA_PUBLIC_URL", ""))
+	publicAPIURL := normalizePublicURL(getenv("OMNARA_PUBLIC_API_URL", ""))
+	if publicAPIURL == "" && publicURL != "" {
+		publicAPIURL = publicURL + "/api/v1"
+	}
 	cfg := Config{
 		APIAddr:                           getenv("OMNARA_API_ADDR", ":8080"),
 		APIMetricsAddr:                    getenv("OMNARA_API_METRICS_ADDR", ":8081"),
@@ -254,7 +260,8 @@ func Load() (Config, error) {
 		SMTPPassword:                      getenv("OMNARA_SMTP_PASSWORD", ""),
 		SMTPRequireTLS:                    smtpRequireTLS,
 		AuthConnectors:                    authConnectors,
-		PublicURL:                         normalizePublicURL(getenv("OMNARA_PUBLIC_URL", "")),
+		PublicURL:                         publicURL,
+		PublicAPIURL:                      publicAPIURL,
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
@@ -663,6 +670,19 @@ func (cfg Config) validatePublicURL(required bool) error {
 	if required && !cfg.AllowInsecureDev && cfg.PublicURL == "" {
 		return fmt.Errorf("OMNARA_PUBLIC_URL is required outside local development")
 	}
+	if cfg.PublicAPIURL != "" && cfg.PublicURL == "" {
+		return errors.New("OMNARA_PUBLIC_URL is required when OMNARA_PUBLIC_API_URL is set")
+	}
+	if cfg.PublicAPIURL != "" {
+		if err := validateHTTPBaseURL("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
+			return err
+		}
+		if !cfg.AllowInsecureDev {
+			if err := requireHTTPSOrLocalhost("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
+				return err
+			}
+		}
+	}
 	if cfg.PublicURL != "" {
 		if err := validateHTTPOrigin("OMNARA_PUBLIC_URL", cfg.PublicURL); err != nil {
 			return err
@@ -895,6 +915,17 @@ func validateHTTPURL(key, raw string) error {
 	}
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
 		return fmt.Errorf("%s must use http or https", key)
+	}
+	return nil
+}
+
+func validateHTTPBaseURL(key, raw string) error {
+	if err := validateHTTPURL(key, raw); err != nil {
+		return err
+	}
+	parsed, _ := url.Parse(raw)
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return fmt.Errorf("%s must not contain credentials, a query, or a fragment", key)
 	}
 	return nil
 }

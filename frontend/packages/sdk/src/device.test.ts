@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { DeviceAuthError, pollDeviceAuthToken, startDeviceAuth } from './device'
+import {
+  DeviceAuthError,
+  OAUTH_DEVICE_GRANT_TYPE,
+  pollDeviceAuthToken,
+  startDeviceAuth,
+} from './device'
 import { ApiError } from './errors'
 
 interface RecordedRequest {
   url: string
   method: string | undefined
   contentType: string | undefined
-  body: unknown
+  body: Record<string, string> | undefined
 }
 
 function fetchQueue(responses: Response[]): {
@@ -18,11 +23,15 @@ function fetchQueue(responses: Response[]): {
   const queued = [...responses]
   const fetchImpl: typeof fetch = (input, init) => {
     const headers = new Headers(init?.headers)
+    const contentType = headers.get('Content-Type') ?? undefined
     requests.push({
       url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
       method: init?.method,
-      contentType: headers.get('Content-Type') ?? undefined,
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+      contentType,
+      body:
+        typeof init?.body === 'string' && contentType === 'application/x-www-form-urlencoded'
+          ? Object.fromEntries(new URLSearchParams(init.body))
+          : undefined,
     })
     const next = queued.shift()
     if (next === undefined) throw new Error('fetch queue exhausted')
@@ -49,6 +58,14 @@ function recordedSleep(): { sleep: (seconds: number) => Promise<void>; sleeps: n
   }
 }
 
+const CLIENT_ID = 'omnara-cli'
+const METADATA = {
+  issuer: 'https://app.example.com',
+  device_authorization_endpoint: 'https://app.example.com/api/auth/device/code',
+  token_endpoint: 'https://app.example.com/api/auth/device/token',
+  grant_types_supported: [OAUTH_DEVICE_GRANT_TYPE],
+  token_endpoint_auth_methods_supported: ['none'],
+}
 const START_BODY = {
   device_code: 'device-code-1',
   user_code: 'ABCDE-FGHIJ',
@@ -59,20 +76,29 @@ const START_BODY = {
 }
 
 describe('startDeviceAuth', () => {
-  it('posts the client and token names and maps the response', async () => {
-    const { fetch, requests } = fetchQueue([jsonResponse(200, START_BODY)])
+  it('discovers the authorization server and starts an RFC 8628 device grant', async () => {
+    const { fetch, requests } = fetchQueue([
+      jsonResponse(200, METADATA),
+      jsonResponse(200, START_BODY),
+    ])
     const start = await startDeviceAuth({
-      baseUrl: 'https://app.example.com/',
-      clientName: 'Omnara CLI',
+      issuerUrl: 'https://APP.EXAMPLE.com:443/',
+      clientId: CLIENT_ID,
       tokenName: 'CLI on laptop',
       fetch,
     })
     expect(requests).toEqual([
       {
+        url: 'https://app.example.com/.well-known/oauth-authorization-server',
+        method: undefined,
+        contentType: undefined,
+        body: undefined,
+      },
+      {
         url: 'https://app.example.com/api/auth/device/code',
         method: 'POST',
-        contentType: 'application/json',
-        body: { client_name: 'Omnara CLI', token_name: 'CLI on laptop' },
+        contentType: 'application/x-www-form-urlencoded',
+        body: { client_id: CLIENT_ID, token_name: 'CLI on laptop' },
       },
     ])
     expect(start).toEqual({
@@ -82,23 +108,84 @@ describe('startDeviceAuth', () => {
       verificationUriComplete: 'https://app.example.com/device?user_code=ABCDE-FGHIJ',
       expiresInSeconds: 900,
       intervalSeconds: 5,
+      tokenEndpoint: 'https://app.example.com/api/auth/device/token',
+      clientId: CLIENT_ID,
     })
   })
 
-  it('throws ApiError when the flow cannot start', async () => {
-    const { fetch } = fetchQueue([jsonResponse(429, { error: 'rate limited' })])
-    await expect(
-      startDeviceAuth({
-        baseUrl: 'https://app.example.com',
-        clientName: 'x',
-        tokenName: 'y',
-        fetch,
-      }),
-    ).rejects.toThrow(ApiError)
+  it('omits the optional Omnara token name when it is not provided', async () => {
+    const { fetch, requests } = fetchQueue([
+      jsonResponse(200, METADATA),
+      jsonResponse(200, START_BODY),
+    ])
+    await startDeviceAuth({ issuerUrl: 'https://app.example.com', clientId: CLIENT_ID, fetch })
+    expect(requests[1]?.body).toEqual({ client_id: CLIENT_ID })
   })
 
-  it('resolves relative verification URLs against the configured base URL', async () => {
+  it('rejects authorization-server issuer substitution', async () => {
     const { fetch } = fetchQueue([
+      jsonResponse(200, { ...METADATA, issuer: 'https://attacker.example.com' }),
+    ])
+    await expect(
+      startDeviceAuth({
+        issuerUrl: 'https://app.example.com',
+        clientId: CLIENT_ID,
+        tokenName: 'CLI',
+        fetch,
+      }),
+    ).rejects.toThrow('authorization server issuer mismatch')
+  })
+
+  it.each([
+    [
+      'the device grant',
+      { ...METADATA, grant_types_supported: [] },
+      'authorization server does not support the OAuth device grant',
+    ],
+    [
+      'public clients',
+      { ...METADATA, token_endpoint_auth_methods_supported: ['client_secret_basic'] },
+      'authorization server does not support public OAuth clients',
+    ],
+  ])('rejects metadata without %s', async (_capability, metadata, message) => {
+    const { fetch } = fetchQueue([jsonResponse(200, metadata)])
+    await expect(
+      startDeviceAuth({
+        issuerUrl: 'https://app.example.com',
+        clientId: CLIENT_ID,
+        tokenName: 'CLI',
+        fetch,
+      }),
+    ).rejects.toThrow(message)
+  })
+
+  it('throws ApiError when the flow cannot start', async () => {
+    const { fetch } = fetchQueue([
+      jsonResponse(200, METADATA),
+      jsonResponse(429, {
+        error: 'temporarily_unavailable',
+        error_description: 'rate limit exceeded',
+      }),
+    ])
+    await expect(
+      startDeviceAuth({
+        issuerUrl: 'https://app.example.com',
+        clientId: CLIENT_ID,
+        tokenName: 'CLI',
+        fetch,
+      }),
+    ).rejects.toThrow('rate limit exceeded')
+  })
+
+  it('resolves relative verification URLs against the discovered issuer', async () => {
+    const localMetadata = {
+      ...METADATA,
+      issuer: 'http://localhost:8080',
+      device_authorization_endpoint: 'http://localhost:8080/api/auth/device/code',
+      token_endpoint: 'http://localhost:8080/api/auth/device/token',
+    }
+    const { fetch } = fetchQueue([
+      jsonResponse(200, localMetadata),
       jsonResponse(200, {
         ...START_BODY,
         verification_uri: '/device',
@@ -106,9 +193,9 @@ describe('startDeviceAuth', () => {
       }),
     ])
     const start = await startDeviceAuth({
-      baseUrl: 'http://localhost:8080',
-      clientName: 'Omnara CLI',
-      tokenName: 'CLI on laptop',
+      issuerUrl: 'http://localhost:8080',
+      clientId: CLIENT_ID,
+      tokenName: 'CLI',
       fetch,
     })
     expect(start.verificationUri).toBe('http://localhost:8080/device')
@@ -117,14 +204,15 @@ describe('startDeviceAuth', () => {
 })
 
 describe('pollDeviceAuthToken', () => {
-  it('sleeps before each poll and returns the token on approval', async () => {
+  it('polls the OAuth token endpoint and returns the token on approval', async () => {
     const { fetch, requests } = fetchQueue([
-      jsonResponse(202, { error: 'authorization_pending', interval: 5 }),
+      jsonResponse(400, { error: 'authorization_pending' }),
       jsonResponse(200, { access_token: 'omnara_pat_v1_abc', token_type: 'Bearer' }),
     ])
     const { sleep, sleeps } = recordedSleep()
     const token = await pollDeviceAuthToken({
-      baseUrl: 'https://app.example.com',
+      tokenEndpoint: METADATA.token_endpoint,
+      clientId: CLIENT_ID,
       deviceCode: 'device-code-1',
       intervalSeconds: 5,
       fetch,
@@ -133,20 +221,25 @@ describe('pollDeviceAuthToken', () => {
     expect(token).toBe('omnara_pat_v1_abc')
     expect(sleeps).toEqual([5, 5])
     expect(requests.map((request) => request.url)).toEqual([
-      'https://app.example.com/api/auth/device/token',
-      'https://app.example.com/api/auth/device/token',
+      METADATA.token_endpoint,
+      METADATA.token_endpoint,
     ])
-    expect(requests[0]?.body).toEqual({ device_code: 'device-code-1' })
+    expect(requests[0]?.body).toEqual({
+      grant_type: OAUTH_DEVICE_GRANT_TYPE,
+      device_code: 'device-code-1',
+      client_id: CLIENT_ID,
+    })
   })
 
-  it('backs off to the interval returned by slow_down', async () => {
+  it('adds five seconds to the polling interval after slow_down', async () => {
     const { fetch } = fetchQueue([
-      jsonResponse(202, { error: 'slow_down', interval: 10 }),
+      jsonResponse(400, { error: 'slow_down' }),
       jsonResponse(200, { access_token: 'omnara_pat_v1_abc', token_type: 'Bearer' }),
     ])
     const { sleep, sleeps } = recordedSleep()
     await pollDeviceAuthToken({
-      baseUrl: 'https://app.example.com',
+      tokenEndpoint: METADATA.token_endpoint,
+      clientId: CLIENT_ID,
       deviceCode: 'device-code-1',
       intervalSeconds: 5,
       fetch,
@@ -159,7 +252,8 @@ describe('pollDeviceAuthToken', () => {
     const { fetch } = fetchQueue([jsonResponse(400, { error: 'access_denied' })])
     const { sleep } = recordedSleep()
     const poll = pollDeviceAuthToken({
-      baseUrl: 'https://app.example.com',
+      tokenEndpoint: METADATA.token_endpoint,
+      clientId: CLIENT_ID,
       deviceCode: 'device-code-1',
       intervalSeconds: 5,
       fetch,
@@ -176,7 +270,8 @@ describe('pollDeviceAuthToken', () => {
     const { sleep } = recordedSleep()
     await expect(
       pollDeviceAuthToken({
-        baseUrl: 'https://app.example.com',
+        tokenEndpoint: METADATA.token_endpoint,
+        clientId: CLIENT_ID,
         deviceCode: 'device-code-1',
         intervalSeconds: 5,
         fetch,
@@ -185,12 +280,13 @@ describe('pollDeviceAuthToken', () => {
     ).rejects.toBeInstanceOf(DeviceAuthError)
   })
 
-  it('throws ApiError on an unrecognized failure', async () => {
-    const { fetch } = fetchQueue([jsonResponse(400, { error: 'validation failed' })])
+  it('throws ApiError on an unrecognized OAuth failure', async () => {
+    const { fetch } = fetchQueue([jsonResponse(400, { error: 'invalid_grant' })])
     const { sleep } = recordedSleep()
     await expect(
       pollDeviceAuthToken({
-        baseUrl: 'https://app.example.com',
+        tokenEndpoint: METADATA.token_endpoint,
+        clientId: CLIENT_ID,
         deviceCode: 'device-code-1',
         intervalSeconds: 5,
         fetch,

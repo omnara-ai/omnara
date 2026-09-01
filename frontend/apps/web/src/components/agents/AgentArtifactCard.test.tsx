@@ -8,11 +8,7 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
-import { ShownArtifactCard } from '@/components/agents/ShownArtifactCard'
-
-const mocks = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
-
-vi.mock('@/components/agents/downloadBlob', () => ({ downloadBlob: mocks.downloadBlob }))
+import { AgentArtifactCard } from '@/components/agents/AgentArtifactCard'
 
 let container: HTMLDivElement
 let queryClient: QueryClient
@@ -35,13 +31,11 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  mocks.downloadBlob.mockReset()
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
   queryClient = new QueryClient({
     defaultOptions: {
-      mutations: { retry: false },
       queries: { retry: false },
     },
   })
@@ -54,6 +48,7 @@ afterEach(() => {
   queryClient.clear()
   container.remove()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function artifactMetadata({
@@ -80,8 +75,8 @@ function artifactMetadata({
   )
 }
 
-it('renders image previews from the artifact content endpoint', () => {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
+it('renders artifact images directly from the content endpoint', () => {
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   const path = {
     orgID: 'org_test',
     projectID: 'proj_test',
@@ -104,7 +99,7 @@ it('renders image previews from the artifact content endpoint', () => {
       <StrictMode>
         <OmnaraClientProvider client={client}>
           <QueryClientProvider client={queryClient}>
-            <ShownArtifactCard
+            <AgentArtifactCard
               artifactID={path.artifactID}
               orgID={path.orgID}
               projectID={path.projectID}
@@ -121,30 +116,50 @@ it('renders image previews from the artifact content endpoint', () => {
     'https://omnara.test/api/v1/orgs/org_test/projects/proj_test/agents/agt_test/artifacts/art_image/content',
   )
   expect(image?.loading).toBe('lazy')
+  expect(container.querySelector('a')?.href).toBe(image?.src)
 })
 
-it('downloads text artifact content as a Blob', async () => {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(
-      artifactMetadata({ contentType: 'text/plain', filename: 'notes.txt', sizeBytes: 13 }),
-    )
-    .mockResolvedValueOnce(
-      new Response('artifact text', {
-        headers: { 'Content-Type': 'text/plain' },
-        status: 200,
-      }),
-    )
-  client.setConfig({
-    fetch,
-  })
+it('renders optimistic attachments with the same card', () => {
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
 
   act(() => {
     root.render(
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
-          <ShownArtifactCard
+          <AgentArtifactCard
+            orgID="org_test"
+            projectID="proj_test"
+            agentID="agt_test"
+            data="AQID"
+            mediaType="image/png"
+            filename="image.png"
+            sizeBytes={3}
+          />
+        </QueryClientProvider>
+      </OmnaraClientProvider>,
+    )
+  })
+
+  expect(container.querySelector('img')?.src).toBe('data:image/png;base64,AQID')
+  expect(container.textContent).toContain('image.png')
+  expect(container.textContent).toContain('3 B')
+  expect(container.querySelector('a')?.download).toBe('image.png')
+})
+
+it('loads artifact metadata for durable attachments', async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(
+      artifactMetadata({ contentType: 'text/plain', filename: 'notes.txt', sizeBytes: 13 }),
+    )
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+  client.setConfig({ fetch })
+
+  act(() => {
+    root.render(
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={queryClient}>
+          <AgentArtifactCard
             artifactID="art_test"
             orgID="org_test"
             projectID="proj_test"
@@ -158,71 +173,8 @@ it('downloads text artifact content as a Blob', async () => {
   await vi.waitFor(() => {
     expect(container.textContent).toContain('notes.txt')
   })
-
-  const download = Array.from(container.querySelectorAll('button')).find(
-    (candidate) => candidate.textContent.trim() === 'Download',
-  )
-  if (!download) throw new Error('Missing download button')
-
-  await act(async () => {
-    download.click()
-    await vi.waitFor(() => {
-      expect(mocks.downloadBlob).toHaveBeenCalledOnce()
-    })
-  })
-
-  const [content, filename] = mocks.downloadBlob.mock.calls[0] as [Blob, string]
-  expect(content).toBeInstanceOf(Blob)
-  expect(content.type).toBe('text/plain')
-  expect(content.size).toBe(13)
-  expect(filename).toBe('notes.txt')
-})
-
-it('fetches image content through the SDK only when downloaded', async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(
-      artifactMetadata({ contentType: 'image/png', filename: 'image.png', sizeBytes: 3 }),
-    )
-    .mockResolvedValueOnce(
-      new Response(new Uint8Array([1, 2, 3]), {
-        headers: { 'Content-Type': 'image/png' },
-        status: 200,
-      }),
-    )
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test' })
-  client.setConfig({ fetch })
-
-  act(() => {
-    root.render(
-      <OmnaraClientProvider client={client}>
-        <QueryClientProvider client={queryClient}>
-          <ShownArtifactCard
-            artifactID="art_image"
-            orgID="org_test"
-            projectID="proj_test"
-            agentID="agt_test"
-          />
-        </QueryClientProvider>
-      </OmnaraClientProvider>,
-    )
-  })
-
-  await vi.waitFor(() => {
-    expect(container.querySelector('img')).not.toBeNull()
-  })
   expect(fetch).toHaveBeenCalledOnce()
-
-  const download = Array.from(container.querySelectorAll('button')).find(
-    (candidate) => candidate.textContent.trim() === 'Download',
+  expect(container.querySelector('a')?.href).toBe(
+    'https://omnara.test/api/v1/orgs/org_test/projects/proj_test/agents/agt_test/artifacts/art_test/content',
   )
-  if (!download) throw new Error('Missing download button')
-  await act(async () => {
-    download.click()
-    await vi.waitFor(() => {
-      expect(mocks.downloadBlob).toHaveBeenCalledOnce()
-    })
-  })
-
-  expect(fetch).toHaveBeenCalledTimes(2)
 })

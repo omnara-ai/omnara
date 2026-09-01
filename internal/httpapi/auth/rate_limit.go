@@ -83,53 +83,74 @@ func (h *Handler) requireAuthRateLimits(
 	pairLimit, subjectLimit, clientLimit int,
 	window time.Duration,
 ) bool {
-	if h.limiter == nil {
-		apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+	if err := h.checkAuthRateLimits(
+		r,
+		action,
+		subject,
+		pairLimit,
+		subjectLimit,
+		clientLimit,
+		window,
+	); err != nil {
+		h.writeAuthRateLimitError(w, err)
 		return false
 	}
+	return true
+}
+
+func (h *Handler) requireOAuthLoginRateLimits(w http.ResponseWriter, r *http.Request, connectorSlug string) bool {
 	client := h.clientBucket(r)
-	return h.requireAuthLimitBuckets(w, r, action, []authLimit{
+	if err := h.checkAuthLimitBuckets(r, "oauth_login", []authLimit{
+		{scope: "pair", subject: connectorSlug + ":" + client, limit: oauthLoginRateLimit},
+		{scope: "client", subject: client, limit: oauthLoginClientRateLimit},
+	}, authShortWindow); err != nil {
+		h.writeAuthRateLimitError(w, err)
+		return false
+	}
+	return true
+}
+
+func (h *Handler) checkAuthRateLimits(
+	r *http.Request,
+	action, subject string,
+	pairLimit, subjectLimit, clientLimit int,
+	window time.Duration,
+) error {
+	client := h.clientBucket(r)
+	return h.checkAuthLimitBuckets(r, action, []authLimit{
 		{scope: "pair", subject: subject + ":" + client, limit: pairLimit},
 		{scope: "subject", subject: subject, limit: subjectLimit},
 		{scope: "client", subject: client, limit: clientLimit},
 	}, window)
 }
 
-func (h *Handler) requireOAuthLoginRateLimits(w http.ResponseWriter, r *http.Request, connectorSlug string) bool {
-	if h.limiter == nil {
-		apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
-		return false
-	}
-	client := h.clientBucket(r)
-	return h.requireAuthLimitBuckets(w, r, "oauth_login", []authLimit{
-		{scope: "pair", subject: connectorSlug + ":" + client, limit: oauthLoginRateLimit},
-		{scope: "client", subject: client, limit: oauthLoginClientRateLimit},
-	}, authShortWindow)
-}
-
-func (h *Handler) requireAuthLimitBuckets(
-	w http.ResponseWriter,
+func (h *Handler) checkAuthLimitBuckets(
 	r *http.Request,
 	action string,
 	limits []authLimit,
 	window time.Duration,
-) bool {
+) error {
+	if h.limiter == nil {
+		return errors.New("auth limiter unavailable")
+	}
 	for _, authLimit := range limits {
 		if authLimit.limit <= 0 {
-			apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
-			return false
+			return errors.New("invalid auth rate limit")
 		}
 		key := "auth:" + action + ":" + authLimit.scope + ":" + identitystore.HashBearerToken(authLimit.subject)
 		if err := h.limiter.Allow(r.Context(), key, authLimit.limit, window); err != nil {
-			if errors.Is(err, errRateLimited) {
-				apierror.Write(w, openapi.ErrorCodeRateLimited)
-				return false
-			}
-			apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
-			return false
+			return err
 		}
 	}
-	return true
+	return nil
+}
+
+func (h *Handler) writeAuthRateLimitError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errRateLimited) {
+		apierror.Write(w, openapi.ErrorCodeRateLimited)
+		return
+	}
+	apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
 }
 
 func (h *Handler) clientBucket(r *http.Request) string {

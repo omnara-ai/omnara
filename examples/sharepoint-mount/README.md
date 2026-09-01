@@ -93,9 +93,9 @@ library at `/mnt/sharepoint` and starts the daemon. Leave
 previous container.
 
 Hosted Omnara is used by default. For a self-hosted deployment, set
-`OMNARA_API_URL` to its public HTTPS origin. For an API running directly on the
-Docker host, use `http://host.docker.internal:8080`; localhost inside the
-container refers to the container itself.
+`OMNARA_API_URL` to its public HTTPS origin plus `/api/v1`. For an API running
+directly on the Docker host, use `http://host.docker.internal:8080/api/v1`;
+localhost inside the container refers to the container itself.
 
 ## 5. Create the agent
 

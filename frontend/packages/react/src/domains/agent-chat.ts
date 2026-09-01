@@ -18,19 +18,22 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
 import {
-  type AgentChatData,
-  type AgentChatStatus,
   hasToolCalls,
   isControlEvent,
   isTerminalEvent,
-  type LocalAgentInput,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   parseStreamData,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
-import { createAgentChatInput, isDefiniteSendFailure } from './agent-chat-transport'
+import { createAgentChatInput, isDefiniteSendFailure, sameMessage } from './agent-chat-transport'
+import type {
+  AgentChatData,
+  AgentChatMessageInput,
+  AgentChatStatus,
+  LocalAgentInput,
+} from './agent-chat-types'
 import {
   type AgentInputBacklogControls,
   agentInputBacklogQueryKey,
@@ -39,12 +42,14 @@ import {
 } from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
 
+export type { OmnaraUIMessage } from './agent-chat-messages'
 export type {
+  AgentChatAttachmentInput,
   AgentChatData,
+  AgentChatMessageInput,
   AgentChatStatus,
   OmnaraMessageMetadata,
-  OmnaraUIMessage,
-} from './agent-chat-messages'
+} from './agent-chat-types'
 
 export type AgentChatHistoryStatus = QueryStatus
 
@@ -63,7 +68,7 @@ export interface UseAgentChatResult {
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
-  sendMessage: (message: { text: string }) => Promise<void>
+  sendMessage: (message: AgentChatMessageInput) => Promise<void>
   inputBacklog: AgentInputBacklogControls
 }
 
@@ -94,7 +99,7 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
-  private lastFailedSend: { id: string; text: string } | null = null
+  private lastFailedSend: LocalAgentInput | null = null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
 
@@ -139,20 +144,26 @@ export class AgentChatSession {
   }
 
   sendMessage = async (
-    message: { text: string },
+    message: AgentChatMessageInput,
     placement: LocalAgentInput['placement'] = 'conversation',
   ): Promise<void> => {
     const text = message.text.trim()
-    if (text === '') throw new Error('Agent messages must contain text')
+    const attachments = message.attachments ?? []
+    if (text === '' && attachments.length === 0) {
+      throw new Error('Agent messages must contain text or an attachment')
+    }
     this.connect()
-    const id = this.lastFailedSend?.text === text ? this.lastFailedSend.id : crypto.randomUUID()
+    const normalized = { text, attachments, attachmentCount: attachments.length }
+    const previous = this.lastFailedSend
+    const id =
+      previous != null && sameMessage(previous, normalized) ? previous.id : crypto.randomUUID()
     this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
-    this.localInputs.set(id, { id, text, placement })
+    this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      const input = await createAgentChatInput(this.client, this.scope, id, text)
+      const input = await createAgentChatInput(this.client, this.scope, id, normalized)
       this.acceptAgentInput(id, input)
     } catch (error) {
       if (this.inputEchoLoaded(id)) {
@@ -174,7 +185,7 @@ export class AgentChatSession {
           return
         }
         if (this.localInputs.get(id)?.agentInputID != null) return
-        this.lastFailedSend = { id, text }
+        this.lastFailedSend = { id, ...normalized, placement }
       }
       this.localInputs.delete(id)
       this.error = sendError
@@ -190,7 +201,12 @@ export class AgentChatSession {
     } else {
       const localInput = this.localInputs.get(id)
       if (localInput != null) {
-        this.localInputs.set(id, { ...localInput, agentInputID: input.id })
+        const retainAttachments =
+          input.state !== 'received' ||
+          input.delivery_mode === 'immediate' ||
+          localInput.placement === 'conversation'
+        const attachments = retainAttachments ? localInput.attachments : undefined
+        this.localInputs.set(id, { ...localInput, attachments, agentInputID: input.id })
         cacheAgentInputBacklog(this.queryClient, this.client, this.scope, input)
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
@@ -229,12 +245,11 @@ export class AgentChatSession {
     )
     let changed = false
     for (const [id, localInput] of this.localInputs) {
-      const backlogInput =
-        (localInput.agentInputID == null ? undefined : byID.get(localInput.agentInputID)) ??
-        byKey.get(id)
+      const backlogInput = byID.get(localInput.agentInputID ?? '') ?? byKey.get(id)
       if (backlogInput == null) continue
       if (localInput.agentInputID !== backlogInput.id) {
-        this.localInputs.set(id, { ...localInput, agentInputID: backlogInput.id })
+        const attachments = localInput.placement === 'backlog' ? undefined : localInput.attachments
+        this.localInputs.set(id, { ...localInput, attachments, agentInputID: backlogInput.id })
         changed = true
       }
     }

@@ -22,13 +22,13 @@ type omnaradInstallTemplateData struct {
 }
 
 func (s *Server) omnaradInstallRoute(w http.ResponseWriter, r *http.Request) {
-	apiURL := s.publicURL
+	apiURL := s.publicAPIURL
 	if apiURL == "" {
 		scheme := "http"
 		if r.TLS != nil {
 			scheme = "https"
 		}
-		apiURL = scheme + "://" + r.Host
+		apiURL = scheme + "://" + r.Host + openAPIBasePath
 	}
 	script, err := renderOmnaradInstallScript(s.daemonReleaseURL, apiURL)
 	if err != nil {

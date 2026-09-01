@@ -7,6 +7,8 @@ import {
   type SkillOwnerInput,
 } from '@omnara/sdk'
 import {
+  getSkillOptions,
+  getSkillQueryKey,
   listProjectAvailableSkillsInfiniteOptions,
   listSkillGrantsInfiniteOptions,
   listSkillsInfiniteOptions,
@@ -15,6 +17,7 @@ import {
   type QueryClient,
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
 
@@ -60,6 +63,14 @@ export function useSkills(orgID: string, owner?: SkillOwnerScope, options?: Skil
     }),
     ...cursorPagination,
     enabled: list.enabled,
+  })
+}
+
+export function useSkill(orgID: string, skillID: string, enabled = true) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getSkillOptions({ path: { orgID, skillID }, client }),
+    enabled,
   })
 }
 
@@ -142,6 +153,44 @@ export function useCreateSkill(orgID: string) {
     },
     onSuccess: async () => {
       await invalidateSkillLists(queryClient, orgID)
+    },
+  })
+}
+
+export type UpdateSkillUpload = { archive: Blob | File } | { skill_md: string }
+
+export function useUpdateSkill(orgID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ skillID, body }: { skillID: string; body: UpdateSkillUpload }) => {
+      const { data } = await sdk.updateSkill({
+        path: { orgID, skillID },
+        body,
+        client,
+        bodySerializer: () => {
+          const form = new FormData()
+          if ('archive' in body) {
+            form.append(
+              'archive',
+              body.archive,
+              body.archive instanceof File ? body.archive.name : 'skill.zip',
+            )
+          } else {
+            form.append('skill_md', body.skill_md)
+          }
+          return form
+        },
+      })
+      return data
+    },
+    onSuccess: async (_data, { skillID }) => {
+      await Promise.all([
+        invalidateSkillLists(queryClient, orgID),
+        queryClient.invalidateQueries({
+          queryKey: getSkillQueryKey({ path: { orgID, skillID }, client }),
+        }),
+      ])
     },
   })
 }

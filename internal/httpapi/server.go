@@ -43,7 +43,8 @@ type Server struct {
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
-	publicOrigin                        configuredOrigin
+	publicAPIURL                        string
+	publicOrigins                       []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
@@ -157,6 +158,12 @@ func WithTrustedProxyCIDRs(cidrs []string) Option {
 func WithPublicURL(publicURL string) Option {
 	return func(s *Server) {
 		s.publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	}
+}
+
+func WithPublicAPIURL(publicAPIURL string) Option {
+	return func(s *Server) {
+		s.publicAPIURL = strings.TrimRight(strings.TrimSpace(publicAPIURL), "/")
 	}
 }
 
@@ -376,7 +383,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	if err != nil {
 		return nil, err
 	}
-	server.publicOrigin = publicOrigin
+	publicAPIOrigin, err := parseConfiguredOrigin(server.publicAPIURL)
+	if err != nil {
+		return nil, err
+	}
+	if publicOrigin.host != "" {
+		server.publicOrigins = append(server.publicOrigins, publicOrigin)
+		if publicAPIOrigin.host != "" {
+			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
 	server.authRoutes = httpauth.New(httpauth.Config{
 		Log:                  log,
 		Store:                authStore,

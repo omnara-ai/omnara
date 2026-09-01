@@ -111,6 +111,34 @@ func TestAttachmentFilenameFallsBackForNUL(t *testing.T) {
 	}
 }
 
+func TestAttachmentMediaTypeRejectsInvalidUTF8Text(t *testing.T) {
+	t.Parallel()
+	got := attachmentMediaType(
+		File{Name: "data.csv", Mimetype: "text/csv"},
+		"text/csv",
+		[]byte{0xff},
+		func(mediaType string) bool { return mediaType == "text/csv" },
+	)
+	if got != "" {
+		t.Fatalf("attachment media type = %q, want none", got)
+	}
+}
+
+func TestAttachmentMediaTypePrefersUTF8CSVFilename(t *testing.T) {
+	t.Parallel()
+	got := attachmentMediaType(
+		File{Name: "data.csv", Mimetype: "application/vnd.ms-excel"},
+		"application/vnd.ms-excel",
+		[]byte("name,value\nalpha,1\n"),
+		func(mediaType string) bool {
+			return mediaType == "text/csv" || mediaType == "application/vnd.ms-excel"
+		},
+	)
+	if got != "text/csv" {
+		t.Fatalf("attachment media type = %q, want text/csv", got)
+	}
+}
+
 func TestDownloadEventFilesSkipsDeclaredOversize(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

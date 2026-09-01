@@ -45,13 +45,21 @@ func requestBodyLimit(r *http.Request) int64 {
 		strings.Contains(r.URL.Path, "/tool-calls/") &&
 			strings.HasSuffix(r.URL.Path, "/result"):
 		return maxAttachmentRequestBodyBytes
-	case strings.HasSuffix(r.URL.Path, "/skills"):
+	case strings.HasSuffix(r.URL.Path, "/skills"), isSkillUpdatePath(r.URL.Path):
 		return maxSkillUploadRequestBodyBytes
-	case strings.HasPrefix(r.URL.Path, "/api/v1/daemon/tool-calls/") &&
+	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/tool-calls/") &&
 		strings.HasSuffix(r.URL.Path, "/artifact"):
 		return daemonprotocol.MaxArtifactUploadBytes
 	}
 	return maxRequestBodyBytes
+}
+
+func isSkillUpdatePath(path string) bool {
+	idx := strings.LastIndexByte(path, '/')
+	if idx < 0 {
+		return false
+	}
+	return path[idx+1:] != "" && strings.HasSuffix(path[:idx], "/skills")
 }
 
 type middleware func(http.Handler) http.Handler
@@ -220,7 +228,7 @@ func (s *Server) authenticateBearerToken(
 }
 
 func requiresAuth(path string) bool {
-	if strings.HasPrefix(path, "/api/v1/") {
+	if strings.HasPrefix(path, openAPIBasePath+"/") {
 		return true
 	}
 	for _, route := range serverManualRouteContracts {

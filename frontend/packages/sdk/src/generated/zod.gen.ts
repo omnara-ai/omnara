@@ -497,6 +497,23 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
+
+export const zSkillFile = z.object({
+    path: z.string(),
+    size: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
@@ -506,6 +523,7 @@ export const zSkill = z.object({
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
     skill_md: z.string().optional(),
+    files: z.array(zSkillFile).optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1114,6 +1132,9 @@ export const zTextContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+/**
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ */
 export const zInlineMediaContentBlock = z.object({
     type: z.enum(['media']),
     media_type: z.enum([
@@ -1126,6 +1147,15 @@ export const zInlineMediaContentBlock = z.object({
         'text/markdown',
         'text/csv',
         'text/tab-separated-values',
+        'text/x-iif',
+        'application/msword',
+        'application/rtf',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.keynote',
+        'application/vnd.apple.iwork',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -3047,9 +3077,21 @@ export const zGetSkillPath = z.object({
 });
 
 /**
- * Visible skill metadata and instructions.
+ * Visible skill metadata, instructions, and archive file listing.
  */
 export const zGetSkillResponse = zSkill;
+
+export const zUpdateSkillBody = zUpdateSkillRequest;
+
+export const zUpdateSkillPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
+});
+
+/**
+ * Skill updated with a new revision.
+ */
+export const zUpdateSkillResponse = zSkill;
 
 export const zListSkillGrantsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

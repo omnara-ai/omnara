@@ -3,7 +3,9 @@ package openaichatcompletions
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -20,15 +22,38 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		)
 	}
 	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
-		if occurrence.MessageRole != modelprotocol.RoleUser ||
-			occurrence.Media.Kind != modelcontext.AttachmentKindImage {
+		if occurrence.MessageRole != modelprotocol.RoleUser && !occurrence.IsToolResult() {
+			continue
+		}
+		item := occurrence.Media
+		if occurrence.IsToolResult() && item.Kind != modelcontext.AttachmentKindImage {
+			continue
+		}
+		representation := modelcontext.MediaRepresentationInline
+		tokenEstimate := 0
+		switch item.Kind {
+		case modelcontext.AttachmentKindImage:
+			tokenEstimate = model.OpenAIImageTokenEstimateForModels(modelCandidates, item)
+		case modelcontext.AttachmentKindDocument:
+			if !occurrence.Opening && item.MediaType == "application/pdf" &&
+				p.client.ModelAPIVariant() != modelprotocol.APIVariantOpenRouter &&
+				!p.client.ModelCapabilities.AllowsInputModality("file") {
+				continue
+			}
+			if !rendersAsChatDocument(item) {
+				continue
+			}
+			if rendersAsChatText(item) {
+				representation = modelcontext.MediaRepresentationInlineText
+			}
+		default:
 			continue
 		}
 		rendered = append(rendered, modelcontext.RenderedMedia{
 			Occurrence:     occurrence.Ref,
-			Media:          occurrence.Media,
-			Representation: modelcontext.MediaRepresentationInline,
-			TokenEstimate:  model.OpenAIImageTokenEstimateForModels(modelCandidates, occurrence.Media),
+			Media:          item,
+			Representation: representation,
+			TokenEstimate:  tokenEstimate,
 		})
 	}
 	return rendered
@@ -53,9 +78,14 @@ func openRouterFallbackModelSlugs(options json.RawMessage) []string {
 func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]modelcontext.ResolvedMedia {
 	out := make(map[string]modelcontext.ResolvedMedia, len(media))
 	for id, resolved := range media {
-		if resolved.Kind == modelcontext.AttachmentKindImage && len(resolved.Data) > 0 {
-			out[id] = resolved
+		if len(resolved.Data) == 0 {
+			continue
 		}
+		if resolved.Kind != modelcontext.AttachmentKindImage &&
+			(resolved.Kind != modelcontext.AttachmentKindDocument || !rendersAsChatDocument(resolved)) {
+			continue
+		}
+		out[id] = resolved
 	}
 	if len(out) == 0 {
 		return nil
@@ -63,7 +93,10 @@ func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]mod
 	return out
 }
 
-func userChatContentFromParts(raw json.RawMessage, media map[string]modelcontext.ResolvedMedia) any {
+func userChatContentFromParts(
+	raw json.RawMessage,
+	media map[string]modelcontext.ResolvedMedia,
+) any {
 	var parts []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return nil
@@ -76,7 +109,7 @@ func userChatContentFromParts(raw json.RawMessage, media map[string]modelcontext
 		if partType == "media_ref" {
 			artifactID := jsonFieldText(part["artifact_id"])
 			if resolved, ok := media[artifactID]; ok {
-				if block, ok := chatImagePart(resolved); ok {
+				if block, ok := chatMediaPart(resolved); ok {
 					hasMedia = true
 					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
 						blocks = append(blocks, map[string]any{"type": "text", "text": "artifact_id: " + ref})
@@ -105,16 +138,81 @@ func userChatContentFromParts(raw json.RawMessage, media map[string]modelcontext
 	return blocks
 }
 
-func chatImagePart(resolved modelcontext.ResolvedMedia) (map[string]any, bool) {
-	if resolved.Kind != modelcontext.AttachmentKindImage {
+func chatMediaPart(resolved modelcontext.ResolvedMedia) (map[string]any, bool) {
+	if rendersAsChatText(resolved) {
+		text := string(resolved.Data)
+		if resolved.Filename != "" {
+			text = "File: " + strconv.Quote(resolved.Filename) + "\n\n" + text
+		}
+		return map[string]any{"type": "text", "text": text}, true
+	}
+	dataMediaType := resolved.MediaType
+	if dataMediaType == "text/tab-separated-values" {
+		dataMediaType = "text/tsv"
+	}
+	dataURL := "data:" + dataMediaType + ";base64," + base64.StdEncoding.EncodeToString(resolved.Data)
+	switch resolved.Kind {
+	case modelcontext.AttachmentKindImage:
+		return map[string]any{"type": "image_url", "image_url": map[string]string{"url": dataURL}}, true
+	case modelcontext.AttachmentKindDocument:
+		return map[string]any{
+			"type": "file",
+			"file": map[string]string{
+				"filename":  modelcontext.MediaFilename(resolved.Filename, resolved.MediaType),
+				"file_data": dataURL,
+			},
+		}, true
+	default:
 		return nil, false
 	}
-	dataURL := "data:" + resolved.MediaType + ";base64," + base64.StdEncoding.EncodeToString(resolved.Data)
-	return map[string]any{"type": "image_url", "image_url": map[string]string{"url": dataURL}}, true
 }
 
-func toolResultOutput(result modelcontext.ToolResultRef) string {
-	return textContentFromParts(result.ContentParts, nil)
+func rendersAsChatText(resolved modelcontext.ResolvedMedia) bool {
+	return modelcontext.IsTextDocumentMediaType(resolved.MediaType) &&
+		(len(resolved.Data) == 0 || utf8.Valid(resolved.Data))
+}
+
+func rendersAsChatDocument(resolved modelcontext.ResolvedMedia) bool {
+	return rendersAsChatText(resolved) || resolved.MediaType == "application/pdf"
+}
+
+func toolResultOutput(
+	result modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
+) string {
+	return textContentFromParts(result.ContentParts, media)
+}
+
+func toolResultMediaContent(
+	result modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
+) []any {
+	var parts []map[string]json.RawMessage
+	if err := json.Unmarshal(result.ContentParts, &parts); err != nil {
+		return nil
+	}
+	var blocks []any
+	for _, part := range parts {
+		if jsonFieldText(part["type"]) != "media_ref" {
+			continue
+		}
+		artifactID := jsonFieldText(part["artifact_id"])
+		resolved, ok := media[artifactID]
+		if !ok || resolved.Kind != modelcontext.AttachmentKindImage {
+			continue
+		}
+		block, ok := chatMediaPart(resolved)
+		if !ok {
+			continue
+		}
+		blocks = append(blocks, map[string]any{
+			"type": "text",
+			"text": "Attachment returned by tool " + result.Name + ". tool_call_id: " +
+				result.ProviderCallID + ". artifact_id: " + modelcontext.ArtifactPublicID(artifactID),
+		})
+		blocks = append(blocks, block)
+	}
+	return blocks
 }
 
 func textContentFromParts(
