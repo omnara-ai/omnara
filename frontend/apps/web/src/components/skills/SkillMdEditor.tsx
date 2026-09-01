@@ -81,7 +81,6 @@ export function SkillMdEditor({
       model.dispose()
       modelRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- emitChange is a useEffectEvent; the installed plugin version does not recognize it yet
   }, [id, monaco])
 
   useEffect(() => {

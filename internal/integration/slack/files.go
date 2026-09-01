@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 type File struct {
@@ -365,6 +366,15 @@ func attachmentMediaType(
 	content []byte,
 	accept func(string) bool,
 ) string {
+	validUTF8 := utf8.Valid(content)
+	if validUTF8 {
+		for _, filename := range []string{file.Name, file.Title} {
+			mediaType := normalizeMediaType(mime.TypeByExtension(filepath.Ext(filename)))
+			if strings.HasPrefix(mediaType, "text/") && (accept == nil || accept(mediaType)) {
+				return mediaType
+			}
+		}
+	}
 	candidates := []string{
 		file.Mimetype,
 		mime.TypeByExtension(filepath.Ext(file.Name)),
@@ -374,6 +384,9 @@ func attachmentMediaType(
 	}
 	for _, candidate := range candidates {
 		mediaType := normalizeMediaType(candidate)
+		if strings.HasPrefix(mediaType, "text/") && !validUTF8 {
+			continue
+		}
 		if accept == nil {
 			if mediaType != "" {
 				return mediaType

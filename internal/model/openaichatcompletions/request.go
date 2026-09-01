@@ -256,7 +256,10 @@ func buildMessages(
 	}
 }
 
-func messageFromContext(message modelcontext.Message, media map[string]modelcontext.ResolvedMedia) (chatMessage, bool) {
+func messageFromContext(
+	message modelcontext.Message,
+	media map[string]modelcontext.ResolvedMedia,
+) (chatMessage, bool) {
 	switch message.Role {
 	case modelprotocol.RoleAssistant:
 		text := textContentFromParts(message.Content, nil)

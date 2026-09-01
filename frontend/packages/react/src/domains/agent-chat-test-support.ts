@@ -35,12 +35,12 @@ import { QueryClient } from '@tanstack/react-query'
 
 import { AgentChatSession } from './agent-chat'
 import {
-  type AgentChatStatus,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import type { AgentChatStatus } from './agent-chat-types'
 
 export const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 

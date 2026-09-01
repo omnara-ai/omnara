@@ -8937,6 +8937,15 @@ components:
           $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
+      description: >-
+        Files that pass validation are stored as artifacts. Model input always
+        includes the artifact ID, whether or not the file contents can be sent
+        directly. Text media must contain valid UTF-8 and is sent as text. Images
+        and PDFs are sent directly when supported by the configured provider and
+        model; unsupported combinations are rejected. Other binary documents are
+        sent directly only to OpenAI Responses models with file input support.
+        Chat Completions and Anthropic Messages receive the artifact ID and the
+        filename, if provided, instead of the contents of those documents.
       additionalProperties: false
       required: [type, media_type, data]
       properties:
@@ -8955,6 +8964,15 @@ components:
             - text/markdown
             - text/csv
             - text/tab-separated-values
+            - text/x-iif
+            - application/msword
+            - application/rtf
+            - application/vnd.oasis.opendocument.text
+            - application/vnd.apple.pages
+            - application/vnd.apple.keynote
+            - application/vnd.apple.iwork
+            - application/vnd.ms-powerpoint
+            - application/vnd.ms-excel
             - application/vnd.openxmlformats-officedocument.wordprocessingml.document
             - application/vnd.openxmlformats-officedocument.presentationml.presentation
             - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
@@ -8965,6 +8983,7 @@ components:
           type: string
           format: byte
           minLength: 1
+          description: Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:

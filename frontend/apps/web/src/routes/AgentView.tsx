@@ -1,6 +1,7 @@
 import {
   useAgent,
   useAgentChat,
+  useAgentConfig,
   useAgentInteractions,
   useAgentProfileQuery,
   useCancelAgent,
@@ -49,6 +50,7 @@ export function AgentView() {
         : false,
   })
   const agent = data.agent
+  const { data: agentConfig } = useAgentConfig(activeOrg.id, projectId, agent.current_config_id)
   const archived = agent.state === 'archived'
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
@@ -195,6 +197,7 @@ export function AgentView() {
                 {!configOpen && (
                   <AgentComposer
                     chat={chat}
+                    model={agentConfig?.model}
                     cancelPending={cancelAgent.isPending}
                     cancelError={cancelAgent.error}
                     onCancel={cancelCurrent}
