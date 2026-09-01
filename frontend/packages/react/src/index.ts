@@ -227,8 +227,10 @@ export {
   useDeleteSkillGrant,
   useGrantSkillToProject,
   useProjectAvailableSkills,
+  useSkill,
   useSkillGrants,
   useSkills,
+  useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

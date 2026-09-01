@@ -497,6 +497,23 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
+
+export const zSkillFile = z.object({
+    path: z.string(),
+    size: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
@@ -506,6 +523,7 @@ export const zSkill = z.object({
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
     skill_md: z.string().optional(),
+    files: z.array(zSkillFile).optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -3047,9 +3065,21 @@ export const zGetSkillPath = z.object({
 });
 
 /**
- * Visible skill metadata and instructions.
+ * Visible skill metadata, instructions, and archive file listing.
  */
 export const zGetSkillResponse = zSkill;
+
+export const zUpdateSkillBody = zUpdateSkillRequest;
+
+export const zUpdateSkillPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
+});
+
+/**
+ * Skill updated with a new revision.
+ */
+export const zUpdateSkillResponse = zSkill;
 
 export const zListSkillGrantsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
