@@ -144,7 +144,7 @@ func main() {
 	}
 	replicaID := uuid.New()
 
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.ManagedMachineEndpoints())
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	for _, defaultPoolTemplate := range cfg.DefaultMachinePools {
 		if err := machinePoolManager.ValidateDefaultMachinePool(defaultPoolTemplate); err != nil {
 			log.Error("validate default machine pool", "error", err)

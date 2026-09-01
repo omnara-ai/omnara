@@ -20,13 +20,8 @@ const (
 	Unikraft = "unikraft"
 )
 
-type ManagedMachineEndpoints struct {
-	APIURL       string
-	InstallerURL string
-}
-
 type RuntimeConfig struct {
-	Omnara            ManagedMachineEndpoints
+	OmnaraAPIURL      string
 	ProviderAuthToken string
 }
 

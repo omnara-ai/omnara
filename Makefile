@@ -150,7 +150,6 @@ openapi-compat-fixture-check:
 openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
 	$(OASDIFF_BREAKING) \
-		--strip-prefix-base /api/v1 \
 		--err-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--warn-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--format $(OASDIFF_FORMAT) \

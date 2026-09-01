@@ -145,10 +145,10 @@ VALUES ($1, false)
 	}
 	provider := &captureProvider{provisionResourceID: "admitted-resource"}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(&testProviderDefinition{provider: provider}),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(&testProviderDefinition{provider: provider}),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	if err := manager.ProvisionMachine(ctx, orgID, machineID); err != nil {
 		t.Fatalf("finish admitted machine provisioning: %v", err)
@@ -305,10 +305,10 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	provisionErr := errors.New("provider provision failed")
 
@@ -682,10 +682,10 @@ func TestManagerValidatesPoolPolicyBeforeProvisioning(t *testing.T) {
 		},
 	}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	if err := manager.ProvisionMachine(ctx, orgID, machineID); !errors.Is(err, policyErr) {
@@ -810,10 +810,10 @@ func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing
 	provider := &captureProvider{provisionResourceID: "resource-1"}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	err = manager.ProvisionMachine(ctx, orgID, machineID)
@@ -905,10 +905,10 @@ func TestManagerUsesArchivedPoolProviderConfigForCleanup(t *testing.T) {
 	provider := &captureProvider{}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	if err := manager.DeleteMachine(
@@ -1011,10 +1011,10 @@ func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
 	wakeErr := errors.New("provider wake failed")
 	provider := &captureProvider{wakeErrors: []error{wakeErr, wakeErr}}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(&testProviderDefinition{provider: provider}),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(&testProviderDefinition{provider: provider}),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	shouldRetry, err := manager.WakeMachine(ctx, orgID, machineID)
@@ -1243,10 +1243,10 @@ func TestManagerDeletesMachineWithoutProviderProvisionAttempt(t *testing.T) {
 	provider := &captureProvider{}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	if err := manager.DeleteMachine(
@@ -1352,10 +1352,10 @@ func TestManagerRetriesDeletingAttemptedMachineWithoutResource(t *testing.T) {
 	provider := &captureProvider{}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	if err := manager.DeleteMachine(
@@ -1464,10 +1464,10 @@ func TestManagerFinalizesStaleMissingProviderResource(t *testing.T) {
 	provider := &captureProvider{}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	if err := manager.DeleteMachine(
@@ -1557,10 +1557,10 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 	provider := &captureProvider{}
 	definition := &testProviderDefinition{provider: provider}
 	manager := Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   testProviderCatalog(definition),
-		Omnara:    providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      testProviderCatalog(definition),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 
 	reconciled, err := manager.ReconcileCleanup(ctx, 10)

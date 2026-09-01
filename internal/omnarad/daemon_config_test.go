@@ -125,7 +125,7 @@ func TestWriteDaemonConfigUpdatesAPIURLAfterValidatingExistingBinding(t *testing
 		MachineToken:   "stored-token",
 		RunnerPath:     "/stored/bin",
 	})
-	setDaemonEnvironment(t, home, proposed.URL, "")
+	setDaemonEnvironment(t, home, testAPIBaseURL(proposed.URL), "")
 
 	if err := writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger()); err != nil {
 		t.Fatalf("configure daemon with API URL override: %v", err)
@@ -156,7 +156,7 @@ func TestWriteDaemonConfigRotatesTokenForSameBinding(t *testing.T) {
 		NoUpdate:       true,
 		RunnerPath:     "/stored/bin",
 	})
-	setDaemonEnvironment(t, home, server.URL, "new-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "new-token")
 	t.Setenv("PATH", "/incidental/bin")
 	t.Setenv("OMNARA_NO_UPDATE", "0")
 
@@ -210,7 +210,7 @@ func TestWriteDaemonConfigRejectsBindingChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config before: %v", err)
 	}
-	setDaemonEnvironment(t, home, proposed.URL, "new-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(proposed.URL), "new-token")
 
 	err = writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
 	if err == nil || !strings.Contains(err.Error(), "does not match configured machine") {
@@ -246,7 +246,7 @@ func TestWriteDaemonConfigRejectsInvalidAuthAtAPIURLOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config before: %v", err)
 	}
-	setDaemonEnvironment(t, home, server.URL, "")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "")
 
 	err = writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
 	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL + "/api/v1"
@@ -268,7 +268,7 @@ func TestWriteDaemonConfigRejectsInvalidAuthWithoutWriting(t *testing.T) {
 		http.Error(w, "rejected", http.StatusUnauthorized)
 	}))
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "bad-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "bad-token")
 
 	err := writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
 	want := "OMNARA_MACHINE_TOKEN was rejected by " + server.URL + "/api/v1"
@@ -287,7 +287,7 @@ func TestWriteDaemonConfigRejectsInvalidNoUpdateBeforeRequest(t *testing.T) {
 		requests++
 	}))
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token")
 	t.Setenv("OMNARA_NO_UPDATE", "true")
 
 	err := writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
@@ -340,7 +340,7 @@ func TestWriteDaemonConfigRecoversOnlyMatchingDurableState(t *testing.T) {
 			}
 			server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 			defer server.Close()
-			setDaemonEnvironment(t, home, server.URL, "token-a")
+			setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 
 			err = writeDaemonConfig(context.Background(), nil, io.Discard, discardLogger())
 			if testCase.wantErr {
@@ -365,7 +365,7 @@ func TestWriteDaemonConfigTreatsCompleteStateDeletionAsFreshBootstrap(
 	home := filepath.Join(t.TempDir(), "home")
 	oldServer := bootstrapServer(t, "old-token", "inst-old", "mch-old")
 	t.Cleanup(oldServer.Close)
-	setDaemonEnvironment(t, home, oldServer.URL, "old-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(oldServer.URL), "old-token")
 	if err := writeDaemonConfig(
 		context.Background(),
 		nil,
@@ -392,7 +392,7 @@ func TestWriteDaemonConfigTreatsCompleteStateDeletionAsFreshBootstrap(
 	}
 	newServer := bootstrapServer(t, "new-token", "inst-new", "mch-new")
 	defer newServer.Close()
-	setDaemonEnvironment(t, home, newServer.URL, "new-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(newServer.URL), "new-token")
 	if err := writeDaemonConfig(
 		context.Background(),
 		nil,
@@ -419,7 +419,7 @@ func TestWriteDaemonConfigDoesNotUseInstallLock(t *testing.T) {
 	home := t.TempDir()
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "token-a")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 	lock, err := acquireInstallLock(context.Background(), home)
 	if err != nil {
 		t.Fatalf("acquire install lock: %v", err)
@@ -606,7 +606,7 @@ func TestLoadRuntimeConfigAppliesTemporaryEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load runtime config: %v", err)
 	}
-	if config.APIURL != "https://other.example.com/api/v1" || config.MachineToken != "environment-token" ||
+	if config.APIURL != "https://other.example.com" || config.MachineToken != "environment-token" ||
 		config.DaemonVersion != version ||
 		config.ExpectedInstallationID != "inst-stored" || config.ExpectedMachineID != "mch-stored" ||
 		config.RunnerPath != "/environment/bin" {
@@ -763,7 +763,7 @@ func TestWriteDaemonConfigDoesNotUseRuntimeLock(t *testing.T) {
 		RunnerPath:     "/bin",
 	}
 	writeTestDaemonConfig(t, home, existing)
-	setDaemonEnvironment(t, home, server.URL, "new-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "new-token")
 	store, err := localstore.New(home)
 	if err != nil {
 		t.Fatalf("open local store: %v", err)
@@ -829,8 +829,9 @@ func setDaemonEnvironment(t *testing.T, home, apiURL, token string) {
 	t.Setenv("OMNARA_RUNNER_PATH", "")
 }
 
-func setConfiguredDaemonEnvironment(t *testing.T, home, apiURL, runnerPath string) {
+func setConfiguredDaemonEnvironment(t *testing.T, home, apiOrigin, runnerPath string) {
 	t.Helper()
+	apiURL := testAPIBaseURL(apiOrigin)
 	setDaemonEnvironment(t, home, apiURL, "token-a")
 	writeTestDaemonConfig(t, home, daemonConfig{
 		SchemaVersion:  daemonConfigVersion,
@@ -840,6 +841,10 @@ func setConfiguredDaemonEnvironment(t *testing.T, home, apiURL, runnerPath strin
 		MachineToken:   "token-a",
 		RunnerPath:     runnerPath,
 	})
+}
+
+func testAPIBaseURL(origin string) string {
+	return strings.TrimRight(origin, "/") + "/api/v1"
 }
 
 func discardLogger() *slog.Logger {

@@ -179,7 +179,7 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
     .option('--api-url <url>', 'save this API root URL (used for requests) as the default')
     .option(
       '--issuer-url <url>',
-      'save this web app origin (used for login, browser links, and the installer) as the default',
+      'save this web app origin (used for login and browser links) as the default',
     )
     .action(async (options: ConfigOptions) => {
       await runCliAction(() => {

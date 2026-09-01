@@ -43,7 +43,7 @@ type Server struct {
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
 	publicAPIURL                        string
-	publicOrigin                        configuredOrigin
+	publicOrigins                       []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
@@ -378,7 +378,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	if err != nil {
 		return nil, err
 	}
-	server.publicOrigin = publicOrigin
+	publicAPIOrigin, err := parseConfiguredOrigin(server.publicAPIURL)
+	if err != nil {
+		return nil, err
+	}
+	if publicOrigin.host != "" {
+		server.publicOrigins = append(server.publicOrigins, publicOrigin)
+		if publicAPIOrigin.host != "" {
+			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
 	server.authRoutes = httpauth.New(httpauth.Config{
 		Log:                  log,
 		Store:                authStore,

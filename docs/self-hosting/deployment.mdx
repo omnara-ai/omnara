@@ -33,7 +33,7 @@ for connection-pool defaults.
 
 ## Exposing the deployment publicly
 
-`OMNARA_PUBLIC_URL` is the public app origin used for email links, OAuth callbacks, browser flows, and installer links. The API defaults to the same deployment at `/api/v1`; set `OMNARA_PUBLIC_API_URL` when it is exposed at a different public URL. These features will not function unless the configured URLs are publicly accessible.
+`OMNARA_PUBLIC_URL` is the public app origin used for email links, OAuth callbacks, and browser flows. The API defaults to the same deployment at `/api/v1`; set `OMNARA_PUBLIC_API_URL` when it is exposed at a different public URL. The daemon installer is served from the API origin at `/install/omnarad.sh`. These features will not function unless the configured URLs are publicly accessible.
 
 <Warning>
   Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.

@@ -42,7 +42,6 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
 export interface FlowContext<Path, Body> {
   client: OmnaraClient
   apiUrl: string
-  issuerUrl: string
   path: Path
   body: Body
   report: FlowReporter
@@ -51,7 +50,6 @@ export interface FlowContext<Path, Body> {
 interface FlowInput {
   client: OmnaraClient
   apiUrl: string
-  issuerUrl: string
   path: Record<string, unknown>
   body: unknown
 }
@@ -101,7 +99,6 @@ export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType
       run({
         client: input.client,
         apiUrl: input.apiUrl,
-        issuerUrl: input.issuerUrl,
         path: parseWithSchema(spec.path, input.path, 'arguments'),
         body: parseWithSchema(spec.body, input.body, 'flags'),
         report: createFlowReporter(spec.summary),
@@ -374,7 +371,6 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
       }
       const formatted = spec.format(data as never, {
         apiUrl: config.apiUrl,
-        issuerUrl: config.issuerUrl,
       })
       renderResult(formatted.value, false, { columns: formatted.columns })
     })
@@ -396,7 +392,6 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
       await spec.execute({
         client: config.client,
         apiUrl: config.apiUrl,
-        issuerUrl: config.issuerUrl,
         path: await resolvePathValues(plan, args, options, config),
         body: collectFlagValues(bodyFlags, options),
       })

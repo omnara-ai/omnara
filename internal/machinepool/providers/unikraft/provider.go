@@ -24,7 +24,7 @@ type provider struct {
 	api           apiClient
 	apiToken      string
 	apiBaseURL    string
-	omnara        providers.ManagedMachineEndpoints
+	omnaraAPIURL  string
 	wakeTransport http.RoundTripper
 }
 
@@ -89,7 +89,7 @@ func (p *provider) ProvisionMachine(
 	}
 
 	env, err := providers.BuildManagedMachineEnv(
-		p.omnara,
+		p.omnaraAPIURL,
 		machineToken,
 		options.StartupScript,
 		machineEnv,

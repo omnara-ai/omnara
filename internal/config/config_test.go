@@ -2,11 +2,11 @@ package config
 
 import (
 	"encoding/base64"
-	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
@@ -86,12 +86,6 @@ func TestLoadPublicURL(t *testing.T) {
 	if cfg.PublicAPIURL != "http://localhost:5173/api/v1" {
 		t.Fatalf("expected derived public API URL, got %q", cfg.PublicAPIURL)
 	}
-	if endpoints := cfg.ManagedMachineEndpoints(); endpoints != (providers.ManagedMachineEndpoints{
-		APIURL:       "http://localhost:5173/api/v1",
-		InstallerURL: "http://localhost:5173/install/omnarad.sh",
-	}) {
-		t.Fatalf("expected managed machine endpoints, got %+v", endpoints)
-	}
 }
 
 func TestLoadPublicAPIURL(t *testing.T) {
@@ -106,25 +100,28 @@ func TestLoadPublicAPIURL(t *testing.T) {
 	if cfg.PublicAPIURL != "https://api.example.com/v1" {
 		t.Fatalf("expected configured public API URL, got %q", cfg.PublicAPIURL)
 	}
-	if endpoints := cfg.ManagedMachineEndpoints(); endpoints != (providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.example.com/v1",
-		InstallerURL: "https://app.example.com/install/omnarad.sh",
-	}) {
-		t.Fatalf("expected managed machine endpoints, got %+v", endpoints)
-	}
 }
 
 func TestValidateAPIRejectsInvalidPublicAPIURL(t *testing.T) {
-	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
-	t.Setenv("OMNARA_PUBLIC_API_URL", "api.example.com/v1")
+	for _, value := range []string{
+		"api.example.com/v1",
+		"https://user@api.example.com/v1",
+		"https://api.example.com/v1?region=us",
+		"https://api.example.com/v1#fragment",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
+			t.Setenv("OMNARA_PUBLIC_API_URL", value)
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_API_URL") {
-		t.Fatalf("expected OMNARA_PUBLIC_API_URL validation error, got %v", err)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_API_URL") {
+				t.Fatalf("expected OMNARA_PUBLIC_API_URL validation error, got %v", err)
+			}
+		})
 	}
 }
 

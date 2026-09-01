@@ -15,7 +15,6 @@ import (
 	"unicode"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -396,16 +395,6 @@ func normalizePublicURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
-func (cfg Config) ManagedMachineEndpoints() providers.ManagedMachineEndpoints {
-	if cfg.PublicURL == "" {
-		return providers.ManagedMachineEndpoints{}
-	}
-	return providers.ManagedMachineEndpoints{
-		APIURL:       cfg.PublicAPIURL,
-		InstallerURL: cfg.PublicURL + "/install/omnarad.sh",
-	}
-}
-
 func (cfg Config) ValidateAPI() error {
 	if err := validatePortWithName("OMNARA_API_ADDR", cfg.APIAddr); err != nil {
 		return err
@@ -685,7 +674,7 @@ func (cfg Config) validatePublicURL(required bool) error {
 		return errors.New("OMNARA_PUBLIC_URL is required when OMNARA_PUBLIC_API_URL is set")
 	}
 	if cfg.PublicAPIURL != "" {
-		if err := validateHTTPURL("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
+		if err := validateHTTPBaseURL("OMNARA_PUBLIC_API_URL", cfg.PublicAPIURL); err != nil {
 			return err
 		}
 		if !cfg.AllowInsecureDev {
@@ -926,6 +915,17 @@ func validateHTTPURL(key, raw string) error {
 	}
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
 		return fmt.Errorf("%s must use http or https", key)
+	}
+	return nil
+}
+
+func validateHTTPBaseURL(key, raw string) error {
+	if err := validateHTTPURL(key, raw); err != nil {
+		return err
+	}
+	parsed, _ := url.Parse(raw)
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return fmt.Errorf("%s must not contain credentials, a query, or a fragment", key)
 	}
 	return nil
 }

@@ -45,10 +45,10 @@ type sandboxRuntimeState string
 type sandboxProcessStatus string
 
 type provider struct {
-	api       apiClient
-	workspace string
-	apiToken  string
-	omnara    providers.ManagedMachineEndpoints
+	api          apiClient
+	workspace    string
+	apiToken     string
+	omnaraAPIURL string
 }
 
 func (p *provider) apiClient() apiClient {
@@ -97,7 +97,7 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	env, err := providers.BuildManagedMachineEnv(
-		p.omnara,
+		p.omnaraAPIURL,
 		machineToken,
 		options.StartupScript,
 		machineEnv,

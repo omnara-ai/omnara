@@ -69,9 +69,9 @@ func newProvider(
 		return nil, errors.New("blaxel provider auth token is required")
 	}
 	return &provider{
-		workspace: config.Workspace,
-		apiToken:  runtimeConfig.ProviderAuthToken,
-		omnara:    runtimeConfig.Omnara,
+		workspace:    config.Workspace,
+		apiToken:     runtimeConfig.ProviderAuthToken,
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
 

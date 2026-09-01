@@ -63,9 +63,9 @@ func newProvider(
 		return nil, errors.New("unikraft provider auth token is required")
 	}
 	return &provider{
-		apiToken:   runtimeConfig.ProviderAuthToken,
-		apiBaseURL: config.APIBaseURL,
-		omnara:     runtimeConfig.Omnara,
+		apiToken:     runtimeConfig.ProviderAuthToken,
+		apiBaseURL:   config.APIBaseURL,
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
 

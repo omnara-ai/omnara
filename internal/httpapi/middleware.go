@@ -47,7 +47,7 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"):
 		return maxSkillUploadRequestBodyBytes
-	case strings.HasPrefix(r.URL.Path, "/api/v1/daemon/tool-calls/") &&
+	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/tool-calls/") &&
 		strings.HasSuffix(r.URL.Path, "/artifact"):
 		return daemonprotocol.MaxArtifactUploadBytes
 	}

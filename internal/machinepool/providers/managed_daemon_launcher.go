@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
@@ -32,19 +33,30 @@ const (
 )
 
 func BuildManagedMachineEnv(
-	omnara ManagedMachineEndpoints,
+	omnaraAPIURL string,
 	machineToken string,
 	startupScript string,
 	machineEnv map[string]string,
 ) (map[string]string, error) {
-	apiURL := strings.TrimRight(strings.TrimSpace(omnara.APIURL), "/")
+	apiURL := strings.TrimRight(strings.TrimSpace(omnaraAPIURL), "/")
 	if apiURL == "" {
 		return nil, errors.New("API URL is required for managed machine bootstrap")
 	}
-	installerURL := strings.TrimSpace(omnara.InstallerURL)
-	if installerURL == "" {
-		return nil, errors.New("installer URL is required for managed machine bootstrap")
+	parsedAPIURL, err := url.Parse(apiURL)
+	if err != nil || parsedAPIURL.Opaque != "" || parsedAPIURL.Scheme == "" || parsedAPIURL.Host == "" {
+		return nil, errors.New("API URL for managed machine bootstrap must be absolute")
 	}
+	if parsedAPIURL.Scheme != "http" && parsedAPIURL.Scheme != "https" {
+		return nil, errors.New("API URL for managed machine bootstrap must use http or https")
+	}
+	if parsedAPIURL.User != nil || parsedAPIURL.RawQuery != "" || parsedAPIURL.ForceQuery || parsedAPIURL.Fragment != "" {
+		return nil, errors.New("API URL for managed machine bootstrap must not contain credentials, a query, or a fragment")
+	}
+	parsedAPIURL.Path = "/install/omnarad.sh"
+	parsedAPIURL.RawPath = ""
+	parsedAPIURL.RawQuery = ""
+	parsedAPIURL.Fragment = ""
+	installerURL := parsedAPIURL.String()
 	env := make(map[string]string, len(machineEnv)+4)
 	for key, value := range machineEnv {
 		if strings.HasPrefix(strings.ToUpper(key), "OMNARA_") {

@@ -13,10 +13,7 @@ func TestDefinitionCreatesProviderFromConfig(t *testing.T) {
 	runtime, err := (Definition{}).NewProvider(
 		json.RawMessage(`{"allowed_images":["registry.example/daemon:latest"],"allowed_metros":["sfo"]}`),
 		providers.RuntimeConfig{
-			Omnara: providers.ManagedMachineEndpoints{
-				APIURL:       "https://api.omnara.test/v1",
-				InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-			},
+			OmnaraAPIURL:      "https://api.omnara.test/v1",
 			ProviderAuthToken: "token",
 		},
 	)
@@ -30,11 +27,8 @@ func TestDefinitionCreatesProviderFromConfig(t *testing.T) {
 	if provider.apiBaseURL != "" {
 		t.Fatalf("api base url = %q, want empty so metro derives hosted endpoint", provider.apiBaseURL)
 	}
-	if provider.omnara != (providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}) {
-		t.Fatalf("omnara urls = %+v", provider.omnara)
+	if provider.omnaraAPIURL != "https://api.omnara.test/v1" {
+		t.Fatalf("omnara API URL = %q", provider.omnaraAPIURL)
 	}
 }
 
@@ -43,10 +37,10 @@ func TestDefinitionCreatesProviderWithCustomBaseURL(t *testing.T) {
 		json.RawMessage(
 			`{"api_base_url":"https://api.custom.example/","allowed_images":["registry.example/daemon:latest"],"allowed_metros":["sfo"]}`,
 		),
-		providers.RuntimeConfig{Omnara: providers.ManagedMachineEndpoints{
-			APIURL:       "https://api.omnara.test/v1",
-			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-		}, ProviderAuthToken: "token"},
+		providers.RuntimeConfig{
+			OmnaraAPIURL:      "https://api.omnara.test/v1",
+			ProviderAuthToken: "token",
+		},
 	)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)

@@ -38,20 +38,20 @@ type Manager struct {
 	Execution                  *executionstore.Store
 	Identity                   *identitystore.Store
 	Catalog                    Catalog
-	Omnara                     providers.ManagedMachineEndpoints
+	PublicAPIURL               string
 	runtimeReconciliationState *runtimeReconciliationState
 }
 
 func NewManager(
 	execution *executionstore.Store,
 	identity *identitystore.Store,
-	omnara providers.ManagedMachineEndpoints,
+	publicAPIURL string,
 ) *Manager {
 	return &Manager{
 		Execution:                  execution,
 		Identity:                   identity,
 		Catalog:                    DefaultCatalog(),
-		Omnara:                     omnara,
+		PublicAPIURL:               publicAPIURL,
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
@@ -680,7 +680,7 @@ func (m Manager) providerForMachine(
 		return nil, "provider_config_invalid", "machine provider credential is unavailable", err
 	}
 	runtimeConfig := providers.RuntimeConfig{
-		Omnara:            m.Omnara,
+		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: providerAuthToken,
 	}
 	provider, err := definition.NewProvider(pool.ProviderConfig, runtimeConfig)

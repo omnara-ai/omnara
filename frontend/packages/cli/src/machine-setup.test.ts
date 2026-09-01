@@ -8,13 +8,12 @@ import {
   formatMachineSetup,
 } from './machine-setup.ts'
 
-it('builds install instructions from the deployment origin', () => {
+it('builds install instructions from the API origin', () => {
   const formatted = formatMachineSetup({} as ConnectByoMachineResponse, {
     apiUrl: 'https://api.example.com/v1',
-    issuerUrl: 'https://app.example.com',
   })
   expect(formatted.value).toMatchObject({
-    install_command: "curl -fsSL 'https://app.example.com/install/omnarad.sh' | sh",
+    install_command: "curl -fsSL 'https://api.example.com/install/omnarad.sh' | sh",
   })
 })
 

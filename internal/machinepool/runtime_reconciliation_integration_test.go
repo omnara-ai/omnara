@@ -1396,7 +1396,7 @@ func newRuntimeReconciliationFixture(
 		Execution:                  store.Execution(),
 		Identity:                   store.Identity(),
 		Catalog:                    testProviderCatalog(definition),
-		Omnara:                     providers.ManagedMachineEndpoints{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		PublicAPIURL:               "https://api.omnara.test/v1",
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 	return runtimeReconciliationFixture{

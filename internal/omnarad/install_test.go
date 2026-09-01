@@ -284,7 +284,7 @@ func TestRunInstallNoStartFreshAndReuseReceipt(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "token-a")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 	manifestURL := "https://releases.omnara.test/omnarad/latest/linux-amd64.txt"
 	var stdout strings.Builder
 	var stderr strings.Builder
@@ -345,7 +345,7 @@ func TestRunInstallHoldsInstallLockThroughConfiguration(t *testing.T) {
 		observed <- nil
 	})
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "token-a")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 	var stderr strings.Builder
 	if code := Run(
 		context.Background(),
@@ -382,7 +382,7 @@ func TestRunInstallRestartsCanonicalDaemon(t *testing.T) {
 	home := t.TempDir()
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
 	defer server.Close()
-	setDaemonEnvironment(t, home, server.URL, "token-a")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 	if err := localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
 		SchemaVersion:      installReceiptVersion,
 		InstallMethod:      installReceiptMethod,

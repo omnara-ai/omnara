@@ -20,10 +20,7 @@ import (
 func TestBuildManagedMachineEnv(t *testing.T) {
 	startupScript := "echo ready\n"
 	env, err := BuildManagedMachineEnv(
-		ManagedMachineEndpoints{
-			APIURL:       "  https://api.omnara.test/v1///  ",
-			InstallerURL: " https://app.omnara.test/install/omnarad.sh ",
-		},
+		"  https://api.omnara.test/v1///  ",
 		"machine-token",
 		startupScript,
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
@@ -32,7 +29,7 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 		t.Fatalf("build managed machine env: %v", err)
 	}
 	if len(env) != 6 || env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
-		env["OMNARA_INSTALLER_URL"] != "https://app.omnara.test/install/omnarad.sh" ||
+		env["OMNARA_INSTALLER_URL"] != "https://api.omnara.test/install/omnarad.sh" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 		env[startupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) ||
 		env["APP_ENV"] != "production" ||
@@ -42,15 +39,12 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 }
 
 func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
-	env, err := BuildManagedMachineEnv(ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}, "machine-token", "", nil)
+	env, err := BuildManagedMachineEnv("https://api.omnara.test/v1", "machine-token", "", nil)
 	if err != nil {
 		t.Fatalf("build managed machine env: %v", err)
 	}
 	if len(env) != 3 || env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
-		env["OMNARA_INSTALLER_URL"] != "https://app.omnara.test/install/omnarad.sh" ||
+		env["OMNARA_INSTALLER_URL"] != "https://api.omnara.test/install/omnarad.sh" ||
 		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
 		t.Fatalf("managed machine env = %+v", env)
 	}
@@ -58,16 +52,20 @@ func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
 
 func TestBuildManagedMachineEnvRejectsReservedMachineEnv(t *testing.T) {
 	_, err := BuildManagedMachineEnv(
-		ManagedMachineEndpoints{
-			APIURL:       "https://api.omnara.test/v1",
-			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-		},
+		"https://api.omnara.test/v1",
 		"machine-token",
 		"",
 		map[string]string{"omnara_api_url": "spoofed"},
 	)
 	if err == nil || !strings.Contains(err.Error(), "reserved OMNARA_ key") {
 		t.Fatalf("build managed machine env error = %v, want reserved key rejection", err)
+	}
+}
+
+func TestBuildManagedMachineEnvRejectsRelativeAPIURL(t *testing.T) {
+	_, err := BuildManagedMachineEnv("/api/v1", "machine-token", "", nil)
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("build managed machine env error = %v, want absolute URL rejection", err)
 	}
 }
 

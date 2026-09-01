@@ -409,10 +409,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 	machineID := uuid.New()
 	name := mustInstanceName(t, machineID)
 	api := &fakeAPI{instancesByName: map[string]instance{name: {UUID: "uuid-1", Name: name}}}
-	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	machineProvisioning := testMachineProvisioning(t, nil)
 
 	byUUID, found, err := provider.InspectMachine(
@@ -447,10 +444,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 func TestUnikraftProviderInspectMachineByUUIDRejectsMissingUUID(t *testing.T) {
 	machineID := uuid.New()
 	api := &fakeAPI{instancesByUUID: map[string]instance{"uuid-1": {Name: "bad"}}}
-	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 
 	_, _, err := provider.InspectMachine(
 		context.Background(),
@@ -474,10 +468,7 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 		"uuid-1":       {UUID: "uuid-1", Name: name},
 		"uuid-foreign": {UUID: "uuid-foreign", Name: "other"},
 	}}
-	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	err = provider.DeleteMachine(
 		context.Background(),
 		testInstallationID(),
@@ -540,10 +531,7 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		"uuid-existing": {UUID: "uuid-existing", Name: name},
 	}}
-	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
-		APIURL:       "https://api.omnara.test/v1",
-		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-	}}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	machineProvisioning := testMachineProvisioning(t, nil)
 	machineProvisioning.CPU = nil
 	machineProvisioning.MemoryMB = nil
@@ -567,11 +555,8 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api: api,
-		omnara: providers.ManagedMachineEndpoints{
-			APIURL:       "https://api.omnara.test/v1",
-			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-		},
+		api:          api,
+		omnaraAPIURL: "https://api.omnara.test/v1",
 	}
 }
 

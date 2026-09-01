@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/machinepool"
-	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1350,13 +1349,10 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		MaxMachineMemoryMB:            intPtrForHTTPMachinePoolTest(1024),
 	}
 	manager := &machinepool.Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   machinepool.DefaultCatalog(),
-		Omnara: providers.ManagedMachineEndpoints{
-			APIURL:       "https://api.omnara.test/v1",
-			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
-		},
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      machinepool.DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	handler := newIntegrationHTTPHandler(withDefaultRequestOrigin(
 		mustNewServer(
