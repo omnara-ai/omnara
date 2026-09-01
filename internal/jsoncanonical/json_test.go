@@ -28,3 +28,23 @@ func TestEqualComparesJSONValuesWithoutLosingNumberPrecision(t *testing.T) {
 		t.Fatal("equivalent numbers with large exponents did not compare equal")
 	}
 }
+
+func TestNormalizeOrdersObjectKeysAndRejectsTrailingValues(t *testing.T) {
+	normalized, err := Normalize(json.RawMessage(`{"b":2,"a":1}`))
+	if err != nil {
+		t.Fatalf("normalize valid object: %v", err)
+	}
+	if string(normalized) != `{"a":1,"b":2}` {
+		t.Fatalf("normalized = %s, want keys in lexical order", normalized)
+	}
+	if _, err := Normalize(json.RawMessage(`{"value":1} trailing`)); err == nil {
+		t.Fatal("expected trailing JSON value to be rejected")
+	}
+	equivalent, err := Normalize(json.RawMessage(`{"n":1.0}`))
+	if err != nil {
+		t.Fatalf("normalize number: %v", err)
+	}
+	if string(equivalent) != `{"n":1}` {
+		t.Fatalf("normalized number = %s, want compact encoding", equivalent)
+	}
+}
