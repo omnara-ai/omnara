@@ -144,7 +144,7 @@ func applyDaemonEnvironment(config *daemonConfig) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("OMNARA_API_URL: %w", err)
 		}
-		config.APIURL = apiURL
+		config.APIURL = migrateLegacyAPIURL(apiURL)
 	}
 	if token := os.Getenv("OMNARA_MACHINE_TOKEN"); token != "" {
 		config.MachineToken = token
