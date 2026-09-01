@@ -1,10 +1,14 @@
 import '@/components/agents/monacoEnvironment'
-import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'
 
-import * as monaco from 'monaco-editor'
-import { useEffect, useEffectEvent, useRef } from 'react'
+import type * as Monaco from 'monaco-editor'
+import { use, useEffect, useEffectEvent, useRef } from 'react'
 
 import { cn } from '@/lib/utils'
+
+const monacoPromise = Promise.all([
+  import('monaco-editor'),
+  import('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'),
+]).then(([module]) => module)
 
 function monacoThemeFromDocument() {
   return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
@@ -12,21 +16,23 @@ function monacoThemeFromDocument() {
 
 export function SkillMdEditor({
   id,
-  defaultValue,
+  value,
   onChange,
   readOnly = false,
   className,
 }: {
   id: string
-  defaultValue: string
+  value: string
   onChange: (value: string) => void
   readOnly?: boolean
   className?: string
 }) {
+  const monaco = use(monacoPromise)
   const editorElementRef = useRef<HTMLDivElement | null>(null)
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
   const emitChange = useEffectEvent(onChange)
-  const initialValueRef = useRef(defaultValue)
+  const initialValueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
 
   useEffect(() => {
@@ -37,6 +43,7 @@ export function SkillMdEditor({
       monaco.editor.getModel(modelUri) ??
       monaco.editor.createModel(initialValueRef.current, 'markdown', modelUri)
 
+    modelRef.current = model
     editorRef.current = monaco.editor.create(editorElementRef.current, {
       model,
       ariaLabel: 'SKILL.md',
@@ -72,9 +79,17 @@ export function SkillMdEditor({
       editorRef.current?.dispose()
       editorRef.current = null
       model.dispose()
+      modelRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- emitChange is a useEffectEvent; the installed plugin version does not recognize it yet
-  }, [id])
+  }, [id, monaco])
+
+  useEffect(() => {
+    const model = modelRef.current
+    if (model && value !== model.getValue()) {
+      model.setValue(value)
+    }
+  }, [value])
 
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly })

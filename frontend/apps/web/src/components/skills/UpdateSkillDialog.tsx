@@ -3,7 +3,7 @@ import type { Skill } from '@omnara/sdk'
 import { CatchBoundary } from '@tanstack/react-router'
 import { lazy, Suspense, type SyntheticEvent, useId, useState } from 'react'
 
-import { FileArchive } from '@/components/icons'
+import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { errorMessage } from '@/lib/submit-status'
@@ -140,7 +139,7 @@ export function UpdateSkillDialog({
                         <LazySkillMdEditor
                           id={skill.id}
                           className="h-[65vh]"
-                          defaultValue={editorValue}
+                          value={editorValue}
                           readOnly={updateSkill.isPending}
                           onChange={(nextValue) => {
                             setDraftMd(nextValue)
@@ -158,21 +157,15 @@ export function UpdateSkillDialog({
               <TabsContent value="archive">
                 <Field>
                   <FieldLabel htmlFor={archiveInputId}>Skill archive</FieldLabel>
-                  <div className="border-border bg-muted/20 flex items-center gap-3 rounded-lg border border-dashed p-4">
-                    <div className="bg-background flex size-9 shrink-0 items-center justify-center rounded-md border">
-                      <FileArchive className="text-muted-foreground size-4" />
-                    </div>
-                    <Input
-                      id={archiveInputId}
-                      type="file"
-                      accept=".zip,.tar.gz,application/zip,application/gzip"
-                      disabled={updateSkill.isPending}
-                      onChange={(event) => {
-                        setArchive(event.target.files?.[0])
-                        updateSkill.reset()
-                      }}
-                    />
-                  </div>
+                  <SkillArchivePicker
+                    id={archiveInputId}
+                    file={archive}
+                    disabled={updateSkill.isPending}
+                    onSelect={(file) => {
+                      setArchive(file)
+                      updateSkill.reset()
+                    }}
+                  />
                   <FieldDescription>
                     A .zip or .tar.gz archive containing SKILL.md replaces all of the skill&rsquo;s
                     files.

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -339,6 +340,7 @@ func (s strictOpenAPIServer) UpdateSkill(
 	}
 	var archive []byte
 	var format skills.ArchiveFormat
+	var baseRevisionID uuid.UUID
 	if upload.hasArchive {
 		archive = upload.archive
 		var formatOK bool
@@ -371,13 +373,14 @@ func (s strictOpenAPIServer) UpdateSkill(
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		}
 		format = skills.FormatZip
+		baseRevisionID = record.RevisionID
 	}
 	meta, err := skills.ExtractMetadata(format, archive)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	record, err := s.server.skills.CreateSkillRevisionForSkill(ctx, skillstore.CreateSkillRevisionForSkillInput{
-		OrgID: org.ID, SkillID: skillID,
+		OrgID: org.ID, SkillID: skillID, BaseRevisionID: baseRevisionID,
 		Name: meta.Name, Description: meta.Description, SkillMd: meta.SkillMd,
 		ArchiveBytes: archive, Actor: principal,
 	})
