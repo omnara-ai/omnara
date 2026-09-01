@@ -116,7 +116,7 @@ func main() {
 		metricSet,
 		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.OmnaraURLs())
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.ManagedMachineEndpoints())
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
 
 	machineLoopDone := make(chan struct{})

@@ -48,7 +48,7 @@ type provider struct {
 	api       apiClient
 	workspace string
 	apiToken  string
-	omnara    providers.OmnaraURLs
+	omnara    providers.ManagedMachineEndpoints
 }
 
 func (p *provider) apiClient() apiClient {

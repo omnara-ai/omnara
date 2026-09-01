@@ -1353,7 +1353,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		Execution: store.Execution(),
 		Identity:  store.Identity(),
 		Catalog:   machinepool.DefaultCatalog(),
-		Omnara: providers.OmnaraURLs{
+		Omnara: providers.ManagedMachineEndpoints{
 			APIURL:       "https://api.omnara.test/v1",
 			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 		},

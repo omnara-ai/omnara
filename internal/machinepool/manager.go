@@ -38,14 +38,14 @@ type Manager struct {
 	Execution                  *executionstore.Store
 	Identity                   *identitystore.Store
 	Catalog                    Catalog
-	Omnara                     providers.OmnaraURLs
+	Omnara                     providers.ManagedMachineEndpoints
 	runtimeReconciliationState *runtimeReconciliationState
 }
 
 func NewManager(
 	execution *executionstore.Store,
 	identity *identitystore.Store,
-	omnara providers.OmnaraURLs,
+	omnara providers.ManagedMachineEndpoints,
 ) *Manager {
 	return &Manager{
 		Execution:                  execution,

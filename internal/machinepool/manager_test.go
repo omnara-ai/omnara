@@ -21,7 +21,7 @@ func TestManagerValidatesDefaultMachinePool(t *testing.T) {
 	memoryMB := 1024
 	manager := Manager{
 		Catalog: DefaultCatalog(),
-		Omnara: providers.OmnaraURLs{
+		Omnara: providers.ManagedMachineEndpoints{
 			APIURL:       "https://api.omnara.test/v1",
 			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 		},
@@ -52,7 +52,7 @@ func TestManagerRejectsDefaultMachineConfigExceedingCaps(t *testing.T) {
 	memoryMB := 1024
 	manager := Manager{
 		Catalog: DefaultCatalog(),
-		Omnara: providers.OmnaraURLs{
+		Omnara: providers.ManagedMachineEndpoints{
 			APIURL:       "https://api.omnara.test/v1",
 			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 		},
@@ -85,7 +85,7 @@ func TestManagerRejectsInvalidDefaultMachineConfig(t *testing.T) {
 	memoryMB := 1024
 	manager := Manager{
 		Catalog: DefaultCatalog(),
-		Omnara: providers.OmnaraURLs{
+		Omnara: providers.ManagedMachineEndpoints{
 			APIURL:       "https://api.omnara.test/v1",
 			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 		},

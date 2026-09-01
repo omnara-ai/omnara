@@ -26,6 +26,7 @@ const (
 	daemonConfigFileName = "daemon.json"
 	daemonConfigVersion  = 1
 	defaultAPIURL        = "https://api.omnara.com/v1"
+	hostedAPIOrigin      = "https://api.omnara.com"
 	legacyHostedAPIURL   = "https://app.omnara.com"
 	missingTokenError    = "OMNARA_MACHINE_TOKEN is required; " +
 		"rerun from an interactive terminal or set OMNARA_MACHINE_TOKEN"
@@ -276,7 +277,7 @@ func readMachineToken(terminal *os.File, output io.Writer) (string, error) {
 }
 
 func migrateLegacyAPIURL(apiURL string) string {
-	if apiURL == legacyHostedAPIURL {
+	if apiURL == legacyHostedAPIURL || apiURL == hostedAPIOrigin {
 		return defaultAPIURL
 	}
 	parsed, err := url.Parse(apiURL)

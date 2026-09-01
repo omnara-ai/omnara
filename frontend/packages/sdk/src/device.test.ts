@@ -113,6 +113,15 @@ describe('startDeviceAuth', () => {
     })
   })
 
+  it('omits the optional Omnara token name when it is not provided', async () => {
+    const { fetch, requests } = fetchQueue([
+      jsonResponse(200, METADATA),
+      jsonResponse(200, START_BODY),
+    ])
+    await startDeviceAuth({ issuerUrl: 'https://app.example.com', clientId: CLIENT_ID, fetch })
+    expect(requests[1]?.body).toEqual({ client_id: CLIENT_ID })
+  })
+
   it('rejects authorization-server issuer substitution', async () => {
     const { fetch } = fetchQueue([
       jsonResponse(200, { ...METADATA, issuer: 'https://attacker.example.com' }),

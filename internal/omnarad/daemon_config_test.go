@@ -532,6 +532,25 @@ func TestLoadDaemonConfigMigratesLegacyHostedAPIURL(t *testing.T) {
 	}
 }
 
+func TestLoadDaemonConfigCompletesHostedAPIOrigin(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	writeTestDaemonConfig(t, home, daemonConfig{
+		SchemaVersion:  daemonConfigVersion,
+		APIURL:         hostedAPIOrigin,
+		InstallationID: "inst-hosted",
+		MachineID:      "mch-hosted",
+		MachineToken:   "hosted-token",
+		RunnerPath:     "/bin",
+	})
+	config, err := loadDaemonConfig(home)
+	if err != nil {
+		t.Fatalf("load daemon config: %v", err)
+	}
+	if config.APIURL != defaultAPIURL {
+		t.Fatalf("api_url = %q, want %q", config.APIURL, defaultAPIURL)
+	}
+}
+
 func TestLoadDaemonConfigMigratesLegacySelfHostedOriginAPIURL(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	writeTestDaemonConfig(t, home, daemonConfig{

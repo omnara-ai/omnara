@@ -20,7 +20,7 @@ import (
 func TestBuildManagedMachineEnv(t *testing.T) {
 	startupScript := "echo ready\n"
 	env, err := BuildManagedMachineEnv(
-		OmnaraURLs{
+		ManagedMachineEndpoints{
 			APIURL:       "  https://api.omnara.test/v1///  ",
 			InstallerURL: " https://app.omnara.test/install/omnarad.sh ",
 		},
@@ -42,7 +42,7 @@ func TestBuildManagedMachineEnv(t *testing.T) {
 }
 
 func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
-	env, err := BuildManagedMachineEnv(OmnaraURLs{
+	env, err := BuildManagedMachineEnv(ManagedMachineEndpoints{
 		APIURL:       "https://api.omnara.test/v1",
 		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 	}, "machine-token", "", nil)
@@ -58,7 +58,10 @@ func TestBuildManagedMachineEnvWithoutMachineEnv(t *testing.T) {
 
 func TestBuildManagedMachineEnvRejectsReservedMachineEnv(t *testing.T) {
 	_, err := BuildManagedMachineEnv(
-		OmnaraURLs{APIURL: "https://api.omnara.test/v1", InstallerURL: "https://app.omnara.test/install/omnarad.sh"},
+		ManagedMachineEndpoints{
+			APIURL:       "https://api.omnara.test/v1",
+			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
+		},
 		"machine-token",
 		"",
 		map[string]string{"omnara_api_url": "spoofed"},

@@ -24,7 +24,7 @@ type provider struct {
 	api           apiClient
 	apiToken      string
 	apiBaseURL    string
-	omnara        providers.OmnaraURLs
+	omnara        providers.ManagedMachineEndpoints
 	wakeTransport http.RoundTripper
 }
 

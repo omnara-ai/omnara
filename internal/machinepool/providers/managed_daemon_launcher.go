@@ -32,7 +32,7 @@ const (
 )
 
 func BuildManagedMachineEnv(
-	omnara OmnaraURLs,
+	omnara ManagedMachineEndpoints,
 	machineToken string,
 	startupScript string,
 	machineEnv map[string]string,

@@ -78,7 +78,7 @@ async function postOAuthForm(
 export interface StartDeviceAuthOptions {
   issuerUrl: string
   clientId: string
-  tokenName: string
+  tokenName?: string
   fetch?: typeof fetch
 }
 
@@ -114,10 +114,9 @@ export async function startDeviceAuth(options: StartDeviceAuthOptions): Promise<
   if (!metadata.token_endpoint_auth_methods_supported.includes('none')) {
     throw new Error('authorization server does not support public OAuth clients')
   }
-  const response = await postOAuthForm(fetchImpl, metadata.device_authorization_endpoint, {
-    client_id: options.clientId,
-    token_name: options.tokenName,
-  })
+  const body: Record<string, string> = { client_id: options.clientId }
+  if (options.tokenName !== undefined) body.token_name = options.tokenName
+  const response = await postOAuthForm(fetchImpl, metadata.device_authorization_endpoint, body)
   if (!response.ok) throw await ApiError.fromResponse(response)
   const data = zDeviceAuthStartResponse.parse(await response.json())
   return {

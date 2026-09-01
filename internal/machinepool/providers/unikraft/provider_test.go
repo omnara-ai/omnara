@@ -409,7 +409,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 	machineID := uuid.New()
 	name := mustInstanceName(t, machineID)
 	api := &fakeAPI{instancesByName: map[string]instance{name: {UUID: "uuid-1", Name: name}}}
-	provider := &provider{api: api, omnara: providers.OmnaraURLs{
+	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
 		APIURL:       "https://api.omnara.test/v1",
 		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 	}}
@@ -447,7 +447,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 func TestUnikraftProviderInspectMachineByUUIDRejectsMissingUUID(t *testing.T) {
 	machineID := uuid.New()
 	api := &fakeAPI{instancesByUUID: map[string]instance{"uuid-1": {Name: "bad"}}}
-	provider := &provider{api: api, omnara: providers.OmnaraURLs{
+	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
 		APIURL:       "https://api.omnara.test/v1",
 		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 	}}
@@ -474,7 +474,7 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 		"uuid-1":       {UUID: "uuid-1", Name: name},
 		"uuid-foreign": {UUID: "uuid-foreign", Name: "other"},
 	}}
-	provider := &provider{api: api, omnara: providers.OmnaraURLs{
+	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
 		APIURL:       "https://api.omnara.test/v1",
 		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 	}}
@@ -540,7 +540,7 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		"uuid-existing": {UUID: "uuid-existing", Name: name},
 	}}
-	provider := &provider{api: api, omnara: providers.OmnaraURLs{
+	provider := &provider{api: api, omnara: providers.ManagedMachineEndpoints{
 		APIURL:       "https://api.omnara.test/v1",
 		InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 	}}
@@ -568,7 +568,7 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 func newTestProvider(api apiClient) *provider {
 	return &provider{
 		api: api,
-		omnara: providers.OmnaraURLs{
+		omnara: providers.ManagedMachineEndpoints{
 			APIURL:       "https://api.omnara.test/v1",
 			InstallerURL: "https://app.omnara.test/install/omnarad.sh",
 		},

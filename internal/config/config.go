@@ -230,6 +230,11 @@ func Load() (Config, error) {
 	); err != nil {
 		return Config{}, err
 	}
+	publicURL := normalizePublicURL(getenv("OMNARA_PUBLIC_URL", ""))
+	publicAPIURL := normalizePublicURL(getenv("OMNARA_PUBLIC_API_URL", ""))
+	if publicAPIURL == "" && publicURL != "" {
+		publicAPIURL = publicURL + "/api/v1"
+	}
 	cfg := Config{
 		APIAddr:                           getenv("OMNARA_API_ADDR", ":8080"),
 		APIMetricsAddr:                    getenv("OMNARA_API_METRICS_ADDR", ":8081"),
@@ -256,8 +261,8 @@ func Load() (Config, error) {
 		SMTPPassword:                      getenv("OMNARA_SMTP_PASSWORD", ""),
 		SMTPRequireTLS:                    smtpRequireTLS,
 		AuthConnectors:                    authConnectors,
-		PublicURL:                         normalizePublicURL(getenv("OMNARA_PUBLIC_URL", "")),
-		PublicAPIURL:                      normalizePublicURL(getenv("OMNARA_PUBLIC_API_URL", "")),
+		PublicURL:                         publicURL,
+		PublicAPIURL:                      publicAPIURL,
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
@@ -391,16 +396,12 @@ func normalizePublicURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
-func (cfg Config) OmnaraURLs() providers.OmnaraURLs {
+func (cfg Config) ManagedMachineEndpoints() providers.ManagedMachineEndpoints {
 	if cfg.PublicURL == "" {
-		return providers.OmnaraURLs{}
+		return providers.ManagedMachineEndpoints{}
 	}
-	apiURL := cfg.PublicAPIURL
-	if apiURL == "" {
-		apiURL = cfg.PublicURL + "/api/v1"
-	}
-	return providers.OmnaraURLs{
-		APIURL:       apiURL,
+	return providers.ManagedMachineEndpoints{
+		APIURL:       cfg.PublicAPIURL,
 		InstallerURL: cfg.PublicURL + "/install/omnarad.sh",
 	}
 }

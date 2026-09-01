@@ -30,6 +30,10 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
+	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
+	if omnaraPublicAPIURL == "" {
+		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
+	}
 	machineProvisioning := testMachineProvisioning(t, map[string]any{
 		"image": image, "region": region,
 	})
@@ -39,8 +43,8 @@ func TestBlaxelProviderLiveSmoke(t *testing.T) {
 			"allowed_images":  []string{image},
 			"allowed_regions": []string{region},
 		}),
-		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{
-			APIURL:       omnaraPublicURL + "/api/v1",
+		providers.RuntimeConfig{Omnara: providers.ManagedMachineEndpoints{
+			APIURL:       omnaraPublicAPIURL,
 			InstallerURL: omnaraPublicURL + "/install/omnarad.sh",
 		}, ProviderAuthToken: token},
 	)

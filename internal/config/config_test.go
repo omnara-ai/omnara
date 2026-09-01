@@ -83,11 +83,14 @@ func TestLoadPublicURL(t *testing.T) {
 	if cfg.PublicURL != "http://localhost:5173" {
 		t.Fatalf("expected public URL, got %q", cfg.PublicURL)
 	}
-	if urls := cfg.OmnaraURLs(); urls != (providers.OmnaraURLs{
+	if cfg.PublicAPIURL != "http://localhost:5173/api/v1" {
+		t.Fatalf("expected derived public API URL, got %q", cfg.PublicAPIURL)
+	}
+	if endpoints := cfg.ManagedMachineEndpoints(); endpoints != (providers.ManagedMachineEndpoints{
 		APIURL:       "http://localhost:5173/api/v1",
 		InstallerURL: "http://localhost:5173/install/omnarad.sh",
 	}) {
-		t.Fatalf("expected derived omnara URLs, got %+v", urls)
+		t.Fatalf("expected managed machine endpoints, got %+v", endpoints)
 	}
 }
 
@@ -100,11 +103,14 @@ func TestLoadPublicAPIURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if urls := cfg.OmnaraURLs(); urls != (providers.OmnaraURLs{
+	if cfg.PublicAPIURL != "https://api.example.com/v1" {
+		t.Fatalf("expected configured public API URL, got %q", cfg.PublicAPIURL)
+	}
+	if endpoints := cfg.ManagedMachineEndpoints(); endpoints != (providers.ManagedMachineEndpoints{
 		APIURL:       "https://api.example.com/v1",
 		InstallerURL: "https://app.example.com/install/omnarad.sh",
 	}) {
-		t.Fatalf("expected configured omnara URLs, got %+v", urls)
+		t.Fatalf("expected managed machine endpoints, got %+v", endpoints)
 	}
 }
 

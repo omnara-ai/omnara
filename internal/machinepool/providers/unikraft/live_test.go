@@ -32,13 +32,17 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
+	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
+	if omnaraPublicAPIURL == "" {
+		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
+	}
 	machineProvisioning := testMachineProvisioning(t, map[string]any{
 		"provider_options": map[string]any{"image": image, "metro": metro},
 	})
 	machineProvider, err := (Definition{}).NewProvider(
 		mustRawJSON(t, map[string]any{"allowed_images": []string{image}, "allowed_metros": []string{"*"}}),
-		providers.RuntimeConfig{Omnara: providers.OmnaraURLs{
-			APIURL:       omnaraPublicURL + "/api/v1",
+		providers.RuntimeConfig{Omnara: providers.ManagedMachineEndpoints{
+			APIURL:       omnaraPublicAPIURL,
 			InstallerURL: omnaraPublicURL + "/install/omnarad.sh",
 		}, ProviderAuthToken: apiKey},
 	)

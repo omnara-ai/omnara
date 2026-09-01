@@ -1,10 +1,22 @@
+import type { ConnectByoMachineResponse } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
   classifyDaemonSupervision,
   ensureDaemonApiUrl,
   ensureSupportedPlatform,
+  formatMachineSetup,
 } from './machine-setup.ts'
+
+it('builds install instructions from the deployment origin', () => {
+  const formatted = formatMachineSetup({} as ConnectByoMachineResponse, {
+    apiUrl: 'https://api.example.com/v1',
+    issuerUrl: 'https://app.example.com',
+  })
+  expect(formatted.value).toMatchObject({
+    install_command: "curl -fsSL 'https://app.example.com/install/omnarad.sh' | sh",
+  })
+})
 
 describe('machine create-local preflight', () => {
   it('accepts the platforms the omnarad installer supports', () => {

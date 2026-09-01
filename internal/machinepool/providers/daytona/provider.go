@@ -49,7 +49,7 @@ type sandboxState string
 
 type provider struct {
 	api    apiClient
-	omnara providers.OmnaraURLs
+	omnara providers.ManagedMachineEndpoints
 }
 
 func (*provider) ProvisioningTimeout() time.Duration {
