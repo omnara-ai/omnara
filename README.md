@@ -73,7 +73,7 @@ $ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
   - <ins><strong>Queryable state</strong></ins>. Self-hosted deployments can
     query agent history directly in Postgres for analytics, evals, prompt
     analysis, and training datasets.
-- <ins><string>CLI and SDK</strong></ins>. Use Omnara programmatically via the CLI, Typescript CLI, or REST API.
+- <ins><strong>CLI and SDK</strong></ins>. Use Omnara programmatically via the CLI, Typescript CLI, or REST API.
 
 ## Get started
 
