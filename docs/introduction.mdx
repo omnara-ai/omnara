@@ -9,7 +9,7 @@ Omnara is an open source platform for running managed agents. It handles executi
 ## Use cases
 
 Omnara can be used to build agents for internal use cases or external use cases, such as:
-* Internal slack bots
+* Internal Slack bots
 * Code review agents
 * Agents integrated in a product dashboard
 
@@ -37,14 +37,14 @@ machine_sources:
 You can create and launch the agent in two ways:
 
 - **Dashboard** — click **New agent** in your project in the dashboard.
-- **Programmatically** - Omnara provides an **API**, **Typescript SDK**, and **CLI** to interact with Omnara
+- **Programmatically** — Omnara provides an **API**, **TypeScript SDK**, and **CLI** to interact with Omnara.
 
 The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
 
 ## Core concepts
 
 1. An **organization** owns shared resources for your team: **projects**, **secrets**, **model providers**, and **machines**.
-2. **Projects** contains agents. **Grants** decide which shared resources the project can use.
+2. **Projects** contain agents. **Grants** decide which shared resources the project can use.
 3. An **agent** is one durable conversation with its config, tool calls, and history. **Profiles** provide reusable agent configurations.
 4. You send **inputs**, stream **events**, and resolve **interactions** in an agent.
 
