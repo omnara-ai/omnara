@@ -79,16 +79,13 @@ function supportsAttachment(
 ): boolean {
   if (kind === 'image') return allowsModality(model, 'image')
   if (mediaType.startsWith('text/')) return allowsModality(model, 'text')
-  if (model.api_format === 'openai-chat-completions') {
-    return (
-      mediaType === 'application/pdf' &&
-      (model.api_variant === 'openrouter' || allowsModality(model, 'file'))
-    )
+  if (model.api_format === 'openai-chat-completions' && mediaType === 'application/pdf') {
+    return model.api_variant === 'openrouter' || allowsModality(model, 'file')
   }
-  if (model.api_format === 'anthropic-messages' && mediaType !== 'application/pdf') {
-    return false
+  if (model.api_format === 'openai-responses' || mediaType === 'application/pdf') {
+    return allowsModality(model, 'file')
   }
-  return allowsModality(model, 'file')
+  return true
 }
 
 function isUTF8Text(bytes: Uint8Array): boolean {

@@ -1392,6 +1392,9 @@ export type TextContentBlock = {
     metadata?: ContentBlockMetadata;
 };
 
+/**
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ */
 export type InlineMediaContentBlock = {
     type: 'media';
     media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

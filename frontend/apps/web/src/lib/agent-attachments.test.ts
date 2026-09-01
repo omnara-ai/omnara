@@ -124,16 +124,17 @@ describe('selectAgentAttachment', () => {
     expect(selected.mediaType).toBe(mediaType)
   })
 
-  it('rejects Office binaries for Anthropic models', async () => {
-    await expect(
-      selectAgentAttachment(
-        new File([new Uint8Array([0xff])], 'report.docx'),
-        model({ api_format: 'anthropic-messages', input_modalities: [] }),
-      ),
-    ).rejects.toThrow("not supported by this agent's model")
+  it('accepts fallback documents for Anthropic models', async () => {
+    const selected = await selectAgentAttachment(
+      new File([new Uint8Array([0xff])], 'report.docx'),
+      model({ api_format: 'anthropic-messages', input_modalities: ['text'] }),
+    )
+    expect(selected.mediaType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
   })
 
-  it('accepts PDFs for OpenRouter models without native file input', async () => {
+  it('accepts PDFs and fallback documents for OpenRouter models without native file input', async () => {
     const selected = await selectAgentAttachment(
       new File([new Uint8Array([0xff])], 'report.pdf'),
       model({
@@ -144,19 +145,20 @@ describe('selectAgentAttachment', () => {
     )
     expect(selected.mediaType).toBe('application/pdf')
 
-    await expect(
-      selectAgentAttachment(
-        new File([new Uint8Array([0xff])], 'report.docx'),
-        model({
-          api_format: 'openai-chat-completions',
-          api_variant: 'openrouter',
-          input_modalities: ['text', 'file'],
-        }),
-      ),
-    ).rejects.toThrow("not supported by this agent's model")
+    const document = await selectAgentAttachment(
+      new File([new Uint8Array([0xff])], 'report.docx'),
+      model({
+        api_format: 'openai-chat-completions',
+        api_variant: 'openrouter',
+        input_modalities: ['text'],
+      }),
+    )
+    expect(document.mediaType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
   })
 
-  it('accepts only PDFs and UTF-8 text for direct Chat Completions models', async () => {
+  it('accepts PDFs, UTF-8 text, and fallback documents for direct Chat Completions models', async () => {
     const pdf = await selectAgentAttachment(
       new File([new Uint8Array([0xff])], 'report.pdf'),
       model({ api_format: 'openai-chat-completions', input_modalities: ['text', 'file'] }),
@@ -170,12 +172,13 @@ describe('selectAgentAttachment', () => {
       ),
     ).rejects.toThrow("not supported by this agent's model")
 
-    await expect(
-      selectAgentAttachment(
-        new File([new Uint8Array([0xff])], 'report.docx'),
-        model({ api_format: 'openai-chat-completions', input_modalities: ['text', 'file'] }),
-      ),
-    ).rejects.toThrow("not supported by this agent's model")
+    const document = await selectAgentAttachment(
+      new File([new Uint8Array([0xff])], 'report.docx'),
+      model({ api_format: 'openai-chat-completions', input_modalities: ['text'] }),
+    )
+    expect(document.mediaType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
 
     const selected = await selectAgentAttachment(
       new File(['fn main() {}'], 'main.rs'),
