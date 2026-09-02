@@ -721,21 +721,18 @@ describe('openAgentEventStream', () => {
     await expect(next).resolves.toEqual({ done: true, value: undefined })
   })
 
-  it('treats a connected callback exception as a terminal client error', async () => {
+  it('lets a connected callback exception propagate and cancels the body', async () => {
     const active = controlledSse('')
     const { client, fetch } = scriptedClient(active)
+    const stream = openAgentEventStream({
+      client,
+      path,
+      onConnectionStateChange: () => {
+        throw new Error('callback failed')
+      },
+    })
 
-    const result = await collectUntilError(
-      openAgentEventStream({
-        client,
-        path,
-        onConnectionStateChange: () => {
-          throw new Error('callback failed')
-        },
-      }),
-    )
-
-    expect(result.error).toMatchObject({ kind: 'client' })
+    await expect(stream.next()).rejects.toThrow('callback failed')
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(active.cancel).toHaveBeenCalledTimes(1)
   })

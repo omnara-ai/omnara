@@ -129,17 +129,6 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
-function notifyConnectionState(
-  callback: OpenAgentEventStreamOptions['onConnectionStateChange'],
-  state: AgentEventStreamConnectionState,
-): void {
-  try {
-    callback?.(state)
-  } catch (error) {
-    throw streamError('client', 'Agent event stream connection callback failed', { cause: error })
-  }
-}
-
 type ConnectionEvent = { kind: 'connected' } | { kind: 'message'; data: string }
 type ConnectionOptions = Pick<OpenAgentEventStreamOptions, 'path' | 'query' | 'headers'>
 
@@ -292,10 +281,7 @@ export async function* openAgentEventStream({
       for await (const event of connection) {
         if (event.kind === 'connected') {
           connectedAt = Date.now()
-          notifyConnectionState(onConnectionStateChange, {
-            state: 'connected',
-            reconnected: hasRetried,
-          })
+          onConnectionStateChange?.({ state: 'connected', reconnected: hasRetried })
           continue
         }
         const data = await decodeFrame(event.data)
@@ -318,7 +304,7 @@ export async function* openAgentEventStream({
       }
       consecutiveFailures += 1
       const delayMs = Math.max(reconnectDelay(consecutiveFailures), error.retryAfterMs ?? 0)
-      notifyConnectionState(onConnectionStateChange, {
+      onConnectionStateChange?.({
         state: 'reconnecting',
         attempt: consecutiveFailures,
         delayMs,
