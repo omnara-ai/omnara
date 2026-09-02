@@ -621,7 +621,7 @@ func (s strictOpenAPIServer) StreamEvents(
 }
 
 const (
-	streamFrameChannelSize            = 4096
+	streamFrameChannelSize = 4096
 	// The TypeScript SDK treats 35s of silence as a stalled connection (stallTimeoutMs); stay well below that.
 	agentEventStreamHeartbeatInterval = 10 * time.Second
 )
