@@ -1178,6 +1178,10 @@ func TestPrepareWalksPastTrailingReplayedAssistantForOpenRouterCacheBreakpoint(t
 	if len(marks) != 2 ||
 		marks[0].role != "system" || marks[0].index != 0 ||
 		marks[1].role != "user" || marks[1].index != 1 {
-		t.Fatalf("cache_control marks = %+v, want system and the user turn before the replayed assistant: %s", marks, prepared.Body)
+		t.Fatalf(
+			"cache_control marks = %+v, want system and the user turn before the replayed assistant: %s",
+			marks,
+			prepared.Body,
+		)
 	}
 }
