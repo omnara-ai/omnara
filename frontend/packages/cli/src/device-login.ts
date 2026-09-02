@@ -131,6 +131,7 @@ export interface DeviceLoginResult {
   token: string
   orgId?: string
   projectId?: string
+  hasOrganizations?: boolean
 }
 
 export async function loginWithDevice(options: DeviceLoginOptions): Promise<DeviceLoginResult> {
@@ -169,11 +170,13 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
   const client = createOmnaraClient({ baseUrl: options.apiUrl, auth: bearerToken(token) })
   let orgId = saved.org_id
   let projectId = saved.project_id
+  let hasOrganizations: boolean | undefined
   let loginMessage = 'Logged in'
   let validationWarning: string | undefined
   try {
     const { data: me } = await sdk.getCurrentUser({ client })
     loginMessage = `Logged in as ${me.user.email || me.user.display_name}`
+    hasOrganizations = me.orgs.length > 0
     if (orgId !== undefined && !me.orgs.some((org) => org.id === orgId)) {
       updateConfigFile({ org_id: undefined, project_id: undefined })
       orgId = undefined
@@ -199,5 +202,5 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
   if (process.env.OMNARA_API_KEY !== undefined) {
     report.warn('OMNARA_API_KEY is set and takes precedence over the saved token')
   }
-  return { token, orgId, projectId }
+  return { token, orgId, projectId, hasOrganizations }
 }

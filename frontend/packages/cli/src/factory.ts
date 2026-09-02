@@ -114,7 +114,7 @@ interface ConfigParam {
   configKey: 'org_id' | 'project_id'
   describe: string
   resolve: (config: CliConfig, path: Record<string, unknown>) => string | undefined
-  prompt: (client: OmnaraClient, path: Record<string, unknown>) => Promise<string>
+  prompt: (config: CliConfig, path: Record<string, unknown>) => Promise<string>
 }
 
 const CONFIG_PARAMS: ConfigParam[] = [
@@ -125,7 +125,7 @@ const CONFIG_PARAMS: ConfigParam[] = [
     configKey: 'org_id',
     describe: 'pass --org or set OMNARA_ORG_ID',
     resolve: (config) => config.defaultOrgId,
-    prompt: (client) => promptOrgSelection(client),
+    prompt: (config) => promptOrgSelection(config.client, config.issuerUrl),
   },
   {
     key: 'projectID',
@@ -137,12 +137,12 @@ const CONFIG_PARAMS: ConfigParam[] = [
       path.orgID === undefined || path.orgID === config.defaultOrgId
         ? config.defaultProjectId
         : undefined,
-    prompt: (client, path) => {
+    prompt: (config, path) => {
       const orgId = path.orgID
       if (typeof orgId !== 'string') {
         throw new CliInputError('cannot select a project before an organization is set')
       }
-      return promptProjectSelection(client, orgId)
+      return promptProjectSelection(config.client, orgId)
     },
   },
 ]
@@ -315,7 +315,7 @@ async function resolvePathValues(
     usedExplicitOverride = usedExplicitOverride || explicit !== undefined
     let value = explicit ?? param.resolve(config, path)
     if (value === undefined && canPromptInteractively()) {
-      value = await param.prompt(config.client, path)
+      value = await param.prompt(config, path)
       if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
     }
     if (value === undefined) {

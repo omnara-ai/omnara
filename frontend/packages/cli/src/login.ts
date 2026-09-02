@@ -19,14 +19,18 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .action(async (options: LoginOptions) => {
       await runCliAction(async () => {
         const report = createLoginReporter(`Log in to ${cli.issuerUrl}`)
-        const { orgId } = await loginWithDevice({
+        const { orgId, hasOrganizations } = await loginWithDevice({
           apiUrl: cli.apiUrl,
           issuerUrl: cli.issuerUrl,
           browser: options.browser,
           tokenName: options.tokenName,
           report,
         })
-        if ((process.env.OMNARA_ORG_ID ?? orgId) === undefined) {
+        if (hasOrganizations === false) {
+          report.finish(
+            `This account has no organization yet. Create one at ${new URL('/onboarding', cli.issuerUrl).toString()}, then run 'omnara config select'.`,
+          )
+        } else if ((process.env.OMNARA_ORG_ID ?? orgId) === undefined) {
           report.finish("Run 'omnara config select' to choose a default organization and project.")
         } else {
           report.finish()
