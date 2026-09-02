@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -231,5 +232,36 @@ max_subagents: 2
 	profileChild := SubagentSource(source, SubagentCompiled{Type: SubagentTypeProfile})
 	if profileChild.Subagents == nil {
 		t.Fatalf("profile children keep their own subagents block")
+	}
+}
+
+func TestSubagentSourceRecompilesPermissionsWithoutParameters(t *testing.T) {
+	source, err := ParseSource(SourceFormatYAML, []byte(validAgentSource(`
+tools:
+  web_search:
+    permission:
+      mode: always_ask
+mcp:
+  linear:
+    url: https://mcp.example.com/mcp
+    permission:
+      mode: always_ask
+    tools:
+      create_issue:
+        permission:
+          mode: always_deny
+subagents:
+  fork:
+    type: self
+`)))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	child, err := json.Marshal(SubagentSource(source, SubagentCompiled{Type: SubagentTypeSelf}))
+	if err != nil {
+		t.Fatalf("marshal child source: %v", err)
+	}
+	if _, err := Compile(SourceFormatJSON, child, subagentCompileOptions()); err != nil {
+		t.Fatalf("compile child source: %v", err)
 	}
 }
