@@ -183,7 +183,7 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
           throw new CliInputError('interactive selection needs a terminal')
         }
         await cli.ensureLoggedIn()
-        const orgId = await promptOrgSelection(cli.client)
+        const orgId = await promptOrgSelection(cli.client, cli.issuerUrl)
         const projectId = await promptProjectSelection(cli.client, orgId)
         updateConfigFile({ org_id: orgId, project_id: projectId })
         printConfig()

@@ -12,6 +12,8 @@ import {
 import { Suspense } from 'react'
 
 import { FullPageSpinner } from '@/components/ui/spinner'
+import { safeReturnTo } from '@/lib/auth-return-to'
+import { requireOrganization } from '@/lib/require-organization'
 import { RootError } from '@/routes/RootError'
 
 export interface RouterContext {
@@ -57,12 +59,8 @@ const authenticatedRoute = createRoute({
 const onboardedRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   id: 'onboarded',
-  beforeLoad: ({ context }) => {
-    const { me } = context
-    if (me.orgs.length === 0) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: '/onboarding' })
-    }
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
   },
   component: lazyRouteComponent(() => import('@/routes/AuthedLayout'), 'AuthedLayout'),
 })
@@ -172,17 +170,20 @@ const agentRoute = createRoute({
 const deviceAuthRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/device',
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
+  },
   component: lazyRouteComponent(() => import('@/routes/DeviceAuth'), 'DeviceAuth'),
 })
 
 const onboardingRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/onboarding',
-  beforeLoad: ({ context }) => {
-    const { me } = context
-    if (me.orgs.length > 0) {
+  beforeLoad: ({ context, location }) => {
+    if (context.me.orgs.length > 0) {
+      const returnTo = new URL(location.href, window.location.origin).searchParams.get('return_to')
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: '/' })
+      throw redirect({ href: safeReturnTo(returnTo) })
     }
   },
   component: lazyRouteComponent(() => import('@/routes/Onboarding'), 'Onboarding'),

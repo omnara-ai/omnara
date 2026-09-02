@@ -26,10 +26,12 @@ async function selectFrom(message: string, choices: Choice[]): Promise<string> {
   return picked
 }
 
-export async function promptOrgSelection(client: OmnaraClient): Promise<string> {
+export async function promptOrgSelection(client: OmnaraClient, issuerUrl: string): Promise<string> {
   const { data } = await sdk.getCurrentUser({ client })
   if (data.orgs.length === 0) {
-    throw new CliInputError('this account has no organizations')
+    throw new CliInputError(
+      `this account has no organizations; create one at ${new URL('/onboarding', issuerUrl).toString()}`,
+    )
   }
   return selectFrom(
     'Select an organization',
