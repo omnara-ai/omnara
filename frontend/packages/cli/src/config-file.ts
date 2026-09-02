@@ -30,38 +30,40 @@ function warnConfigIgnored(message: string): void {
   console.error(message)
 }
 
-const zConfigContents = z
-  .string()
-  .transform((raw, ctx): unknown => {
-    try {
-      return JSON.parse(raw)
-    } catch (error) {
-      ctx.addIssue(error instanceof Error ? error.message : String(error))
-      return z.NEVER
-    }
-  })
-  .pipe(zConfigFile)
+const zJsonText = z.string().transform((raw, ctx) => {
+  try {
+    return z.json().parse(JSON.parse(raw))
+  } catch (error) {
+    ctx.addIssue(error instanceof Error ? error.message : String(error))
+    return z.NEVER
+  }
+})
 
-function loadConfigFile(): z.ZodSafeParseResult<ConfigFile> {
+type ConfigLoad = { readable: true; file: ConfigFile } | { readable: false; reason: string }
+
+function loadConfigFile(): ConfigLoad {
   const path = configFilePath()
-  if (!existsSync(path)) return { success: true, data: {} }
-  return zConfigContents.safeParse(readFileSync(path, 'utf8'))
+  if (!existsSync(path)) return { readable: true, file: {} }
+  const json = zJsonText.safeParse(readFileSync(path, 'utf8'))
+  if (!json.success) return { readable: false, reason: z.prettifyError(json.error) }
+  const file = zConfigFile.safeParse(json.data)
+  return file.success
+    ? { readable: true, file: file.data }
+    : { readable: false, reason: z.prettifyError(file.error) }
 }
 
 export function readConfigFile(): ConfigFile {
-  const result = loadConfigFile()
-  if (result.success) return result.data
-  warnConfigIgnored(
-    `warning: ignoring unreadable config at ${configFilePath()}: ${z.prettifyError(result.error)}`,
-  )
+  const loaded = loadConfigFile()
+  if (loaded.readable) return loaded.file
+  warnConfigIgnored(`warning: ignoring unreadable config at ${configFilePath()}: ${loaded.reason}`)
   return {}
 }
 
 export function readConfigFileForUpdate(): ConfigFile {
-  const result = loadConfigFile()
-  if (result.success) return result.data
+  const loaded = loadConfigFile()
+  if (loaded.readable) return loaded.file
   throw new CliInputError(
-    `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${z.prettifyError(result.error)}`,
+    `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${loaded.reason}`,
   )
 }
 
