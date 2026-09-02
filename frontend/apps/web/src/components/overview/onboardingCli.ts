@@ -45,13 +45,19 @@ export function profileCreateSpec(input: {
 
 export const chatMessage = 'Hi! What can you do?'
 
+export interface ChatCommands {
+  cli: CodeContent
+  sdk: CodeContent
+  curl: CodeContent
+}
+
 export function chatCommands(input: {
   apiUrl: string
   orgId: string
   projectId: string
   profileId: string
   configId: string
-}): { cli: CodeContent; sdk: CodeContent; curl: CodeContent } {
+}): ChatCommands {
   const message = chatMessage
   const cli = shellLines([
     'npx omnara agents launch',

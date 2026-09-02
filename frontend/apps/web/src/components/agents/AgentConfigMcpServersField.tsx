@@ -404,12 +404,13 @@ function McpServerIdentityFields({
             nameInvalid={nameError !== undefined}
             url={server.url}
             onChange={(patch) => {
-              onChange({
-                ...(patch.name === undefined ? {} : { name: patch.name }),
-                ...(patch.url === undefined || patch.url === server.url
-                  ? {}
-                  : { url: patch.url, secretId: '' }),
-              })
+              const next: Partial<BasicMcpServer> = {}
+              if (patch.name !== undefined) next.name = patch.name
+              if (patch.url !== undefined && patch.url !== server.url) {
+                next.url = patch.url
+                next.secretId = ''
+              }
+              onChange(next)
             }}
           />
         </div>

@@ -1,4 +1,5 @@
 import type {
+  AwsCredentialsSecretMaterial,
   CreateSecretRequest,
   McpoAuthStartRequest,
   McpoAuthStartResponse,
@@ -29,6 +30,27 @@ export type SecretSubmissionResult =
   | { kind: 'redirect'; authorizationUrl: string }
   | { kind: 'failed'; secret: Secret | null; message: string }
 
+function awsCredentialsMaterial(secret: {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  roleArn: string
+  externalId: string
+}): AwsCredentialsSecretMaterial {
+  const material: AwsCredentialsSecretMaterial = {
+    kind: 'aws_credentials',
+    access_key_id: secret.accessKeyId.trim(),
+    secret_access_key: secret.secretAccessKey.trim(),
+  }
+  const sessionToken = secret.sessionToken.trim()
+  const roleArn = secret.roleArn.trim()
+  const externalId = secret.externalId.trim()
+  if (sessionToken !== '') material.session_token = sessionToken
+  if (roleArn !== '') material.role_arn = roleArn
+  if (externalId !== '') material.external_id = externalId
+  return material
+}
+
 export async function submitSecretTransaction({
   state,
   owner,
@@ -46,14 +68,15 @@ export async function submitSecretTransaction({
     if (state.secret.kind === 'mcp_oauth' && !secret) {
       const clientId = state.secret.clientId.trim()
       const clientSecret = state.secret.clientSecret?.trim() ?? ''
-      const response = await operations.startMcpOAuth({
+      const request: McpoAuthStartRequest = {
         owner,
         name: state.name,
         mcp_url: state.secret.serverUrl.trim(),
         return_to: returnTo,
-        ...(clientId !== '' ? { client_id: clientId } : {}),
-        ...(clientSecret !== '' ? { client_secret: clientSecret } : {}),
-      })
+      }
+      if (clientId !== '') request.client_id = clientId
+      if (clientSecret !== '') request.client_secret = clientSecret
+      const response = await operations.startMcpOAuth(request)
       operations.savePendingMcpGrants(state.projectGrantIds)
       return { kind: 'redirect', authorizationUrl: response.authorization_url }
     }
@@ -66,20 +89,7 @@ export async function submitSecretTransaction({
         state.secret.kind === 'generic'
           ? ({ kind: 'generic', value: state.secret.value } as const)
           : state.secret.kind === 'aws_credentials'
-            ? ({
-                kind: 'aws_credentials',
-                access_key_id: state.secret.accessKeyId.trim(),
-                secret_access_key: state.secret.secretAccessKey.trim(),
-                ...(state.secret.sessionToken.trim() !== ''
-                  ? { session_token: state.secret.sessionToken.trim() }
-                  : {}),
-                ...(state.secret.roleArn.trim() !== ''
-                  ? { role_arn: state.secret.roleArn.trim() }
-                  : {}),
-                ...(state.secret.externalId.trim() !== ''
-                  ? { external_id: state.secret.externalId.trim() }
-                  : {}),
-              } as const)
+            ? awsCredentialsMaterial(state.secret)
             : oauthTokenSetMaterial(state.secret.entries)
       if (material === undefined) {
         return { kind: 'failed', secret: null, message: 'OAuth token material is incomplete' }

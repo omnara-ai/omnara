@@ -332,15 +332,15 @@ export function machinePoolUpdateRequest(
     definition.location.key,
     'startup_script',
   ])
-  const defaultMachineProviderOptions = {
-    ...Object.fromEntries(
-      Object.entries(pool.default_machine_provider_options).filter(
-        ([key]) => !editableOptionKeys.has(key),
-      ),
+  const defaultMachineProviderOptions = Object.fromEntries(
+    Object.entries(pool.default_machine_provider_options).filter(
+      ([key]) => !editableOptionKeys.has(key),
     ),
-    [definition.resource.key]: values.image.trim(),
-    [definition.location.key]: values.location.trim(),
-    ...(values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }),
+  )
+  defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  defaultMachineProviderOptions[definition.location.key] = values.location.trim()
+  if (values.startupScript.trim() !== '') {
+    defaultMachineProviderOptions.startup_script = values.startupScript
   }
   const cpu = Number(values.cpu)
   const originalMemoryMb =

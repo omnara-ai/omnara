@@ -68,11 +68,11 @@ function JsonSegment({ json }: { json: string }) {
 
 type CopyState = 'idle' | 'copied' | 'failed'
 
-const copyLabels: Record<CopyState, (label: string) => string> = {
-  idle: (label) => `Copy ${label}`,
-  copied: (label) => `Copied ${label}`,
-  failed: (label) => `Could not copy ${label}`,
-}
+const copyLabels = {
+  idle: (label: string) => `Copy ${label}`,
+  copied: (label: string) => `Copied ${label}`,
+  failed: (label: string) => `Could not copy ${label}`,
+} satisfies Record<CopyState, (label: string) => string>
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [state, setState] = useState<CopyState>('idle')

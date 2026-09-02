@@ -1,6 +1,7 @@
 import { useCreateConfiguredModel, useCreateProjectModelGrant } from '@omnara/react'
 import {
   type ConfiguredModel,
+  type CreateConfiguredModelRequest,
   type DiscoveredProviderModel,
   type ModelProviderConfig,
 } from '@omnara/sdk'
@@ -62,19 +63,22 @@ export function CreateConfiguredModelDialog({
       try {
         let model = phase.kind === 'retry-grants' ? phase.created : null
         if (!model && provider) {
-          model = await createConfiguredModel.mutateAsync({
-            modelProviderConfigID: provider.id,
+          const request: CreateConfiguredModelRequest = {
             name: value.name,
             provider_model_slug: value.providerModelSlug.trim(),
             context_window_tokens: Number(value.contextWindowTokens),
-            ...(value.maxOutputTokens === ''
-              ? {}
-              : { max_output_tokens: Number(value.maxOutputTokens) }),
-            ...(value.defaultMaxOutputTokens === ''
-              ? {}
-              : { default_max_output_tokens: Number(value.defaultMaxOutputTokens) }),
             supports_tools: true,
             supports_reasoning: false,
+          }
+          if (value.maxOutputTokens !== '') {
+            request.max_output_tokens = Number(value.maxOutputTokens)
+          }
+          if (value.defaultMaxOutputTokens !== '') {
+            request.default_max_output_tokens = Number(value.defaultMaxOutputTokens)
+          }
+          model = await createConfiguredModel.mutateAsync({
+            modelProviderConfigID: provider.id,
+            ...request,
           })
         }
         if (!model) return

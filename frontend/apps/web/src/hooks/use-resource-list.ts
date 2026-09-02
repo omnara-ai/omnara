@@ -6,11 +6,11 @@ export interface SortOption<TSort extends string = string> {
   value: TSort
 }
 
-const sortFieldLabels: Record<string, string> = {
-  name: 'Name',
-  created_at: 'Created',
-  updated_at: 'Modified',
-}
+const sortFieldLabels = new Map([
+  ['name', 'Name'],
+  ['created_at', 'Created'],
+  ['updated_at', 'Modified'],
+])
 
 export function createSortOptions<TSort extends string>(
   values: readonly TSort[],
@@ -19,7 +19,7 @@ export function createSortOptions<TSort extends string>(
   return values.map((value) => {
     const descending = value.startsWith('-')
     const field = descending ? value.slice(1) : value
-    const fieldLabel = fieldLabelOverrides[field] ?? sortFieldLabels[field] ?? field
+    const fieldLabel = fieldLabelOverrides[field] ?? sortFieldLabels.get(field) ?? field
     const direction =
       field === 'name' ? (descending ? 'Z–A' : 'A–Z') : descending ? 'Newest' : 'Oldest'
     return { value, label: `${fieldLabel}: ${direction}` }
