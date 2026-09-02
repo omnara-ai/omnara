@@ -32,8 +32,8 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
   verb: string
   summary: string
   fn: SdkOperation
-  path?: z.ZodObject<z.ZodRawShape>
-  query?: z.ZodObject<z.ZodRawShape>
+  path?: z.ZodObject
+  query?: z.ZodObject
   body?: z.ZodType
   transformBody?: (body: ParsedBody, context: TransformBodyContext) => unknown
   positional?: string[]
@@ -60,7 +60,7 @@ export interface FlowSpec {
   verb: string
   summary: string
   aliases?: string[]
-  path: z.ZodObject<z.ZodRawShape>
+  path: z.ZodObject
   body: z.ZodType
   execute: (input: FlowInput) => Promise<void>
 }
@@ -84,7 +84,7 @@ export function op<F extends SdkOperation, B extends z.ZodType = z.ZodNever>(
   return { ...spec, type: 'op' }
 }
 
-export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType>(spec: {
+export function flowOp<P extends z.ZodObject, B extends z.ZodType>(spec: {
   verb: string
   summary: string
   aliases?: string[]
@@ -275,11 +275,8 @@ interface PathPlan {
   configParams: ConfigParam[]
 }
 
-function planPathParams(
-  path: z.ZodObject<z.ZodRawShape> | undefined,
-  positional: string[],
-): PathPlan {
-  const pathParams = path ? Object.keys(path.shape) : []
+function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
+  const pathParams = path ? path.keyof().options : []
   const configParams = CONFIG_PARAMS.filter(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
   )
