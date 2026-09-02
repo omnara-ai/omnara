@@ -191,6 +191,13 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL;
 
+-- name: GetAgentProfileIDByName :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = sqlc.arg(project_id)
+  AND profile.name = sqlc.arg(name)::text
+  AND profile.deleted_at IS NULL;
+
 -- name: ListAgentProfilesForProject :many
 WITH listed AS (
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,

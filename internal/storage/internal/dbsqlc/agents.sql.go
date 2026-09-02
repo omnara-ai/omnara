@@ -438,6 +438,26 @@ func (q *Queries) GetAgentProfileByIdempotencyKey(ctx context.Context, arg GetAg
 	return i, err
 }
 
+const getAgentProfileIDByName = `-- name: GetAgentProfileIDByName :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = $1
+  AND profile.name = $2::text
+  AND profile.deleted_at IS NULL
+`
+
+type GetAgentProfileIDByNameParams struct {
+	ProjectID uuid.UUID
+	Name      string
+}
+
+func (q *Queries) GetAgentProfileIDByName(ctx context.Context, arg GetAgentProfileIDByNameParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAgentProfileIDByName, arg.ProjectID, arg.Name)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getAgentProfileVersionByGeneration = `-- name: GetAgentProfileVersionByGeneration :one
 SELECT version.id, project.org_id, version.project_id, version.profile_id, version.generation, version.agent_config_id,
        version.reason, coalesce(version.idempotency_key, '') AS idempotency_key,

@@ -386,6 +386,17 @@ func cancelAgentTx(
 	if err := qtx.ReconcileAgentWakeup(ctx, params); err != nil {
 		return CancelAgentResult{}, fmt.Errorf("reconcile canceled agent wakeup: %w", err)
 	}
+	if err := cancelOpenAgentWaitsTx(ctx, qtx, projectID, agentID); err != nil {
+		return CancelAgentResult{}, err
+	}
+	if input.ReasonCode == "agent_canceled" {
+		if err := handleSubagentTurnEndedTx(ctx, txNotifications, tx, qtx, projectID, agentID, subagentMessage{
+			Kind:           SubagentMessageKindCanceled,
+			IdempotencyKey: fmt.Sprintf("canceled:%s:%d", agentID.String(), afterSequence),
+		}); err != nil {
+			return CancelAgentResult{}, err
+		}
+	}
 	return CancelAgentResult{
 		Event:                  event,
 		RuntimeCancelRequested: runtimeCancelRequested,

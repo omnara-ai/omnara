@@ -60,6 +60,17 @@ machine_sources:
     cwd: /workspace
 skills:
   - skl_ik7mv4qtrwz3jehcyd5n6a2bfg
+subagents:
+  researcher:
+    type: profile
+    profile: research-agent
+    description: Read-only codebase investigation.
+    max_concurrent: 4
+  fork:
+    type: self
+    instruction:
+      append: You are a subagent. Finish with a concise summary.
+max_subagents: 8
 ```
 
 ## Instruction and identity
@@ -145,6 +156,43 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 ## Skills
 
 `skills` attaches reusable instructions and files that the agent can load with the `skill` tool. The project must own or hold a [grant](/tools/skills#grant-it-to-projects) for each referenced skill.
+
+## Subagents
+
+`subagents` declares the helpers an agent may spawn, keyed by a handle the agent passes to the `spawn_agent` tool. Declaring at least one handle implicitly adds the five subagent tools (`spawn_agent`, `wait_agents`, `send_agent_message`, `stop_agent`, `list_agents`); list one under `tools` only to disable it or change its permission mode.
+
+```yaml
+subagents:
+  researcher:
+    type: profile
+    profile: research-agent
+    description: Read-only codebase investigation.
+    model:
+      name: gpt-5.6-mini
+    instruction:
+      append: Report findings as a bullet list.
+    max_concurrent: 4
+    archive_after_idle_minutes: 60
+  fork:
+    type: self
+    model:
+      reasoning:
+        effort: medium
+max_subagents: 8
+```
+
+| Field | What it does |
+|---|---|
+| `type` | `profile` launches the named profile's current config. `self` launches a copy of this agent's own config with `subagents` and the subagent tools removed, so forks cannot spawn further. |
+| `profile` | Profile name; required for `type: profile`, rejected for `type: self`. |
+| `description` | Shown to the model when it chooses a handle. |
+| `model` | Partial override merged onto the launched config's model block. |
+| `instruction.append` | Text appended to the launched config's instruction. |
+| `max_concurrent` | Cap on active subagents spawned from this handle. |
+| `archive_after_idle_minutes` | Archive subagents from this handle once they have been idle this long. |
+| `max_subagents` | Top-level cap on active subagents across every handle. |
+
+Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. `self` subagents share the parent's attached machines; `profile` subagents provision their own from the profile's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent, or completes a pending `wait_agents` call. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
 ## Create a config
 

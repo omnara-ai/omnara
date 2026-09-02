@@ -24,12 +24,16 @@ const (
 )
 
 type insertAgentInput struct {
-	OrgID           ID
-	ProjectID       ID
-	AgentProfileID  ID
-	Name            string
-	CurrentConfigID ID
-	IdempotencyKey  string
+	OrgID                   ID
+	ProjectID               ID
+	AgentProfileID          ID
+	Name                    string
+	CurrentConfigID         ID
+	IdempotencyKey          string
+	ParentAgentID           ID
+	SpawnToolCallID         ID
+	SubagentHandle          string
+	ArchiveAfterIdleMinutes *int
 }
 
 type AgentRecord struct {
@@ -48,6 +52,8 @@ type AgentRecord struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
+	ParentAgentID       ID         `json:"parent_agent_id,omitempty"`
+	SubagentHandle      string     `json:"subagent_handle,omitempty"`
 	Created             bool       `json:"-"`
 }
 
@@ -71,12 +77,16 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
-		OrgID:           input.OrgID,
-		ProjectID:       input.ProjectID,
-		AgentProfileID:  sqlcIDFromNil(input.AgentProfileID),
-		Name:            input.Name,
-		CurrentConfigID: input.CurrentConfigID,
-		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
+		OrgID:                   input.OrgID,
+		ProjectID:               input.ProjectID,
+		AgentProfileID:          sqlcIDFromNil(input.AgentProfileID),
+		Name:                    input.Name,
+		CurrentConfigID:         input.CurrentConfigID,
+		IdempotencyKey:          sqlcTextFromEmpty(input.IdempotencyKey),
+		ParentAgentID:           sqlcIDFromNil(input.ParentAgentID),
+		SpawnToolCallID:         sqlcIDFromNil(input.SpawnToolCallID),
+		SubagentHandle:          input.SubagentHandle,
+		ArchiveAfterIdleMinutes: sqlcInt32Ptr(input.ArchiveAfterIdleMinutes),
 	})
 	if err == nil {
 		record := agentRecordFromInsertSQLC(row)
@@ -180,6 +190,8 @@ type AgentListFilters struct {
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
 	AgentProfileID         *ID
+	ParentAgentID          *ID
+	IncludeSubagents       bool
 }
 
 type ListAgentsForProjectResult struct {
@@ -219,6 +231,8 @@ func (s *Store) ListAgentsForProject(
 		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
 		AgentProfileID:         input.Filters.AgentProfileID,
+		ParentAgentID:          input.Filters.ParentAgentID,
+		IncludeSubagents:       input.Filters.IncludeSubagents,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -261,6 +275,8 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
 			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
 			AgentProfileID:         input.Filters.AgentProfileID,
+			ParentAgentID:          input.Filters.ParentAgentID,
+			IncludeSubagents:       input.Filters.IncludeSubagents,
 			CursorSet:              input.List.After.Set,
 			CursorCreatedAt:        cursorCreatedAt,
 			CursorID:               input.List.After.ID,
@@ -382,7 +398,7 @@ func (s *Store) archiveAgentOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
 		return AgentRecord{}, nil, err
 	}
-	machines, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
+	machines, err := archiveAgentTreeTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor, true)
 	if err != nil {
 		return AgentRecord{}, nil, err
 	}
@@ -505,6 +521,65 @@ func archiveAgentTx(
 	machines := make([]MachineRecord, 0, len(machineRows))
 	for _, row := range machineRows {
 		machines = append(machines, machineRecordFromMarkArchivedAgentPoolMachinesDeletingSQLC(row))
+	}
+	return machines, nil
+}
+
+// archiveAgentTreeTx archives an agent after archiving every active subagent
+// beneath it, then tells the parent (when asked) that the subagent is gone.
+func archiveAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	projectID, agentID ID,
+	actor *ActorParams,
+	notifyParent bool,
+) ([]MachineRecord, error) {
+	if _, err := qtx.LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, storeerr.ErrNotFound
+		}
+		return nil, fmt.Errorf("lock agent for archive: %w", err)
+	}
+	agent, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	alreadyArchived := agent.State == AgentStateArchived
+	childIDs, err := qtx.ListActiveChildAgentIDs(ctx, dbsqlc.ListActiveChildAgentIDsParams{
+		ProjectID:     projectID,
+		ParentAgentID: &agentID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list subagents for archive: %w", err)
+	}
+	var machines []MachineRecord
+	for _, childID := range childIDs {
+		released, err := archiveAgentTreeTx(ctx, tx, qtx, txNotifications, projectID, childID, actor, false)
+		if err != nil {
+			return nil, err
+		}
+		machines = append(machines, released...)
+	}
+	released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
+	if err != nil {
+		return nil, err
+	}
+	machines = append(machines, released...)
+	if err := cancelOpenAgentWaitsTx(ctx, qtx, projectID, agentID); err != nil {
+		return nil, err
+	}
+	if notifyParent && !alreadyArchived && !isNilID(agent.ParentAgentID) {
+		if err := handleSubagentMessageTx(ctx, txNotifications, tx, qtx, agent, subagentMessage{
+			Kind:           SubagentMessageKindArchived,
+			IdempotencyKey: "archived:" + agent.ID.String(),
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return machines, nil
 }

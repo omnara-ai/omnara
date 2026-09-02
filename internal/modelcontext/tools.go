@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -57,10 +58,18 @@ func RuntimeContractToolSpecs(
 				now.UTC().Year(),
 			)
 		}
+		inputSchema := tool.InputSchema
+		if tool.Name == toolcatalog.ToolNameSpawnAgent && len(contract.Subagents) > 0 {
+			var err error
+			description, inputSchema, err = spawnAgentToolSpec(description, inputSchema, contract)
+			if err != nil {
+				return nil, err
+			}
+		}
 		spec := ToolSpec{
 			Name:        tool.Name,
 			Description: description,
-			InputSchema: tool.InputSchema,
+			InputSchema: inputSchema,
 			Type:        tool.Type,
 			Permission:  tool.Permission,
 		}
@@ -154,4 +163,37 @@ func runtimeMCPToolSpecs(
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func spawnAgentToolSpec(
+	description string,
+	inputSchema json.RawMessage,
+	contract agentconfig.RuntimeContract,
+) (string, json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(inputSchema, &schema); err != nil {
+		return "", nil, fmt.Errorf("decode spawn_agent schema: %w", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	agentProperty, _ := properties["agent"].(map[string]any)
+	if agentProperty == nil {
+		return "", nil, fmt.Errorf("spawn_agent schema has no agent property")
+	}
+	handles := contract.SubagentHandles()
+	agentProperty["enum"] = handles
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return "", nil, fmt.Errorf("encode spawn_agent schema: %w", err)
+	}
+	lines := make([]string, 0, len(handles))
+	for _, handle := range handles {
+		entry := contract.Subagents[handle]
+		line := fmt.Sprintf("- %s (%s)", handle, entry.Type)
+		if entry.Description != "" {
+			line += ": " + entry.Description
+		}
+		lines = append(lines, line)
+	}
+	description = description + " Available subagents:\n" + strings.Join(lines, "\n")
+	return description, encoded, nil
 }

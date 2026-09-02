@@ -186,6 +186,30 @@ Sends a message to the agent's current [integration target](/integrations/slack#
 
 Changes where future integration messages and [approval or question prompts](/events/interactions) are sent. Requires `target_ref`.
 
+## Subagents
+
+These tools are added automatically when the config declares [`subagents`](/agents/configuration#subagents). Each subagent is an ordinary agent with a `parent_agent_id`.
+
+### `spawn_agent`
+
+Starts a subagent from a configured handle with a clean context. Requires `agent` (the handle) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
+
+### `wait_agents`
+
+Parks the tool call until subagents finish. `agents` lists names or ids; omit it to wait for every running subagent. `mode` is `all` (default) or `any`; `timeout_seconds` bounds the wait. The result carries each subagent's state and final answer, or the question it is waiting on.
+
+### `send_agent_message`
+
+Delivers `message` to a subagent. Pass `interaction_id` to answer a question the subagent asked. The reply arrives as a message from the subagent.
+
+### `stop_agent`
+
+Cancels and archives a subagent.
+
+### `list_agents`
+
+Lists the agent's subagents with their handle, state, and last activity.
+
 ## Skills
 
 ### `skill`

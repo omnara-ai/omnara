@@ -29,6 +29,7 @@ type LaunchAgentInput struct {
 	// principal.
 	MessageActor   *ActorParams
 	IdempotencyKey string
+	Subagent       *SubagentLaunch
 }
 
 type LaunchAgentResult struct {
@@ -124,14 +125,27 @@ func (s *Store) launchAgentOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
+	insertInput := insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
 		Name:            agentName,
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
-	})
+	}
+	if input.Subagent != nil {
+		if _, err := prepareSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, input.Name, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+		insertInput.ParentAgentID = input.Subagent.ParentAgentID
+		insertInput.SpawnToolCallID = input.Subagent.SpawnToolCallID
+		insertInput.SubagentHandle = input.Subagent.Handle
+		insertInput.ArchiveAfterIdleMinutes = input.Subagent.ArchiveAfterIdleMinutes
+		if input.Subagent.ShareParentMachines {
+			machineSources = nil
+		}
+	}
+	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -250,6 +264,13 @@ func (s *Store) launchAgentOnce(
 			result.MachineBindings = append(result.MachineBindings, binding)
 			result.ProvisionMachineIDs = append(result.ProvisionMachineIDs, binding.MachineID)
 		}
+	}
+	if input.Subagent != nil && input.Subagent.ShareParentMachines {
+		shared, err := shareParentMachineBindingsTx(ctx, qtx, input.ProjectID, input.Subagent.ParentAgentID, agent.ID)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		result.MachineBindings = append(result.MachineBindings, shared...)
 	}
 	if input.Message != "" {
 		agentInput, contentBlocks, err := insertLaunchInitialContentInputTx(
