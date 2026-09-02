@@ -214,7 +214,7 @@ async function* openConnection(
     yield { kind: 'connected' }
     const parser = createServerSentEventParser()
     const decoder = new TextDecoder()
-    for (;;) {
+    while (true) {
       signal.throwIfAborted()
       const chunk = await settleWithin(reader.read(), stallTimeoutMs, attempt)
       if (chunk.done) throw streamError('transport', 'Agent event stream ended unexpectedly')
