@@ -247,7 +247,6 @@ export function agentEventsToMessages(
       toolCallId: part.toolCallId,
       toolName: part.toolName,
       toolType: part.toolType,
-      ...(toolErrorCode == null ? {} : { toolErrorCode }),
       state: 'output-available',
       input: part.input,
       output: {
@@ -255,6 +254,7 @@ export function agentEventsToMessages(
         contentBlocks,
       },
     }
+    if (toolErrorCode != null) toolPart.toolErrorCode = toolErrorCode
     const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
       block.type === 'media_ref'
         ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
@@ -333,12 +333,14 @@ function optimisticBacklogText(input: LocalAgentInput): string {
  * does not stop the agent — so controls like cancel and interaction polling
  * must key off it rather than off `status`, which errors mask.
  */
-export function projectAgentChat(data: AgentChatData): {
+export interface AgentChatProjection {
   messages: OmnaraUIMessage[]
   backlogInputs: AgentInputBacklogItem[]
   status: AgentChatStatus
   isWorking: boolean
-} {
+}
+
+export function projectAgentChat(data: AgentChatData): AgentChatProjection {
   const messages = agentEventsToMessages(data.events, { hasOlderEvents: data.hasOlderEvents })
   const deltaPreviews = deltaPreviewsByTurn(data.deltas)
   const lastEvent = lastStatusEvent(data.events)

@@ -52,7 +52,7 @@ export async function createAgentChatInput(
         })),
       ],
     },
-    ...(signal == null ? {} : { signal }),
+    signal,
   })
   return data.agent_input
 }
