@@ -1,10 +1,12 @@
 package agentconfig
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 const (
@@ -89,23 +91,66 @@ func SubagentSource(base AgentConfigSource, handle SubagentCompiled) AgentConfig
 	if handle.InstructionAppend != "" {
 		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + handle.InstructionAppend
 	}
+	child.Tools = toolsWithEncodablePermissions(base.Tools)
+	child.MCP = mcpWithEncodablePermissions(base.MCP)
 	if handle.Type == SubagentTypeSelf {
 		child.Subagents = nil
 		child.MaxSubagents = nil
-		if len(base.Tools) > 0 {
-			child.Tools = make(map[string]AgentConfigToolSource, len(base.Tools))
-			for name, tool := range base.Tools {
-				if toolcatalog.IsSubagentToolName(name) {
-					continue
-				}
-				child.Tools[name] = tool
+		for name := range child.Tools {
+			if toolcatalog.IsSubagentToolName(name) {
+				delete(child.Tools, name)
 			}
-			if len(child.Tools) == 0 {
-				child.Tools = nil
-			}
+		}
+		if len(child.Tools) == 0 {
+			child.Tools = nil
 		}
 	}
 	return child
+}
+
+// Selections decoded from a source omit parameters when the document did, and
+// an empty RawMessage re-encodes as null, which the schema rejects.
+func encodablePermission(selection *toolpermission.Selection) *toolpermission.Selection {
+	if selection == nil {
+		return nil
+	}
+	copied := *selection
+	if len(copied.Parameters) == 0 {
+		copied.Parameters = json.RawMessage(`{}`)
+	}
+	return &copied
+}
+
+func toolsWithEncodablePermissions(tools map[string]AgentConfigToolSource) map[string]AgentConfigToolSource {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make(map[string]AgentConfigToolSource, len(tools))
+	for name, tool := range tools {
+		tool.Permission = encodablePermission(tool.Permission)
+		out[name] = tool
+	}
+	return out
+}
+
+func mcpWithEncodablePermissions(servers map[string]AgentConfigMCPSource) map[string]AgentConfigMCPSource {
+	if len(servers) == 0 {
+		return nil
+	}
+	out := make(map[string]AgentConfigMCPSource, len(servers))
+	for key, server := range servers {
+		server.Permission = encodablePermission(server.Permission)
+		if len(server.Tools) > 0 {
+			tools := make(map[string]AgentConfigMCPToolSource, len(server.Tools))
+			for name, tool := range server.Tools {
+				tool.Permission = encodablePermission(tool.Permission)
+				tools[name] = tool
+			}
+			server.Tools = tools
+		}
+		out[key] = server
+	}
+	return out
 }
 
 func compileSubagents(
