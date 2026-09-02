@@ -9,7 +9,7 @@ import type {
 } from './generated/types.gen'
 import { zAgentSequence, zError, zStreamEventsResponse } from './generated/zod.gen'
 import { createServerSentEventParser } from './server-sent-events'
-import { schemaMismatch } from './validate-response'
+import { parseResponse } from './validate-response'
 
 export type AgentEventStreamFrame = Exclude<AgentEventStreamData, ApiErrorBody>
 export type AgentEventStreamErrorKind = 'api' | 'client' | 'contract' | 'http' | 'transport'
@@ -231,7 +231,7 @@ async function* openConnection(
   }
 }
 
-async function decodeFrame(text: string): Promise<AgentEventStreamData> {
+function decodeFrame(text: string): AgentEventStreamData {
   let data: unknown
   try {
     data = JSON.parse(text)
@@ -240,13 +240,21 @@ async function decodeFrame(text: string): Promise<AgentEventStreamData> {
       cause: error,
     })
   }
-  const mismatch = await schemaMismatch(zStreamEventsResponse, data)
-  if (mismatch != null) {
+  const frame = parseResponse(zStreamEventsResponse, data)
+  if (frame.error) {
     throw streamError('contract', 'Agent event stream received data outside its API contract', {
-      cause: mismatch,
+      cause: frame.error,
     })
   }
-  return data as AgentEventStreamData
+  return frame.data
+}
+
+// A durable frame is never an error envelope, whatever fields it carries.
+function isErrorEnvelope(
+  data: AgentEventStreamData,
+  sequence: number | undefined,
+): data is ApiErrorBody {
+  return sequence == null && parseResponse(zError, data).data != null
 }
 
 function durableSequence(data: AgentEventStreamData): number | undefined {
@@ -284,15 +292,14 @@ export async function* openAgentEventStream({
           onConnectionStateChange?.({ state: 'connected', reconnected: hasRetried })
           continue
         }
-        const data = await decodeFrame(event.data)
+        const data = decodeFrame(event.data)
         signal?.throwIfAborted()
         const sequence = durableSequence(data)
-        if (sequence == null && (await schemaMismatch(zError, data)) == null) {
-          const body = data as ApiErrorBody
-          throw streamError('api', body.error, { code: body.code })
+        if (isErrorEnvelope(data, sequence)) {
+          throw streamError('api', data.error, { code: data.code })
         }
         if (sequence != null && cursor != null && sequence <= cursor) continue
-        yield data as AgentEventStreamFrame
+        yield data
         consecutiveFailures = 0
         if (sequence != null) cursor = sequence
       }

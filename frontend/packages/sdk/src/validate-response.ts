@@ -40,16 +40,22 @@ export function isUnknownEnumError(error: z.ZodError, data: unknown): boolean {
   return error.issues.every((issue) => isUnknownEnumIssue(issue, data))
 }
 
-export async function schemaMismatch(
-  schema: z.ZodType,
+type ParsedResponse<T> = { data: T; error?: undefined } | { data?: undefined; error: z.ZodError }
+
+// Accepts unknown enum members and keeps unknown fields so newer servers keep
+// working; anything else must match. Returns the original value, typed.
+export function parseResponse<T extends z.ZodType>(
+  schema: T,
   data: unknown,
-): Promise<z.ZodError | undefined> {
-  const result = await schema.safeParseAsync(data)
-  if (result.success || isUnknownEnumError(result.error, data)) return undefined
-  return result.error
+): ParsedResponse<z.output<T>> {
+  const result = schema.safeParse(data)
+  if (result.success || isUnknownEnumError(result.error, data)) {
+    return { data: data as z.output<T> }
+  }
+  return { error: result.error }
 }
 
-export async function validateResponse(schema: z.ZodType, data: unknown): Promise<void> {
-  const mismatch = await schemaMismatch(schema, data)
-  if (mismatch != null) throw mismatch
+export function validateResponse(schema: z.ZodType, data: unknown): Promise<void> {
+  const { error } = parseResponse(schema, data)
+  return error == null ? Promise.resolve() : Promise.reject(error)
 }
