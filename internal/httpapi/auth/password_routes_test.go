@@ -42,3 +42,11 @@ func TestSafeSignupReturnToAllowsOnlyDeviceApproval(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeAuthEmailCanonicalizesInternationalizedDomain(t *testing.T) {
+	t.Parallel()
+	email, normalized, valid := normalizeAuthEmail("User@BÜCHER.example")
+	if !valid || email != "User@BÜCHER.example" || normalized != "user@xn--bcher-kva.example" {
+		t.Fatalf("normalize auth email = (%q, %q, %t)", email, normalized, valid)
+	}
+}

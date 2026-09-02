@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -30,7 +31,7 @@ func (s *Store) CreateOrgInvitation(
 	if input.Role != authz.OrgRoleAdmin && input.Role != authz.OrgRoleMember {
 		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
 	}
-	normalizedEmail := NormalizeEmail(input.Email)
+	normalizedEmail := emailaddr.Normalize(input.Email)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return OrgInvitationRecord{}, fmt.Errorf("begin create org invitation: %w", err)

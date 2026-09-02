@@ -147,6 +147,30 @@ func TestValidateNewPassword(t *testing.T) {
 			password: "Andes Mountain 1!",
 			email:    "an@corp.com",
 		},
+		{
+			name:     "contains unicode email as typed",
+			password: "xÜser@BÜCHER.example1!",
+			email:    "üser@bücher.example",
+			wantErr:  "password must not include the email address",
+		},
+		{
+			name:     "contains decomposed spelling of email",
+			password: "xu\u0308ser@bu\u0308cher.example1A!",
+			email:    "üser@bücher.example",
+			wantErr:  "password must not include the email address",
+		},
+		{
+			name:     "contains email followed by a combining mark",
+			password: "Owner@Example.com\u0301A1!",
+			email:    "owner@example.com",
+			wantErr:  "password must not include the email address",
+		},
+		{
+			name:     "contains punycode identity key of email",
+			password: "xüser@xn--bcher-kva.example1A!",
+			email:    "Üser@BÜCHER.example",
+			wantErr:  "password must not include the email address",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

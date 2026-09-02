@@ -3105,6 +3105,37 @@ func TestOrgInvitationAcceptDoesNotChangeExistingMembership(t *testing.T) {
 	}
 }
 
+func TestOrgInvitationCanonicalizesInternationalizedDomain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+	seedDefaultProject(t, ctx, store)
+
+	user := mustCreateIdentityUser(t, ctx, store, "Invitee@BÜCHER.example", "Invitee")
+	invite, err := store.Identity().CreateOrgInvitation(
+		ctx,
+		identitystore.CreateOrgInvitationInput{
+			OrgID: testOrgID,
+			Email: "invitee@xn--bcher-kva.example",
+			Role:  "member",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create invitation: %v", err)
+	}
+	if invite.NormalizedEmail != "invitee@xn--bcher-kva.example" {
+		t.Fatalf("invitation normalized email = %q, want canonical key", invite.NormalizedEmail)
+	}
+	accepted, err := store.Identity().AcceptOrgInvitation(
+		ctx,
+		identitystore.AcceptOrgInvitationInput{ID: invite.ID, UserID: user.ID},
+	)
+	if err != nil || accepted.ID != invite.ID {
+		t.Fatalf("accept invitation with unicode spelling: record=%+v err=%v", accepted, err)
+	}
+}
+
 func TestListOrgInvitationsPaginatesConsumedInvitesAway(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -3597,7 +3628,11 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newSecretIntegrationStore(pool)
-	existing := mustCreateIdentityUser(t, ctx, store, "same-email@example.com", "Existing")
+	const (
+		unicodeEmail   = "same-email@bücher.example"
+		canonicalEmail = "same-email@xn--bcher-kva.example"
+	)
+	existing := mustCreateIdentityUser(t, ctx, store, unicodeEmail, "Existing")
 	connector, err := store.Identity().UpsertAuthConnector(
 		ctx,
 		identitystore.CreateAuthConnectorInput{
@@ -3622,7 +3657,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://idp.example.com",
 			Subject:         "subject-1",
-			Email:           "same-email@example.com",
+			Email:           canonicalEmail,
 			EmailVerified:   true,
 			DisplayName:     "OIDC User",
 		},
@@ -3640,7 +3675,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list resolved user emails: %v", err)
 	}
-	if len(emails) != 1 || emails[0].Email != "same-email@example.com" {
+	if len(emails) != 1 || emails[0].Email != unicodeEmail {
 		t.Fatalf("resolved user emails = %+v, want existing verified email", emails)
 	}
 	replayed, err := resolveAuthIdentitySessionForTest(
@@ -3669,7 +3704,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://other-idp.example.com",
 			Subject:         "subject-1",
-			Email:           "same-email@example.com",
+			Email:           unicodeEmail,
 			EmailVerified:   true,
 			DisplayName:     "OIDC User",
 		},
@@ -3686,7 +3721,7 @@ func TestResolveTrustedAuthIdentityLinksExistingVerifiedEmail(t *testing.T) {
 			AuthConnectorID: connector.ID,
 			Issuer:          "https://idp.example.com",
 			Subject:         "subject-2",
-			Email:           "same-email@example.com",
+			Email:           canonicalEmail,
 			EmailVerified:   true,
 			DisplayName:     "Second OIDC User",
 		},
@@ -3880,8 +3915,8 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	results := make(chan result, 2)
 	start := make(chan struct{})
 	for _, input := range []identitystore.ResolveAuthIdentityInput{
-		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@example.com", EmailVerified: true, DisplayName: "Race A"},
-		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@example.com", EmailVerified: true, DisplayName: "Race B"},
+		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@bücher.example", EmailVerified: true, DisplayName: "Race A"},
+		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@xn--bcher-kva.example", EmailVerified: true, DisplayName: "Race B"},
 	} {
 		input := input
 		go func() {
@@ -3903,7 +3938,7 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&userCount); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'race@example.com' AND verified_at IS NOT NULL`).
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'race@xn--bcher-kva.example' AND verified_at IS NOT NULL`).
 		Scan(&emailCount); err != nil {
 		t.Fatalf("count verified race emails: %v", err)
 	}
@@ -5058,19 +5093,70 @@ func TestUserAuthTokenSchemaEnforcesEmailOwnership(t *testing.T) {
 	}
 }
 
+func TestPasswordSignupCanonicalizesInternationalizedDomain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+
+	const (
+		unicodeEmail   = "User@BÜCHER.example"
+		canonicalEmail = "user@xn--bcher-kva.example"
+		password       = "correct horse battery staple"
+	)
+	start, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: unicodeEmail},
+	)
+	if err != nil {
+		t.Fatalf("start signup: %v", err)
+	}
+	if start.Email.NormalizedEmail != canonicalEmail {
+		t.Fatalf("normalized email = %q, want %q", start.Email.NormalizedEmail, canonicalEmail)
+	}
+	passwordHash, err := authn.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	completed, err := store.Identity().CompletePasswordSignup(
+		ctx,
+		identitystore.CompletePasswordSignupInput{Token: start.Token, PasswordHash: passwordHash},
+	)
+	if err != nil || !completed.Verified {
+		t.Fatalf("complete signup: record=%+v err=%v", completed, err)
+	}
+	user, err := authenticatePasswordForTest(t, ctx, store, "user@bu\u0308cher.example", password)
+	if err != nil {
+		t.Fatalf("authenticate with decomposed spelling: %v", err)
+	}
+	if user.ID != completed.User.ID {
+		t.Fatalf("authenticated user = %s, want %s", user.ID, completed.User.ID)
+	}
+	replay, err := store.Identity().StartPasswordSignup(
+		ctx,
+		identitystore.PasswordSignupStartInput{Email: canonicalEmail},
+	)
+	if err != nil {
+		t.Fatalf("repeat signup with punycode spelling: %v", err)
+	}
+	if !replay.EmailAlreadyVerified {
+		t.Fatalf("repeat signup = %+v, want existing verified identity", replay)
+	}
+}
+
 func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 
-	first, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "race-signup@example.com"})
+	first, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "race-signup@bu\u0308cher.example"})
 	if err != nil {
 		t.Fatalf("start first signup: %v", err)
 	}
 	second, err := store.Identity().StartPasswordSignup(
 		ctx,
-		identitystore.PasswordSignupStartInput{Email: "race-signup@example.com"},
+		identitystore.PasswordSignupStartInput{Email: "race-signup@xn--bcher-kva.example"},
 	)
 	if err != nil {
 		t.Fatalf("start second signup: %v", err)
@@ -5167,7 +5253,7 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"race-signup@example.com",
+		"race-signup@bücher.example",
 		winningPassword,
 	); err != nil {
 		t.Fatalf("authenticate winning password: %v", err)
@@ -5347,7 +5433,7 @@ WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL`,
 	}
 	usable := 0
 	for _, record := range records {
-		if _, err := store.Identity().ActiveAuthTokenNormalizedEmail(
+		if _, err := store.Identity().ActiveAuthTokenEmail(
 			ctx,
 			record.Token,
 			identitystore.UserAuthTokenPurposePasswordReset,
@@ -5445,7 +5531,7 @@ func TestPasswordResetRequestAndCompletionSerialize(t *testing.T) {
 	if !request.record.Found || request.record.Token == "" {
 		t.Fatalf("password reset race request = %+v", request.record)
 	}
-	if _, err := store.Identity().ActiveAuthTokenNormalizedEmail(
+	if _, err := store.Identity().ActiveAuthTokenEmail(
 		ctx,
 		request.record.Token,
 		identitystore.UserAuthTokenPurposePasswordReset,
