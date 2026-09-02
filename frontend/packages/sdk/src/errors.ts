@@ -28,24 +28,28 @@ export class ApiError extends Error {
   }
 
   static async fromResponse(response: Response): Promise<ApiError> {
-    let message = `request failed with status ${response.status}`
-    let code: ApiErrorCode | undefined
-    let data: unknown
+    let body: unknown
     try {
-      data = await response.clone().json()
+      body = await response.clone().json()
     } catch {
-      data = undefined
+      body = undefined
     }
-    if (data && typeof data === 'object') {
-      if ('error_description' in data && typeof data.error_description === 'string') {
-        message = data.error_description
-      } else if ('error' in data && typeof data.error === 'string') {
-        message = data.error
+    return ApiError.fromBody(response.status, body)
+  }
+
+  static fromBody(status: number, body: unknown): ApiError {
+    let message = `request failed with status ${status}`
+    let code: ApiErrorCode | undefined
+    if (body && typeof body === 'object') {
+      if ('error_description' in body && typeof body.error_description === 'string') {
+        message = body.error_description
+      } else if ('error' in body && typeof body.error === 'string') {
+        message = body.error
       }
-      if ('code' in data && typeof data.code === 'string') {
-        code = data.code as ApiErrorCode
+      if ('code' in body && typeof body.code === 'string') {
+        code = body.code as ApiErrorCode
       }
     }
-    return new ApiError(response.status, message, code, data)
+    return new ApiError(status, message, code, body)
   }
 }

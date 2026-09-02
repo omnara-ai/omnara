@@ -671,7 +671,15 @@ describe('openAgentEventStream', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const fetch = vi
       .fn<typeof globalThis.fetch>()
-      .mockImplementationOnce(() => new Promise<Response>(() => undefined))
+      .mockImplementationOnce(
+        (input) =>
+          new Promise<Response>((_, reject) => {
+            const { signal } = input as Request
+            signal.addEventListener('abort', () => {
+              reject(signal.reason as Error)
+            })
+          }),
+      )
       .mockImplementationOnce(() => Promise.resolve(new Response(null, { status: 401 })))
     const states: unknown[] = []
     const next = openAgentEventStream({

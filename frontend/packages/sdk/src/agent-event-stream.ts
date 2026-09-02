@@ -200,7 +200,7 @@ async function* openConnection(
           })
     }
     if (response.status !== 200) {
-      const apiError = error instanceof ApiError ? error : await ApiError.fromResponse(response)
+      const apiError = error instanceof ApiError ? error : ApiError.fromBody(response.status, error)
       await response.body?.cancel().catch(() => undefined)
       throw streamError('http', apiError.message, {
         status: response.status,
