@@ -1141,3 +1141,43 @@ func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *tes
 		t.Fatalf("cache_control marks = %+v, want system prompt and last user turn: %s", marks, prepared.Body)
 	}
 }
+
+func TestPrepareWalksPastTrailingReplayedAssistantForOpenRouterCacheBreakpoint(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	replay := testProviderReplay(
+		"anthropic/claude-sonnet-4",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{"role":"assistant","content":"replayed"}`),
+	)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			{
+				Role:                 modelprotocol.RoleAssistant,
+				Sequence:             20,
+				Content:              json.RawMessage(`[{"type":"text","text":"replayed"}]`),
+				ProviderReplay:       replay.payload,
+				ProviderReplaySource: replay.source,
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if !strings.Contains(string(prepared.Body), `"content":"replayed"`) {
+		t.Fatalf("assistant turn was not replayed: %s", prepared.Body)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf("cache_control marks = %+v, want system and the user turn before the replayed assistant: %s", marks, prepared.Body)
+	}
+}

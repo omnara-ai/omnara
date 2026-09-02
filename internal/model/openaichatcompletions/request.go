@@ -398,7 +398,7 @@ func completeChatReplay(
 	if err != nil {
 		return chatMessage{}, false
 	}
-	return chatMessage{ProviderReplay: normalized}, true
+	return chatMessage{Role: chatRoleAssistant, ProviderReplay: normalized}, true
 }
 
 type chatReplaySemantic struct {
