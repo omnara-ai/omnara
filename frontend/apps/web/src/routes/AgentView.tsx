@@ -7,7 +7,6 @@ import {
   useCancelAgent,
   useCurrentActorId,
   useMe,
-  useResolveAgentInteraction,
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
 import { type ComponentProps, type CSSProperties, useRef, useState } from 'react'
@@ -28,7 +27,6 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
-import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
@@ -55,7 +53,6 @@ export function AgentView() {
   const { data: profile } = useAgentProfileQuery(activeOrg.id, projectId, agent.agent_profile_id)
   const { data: me } = useMe()
   const interactions = useAgentInteractions(activeOrg.id, projectId, agentId, chat.isWorking)
-  const resolveInteraction = useResolveAgentInteraction(activeOrg.id, projectId, agentId)
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
@@ -75,13 +72,6 @@ export function AgentView() {
     }
     if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
     closeConfig()
-  }
-
-  async function resolve(
-    interactionID: string,
-    body: Parameters<typeof resolveInteraction.mutateAsync>[0]['body'],
-  ) {
-    return resolveInteraction.mutateAsync({ interactionID, body })
   }
 
   async function cancelCurrent() {
@@ -172,13 +162,9 @@ export function AgentView() {
             model={agentConfig?.model}
             canOperate={canOperate}
             canSendNow={canSendNow}
-            interactions={interactions.data?.data ?? []}
-            interactionsLoadError={
-              interactions.error != null ? errorMessage(interactions.error, 'Unknown error') : null
-            }
-            resolvePending={resolveInteraction.isPending}
-            resolveError={resolveInteraction.error}
-            onResolve={resolve}
+            orgID={activeOrg.id}
+            projectID={projectId}
+            agentID={agentId}
             cancelPending={cancelAgent.isPending}
             cancelError={cancelAgent.error}
             onCancel={cancelCurrent}
@@ -205,11 +191,9 @@ function AgentDock({
   model,
   canOperate,
   canSendNow,
-  interactions,
-  interactionsLoadError,
-  resolvePending,
-  resolveError,
-  onResolve,
+  orgID,
+  projectID,
+  agentID,
   cancelPending,
   cancelError,
   onCancel,
@@ -220,11 +204,9 @@ function AgentDock({
   model: ComponentProps<typeof AgentComposer>['model']
   canOperate: boolean
   canSendNow: boolean
-  interactions: ComponentProps<typeof AgentInteractions>['interactions']
-  interactionsLoadError: string | null
-  resolvePending: boolean
-  resolveError: Error | null
-  onResolve: ComponentProps<typeof AgentInteractions>['onResolve']
+  orgID: string
+  projectID: string
+  agentID: string
   cancelPending: boolean
   cancelError: Error | null
   onCancel: () => Promise<unknown>
@@ -233,11 +215,10 @@ function AgentDock({
     <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
       {!archived && !configOpen && (
         <AgentInteractions
-          interactions={interactions}
-          pending={resolvePending}
-          error={resolveError}
-          loadError={interactionsLoadError}
-          onResolve={onResolve}
+          orgID={orgID}
+          projectID={projectID}
+          agentID={agentID}
+          agentActive={chat.isWorking}
           canOperate={canOperate}
         />
       )}

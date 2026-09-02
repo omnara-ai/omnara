@@ -1,3 +1,4 @@
+import { useAgentInteractions, useResolveAgentInteraction } from '@omnara/react'
 import type {
   AgentInteraction,
   InteractionAnswer,
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
 type Resolve = (interactionID: string, body: ResolveAgentInteractionRequest) => Promise<unknown>
@@ -218,20 +220,27 @@ function InteractionFormCard({
 }
 
 export function AgentInteractions({
-  interactions,
-  onResolve,
-  pending,
-  error,
-  loadError,
+  orgID,
+  projectID,
+  agentID,
+  agentActive,
   canOperate,
 }: {
-  interactions: AgentInteraction[]
-  onResolve: Resolve
-  pending: boolean
-  error?: Error | null
-  loadError?: string | null
+  orgID: string
+  projectID: string
+  agentID: string
+  agentActive: boolean
   canOperate: boolean
 }) {
+  const interactionsQuery = useAgentInteractions(orgID, projectID, agentID, agentActive)
+  const resolveInteraction = useResolveAgentInteraction(orgID, projectID, agentID)
+  const interactions = interactionsQuery.data?.data ?? []
+  const loadError =
+    interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
+  const error = resolveInteraction.error
+  const pending = resolveInteraction.isPending
+  const onResolve: Resolve = (interactionID, body) =>
+    resolveInteraction.mutateAsync({ interactionID, body })
   if (interactions.length === 0 && loadError == null) return null
   return (
     <section
