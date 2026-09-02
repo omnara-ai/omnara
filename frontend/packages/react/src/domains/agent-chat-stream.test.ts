@@ -437,30 +437,68 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('reconnects a dropped stream from the durable cursor', async () => {
-    const session = startSession()
-    await connection(0)
-    const first = await connection(0)
+  it('clears connection-scoped previews and accepts recovered durable output', async () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const session = startSession([], client(), queryClient)
+    const stream = await connection(0)
 
-    first.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (s) => s.status === 'streaming')
-    first.end()
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(1, { kind: 'text_delta', block_index: 0, delta: 'Partial' }),
+    })
+    await waitForSnapshot(session, (s) => messageText(s.messages.at(-1))[0] === 'Partial')
 
-    const second = await connection(1)
-    expect(sdkMocks.openAgentEventStream.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ query: { after_sequence: 11, stream_deltas: true } }),
-    )
-    second.push({
+    stream.connectionState({
+      state: 'reconnecting',
+      attempt: 1,
+      delayMs: 100,
+      error: new AgentEventStreamError({
+        kind: 'transport',
+        message: 'disconnected',
+      }),
+    })
+    await vi.waitFor(() => {
+      expect(read(session).messages.flatMap((message) => messageText(message))).not.toContain(
+        'Partial',
+      )
+    })
+    const invalidationsBeforeReconnect = invalidate.mock.calls.length
+    stream.connectionState({ state: 'connected', reconnected: true })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 1)
+    })
+
+    stream.push({
       event: 'model_output',
       data: event({ sequence: 12, content_blocks: [{ type: 'text', text: 'Done' }] }),
     })
     const finished = await waitForSnapshot(session, (s) => s.status === 'ready')
     expect(messageText(finished.messages.at(-1))).toEqual(['Done'])
+    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })
 
-  it('surfaces a fatal stream response instead of retrying it', async () => {
-    const session = startSession([], client([401]))
+  it('opens the continuous follower from the initial durable cursor', async () => {
+    const session = startSession()
+    await connection(0)
+    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledWith(
+      expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
+    )
+    session.disconnect()
+  })
+
+  it('surfaces a fatal stream response', async () => {
+    const session = startSession()
+    const stream = await connection(0)
+    stream.fail(
+      new AgentEventStreamError({
+        kind: 'http',
+        message: 'Agent event stream request failed with HTTP 401',
+        status: 401,
+      }),
+    )
     const snapshot = await waitForSnapshot(session, (s) => s.status === 'error')
 
     expect(snapshot.error?.message).toBe('Agent event stream request failed with HTTP 401')
@@ -468,69 +506,21 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('surfaces an in-band internal error without reconnecting', async () => {
+  it('surfaces a terminal API stream error', async () => {
     const session = startSession()
     const stream = await connection(0)
-    stream.push({
-      event: 'error',
-      data: { code: 'internal_error', error: 'event projection failed' },
-    })
-    stream.end()
+    stream.fail(
+      new AgentEventStreamError({
+        kind: 'api',
+        code: 'internal_error',
+        message: 'event projection failed',
+      }),
+    )
 
     const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
     expect(snapshot.error?.message).toBe('event projection failed')
     expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
-  })
-
-  it('backs off repeated retryable failures and resets after a valid frame', async () => {
-    const setTimeout = vi.spyOn(globalThis, 'setTimeout')
-    const session = startSession([], client([503, 503, 200, 200]))
-    const recovered = await connection(2)
-    recovered.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (state) => state.status === 'streaming')
-    recovered.end()
-    await connection(3)
-
-    const reconnectDelays = setTimeout.mock.calls
-      .map((call) => call[1])
-      .filter((delay) => delay === 1 || delay === 2)
-    expect(reconnectDelays.slice(-3)).toEqual([1, 2, 1])
-    expect(read(session).error).toBeUndefined()
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(4)
-    session.disconnect()
-    setTimeout.mockRestore()
-  })
-
-  it('backs off repeated in-band service errors and resets after a valid frame', async () => {
-    const setTimeout = vi.spyOn(globalThis, 'setTimeout')
-    const session = startSession()
-    const first = await connection(0)
-    first.push({
-      event: 'error',
-      data: { code: 'service_unavailable', error: 'event stream unavailable' },
-    })
-    first.end()
-    const second = await connection(1)
-    second.push({
-      event: 'error',
-      data: { code: 'service_unavailable', error: 'event stream unavailable' },
-    })
-    second.end()
-    const recovered = await connection(2)
-    expect(read(session).error).toBeUndefined()
-    recovered.push({ event: 'agent_input', data: userInputEvent() })
-    await waitForSnapshot(session, (state) => state.status === 'streaming')
-    recovered.end()
-    await connection(3)
-
-    const reconnectDelays = setTimeout.mock.calls
-      .map((call) => call[1])
-      .filter((delay) => delay === 1 || delay === 2)
-    expect(reconnectDelays.slice(-3)).toEqual([1, 2, 1])
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(4)
-    session.disconnect()
-    setTimeout.mockRestore()
   })
 
   it('surfaces a stream contract violation without reconnecting', async () => {
@@ -540,7 +530,6 @@ describe('AgentChatSession streaming', () => {
       new AgentEventStreamError({
         kind: 'contract',
         message: 'Agent event stream received data that does not match the API contract',
-        retryable: false,
       }),
     )
 

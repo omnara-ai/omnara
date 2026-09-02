@@ -30,6 +30,11 @@ FROM agent_events event
 JOIN agents agent ON agent.id = event.agent_id
 WHERE agent.project_id = $1 AND event.agent_id = $2;
 
+-- name: ListAgentEventFrontiers :many
+SELECT id AS agent_id, (next_event_sequence - 1)::bigint AS event_sequence
+FROM agents
+WHERE id = ANY(sqlc.arg(agent_ids)::uuid[]);
+
 -- name: ListCompactionSourceEvents :many
 SELECT event.id,
        event.sequence,

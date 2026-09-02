@@ -1,6 +1,8 @@
 export {
+  type AgentEventStreamConnectionState,
   AgentEventStreamError,
   type AgentEventStreamErrorKind,
+  type AgentEventStreamFrame,
   openAgentEventStream,
   type OpenAgentEventStreamOptions,
 } from './agent-event-stream'

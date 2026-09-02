@@ -78,6 +78,7 @@ func mustNewUnitServer(t *testing.T, opts ...Option) *Server {
 	if err != nil {
 		t.Fatalf("create http api server: %v", err)
 	}
+	t.Cleanup(server.Close)
 	return server
 }
 

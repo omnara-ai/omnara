@@ -1,8 +1,7 @@
 import {
   type AgentEvent,
-  AgentEventStreamError,
+  type AgentEventStreamConnectionState,
   type AgentInput,
-  type Error as APIErrorBody,
   type OmnaraClient,
   openAgentEventStream,
   sdk,
@@ -28,13 +27,7 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
-import {
-  abortableDelay,
-  createAgentChatInput,
-  isDefiniteSendFailure,
-  reconnectBackoff,
-  sameMessage,
-} from './agent-chat-transport'
+import { createAgentChatInput, isDefiniteSendFailure, sameMessage } from './agent-chat-transport'
 import type {
   AgentChatData,
   AgentChatMessageInput,
@@ -89,14 +82,14 @@ function agentChatHistoryQueryKey(scope: AgentChatScope) {
 export interface AgentChatSessionOptions extends AgentChatScope {
   client: OmnaraClient
   queryClient: QueryClient
-  reconnectDelayMs?: number
+  inputReconciliationDelayMs?: number
 }
 
 export class AgentChatSession {
   private readonly client: OmnaraClient
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
-  private readonly reconnectDelayMs: number
+  private readonly inputReconciliationDelayMs: number
 
   private listeners: (() => void)[] = []
   private runController: AbortController | null = null
@@ -125,12 +118,12 @@ export class AgentChatSession {
     orgID,
     projectID,
     agentID,
-    reconnectDelayMs = 1000,
+    inputReconciliationDelayMs = 1000,
   }: AgentChatSessionOptions) {
     this.client = client
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
-    this.reconnectDelayMs = reconnectDelayMs
+    this.inputReconciliationDelayMs = inputReconciliationDelayMs
   }
 
   getData = (): AgentChatData => this.data
@@ -183,7 +176,9 @@ export class AgentChatSession {
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
         const signal = this.runController?.signal
-        await new Promise((resolve) => globalThis.setTimeout(resolve, this.reconnectDelayMs))
+        await new Promise((resolve) =>
+          globalThis.setTimeout(resolve, this.inputReconciliationDelayMs),
+        )
         if (signal?.aborted && this.listeners.length === 0) return
         if (this.inputEchoLoaded(id)) {
           this.clearLocalInput(id)
@@ -363,6 +358,19 @@ export class AgentChatSession {
     this.notify()
   }
 
+  private handleConnectionState(state: AgentEventStreamConnectionState): void {
+    if (state.state === 'reconnecting') {
+      this.deltas = []
+      this.notify()
+      return
+    }
+    if (state.reconnected) {
+      void this.queryClient.invalidateQueries({
+        queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
+      })
+    }
+  }
+
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
@@ -375,57 +383,28 @@ export class AgentChatSession {
   }
 
   private async run(signal: AbortSignal): Promise<void> {
-    let consecutiveFailures = 0
-    while (!signal.aborted) {
-      const cursor = this.cursor
-      if (cursor == null) return
-      try {
-        let streamError: APIErrorBody | undefined
-        const { stream } = await openAgentEventStream({
-          client: this.client,
-          path: this.scope,
-          query: { after_sequence: cursor, stream_deltas: true },
-          signal,
-        })
-        for await (const data of stream) {
-          const parsed = parseStreamData(data)
-          if (parsed.kind === 'error') {
-            streamError = parsed.error
-            break
-          }
-          consecutiveFailures = 0
-          if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
-          else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        }
-        if (streamError != null) {
-          if (streamError.code !== 'service_unavailable') {
-            this.handleStreamError(streamError.error)
-            this.disconnect()
-            return
-          }
-          consecutiveFailures += 1
-          await abortableDelay(reconnectBackoff(this.reconnectDelayMs, consecutiveFailures), signal)
-          continue
-        }
-      } catch (error) {
-        if (error instanceof AgentEventStreamError) {
-          if (error.kind === 'aborted') return
-          if (error.retryable) {
-            consecutiveFailures += 1
-            await abortableDelay(
-              reconnectBackoff(this.reconnectDelayMs, consecutiveFailures),
-              signal,
-            )
-            continue
-          }
-        }
-        const message = error instanceof Error ? error.message : 'Agent event stream failed'
-        this.handleStreamError(message)
-        this.disconnect()
-        return
+    const cursor = this.cursor
+    if (cursor == null) return
+    try {
+      const stream = openAgentEventStream({
+        client: this.client,
+        path: this.scope,
+        query: { after_sequence: cursor, stream_deltas: true },
+        signal,
+        onConnectionStateChange: (state) => {
+          this.handleConnectionState(state)
+        },
+      })
+      for await (const data of stream) {
+        const parsed = parseStreamData(data)
+        if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
+        else if (parsed.kind === 'event') this.handleEvent(parsed.event)
       }
-      consecutiveFailures += 1
-      await abortableDelay(reconnectBackoff(this.reconnectDelayMs, consecutiveFailures), signal)
+    } catch (error) {
+      if (signal.aborted) return
+      const message = error instanceof Error ? error.message : 'Agent event stream failed'
+      this.handleStreamError(message)
+      this.disconnect()
     }
   }
 }

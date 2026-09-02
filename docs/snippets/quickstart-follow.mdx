@@ -27,12 +27,11 @@ await sdk.createAgentInput({
   },
 })
 
-const { stream } = await openAgentEventStream({
+for await (const event of openAgentEventStream({
   client,
   path: { orgID, projectID, agentID },
   query: { stream_deltas: true },
-})
-for await (const event of stream) {
+})) {
   console.log(event)
 }
 ```

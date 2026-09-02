@@ -226,7 +226,7 @@ func main() {
 		}
 	}
 	cancel()
-	apiServer.CloseDaemonSockets()
+	apiServer.Close()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

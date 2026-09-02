@@ -1,9 +1,8 @@
 import type {
   AgentEvent,
-  AgentEventStreamData,
+  AgentEventStreamFrame,
   AgentInput,
   AgentInputEvent,
-  Error as APIError,
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
@@ -52,13 +51,11 @@ export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
   | { kind: 'tool_call_update' }
   | { kind: 'delta'; delta: ModelOutputDelta }
-  | { kind: 'error'; error: APIError }
 
-export function parseStreamData(data: AgentEventStreamData): AgentStreamFrame {
+export function parseStreamData(data: AgentEventStreamFrame): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
   if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
-  if ('model_call_context_id' in data) return { kind: 'delta', delta: data }
-  return { kind: 'error', error: data }
+  return { kind: 'delta', delta: data }
 }
 
 export function sequenceNumber(value: number | undefined): number {

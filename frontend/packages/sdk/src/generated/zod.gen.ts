@@ -1515,7 +1515,7 @@ export const zModelOutputDelta = z.object({
 });
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a terminal stream error.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
  */
 export const zAgentEventStreamData = z.union([
     zAgentEvent,
@@ -3740,7 +3740,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and terminal stream errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 
