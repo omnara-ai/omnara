@@ -1,0 +1,75 @@
+<CodeGroup>
+```bash CLI
+npx omnara machines create \
+  --display-name build-server-1 \
+  --description "Bare-metal builder in the office rack" \
+  --cwd /srv/repo \
+  --env '{"CI": "true"}' \
+  --secret-env '{"GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz"}' \
+  --project-ids "$PROJ" \
+  --json
+```
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/machines/connect" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "build-server-1",
+    "description": "Bare-metal builder in the office rack",
+    "cwd": "/srv/repo",
+    "env": { "CI": "true" },
+    "secret_env": { "GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz" },
+    "project_ids": ["'"$PROJ"'"]
+  }'
+```
+
+```typescript SDK
+const connection = await sdk.connectByoMachine({
+  client,
+  path: { orgID },
+  body: {
+    display_name: 'build-server-1',
+    description: 'Bare-metal builder in the office rack',
+    cwd: '/srv/repo',
+    env: { CI: 'true' },
+    secret_env: { GITHUB_TOKEN: 'sec_7jehcyd5n6a2bfgik7mv4qtrwz' },
+    project_ids: [projectID],
+  },
+})
+const machineID = connection.data.machine.id
+const daemonToken = connection.data.token
+```
+</CodeGroup>
+
+```json
+{
+  "machine": {
+    "id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "org_id": "org_k7mv4qtrwz3jehcyd5n6a2bfgi",
+    "source_kind": "byo",
+    "display_name": "build-server-1",
+    "lifecycle_state": "active",
+    "connection_state": "offline",
+    "cwd": "/srv/repo",
+    "env": { "CI": "true" },
+    "secret_env": { "GITHUB_TOKEN": "sec_7jehcyd5n6a2bfgik7mv4qtrwz" },
+    "...": "..."
+  },
+  "token": "omnara_daemon_v1_...",
+  "token_record": {
+    "id": "mdt_3jehcyd5n6a2bfgik7mv4qtrwz",
+    "machine_id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "name": "daemon",
+    "...": "..."
+  },
+  "project_grants": [
+    {
+      "id": "pmg_6a2bfgik7mv4qtrwz3jehcyd5n",
+      "machine_id": "mch_5n6a2bfgik7mv4qtrwz3jehcyd",
+      "source_kind": "explicit",
+      "...": "..."
+    }
+  ]
+}
+```

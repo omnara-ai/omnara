@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -154,9 +155,6 @@ func createConfiguredModelInputFromOpenAPI(
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
-	if strings.TrimSpace(body.Name) == "" {
-		return errors.New("name is required")
-	}
 	if body.Preset == nil && body.ApiFormat == nil {
 		return errors.New("api_format is required unless preset is provided")
 	}
@@ -269,6 +267,11 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
 	body := *request.Body
+	canonicalName, err := resourcename.CanonicalizeRequired("model provider config name", body.Name)
+	if err != nil {
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
+	}
+	body.Name = canonicalName
 	if err := validateCreateModelProviderConfigRequest(body); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -668,7 +671,11 @@ func patchConfiguredModelInput(
 		ID:                    configuredModelID,
 	}
 	if body.Name != nil {
-		input.Name = body.Name
+		canonicalName, err := resourcename.CanonicalizeRequired("configured model name", *body.Name)
+		if err != nil {
+			return modelstore.PatchConfiguredModelInput{}, err
+		}
+		input.Name = &canonicalName
 	}
 	if body.ProviderModelSlug != nil {
 		input.ProviderModelSlug = body.ProviderModelSlug
@@ -1077,9 +1084,10 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 	supportedReasoningEfforts := cloneStringSlice(record.SupportedReasoningEfforts)
 	inputModalities := cloneStringSlice(record.InputModalities)
 	outputModalities := cloneStringSlice(record.OutputModalities)
-	cacheRetention := record.DefaultCacheRetention
-	if cacheRetention == "" {
-		cacheRetention = modelstore.ModelCacheRetentionNone
+	var cacheRetention *openapigen.ModelCacheRetention
+	if record.DefaultCacheRetention != "" {
+		value := openapigen.ModelCacheRetention(record.DefaultCacheRetention)
+		cacheRetention = &value
 	}
 	return openapigen.ConfiguredModel{
 		Id:                        id,
@@ -1092,7 +1100,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		ContextWindowTokens:       record.ContextWindowTokens,
 		MaxOutputTokens:           record.MaxOutputTokens,
 		DefaultMaxOutputTokens:    nullableFromPtr(record.DefaultMaxOutputTokens),
-		DefaultCacheRetention:     openapigen.ModelCacheRetention(cacheRetention),
+		DefaultCacheRetention:     cacheRetention,
 		SupportsTools:             record.SupportsTools,
 		SupportsReasoning:         record.SupportsReasoning,
 		DefaultReasoningEffort:    record.DefaultReasoningEffort,
@@ -1214,8 +1222,7 @@ func (s strictOpenAPIServer) authorizeModelProviderCredentialBinding(
 		Action:    identitystore.OrgActionSecretsManage,
 	})
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")
+		return authorizationAPIError(ctx, err)
 	}
 	if !allowed {
 		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")

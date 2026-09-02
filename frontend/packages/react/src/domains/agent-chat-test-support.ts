@@ -35,12 +35,12 @@ import { QueryClient } from '@tanstack/react-query'
 
 import { AgentChatSession } from './agent-chat'
 import {
-  type AgentChatStatus,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import type { AgentChatStatus } from './agent-chat-types'
 
 export const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 
@@ -261,10 +261,6 @@ export interface ChatState {
 const sessionHistory = new WeakMap<AgentChatSession, AgentEvent[]>()
 const sessionHasOlderEvents = new WeakMap<AgentChatSession, boolean>()
 
-export function setSessionHistory(session: AgentChatSession, history: AgentEvent[]): void {
-  sessionHistory.set(session, history)
-}
-
 export function read(session: AgentChatSession): ChatState {
   const sessionData = session.getData()
   const data = {
@@ -329,5 +325,17 @@ export function resetChatTestHarness(): void {
   vi.clearAllMocks()
   connections.length = 0
   installStreaming()
-  sdkMocks.createAgentInput.mockResolvedValue({ data: { agent_input: { id: 'input-1' } } })
+  sdkMocks.createAgentInput.mockResolvedValue({
+    data: {
+      agent_input: {
+        id: 'input-1',
+        agent_id: 'agent',
+        state: 'received',
+        delivery_mode: 'queued',
+        input_kind: 'content',
+        content_blocks: [{ type: 'text', text: 'Hello' }],
+        queued_at: '2026-07-14T00:00:00Z',
+      },
+    },
+  })
 }

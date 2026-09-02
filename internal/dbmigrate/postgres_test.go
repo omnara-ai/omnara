@@ -30,6 +30,16 @@ func TestValidatePostgresVersion(t *testing.T) {
 	}
 }
 
+func TestValidatePostgresEncoding(t *testing.T) {
+	if err := validatePostgresEncoding("UTF8"); err != nil {
+		t.Fatalf("validate PostgreSQL UTF8 encoding: %v", err)
+	}
+	err := validatePostgresEncoding("SQL_ASCII")
+	if err == nil || !strings.Contains(err.Error(), "UTF8 database encoding is required") {
+		t.Fatalf("non-UTF8 PostgreSQL encoding error = %v", err)
+	}
+}
+
 func TestParsePostgresConfigDefaultsAndExplicitPrecedence(t *testing.T) {
 	for _, test := range []struct {
 		name             string

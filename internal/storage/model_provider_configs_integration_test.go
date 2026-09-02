@@ -476,6 +476,15 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting configured model replay error = %v, want ErrIdempotencyConflict", err)
 	}
+	invalidName := " invalid model "
+	if _, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID:                 testOrgID,
+		ModelProviderConfigID: config.ID,
+		ID:                    configuredModel.ID,
+		Name:                  &invalidName,
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("patch configured model with invalid name error = %v, want invalid request", err)
+	}
 	updatedProviderModelSlug := "gpt-5.4"
 	updatedContextWindow := 240000
 	updatedDefaultReasoningEffort := "medium"

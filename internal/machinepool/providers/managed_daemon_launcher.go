@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
@@ -32,23 +33,39 @@ const (
 )
 
 func BuildManagedMachineEnv(
-	omnaraPublicURL string,
+	omnaraAPIURL string,
 	machineToken string,
 	startupScript string,
 	machineEnv map[string]string,
 ) (map[string]string, error) {
-	omnaraPublicURL = strings.TrimRight(strings.TrimSpace(omnaraPublicURL), "/")
-	if omnaraPublicURL == "" {
-		return nil, errors.New("public URL is required for managed machine bootstrap")
+	apiURL := strings.TrimRight(strings.TrimSpace(omnaraAPIURL), "/")
+	if apiURL == "" {
+		return nil, errors.New("API URL is required for managed machine bootstrap")
 	}
-	env := make(map[string]string, len(machineEnv)+3)
+	parsedAPIURL, err := url.Parse(apiURL)
+	if err != nil || parsedAPIURL.Opaque != "" || parsedAPIURL.Scheme == "" || parsedAPIURL.Host == "" {
+		return nil, errors.New("API URL for managed machine bootstrap must be absolute")
+	}
+	if parsedAPIURL.Scheme != "http" && parsedAPIURL.Scheme != "https" {
+		return nil, errors.New("API URL for managed machine bootstrap must use http or https")
+	}
+	if parsedAPIURL.User != nil || parsedAPIURL.RawQuery != "" || parsedAPIURL.ForceQuery || parsedAPIURL.Fragment != "" {
+		return nil, errors.New("API URL for managed machine bootstrap must not contain credentials, a query, or a fragment")
+	}
+	parsedAPIURL.Path = "/install/omnarad.sh"
+	parsedAPIURL.RawPath = ""
+	parsedAPIURL.RawQuery = ""
+	parsedAPIURL.Fragment = ""
+	installerURL := parsedAPIURL.String()
+	env := make(map[string]string, len(machineEnv)+4)
 	for key, value := range machineEnv {
 		if strings.HasPrefix(strings.ToUpper(key), "OMNARA_") {
 			return nil, fmt.Errorf("machine env cannot set reserved OMNARA_ key %s", key)
 		}
 		env[key] = value
 	}
-	env["OMNARA_API_URL"] = omnaraPublicURL
+	env["OMNARA_API_URL"] = apiURL
+	env["OMNARA_INSTALLER_URL"] = installerURL
 	env["OMNARA_MACHINE_TOKEN"] = machineToken
 	if startupScript != "" {
 		env[startupScriptEnvVar] = base64.StdEncoding.EncodeToString([]byte(startupScript))

@@ -10,6 +10,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -150,7 +151,9 @@ func secretAPIError(ctx context.Context, err error) apierror.ResponseError {
 		return apierror.FromCode(openapi.ErrorCodeConflict, "conflict")
 	case errors.Is(err, storeerr.ErrStateTransitionConflict):
 		return apierror.FromCode(openapi.ErrorCodeConflict, "cluster-managed secrets cannot be changed")
-	case errors.Is(err, storeerr.ErrInvalidSecretRequest):
+	case errors.Is(err, storeerr.ErrInvalidSecretName):
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	case errors.Is(err, storeerr.ErrInvalidRequest), errors.Is(err, storeerr.ErrInvalidSecretRequest):
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid secret request")
 	case storeerr.IsNotFound(err):
 		return apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
@@ -487,10 +490,11 @@ func (s strictOpenAPIServer) UpdateSecret(
 		return nil, err
 	}
 	if request.Body.Name != nil {
-		if *request.Body.Name == "" {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name cannot be empty")
+		canonicalName, err := resourcename.CanonicalizeRequired("secret name", *request.Body.Name)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 		}
-		name = *request.Body.Name
+		name = canonicalName
 	}
 	if request.Body.Metadata != nil {
 		metadata = request.Body.Metadata

@@ -63,9 +63,10 @@ func (e Executor) dispatchToolHandler(
 					ctx,
 					handler.Transactional,
 					transactionalToolContext{
-						Reader: reader,
-						Turn:   turn,
-						Call:   call,
+						Reader:     reader,
+						Turn:       turn,
+						Call:       call,
+						ToolCallID: toolCallID,
 					},
 				)
 				if phaseErr != nil {
@@ -544,9 +545,10 @@ type toolHandler struct {
 }
 
 type transactionalToolContext struct {
-	Reader *executionstore.ToolCallReader
-	Turn   Turn
-	Call   model.ToolCall
+	Reader     *executionstore.ToolCallReader
+	Turn       Turn
+	Call       model.ToolCall
+	ToolCallID storage.ID
 }
 
 type asyncToolContext struct {

@@ -275,7 +275,7 @@ func TestBlaxelRESTClientListsSandboxesWithVersionedCursor(t *testing.T) {
 			query.Get("limit") != "200" ||
 			query.Get("q") != "omnara-mch-" ||
 			query.Has("showTerminated") ||
-			query.Get("sort") != "name:asc" {
+			query.Has("sort") {
 			t.Errorf("unexpected list query: %s", r.URL.RawQuery)
 			return
 		}
@@ -312,7 +312,7 @@ func TestBlaxelRESTClientListFitsMaximumManagedEnvironment(t *testing.T) {
 		executionstore.MaxResolvedEnvironmentBytes-usedBytes,
 	)
 	managedEnv, err := providers.BuildManagedMachineEnv(
-		"https://app.omnara.test",
+		"https://api.omnara.test/v1",
 		"machine-token",
 		strings.Repeat("x", 64*1024),
 		machineEnv,

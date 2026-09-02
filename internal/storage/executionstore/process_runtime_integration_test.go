@@ -1169,6 +1169,271 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	}
 }
 
+func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		createArtifact bool
+		wantOutcome    executionstore.ToolResultOutcome
+	}{
+		{
+			name:           "stored_artifact",
+			createArtifact: true,
+			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name:        "missing_artifact",
+			wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := newProcessDaemonFixture(t, ctx, "upload_artifact_terminal_"+test.name)
+			toolCallID := createToolCallForProcessTest(
+				t,
+				ctx,
+				fixture,
+				"upload_artifact_terminal_"+test.name,
+				"upload_artifact",
+			)
+			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ToolCallID:    toolCallID,
+				RuntimeLockID: fixture.Lock.ID,
+			}, executionstore.CreateProcessInput{
+				AgentMachineBindingID: fixture.BindingID,
+				Command:               "upload artifact",
+				ShellSelector:         "sh",
+				Cwd:                   "/work",
+			})
+			if err != nil {
+				t.Fatalf("start process: %v", err)
+			}
+			if _, found, err := acceptDaemonProcessForTest(
+				ctx,
+				fixture.Store,
+				testOrgID,
+				fixture.MachineID,
+				fixture.RuntimeID,
+				process.ID,
+			); err != nil {
+				t.Fatalf("accept process: %v", err)
+			} else if !found {
+				t.Fatal("expected process accept")
+			}
+			started, err := fixture.Store.Execution().MarkProcessStarted(
+				ctx,
+				executionstore.MarkProcessStartedInput{
+					ProjectID:       testProjectID,
+					AgentID:         fixture.AgentID,
+					ID:              process.ID,
+					Authority:       fixture.authority(),
+					SourceStartedAt: fixture.Now.Add(time.Second),
+				},
+			)
+			if err != nil {
+				t.Fatalf("mark process started: %v", err)
+			}
+			if started.ToolResultCommitted {
+				t.Fatal("started upload process completed its linked tool call")
+			}
+			toolCall, err := fixture.Store.Execution().GetToolCall(
+				ctx,
+				testProjectID,
+				fixture.AgentID,
+				toolCallID,
+			)
+			if err != nil {
+				t.Fatalf("get waiting tool call: %v", err)
+			}
+			if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
+				t.Fatalf("tool call after started upload = %+v, want waiting", toolCall)
+			}
+
+			artifactID := uuid.New()
+			filename := "screenshot.png"
+			sizeBytes := int64(2048)
+			if test.createArtifact {
+				idempotencyKey := executionstore.UploadArtifactIdempotencyKey(toolCallID)
+				if _, err := fixture.Store.q.InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
+					ID:             artifactID,
+					ProjectID:      testProjectID,
+					AgentID:        fixture.AgentID,
+					ContentType:    "image/png",
+					Filename:       &filename,
+					SizeBytes:      &sizeBytes,
+					IdempotencyKey: &idempotencyKey,
+				}); err != nil {
+					t.Fatalf("insert uploaded artifact: %v", err)
+				}
+			}
+
+			exitCode := 0
+			completionInput := executionstore.CompleteDaemonProcessInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ID:            process.ID,
+				Authority:     fixture.authority(),
+				State:         executionstore.ProcessStateExited,
+				ExitCode:      &exitCode,
+				Result:        json.RawMessage(`{"output":"not json","truncated":true}`),
+				SourceEndedAt: fixture.Now.Add(2 * time.Second),
+			}
+			completed, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completionInput)
+			if err != nil {
+				t.Fatalf("complete upload process: %v", err)
+			}
+			if !completed.ToolResultCommitted {
+				t.Fatal("terminal upload process did not commit its tool result")
+			}
+			toolCall, err = fixture.Store.Execution().GetToolCall(
+				ctx,
+				testProjectID,
+				fixture.AgentID,
+				toolCallID,
+			)
+			if err != nil {
+				t.Fatalf("get completed tool call: %v", err)
+			}
+			result := completedToolCallForTest(
+				t,
+				fixture.Store,
+				fixture.AgentID,
+				toolCall.TurnID,
+				toolCall.ID,
+			)
+			if test.createArtifact {
+				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
+				wantContent := []byte(
+					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
+						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
+						`","exclude_from_model_context":true}]`,
+				)
+				if !sameJSON(toolCall.ResultContentParts, wantContent) {
+					t.Fatalf(
+						"GetToolCall content = %s, want %s",
+						toolCall.ResultContentParts,
+						wantContent,
+					)
+				}
+				toolCallByProvider, found, err := fixture.Store.Execution().GetToolCallByProviderCall(
+					ctx,
+					testProjectID,
+					fixture.AgentID,
+					toolCall.ModelCallContextID,
+					toolCall.ProviderCallID,
+				)
+				if err != nil {
+					t.Fatalf("get completed tool call by provider call: %v", err)
+				}
+				if !found || !sameJSON(toolCallByProvider.ResultContentParts, wantContent) {
+					t.Fatalf(
+						"GetToolCallByProviderCall content = %s, found=%t, want %s",
+						toolCallByProvider.ResultContentParts,
+						found,
+						wantContent,
+					)
+				}
+				wantModelContent := []byte(
+					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID + `"}}]`,
+				)
+				if result.Outcome != test.wantOutcome ||
+					!sameJSON(result.ResultContentParts, wantModelContent) {
+					t.Fatalf("upload model result = %+v, want %s", result, wantModelContent)
+				}
+				var blockKind string
+				var storedArtifactID uuid.UUID
+				var excludeFromModelContext bool
+				if err := fixture.Store.pool.QueryRow(ctx, `
+SELECT block.block_kind, block.artifact_id, block.exclude_from_model_context
+FROM content_blocks block
+JOIN tool_call_results result ON result.agent_id = block.agent_id
+  AND result.id = block.owner_tool_call_result_id
+WHERE result.agent_id = $1 AND result.tool_call_id = $2
+  AND block.block_kind = 'artifact'
+`, fixture.AgentID, toolCallID).Scan(
+					&blockKind,
+					&storedArtifactID,
+					&excludeFromModelContext,
+				); err != nil {
+					t.Fatalf("load upload artifact content block: %v", err)
+				}
+				if blockKind != "artifact" || storedArtifactID != artifactID ||
+					!excludeFromModelContext {
+					t.Fatalf(
+						"upload artifact block = kind=%s artifact=%s exclude_from_model_context=%t",
+						blockKind,
+						storedArtifactID,
+						excludeFromModelContext,
+					)
+				}
+				events, err := fixture.Store.Execution().ListAgentEventsForRead(
+					ctx,
+					testProjectID,
+					fixture.AgentID,
+					0,
+					100,
+				)
+				if err != nil {
+					t.Fatalf("list upload events: %v", err)
+				}
+				foundEvent := false
+				for _, event := range events {
+					if event.ToolCallID == toolCallID {
+						foundEvent = sameJSON(event.ContentBlocks, wantContent)
+					}
+				}
+				if !foundEvent {
+					t.Fatalf("upload event missing content %s: %+v", wantContent, events)
+				}
+				compactionEvents, err := fixture.Store.Execution().ListCompactionSourceEvents(
+					ctx,
+					testProjectID,
+					fixture.AgentID,
+					0,
+					100,
+				)
+				if err != nil {
+					t.Fatalf("list upload compaction events: %v", err)
+				}
+				foundCompactionResult := false
+				for _, event := range compactionEvents {
+					if event.ToolName == "upload_artifact" &&
+						event.ToolOutcome == string(executionstore.ToolResultOutcomeSucceeded) {
+						foundCompactionResult = sameJSON(event.ContentParts, wantModelContent)
+					}
+				}
+				if !foundCompactionResult {
+					t.Fatalf("upload artifact compaction result = %+v, want %s", compactionEvents, wantModelContent)
+				}
+			} else {
+				wantResult, err := json.Marshal([]map[string]any{{
+					"type": "structured_data",
+					"value": map[string]any{
+						"process_id": publicResourceID(publicid.KindProcess, process.ID),
+						"state":      executionstore.ProcessStateExited,
+						"error":      "upload completed without an artifact",
+					},
+				}})
+				if err != nil {
+					t.Fatalf("marshal expected tool result: %v", err)
+				}
+				if result.Outcome != test.wantOutcome || !sameJSON(result.ResultContentParts, wantResult) {
+					t.Fatalf("upload tool result = %+v, want %s", result, wantResult)
+				}
+			}
+			replayed, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completionInput)
+			if err != nil {
+				t.Fatalf("replay upload process completion: %v", err)
+			}
+			if !replayed.ToolResultCommitted {
+				t.Fatal("replayed upload completion did not recognize its durable result")
+			}
+		})
+	}
+}
+
 func TestRunCommandTerminalResultRetainsCanonicalProcessHandle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

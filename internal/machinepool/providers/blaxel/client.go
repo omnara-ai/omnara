@@ -151,7 +151,6 @@ func (c *restClient) ListSandboxes(
 	query := requestURL.Query()
 	query.Set("limit", strconv.Itoa(limit))
 	query.Set("q", "omnara-mch-")
-	query.Set("sort", "name:asc")
 	if cursor != "" {
 		query.Set("cursor", cursor)
 	}

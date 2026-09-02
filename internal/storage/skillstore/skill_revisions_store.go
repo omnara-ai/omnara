@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
@@ -15,12 +16,6 @@ import (
 )
 
 func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput) (SkillRecord, error) {
-	if err := s.validateCreateSkillInput(ctx, input); err != nil {
-		return SkillRecord{}, err
-	}
-	if s.blobs == nil {
-		return SkillRecord{}, errors.New("skill storage requires a blob store")
-	}
 	skillID, identityExists, err := s.findSkillIdentity(ctx, input)
 	if err != nil {
 		return SkillRecord{}, err
@@ -31,7 +26,22 @@ func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput)
 			return SkillRecord{}, fmt.Errorf("generate skill id: %w", err)
 		}
 	}
+	return s.createSkillRevisionForIdentity(ctx, skillID, identityExists, uuid.Nil, input)
+}
 
+func (s *Store) createSkillRevisionForIdentity(
+	ctx context.Context,
+	skillID uuid.UUID,
+	identityExists bool,
+	baseRevisionID uuid.UUID,
+	input CreateSkillInput,
+) (SkillRecord, error) {
+	if err := s.validateCreateSkillInput(ctx, input); err != nil {
+		return SkillRecord{}, err
+	}
+	if s.blobs == nil {
+		return SkillRecord{}, errors.New("skill storage requires a blob store")
+	}
 	for {
 		publicID, err := publicid.Encode(publicid.KindSkill, skillID)
 		if err != nil {
@@ -64,6 +74,7 @@ func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput)
 			skillID,
 			revisionID,
 			!identityExists,
+			baseRevisionID,
 			input,
 			blobMeta.Digest,
 		)
@@ -83,10 +94,58 @@ func (s *Store) CreateSkillRevision(ctx context.Context, input CreateSkillInput)
 	}
 }
 
+type CreateSkillRevisionForSkillInput struct {
+	OrgID          uuid.UUID
+	SkillID        uuid.UUID
+	BaseRevisionID uuid.UUID
+	Name           string
+	Description    string
+	SkillMd        string
+	ArchiveBytes   []byte
+	Actor          identitystore.PrincipalRecord
+}
+
+func (s *Store) CreateSkillRevisionForSkill(
+	ctx context.Context,
+	input CreateSkillRevisionForSkillInput,
+) (SkillRecord, error) {
+	if isNilUUID(input.OrgID) || isNilUUID(input.SkillID) {
+		return SkillRecord{}, invalidSkillRequest("org and skill are required")
+	}
+	record, err := s.getSkill(ctx, input.OrgID, input.SkillID)
+	if err != nil {
+		return SkillRecord{}, err
+	}
+	if err := s.authorizeSkillManage(ctx, record, input.Actor); err != nil {
+		if errors.Is(err, storeerr.ErrUnauthorized) {
+			return SkillRecord{}, storeerr.ErrNotFound
+		}
+		return SkillRecord{}, err
+	}
+	if input.Name != record.Name {
+		return SkillRecord{}, invalidSkillName(
+			"SKILL.md frontmatter `name` %q must match the skill's name %q",
+			input.Name, record.Name,
+		)
+	}
+	return s.createSkillRevisionForIdentity(ctx, record.ID, true, input.BaseRevisionID, CreateSkillInput{
+		OrgID:          input.OrgID,
+		OwnerKind:      record.OwnerKind,
+		OwnerProjectID: record.OwnerProjectID,
+		OwnerUserID:    record.OwnerUserID,
+		Name:           input.Name,
+		Description:    input.Description,
+		SkillMd:        input.SkillMd,
+		ArchiveBytes:   input.ArchiveBytes,
+		Actor:          input.Actor,
+	})
+}
+
 func (s *Store) insertSkillRevision(
 	ctx context.Context,
 	skillID, revisionID uuid.UUID,
 	createIdentity bool,
+	baseRevisionID uuid.UUID,
 	input CreateSkillInput,
 	archiveDigest string,
 ) (skillRevisionInsertResult, error) {
@@ -155,6 +214,18 @@ func (s *Store) insertSkillRevision(
 	}
 	if err := lockSkillTx(ctx, qtx, input.OrgID, skillID); err != nil {
 		return skillRevisionInsertResult{}, err
+	}
+	if !isNilUUID(baseRevisionID) {
+		latest, err := qtx.GetLatestSkillRevisionID(ctx, dbsqlc.GetLatestSkillRevisionIDParams{SkillID: skillID})
+		if err != nil {
+			return skillRevisionInsertResult{}, fmt.Errorf("get latest skill revision: %w", err)
+		}
+		if latest != baseRevisionID {
+			return skillRevisionInsertResult{}, fmt.Errorf(
+				"skill was updated concurrently: %w",
+				storeerr.ErrConflict,
+			)
+		}
 	}
 	revision, err := qtx.NextSkillRevision(ctx, dbsqlc.NextSkillRevisionParams{SkillID: skillID})
 	if err != nil {

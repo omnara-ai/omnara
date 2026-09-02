@@ -176,7 +176,7 @@ func PrepareForSend(
 	}
 	if err := validateRequestModalities(
 		input.Context,
-		CapabilitiesForClient(client),
+		client,
 		input.ErrorSource,
 	); err != nil {
 		return PreparedRequest{}, err
@@ -252,7 +252,8 @@ func OutputTokenLimitsForClient(
 	}
 }
 
-func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabilities, errorSource string) error {
+func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorSource string) error {
+	capabilities := CapabilitiesForClient(client)
 	if len(capabilities.InputModalities) > 0 {
 		if !containsModality(capabilities.InputModalities, "text") {
 			return ProviderError{
@@ -270,6 +271,11 @@ func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabili
 				requiredModality = "image"
 				requiredDescription = "image"
 			case modelcontext.AttachmentKindDocument:
+				if media.Representation == modelcontext.MediaRepresentationInlineText ||
+					(APIVariantForClient(client) == modelprotocol.APIVariantOpenRouter &&
+						media.Media.MediaType == "application/pdf") {
+					continue
+				}
 				requiredModality = "file"
 				requiredDescription = "file"
 			}
@@ -305,13 +311,43 @@ func containsModality(values []string, want string) bool {
 	return false
 }
 
+func (c Capabilities) AllowsInputModality(modality string) bool {
+	return len(c.InputModalities) == 0 || containsModality(c.InputModalities, modality)
+}
+
 type CacheRetention string
 
 const (
+	CacheRetentionUnset CacheRetention = ""
 	CacheRetentionNone  CacheRetention = "none"
 	CacheRetentionShort CacheRetention = "short"
 	CacheRetentionLong  CacheRetention = "long"
 )
+
+func EffectiveCacheRetention(
+	apiFormat modelprotocol.APIFormat,
+	apiVariant modelprotocol.APIVariant,
+	providerModelSlug string,
+	retention CacheRetention,
+) CacheRetention {
+	if retention != CacheRetentionUnset {
+		return retention
+	}
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
+		return CacheRetentionShort
+	}
+	if apiFormat == modelprotocol.APIFormatOpenAIChatCompletions &&
+		apiVariant == modelprotocol.APIVariantOpenRouter &&
+		OpenRouterSupportsCacheControl(providerModelSlug) {
+		return CacheRetentionShort
+	}
+	return CacheRetentionNone
+}
+
+func OpenRouterSupportsCacheControl(providerModelSlug string) bool {
+	slug := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(providerModelSlug)), "~")
+	return strings.HasPrefix(slug, "anthropic/claude-")
+}
 
 type RequestPolicy struct {
 	MaxOutputTokens                   int            `json:"max_output_tokens,omitempty"`

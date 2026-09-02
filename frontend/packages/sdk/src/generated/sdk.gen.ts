@@ -2,8 +2,8 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type ServerSentEventsResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { AcceptInvitationData, AcceptInvitationErrors, AcceptInvitationResponses, ArchiveAgentData, ArchiveAgentErrors, ArchiveAgentResponses, BootstrapDaemonData, BootstrapDaemonErrors, BootstrapDaemonResponses, CancelAgentData, CancelAgentErrors, CancelAgentResponses, CancelQueuedBacklogInputData, CancelQueuedBacklogInputErrors, CancelQueuedBacklogInputResponses, ConnectByoMachineData, ConnectByoMachineErrors, ConnectByoMachineResponses, CreateAgentConfigData, CreateAgentConfigErrors, CreateAgentConfigResponses, CreateAgentData, CreateAgentErrors, CreateAgentInputData, CreateAgentInputErrors, CreateAgentInputResponses, CreateAgentProfileData, CreateAgentProfileErrors, CreateAgentProfileResponses, CreateAgentResponses, CreateByoMachineDaemonTokenData, CreateByoMachineDaemonTokenErrors, CreateByoMachineDaemonTokenResponses, CreateConfiguredModelData, CreateConfiguredModelErrors, CreateConfiguredModelResponses, CreateCronTriggerData, CreateCronTriggerErrors, CreateCronTriggerResponses, CreateIntegrationOAuthSetupData, CreateIntegrationOAuthSetupErrors, CreateIntegrationOAuthSetupResponses, CreateMachineData, CreateMachineErrors, CreateMachinePoolData, CreateMachinePoolErrors, CreateMachinePoolResponses, CreateMachineResponses, CreateModelProviderConfigData, CreateModelProviderConfigErrors, CreateModelProviderConfigResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreateOrgApiKeyData, CreateOrgApiKeyErrors, CreateOrgApiKeyResponses, CreateOrgInvitationData, CreateOrgInvitationErrors, CreateOrgInvitationResponses, CreatePersonalAccessTokenData, CreatePersonalAccessTokenErrors, CreatePersonalAccessTokenResponses, CreateProjectData, CreateProjectErrors, CreateProjectMachineGrantData, CreateProjectMachineGrantErrors, CreateProjectMachineGrantResponses, CreateProjectMachinePoolGrantData, CreateProjectMachinePoolGrantErrors, CreateProjectMachinePoolGrantResponses, CreateProjectModelGrantData, CreateProjectModelGrantErrors, CreateProjectModelGrantResponses, CreateProjectResponses, CreateSecretData, CreateSecretErrors, CreateSecretGrantData, CreateSecretGrantErrors, CreateSecretGrantResponses, CreateSecretResponses, CreateSecretVersionData, CreateSecretVersionErrors, CreateSecretVersionResponses, CreateSkillData, CreateSkillErrors, CreateSkillGrantData, CreateSkillGrantErrors, CreateSkillGrantResponses, CreateSkillResponses, CreateSlackSetupData, CreateSlackSetupErrors, CreateSlackSetupResponses, DeclineInvitationData, DeclineInvitationErrors, DeclineInvitationResponses, DeleteAgentProfileData, DeleteAgentProfileErrors, DeleteAgentProfileResponses, DeleteConfiguredModelData, DeleteConfiguredModelErrors, DeleteConfiguredModelResponses, DeleteCronTriggerData, DeleteCronTriggerErrors, DeleteCronTriggerResponses, DeleteCurrentUserData, DeleteCurrentUserErrors, DeleteCurrentUserResponses, DeleteIntegrationInstallData, DeleteIntegrationInstallErrors, DeleteIntegrationInstallResponses, DeleteMachineData, DeleteMachineErrors, DeleteMachinePoolData, DeleteMachinePoolErrors, DeleteMachinePoolResponses, DeleteMachineResponses, DeleteModelProviderConfigData, DeleteModelProviderConfigErrors, DeleteModelProviderConfigResponses, DeleteOrganizationData, DeleteOrganizationErrors, DeleteOrganizationResponses, DeleteOrgInvitationData, DeleteOrgInvitationErrors, DeleteOrgInvitationResponses, DeleteProjectData, DeleteProjectErrors, DeleteProjectMachineGrantData, DeleteProjectMachineGrantErrors, DeleteProjectMachineGrantResponses, DeleteProjectMachinePoolGrantData, DeleteProjectMachinePoolGrantErrors, DeleteProjectMachinePoolGrantResponses, DeleteProjectModelGrantData, DeleteProjectModelGrantErrors, DeleteProjectModelGrantResponses, DeleteProjectResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretGrantData, DeleteSecretGrantErrors, DeleteSecretGrantResponses, DeleteSecretResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillGrantData, DeleteSkillGrantErrors, DeleteSkillGrantResponses, DeleteSkillResponses, DemoteSteeringInputToQueuedData, DemoteSteeringInputToQueuedErrors, DemoteSteeringInputToQueuedResponses, EndMachineDaemonRuntimeData, EndMachineDaemonRuntimeErrors, EndMachineDaemonRuntimeResponses, GetActorData, GetActorErrors, GetActorResponses, GetAgentConfigData, GetAgentConfigErrors, GetAgentConfigResponses, GetAgentData, GetAgentErrors, GetAgentProfileData, GetAgentProfileErrors, GetAgentProfileResponses, GetAgentResponses, GetArtifactContentData, GetArtifactContentErrors, GetArtifactContentResponses, GetArtifactData, GetArtifactErrors, GetArtifactResponses, GetCronTriggerData, GetCronTriggerErrors, GetCronTriggerResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetDaemonSkillArchiveData, GetDaemonSkillArchiveErrors, GetDaemonSkillArchiveResponses, GetMachineData, GetMachineErrors, GetMachinePoolData, GetMachinePoolErrors, GetMachinePoolResponses, GetMachineResponses, GetModelCatalogData, GetModelCatalogErrors, GetModelCatalogResponses, GetModelProviderConfigData, GetModelProviderConfigErrors, GetModelProviderConfigResponses, GetOrgApiKeyData, GetOrgApiKeyErrors, GetOrgApiKeyResponses, GetOrgOverviewData, GetOrgOverviewErrors, GetOrgOverviewResponses, GetProjectAvailableSecretData, GetProjectAvailableSecretErrors, GetProjectAvailableSecretResponses, GetProjectMachinePoolGrantData, GetProjectMachinePoolGrantErrors, GetProjectMachinePoolGrantResponses, GetSecretData, GetSecretErrors, GetSecretResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetToolCatalogData, GetToolCatalogErrors, GetToolCatalogResponses, ListActorsData, ListActorsErrors, ListActorsResponses, ListAgentInteractionsData, ListAgentInteractionsErrors, ListAgentInteractionsResponses, ListAgentProfilesData, ListAgentProfilesErrors, ListAgentProfilesResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListByoMachineDaemonTokensData, ListByoMachineDaemonTokensErrors, ListByoMachineDaemonTokensResponses, ListConfiguredModelsData, ListConfiguredModelsErrors, ListConfiguredModelsResponses, ListCronTriggersData, ListCronTriggersErrors, ListCronTriggersResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListIntegrationInstallsData, ListIntegrationInstallsErrors, ListIntegrationInstallsResponses, ListMachinePoolsData, ListMachinePoolsErrors, ListMachinePoolsResponses, ListMemberProjectAccessData, ListMemberProjectAccessErrors, ListMemberProjectAccessResponses, ListModelProviderConfigsData, ListModelProviderConfigsErrors, ListModelProviderConfigsResponses, ListOrgApiKeyProjectAccessData, ListOrgApiKeyProjectAccessErrors, ListOrgApiKeyProjectAccessResponses, ListOrgApiKeysData, ListOrgApiKeysErrors, ListOrgApiKeysResponses, ListOrgInvitationsData, ListOrgInvitationsErrors, ListOrgInvitationsResponses, ListOrgMembersData, ListOrgMembersErrors, ListOrgMembersResponses, ListPendingInvitationsData, ListPendingInvitationsErrors, ListPendingInvitationsResponses, ListPersonalAccessTokensData, ListPersonalAccessTokensErrors, ListPersonalAccessTokensResponses, ListProjectAvailableSecretsData, ListProjectAvailableSecretsErrors, ListProjectAvailableSecretsResponses, ListProjectAvailableSkillsData, ListProjectAvailableSkillsErrors, ListProjectAvailableSkillsResponses, ListProjectMachineGrantsData, ListProjectMachineGrantsErrors, ListProjectMachineGrantsResponses, ListProjectMachinePoolGrantsData, ListProjectMachinePoolGrantsErrors, ListProjectMachinePoolGrantsResponses, ListProjectModelGrantsData, ListProjectModelGrantsErrors, ListProjectModelGrantsResponses, ListQueuedBacklogInputsData, ListQueuedBacklogInputsErrors, ListQueuedBacklogInputsResponses, ListSecretGrantsData, ListSecretGrantsErrors, ListSecretGrantsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillGrantsData, ListSkillGrantsErrors, ListSkillGrantsResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListToolCallsData, ListToolCallsErrors, ListToolCallsResponses, ListTurnEventsData, ListTurnEventsErrors, ListTurnEventsResponses, ListTurnsData, ListTurnsErrors, ListTurnsResponses, ListVisibleMachinesData, ListVisibleMachinesErrors, ListVisibleMachinesResponses, ListVisibleProjectMachinesData, ListVisibleProjectMachinesErrors, ListVisibleProjectMachinesResponses, ListVisibleProjectsData, ListVisibleProjectsErrors, ListVisibleProjectsResponses, MoveQueuedBacklogInputData, MoveQueuedBacklogInputErrors, MoveQueuedBacklogInputResponses, PromoteQueuedInputToSteeringData, PromoteQueuedInputToSteeringErrors, PromoteQueuedInputToSteeringResponses, PutActorData, PutActorErrors, PutActorResponses, RecordMachineFailureData, RecordMachineFailureErrors, RecordMachineFailureResponses, RegisterMachineDaemonRuntimeData, RegisterMachineDaemonRuntimeErrors, RegisterMachineDaemonRuntimeResponses, RemoveMemberProjectAccessData, RemoveMemberProjectAccessErrors, RemoveMemberProjectAccessResponses, RemoveOrgApiKeyProjectRoleData, RemoveOrgApiKeyProjectRoleErrors, RemoveOrgApiKeyProjectRoleResponses, RemoveOrgMemberData, RemoveOrgMemberErrors, RemoveOrgMemberResponses, RenameAgentProfileData, RenameAgentProfileErrors, RenameAgentProfileResponses, ResolveAgentInteractionData, ResolveAgentInteractionErrors, ResolveAgentInteractionResponses, RevokeMachineDaemonTokenData, RevokeMachineDaemonTokenErrors, RevokeMachineDaemonTokenResponses, RevokeOrgApiKeyData, RevokeOrgApiKeyErrors, RevokeOrgApiKeyResponses, RevokePersonalAccessTokenData, RevokePersonalAccessTokenErrors, RevokePersonalAccessTokenResponses, SetMemberProjectAccessData, SetMemberProjectAccessErrors, SetMemberProjectAccessResponses, SetOrgApiKeyProjectRoleData, SetOrgApiKeyProjectRoleErrors, SetOrgApiKeyProjectRoleResponses, SleepMachineDaemonRuntimeData, SleepMachineDaemonRuntimeErrors, SleepMachineDaemonRuntimeResponses, SocketMachineDaemonRuntimeData, SocketMachineDaemonRuntimeErrors, StartSecretMcpoAuthData, StartSecretMcpoAuthErrors, StartSecretMcpoAuthResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, SubmitToolCallResultData, SubmitToolCallResultErrors, SubmitToolCallResultResponses, UpdateAgentConfigData, UpdateAgentConfigErrors, UpdateAgentConfigResponses, UpdateAgentProfileData, UpdateAgentProfileErrors, UpdateAgentProfileResponses, UpdateConfiguredModelData, UpdateConfiguredModelErrors, UpdateConfiguredModelResponses, UpdateCronTriggerData, UpdateCronTriggerErrors, UpdateCronTriggerResponses, UpdateMachineData, UpdateMachineErrors, UpdateMachinePoolData, UpdateMachinePoolErrors, UpdateMachinePoolResponses, UpdateMachineResponses, UpdateModelProviderConfigData, UpdateModelProviderConfigErrors, UpdateModelProviderConfigResponses, UpdateOrgApiKeyData, UpdateOrgApiKeyErrors, UpdateOrgApiKeyResponses, UpdateOrgMemberData, UpdateOrgMemberErrors, UpdateOrgMemberResponses, UpdateProjectMachinePoolGrantData, UpdateProjectMachinePoolGrantErrors, UpdateProjectMachinePoolGrantResponses, UpdateProjectModelGrantData, UpdateProjectModelGrantErrors, UpdateProjectModelGrantResponses, UpdateSecretData, UpdateSecretErrors, UpdateSecretResponses } from './types.gen';
-import { zAcceptInvitationResponse, zArchiveAgentResponse, zBootstrapDaemonResponse2, zCancelAgentResponse2, zCancelQueuedBacklogInputResponse, zConnectByoMachineResponse2, zCreateAgentConfigResponse, zCreateAgentInputResponse, zCreateAgentProfileResponse, zCreateAgentResponse, zCreateByoMachineDaemonTokenResponse, zCreateConfiguredModelResponse, zCreateCronTriggerResponse, zCreateIntegrationOAuthSetupResponse, zCreateMachinePoolResponse, zCreateMachineResponse, zCreateModelProviderConfigResponse2, zCreateOrganizationResponse2, zCreateOrgApiKeyResponse2, zCreateOrgInvitationResponse, zCreatePersonalAccessTokenResponse2, zCreateProjectMachineGrantResponse2, zCreateProjectMachinePoolGrantResponse, zCreateProjectModelGrantResponse, zCreateProjectResponse, zCreateSecretGrantResponse, zCreateSecretResponse, zCreateSecretVersionResponse, zCreateSkillGrantResponse, zCreateSkillResponse, zCreateSlackSetupResponse, zDeclineInvitationResponse, zDeleteAgentProfileResponse, zDeleteConfiguredModelResponse, zDeleteCronTriggerResponse, zDeleteCurrentUserResponse, zDeleteIntegrationInstallResponse, zDeleteMachinePoolResponse, zDeleteMachineResponse, zDeleteModelProviderConfigResponse, zDeleteOrganizationResponse, zDeleteOrgInvitationResponse, zDeleteProjectMachineGrantResponse, zDeleteProjectMachinePoolGrantResponse, zDeleteProjectModelGrantResponse, zDeleteProjectResponse, zDeleteSecretGrantResponse, zDeleteSecretResponse, zDeleteSkillGrantResponse, zDeleteSkillResponse, zDemoteSteeringInputToQueuedResponse, zEndMachineDaemonRuntimeResponse, zGetActorResponse, zGetAgentConfigResponse, zGetAgentProfileResponse, zGetAgentResponse2, zGetArtifactContentResponse, zGetArtifactResponse, zGetCronTriggerResponse, zGetCurrentUserResponse, zGetDaemonSkillArchiveResponse, zGetMachinePoolResponse, zGetMachineResponse, zGetModelCatalogResponse, zGetModelProviderConfigResponse, zGetOrgApiKeyResponse, zGetOrgOverviewResponse, zGetProjectAvailableSecretResponse, zGetProjectMachinePoolGrantResponse, zGetSecretResponse, zGetSkillResponse, zGetToolCatalogResponse, zListActorsResponse2, zListAgentInteractionsResponse2, zListAgentProfilesResponse2, zListAgentsResponse2, zListByoMachineDaemonTokensResponse, zListConfiguredModelsResponse, zListCronTriggersResponse2, zListEventsResponse, zListIntegrationInstallsResponse2, zListMachinePoolsResponse2, zListMemberProjectAccessResponse, zListModelProviderConfigsResponse, zListOrgApiKeyProjectAccessResponse, zListOrgApiKeysResponse2, zListOrgInvitationsResponse2, zListOrgMembersResponse2, zListPendingInvitationsResponse, zListPersonalAccessTokensResponse2, zListProjectAvailableSecretsResponse, zListProjectAvailableSkillsResponse, zListProjectMachineGrantsResponse2, zListProjectMachinePoolGrantsResponse2, zListProjectModelGrantsResponse2, zListQueuedBacklogInputsResponse, zListSecretGrantsResponse2, zListSecretsResponse2, zListSkillGrantsResponse2, zListSkillsResponse2, zListToolCallsResponse2, zListTurnEventsResponse2, zListTurnsResponse, zListVisibleMachinesResponse2, zListVisibleProjectMachinesResponse, zListVisibleProjectsResponse, zMoveQueuedBacklogInputResponse, zPromoteQueuedInputToSteeringResponse, zPutActorResponse, zRecordMachineFailureResponse, zRegisterMachineDaemonRuntimeResponse, zRemoveMemberProjectAccessResponse, zRemoveOrgApiKeyProjectRoleResponse, zRemoveOrgMemberResponse, zRenameAgentProfileResponse, zResolveAgentInteractionResponse, zRevokeMachineDaemonTokenResponse, zRevokeOrgApiKeyResponse, zRevokePersonalAccessTokenResponse, zSetMemberProjectAccessResponse, zSetOrgApiKeyProjectRoleResponse, zSleepMachineDaemonRuntimeResponse, zStartSecretMcpoAuthResponse, zStreamEventsResponse, zSubmitToolCallResultResponse2, zUpdateAgentConfigResponse2, zUpdateAgentProfileResponse, zUpdateConfiguredModelResponse, zUpdateCronTriggerResponse, zUpdateMachinePoolResponse, zUpdateMachineResponse, zUpdateModelProviderConfigResponse, zUpdateOrgApiKeyResponse, zUpdateOrgMemberResponse, zUpdateProjectMachinePoolGrantResponse, zUpdateProjectModelGrantResponse, zUpdateSecretResponse } from './zod.gen';
+import type { AcceptInvitationData, AcceptInvitationErrors, AcceptInvitationResponses, ArchiveAgentData, ArchiveAgentErrors, ArchiveAgentResponses, BootstrapDaemonData, BootstrapDaemonErrors, BootstrapDaemonResponses, CancelAgentData, CancelAgentErrors, CancelAgentResponses, CancelQueuedBacklogInputData, CancelQueuedBacklogInputErrors, CancelQueuedBacklogInputResponses, ConnectByoMachineData, ConnectByoMachineErrors, ConnectByoMachineResponses, CreateAgentConfigData, CreateAgentConfigErrors, CreateAgentConfigResponses, CreateAgentData, CreateAgentErrors, CreateAgentInputData, CreateAgentInputErrors, CreateAgentInputResponses, CreateAgentProfileData, CreateAgentProfileErrors, CreateAgentProfileResponses, CreateAgentResponses, CreateByoMachineDaemonTokenData, CreateByoMachineDaemonTokenErrors, CreateByoMachineDaemonTokenResponses, CreateConfiguredModelData, CreateConfiguredModelErrors, CreateConfiguredModelResponses, CreateCronTriggerData, CreateCronTriggerErrors, CreateCronTriggerResponses, CreateIntegrationOAuthSetupData, CreateIntegrationOAuthSetupErrors, CreateIntegrationOAuthSetupResponses, CreateMachineData, CreateMachineErrors, CreateMachinePoolData, CreateMachinePoolErrors, CreateMachinePoolResponses, CreateMachineResponses, CreateModelProviderConfigData, CreateModelProviderConfigErrors, CreateModelProviderConfigResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreateOrgApiKeyData, CreateOrgApiKeyErrors, CreateOrgApiKeyResponses, CreateOrgInvitationData, CreateOrgInvitationErrors, CreateOrgInvitationResponses, CreatePersonalAccessTokenData, CreatePersonalAccessTokenErrors, CreatePersonalAccessTokenResponses, CreateProjectData, CreateProjectErrors, CreateProjectMachineGrantData, CreateProjectMachineGrantErrors, CreateProjectMachineGrantResponses, CreateProjectMachinePoolGrantData, CreateProjectMachinePoolGrantErrors, CreateProjectMachinePoolGrantResponses, CreateProjectModelGrantData, CreateProjectModelGrantErrors, CreateProjectModelGrantResponses, CreateProjectResponses, CreateSecretData, CreateSecretErrors, CreateSecretGrantData, CreateSecretGrantErrors, CreateSecretGrantResponses, CreateSecretResponses, CreateSecretVersionData, CreateSecretVersionErrors, CreateSecretVersionResponses, CreateSkillData, CreateSkillErrors, CreateSkillGrantData, CreateSkillGrantErrors, CreateSkillGrantResponses, CreateSkillResponses, CreateSlackSetupData, CreateSlackSetupErrors, CreateSlackSetupResponses, DeclineInvitationData, DeclineInvitationErrors, DeclineInvitationResponses, DeleteAgentProfileData, DeleteAgentProfileErrors, DeleteAgentProfileResponses, DeleteConfiguredModelData, DeleteConfiguredModelErrors, DeleteConfiguredModelResponses, DeleteCronTriggerData, DeleteCronTriggerErrors, DeleteCronTriggerResponses, DeleteCurrentUserData, DeleteCurrentUserErrors, DeleteCurrentUserResponses, DeleteIntegrationInstallData, DeleteIntegrationInstallErrors, DeleteIntegrationInstallResponses, DeleteMachineData, DeleteMachineErrors, DeleteMachinePoolData, DeleteMachinePoolErrors, DeleteMachinePoolResponses, DeleteMachineResponses, DeleteModelProviderConfigData, DeleteModelProviderConfigErrors, DeleteModelProviderConfigResponses, DeleteOrganizationData, DeleteOrganizationErrors, DeleteOrganizationResponses, DeleteOrgInvitationData, DeleteOrgInvitationErrors, DeleteOrgInvitationResponses, DeleteProjectData, DeleteProjectErrors, DeleteProjectMachineGrantData, DeleteProjectMachineGrantErrors, DeleteProjectMachineGrantResponses, DeleteProjectMachinePoolGrantData, DeleteProjectMachinePoolGrantErrors, DeleteProjectMachinePoolGrantResponses, DeleteProjectModelGrantData, DeleteProjectModelGrantErrors, DeleteProjectModelGrantResponses, DeleteProjectResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretGrantData, DeleteSecretGrantErrors, DeleteSecretGrantResponses, DeleteSecretResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillGrantData, DeleteSkillGrantErrors, DeleteSkillGrantResponses, DeleteSkillResponses, DemoteSteeringInputToQueuedData, DemoteSteeringInputToQueuedErrors, DemoteSteeringInputToQueuedResponses, DownloadDaemonArtifactData, DownloadDaemonArtifactErrors, DownloadDaemonArtifactResponses, EndMachineDaemonRuntimeData, EndMachineDaemonRuntimeErrors, EndMachineDaemonRuntimeResponses, GetActorData, GetActorErrors, GetActorResponses, GetAgentConfigData, GetAgentConfigErrors, GetAgentConfigResponses, GetAgentData, GetAgentErrors, GetAgentProfileData, GetAgentProfileErrors, GetAgentProfileResponses, GetAgentResponses, GetArtifactContentData, GetArtifactContentErrors, GetArtifactContentResponses, GetArtifactData, GetArtifactErrors, GetArtifactResponses, GetCronTriggerData, GetCronTriggerErrors, GetCronTriggerResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetDaemonSkillArchiveData, GetDaemonSkillArchiveErrors, GetDaemonSkillArchiveResponses, GetMachineData, GetMachineErrors, GetMachinePoolData, GetMachinePoolErrors, GetMachinePoolResponses, GetMachineResponses, GetModelCatalogData, GetModelCatalogErrors, GetModelCatalogResponses, GetModelProviderConfigData, GetModelProviderConfigErrors, GetModelProviderConfigResponses, GetOrgApiKeyData, GetOrgApiKeyErrors, GetOrgApiKeyResponses, GetOrgOverviewData, GetOrgOverviewErrors, GetOrgOverviewResponses, GetProjectAvailableSecretData, GetProjectAvailableSecretErrors, GetProjectAvailableSecretResponses, GetProjectMachinePoolGrantData, GetProjectMachinePoolGrantErrors, GetProjectMachinePoolGrantResponses, GetSecretData, GetSecretErrors, GetSecretResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetToolCatalogData, GetToolCatalogErrors, GetToolCatalogResponses, ListActorsData, ListActorsErrors, ListActorsResponses, ListAgentInteractionsData, ListAgentInteractionsErrors, ListAgentInteractionsResponses, ListAgentProfilesData, ListAgentProfilesErrors, ListAgentProfilesResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListByoMachineDaemonTokensData, ListByoMachineDaemonTokensErrors, ListByoMachineDaemonTokensResponses, ListConfiguredModelsData, ListConfiguredModelsErrors, ListConfiguredModelsResponses, ListCronTriggersData, ListCronTriggersErrors, ListCronTriggersResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListIntegrationInstallsData, ListIntegrationInstallsErrors, ListIntegrationInstallsResponses, ListMachinePoolsData, ListMachinePoolsErrors, ListMachinePoolsResponses, ListMcpServersData, ListMcpServersErrors, ListMcpServersResponses, ListMcpServerToolsData, ListMcpServerToolsErrors, ListMcpServerToolsResponses, ListMemberProjectAccessData, ListMemberProjectAccessErrors, ListMemberProjectAccessResponses, ListModelProviderConfigsData, ListModelProviderConfigsErrors, ListModelProviderConfigsResponses, ListOrgApiKeyProjectAccessData, ListOrgApiKeyProjectAccessErrors, ListOrgApiKeyProjectAccessResponses, ListOrgApiKeysData, ListOrgApiKeysErrors, ListOrgApiKeysResponses, ListOrgInvitationsData, ListOrgInvitationsErrors, ListOrgInvitationsResponses, ListOrgMembersData, ListOrgMembersErrors, ListOrgMembersResponses, ListPendingInvitationsData, ListPendingInvitationsErrors, ListPendingInvitationsResponses, ListPersonalAccessTokensData, ListPersonalAccessTokensErrors, ListPersonalAccessTokensResponses, ListProjectAvailableSecretsData, ListProjectAvailableSecretsErrors, ListProjectAvailableSecretsResponses, ListProjectAvailableSkillsData, ListProjectAvailableSkillsErrors, ListProjectAvailableSkillsResponses, ListProjectMachineGrantsData, ListProjectMachineGrantsErrors, ListProjectMachineGrantsResponses, ListProjectMachinePoolGrantsData, ListProjectMachinePoolGrantsErrors, ListProjectMachinePoolGrantsResponses, ListProjectModelGrantsData, ListProjectModelGrantsErrors, ListProjectModelGrantsResponses, ListQueuedBacklogInputsData, ListQueuedBacklogInputsErrors, ListQueuedBacklogInputsResponses, ListSecretGrantsData, ListSecretGrantsErrors, ListSecretGrantsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillGrantsData, ListSkillGrantsErrors, ListSkillGrantsResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListToolCallsData, ListToolCallsErrors, ListToolCallsResponses, ListTurnEventsData, ListTurnEventsErrors, ListTurnEventsResponses, ListTurnsData, ListTurnsErrors, ListTurnsResponses, ListVisibleMachinesData, ListVisibleMachinesErrors, ListVisibleMachinesResponses, ListVisibleProjectMachinesData, ListVisibleProjectMachinesErrors, ListVisibleProjectMachinesResponses, ListVisibleProjectsData, ListVisibleProjectsErrors, ListVisibleProjectsResponses, MoveQueuedBacklogInputData, MoveQueuedBacklogInputErrors, MoveQueuedBacklogInputResponses, PromoteQueuedInputToSteeringData, PromoteQueuedInputToSteeringErrors, PromoteQueuedInputToSteeringResponses, PutActorData, PutActorErrors, PutActorResponses, RecordMachineFailureData, RecordMachineFailureErrors, RecordMachineFailureResponses, RegisterMachineDaemonRuntimeData, RegisterMachineDaemonRuntimeErrors, RegisterMachineDaemonRuntimeResponses, RemoveMemberProjectAccessData, RemoveMemberProjectAccessErrors, RemoveMemberProjectAccessResponses, RemoveOrgApiKeyProjectRoleData, RemoveOrgApiKeyProjectRoleErrors, RemoveOrgApiKeyProjectRoleResponses, RemoveOrgMemberData, RemoveOrgMemberErrors, RemoveOrgMemberResponses, RenameAgentProfileData, RenameAgentProfileErrors, RenameAgentProfileResponses, ResolveAgentInteractionData, ResolveAgentInteractionErrors, ResolveAgentInteractionResponses, RevokeMachineDaemonTokenData, RevokeMachineDaemonTokenErrors, RevokeMachineDaemonTokenResponses, RevokeOrgApiKeyData, RevokeOrgApiKeyErrors, RevokeOrgApiKeyResponses, RevokePersonalAccessTokenData, RevokePersonalAccessTokenErrors, RevokePersonalAccessTokenResponses, SetMemberProjectAccessData, SetMemberProjectAccessErrors, SetMemberProjectAccessResponses, SetOrgApiKeyProjectRoleData, SetOrgApiKeyProjectRoleErrors, SetOrgApiKeyProjectRoleResponses, SleepMachineDaemonRuntimeData, SleepMachineDaemonRuntimeErrors, SleepMachineDaemonRuntimeResponses, SocketMachineDaemonRuntimeData, SocketMachineDaemonRuntimeErrors, StartSecretMcpoAuthData, StartSecretMcpoAuthErrors, StartSecretMcpoAuthResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, SubmitToolCallResultData, SubmitToolCallResultErrors, SubmitToolCallResultResponses, UpdateAgentConfigData, UpdateAgentConfigErrors, UpdateAgentConfigResponses, UpdateAgentProfileData, UpdateAgentProfileErrors, UpdateAgentProfileResponses, UpdateConfiguredModelData, UpdateConfiguredModelErrors, UpdateConfiguredModelResponses, UpdateCronTriggerData, UpdateCronTriggerErrors, UpdateCronTriggerResponses, UpdateMachineData, UpdateMachineErrors, UpdateMachinePoolData, UpdateMachinePoolErrors, UpdateMachinePoolResponses, UpdateMachineResponses, UpdateModelProviderConfigData, UpdateModelProviderConfigErrors, UpdateModelProviderConfigResponses, UpdateOrgApiKeyData, UpdateOrgApiKeyErrors, UpdateOrgApiKeyResponses, UpdateOrgMemberData, UpdateOrgMemberErrors, UpdateOrgMemberResponses, UpdateProjectMachinePoolGrantData, UpdateProjectMachinePoolGrantErrors, UpdateProjectMachinePoolGrantResponses, UpdateProjectModelGrantData, UpdateProjectModelGrantErrors, UpdateProjectModelGrantResponses, UpdateSecretData, UpdateSecretErrors, UpdateSecretResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, UploadDaemonArtifactData, UploadDaemonArtifactErrors, UploadDaemonArtifactResponses } from './types.gen';
+import { zAcceptInvitationResponse, zArchiveAgentResponse, zBootstrapDaemonResponse2, zCancelAgentResponse2, zCancelQueuedBacklogInputResponse, zConnectByoMachineResponse2, zCreateAgentConfigResponse, zCreateAgentInputResponse, zCreateAgentProfileResponse, zCreateAgentResponse, zCreateByoMachineDaemonTokenResponse, zCreateConfiguredModelResponse, zCreateCronTriggerResponse, zCreateIntegrationOAuthSetupResponse, zCreateMachinePoolResponse, zCreateMachineResponse, zCreateModelProviderConfigResponse2, zCreateOrganizationResponse2, zCreateOrgApiKeyResponse2, zCreateOrgInvitationResponse, zCreatePersonalAccessTokenResponse2, zCreateProjectMachineGrantResponse2, zCreateProjectMachinePoolGrantResponse, zCreateProjectModelGrantResponse, zCreateProjectResponse, zCreateSecretGrantResponse, zCreateSecretResponse, zCreateSecretVersionResponse, zCreateSkillGrantResponse, zCreateSkillResponse, zCreateSlackSetupResponse, zDeclineInvitationResponse, zDeleteAgentProfileResponse, zDeleteConfiguredModelResponse, zDeleteCronTriggerResponse, zDeleteCurrentUserResponse, zDeleteIntegrationInstallResponse, zDeleteMachinePoolResponse, zDeleteMachineResponse, zDeleteModelProviderConfigResponse, zDeleteOrganizationResponse, zDeleteOrgInvitationResponse, zDeleteProjectMachineGrantResponse, zDeleteProjectMachinePoolGrantResponse, zDeleteProjectModelGrantResponse, zDeleteProjectResponse, zDeleteSecretGrantResponse, zDeleteSecretResponse, zDeleteSkillGrantResponse, zDeleteSkillResponse, zDemoteSteeringInputToQueuedResponse, zDownloadDaemonArtifactResponse, zEndMachineDaemonRuntimeResponse, zGetActorResponse, zGetAgentConfigResponse, zGetAgentProfileResponse, zGetAgentResponse2, zGetArtifactContentResponse, zGetArtifactResponse, zGetCronTriggerResponse, zGetCurrentUserResponse, zGetDaemonSkillArchiveResponse, zGetMachinePoolResponse, zGetMachineResponse, zGetModelCatalogResponse, zGetModelProviderConfigResponse, zGetOrgApiKeyResponse, zGetOrgOverviewResponse, zGetProjectAvailableSecretResponse, zGetProjectMachinePoolGrantResponse, zGetSecretResponse, zGetSkillResponse, zGetToolCatalogResponse, zListActorsResponse2, zListAgentInteractionsResponse2, zListAgentProfilesResponse2, zListAgentsResponse2, zListByoMachineDaemonTokensResponse, zListConfiguredModelsResponse, zListCronTriggersResponse2, zListEventsResponse, zListIntegrationInstallsResponse2, zListMachinePoolsResponse2, zListMcpServersResponse2, zListMcpServerToolsResponse, zListMemberProjectAccessResponse, zListModelProviderConfigsResponse, zListOrgApiKeyProjectAccessResponse, zListOrgApiKeysResponse2, zListOrgInvitationsResponse2, zListOrgMembersResponse2, zListPendingInvitationsResponse, zListPersonalAccessTokensResponse2, zListProjectAvailableSecretsResponse, zListProjectAvailableSkillsResponse, zListProjectMachineGrantsResponse2, zListProjectMachinePoolGrantsResponse2, zListProjectModelGrantsResponse2, zListQueuedBacklogInputsResponse, zListSecretGrantsResponse2, zListSecretsResponse2, zListSkillGrantsResponse2, zListSkillsResponse2, zListToolCallsResponse2, zListTurnEventsResponse2, zListTurnsResponse, zListVisibleMachinesResponse2, zListVisibleProjectMachinesResponse, zListVisibleProjectsResponse, zMoveQueuedBacklogInputResponse, zPromoteQueuedInputToSteeringResponse, zPutActorResponse, zRecordMachineFailureResponse, zRegisterMachineDaemonRuntimeResponse, zRemoveMemberProjectAccessResponse, zRemoveOrgApiKeyProjectRoleResponse, zRemoveOrgMemberResponse, zRenameAgentProfileResponse, zResolveAgentInteractionResponse, zRevokeMachineDaemonTokenResponse, zRevokeOrgApiKeyResponse, zRevokePersonalAccessTokenResponse, zSetMemberProjectAccessResponse, zSetOrgApiKeyProjectRoleResponse, zSleepMachineDaemonRuntimeResponse, zStartSecretMcpoAuthResponse, zStreamEventsResponse, zSubmitToolCallResultResponse2, zUpdateAgentConfigResponse2, zUpdateAgentProfileResponse, zUpdateConfiguredModelResponse, zUpdateCronTriggerResponse, zUpdateMachinePoolResponse, zUpdateMachineResponse, zUpdateModelProviderConfigResponse, zUpdateOrgApiKeyResponse, zUpdateOrgMemberResponse, zUpdateProjectMachinePoolGrantResponse, zUpdateProjectModelGrantResponse, zUpdateSecretResponse, zUpdateSkillResponse, zUploadDaemonArtifactResponse } from './zod.gen';
 import { validateResponse } from '../validate-response';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
@@ -36,7 +36,7 @@ export const listPersonalAccessTokens = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/personal-access-tokens',
+    url: '/personal-access-tokens',
     ...options
 });
 
@@ -50,7 +50,7 @@ export const createPersonalAccessToken = <ThrowOnError extends boolean = true>(o
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/personal-access-tokens',
+    url: '/personal-access-tokens',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@ export const revokePersonalAccessToken = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/personal-access-tokens/{tokenID}/revoke',
+    url: '/personal-access-tokens/{tokenID}/revoke',
     ...options
 });
 
@@ -90,7 +90,7 @@ export const bootstrapDaemon = <ThrowOnError extends boolean = true>(options?: O
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/bootstrap',
+    url: '/daemon/bootstrap',
     ...options
 });
 
@@ -105,7 +105,7 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/failures',
+    url: '/daemon/failures',
     ...options,
     headers: {
         'Content-Type': 'text/plain',
@@ -138,7 +138,7 @@ export const createOrganization = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs',
+    url: '/orgs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export const deleteOrganization = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}',
+    url: '/orgs/{orgID}',
     ...options
 });
 
@@ -190,7 +190,7 @@ export const deleteCurrentUser = <ThrowOnError extends boolean = true>(options?:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/me',
+    url: '/me',
     ...options
 });
 
@@ -208,7 +208,7 @@ export const getCurrentUser = <ThrowOnError extends boolean = true>(options?: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/me',
+    url: '/me',
     ...options
 });
 
@@ -228,7 +228,7 @@ export const listPendingInvitations = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/invitations',
+    url: '/invitations',
     ...options
 });
 
@@ -250,7 +250,7 @@ export const acceptInvitation = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/invitations/{invitationID}/accept',
+    url: '/invitations/{invitationID}/accept',
     ...options
 });
 
@@ -272,7 +272,7 @@ export const declineInvitation = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/invitations/{invitationID}/decline',
+    url: '/invitations/{invitationID}/decline',
     ...options
 });
 
@@ -292,7 +292,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/overview',
+    url: '/orgs/{orgID}/overview',
     ...options
 });
 
@@ -312,7 +312,7 @@ export const listVisibleProjects = <ThrowOnError extends boolean = true>(options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects',
+    url: '/orgs/{orgID}/projects',
     ...options
 });
 
@@ -334,7 +334,7 @@ export const createProject = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects',
+    url: '/orgs/{orgID}/projects',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -362,7 +362,7 @@ export const deleteProject = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}',
+    url: '/orgs/{orgID}/projects/{projectID}',
     ...options
 });
 
@@ -382,7 +382,7 @@ export const listOrgMembers = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/members',
+    url: '/orgs/{orgID}/members',
     ...options
 });
 
@@ -406,7 +406,7 @@ export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}',
+    url: '/orgs/{orgID}/members/{userID}',
     ...options
 });
 
@@ -428,7 +428,7 @@ export const updateOrgMember = <ThrowOnError extends boolean = true>(options: Op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}',
+    url: '/orgs/{orgID}/members/{userID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -452,7 +452,7 @@ export const listMemberProjectAccess = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects',
+    url: '/orgs/{orgID}/members/{userID}/projects',
     ...options
 });
 
@@ -476,7 +476,7 @@ export const removeMemberProjectAccess = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}',
+    url: '/orgs/{orgID}/members/{userID}/projects/{projectID}',
     ...options
 });
 
@@ -500,7 +500,7 @@ export const setMemberProjectAccess = <ThrowOnError extends boolean = true>(opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/members/{userID}/projects/{projectID}',
+    url: '/orgs/{orgID}/members/{userID}/projects/{projectID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -524,7 +524,7 @@ export const listOrgApiKeys = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys',
+    url: '/orgs/{orgID}/api-keys',
     ...options
 });
 
@@ -540,7 +540,7 @@ export const createOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys',
+    url: '/orgs/{orgID}/api-keys',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -562,7 +562,7 @@ export const getOrgApiKey = <ThrowOnError extends boolean = true>(options: Optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}',
     ...options
 });
 
@@ -578,7 +578,7 @@ export const updateOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -598,7 +598,7 @@ export const revokeOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/revoke',
+    url: '/orgs/{orgID}/api-keys/{keyID}/revoke',
     ...options
 });
 
@@ -618,7 +618,7 @@ export const listOrgApiKeyProjectAccess = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects',
     ...options
 });
 
@@ -632,7 +632,7 @@ export const removeOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
     ...options
 });
 
@@ -648,7 +648,7 @@ export const setOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
+    url: '/orgs/{orgID}/api-keys/{keyID}/projects/{projectID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -672,7 +672,7 @@ export const listOrgInvitations = <ThrowOnError extends boolean = true>(options:
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/invitations',
+    url: '/orgs/{orgID}/invitations',
     ...options
 });
 
@@ -694,7 +694,7 @@ export const createOrgInvitation = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/invitations',
+    url: '/orgs/{orgID}/invitations',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -722,7 +722,7 @@ export const deleteOrgInvitation = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/invitations/{invitationID}',
+    url: '/orgs/{orgID}/invitations/{invitationID}',
     ...options
 });
 
@@ -742,7 +742,7 @@ export const listSkills = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills',
+    url: '/orgs/{orgID}/skills',
     ...options
 });
 
@@ -767,7 +767,7 @@ export const createSkill = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills',
+    url: '/orgs/{orgID}/skills',
     ...options,
     headers: {
         'Content-Type': null,
@@ -795,7 +795,7 @@ export const deleteSkill = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}',
+    url: '/orgs/{orgID}/skills/{skillID}',
     ...options
 });
 
@@ -813,8 +813,37 @@ export const getSkill = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}',
+    url: '/orgs/{orgID}/skills/{skillID}',
     ...options
+});
+
+/**
+ * Update skill by uploading a new revision
+ *
+ * Creates the skill's next revision from either a replacement archive or replacement SKILL.md content (which keeps every other file from the current revision). The SKILL.md frontmatter `name` must match the skill's existing name.
+ */
+export const updateSkill = <ThrowOnError extends boolean = true>(options: Options<UpdateSkillData, ThrowOnError>): RequestResult<UpdateSkillResponses, UpdateSkillErrors, ThrowOnError> => (options.client ?? client).post<UpdateSkillResponses, UpdateSkillErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    responseValidator: async (data) => await validateResponse(zUpdateSkillResponse, data),
+    security: [
+        {
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        },
+        {
+            in: 'cookie',
+            name: '__Host-omnara_session',
+            type: 'apiKey'
+        },
+        { name: 'X-Omnara-Csrf', type: 'apiKey' }
+    ],
+    url: '/orgs/{orgID}/skills/{skillID}',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
 });
 
 /**
@@ -833,7 +862,7 @@ export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants',
+    url: '/orgs/{orgID}/skills/{skillID}/grants',
     ...options
 });
 
@@ -855,7 +884,7 @@ export const createSkillGrant = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants',
+    url: '/orgs/{orgID}/skills/{skillID}/grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -883,7 +912,7 @@ export const deleteSkillGrant = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/skills/{skillID}/grants/{grantID}',
+    url: '/orgs/{orgID}/skills/{skillID}/grants/{grantID}',
     ...options
 });
 
@@ -903,7 +932,7 @@ export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/skills',
+    url: '/orgs/{orgID}/projects/{projectID}/skills',
     ...options
 });
 
@@ -923,7 +952,7 @@ export const listSecrets = <ThrowOnError extends boolean = true>(options: Option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets',
+    url: '/orgs/{orgID}/secrets',
     ...options
 });
 
@@ -945,7 +974,7 @@ export const createSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets',
+    url: '/orgs/{orgID}/secrets',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -971,7 +1000,7 @@ export const startSecretMcpoAuth = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/mcp-oauth',
+    url: '/orgs/{orgID}/secrets/mcp-oauth',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -999,7 +1028,7 @@ export const deleteSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options
 });
 
@@ -1017,7 +1046,7 @@ export const getSecret = <ThrowOnError extends boolean = true>(options: Options<
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options
 });
 
@@ -1039,7 +1068,7 @@ export const updateSecret = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/secrets/{secretID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1065,7 +1094,7 @@ export const createSecretVersion = <ThrowOnError extends boolean = true>(options
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/versions',
+    url: '/orgs/{orgID}/secrets/{secretID}/versions',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1089,7 +1118,7 @@ export const listSecretGrants = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants',
     ...options
 });
 
@@ -1111,7 +1140,7 @@ export const createSecretGrant = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1139,7 +1168,7 @@ export const deleteSecretGrant = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/secrets/{secretID}/grants/{grantID}',
+    url: '/orgs/{orgID}/secrets/{secretID}/grants/{grantID}',
     ...options
 });
 
@@ -1159,7 +1188,7 @@ export const listIntegrationInstalls = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs',
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs',
     ...options
 });
 
@@ -1183,7 +1212,7 @@ export const deleteIntegrationInstall = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}',
+    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}',
     ...options
 });
 
@@ -1205,7 +1234,7 @@ export const createAgentConfig = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1227,8 +1256,56 @@ export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/tool-catalog',
+    url: '/tool-catalog',
     ...options
+});
+
+/**
+ * Search the MCP server registry
+ *
+ * Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
+ */
+export const listMcpServers = <ThrowOnError extends boolean = true>(options?: Options<ListMcpServersData, ThrowOnError>): RequestResult<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError> => (options?.client ?? client).get<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError>({
+    responseValidator: async (data) => await validateResponse(zListMcpServersResponse2, data),
+    security: [{
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        }, {
+            in: 'cookie',
+            name: '__Host-omnara_session',
+            type: 'apiKey'
+        }],
+    url: '/mcp-servers',
+    ...options
+});
+
+/**
+ * List an MCP server's tools
+ *
+ * Connects to a remote MCP server over streamable HTTP, completes the initialize handshake, and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata.
+ */
+export const listMcpServerTools = <ThrowOnError extends boolean = true>(options: Options<ListMcpServerToolsData, ThrowOnError>): RequestResult<ListMcpServerToolsResponses, ListMcpServerToolsErrors, ThrowOnError> => (options.client ?? client).post<ListMcpServerToolsResponses, ListMcpServerToolsErrors, ThrowOnError>({
+    responseValidator: async (data) => await validateResponse(zListMcpServerToolsResponse, data),
+    security: [
+        {
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        },
+        {
+            in: 'cookie',
+            name: '__Host-omnara_session',
+            type: 'apiKey'
+        },
+        { name: 'X-Omnara-Csrf', type: 'apiKey' }
+    ],
+    url: '/orgs/{orgID}/projects/{projectID}/mcp-servers/tools',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
@@ -1245,7 +1322,7 @@ export const getAgentConfig = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}',
     ...options
 });
 
@@ -1265,7 +1342,7 @@ export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: 
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles',
     ...options
 });
 
@@ -1287,7 +1364,7 @@ export const createAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1315,7 +1392,7 @@ export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options
 });
 
@@ -1333,7 +1410,7 @@ export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options
 });
 
@@ -1355,7 +1432,7 @@ export const renameAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1381,7 +1458,7 @@ export const updateAgentProfile = <ThrowOnError extends boolean = true>(options:
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1407,7 +1484,7 @@ export const createIntegrationOAuthSetup = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1433,7 +1510,7 @@ export const createSlackSetup = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup',
+    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1457,7 +1534,7 @@ export const listCronTriggers = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers',
     ...options
 });
 
@@ -1481,7 +1558,7 @@ export const createCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1507,7 +1584,7 @@ export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options
 });
 
@@ -1525,7 +1602,7 @@ export const getCronTrigger = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options
 });
 
@@ -1549,7 +1626,7 @@ export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
+    url: '/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1573,7 +1650,7 @@ export const listAgents = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents',
+    url: '/orgs/{orgID}/projects/{projectID}/agents',
     ...options
 });
 
@@ -1597,7 +1674,7 @@ export const createAgent = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents',
+    url: '/orgs/{orgID}/projects/{projectID}/agents',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1619,7 +1696,7 @@ export const getAgent = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}',
     ...options
 });
 
@@ -1643,7 +1720,7 @@ export const archiveAgent = <ThrowOnError extends boolean = true>(options: Optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive',
     ...options
 });
 
@@ -1665,7 +1742,7 @@ export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/config',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1691,7 +1768,7 @@ export const createAgentInput = <ThrowOnError extends boolean = true>(options: O
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1715,7 +1792,7 @@ export const listToolCalls = <ThrowOnError extends boolean = true>(options: Opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls',
     ...options
 });
 
@@ -1739,7 +1816,7 @@ export const submitToolCallResult = <ThrowOnError extends boolean = true>(option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1763,7 +1840,7 @@ export const listTurns = <ThrowOnError extends boolean = true>(options: Options<
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns',
     ...options
 });
 
@@ -1783,7 +1860,7 @@ export const listTurnEvents = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/turns/{turnID}/events',
     ...options
 });
 
@@ -1803,7 +1880,7 @@ export const listEvents = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events',
     ...options
 });
 
@@ -1821,7 +1898,7 @@ export const streamEvents = <ThrowOnError extends boolean = true>(options: Optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream',
     ...options
 });
 
@@ -1843,7 +1920,7 @@ export const cancelAgent = <ThrowOnError extends boolean = true>(options: Option
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1867,7 +1944,7 @@ export const listAgentInteractions = <ThrowOnError extends boolean = true>(optio
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions',
     ...options
 });
 
@@ -1889,7 +1966,7 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/resolve',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1898,9 +1975,9 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
 });
 
 /**
- * List queued backlog inputs
+ * List waiting backlog inputs
  *
- * Items are ordered by queue position, then queued_at ascending, then id ascending.
+ * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
  */
 export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(options: Options<ListQueuedBacklogInputsData, ThrowOnError>): RequestResult<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError> => (options.client ?? client).get<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zListQueuedBacklogInputsResponse, data),
@@ -1913,7 +1990,7 @@ export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/backlog',
     ...options
 });
 
@@ -1935,7 +2012,7 @@ export const cancelQueuedBacklogInput = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/cancel',
     ...options
 });
 
@@ -1957,7 +2034,7 @@ export const moveQueuedBacklogInput = <ThrowOnError extends boolean = true>(opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/move',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -1983,7 +2060,7 @@ export const promoteQueuedInputToSteering = <ThrowOnError extends boolean = true
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/promote_to_steering',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2009,7 +2086,7 @@ export const demoteSteeringInputToQueued = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/inputs/{inputID}/demote_to_queued',
     ...options
 });
 
@@ -2027,7 +2104,7 @@ export const getArtifact = <ThrowOnError extends boolean = true>(options: Option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}',
     ...options
 });
 
@@ -2045,7 +2122,7 @@ export const getArtifactContent = <ThrowOnError extends boolean = true>(options:
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/artifacts/{artifactID}/content',
     ...options
 });
 
@@ -2065,7 +2142,7 @@ export const listVisibleProjectMachines = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machines',
+    url: '/orgs/{orgID}/projects/{projectID}/machines',
     ...options
 });
 
@@ -2085,7 +2162,7 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants',
     ...options
 });
 
@@ -2107,7 +2184,7 @@ export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2135,7 +2212,7 @@ export const deleteProjectMachineGrant = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}',
     ...options
 });
 
@@ -2155,7 +2232,7 @@ export const listProjectAvailableSecrets = <ThrowOnError extends boolean = true>
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/secrets',
+    url: '/orgs/{orgID}/projects/{projectID}/secrets',
     ...options
 });
 
@@ -2173,7 +2250,7 @@ export const getProjectAvailableSecret = <ThrowOnError extends boolean = true>(o
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/secrets/{secretID}',
+    url: '/orgs/{orgID}/projects/{projectID}/secrets/{secretID}',
     ...options
 });
 
@@ -2193,7 +2270,7 @@ export const listActors = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors',
+    url: '/orgs/{orgID}/projects/{projectID}/actors',
     ...options
 });
 
@@ -2217,7 +2294,7 @@ export const putActor = <ThrowOnError extends boolean = true>(options: Options<P
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors',
+    url: '/orgs/{orgID}/projects/{projectID}/actors',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2239,7 +2316,7 @@ export const getActor = <ThrowOnError extends boolean = true>(options: Options<G
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/actors/{actorID}',
+    url: '/orgs/{orgID}/projects/{projectID}/actors/{actorID}',
     ...options
 });
 
@@ -2259,7 +2336,7 @@ export const listVisibleMachines = <ThrowOnError extends boolean = true>(options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines',
+    url: '/orgs/{orgID}/machines',
     ...options
 });
 
@@ -2281,7 +2358,7 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines',
+    url: '/orgs/{orgID}/machines',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2294,12 +2371,20 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
  */
 export const connectByoMachine = <ThrowOnError extends boolean = true>(options: Options<ConnectByoMachineData, ThrowOnError>): RequestResult<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError> => (options.client ?? client).post<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError>({
     responseValidator: async (data) => await validateResponse(zConnectByoMachineResponse2, data),
-    security: [{
+    security: [
+        {
+            key: 'bearerAuth',
+            scheme: 'bearer',
+            type: 'http'
+        },
+        {
             in: 'cookie',
             name: '__Host-omnara_session',
             type: 'apiKey'
-        }, { name: 'X-Omnara-Csrf', type: 'apiKey' }],
-    url: '/api/v1/orgs/{orgID}/machines/connect',
+        },
+        { name: 'X-Omnara-Csrf', type: 'apiKey' }
+    ],
+    url: '/orgs/{orgID}/machines/connect',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2327,7 +2412,7 @@ export const deleteMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options
 });
 
@@ -2345,7 +2430,7 @@ export const getMachine = <ThrowOnError extends boolean = true>(options: Options
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options
 });
 
@@ -2367,7 +2452,7 @@ export const updateMachine = <ThrowOnError extends boolean = true>(options: Opti
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}',
+    url: '/orgs/{orgID}/machines/{machineID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2391,7 +2476,7 @@ export const listModelProviderConfigs = <ThrowOnError extends boolean = true>(op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs',
+    url: '/orgs/{orgID}/model-provider-configs',
     ...options
 });
 
@@ -2415,7 +2500,7 @@ export const createModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs',
+    url: '/orgs/{orgID}/model-provider-configs',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2443,7 +2528,7 @@ export const deleteModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options
 });
 
@@ -2461,7 +2546,7 @@ export const getModelProviderConfig = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options
 });
 
@@ -2483,7 +2568,7 @@ export const updateModelProviderConfig = <ThrowOnError extends boolean = true>(o
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2507,7 +2592,7 @@ export const getModelCatalog = <ThrowOnError extends boolean = true>(options: Op
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/model-catalog',
     ...options
 });
 
@@ -2527,7 +2612,7 @@ export const listConfiguredModels = <ThrowOnError extends boolean = true>(option
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
     ...options
 });
 
@@ -2549,7 +2634,7 @@ export const createConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2577,7 +2662,7 @@ export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
     ...options
 });
 
@@ -2599,7 +2684,7 @@ export const updateConfiguredModel = <ThrowOnError extends boolean = true>(optio
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2623,7 +2708,7 @@ export const listProjectModelGrants = <ThrowOnError extends boolean = true>(opti
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants',
     ...options
 });
 
@@ -2645,7 +2730,7 @@ export const createProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2673,7 +2758,7 @@ export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
     ...options
 });
 
@@ -2697,7 +2782,7 @@ export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(opt
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2721,7 +2806,7 @@ export const listMachinePools = <ThrowOnError extends boolean = true>(options: O
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machine-pools',
+    url: '/orgs/{orgID}/machine-pools',
     ...options
 });
 
@@ -2743,7 +2828,7 @@ export const createMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools',
+    url: '/orgs/{orgID}/machine-pools',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2771,7 +2856,7 @@ export const deleteMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options
 });
 
@@ -2789,7 +2874,7 @@ export const getMachinePool = <ThrowOnError extends boolean = true>(options: Opt
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options
 });
 
@@ -2813,7 +2898,7 @@ export const updateMachinePool = <ThrowOnError extends boolean = true>(options: 
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machine-pools/{poolID}',
+    url: '/orgs/{orgID}/machine-pools/{poolID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2837,7 +2922,7 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
     ...options
 });
 
@@ -2859,7 +2944,7 @@ export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2887,7 +2972,7 @@ export const deleteProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options
 });
 
@@ -2905,7 +2990,7 @@ export const getProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options
 });
 
@@ -2929,7 +3014,7 @@ export const updateProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
+    url: '/orgs/{orgID}/projects/{projectID}/machine-pool-grants/{poolGrantID}',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -2953,7 +3038,7 @@ export const listByoMachineDaemonTokens = <ThrowOnError extends boolean = true>(
             name: '__Host-omnara_session',
             type: 'apiKey'
         }],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens',
     ...options
 });
 
@@ -2975,7 +3060,7 @@ export const createByoMachineDaemonToken = <ThrowOnError extends boolean = true>
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -3001,7 +3086,7 @@ export const revokeMachineDaemonToken = <ThrowOnError extends boolean = true>(op
         },
         { name: 'X-Omnara-Csrf', type: 'apiKey' }
     ],
-    url: '/api/v1/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke',
+    url: '/orgs/{orgID}/machines/{machineID}/daemon-tokens/{tokenID}/revoke',
     ...options
 });
 
@@ -3015,7 +3100,7 @@ export const registerMachineDaemonRuntime = <ThrowOnError extends boolean = true
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes',
+    url: '/daemon/runtimes',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -3032,7 +3117,7 @@ export const socketMachineDaemonRuntime = <ThrowOnError extends boolean = true>(
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/socket',
+    url: '/daemon/runtimes/{runtimeID}/socket',
     ...options
 });
 
@@ -3046,7 +3131,7 @@ export const endMachineDaemonRuntime = <ThrowOnError extends boolean = true>(opt
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/end',
+    url: '/daemon/runtimes/{runtimeID}/end',
     ...options
 });
 
@@ -3062,7 +3147,7 @@ export const sleepMachineDaemonRuntime = <ThrowOnError extends boolean = true>(o
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/runtimes/{runtimeID}/sleep',
+    url: '/daemon/runtimes/{runtimeID}/sleep',
     ...options
 });
 
@@ -3078,6 +3163,39 @@ export const getDaemonSkillArchive = <ThrowOnError extends boolean = true>(optio
             scheme: 'bearer',
             type: 'http'
         }],
-    url: '/api/v1/daemon/skills/{skillID}/archive',
+    url: '/daemon/skills/{skillID}/archive',
+    ...options
+});
+
+/**
+ * Upload daemon artifact
+ */
+export const uploadDaemonArtifact = <ThrowOnError extends boolean = true>(options: Options<UploadDaemonArtifactData, ThrowOnError>): RequestResult<UploadDaemonArtifactResponses, UploadDaemonArtifactErrors, ThrowOnError> => (options.client ?? client).post<UploadDaemonArtifactResponses, UploadDaemonArtifactErrors, ThrowOnError>({
+    bodySerializer: null,
+    responseValidator: async (data) => await validateResponse(zUploadDaemonArtifactResponse, data),
+    security: [{
+            key: 'machineDaemonAuth',
+            scheme: 'bearer',
+            type: 'http'
+        }],
+    url: '/daemon/tool-calls/{toolCallID}/artifact',
+    ...options,
+    headers: {
+        'Content-Type': 'application/octet-stream',
+        ...options.headers
+    }
+});
+
+/**
+ * Download daemon artifact
+ */
+export const downloadDaemonArtifact = <ThrowOnError extends boolean = true>(options: Options<DownloadDaemonArtifactData, ThrowOnError>): RequestResult<DownloadDaemonArtifactResponses, DownloadDaemonArtifactErrors, ThrowOnError> => (options.client ?? client).get<DownloadDaemonArtifactResponses, DownloadDaemonArtifactErrors, ThrowOnError>({
+    responseValidator: async (data) => await validateResponse(zDownloadDaemonArtifactResponse, data),
+    security: [{
+            key: 'machineDaemonAuth',
+            scheme: 'bearer',
+            type: 'http'
+        }],
+    url: '/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content',
     ...options
 });

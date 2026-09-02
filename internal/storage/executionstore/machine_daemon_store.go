@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -263,12 +264,16 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 func prepareDaemonMachineCreate(
 	input CreateDaemonMachineInput,
 ) (CreateDaemonMachineInput, MachineEnvironment, json.RawMessage, error) {
-	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	if isNilID(input.OrgID) || input.DisplayName == "" {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
 			"org and display name are required",
 		)
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("machine display name", input.DisplayName)
+	if err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
+	}
+	input.DisplayName = normalizedName
 	if err := input.Metadata.ValidateWithReservedKey(machineObservedPlatformKey); err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, fmt.Errorf(
 			"machine metadata: %w",

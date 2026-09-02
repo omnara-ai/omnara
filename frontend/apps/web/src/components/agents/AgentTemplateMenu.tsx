@@ -27,7 +27,7 @@ export function AgentTemplateMenu({
         {agentTemplates.map((template) => (
           <DropdownMenuItem
             key={template.id}
-            className="cursor-pointer rounded-md p-2.5"
+            className="cursor-pointer rounded-md p-2.5 sm:p-2.5"
             onSelect={() => {
               onApply(template)
             }}

@@ -65,8 +65,11 @@ func (*ownedMCPToolClient) ListTools(
 	context.Context,
 	mcp.Conn,
 	int64,
-) ([]*sdkmcp.Tool, error) {
-	return []*sdkmcp.Tool{{Name: "greet", InputSchema: map[string]any{"type": "object"}}}, nil
+	string,
+) (mcp.ToolsPage, error) {
+	return mcp.ToolsPage{
+		Tools: []*sdkmcp.Tool{{Name: "greet", InputSchema: map[string]any{"type": "object"}}},
+	}, nil
 }
 
 func (c *ownedMCPToolClient) CallTool(

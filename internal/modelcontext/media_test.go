@@ -1,6 +1,7 @@
 package modelcontext
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -114,12 +116,17 @@ func TestBuildResolvesMediaMetadata(t *testing.T) {
 }
 
 func TestMediaRefTextContainsOnlyCanonicalReference(t *testing.T) {
+	artifactID := testIDN(150)
+	publicArtifactID, err := publicid.Encode(publicid.KindArtifact, artifactID)
+	if err != nil {
+		t.Fatalf("encode artifact id: %v", err)
+	}
 	text := MediaRefText(map[string]json.RawMessage{
 		"type":            json.RawMessage(`"media_ref"`),
-		"artifact_id":     json.RawMessage(`"artifact_1"`),
+		"artifact_id":     json.RawMessage(`"` + artifactID.String() + `"`),
 		"provider_replay": json.RawMessage(`{"item":{"opaque":true}}`),
 	})
-	if text != "A prior attachment with artifact ID artifact_1 is not included in the current model context." {
+	if text != "A prior attachment with artifact ID "+publicArtifactID+" is not included in the current model context." {
 		t.Fatalf("media ref text = %s", text)
 	}
 }
@@ -187,6 +194,8 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 		firstDocumentID := testIDN(135)
 		secondDocumentID := testIDN(136)
 		documentSize := MaxResolvedMediaBytes/2 + 1
+		firstDocument := mediaTestArtifact(firstDocumentID, officeMediaType, documentSize)
+		firstDocument.Filename = "first.docx"
 		store := &fakeContextStore{
 			messages: []executionstore.ContextEventRecord{
 				{
@@ -206,7 +215,7 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 			},
 			watermark: 2,
 			artifacts: []artifactstore.ArtifactRecord{
-				mediaTestArtifact(firstDocumentID, officeMediaType, documentSize),
+				firstDocument,
 				mediaTestArtifact(secondDocumentID, officeMediaType, documentSize),
 			},
 		}
@@ -227,6 +236,9 @@ func TestBuildBudgetsOnlyAdapterRenderedMediaOccurrences(t *testing.T) {
 				bundle.ResolvedMedia,
 				store.artifactBlobReads,
 			)
+		}
+		if !bytes.Contains(bundle.Messages[0].Content, []byte("first.docx")) {
+			t.Fatalf("textual projection does not include filename: %s", bundle.Messages[0].Content)
 		}
 	})
 

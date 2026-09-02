@@ -23,7 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestListMachinePoolSourcesKeepsCapturedNamesAfterSwap(t *testing.T) {
+func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)

@@ -11,8 +11,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
@@ -65,6 +67,11 @@ func (s strictOpenAPIServer) CreateOrganization(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
+	canonicalName, err := resourcename.CanonicalizeRequired("organization name", request.Body.Name)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	request.Body.Name = canonicalName
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -78,7 +85,7 @@ func (s strictOpenAPIServer) CreateOrganization(
 			IdempotencyKey: idempotencyKey,
 		})
 		if err != nil {
-			return nil, s.createOrganizationStorageError("load completed organization request", err)
+			return nil, createOrganizationStorageError(ctx, "load completed organization request", err)
 		}
 		if found {
 			return createOrganizationResponse(ctx, replay)
@@ -87,7 +94,7 @@ func (s strictOpenAPIServer) CreateOrganization(
 
 	orgID, err := newProposedOrganizationID(principal.ID, idempotencyKey)
 	if err != nil {
-		return nil, s.createOrganizationStorageError("generate organization id", err)
+		return nil, createOrganizationStorageError(ctx, "generate organization id", err)
 	}
 	input := orglifecycle.CreateOrgForUserInput{
 		OrgID:                         orgID,
@@ -99,7 +106,7 @@ func (s strictOpenAPIServer) CreateOrganization(
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {
-		return nil, s.createOrganizationStorageError("commit organization creation", err)
+		return nil, createOrganizationStorageError(ctx, "commit organization creation", err)
 	}
 	if record.Created && s.server.defaultModelProvider != nil && s.server.hostedCredentialProvisioner != nil {
 		runner := defaultprovider.NewRunner(
@@ -171,23 +178,29 @@ func (s strictOpenAPIServer) DeleteOrganization(
 	return openapi.DeleteOrganization204Response{}, nil
 }
 
-func (s strictOpenAPIServer) createOrganizationStorageError(operation string, err error) error {
+func createOrganizationStorageError(ctx context.Context, operation string, err error) error {
+	var responseErr apierror.ResponseError
 	switch {
+	case errors.Is(err, storeerr.ErrInvalidRequest):
+		responseErr = apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	case errors.Is(err, storeerr.ErrIdempotencyConflict):
-		return apierror.FromCode(
+		responseErr = apierror.FromCode(
 			openapi.ErrorCodeIdempotencyKeyConflict,
 			"organization request conflicts with an earlier attempt")
-
 	case errors.Is(err, storeerr.ErrConflict), errors.Is(err, storeerr.ErrStateTransitionConflict):
-		return apierror.FromCode(openapi.ErrorCodeConflict, "organization creation state conflict")
+		responseErr = apierror.FromCode(openapi.ErrorCodeConflict, "organization creation state conflict")
 	case errors.Is(err, storeerr.ErrUnauthorized):
-		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		responseErr = apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	case storeerr.IsNotFound(err):
-		return apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		responseErr = apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	default:
-		s.server.log.Error(operation, "error", err)
-		return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "organization creation temporarily unavailable")
+		logpkg.Error(ctx, fmt.Errorf("%s: %w", operation, err))
+		responseErr = apierror.FromCode(
+			openapi.ErrorCodeServiceUnavailable,
+			"organization creation temporarily unavailable",
+		)
 	}
+	return responseErr.WithCause(err)
 }
 
 func newProposedOrganizationID(

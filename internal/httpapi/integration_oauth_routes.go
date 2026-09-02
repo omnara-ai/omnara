@@ -106,8 +106,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		},
 	)
 	if err != nil {
-		logent.AuthorizationCheckFailed(r.Context(), err)
-		apierror.Write(w, openapi.ErrorCodeForbidden)
+		apierror.WriteError(w, authorizationAPIError(r.Context(), err))
 		return
 	}
 	if !allowed {

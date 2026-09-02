@@ -1,8 +1,9 @@
 export { projectActorsQueryPredicate, useCurrentActorId } from './domains/actors'
-export { useDownloadAgentArtifact } from './domains/agent-artifacts'
 export {
+  type AgentChatAttachmentInput,
   type AgentChatData,
   type AgentChatHistoryStatus,
+  type AgentChatMessageInput,
   type AgentChatScope,
   AgentChatSession,
   type AgentChatSessionOptions,
@@ -12,7 +13,12 @@ export {
   useAgentChat,
   type UseAgentChatResult,
 } from './domains/agent-chat'
-export { useAgentInputBacklog } from './domains/agent-input-backlog'
+export {
+  type AgentInputBacklogItem,
+  type AgentInputBacklogMove,
+  reorderAgentInputBacklog,
+  useAgentInputBacklog,
+} from './domains/agent-input-backlog'
 export {
   useAgentInteractions,
   useCancelAgent,
@@ -98,6 +104,16 @@ export {
   useMachines,
   useProjectMachines,
 } from './domains/machines'
+export {
+  findServerByRemoteUrl,
+  normalizeRemoteUrl,
+  type ServerListFilters,
+  type ServerListOptions,
+  useServerInfo,
+  useServerInfoLookup,
+  useServers,
+} from './domains/mcp-registry'
+export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
   type ModelOption,
@@ -212,8 +228,10 @@ export {
   useDeleteSkillGrant,
   useGrantSkillToProject,
   useProjectAvailableSkills,
+  useSkill,
   useSkillGrants,
   useSkills,
+  useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

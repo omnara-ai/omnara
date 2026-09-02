@@ -145,12 +145,16 @@ func TestBlaxelObserveRuntimeStatesPaginatesAndIntersectsTargets(t *testing.T) {
 		HasMore: true, NextCursor: "next+/=",
 	}
 	api.listPages["next+/="] = sandboxListPage{Sandboxes: []sandbox{
+		api.listPages[""].Sandboxes[0],
 		ownedRuntimeSandbox(t, targets[2], "STANDBY", "DEPLOYED"),
 		ownedRuntimeSandbox(t, targets[5], "RUNNING", "DELETING"),
 	}}
 	api.listPages[""].Sandboxes[4].Metadata.Labels[installationLabel] = uuid.NewString()
 	api.sandboxesByName[targets[3].ProviderResourceID] = ownedRuntimeSandbox(
 		t, targets[3], "RUNNING", "DEPLOYED",
+	)
+	api.sandboxesByName[targets[2].ProviderResourceID] = ownedRuntimeSandbox(
+		t, targets[2], "STANDBY", "DEPLOYED",
 	)
 
 	observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), targets)
@@ -161,13 +165,16 @@ func TestBlaxelObserveRuntimeStatesPaginatesAndIntersectsTargets(t *testing.T) {
 		!slices.Equal(api.listLimits, []int{runtimeObservationListPageSize, runtimeObservationListPageSize}) {
 		t.Fatalf("list cursors=%v limits=%v", api.listCursors, api.listLimits)
 	}
-	if !slices.Equal(api.getCalls, []string{targets[3].ProviderResourceID}) {
+	if !slices.Equal(api.getCalls, []string{
+		targets[2].ProviderResourceID,
+		targets[3].ProviderResourceID,
+	}) {
 		t.Fatalf("fallback GET calls = %v", api.getCalls)
 	}
 	wantStates := map[int]providers.RuntimeState{
 		0: providers.RuntimeStateRunning,
 		1: providers.RuntimeStateInactive,
-		2: providers.RuntimeStateUnknown,
+		2: providers.RuntimeStateInactive,
 		3: providers.RuntimeStateRunning,
 		4: providers.RuntimeStateUnknown,
 		5: providers.RuntimeStateTerminated,

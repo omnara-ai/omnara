@@ -91,7 +91,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/machines/"+machineID+"/daemon-tokens",
-		`{"name":"daemon"}`,
+		`{}`,
 		"",
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
@@ -100,7 +100,11 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		t.Fatalf("browser-minted daemon token is not canonical: %v", err)
 	}
-	tokenID := tokenResponse["token_record"].(map[string]any)["id"].(string)
+	tokenRecord := tokenResponse["token_record"].(map[string]any)
+	if tokenRecord["name"] != "daemon" {
+		t.Fatalf("default daemon token name = %v, want daemon", tokenRecord["name"])
+	}
+	tokenID := tokenRecord["id"].(string)
 
 	requestJSONWithHeaders(
 		t,
@@ -121,22 +125,33 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "connect-byo-machine")
 	path := "/api/v1/orgs/" + project.OrgID + "/machines/connect"
-	requestJSONWithHeaders(
+	patResponse := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		path,
-		`{"display_name":"PAT Connection","project_ids":[]}`,
+		`{"display_name":"PAT Connection","description":"connected by CLI","cwd":"/srv/agents","env":{"REGION":"us"}}`,
 		"",
-		http.StatusForbidden,
+		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	patMachine := patResponse["machine"].(map[string]any)
+	if patMachine["description"] != "connected by CLI" || patMachine["cwd"] != "/srv/agents" {
+		t.Fatalf("unexpected PAT-connected machine: %+v", patMachine)
+	}
+	patTokenRecord := patResponse["token_record"].(map[string]any)
+	if patTokenRecord["name"] != "daemon" {
+		t.Fatalf("unexpected PAT token record: %+v", patTokenRecord)
+	}
+	if grants := patResponse["project_grants"].([]any); len(grants) != 0 {
+		t.Fatalf("PAT project grants = %d, want 0", len(grants))
+	}
 	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		path,
-		`{"display_name":"Connected Through API","project_ids":["`+project.ProjectID+`"]}`,
+		`{"display_name":"Connected Through API","project_ids":["`+project.ProjectID+`"],"token_name":"web-console"}`,
 		"",
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
@@ -178,6 +193,16 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		http.MethodPost,
 		path,
 		`{"display_name":"   ","project_ids":[]}`,
+		"",
+		http.StatusBadRequest,
+		project.adminBrowserAuthHeaders(),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		path,
+		`{"display_name":"Blank Token Name","token_name":"   "}`,
 		"",
 		http.StatusBadRequest,
 		project.adminBrowserAuthHeaders(),
@@ -261,7 +286,7 @@ func TestConnectBYOMachineAuthorizesEveryProjectGrant(t *testing.T) {
 			OrgID: project.OrgID,
 			Body: &openapi.ConnectBYOMachineRequest{
 				DisplayName: "Unauthorized Project Connection",
-				ProjectIds:  []openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
+				ProjectIds:  &[]openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
 			},
 		},
 	)
@@ -2841,6 +2866,32 @@ func createDaemonProcessFixtureWithToolCalls(
 	toolName string,
 	additionalToolCalls []model.ToolCall,
 ) daemonProcessFixture {
+	return createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now,
+		name,
+		toolName,
+		additionalToolCalls,
+		nil,
+	)
+}
+
+func createDaemonProcessFixtureWithToolInputBuilder(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	store *storage.Store,
+	project publicHTTPProject,
+	now time.Time,
+	name string,
+	toolName string,
+	additionalToolCalls []model.ToolCall,
+	primaryToolInputBuilder func(storage.ID) json.RawMessage,
+) daemonProcessFixture {
 	t.Helper()
 	_, err := storagetest.CreateVerifiedUser(
 		ctx,
@@ -2912,6 +2963,7 @@ func createDaemonProcessFixtureWithToolCalls(
 		toolName,
 		machine.DisplayName,
 		additionalToolCalls,
+		primaryToolInputBuilder,
 	)
 	process, err := storagetest.StartProcessForToolCall(
 		ctx,
@@ -2973,6 +3025,7 @@ func createHTTPProcessToolCall(
 		toolName,
 		machineName,
 		nil,
+		nil,
 	)
 	return agent, toolCall, lock, binding
 }
@@ -2987,6 +3040,7 @@ func createHTTPProcessToolCallBatch(
 	toolName string,
 	machineName string,
 	additionalToolCalls []model.ToolCall,
+	primaryToolInputBuilder func(storage.ID) json.RawMessage,
 ) (
 	executionstore.AgentRecord,
 	executionstore.ToolCallRecord,
@@ -3049,7 +3103,11 @@ func createHTTPProcessToolCallBatch(
 	)
 	modelContext := modelCall.Context
 	providerResponseID := "resp_" + name
-	primaryToolCall := model.ToolCall{ID: "call_" + name, Name: toolName, Input: json.RawMessage(`{}`)}
+	primaryToolInput := json.RawMessage(`{}`)
+	if primaryToolInputBuilder != nil {
+		primaryToolInput = primaryToolInputBuilder(agent.ID)
+	}
+	primaryToolCall := model.ToolCall{ID: "call_" + name, Name: toolName, Input: primaryToolInput}
 	responseToolCalls := append([]model.ToolCall{primaryToolCall}, additionalToolCalls...)
 	providerResponse, err := model.NewResponseEnvelopeForStorage(
 		"http-test",

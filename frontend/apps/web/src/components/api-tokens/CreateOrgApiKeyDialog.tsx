@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const ORG_ROLES = ['member', 'admin'] as const
@@ -37,7 +39,7 @@ export function CreateOrgApiKeyDialog({
     event.preventDefault()
     setError(undefined)
     try {
-      const result = await createKey.mutateAsync({ name: name.trim(), org_role: orgRole })
+      const result = await createKey.mutateAsync({ name, org_role: orgRole })
       setPlaintext(result.token)
     } catch (err) {
       setError(errorMessage(err, 'Could not create API token'))
@@ -87,6 +89,7 @@ export function CreateOrgApiKeyDialog({
                       setName(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={name} />
                   <FieldDescription>Describe where you plan to use this token.</FieldDescription>
                 </Field>
                 <Field>
@@ -115,7 +118,7 @@ export function CreateOrgApiKeyDialog({
                 <DialogFooter>
                   <Button
                     type="submit"
-                    disabled={createKey.isPending || name.trim() === ''}
+                    disabled={createKey.isPending || !resourceNameValid(name)}
                     loading={createKey.isPending}
                   >
                     Create token

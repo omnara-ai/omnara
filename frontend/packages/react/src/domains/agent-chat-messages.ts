@@ -1,27 +1,26 @@
 import type {
   AgentEvent,
   AgentEventStreamData,
+  AgentInput,
   AgentInputEvent,
-  AgentInputKind,
   Error as APIError,
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
+  ToolCallType,
+  ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
 
-export type { ModelOutputDelta } from '@omnara/sdk'
+import type {
+  AgentChatData,
+  AgentChatStatus,
+  LocalAgentInput,
+  OmnaraMessageMetadata,
+} from './agent-chat-types'
+import type { AgentInputBacklogItem } from './agent-input-backlog'
 
-export interface OmnaraMessageMetadata {
-  eventId?: string
-  eventKind?: string
-  inputKind?: AgentInputKind
-  actorId?: string
-  sequence?: number
-  turnId?: string
-  turnSequence?: number
-  createdAt?: string
-}
+export type { ModelOutputDelta } from '@omnara/sdk'
 
 // A type alias preserves the finite data-part keys required for discriminated narrowing.
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -29,11 +28,22 @@ export type OmnaraUIData = {
   'agent-config': { action: 'initialized' | 'changed' }
   'model-error': { text: string }
   thinking: { active: boolean }
-  media: { artifactId?: string }
+  media: {
+    artifactId?: string
+    excludeFromModelContext?: MediaRefContentBlock['exclude_from_model_context']
+    data?: string
+    mediaType?: string
+    filename?: string
+    sizeBytes?: number
+  }
 }
 
 type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
-type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & { id: string }
+type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & {
+  id: string
+  toolType?: ToolCallType
+  toolErrorCode?: string
+}
 export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
   parts: OmnaraUIMessagePart[]
 }
@@ -73,12 +83,31 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   return {
     type: 'data-media',
     id,
-    data: { artifactId: block.artifact_id },
+    data: {
+      artifactId: block.artifact_id,
+      excludeFromModelContext: block.exclude_from_model_context,
+    },
   }
 }
 
 function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
   return block.metadata?.omnara_hidden === 'true'
+}
+
+function structuredToolErrorCode(blocks: ToolResultContentBlock[]): string | undefined {
+  for (const block of blocks) {
+    if (
+      block.type !== 'structured_data' ||
+      block.value == null ||
+      typeof block.value !== 'object'
+    ) {
+      continue
+    }
+    if (!('error_code' in block.value)) continue
+    const errorCode = block.value.error_code
+    if (typeof errorCode === 'string') return errorCode
+  }
+  return undefined
 }
 
 function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
@@ -122,6 +151,7 @@ function modelOutputParts(event: ModelOutputEvent): OmnaraUIMessage['parts'] {
         id,
         toolCallId: block.tool_call_id,
         toolName: block.name,
+        toolType: block.tool_type,
         state: 'input-available',
         input: block.input,
       })
@@ -209,34 +239,35 @@ export function agentEventsToMessages(
     if (index < 0) continue
     const part = message.parts[index]
     if (part?.type !== 'dynamic-tool') continue
-    message.parts[index] = {
+    const contentBlocks = event.content_blocks.filter((block) => !isHiddenContentBlock(block))
+    const toolErrorCode =
+      event.outcome === 'failed' && part.toolType === 'built_in'
+        ? structuredToolErrorCode(contentBlocks)
+        : undefined
+    const toolPart: OmnaraUIMessagePart = {
       type: 'dynamic-tool',
       id: part.id,
       toolCallId: part.toolCallId,
       toolName: part.toolName,
+      toolType: part.toolType,
+      ...(toolErrorCode == null ? {} : { toolErrorCode }),
       state: 'output-available',
       input: part.input,
       output: {
         outcome: event.outcome,
-        contentBlocks: event.content_blocks.filter((block) => !isHiddenContentBlock(block)),
+        contentBlocks,
       },
     }
+    const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
+      block.type === 'media_ref'
+        ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
+        : [],
+    )
+    message.parts.splice(index, 1, toolPart, ...mediaParts)
     message.metadata = eventMetadata(event)
   }
 
   return messages
-}
-
-export type AgentChatStatus = 'submitted' | 'streaming' | 'ready' | 'error'
-
-/** The chat's raw state: durable events, live deltas, and local send state. */
-export interface AgentChatData {
-  events: AgentEvent[]
-  deltas: ModelOutputDelta[]
-  pendingInput: { id: string; text: string } | null
-  error: Error | undefined
-  /** True while older history may still be unloaded (see agentEventsToMessages). */
-  hasOlderEvents: boolean
 }
 
 export function hasToolCalls(event: AgentEvent): boolean {
@@ -289,6 +320,12 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
   return undefined
 }
 
+function optimisticBacklogText(input: LocalAgentInput): string {
+  if (input.text !== '') return input.text
+  const filenames = input.attachments?.map((attachment) => attachment.filename).join(', ')
+  return filenames == null || filenames === '' ? 'Attachment' : filenames
+}
+
 /**
  * Projects the session's raw state into what the UI renders: the durable log
  * as messages, plus the optimistic pending input, plus delta previews merged
@@ -301,27 +338,84 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
  */
 export function projectAgentChat(data: AgentChatData): {
   messages: OmnaraUIMessage[]
+  backlogInputs: AgentInputBacklogItem[]
   status: AgentChatStatus
   isWorking: boolean
 } {
   const messages = agentEventsToMessages(data.events, { hasOlderEvents: data.hasOlderEvents })
-  if (data.pendingInput != null) {
+  const deltaPreviews = deltaPreviewsByTurn(data.deltas)
+  const lastEvent = lastStatusEvent(data.events)
+  const isWorking = deltaPreviews.size > 0 || (lastEvent != null && !isTerminalEvent(lastEvent))
+  const conversationInputIDs = new Set<string>()
+  const conversationInputKeys = new Set<string>()
+  for (const event of data.events) {
+    if (event.event_kind !== 'agent_input') continue
+    conversationInputIDs.add(event.agent_input_id)
+    if (event.input_idempotency_key != null) conversationInputKeys.add(event.input_idempotency_key)
+  }
+  const backlogByID = new Map<string, AgentInput>()
+  const backlogByKey = new Map<string, AgentInput>()
+  for (const input of data.backlogInputs) {
+    if (conversationInputIDs.has(input.id) || backlogByID.has(input.id)) continue
+    backlogByID.set(input.id, input)
+    if (input.input_idempotency_key != null) backlogByKey.set(input.input_idempotency_key, input)
+  }
+  const firstBacklogInputID = backlogByID.keys().next().value
+  const hiddenBacklogInputIDs = new Set<string>()
+  const optimisticBacklogInputs: AgentInputBacklogItem[] = []
+  let localMessageCount = 0
+  for (const localInput of data.localInputs) {
+    if (
+      conversationInputKeys.has(localInput.id) ||
+      (localInput.agentInputID != null && conversationInputIDs.has(localInput.agentInputID))
+    ) {
+      continue
+    }
+    const backlogInput =
+      (localInput.agentInputID == null ? undefined : backlogByID.get(localInput.agentInputID)) ??
+      backlogByKey.get(localInput.id)
+    const serverRequiresBacklog =
+      backlogInput != null && (isWorking || firstBacklogInputID !== backlogInput.id)
+    if (localInput.placement === 'backlog' || serverRequiresBacklog) {
+      if (backlogInput == null) {
+        optimisticBacklogInputs.push({
+          id: localInput.id,
+          delivery_mode: 'optimistic',
+          text: optimisticBacklogText(localInput),
+          attachmentCount: localInput.attachmentCount ?? localInput.attachments?.length ?? 0,
+        })
+      }
+      continue
+    }
+    if (backlogInput != null) hiddenBacklogInputIDs.add(backlogInput.id)
+    localMessageCount += 1
+    const parts: OmnaraUIMessage['parts'] = []
+    if (localInput.text !== '') {
+      parts.push({
+        type: 'text',
+        id: `local:${localInput.id}:text`,
+        text: localInput.text,
+      })
+    }
+    for (const [index, attachment] of (localInput.attachments ?? []).entries()) {
+      parts.push({
+        type: 'data-media',
+        id: `local:${localInput.id}:media:${String(index)}`,
+        data: attachment,
+      })
+    }
     messages.push({
-      id: `local:${data.pendingInput.id}`,
+      id: `local:${localInput.id}`,
       role: 'user',
-      parts: [
-        {
-          type: 'text',
-          id: `local:${data.pendingInput.id}:text`,
-          text: data.pendingInput.text,
-        },
-      ],
+      parts,
     })
   }
+  const backlogInputs: AgentInputBacklogItem[] = [
+    ...[...backlogByID.values()].filter((input) => !hiddenBacklogInputIDs.has(input.id)),
+    ...optimisticBacklogInputs,
+  ]
 
-  let streamingPreview = false
-  for (const [turnID, parts] of deltaPreviewsByTurn(data.deltas)) {
-    streamingPreview = true
+  for (const [turnID, parts] of deltaPreviews) {
     const id = `turn:${turnID}`
     const index = messages.findIndex((message) => message.id === id)
     const existing = messages[index]
@@ -332,16 +426,11 @@ export function projectAgentChat(data: AgentChatData): {
     }
   }
 
-  const lastEvent = lastStatusEvent(data.events)
-  const isWorking =
-    data.pendingInput != null ||
-    streamingPreview ||
-    (lastEvent != null && !isTerminalEvent(lastEvent))
   let status: AgentChatStatus = 'ready'
   if (data.error != null) status = 'error'
-  else if (data.pendingInput != null) status = 'submitted'
+  else if (localMessageCount > 0) status = 'submitted'
   else if (isWorking) status = 'streaming'
-  return { messages, status, isWorking }
+  return { messages, backlogInputs, status, isWorking }
 }
 
 function deltaPreviewsByTurn(deltas: ModelOutputDelta[]): Map<string, OmnaraUIMessage['parts']> {

@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -37,6 +38,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
+
+const testDeviceOAuthClientID = "test-device-client"
 
 func TestCanonicalBearerCredentialsPersistOnlyFullTokenDigests(t *testing.T) {
 	t.Parallel()
@@ -2281,12 +2284,12 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO machines(
-			id, org_id, machine_pool_id, source_kind, provider, lifecycle_state,
+			id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
 			lifecycle_changed_at,
 			memory_mb, provider_options, next_reconcile_after, delete_attempts,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, 'pool', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4)
+		VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4)
 	`, machineID, testOrgID, poolID, now); err != nil {
 		t.Fatalf("insert deleting pool machine: %v", err)
 	}
@@ -4366,40 +4369,69 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at)
-		VALUES ('device-schema-wrong-session', 'device-schema-wrong-user', 'client', 'token', $1, $2, $3, $4, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at)
+		VALUES ('device-schema-wrong-session', 'device-schema-wrong-user', 'test-client', 'client', 'token', $1, $2, $3, $4, $1)
 	`, now, now.Add(time.Hour), user.ID, otherSession.ID); !isForeignKeyViolation(err) {
 		t.Fatalf("cross-user approved session error = %v, want foreign key violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, consumed_at)
-		VALUES ('device-schema-consumed-unapproved', 'device-schema-consumed-user', 'client', 'token', $1, $2, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, consumed_at)
+		VALUES ('device-schema-consumed-unapproved', 'device-schema-consumed-user', 'test-client', 'client', 'token', $1, $2, $1)
 	`, now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("consumed unapproved flow error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at)
-		VALUES ('device-schema-denied-consumed', 'device-schema-denied-consumed-user', 'client', 'token', $1, $2, $3, $4, $1, $1, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at)
+		VALUES ('device-schema-denied-consumed', 'device-schema-denied-consumed-user', 'test-client', 'client', 'token', $1, $2, $3, $4, $1, $1, $1)
 	`, now, now.Add(time.Hour), user.ID, session.ID); !isCheckViolation(err) {
 		t.Fatalf("denied consumed flow error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
-		VALUES ('device-schema-long-client', 'device-schema-long-client-user', $1, 'token', $2, $3)
-	`, strings.Repeat("a", 129), now, now.Add(time.Hour)); !isCheckViolation(err) {
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-long-client', 'device-schema-long-client-user', 'test-client', $1, 'token', $2, $3)
+	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long client name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
-		VALUES ('device-schema-long-token', 'device-schema-long-token-user', 'client', $1, $2, $3)
-	`, strings.Repeat("a", 129), now, now.Add(time.Hour)); !isCheckViolation(err) {
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-long-token', 'device-schema-long-token-user', 'test-client', 'client', $1, $2, $3)
+	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long token name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
-		VALUES ('device-schema-control-client', 'device-schema-control-client-user', $1, 'token', $2, $3)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-control-client', 'device-schema-control-client-user', 'test-client', $1, 'token', $2, $3)
 	`, "bad\nclient", now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("control character client name error = %v, want check violation", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-control-client-id', 'device-schema-control-client-id-user', $1, 'client', 'token', $2, $3)
+	`, "bad\nclient", now, now.Add(time.Hour)); !isCheckViolation(err) {
+		t.Fatalf("control character client id error = %v, want check violation", err)
+	}
+}
+
+func TestDeviceAuthClientIDValidationMatchesSchema(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	store := newIntegrationStore(pool)
+	clientID := strings.Repeat("é", 129)
+	if _, err := store.Identity().StartDeviceAuthFlow(
+		ctx,
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID: clientID, ClientName: "CLI", TokenName: "CLI token",
+		},
+	); !errors.Is(err, storeerr.ErrInvalidDeviceAuthFlow) {
+		t.Fatalf("long device client id error = %v, want ErrInvalidDeviceAuthFlow", err)
+	}
+	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		VALUES ('device-schema-long-client-id', 'device-schema-long-client-id-user', $1, 'client', 'token', $2, $3)
+	`, clientID, now, now.Add(time.Hour)); !isCheckViolation(err) {
+		t.Fatalf("long client id error = %v, want check violation", err)
 	}
 }
 
@@ -4423,7 +4455,11 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	if _, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: strings.Repeat("a", 129), TokenName: "CLI token"},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   testDeviceOAuthClientID,
+			ClientName: strings.Repeat("a", resourcename.MaxCodePoints+1),
+			TokenName:  "CLI token",
+		},
 	); !errors.Is(
 		err,
 		storeerr.ErrInvalidDeviceAuthFlow,
@@ -4432,7 +4468,9 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	if _, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI", TokenName: "bad\ntoken"},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID: testDeviceOAuthClientID, ClientName: "CLI", TokenName: "bad\ntoken",
+		},
 	); !errors.Is(
 		err,
 		storeerr.ErrInvalidDeviceAuthFlow,
@@ -4441,10 +4479,22 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	flow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI", TokenName: "CLI token"},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID: testDeviceOAuthClientID, ClientName: "CLI", TokenName: "CLI token",
+		},
 	)
 	if err != nil {
 		t.Fatalf("start device auth flow: %v", err)
+	}
+	mismatchedClient, err := store.Identity().PollDeviceAuthFlow(
+		ctx,
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: "other-client"},
+	)
+	if err != nil {
+		t.Fatalf("poll device auth flow with mismatched client: %v", err)
+	}
+	if mismatchedClient.Status != identitystore.DeviceAuthFlowStatusInvalid || mismatchedClient.Token != "" {
+		t.Fatalf("mismatched client poll = %+v, want invalid grant without token", mismatchedClient)
 	}
 	pendingFlow, err := store.Identity().PendingDeviceAuthFlow(
 		ctx,
@@ -4459,7 +4509,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	pending, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll pending device auth flow: %v", err)
@@ -4478,7 +4528,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	firstPollAt := *lastPolledAt
 	slow, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll slow device auth flow: %v", err)
@@ -4502,7 +4552,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	boundaryPending, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll boundary device auth flow: %v", err)
@@ -4520,7 +4570,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	boundaryPollAt := *lastPolledAt
 	nextPending, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll next device auth flow: %v", err)
@@ -4550,7 +4600,9 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if err := store.Identity().RevokeBrowserSession(ctx, "device-revoked-session"); err != nil {
 		t.Fatalf("revoke browser session: %v", err)
 	}
-	revokedFlow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{ClientName: "CLI revoked"})
+	revokedFlow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{
+		ClientID: testDeviceOAuthClientID, ClientName: "CLI revoked",
+	})
 	if err != nil {
 		t.Fatalf("start revoked-session device auth flow: %v", err)
 	}
@@ -4581,7 +4633,9 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	approvalRevokedFlow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
-		identitystore.StartDeviceAuthFlowInput{ClientName: "CLI approval revoked"},
+		identitystore.StartDeviceAuthFlowInput{
+			ClientID: testDeviceOAuthClientID, ClientName: "CLI approval revoked",
+		},
 	)
 	if err != nil {
 		t.Fatalf("start approval-revoked device auth flow: %v", err)
@@ -4601,7 +4655,9 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	invalidated, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: approvalRevokedFlow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{
+			DeviceCode: approvalRevokedFlow.DeviceCode, ClientID: testDeviceOAuthClientID,
+		},
 	)
 	if err != nil {
 		t.Fatalf("poll invalidated device auth flow: %v", err)
@@ -4630,7 +4686,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	approved, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll approved device auth flow: %v", err)
@@ -4661,7 +4717,7 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	}
 	replay, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll consumed device auth flow: %v", err)
@@ -4690,7 +4746,9 @@ func TestDeviceAuthFlowPollSerializesWithCompromiseRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create browser session: %v", err)
 	}
-	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{ClientName: "CLI compromise"})
+	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{
+		ClientID: testDeviceOAuthClientID, ClientName: "CLI compromise",
+	})
 	if err != nil {
 		t.Fatalf("start device auth flow: %v", err)
 	}
@@ -4730,7 +4788,9 @@ func TestDeviceAuthFlowPollSerializesWithCompromiseRevocation(t *testing.T) {
 	}
 	pollCh := make(chan pollResult, 1)
 	go func() {
-		record, err := store.Identity().PollDeviceAuthFlow(ctx, identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode})
+		record, err := store.Identity().PollDeviceAuthFlow(ctx, identitystore.DeviceAuthFlowPollInput{
+			DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID,
+		})
 		pollCh <- pollResult{record: record, err: err}
 	}()
 	integrationdb.WaitForLockWaiters(t, ctx, pool, "FROM users", 2)
@@ -4754,7 +4814,9 @@ func TestDeviceAuthFlowDenial(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
-	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{ClientName: "CLI"})
+	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{
+		ClientID: testDeviceOAuthClientID, ClientName: "CLI",
+	})
 	if err != nil {
 		t.Fatalf("start device auth flow: %v", err)
 	}
@@ -4766,7 +4828,7 @@ func TestDeviceAuthFlowDenial(t *testing.T) {
 	}
 	denied, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll denied device auth flow: %v", err)
@@ -4797,7 +4859,9 @@ func TestDeviceAuthFlowApprovalRejectsExpiryAfterLockWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create browser session: %v", err)
 	}
-	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{ClientName: "CLI lock expiry"})
+	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{
+		ClientID: testDeviceOAuthClientID, ClientName: "CLI lock expiry",
+	})
 	if err != nil {
 		t.Fatalf("start device auth flow: %v", err)
 	}
@@ -6172,6 +6236,7 @@ func TestCleanupInactiveAuthStatePurgesOnlyAbandonedSignupState(t *testing.T) {
 	referencedDeviceFlow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
 		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   testDeviceOAuthClientID,
 			ClientName: "Referenced",
 			TokenName:  "Referenced",
 		},
@@ -6195,6 +6260,7 @@ func TestCleanupInactiveAuthStatePurgesOnlyAbandonedSignupState(t *testing.T) {
 	expiredDeviceFlow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
 		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   testDeviceOAuthClientID,
 			ClientName: "Expired",
 			TokenName:  "Expired",
 		},
@@ -6212,6 +6278,7 @@ func TestCleanupInactiveAuthStatePurgesOnlyAbandonedSignupState(t *testing.T) {
 	activeDeviceFlow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
 		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   testDeviceOAuthClientID,
 			ClientName: "Active",
 			TokenName:  "Active",
 		},
@@ -6222,6 +6289,7 @@ func TestCleanupInactiveAuthStatePurgesOnlyAbandonedSignupState(t *testing.T) {
 	deniedDeviceFlow, err := store.Identity().StartDeviceAuthFlow(
 		ctx,
 		identitystore.StartDeviceAuthFlowInput{
+			ClientID:   testDeviceOAuthClientID,
 			ClientName: "Denied",
 			TokenName:  "Denied",
 		},

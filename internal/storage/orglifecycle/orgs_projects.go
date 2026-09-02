@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -35,8 +36,13 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, errors.New("user id is required")
 	}
 	if input.Name == "" {
-		return identitystore.CreateOrgForUserRecord{}, errors.New("org name is required")
+		return identitystore.CreateOrgForUserRecord{}, errors.New("organization name is required")
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("organization name", input.Name)
+	if err != nil {
+		return identitystore.CreateOrgForUserRecord{}, storeerr.InvalidRequest(err)
+	}
+	input.Name = normalizedName
 	if isNilID(input.OrgID) {
 		orgID, err := uuid.NewV7()
 		if err != nil {

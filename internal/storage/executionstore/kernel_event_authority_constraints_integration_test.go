@@ -5,6 +5,7 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -560,6 +561,45 @@ func TestKernelContentBlockOwnerAndOrdinalConstraints(t *testing.T) {
 	now := fixture.Now.Add(time.Minute)
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "kernel_content_block_owner_ordinal", "read_process")
 	modelOutputID := modelOutputIDForToolCall(t, ctx, fixture.Store, fixture.AgentID, toolCallID)
+	for index, test := range []struct {
+		name  string
+		input executionstore.CreateContentBlockInput
+	}{
+		{
+			name: "text",
+			input: executionstore.CreateContentBlockInput{
+				BlockKind:   executionstore.ContentBlockKindText,
+				TextContent: "before\x00after",
+			},
+		},
+		{
+			name: "structured data",
+			input: executionstore.CreateContentBlockInput{
+				BlockKind:      executionstore.ContentBlockKindStructuredData,
+				StructuredData: json.RawMessage(`{"value":"before\u0000after"}`),
+			},
+		},
+		{
+			name: "metadata",
+			input: executionstore.CreateContentBlockInput{
+				BlockKind:   executionstore.ContentBlockKindText,
+				TextContent: "safe",
+				Metadata:    map[string]string{"key": "before\x00after"},
+			},
+		},
+	} {
+		t.Run("database unsafe "+test.name, func(t *testing.T) {
+			test.input.ProjectID = testProjectID
+			test.input.AgentID = fixture.AgentID
+			test.input.OwnerKind = executionstore.ContentBlockOwnerModelOutput
+			test.input.OwnerModelOutputID = modelOutputID
+			test.input.Ordinal = int32(index + 10)
+			_, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, test.input)
+			if err == nil || !strings.Contains(err.Error(), "U+0000") {
+				t.Fatalf("create database-unsafe content block error = %v, want U+0000", err)
+			}
+		})
+	}
 
 	var block executionstore.ContentBlockRecord
 	var blockKind string

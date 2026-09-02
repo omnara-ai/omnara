@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -49,28 +50,78 @@ machine_sources:
 	}
 }
 
-func TestParseStoredSourceAllowsLegacyName(t *testing.T) {
-	source := `
-name: legacy-agent
+func TestParseSourceRejectsInvalidResourceNameReferences(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "provider config boundary whitespace",
+			source: `
+instruction: Help the user make progress.
+model:
+  provider_config: " openai-prod"
+  name: gpt-test
+`,
+			want: "provider_config",
+		},
+		{
+			name: "configured model boundary whitespace",
+			source: `
 instruction: Help the user make progress.
 model:
   provider_config: openai-prod
-  name: gpt-test
+  name: "gpt-test "
+`,
+			want: "model.name",
+		},
+		{
+			name: "machine boundary whitespace",
+			source: validAgentSource(`
 machine_sources:
-  - machine_pool_name: Build Pool
-`
-	if _, err := ParseSource(SourceFormatYAML, []byte(source)); err == nil {
-		t.Fatal("expected ParseSource to reject legacy top-level name")
+  - machine_name: " Primary Machine"
+`),
+			want: "machine_name",
+		},
+		{
+			name: "machine pool boundary whitespace",
+			source: validAgentSource(`
+machine_sources:
+  - machine_pool_name: "Build Pool "
+`),
+			want: "machine_pool_name",
+		},
 	}
-	parsed, err := ParseStoredSource(SourceFormatYAML, []byte(source))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseSource(SourceFormatYAML, []byte(tt.source))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseSource error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseSourceNormalizesResourceNameReferencesBeforeLengthValidation(t *testing.T) {
+	decomposed := strings.Repeat("e\u0301", 64)
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  provider_config: %q
+  name: %q
+machine_sources:
+  - machine_pool_name: %q
+`, decomposed, "Cafe\u0301", "Build Cafe\u0301")
+	parsed, err := ParseSource(SourceFormatYAML, []byte(source))
 	if err != nil {
-		t.Fatalf("parse stored source with legacy name: %v", err)
+		t.Fatal(err)
 	}
-	if len(parsed.MachineSources) != 1 {
-		t.Fatalf("machine sources = %d, want 1", len(parsed.MachineSources))
-	}
-	if parsed.Model.Name != "gpt-test" {
-		t.Fatalf("model name = %q, want gpt-test", parsed.Model.Name)
+	if parsed.Model.ProviderConfig != strings.Repeat("é", 64) ||
+		parsed.Model.Name != "Café" ||
+		parsed.MachineSources[0].MachinePoolName != "Build Café" {
+		t.Fatalf("normalized references = %+v", parsed)
 	}
 }
 
@@ -149,8 +200,8 @@ mcp:
 			if err == nil {
 				t.Fatal("expected JSON Schema validation to reject the unknown field")
 			}
-			if !strings.Contains(err.Error(), "additionalProperties") {
-				t.Fatalf("expected additionalProperties error, got %v", err)
+			if !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("expected unknown field error, got %v", err)
 			}
 		})
 	}
@@ -239,7 +290,8 @@ func TestParseSourceRejectsInvalidShapeBeforeCompilerValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected JSON Schema validation to reject an invalid model.provider_config type")
 	}
-	if !strings.Contains(err.Error(), "JSON schema") {
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
 		t.Fatalf("expected JSON Schema validation error, got %v", err)
 	}
 }

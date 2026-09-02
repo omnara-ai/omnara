@@ -42,6 +42,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolNames(input.Context.ToolSpecs); err != nil {
 		return nil, err
 	}
+	input.Policy.CacheRetention = model.EffectiveCacheRetention(
+		modelprotocol.APIFormatAnthropicMessages,
+		c.APIVariant,
+		providerModelSlug,
+		input.Policy.CacheRetention,
+	)
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
@@ -316,6 +322,9 @@ func renderAnthropicContent(
 			artifactID := jsonFieldText(part["artifact_id"])
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := anthropicMediaBlock(resolved); ok {
+					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
+						blocks = append(blocks, textBlock{Type: "text", Text: "artifact_id: " + ref})
+					}
 					blocks = append(blocks, block)
 				}
 				continue

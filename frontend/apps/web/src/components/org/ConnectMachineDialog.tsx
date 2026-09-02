@@ -14,7 +14,10 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
+import { useWebConfig } from '@/lib/web-config'
 
 /**
  * The dialog is a two-step flow: fill in the form, then show the install command
@@ -79,8 +82,11 @@ export function ConnectMachineDialog({
   orgId: string
 }) {
   const connectMachine = useConnectMachine(orgId)
+  const { data: webConfig } = useWebConfig()
   const [state, dispatch] = useReducer(reducer, initialState)
-  const installCommand = `curl -fsSL ${window.location.origin}/install/omnarad.sh | sh`
+  const apiURL = webConfig?.apiURL ?? `${window.location.origin}/api/v1`
+  const installerURL = new URL('/install/omnarad.sh', apiURL)
+  const installCommand = `curl -fsSL ${installerURL.toString()} | sh`
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
@@ -97,7 +103,7 @@ export function ConnectMachineDialog({
     dispatch({ type: 'submitStart' })
     try {
       const { token } = await connectMachine.mutateAsync({
-        displayName: state.name.trim(),
+        displayName: state.name,
         projectIDs: state.projectGrantIds,
       })
       dispatch({
@@ -136,6 +142,7 @@ export function ConnectMachineDialog({
                     dispatch({ type: 'setName', name: event.target.value })
                   }}
                 />
+                <ResourceNameFieldError value={state.name} />
                 <FieldDescription>
                   Agent configs reference this name via machine_sources.machine_name.
                 </FieldDescription>
@@ -156,7 +163,7 @@ export function ConnectMachineDialog({
               <DialogFooter>
                 <Button
                   type="submit"
-                  disabled={state.submitting || state.name.trim() === ''}
+                  disabled={state.submitting || !resourceNameValid(state.name)}
                   loading={state.submitting}
                 >
                   Connect machine

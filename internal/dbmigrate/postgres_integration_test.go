@@ -22,7 +22,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
+	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	schemamigrations "github.com/omnara-ai/omnara/migrations"
 )
 
 func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
@@ -31,11 +34,7 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("idempotent migration replay: %v", err)
 	}
 
@@ -48,7 +47,7 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	migrationFiles, err := filepath.Glob("../../migrations/*.sql")
+	migrationFiles, err := productionMigrationFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +57,129 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 			applied,
 			len(migrationFiles),
 		)
+	}
+}
+
+func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 27); err != nil {
+		t.Fatalf("apply migrations through version 27: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'pre-migration-device', 'pre-migration-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+`); err != nil {
+		t.Fatalf("insert pre-migration device flow: %v", err)
+	}
+
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
+		t.Fatalf("apply device OAuth migration: %v", err)
+	}
+
+	var backfilledClientID string
+	if err := db.QueryRowContext(ctx, `
+SELECT client_id
+FROM auth_device_flows
+WHERE device_code_hash = 'pre-migration-device'
+`).Scan(&backfilledClientID); err != nil {
+		t.Fatalf("read backfilled device flow: %v", err)
+	}
+	if backfilledClientID != "omnara-cli" {
+		t.Fatalf("backfilled client_id = %q, want omnara-cli", backfilledClientID)
+	}
+
+	var previousWriterClientID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'previous-writer-device', 'previous-writer-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+RETURNING client_id
+`).Scan(&previousWriterClientID); err != nil {
+		t.Fatalf("insert device flow with previous writer shape: %v", err)
+	}
+	if previousWriterClientID != "omnara-cli" {
+		t.Fatalf("previous writer client_id = %q, want omnara-cli", previousWriterClientID)
+	}
+}
+
+func TestPostgresNameStoragePolicies(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool, _ := openPostgresMigrationTestDB(t, ctx)
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "", want: false},
+		{value: "Studio  54", want: true},
+		{value: "Café", want: true},
+		{value: "Cafe\u0301", want: false},
+		{value: "研究開発 شركة برمجيات", want: true},
+		{value: "🚀 Lab", want: true},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints), want: true},
+		{value: strings.Repeat("界", resourcename.MaxCodePoints+1), want: false},
+		{value: " Acme", want: false},
+		{value: "Acme ", want: false},
+		{value: "Acme\u00a0Labs", want: false},
+		{value: "Acme\u2003Labs", want: false},
+		{value: "Acme\tLabs", want: false},
+		{value: "Acme\u007fLabs", want: false},
+		{value: "Acme\ufffdLabs", want: false},
+	}
+	for _, test := range tests {
+		var got bool
+		if err := pool.QueryRow(
+			ctx,
+			`SELECT resource_name_storage_is_valid($1)`,
+			test.value,
+		).Scan(&got); err != nil {
+			t.Fatalf("validate resource name %q in PostgreSQL: %v", test.value, err)
+		}
+		if got != test.want {
+			t.Errorf(
+				"PostgreSQL resource-name validity for %q = %t, want %t",
+				test.value,
+				got,
+				test.want,
+			)
+		}
+	}
+
+	skillNames := []string{
+		"deploy",
+		"deploy-api",
+		"Deploy",
+		"deploy_api",
+		"café",
+		strings.Repeat("a", skills.MaxSkillNameChars+1),
+	}
+	for _, name := range skillNames {
+		want := skills.ValidateName(name) == nil
+		var got bool
+		if err := pool.QueryRow(ctx, `SELECT skill_name_is_valid($1)`, name).Scan(&got); err != nil {
+			t.Fatalf("validate skill name %q in PostgreSQL: %v", name, err)
+		}
+		if got != want {
+			t.Errorf("PostgreSQL skill-name validity for %q = %t, want %t", name, got, want)
+		}
 	}
 }
 
@@ -580,7 +702,7 @@ func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	latestVersion := latestPostgresMigrationVersion(t)
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 14)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 14); err != nil {
 		t.Fatalf("apply migrations through version 14: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
@@ -652,7 +774,7 @@ RETURNING id::text
 		t.Fatal(err)
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 14 database: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != latestVersion {
@@ -720,7 +842,7 @@ WHERE id = $1
 		t.Fatal("grant minimum above maximum unexpectedly succeeded")
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("replay upgraded populated database: %v", err)
 	}
 }
@@ -733,7 +855,7 @@ func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *tes
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 20); err != nil {
 		t.Fatalf("apply migrations through version 20: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
@@ -843,7 +965,7 @@ FROM configured_model
 		t.Fatal(err)
 	}
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations")); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 19 database: %v", err)
 	}
 	var backfilled string
@@ -887,11 +1009,7 @@ func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	config.RuntimeParams["search_path"] = "agents,extensions"
 	db := stdlib.OpenDB(*config)
 	defer func() { _ = db.Close() }()
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("migrate with configured pg_trgm schema: %v", err)
 	}
 
@@ -952,11 +1070,7 @@ func TestPostgresMigrationsInstallPgTrgmInProductSchema(t *testing.T) {
 	config.RuntimeParams["search_path"] = "agents"
 	db := stdlib.OpenDB(*config)
 	defer func() { _ = db.Close() }()
-	if err := dbmigrate.ApplyPostgres(
-		ctx,
-		db,
-		os.DirFS("../../migrations"),
-	); err != nil {
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("migrate without public schema: %v", err)
 	}
 
@@ -973,6 +1087,21 @@ func TestPostgresMigrationsInstallPgTrgmInProductSchema(t *testing.T) {
 	}
 	if extensionSchema != "agents" {
 		t.Fatalf("pg_trgm schema = %q, want agents", extensionSchema)
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("open empty-search-path connection: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, `SET search_path TO ''`); err != nil {
+		t.Fatalf("clear search path: %v", err)
+	}
+	if _, err := conn.ExecContext(
+		ctx,
+		`INSERT INTO agents.orgs(name, created_at, updated_at)
+		 VALUES ('Qualified Organization', now(), now())`,
+	); err != nil {
+		t.Fatalf("insert through qualified table with empty search path: %v", err)
 	}
 }
 
@@ -1071,7 +1200,7 @@ func TestPostgresRejectsNewerDatabaseVersion(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	err := dbmigrate.ApplyPostgres(ctx, db, os.DirFS("../../migrations"))
+	err := applyProductionPostgresMigrations(ctx, db)
 	if err == nil || !strings.Contains(err.Error(), "newer than binary target") {
 		t.Fatalf("newer database migration error = %v", err)
 	}
@@ -1153,6 +1282,37 @@ func openPostgresMigrationTestDB(
 	return pool, db
 }
 
+func applyProductionPostgresMigrations(ctx context.Context, db *sql.DB) error {
+	return dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		os.DirFS("../../migrations"),
+		schemamigrations.GoMigrations()...,
+	)
+}
+
+func applyProductionPostgresMigrationsThrough(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	maximum int64,
+) error {
+	t.Helper()
+	goMigrations := schemamigrations.GoMigrations()
+	selectedGoMigrations := goMigrations[:0]
+	for _, migration := range goMigrations {
+		if migration.Version <= maximum {
+			selectedGoMigrations = append(selectedGoMigrations, migration)
+		}
+	}
+	return dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		migrationFilesThrough(t, maximum),
+		selectedGoMigrations...,
+	)
+}
+
 func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
 	t.Helper()
 	var version int64
@@ -1175,7 +1335,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 	}
 	var latest int64
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
 			continue
 		}
 		prefix, _, ok := strings.Cut(entry.Name(), "_")
@@ -1194,7 +1354,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 	return latest
 }
 
-func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
+func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
 	if err != nil {
@@ -1202,14 +1362,14 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 	}
 	migrations := make(fstest.MapFS)
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
 			continue
 		}
 		prefix, _, ok := strings.Cut(entry.Name(), "_")
 		if !ok {
 			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
 		}
-		version, err := strconv.Atoi(prefix)
+		version, err := strconv.ParseInt(prefix, 10, 64)
 		if err != nil {
 			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
 		}
@@ -1223,6 +1383,33 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
 	}
 	return migrations
+}
+
+func productionMigrationFiles() ([]string, error) {
+	entries, err := os.ReadDir("../../migrations")
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
+			continue
+		}
+		files = append(files, filepath.Join("../../migrations", entry.Name()))
+	}
+	return files, nil
+}
+
+func isProductionMigrationFile(name string) bool {
+	version, _, found := strings.Cut(name, "_")
+	if !found || len(version) != 6 {
+		return false
+	}
+	if _, err := strconv.ParseUint(version, 10, 64); err != nil {
+		return false
+	}
+	extension := filepath.Ext(name)
+	return extension == ".sql" || extension == ".go" && !strings.HasSuffix(name, "_test.go")
 }
 
 func testDatabaseURL(t *testing.T) string {

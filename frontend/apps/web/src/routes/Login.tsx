@@ -9,21 +9,9 @@ import { SocialButtons } from '@/components/auth/SocialButtons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
-
-function safeReturnTo(value: string | null): string {
-  if (!value) return '/'
-  try {
-    const target = new URL(value, window.location.origin)
-    if (target.origin !== window.location.origin) return '/'
-    const path = `${target.pathname}${target.search}${target.hash}`
-    if (path.startsWith('/login')) return '/'
-    return path
-  } catch {
-    return '/'
-  }
-}
 
 function oauthErrorMessage(value: string | null): string | null {
   if (!value) return null
@@ -40,6 +28,7 @@ interface LoginState {
 export function Login() {
   const params = new URLSearchParams(window.location.search)
   const returnTo = safeReturnTo(params.get('return_to'))
+  const approvingDevice = isDeviceApprovalReturnTo(returnTo)
   const [state, setState] = useState<LoginState>({
     email: '',
     password: '',
@@ -69,7 +58,11 @@ export function Login() {
       <div className="flex flex-col gap-6">
         <AuthHeading
           title="Sign in to Omnara"
-          subtitle="Welcome back. Enter your credentials to continue."
+          subtitle={
+            approvingDevice
+              ? 'Sign in to approve the CLI login you just started. New to Omnara? Sign up below and we will bring you back to the approval page.'
+              : 'Welcome back. Enter your credentials to continue.'
+          }
         />
         <form
           onSubmit={(event) => {
@@ -130,6 +123,7 @@ export function Login() {
           Don&apos;t have an account?{' '}
           <Link
             to="/signup"
+            search={returnTo === '/' ? {} : { return_to: returnTo }}
             className="text-foreground font-medium underline-offset-4 hover:underline"
           >
             Sign up

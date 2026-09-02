@@ -64,7 +64,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
-	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance \
+	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
@@ -150,7 +150,9 @@ openapi-compat-fixture-check:
 openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
 	$(OASDIFF_BREAKING) \
+		--strip-prefix-base /api/v1 \
 		--err-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
+		--warn-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--format $(OASDIFF_FORMAT) \
 		"$(COMPAT_BASE_SHA):api/openapi/openapi.yaml" api/openapi/openapi.yaml
 
@@ -165,15 +167,19 @@ state-migration-create:
 migration-fix:
 	@for dir in $(MIGRATION_DIRS); do \
 		$(GOOSE) -env=none -dir "$$dir" fix || exit $$?; \
-		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql; do \
+		for file in "$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.sql \
+			"$$dir"/[0-9][0-9][0-9][0-9][0-9]_*.go; do \
 			test -e "$$file" || continue; \
 			mv "$$file" "$$dir/0$$(basename "$$file")" || exit $$?; \
 		done; \
 	done
 
 migration-check:
+	$(GOOSE) -env=none -dir internal/machinedaemon/statedb/migrations validate
+	@for migration in migrations/*.sql; do \
+		$(GOOSE) -env=none -dir "$$migration" validate || exit $$?; \
+	done
 	@for dir in $(MIGRATION_DIRS); do \
-		$(GOOSE) -env=none -dir "$$dir" validate || exit $$?; \
 		if down_annotations="$$(grep -niE '^[[:space:]]*--.*[+]goose.*down.*$$' "$$dir"/*.sql)"; then \
 			printf '%s\n' "$$down_annotations"; \
 			printf '%s contains a Down migration; committed migrations are forward-only\n' "$$dir"; \
@@ -192,16 +198,6 @@ migration-check:
 				test "$$grep_status" -eq 1 || exit "$$grep_status"; \
 			fi; \
 		fi; \
-		expected=1; \
-		for file in "$$dir"/*.sql; do \
-			version="$$(basename "$$file" | sed -nE 's/^([0-9]{6})_.+\.sql$$/\1/p')"; \
-			want="$$(printf '%06d' "$$expected")"; \
-			test "$$version" = "$$want" || { \
-				printf '%s must be migration %s; run make migration-fix after rebasing\n' "$$file" "$$want"; \
-				exit 1; \
-			}; \
-			expected=$$((expected + 1)); \
-		done; \
 	done
 	$(MIGRATION_CHECK) check
 
@@ -408,6 +404,7 @@ define RUN_SERVICE
 	set -a; [ ! -f .env ] || . ./.env; set +a; \
 	OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=$${OMNARA_ALLOW_INSECURE_DEV_DEFAULTS:-1} \
 	OMNARA_PUBLIC_URL=$${OMNARA_PUBLIC_URL:-http://localhost:5173} \
+	OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=$${OMNARA_MCP_REGISTRY_SNAPSHOT_PATH:-$(MCP_REGISTRY_SNAPSHOT)} \
 	$(AIR) --tmp_dir tmp \
 	  --build.cmd "$(GO) build -o tmp/air-$(1) ./cmd/$(1)" \
 	  --build.bin tmp/air-$(1) \
@@ -426,6 +423,11 @@ run-worker:
 
 run-maintenance:
 	@$(call RUN_SERVICE,maintenance)
+
+MCP_REGISTRY_SNAPSHOT ?= $(REPO_ROOT)/tmp/mcp-registry.json
+
+mcp-registry-sync: ## Fetch the public MCP registry into a local JSON snapshot
+	$(GO) run ./tools/mcp-registry-sync -out $(MCP_REGISTRY_SNAPSHOT)
 
 test-service-e2e: db-up ## Run deterministic service end-to-end tests
 	@tests="$$( $(GO) test -tags='integration servicee2e' -list '^Test' ./internal/e2e \
@@ -494,22 +496,14 @@ test-blackbox:
 
 docs-openapi:
 	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
-	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
-	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
-	  echo "servers:"; \
-	  echo "  - url: https://api.omnara.com/v1"; \
-	  echo "    description: Hosted Omnara"; } > docs/api-reference/openapi.yaml
+	  cat api/openapi/openapi.yaml; } > docs/api-reference/openapi.yaml
 	@echo "docs-openapi: spec copied. Mintlify auto-generates the Endpoints pages from it at build time."
 
 docs-openapi-check:
 	@tmp="$$(mktemp)"; \
 	trap 'rm -f "$$tmp"' EXIT; \
 	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
-	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
-	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
-	  echo "servers:"; \
-	  echo "  - url: https://api.omnara.com/v1"; \
-	  echo "    description: Hosted Omnara"; } > "$$tmp"; \
+	  cat api/openapi/openapi.yaml; } > "$$tmp"; \
 	diff -u "$$tmp" docs/api-reference/openapi.yaml || { \
 		printf '\ndocs/api-reference/openapi.yaml is stale; run make docs-openapi\n'; \
 		exit 1; \

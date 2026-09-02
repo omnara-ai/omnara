@@ -23,6 +23,10 @@ var (
 
 	ErrOAuthStateTooLarge = errors.New("mcp auth: oauth flow does not fit in the state parameter")
 
+	ErrOAuthMetadataUnavailable = errors.New(
+		"mcp auth: server requires authorization but publishes no usable OAuth metadata",
+	)
+
 	errAuthServerMetadataNotFound = errors.New("mcp auth: authorization server metadata not found")
 )
 

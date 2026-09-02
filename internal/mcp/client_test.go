@@ -110,10 +110,11 @@ func TestRoundTripJSON(t *testing.T) {
 	client := newClient(t)
 	conn := initialized(t, client, ts.URL)
 
-	tools, err := client.ListTools(context.Background(), conn, 2)
+	page, err := client.ListTools(context.Background(), conn, 2, "")
 	if err != nil {
 		t.Fatalf("tools/list: %v", err)
 	}
+	tools := page.Tools
 	if len(tools) == 0 {
 		t.Fatalf("expected non-empty tool list")
 	}

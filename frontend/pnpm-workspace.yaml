@@ -6,3 +6,7 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAge: 14400
+
+overrides:
+  react: 19.3.0-canary-eb8feb71-20260814
+  react-dom: 19.3.0-canary-eb8feb71-20260814

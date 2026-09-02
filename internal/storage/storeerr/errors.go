@@ -6,7 +6,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const ManagedWorkAdmissionDeniedCode = "managed_work_admission_denied"
+const (
+	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
+	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
+)
 
 var (
 	ErrInvalidRequest                = errors.New("invalid request")
@@ -24,6 +27,8 @@ var (
 	ErrProcessTerminating            = errors.New("process is terminating")
 	ErrProcessAlreadyStopped         = errors.New("process is already stopped")
 	ErrProcessStateUnknown           = errors.New("process state is unknown")
+	ErrInvalidSkillName              = errors.New("invalid skill name")
+	ErrInvalidSecretName             = errors.New("invalid secret name")
 	ErrInvalidSecretRequest          = errors.New("invalid secret request")
 	ErrInvalidActorRequest           = errors.New("invalid actor request")
 	ErrInvalidModelProviderConfig    = errors.New("invalid model provider config")

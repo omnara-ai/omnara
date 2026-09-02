@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/skills"
 )
 
@@ -43,6 +44,18 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 	}{
 		{name: "skill upload", method: http.MethodPost, path: "/v1/orgs/o/skills", want: want},
 		{
+			name:   "skill update",
+			method: http.MethodPost,
+			path:   "/api/v1/orgs/o/skills/skl_abc",
+			want:   want,
+		},
+		{
+			name:   "skill grants use the default POST limit",
+			method: http.MethodPost,
+			path:   "/api/v1/orgs/o/skills/skl_abc/grants",
+			want:   maxRequestBodyBytes,
+		},
+		{
 			name:   "skill list is the default GET path",
 			method: http.MethodGet,
 			path:   "/api/v1/orgs/o/skills",
@@ -74,5 +87,16 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 				t.Errorf("requestBodyLimit(%s %s) = %d, want %d", tc.method, tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRequestBodyLimitDaemonArtifactUpload(t *testing.T) {
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/daemon/tool-calls/tcl_abc/artifact?filename=shot.png",
+		nil,
+	)
+	if got := requestBodyLimit(req); got != daemonprotocol.MaxArtifactUploadBytes {
+		t.Fatalf("artifact upload body limit = %d, want %d", got, daemonprotocol.MaxArtifactUploadBytes)
 	}
 }

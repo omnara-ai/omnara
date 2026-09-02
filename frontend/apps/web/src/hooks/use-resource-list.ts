@@ -56,7 +56,7 @@ export function exactNameGlob(value: string) {
   return value.replace(/[\\*?]/g, (wildcard) => `\\${wildcard}`)
 }
 
-function useDebouncedValue(value: string, delayMs = 250) {
+export function useDebouncedValue(value: string, delayMs = 250) {
   const [debounced, setDebounced] = useState(value)
 
   useEffect(() => {

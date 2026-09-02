@@ -26,11 +26,11 @@ export function ResourceListToolbar<TSort extends string>({
   placeholder,
 }: ResourceListToolbarProps<TSort>) {
   return (
-    <div className="flex min-w-0 flex-1 items-start">
+    <div className="flex w-full min-w-0 flex-1 items-start sm:w-auto">
       <div
         role="group"
         aria-label="Search and sort resources"
-        className="flex min-w-[18rem] max-w-2xl flex-1 items-stretch"
+        className="flex w-full min-w-0 max-w-2xl flex-1 flex-col items-stretch gap-2 sm:min-w-[18rem] sm:flex-row sm:gap-0"
       >
         <Input
           type="search"
@@ -40,7 +40,7 @@ export function ResourceListToolbar<TSort extends string>({
           }}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="relative flex-1 rounded-l-lg rounded-r-none focus-visible:z-10"
+          className="relative w-full rounded-lg focus-visible:z-10 sm:flex-1 sm:rounded-l-lg sm:rounded-r-none"
         />
 
         <Select
@@ -50,7 +50,7 @@ export function ResourceListToolbar<TSort extends string>({
           }}
         >
           <SelectTrigger
-            className="relative min-w-44 rounded-l-none rounded-r-lg border-l-0 focus-visible:z-10"
+            className="relative w-full rounded-lg focus-visible:z-10 sm:w-auto sm:min-w-44 sm:rounded-l-none sm:rounded-r-lg sm:border-l-0"
             aria-label="Sort results"
           >
             <SelectValue placeholder="Sort by">

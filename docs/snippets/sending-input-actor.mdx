@@ -1,0 +1,32 @@
+<CodeGroup>
+```bash REST
+curl "$BASE/agents/$AGENT/inputs" \
+  -H "Authorization: Bearer $OMNARA_SERVICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content_blocks": [ { "type": "text", "text": "Customer says the export is still failing." } ],
+    "actor": {
+      "provider_tenant_id": "acme-support",
+      "provider_user_id": "user-3841",
+      "display_name": "Dana R."
+    }
+  }'
+```
+
+```typescript SDK
+await sdk.createAgentInput({
+  client,
+  path: { orgID, projectID, agentID },
+  body: {
+    content_blocks: [
+      { type: 'text', text: 'Customer says the export is still failing.' },
+    ],
+    actor: {
+      provider_tenant_id: 'acme-support',
+      provider_user_id: 'user-3841',
+      display_name: 'Dana R.',
+    },
+  },
+})
+```
+</CodeGroup>

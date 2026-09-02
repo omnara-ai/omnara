@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -99,12 +101,13 @@ export function CreateOrgDialog({
                   }))
                 }}
               />
+              <ResourceNameFieldError value={state.name} />
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={createOrganization.isPending || state.name.trim() === ''}
+                disabled={createOrganization.isPending || !resourceNameValid(state.name)}
                 loading={createOrganization.isPending}
               >
                 Create organization

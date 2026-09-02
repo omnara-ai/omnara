@@ -2,7 +2,8 @@ import type { OmnaraClient } from '@omnara/sdk'
 import { type Command, InvalidArgumentError } from 'commander'
 import * as z from 'zod'
 
-import { type CliConfig, updateConfigFile } from './config.ts'
+import type { CliConfig } from './config.ts'
+import { updateConfigFile } from './config-file.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { OutputFormat } from './format.ts'
 import {
@@ -41,6 +42,7 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
 
 export interface FlowContext<Path, Body> {
   client: OmnaraClient
+  apiUrl: string
   path: Path
   body: Body
   report: FlowReporter
@@ -48,6 +50,7 @@ export interface FlowContext<Path, Body> {
 
 interface FlowInput {
   client: OmnaraClient
+  apiUrl: string
   path: Record<string, unknown>
   body: unknown
 }
@@ -96,6 +99,7 @@ export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType
     execute: (input) =>
       run({
         client: input.client,
+        apiUrl: input.apiUrl,
         path: parseWithSchema(spec.path, input.path, 'arguments'),
         body: parseWithSchema(spec.body, input.body, 'flags'),
         report: createFlowReporter(spec.summary),
@@ -339,6 +343,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
   command.option('--json', 'print the raw JSON response')
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       const input: CallInput = { client: config.client }
       if (spec.path) {
@@ -366,7 +371,9 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
         renderResult(data, true)
         return
       }
-      const formatted = spec.format(data as never)
+      const formatted = spec.format(data as never, {
+        apiUrl: config.apiUrl,
+      })
       renderResult(formatted.value, false, { columns: formatted.columns })
     })
   })
@@ -383,9 +390,11 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   for (const flag of bodyFlags) registerFlag(command, flag)
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       await spec.execute({
         client: config.client,
+        apiUrl: config.apiUrl,
         path: await resolvePathValues(plan, args, options, config),
         body: collectFlagValues(bodyFlags, options),
       })

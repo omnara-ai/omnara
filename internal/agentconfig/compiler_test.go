@@ -79,6 +79,78 @@ tools:
 	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
 }
 
+func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  provider_config: %q
+  name: %q
+`, "Provider Cafe\u0301", "Model Cafe\u0301")
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Model.ProviderConfig != "Provider Café" || parsed.Model.Name != "Model Café" {
+		t.Fatalf("parsed source references = %+v", parsed.Model)
+	}
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
+	}
+}
+
+func TestCompileCanonicalizesMergedYAMLResourceReferencesWithoutRewritingSource(t *testing.T) {
+	source := fmt.Sprintf(`
+instruction: Help the user make progress.
+model:
+  <<: {provider_config: %q}
+  name: Model
+`, "Provider Cafe\u0301")
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Model.ProviderConfig != "Provider Café" {
+		t.Fatalf("stored provider config = %q, want NFC value", parsed.Model.ProviderConfig)
+	}
+}
+
+func TestCompileDoesNotMutateYAMLAliasTargets(t *testing.T) {
+	decomposed := "Cafe\u0301"
+	source := fmt.Sprintf(`instruction: &shared %q
+model:
+  provider_config: *shared
+  name: Model
+`, decomposed)
+	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != source {
+		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
+	}
+	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Instruction != decomposed {
+		t.Fatalf("instruction = %q, want original alias target %q", parsed.Instruction, decomposed)
+	}
+	if parsed.Model.ProviderConfig != "Café" {
+		t.Fatalf("provider config = %q, want NFC value", parsed.Model.ProviderConfig)
+	}
+}
+
 func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) {
 	catalog, err := toolcatalog.Default()
 	if err != nil {
@@ -1339,7 +1411,7 @@ tools:
 	}
 }
 
-func TestRuntimeContractAllowsUnknownCompiledFields(t *testing.T) {
+func TestRuntimeContractRejectsUnknownCompiledFields(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   run_command: {}
@@ -1348,22 +1420,36 @@ tools:
 		t.Fatalf("compile run_command: %v", err)
 	}
 
-	var body map[string]any
-	if err := json.Unmarshal(compiled.CanonicalJSON, &body); err != nil {
-		t.Fatalf("unmarshal compiled: %v", err)
+	assertRejectsMutation := func(name string, mutate func(map[string]any)) {
+		t.Helper()
+		var body map[string]any
+		if err := json.Unmarshal(compiled.CanonicalJSON, &body); err != nil {
+			t.Fatalf("unmarshal compiled: %v", err)
+		}
+		mutate(body)
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal mutated %s: %v", name, err)
+		}
+		if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+			t.Fatalf("expected mutated %s contract to be rejected", name)
+		}
 	}
-	body["name"] = "legacy-agent-name"
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal mutated compiled: %v", err)
-	}
-	contract, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw))
-	if err != nil {
-		t.Fatalf("expected legacy name field to be tolerated: %v", err)
-	}
-	if len(contract.Tools) == 0 {
-		t.Fatal("expected tools in contract")
-	}
+
+	assertRejectsMutation("legacy top-level name", func(body map[string]any) {
+		body["name"] = "legacy-agent-name"
+	})
+	assertRejectsMutation("unknown tool field", func(body map[string]any) {
+		tools, ok := body["tools"].(map[string]any)
+		if !ok {
+			t.Fatalf("compiled tools shape = %#v", body["tools"])
+		}
+		runCommand, ok := tools["run_command"].(map[string]any)
+		if !ok {
+			t.Fatalf("compiled run_command shape = %#v", tools["run_command"])
+		}
+		runCommand["unexpected"] = true
+	})
 }
 
 func TestRuntimeContractRejectsBuiltInNameMarkedCustom(t *testing.T) {
@@ -1530,6 +1616,38 @@ model:
 		if strings.Contains(canonical, legacyField) {
 			t.Fatalf("compiled model duplicated %q in canonical JSON: %s", legacyField, canonical)
 		}
+	}
+}
+
+func TestRecompilingNamesUsesCurrentResourceResolution(t *testing.T) {
+	const source = `instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+`
+	configuredModelID := "configured_model_original"
+	resolve := func(string, string) (ResolvedModelSelection, error) {
+		return ResolvedModelSelection{ConfiguredModelID: configuredModelID}, nil
+	}
+	first, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+		ResolveModelSelection: resolve,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configuredModelID = "configured_model_reusing_name"
+	second, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
+		ResolveModelSelection: resolve,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Compiled.Model.ConfiguredModelID != "configured_model_original" {
+		t.Fatalf("first compiled model ID changed: %+v", first.Compiled.Model)
+	}
+	if second.Compiled.Model.ConfiguredModelID != "configured_model_reusing_name" {
+		t.Fatalf("recompiled model did not use current name resolution: %+v", second.Compiled.Model)
 	}
 }
 

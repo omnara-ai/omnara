@@ -35,7 +35,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeStateTransitionConflict: {http.StatusConflict, "state transition conflict"},
 	openapi.ErrorCodeManagedWorkAdmissionDenied: {
 		http.StatusConflict,
-		"new managed work is temporarily unavailable",
+		storeerr.InsufficientOmnaraCreditsMessage,
 	},
 	openapi.ErrorCodeDaemonRuntimeUnregistered: {
 		http.StatusGone,
@@ -92,10 +92,21 @@ type ResponseError struct {
 	Status  int
 	Code    openapi.ErrorCode
 	Message string
+	Issues  []openapi.AgentConfigErrorIssue
+	cause   error
 }
 
 func (err ResponseError) Error() string {
 	return err.Message
+}
+
+func (err ResponseError) Unwrap() error {
+	return err.cause
+}
+
+func (err ResponseError) WithCause(cause error) ResponseError {
+	err.cause = cause
+	return err
 }
 
 func FromCode(code openapi.ErrorCode, additionalText string) ResponseError {
@@ -111,20 +122,42 @@ func FromCode(code openapi.ErrorCode, additionalText string) ResponseError {
 	return ResponseError{Status: def.status, Code: code, Message: message}
 }
 
+func WithIssues(code openapi.ErrorCode, additionalText string, issues []openapi.AgentConfigErrorIssue) ResponseError {
+	responseError := FromCode(code, additionalText)
+	if len(issues) > 0 {
+		responseError.Issues = issues
+	}
+	return responseError
+}
+
+func (err ResponseError) body() openapi.Error {
+	body := openapi.Error{Error: err.Message, Code: err.Code}
+	if len(err.Issues) > 0 {
+		issues := append([]openapi.AgentConfigErrorIssue(nil), err.Issues...)
+		body.Issues = &issues
+	}
+	return body
+}
+
 func FromError(err error) ResponseError {
+	responseErr := FromCode(openapi.ErrorCodeInternalError, "")
 	if errors.Is(err, pgx.ErrNoRows) {
-		return FromCode(openapi.ErrorCodeNotFound, err.Error())
-	}
-	for _, mapping := range sentinelCodes {
-		if !errors.Is(err, mapping.sentinel) {
-			continue
+		responseErr = FromCode(openapi.ErrorCodeNotFound, err.Error())
+	} else {
+		for _, mapping := range sentinelCodes {
+			if !errors.Is(err, mapping.sentinel) {
+				continue
+			}
+			if mapping.opaque {
+				responseErr = FromCode(mapping.code, "")
+			} else {
+				responseErr = FromCode(mapping.code, err.Error())
+			}
+			break
 		}
-		if mapping.opaque {
-			return FromCode(mapping.code, "")
-		}
-		return FromCode(mapping.code, err.Error())
 	}
-	return FromCode(openapi.ErrorCodeInternalError, "")
+	responseErr.cause = err
+	return responseErr
 }
 
 func UserScoped(err error) ResponseError {
@@ -144,8 +177,7 @@ func Body(code openapi.ErrorCode, additionalText ...string) openapi.Error {
 	if len(additionalText) > 0 {
 		detail = additionalText[0]
 	}
-	err := FromCode(code, detail)
-	return openapi.Error{Error: err.Message, Code: err.Code}
+	return FromCode(code, detail).body()
 }
 
 func Write(w http.ResponseWriter, code openapi.ErrorCode, additionalText ...string) {
@@ -154,7 +186,7 @@ func Write(w http.ResponseWriter, code openapi.ErrorCode, additionalText ...stri
 		detail = additionalText[0]
 	}
 	err := FromCode(code, detail)
-	httpjson.Write(w, err.Status, openapi.Error{Error: err.Message, Code: err.Code})
+	httpjson.Write(w, err.Status, err.body())
 }
 
 func WriteError(w http.ResponseWriter, err error) {
@@ -171,13 +203,12 @@ func (err ResponseError) write(w http.ResponseWriter) error {
 		err = FromCode(openapi.ErrorCodeInternalError, "")
 		def = definitions[openapi.ErrorCodeInternalError]
 	}
-	message := err.Message
-	if message == "" {
-		message = def.message
+	if err.Message == "" {
+		err.Message = def.message
 	}
 
 	var buf bytes.Buffer
-	if encodeErr := json.NewEncoder(&buf).Encode(openapi.Error{Error: message, Code: err.Code}); encodeErr != nil {
+	if encodeErr := json.NewEncoder(&buf).Encode(err.body()); encodeErr != nil {
 		return encodeErr
 	}
 	w.Header().Set("Content-Type", "application/json")

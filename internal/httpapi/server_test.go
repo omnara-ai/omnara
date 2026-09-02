@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,6 +22,7 @@ import (
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -233,13 +235,18 @@ func TestWebConfigRoute(t *testing.T) {
 		name           string
 		opts           []Option
 		wantBillingURL string
+		wantAPIURL     string
 	}{
 		{
-			name:           "billing url set",
-			opts:           []Option{WithBillingURL("https://billing.omnara.test/credits/")},
+			name: "public config set",
+			opts: []Option{
+				WithBillingURL("https://billing.omnara.test/credits/"),
+				WithPublicAPIURL("https://api.omnara.test/v1/"),
+			},
 			wantBillingURL: "https://billing.omnara.test/credits",
+			wantAPIURL:     "https://api.omnara.test/v1",
 		},
-		{name: "billing url unset"},
+		{name: "unset values omitted"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -253,15 +260,20 @@ func TestWebConfigRoute(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode web config: %v", err)
 			}
-			got, ok := body["billing_url"]
-			if tt.wantBillingURL == "" {
-				if ok {
-					t.Fatalf("web config includes billing_url when unset: %v", body)
+			for key, want := range map[string]string{
+				"billing_url": tt.wantBillingURL,
+				"api_url":     tt.wantAPIURL,
+			} {
+				got, ok := body[key]
+				if want == "" {
+					if ok {
+						t.Fatalf("web config includes %s when unset: %v", key, body)
+					}
+					continue
 				}
-				return
-			}
-			if got != tt.wantBillingURL {
-				t.Fatalf("billing_url = %v, want %q", got, tt.wantBillingURL)
+				if got != want {
+					t.Fatalf("%s = %v, want %q", key, got, want)
+				}
 			}
 		})
 	}
@@ -389,7 +401,7 @@ func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 
 func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handlerErr := errors.New("query agent row: connection refused")
+	handlerErr := apierror.ProjectScoped(context.Canceled)
 	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		openAPIResponseErrorHandler(w, r, handlerErr)
 	}))
@@ -410,6 +422,175 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 		if got := event[key]; got != want {
 			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
 		}
+	}
+}
+
+func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
+	const clientClosedTelemetryStatus = 499
+	buf, log := newRequestEventCapture()
+	set := metrics.New()
+	handlerErr := apierror.FromCode(
+		openapi.ErrorCodeServiceUnavailable,
+		"mapped dependency failure",
+	).WithCause(context.Canceled)
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/v1/test", requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openAPIResponseErrorHandler(w, r, handlerErr)
+	})))
+	handler := metrics.NewHTTPRecorder(set, metrics.SubsystemAPI).Middleware(mux)(mux)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+	}
+	var body openapi.Error
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response body: %v\n%s", err, rec.Body.String())
+	}
+	if body.Code != openapi.ErrorCodeServiceUnavailable {
+		t.Fatalf("response code=%q want=%q", body.Code, openapi.ErrorCodeServiceUnavailable)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "info",
+		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.response_bytes":        float64(rec.Body.Len()),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	if _, ok := event["error.message"]; ok {
+		t.Fatalf("canceled request has error.message in event %+v", event)
+	}
+	metricsRec := httptest.NewRecorder()
+	set.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	metricsBody := metricsRec.Body.String()
+	for _, want := range []string{
+		`omnara_api_requests_total{code="499",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_request_duration_seconds_count{code="499",method="get",route="/api/v1/test"} 1`,
+	} {
+		if !strings.Contains(metricsBody, want) {
+			t.Fatalf("metrics output missing %q:\n%s", want, metricsBody)
+		}
+	}
+	if strings.Contains(metricsBody, `code="503",method="get",route="/api/v1/test"`) {
+		t.Fatalf("canceled request recorded as 503:\n%s", metricsBody)
+	}
+}
+
+func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.FromCode(
+		openapi.ErrorCodeServiceUnavailable,
+		"mapped dependency failure",
+	).WithCause(errors.New("query agent row: connection refused"))
+	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logpkg.Error(r.Context(), context.Canceled)
+		openAPIResponseErrorHandler(w, r, handlerErr)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "error",
+		"error.message":              errors.Join(context.Canceled, handlerErr).Error(),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+}
+
+func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handler := requestLog(log)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		logpkg.Error(r.Context(), context.Canceled)
+		panic("boom")
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusInternalServerError)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "error",
+		"error.message":              "context canceled\nhttp handler panicked: boom",
+		"http.status_code":           float64(http.StatusInternalServerError),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	stack, _ := event["error.stack"].(string)
+	if !strings.Contains(stack, "TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled") {
+		t.Fatalf("error.stack missing panic origin in event %+v", event)
+	}
+}
+
+func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
+	const clientClosedTelemetryStatus = 499
+	buf, log := newRequestEventCapture()
+	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logent.AuthFailedError(
+			r.Context(),
+			logent.AuthSchemeBearer,
+			logent.TokenKindPersonalAccess,
+			logent.AuthResultUnavailable,
+			context.Canceled,
+		)
+		apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+	}
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "info",
+		"auth.result":                string(logent.AuthResultUnavailable),
+		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
+	}
+	if _, ok := event["error.message"]; ok {
+		t.Fatalf("canceled request has error.message in event %+v", event)
 	}
 }
 
@@ -754,19 +935,41 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 		t.Fatalf("artifact response: %v", err)
 	}
 	inputResponse, err := publicAgentInputResponseFromRecord(executionstore.AgentInputRecord{
-		ID:        httpTestInputID,
-		ProjectID: httpTestProjectID,
-		AgentID:   httpTestAgentID,
-		State:     "queued",
-		ActorID:   httpTestActorID,
-		InputKind: "content",
-		QueuedAt:  now,
+		ID:                  httpTestInputID,
+		ProjectID:           httpTestProjectID,
+		AgentID:             httpTestAgentID,
+		State:               "queued",
+		ActorID:             httpTestActorID,
+		InputKind:           "content",
+		InputIdempotencyKey: "public-input-key",
+		QueuedAt:            now,
 		Metadata: json.RawMessage(
 			`{"visible":true,"source_event_id":"evt_internal","operation_key":"op_internal"}`,
 		),
 	})
 	if err != nil {
 		t.Fatalf("agent input response: %v", err)
+	}
+	if inputResponse.InputIdempotencyKey == nil || *inputResponse.InputIdempotencyKey != "public-input-key" {
+		t.Fatalf("agent input idempotency key = %v", inputResponse.InputIdempotencyKey)
+	}
+	nonContentInputResponse, err := publicAgentInputResponseFromRecord(executionstore.AgentInputRecord{
+		ID:                  testHTTPID(27),
+		ProjectID:           httpTestProjectID,
+		AgentID:             httpTestAgentID,
+		State:               "queued",
+		InputKind:           "control",
+		InputIdempotencyKey: "non-content-key",
+		QueuedAt:            now,
+	})
+	if err != nil {
+		t.Fatalf("non-content agent input response: %v", err)
+	}
+	if nonContentInputResponse.InputIdempotencyKey != nil {
+		t.Fatalf(
+			"non-content agent input idempotency key = %v",
+			nonContentInputResponse.InputIdempotencyKey,
+		)
 	}
 	eventResponses, err := publicEventResponsesFromReadRecords([]executionstore.AgentEventReadRecord{
 		{
@@ -799,20 +1002,21 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			CreatedAt:     now,
 		},
 		{
-			ID:            testHTTPID(18),
-			OrgID:         httpTestOrgID,
-			ProjectID:     httpTestProjectID,
-			AgentID:       httpTestAgentID,
-			TurnID:        httpTestTurnID,
-			TurnSequence:  1,
-			Sequence:      6,
-			EventKind:     string(events.KindAgentInput),
-			InputKind:     "control",
-			ControlType:   "cancel_current",
-			ActorID:       httpTestActorID,
-			AgentInputID:  testHTTPID(23),
-			ContentBlocks: json.RawMessage(`[]`),
-			CreatedAt:     now,
+			ID:                  testHTTPID(18),
+			OrgID:               httpTestOrgID,
+			ProjectID:           httpTestProjectID,
+			AgentID:             httpTestAgentID,
+			TurnID:              httpTestTurnID,
+			TurnSequence:        1,
+			Sequence:            6,
+			EventKind:           string(events.KindAgentInput),
+			InputKind:           "control",
+			InputIdempotencyKey: "non-content-key",
+			ControlType:         "cancel_current",
+			ActorID:             httpTestActorID,
+			AgentInputID:        testHTTPID(23),
+			ContentBlocks:       json.RawMessage(`[]`),
+			CreatedAt:           now,
 		},
 		{
 			ID:                 testHTTPID(19),
@@ -855,6 +1059,13 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 	if toolResultEvent.Outcome != openapi.ToolCallOutcomeSucceeded {
 		t.Fatalf("tool result event outcome = %s", toolResultEvent.Outcome)
 	}
+	controlEvent, err := eventResponses[2].AsAgentInputEvent()
+	if err != nil {
+		t.Fatalf("decode control event: %v", err)
+	}
+	if controlEvent.InputIdempotencyKey != nil {
+		t.Fatalf("control event idempotency key = %v", controlEvent.InputIdempotencyKey)
+	}
 	interactionResponseEvent, err := eventResponses[4].AsAgentInputEvent()
 	if err != nil {
 		t.Fatalf("decode interaction response event: %v", err)
@@ -890,7 +1101,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			t.Fatalf("marshal response: %v", err)
 		}
 		assertPublicJSONDoesNotContain(t, body,
-			"idempotency_key",
+			`"idempotency_key"`,
 			"operation_fingerprint",
 			"operation_key",
 			"previous_backlog_position",
@@ -930,8 +1141,9 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 
 func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	publicArtifactID := testPublicID(t, publicid.KindArtifact, httpTestArtifactID)
-	blocks, err := publicAgentInputContentBlocks(json.RawMessage(
-		`[{"type":"media_ref","artifact_id":"` + httpTestArtifactID.String() + `"}]`,
+	blocks, err := publicToolResultContentBlocks(json.RawMessage(
+		`[{"type":"media_ref","artifact_id":"` + httpTestArtifactID.String() +
+			`","exclude_from_model_context":true,"metadata":{"source":"test"}}]`,
 	))
 	if err != nil {
 		t.Fatalf("project public content blocks: %v", err)
@@ -942,6 +1154,12 @@ func TestPublicContentBlocksRewritesArtifactReferenceIDs(t *testing.T) {
 	}
 	if block.ArtifactId != publicArtifactID {
 		t.Fatalf("artifact_id = %v, want %s", block.ArtifactId, publicArtifactID)
+	}
+	if block.ExcludeFromModelContext == nil || !*block.ExcludeFromModelContext {
+		t.Fatalf("exclude_from_model_context = %v, want true", block.ExcludeFromModelContext)
+	}
+	if block.Metadata["source"] != "test" {
+		t.Fatalf("metadata = %v, want source=test", block.Metadata)
 	}
 }
 

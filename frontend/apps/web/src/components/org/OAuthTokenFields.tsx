@@ -9,16 +9,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { isOAuthKey, newOAuthEntry, type OAuthEntry, oauthKeys } from '@/lib/oauthEntries'
+import {
+  isOAuthKey,
+  newOAuthEntry,
+  type OAuthEntry,
+  type OAuthKey,
+  oauthKeys,
+} from '@/lib/oauthEntries'
 
 export function OAuthTokenFields({
   entries,
   onChange,
+  hiddenKeys = [],
 }: {
   entries: OAuthEntry[]
   onChange: (entries: OAuthEntry[]) => void
+  hiddenKeys?: OAuthKey[]
 }) {
-  const usedKeys = new Set(entries.map((entry) => entry.key))
+  const usedKeys = new Set([...entries.map((entry) => entry.key), ...hiddenKeys])
   const firstUnusedKey = oauthKeys.find((option) => !usedKeys.has(option.value))?.value
   function patchEntry(id: string, patch: Partial<OAuthEntry>) {
     onChange(entries.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)))

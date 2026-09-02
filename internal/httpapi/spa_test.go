@@ -14,7 +14,7 @@ var wantSPACSP = strings.Join([]string{
 	"default-src 'self'",
 	"script-src 'self' 'sha256-4Z+0IbR8cDetVQawCZYyJN7DAZJUmjFGeS+nwKwqD8c='",
 	"style-src 'self' 'unsafe-inline'",
-	"img-src 'self' data:",
+	"img-src 'self' data: blob: https:",
 	"font-src 'self' data:",
 	"connect-src 'self'",
 	"object-src 'none'",

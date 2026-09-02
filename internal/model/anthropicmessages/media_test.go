@@ -41,6 +41,10 @@ func mediaTestResolved() map[string]modelcontext.ResolvedMedia {
 	}
 }
 
+func mediaTestPublicID(id string) string {
+	return modelcontext.ArtifactPublicID(id)
+}
+
 func TestPrepareBuildsImageAndDocumentBlocks(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
@@ -79,16 +83,19 @@ func TestPrepareBuildsImageAndDocumentBlocks(t *testing.T) {
 		t.Fatalf("expected one message, got %+v", payload.Messages)
 	}
 	content := payload.Messages[0].Content
-	if len(content) != 3 || content[0].Type != "text" || content[1].Type != "image" || content[2].Type != "document" {
+	if len(content) != 5 || content[0].Type != "text" || content[1].Type != "text" ||
+		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		content[2].Type != "image" || content[3].Type != "text" ||
+		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) || content[4].Type != "document" {
 		t.Fatalf("unexpected block layout: %s", prepared.Body)
 	}
-	if content[1].Source.Type != "base64" ||
-		content[1].Source.MediaType != "image/png" ||
-		content[1].Source.Data != mediaTestImageData {
-		t.Fatalf("unexpected image source: %+v", content[1].Source)
+	if content[2].Source.Type != "base64" ||
+		content[2].Source.MediaType != "image/png" ||
+		content[2].Source.Data != mediaTestImageData {
+		t.Fatalf("unexpected image source: %+v", content[2].Source)
 	}
-	if content[2].Source.MediaType != "application/pdf" || content[2].Source.Data != mediaTestDocumentData {
-		t.Fatalf("unexpected document source: %+v", content[2].Source)
+	if content[4].Source.MediaType != "application/pdf" || content[4].Source.Data != mediaTestDocumentData {
+		t.Fatalf("unexpected document source: %+v", content[4].Source)
 	}
 	minimumEstimate := model.AnthropicImageTokenEstimate(
 		"claude-test",
@@ -166,7 +173,7 @@ func TestPrepareDropsOldestMediaToFitProviderBodyLimit(t *testing.T) {
 	if !strings.Contains(body, base64.StdEncoding.EncodeToString(newData)) {
 		t.Fatalf("newest media should remain in bounded request: %s", body)
 	}
-	if !strings.Contains(body, oldID) {
+	if !strings.Contains(body, mediaTestPublicID(oldID)) {
 		t.Fatalf("removed media must remain as a textual reference: %s", body)
 	}
 	if len(prepared.Body) > len(oneMediaPrepared.Body) {
@@ -235,7 +242,7 @@ func TestPrepareDropsOneHistoricalOccurrenceWhenOpeningReusesArtifact(t *testing
 	if got := strings.Count(string(prepared.Body), encoded); got != 3 {
 		t.Fatalf("rendered repeated-artifact occurrences = %d, want three: %s", got, prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), artifactID) {
+	if !strings.Contains(string(prepared.Body), mediaTestPublicID(artifactID)) {
 		t.Fatalf("dropped historical occurrence must remain textual: %s", prepared.Body)
 	}
 	if len(prepared.Body) > len(targetPrepared.Body) {
@@ -376,7 +383,7 @@ func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	if !strings.Contains(string(prepared.Body), "hello") {
 		t.Fatalf("text content lost: %s", prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), mediaTestImageID) {
+	if !strings.Contains(string(prepared.Body), mediaTestPublicID(mediaTestImageID)) {
 		t.Fatalf("non-resolved media_ref must keep its textual form: %s", prepared.Body)
 	}
 }
@@ -470,7 +477,7 @@ func TestPrepareAssistantMediaStaysTextual(t *testing.T) {
 	if strings.Contains(assistant, `"type":"image"`) {
 		t.Fatalf("assistant turns must not carry image blocks: %s", assistant)
 	}
-	if !strings.Contains(assistant, mediaTestImageID) {
+	if !strings.Contains(assistant, mediaTestPublicID(mediaTestImageID)) {
 		t.Fatalf("assistant media_ref must keep its textual form: %s", assistant)
 	}
 }
@@ -496,7 +503,7 @@ func TestPrepareRendersTextDocumentsAsPlainTextSource(t *testing.T) {
 				},
 			},
 		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
+		Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionNone},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -543,7 +550,7 @@ func TestPrepareDegradesUnsupportedDocumentTypesToText(t *testing.T) {
 	if strings.Contains(body, `"type":"document"`) {
 		t.Fatalf("unsupported document types must not render as document blocks: %s", body)
 	}
-	if !strings.Contains(body, docxID) {
+	if !strings.Contains(body, mediaTestPublicID(docxID)) {
 		t.Fatalf("unsupported document types must keep the textual ref: %s", body)
 	}
 	if prepared.InputTokenEstimate >= 10_000 {
@@ -586,7 +593,7 @@ func TestPrepareInterleavesTextAndMediaInOriginalOrder(t *testing.T) {
 		t.Fatalf("expected one message, got %d: %s", len(payload.Messages), prepared.Body)
 	}
 	content := payload.Messages[0].Content
-	wantTypes := []string{"text", "image", "text", "document", "text"}
+	wantTypes := []string{"text", "text", "image", "text", "text", "document", "text"}
 	if len(content) != len(wantTypes) {
 		t.Fatalf("want %d blocks (text/image/text/document/text), got %d: %s", len(wantTypes), len(content), prepared.Body)
 	}
@@ -595,7 +602,7 @@ func TestPrepareInterleavesTextAndMediaInOriginalOrder(t *testing.T) {
 			t.Fatalf("block[%d] type = %q, want %q: %s", i, content[i].Type, want, prepared.Body)
 		}
 	}
-	if content[0].Text != "before" || content[2].Text != "middle" || content[4].Text != "after" {
+	if content[0].Text != "before" || content[3].Text != "middle" || content[6].Text != "after" {
 		t.Fatalf("text blocks lost identity in interleaved order: %s", prepared.Body)
 	}
 }
@@ -629,10 +636,11 @@ func TestPrepareInterleavedImageThenTextThenImage(t *testing.T) {
 		t.Fatalf("decode payload: %v", err)
 	}
 	content := payload.Messages[0].Content
-	if len(content) != 3 || content[0].Type != "image" || content[1].Type != "text" || content[2].Type != "document" {
+	if len(content) != 5 || content[0].Type != "text" || content[1].Type != "image" ||
+		content[2].Type != "text" || content[3].Type != "text" || content[4].Type != "document" {
 		t.Fatalf("media-first interleaving must round-trip: %s", prepared.Body)
 	}
-	if content[1].Text != "compare these" {
+	if content[2].Text != "compare these" {
 		t.Fatalf("interleaved text lost: %s", prepared.Body)
 	}
 }
@@ -689,18 +697,18 @@ func TestPrepareInterleavedToolResultPreservesOrder(t *testing.T) {
 	if toolResult.Type != "tool_result" {
 		t.Fatalf("unexpected wrapper: %s", payload.Messages[2].Content[0])
 	}
-	if len(toolResult.Content) != 3 {
+	if len(toolResult.Content) != 4 {
 		t.Fatalf(
 			"want text/image/text inside tool_result, got %d blocks: %s",
 			len(toolResult.Content),
 			payload.Messages[2].Content[0],
 		)
 	}
-	if toolResult.Content[0].Type != "text" || toolResult.Content[1].Type != "image" ||
-		toolResult.Content[2].Type != "text" {
+	if toolResult.Content[0].Type != "text" || toolResult.Content[1].Type != "text" ||
+		toolResult.Content[2].Type != "image" || toolResult.Content[3].Type != "text" {
 		t.Fatalf("tool result interleaving destroyed: %s", payload.Messages[2].Content[0])
 	}
-	if toolResult.Content[0].Text != "before" || toolResult.Content[2].Text != "after" {
+	if toolResult.Content[0].Text != "before" || toolResult.Content[3].Text != "after" {
 		t.Fatalf("tool result text blocks lost identity: %s", payload.Messages[2].Content[0])
 	}
 }

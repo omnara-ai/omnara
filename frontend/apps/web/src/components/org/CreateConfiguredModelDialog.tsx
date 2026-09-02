@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -63,7 +64,7 @@ export function CreateConfiguredModelDialog({
         if (!model && provider) {
           model = await createConfiguredModel.mutateAsync({
             modelProviderConfigID: provider.id,
-            name: value.name.trim(),
+            name: value.name,
             provider_model_slug: value.providerModelSlug.trim(),
             context_window_tokens: Number(value.contextWindowTokens),
             ...(value.maxOutputTokens === ''
@@ -161,6 +162,7 @@ export function CreateConfiguredModelDialog({
                       field.handleChange(event.target.value)
                     }}
                   />
+                  <ResourceNameFieldError value={field.state.value} />
                 </Field>
               )}
             </form.Field>

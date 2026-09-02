@@ -23,6 +23,7 @@ import {
   memoryGbToMb,
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
+import { resourceNameValid } from '@/lib/resource-name'
 
 import {
   isMachinePoolProvider,
@@ -184,7 +185,7 @@ export function machinePoolFormValid(
             memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
   return (
     (clusterEdit ||
-      (values.name.trim() !== '' &&
+      (resourceNameValid(values.name) &&
         values.image.trim() !== '' &&
         values.location.trim() !== '' &&
         (!provider.requiresWorkspace || values.workspace.trim() !== '') &&
@@ -210,7 +211,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   const memoryMb = memoryGbToMb(values.memoryGb)
   const maxMachines = Number(values.maxMachines)
   const common = {
-    name: values.name.trim(),
+    name: values.name,
     description: stringOrUndefined(values.description),
     provider_auth_secret_id: values.secretId,
     max_total_machines: maxMachines,
@@ -349,7 +350,7 @@ export function machinePoolUpdateRequest(
   const memoryMb = memoryMbFromDraft(values.memoryGb, originalMemoryMb)
   const maxMachines = Number(values.maxMachines)
   const common = {
-    name: values.name.trim(),
+    name: values.name,
     description: values.description.trim(),
     default_machine_env: envFromRows(values.envRows) ?? {},
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},

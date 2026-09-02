@@ -327,7 +327,7 @@ func TestNoServiceStatusStopAndRestart(t *testing.T) {
 		MachineToken:   "token-a",
 		RunnerPath:     "/bin",
 	})
-	setDaemonEnvironment(t, home, server.URL, "token-a")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "token-a")
 	t.Setenv("PATH", t.TempDir())
 	stdout.Reset()
 	stderr.Reset()
@@ -423,7 +423,7 @@ func TestRestartValidatesBeforeSignalingNoServiceDaemon(t *testing.T) {
 		MachineToken:   "good-token",
 		RunnerPath:     "/bin",
 	})
-	setDaemonEnvironment(t, home, server.URL, "bad-token")
+	setDaemonEnvironment(t, home, testAPIBaseURL(server.URL), "bad-token")
 	t.Setenv("PATH", t.TempDir())
 	var stdout strings.Builder
 	var stderr strings.Builder

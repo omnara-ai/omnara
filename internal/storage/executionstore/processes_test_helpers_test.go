@@ -411,7 +411,7 @@ func newProcessDaemonFixtureInStore(
 		ctx,
 		executionstore.CreateDaemonMachineInput{
 			OrgID:          testOrgID,
-			DisplayName:    "Test daemon machine " + testName,
+			DisplayName:    "Test machine " + testID("machine-display-"+testName).String(),
 			IdempotencyKey: "idem-machine-" + testName,
 		},
 	)
@@ -513,7 +513,7 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 		ctx,
 		executionstore.CreateDaemonMachineInput{
 			OrgID:          testOrgID,
-			DisplayName:    "Test daemon machine " + testName,
+			DisplayName:    "Test machine " + testID("machine-display-"+testName).String(),
 			IdempotencyKey: "idem-machine-" + testName,
 		},
 	)

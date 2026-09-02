@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -38,6 +39,19 @@ const (
 // skillNamePattern is the Agent Skills name grammar: lowercase
 // alphanumeric segments separated by single hyphens.
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+func ValidateName(name string) error {
+	if name == "" {
+		return errors.New("is required")
+	}
+	if len(name) > MaxSkillNameChars {
+		return fmt.Errorf("cannot exceed %d characters", MaxSkillNameChars)
+	}
+	if !skillNamePattern.MatchString(name) {
+		return errors.New("must use lowercase alphanumeric segments separated by single hyphens")
+	}
+	return nil
+}
 
 var errExtractionLimitExceeded = errors.New("skill archive extraction limit exceeded")
 
@@ -179,6 +193,135 @@ func ExtractInto(format ArchiveFormat, raw []byte, dst string) error {
 	default:
 		return fmt.Errorf("unsupported skill archive format %q", format)
 	}
+}
+
+type FileEntry struct {
+	Path string
+	Size int64
+}
+
+func ListFiles(format ArchiveFormat, raw []byte) ([]FileEntry, error) {
+	entries, err := readEntries(format, raw)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]FileEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir || entry.IsLink {
+			continue
+		}
+		_, rel, found := strings.Cut(entry.Path, "/")
+		if !found || rel == "" {
+			continue
+		}
+		files = append(files, FileEntry{Path: rel, Size: entry.Size})
+	}
+	slices.SortFunc(files, func(a, b FileEntry) int { return strings.Compare(a.Path, b.Path) })
+	return files, nil
+}
+
+func ReplaceSkillMd(format ArchiveFormat, raw []byte, skillMd string) ([]byte, error) {
+	if len(skillMd) > MaxSkillMdBytes {
+		return nil, fmt.Errorf("SKILL.md exceeds %d bytes", MaxSkillMdBytes)
+	}
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	budget := newExtractionBudget()
+	replaced := false
+	writeEntry := func(entryPath string, content io.Reader) error {
+		target, err := zw.Create(entryPath)
+		if err != nil {
+			return fmt.Errorf("create archive entry %q: %w", entryPath, err)
+		}
+		if isTopLevelSkillMd(entryPath) {
+			if replaced {
+				return errors.New("skill archive contains multiple SKILL.md files")
+			}
+			replaced = true
+			if _, err := io.WriteString(target, skillMd); err != nil {
+				return fmt.Errorf("write archive entry %q: %w", entryPath, err)
+			}
+			return nil
+		}
+		if _, err := budget.copyBounded(target, content, entryPath); err != nil {
+			return fmt.Errorf("write archive entry %q: %w", entryPath, err)
+		}
+		return nil
+	}
+	switch format {
+	case FormatZip:
+		reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+		if err != nil {
+			return nil, fmt.Errorf("read zip archive: %w", err)
+		}
+		for _, file := range reader.File {
+			cleaned, err := cleanEntryPath(file.Name)
+			if err != nil {
+				return nil, err
+			}
+			if err := budget.accountEntry(cleaned); err != nil {
+				return nil, err
+			}
+			if file.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("skill archive contains a symlink at %q", cleaned)
+			}
+			if strings.HasSuffix(file.Name, "/") || file.FileInfo().IsDir() {
+				continue
+			}
+			body, err := file.Open()
+			if err != nil {
+				return nil, fmt.Errorf("open archive entry %q: %w", cleaned, err)
+			}
+			writeErr := writeEntry(cleaned, body)
+			_ = body.Close()
+			if writeErr != nil {
+				return nil, writeErr
+			}
+		}
+	case FormatTarGz:
+		gz, err := gzip.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			return nil, fmt.Errorf("open gzip stream: %w", err)
+		}
+		defer func() { _ = gz.Close() }()
+		tr := tar.NewReader(gz)
+		for {
+			header, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("read tar archive: %w", err)
+			}
+			cleaned, err := cleanEntryPath(header.Name)
+			if err != nil {
+				return nil, err
+			}
+			if err := budget.accountEntry(cleaned); err != nil {
+				return nil, err
+			}
+			switch header.Typeflag {
+			case tar.TypeDir:
+			case tar.TypeSymlink, tar.TypeLink:
+				return nil, fmt.Errorf("skill archive contains a symlink at %q", cleaned)
+			case tar.TypeReg:
+				if err := writeEntry(cleaned, tr); err != nil {
+					return nil, err
+				}
+			default:
+				return nil, fmt.Errorf("unsupported tar entry type %q for %q", string(header.Typeflag), header.Name)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported skill archive format %q", format)
+	}
+	if !replaced {
+		return nil, errors.New("skill archive is missing SKILL.md at the top-level directory")
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("close zip archive: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 type archiveEntry struct {
@@ -409,7 +552,6 @@ func parseSkillMdFrontmatter(body string) (string, string, error) {
 			return "", "", fmt.Errorf("parse SKILL.md frontmatter: %w", err)
 		}
 	}
-	parsed.Name = strings.TrimSpace(parsed.Name)
 	parsed.Description = strings.TrimSpace(parsed.Description)
 	if parsed.Name == "" {
 		return "", "", errors.New("SKILL.md frontmatter is missing `name`")
@@ -417,14 +559,8 @@ func parseSkillMdFrontmatter(body string) (string, string, error) {
 	if parsed.Description == "" {
 		return "", "", errors.New("SKILL.md frontmatter is missing `description`")
 	}
-	if len(parsed.Name) > MaxSkillNameChars {
-		return "", "", fmt.Errorf("SKILL.md frontmatter `name` exceeds %d characters", MaxSkillNameChars)
-	}
-	if !skillNamePattern.MatchString(parsed.Name) {
-		return "", "", fmt.Errorf(
-			"SKILL.md frontmatter `name` %q must be lowercase alphanumeric segments separated by single hyphens",
-			parsed.Name,
-		)
+	if err := ValidateName(parsed.Name); err != nil {
+		return "", "", fmt.Errorf("SKILL.md frontmatter `name` %q %w", parsed.Name, err)
 	}
 	if len(parsed.Description) > MaxSkillDescriptionChars {
 		return "", "", fmt.Errorf("SKILL.md frontmatter `description` exceeds %d characters", MaxSkillDescriptionChars)

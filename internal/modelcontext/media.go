@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 )
@@ -361,8 +362,28 @@ func MediaRefText(part map[string]json.RawMessage) string {
 	if json.Unmarshal(part["artifact_id"], &artifactID) != nil || artifactID == "" {
 		return ""
 	}
-	return "A prior attachment with artifact ID " + artifactID +
+	return mediaRefText(artifactID, "")
+}
+
+func mediaRefText(artifactID, filename string) string {
+	attachment := "A prior attachment"
+	if filename != "" {
+		attachment = fmt.Sprintf("Attachment %q", filename)
+	}
+	return attachment + " with artifact ID " + ArtifactPublicID(artifactID) +
 		" is not included in the current model context."
+}
+
+func ArtifactPublicID(artifactID string) string {
+	id, err := storage.ParseID(artifactID)
+	if err != nil || id == storage.NilID {
+		return artifactID
+	}
+	publicArtifactID, err := publicid.Encode(publicid.KindArtifact, id)
+	if err != nil {
+		return artifactID
+	}
+	return publicArtifactID
 }
 
 func ResolvedMediaOccurrences(bundle Bundle) []ResolvedMediaOccurrence {
@@ -419,7 +440,14 @@ func ReplaceMediaOccurrenceWithText(bundle *Bundle, ref MediaOccurrenceRef) erro
 	if err := json.Unmarshal(parts[ref.partIndex]["type"], &partType); err != nil || partType != "media_ref" {
 		return fmt.Errorf("content part %d is not a media_ref", ref.partIndex)
 	}
-	textJSON, err := json.Marshal(MediaRefText(parts[ref.partIndex]))
+	text := MediaRefText(parts[ref.partIndex])
+	var artifactID string
+	if json.Unmarshal(parts[ref.partIndex]["artifact_id"], &artifactID) == nil {
+		if media, ok := bundle.ResolvedMedia[artifactID]; ok && media.Filename != "" {
+			text = mediaRefText(artifactID, media.Filename)
+		}
+	}
+	textJSON, err := json.Marshal(text)
 	if err != nil {
 		return fmt.Errorf("encode textual media reference: %w", err)
 	}

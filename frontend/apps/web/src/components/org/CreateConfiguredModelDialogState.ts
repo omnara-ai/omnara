@@ -1,5 +1,7 @@
 import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 
+import { resourceNameSuggestion, resourceNameValid } from '@/lib/resource-name'
+
 export interface ConfiguredModelFormValues {
   /** Provider id; '' falls back to the first available provider. */
   providerId: string
@@ -28,8 +30,12 @@ type DiscoveredModelPrefillField =
   | 'maxOutputTokens'
   | 'defaultMaxOutputTokens'
 
+export function configuredModelSuggestedName(providerModelSlug: string) {
+  return resourceNameSuggestion(providerModelSlug, 'Configured model')
+}
+
 function isGeneratedName(values: ConfiguredModelFormValues) {
-  return values.name === values.providerModelSlug
+  return values.name === configuredModelSuggestedName(values.providerModelSlug)
 }
 
 export function discoveredModelPrefill(
@@ -37,8 +43,8 @@ export function discoveredModelPrefill(
   model: DiscoveredProviderModel,
 ): [DiscoveredModelPrefillField, string][] {
   const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (values.name.trim() === '' || isGeneratedName(values)) {
-    updates.push(['name', model.slug])
+  if (values.name === '' || isGeneratedName(values)) {
+    updates.push(['name', configuredModelSuggestedName(model.slug)])
   }
   updates.push([
     'contextWindowTokens',
@@ -92,7 +98,7 @@ export function configuredModelFormValid(
       (values.maxOutputTokens === '' || defaultMaxOutputTokensValue <= maxOutputTokensValue))
   return (
     Boolean(provider) &&
-    values.name.trim() !== '' &&
+    resourceNameValid(values.name) &&
     values.providerModelSlug.trim() !== '' &&
     Number.isInteger(contextWindowTokensValue) &&
     contextWindowTokensValue > 1 &&

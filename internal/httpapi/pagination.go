@@ -137,7 +137,11 @@ func parseAgentInputQueuePageParams(
 			return 0, executionstore.AgentInputQueueCursor{}, errMalformedCursor
 		}
 		after = executionstore.AgentInputQueueCursor{
-			Set: true, InputRank: cursor.InputRank, QueuedAt: cursor.QueuedAt, ID: rawID,
+			Set:          true,
+			DeliveryMode: executionstore.AgentInputDeliveryMode(cursor.DeliveryMode),
+			InputRank:    cursor.InputRank,
+			QueuedAt:     cursor.QueuedAt,
+			ID:           rawID,
 		}
 	}
 	return limit, after, nil
@@ -152,7 +156,12 @@ func encodeNextAgentInputQueueCursor(hasMore bool, last executionstore.AgentInpu
 		return nil, err
 	}
 	token, err := encodeAgentInputQueueCursor(
-		agentInputQueueCursor{InputRank: last.InputRank, QueuedAt: last.QueuedAt, ID: lastPublicID},
+		agentInputQueueCursor{
+			DeliveryMode: string(last.DeliveryMode),
+			InputRank:    last.InputRank,
+			QueuedAt:     last.QueuedAt,
+			ID:           lastPublicID,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -161,14 +170,20 @@ func encodeNextAgentInputQueueCursor(hasMore bool, last executionstore.AgentInpu
 }
 
 type agentInputQueueCursor struct {
-	InputRank int64     `json:"input_rank"`
-	QueuedAt  time.Time `json:"queued_at"`
-	ID        string    `json:"id"`
+	DeliveryMode string    `json:"delivery_mode"`
+	InputRank    int64     `json:"input_rank"`
+	QueuedAt     time.Time `json:"queued_at"`
+	ID           string    `json:"id"`
 }
 
 func encodeAgentInputQueueCursor(cursor agentInputQueueCursor) (string, error) {
 	payload, err := json.Marshal(
-		agentInputQueueCursor{InputRank: cursor.InputRank, QueuedAt: cursor.QueuedAt.UTC(), ID: cursor.ID},
+		agentInputQueueCursor{
+			DeliveryMode: cursor.DeliveryMode,
+			InputRank:    cursor.InputRank,
+			QueuedAt:     cursor.QueuedAt.UTC(),
+			ID:           cursor.ID,
+		},
 	)
 	if err != nil {
 		return "", err
@@ -191,7 +206,12 @@ func decodeAgentInputQueueCursor(raw string) (agentInputQueueCursor, error) {
 	if err := json.Unmarshal(payload, &cursor); err != nil {
 		return agentInputQueueCursor{}, errInvalidCursor
 	}
-	if cursor.InputRank <= 0 || cursor.QueuedAt.IsZero() || cursor.ID == "" {
+	if cursor.DeliveryMode == "" {
+		cursor.DeliveryMode = string(executionstore.DeliveryModeQueued)
+	}
+	if (cursor.DeliveryMode != string(executionstore.DeliveryModeSteering) &&
+		cursor.DeliveryMode != string(executionstore.DeliveryModeQueued)) ||
+		cursor.InputRank <= 0 || cursor.QueuedAt.IsZero() || cursor.ID == "" {
 		return agentInputQueueCursor{}, errInvalidCursor
 	}
 	return cursor, nil

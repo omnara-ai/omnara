@@ -3,6 +3,7 @@ package openairesponses
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,6 +37,10 @@ func mediaTestResolved() map[string]modelcontext.ResolvedMedia {
 			Data:       []byte("pdf bytes"),
 		},
 	}
+}
+
+func mediaTestPublicID(id string) string {
+	return modelcontext.ArtifactPublicID(id)
 }
 
 func TestPrepareBuildsInputImageAndFileParts(t *testing.T) {
@@ -73,17 +78,21 @@ func TestPrepareBuildsInputImageAndFileParts(t *testing.T) {
 		t.Fatalf("unexpected input items: %s", prepared.Body)
 	}
 	content := payload.Input[0].Content
-	if len(content) != 3 ||
+	if len(content) != 5 ||
 		content[0].Type != "input_text" ||
-		content[1].Type != "input_image" ||
-		content[2].Type != "input_file" {
+		content[1].Type != "input_text" ||
+		content[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		content[2].Type != "input_image" ||
+		content[3].Type != "input_text" ||
+		content[3].Text != "artifact_id: "+mediaTestPublicID(mediaTestDocumentID) ||
+		content[4].Type != "input_file" {
 		t.Fatalf("unexpected content layout: %s", prepared.Body)
 	}
-	if content[1].ImageURL != "data:image/png;base64,"+mediaTestImageData {
-		t.Fatalf("unexpected image url: %q", content[1].ImageURL)
+	if content[2].ImageURL != "data:image/png;base64,"+mediaTestImageData {
+		t.Fatalf("unexpected image url: %q", content[2].ImageURL)
 	}
-	if content[2].Filename != "report.pdf" || content[2].FileData != "data:application/pdf;base64,"+mediaTestDocumentData {
-		t.Fatalf("unexpected file part: %+v", content[2])
+	if content[4].Filename != "report.pdf" || content[4].FileData != "data:application/pdf;base64,"+mediaTestDocumentData {
+		t.Fatalf("unexpected file part: %+v", content[4])
 	}
 	if strings.Contains(string(prepared.Body), `"media_ref"`) {
 		t.Fatalf("resolved media must not keep the textual fallback: %s", prepared.Body)
@@ -122,6 +131,96 @@ func TestPrepareDerivesDocumentFilenameFromMediaType(t *testing.T) {
 	}
 }
 
+func TestOpenAIMediaPartRendersTextDocuments(t *testing.T) {
+	for _, test := range []struct {
+		mediaType string
+		filename  string
+		data      string
+	}{
+		{mediaType: "text/plain", filename: "logo.svg", data: `<svg><circle /></svg>`},
+		{mediaType: "text/markdown", filename: "notes.md", data: "# Notes"},
+	} {
+		part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+			Kind:      modelcontext.AttachmentKindDocument,
+			MediaType: test.mediaType,
+			Filename:  test.filename,
+			Data:      []byte(test.data),
+		})
+		if !ok || part["type"] != responsesContentTypeInputText ||
+			part["text"] != "File: "+strconv.Quote(test.filename)+"\n\n"+test.data {
+			t.Fatalf("text document part = %+v, ok = %t", part, ok)
+		}
+		if _, ok := part["file_data"]; ok {
+			t.Fatalf("text document included file data: %+v", part)
+		}
+	}
+}
+
+func TestOpenAIMediaPartRendersUTF8SpreadsheetsAsText(t *testing.T) {
+	for _, test := range []struct {
+		mediaType string
+		filename  string
+		data      string
+	}{
+		{mediaType: "text/csv", filename: "data.csv", data: "a,b"},
+		{mediaType: "text/tab-separated-values", filename: "data.tsv", data: "a\tb"},
+		{mediaType: "text/x-iif", filename: "data.iif", data: "!TRNS\tTRNSID"},
+	} {
+		part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+			Kind:      modelcontext.AttachmentKindDocument,
+			MediaType: test.mediaType,
+			Filename:  test.filename,
+			Data:      []byte(test.data),
+		})
+		if !ok || part["type"] != responsesContentTypeInputText ||
+			part["text"] != "File: "+strconv.Quote(test.filename)+"\n\n"+test.data {
+			t.Fatalf("spreadsheet part = %+v, ok = %t", part, ok)
+		}
+	}
+}
+
+func TestOpenAIMediaPartKeepsBinarySpreadsheetAsFile(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		Filename:  "data.xlsx",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["filename"] != "data.xlsx" {
+		t.Fatalf("binary spreadsheet part = %+v, ok = %t", part, ok)
+	}
+}
+
+func TestOpenAIMediaPartUsesOpenAITSVMediaTypeForInvalidUTF8(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "text/tab-separated-values",
+		Filename:  "data.tsv",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["file_data"] != "data:text/tsv;base64,/w==" {
+		t.Fatalf("TSV file part = %+v, ok = %t", part, ok)
+	}
+}
+
+func TestOpenAIMediaPartKeepsInvalidUTF8AsFile(t *testing.T) {
+	part, ok := openaiMediaPart(modelcontext.ResolvedMedia{
+		Kind:      modelcontext.AttachmentKindDocument,
+		MediaType: "text/plain",
+		Filename:  "notes.txt",
+		Data:      []byte{0xff},
+	})
+	if !ok || part["type"] != responsesContentTypeInputFile ||
+		part["filename"] != "notes.txt" || part["file_data"] != "data:text/plain;base64,/w==" {
+		t.Fatalf("invalid UTF-8 document part = %+v, ok = %t", part, ok)
+	}
+	if _, ok := part["text"]; ok {
+		t.Fatalf("invalid UTF-8 document included text: %+v", part)
+	}
+}
+
 func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	// Context building only resolves allowlisted media; everything else
 	// reaches the adapter unresolved and keeps the textual ref.
@@ -142,7 +241,7 @@ func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	if strings.Contains(string(prepared.Body), "input_image") {
 		t.Fatalf("non-resolved media must not render as image parts: %s", prepared.Body)
 	}
-	if !strings.Contains(string(prepared.Body), svgID) {
+	if !strings.Contains(string(prepared.Body), mediaTestPublicID(svgID)) {
 		t.Fatalf("non-resolved media must keep the textual ref: %s", prepared.Body)
 	}
 }
@@ -185,7 +284,7 @@ func TestPrepareCanonicalAssistantMediaRefUsesOutputTextFallback(t *testing.T) {
 			t.Fatalf("canonical assistant media content = %+v, want only output_text", payload.Input[0].Content)
 		}
 	}
-	if !strings.Contains(payload.Input[0].Content[0].Text, mediaTestImageID) ||
+	if !strings.Contains(payload.Input[0].Content[0].Text, mediaTestPublicID(mediaTestImageID)) ||
 		payload.Input[0].Content[1].Text != "historical media" {
 		t.Fatalf("canonical assistant media fallback lost history: %+v", payload.Input[0].Content)
 	}
@@ -271,14 +370,16 @@ func TestPrepareToolResultMediaRidesInFunctionCallOutput(t *testing.T) {
 	if output.Type != "function_call_output" || output.CallID != "call_1" {
 		t.Fatalf("unexpected output item: %+v", output)
 	}
-	if len(output.Output) != 2 ||
+	if len(output.Output) != 3 ||
 		output.Output[0].Type != "input_text" ||
 		output.Output[0].Text != "captured" ||
-		output.Output[1].Type != "input_image" {
+		output.Output[1].Type != "input_text" ||
+		output.Output[1].Text != "artifact_id: "+mediaTestPublicID(mediaTestImageID) ||
+		output.Output[2].Type != "input_image" {
 		t.Fatalf("expected text and image inside function_call_output: %s", payload.Input[len(payload.Input)-1])
 	}
-	if output.Output[1].ImageURL != "data:image/png;base64,"+mediaTestImageData {
-		t.Fatalf("unexpected image output: %+v", output.Output[1])
+	if output.Output[2].ImageURL != "data:image/png;base64,"+mediaTestImageData {
+		t.Fatalf("unexpected image output: %+v", output.Output[2])
 	}
 	if strings.Contains(string(payload.Input[len(payload.Input)-1]), "media_ref") {
 		t.Fatalf("function_call_output must not carry the media textual fallback: %s", payload.Input[len(payload.Input)-1])
@@ -319,7 +420,9 @@ func TestPrepareInterleavesTextAndMediaInOriginalOrder(t *testing.T) {
 		t.Fatalf("unexpected input items: %s", prepared.Body)
 	}
 	content := payload.Input[0].Content
-	wantTypes := []string{"input_text", "input_image", "input_text", "input_file", "input_text"}
+	wantTypes := []string{
+		"input_text", "input_text", "input_image", "input_text", "input_text", "input_file", "input_text",
+	}
 	if len(content) != len(wantTypes) {
 		t.Fatalf("want %d content parts, got %d: %s", len(wantTypes), len(content), prepared.Body)
 	}
@@ -328,7 +431,7 @@ func TestPrepareInterleavesTextAndMediaInOriginalOrder(t *testing.T) {
 			t.Fatalf("content[%d] type = %q, want %q: %s", i, content[i].Type, want, prepared.Body)
 		}
 	}
-	if content[0].Text != "before" || content[2].Text != "middle" || content[4].Text != "after" {
+	if content[0].Text != "before" || content[3].Text != "middle" || content[6].Text != "after" {
 		t.Fatalf("text content lost identity across interleaving: %s", prepared.Body)
 	}
 }
@@ -361,11 +464,11 @@ func TestPrepareInterleavedImageThenTextThenImage(t *testing.T) {
 		t.Fatalf("decode payload: %v", err)
 	}
 	content := payload.Input[0].Content
-	if len(content) != 3 || content[0].Type != "input_image" || content[1].Type != "input_text" ||
-		content[2].Type != "input_file" {
+	if len(content) != 5 || content[0].Type != "input_text" || content[1].Type != "input_image" ||
+		content[2].Type != "input_text" || content[3].Type != "input_text" || content[4].Type != "input_file" {
 		t.Fatalf("media-first interleaving must round-trip: %s", prepared.Body)
 	}
-	if content[1].Text != "compare these" {
+	if content[2].Text != "compare these" {
 		t.Fatalf("interleaved text lost: %s", prepared.Body)
 	}
 }
@@ -417,7 +520,7 @@ func TestPrepareInterleavedToolResultPreservesOrder(t *testing.T) {
 	if output.Type != "function_call_output" || output.CallID != "call_1" {
 		t.Fatalf("unexpected output item: %+v", output)
 	}
-	want := []string{"input_text", "input_image", "input_text"}
+	want := []string{"input_text", "input_text", "input_image", "input_text"}
 	if len(output.Output) != len(want) {
 		t.Fatalf("want %d output parts, got %d: %s", len(want), len(output.Output), payload.Input[len(payload.Input)-1])
 	}
@@ -426,7 +529,7 @@ func TestPrepareInterleavedToolResultPreservesOrder(t *testing.T) {
 			t.Fatalf("output[%d] type = %q, want %q: %s", i, output.Output[i].Type, kind, payload.Input[len(payload.Input)-1])
 		}
 	}
-	if output.Output[0].Text != "before" || output.Output[2].Text != "after" {
+	if output.Output[0].Text != "before" || output.Output[3].Text != "after" {
 		t.Fatalf("interleaved text lost in function_call_output: %s", payload.Input[len(payload.Input)-1])
 	}
 }

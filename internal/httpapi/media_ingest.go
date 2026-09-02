@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -15,6 +17,7 @@ const (
 	maxAttachmentBytes         = 10 * 1024 * 1024
 	maxAttachmentsPerInput     = 20
 	maxAttachmentFilenameBytes = 255
+	maxAttachmentFilenameRunes = 255
 	maxTotalAttachmentBytes    = int(modelcontext.MaxResolvedMediaBytes)
 	maxContentBlockBytes       = 1024 * 1024
 )
@@ -126,18 +129,28 @@ func (s *Server) extractInlineMedia(
 				),
 			}
 		}
+		if modelcontext.IsTextDocumentMediaType(block.MediaType) && !utf8.Valid(content) {
+			return nil, mediaIngestError{
+				fmt.Sprintf("content block %d: text attachment must be valid UTF-8", ordinal),
+			}
+		}
 		if len(pending) == maxAttachmentsPerInput {
 			return nil, mediaIngestError{
 				fmt.Sprintf("too many attachments: limit is %d per input", maxAttachmentsPerInput),
 			}
 		}
-		if len(block.Filename) > maxAttachmentFilenameBytes {
+		if utf8.RuneCountInString(block.Filename) > maxAttachmentFilenameRunes {
 			return nil, mediaIngestError{
 				fmt.Sprintf(
-					"content block %d: filename exceeds %d bytes",
+					"content block %d: filename exceeds %d characters",
 					ordinal,
-					maxAttachmentFilenameBytes,
+					maxAttachmentFilenameRunes,
 				),
+			}
+		}
+		if err := dbsafe.Text(block.Filename); err != nil {
+			return nil, mediaIngestError{
+				fmt.Sprintf("content block %d: filename %s", ordinal, err),
 			}
 		}
 		totalBytes += len(content)
@@ -164,6 +177,19 @@ func (s *Server) extractInlineMedia(
 	}
 	if len(pending) == 0 {
 		return contentBlocks, nil
+	}
+	for ordinal, raw := range rawBlocks {
+		if attachment, ok := pending[ordinal]; ok {
+			raw = attachment.metadata
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		if err := dbsafe.JSONStrings(raw); err != nil {
+			return nil, mediaIngestError{
+				fmt.Sprintf("content block %d: %s", ordinal, err),
+			}
+		}
 	}
 	out := make([]json.RawMessage, 0, len(rawBlocks))
 	for ordinal, raw := range rawBlocks {

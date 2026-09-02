@@ -34,8 +34,8 @@ func (s *Store) PromoteQueuedInputToSteering(
 		input.AgentID,
 		input.InputID,
 		input.CancelOpenInteractions,
-		func(qtx *dbsqlc.Queries, ctx context.Context) (int64, error) {
-			return qtx.PromoteQueuedInputToSteering(
+		func(qtx *dbsqlc.Queries, ctx context.Context) (bool, bool, error) {
+			result, err := qtx.PromoteQueuedInputToSteering(
 				ctx,
 				dbsqlc.PromoteQueuedInputToSteeringParams{
 					RankStride: agentInputRankStride,
@@ -44,6 +44,7 @@ func (s *Store) PromoteQueuedInputToSteering(
 					ID:         input.InputID,
 				},
 			)
+			return result.Changed, result.Effective != nil && *result.Effective, err
 		},
 	)
 }
@@ -58,8 +59,8 @@ func (s *Store) DemoteSteeringInputToQueued(
 		input.AgentID,
 		input.InputID,
 		false,
-		func(qtx *dbsqlc.Queries, ctx context.Context) (int64, error) {
-			return qtx.DemoteSteeringInputToQueued(
+		func(qtx *dbsqlc.Queries, ctx context.Context) (bool, bool, error) {
+			changed, err := qtx.DemoteSteeringInputToQueued(
 				ctx,
 				dbsqlc.DemoteSteeringInputToQueuedParams{
 					RankStride: agentInputRankStride,
@@ -68,6 +69,7 @@ func (s *Store) DemoteSteeringInputToQueued(
 					ID:         input.InputID,
 				},
 			)
+			return changed == 1, changed == 1, err
 		},
 	)
 }
@@ -76,7 +78,7 @@ func (s *Store) changeAgentInputDeliveryMode(
 	ctx context.Context,
 	projectID, agentID, inputID ID,
 	cancelOpenInteractions bool,
-	mutate func(*dbsqlc.Queries, context.Context) (int64, error),
+	mutate func(*dbsqlc.Queries, context.Context) (bool, bool, error),
 ) error {
 	if isNilID(projectID) || isNilID(agentID) || isNilID(inputID) {
 		return errors.New("project id, agent id, and input id are required")
@@ -94,12 +96,15 @@ func (s *Store) changeAgentInputDeliveryMode(
 	); err != nil {
 		return fmt.Errorf("lock agent for input delivery mode change: %w", err)
 	}
-	changed, err := mutate(qtx, ctx)
+	changed, effective, err := mutate(qtx, ctx)
 	if err != nil {
 		return fmt.Errorf("change agent input delivery mode: %w", err)
 	}
-	if changed != 1 {
+	if !effective {
 		return storeerr.ErrStateTransitionConflict
+	}
+	if !changed {
+		return nil
 	}
 	if cancelOpenInteractions {
 		if _, err := cancelOpenInteractionsForSteeringInputTx(

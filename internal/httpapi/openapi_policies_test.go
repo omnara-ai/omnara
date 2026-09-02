@@ -52,10 +52,10 @@ func TestDeleteOrganizationRequiresOrganizationOwnership(t *testing.T) {
 	}
 }
 
-func TestConnectBYOMachineRequiresBrowserSessionAndOrganizationManage(t *testing.T) {
+func TestConnectBYOMachineRequiresAccountPrincipalAndOrganizationManage(t *testing.T) {
 	policy := openAPIOperationPolicies[operationConnectBYOMachine]
-	if policy.principal != principalKindBrowserSession {
-		t.Fatalf("connect BYO machine principal = %v, want browser session", policy.principal)
+	if policy.principal != principalKindAccount {
+		t.Fatalf("connect BYO machine principal = %v, want account", policy.principal)
 	}
 	if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionManage {
 		t.Fatalf("connect BYO machine scope = %+v, want organization manage", policy.scope)

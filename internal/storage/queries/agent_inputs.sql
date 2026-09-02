@@ -53,56 +53,6 @@ CROSS JOIN desired
 WHERE wake.agent_id = locked_agent.id
   AND desired.ready_at IS NULL;
 
--- name: RebuildMissingAgentWakeupsBatch :many
-WITH locked_agents AS MATERIALIZED (
-  SELECT agent.id, agent.project_id
-  FROM agents agent
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND agent.state <> 'archived'
-    AND (
-      sqlc.narg(after_agent_id)::uuid IS NULL
-      OR agent.id > sqlc.narg(after_agent_id)::uuid
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM agent_wakeups wake
-      WHERE wake.agent_id = agent.id
-    )
-  ORDER BY agent.id
-  LIMIT sqlc.arg(batch_limit)
-  FOR UPDATE OF agent SKIP LOCKED
-),
-desired AS MATERIALIZED (
-  SELECT agent.id,
-         agent.project_id,
-         agent_next_wakeup_ready_at(
-           agent.project_id,
-           agent.id
-         ) AS ready_at
-  FROM locked_agents agent
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM agent_runtime_locks runtime_lock
-    WHERE runtime_lock.agent_id = agent.id
-  )
-),
-inserted AS (
-  INSERT INTO agent_wakeups(agent_id, ready_at, updated_at, metadata)
-  SELECT desired.id,
-         desired.ready_at,
-         statement_timestamp(),
-         sqlc.arg(metadata)
-  FROM desired
-  WHERE desired.ready_at IS NOT NULL
-  ON CONFLICT (agent_id) DO NOTHING
-  RETURNING agent_id
-)
-SELECT locked.id AS agent_id,
-       (inserted.agent_id IS NOT NULL)::boolean AS inserted
-FROM locked_agents locked
-LEFT JOIN inserted ON inserted.agent_id = locked.id
-ORDER BY locked.id;
-
 -- name: ClaimNextAgentWakeup :one
 -- The query walks wakeups in global ready order, but locks agents before wake
 -- rows to match all other agent mutation paths. If the selected wake is no
@@ -179,13 +129,17 @@ FROM agent_inputs input
 WHERE input.project_id = sqlc.arg(project_id)
   AND input.agent_id = sqlc.arg(agent_id)
   AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
+  AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
   AND (
-    sqlc.narg(cursor_input_rank)::bigint IS NULL
-    OR (input.input_rank, input.queued_at, input.id) > (sqlc.narg(cursor_input_rank)::bigint, sqlc.narg(cursor_queued_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    sqlc.narg(cursor_delivery_mode)::text IS NULL
+    OR input.delivery_mode < sqlc.narg(cursor_delivery_mode)::text
+    OR (
+      input.delivery_mode = sqlc.narg(cursor_delivery_mode)::text
+      AND (input.input_rank, input.queued_at, input.id) > (sqlc.narg(cursor_input_rank)::bigint, sqlc.narg(cursor_queued_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    )
   )
-ORDER BY input.input_rank ASC, input.queued_at ASC, input.id ASC
+ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: AdmitAgentInput :one
@@ -406,27 +360,44 @@ WHERE input.project_id = sqlc.arg(project_id)
   AND input.input_kind = 'content'
   AND new_rank.input_rank IS NOT NULL;
 
--- name: PromoteQueuedInputToSteering :execrows
-UPDATE agent_inputs input
-SET delivery_mode = 'steering',
-    input_rank = coalesce(
-      (
-        SELECT max(existing.input_rank) + sqlc.arg(rank_stride)::bigint
-        FROM agent_inputs existing
-        WHERE existing.project_id = input.project_id
-          AND existing.agent_id = input.agent_id
-          AND existing.delivery_mode = 'steering'
-          AND existing.state = 'received'
-          AND existing.input_kind = 'content'
-      ),
-      sqlc.arg(rank_stride)::bigint
-    )
-WHERE input.project_id = sqlc.arg(project_id)
-  AND input.agent_id = sqlc.arg(agent_id)
-  AND input.id = sqlc.arg(id)
-  AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
-  AND input.input_kind = 'content';
+-- name: PromoteQueuedInputToSteering :one
+WITH promoted AS (
+  UPDATE agent_inputs input
+  SET delivery_mode = 'steering',
+      input_rank = coalesce(
+        (
+          SELECT max(existing.input_rank) + sqlc.arg(rank_stride)::bigint
+          FROM agent_inputs existing
+          WHERE existing.project_id = input.project_id
+            AND existing.agent_id = input.agent_id
+            AND existing.delivery_mode = 'steering'
+            AND existing.state = 'received'
+            AND existing.input_kind = 'content'
+        ),
+        sqlc.arg(rank_stride)::bigint
+      )
+  WHERE input.project_id = sqlc.arg(project_id)
+    AND input.agent_id = sqlc.arg(agent_id)
+    AND input.id = sqlc.arg(id)
+    AND input.state = 'received'
+    AND input.delivery_mode = 'queued'
+    AND input.input_kind = 'content'
+  RETURNING TRUE
+)
+SELECT EXISTS (SELECT 1 FROM promoted) AS changed,
+       EXISTS (SELECT 1 FROM promoted)
+       OR EXISTS (
+         SELECT 1
+         FROM agent_inputs input
+         WHERE input.project_id = sqlc.arg(project_id)
+           AND input.agent_id = sqlc.arg(agent_id)
+           AND input.id = sqlc.arg(id)
+           AND input.input_kind = 'content'
+           AND (
+             (input.state = 'received' AND input.delivery_mode = 'steering')
+             OR (input.state = 'resolved' AND input.admitted_event_id IS NOT NULL)
+           )
+       ) AS effective;
 
 -- name: DemoteSteeringInputToQueued :execrows
 UPDATE agent_inputs input

@@ -33,7 +33,7 @@ for connection-pool defaults.
 
 ## Exposing the deployment publicly
 
-Email links, OAuth callbacks, the machine connect command, and cloud sandboxes all build URLs from `OMNARA_PUBLIC_URL`. These features will not function without this as a publicly-accessible URL.
+`OMNARA_PUBLIC_URL` is the public app origin used for email links, OAuth callbacks, and browser flows. The API defaults to the same deployment at `/api/v1`; set `OMNARA_PUBLIC_API_URL` when it is exposed at a different public URL. The daemon installer is served from the API origin at `/install/omnarad.sh`. These features will not function unless the configured URLs are publicly accessible.
 
 <Warning>
   Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.
@@ -71,7 +71,7 @@ For a temporary tunnel without a separate domain, you can use:
 cloudflared tunnel --url http://localhost:8000
 ```
 
-This prints a random `https://<something>.trycloudflare.com` URL that changes every run. After starting the tunnel you can set `OMNARA_PUBLIC_URL` in the same way described above.
+This prints a random `https://{subdomain}.trycloudflare.com` URL that changes every run. After starting the tunnel you can set `OMNARA_PUBLIC_URL` in the same way described above.
 
 ## Next steps
 

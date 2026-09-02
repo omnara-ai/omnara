@@ -15,6 +15,8 @@ import (
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -40,7 +42,8 @@ type Server struct {
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
-	publicOrigin                        configuredOrigin
+	publicAPIURL                        string
+	publicOrigins                       []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
@@ -60,9 +63,12 @@ type Server struct {
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
+	mcpClient                           mcp.Client
+	sigV4CredentialCache                *mcp.SigV4CredentialCache
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
+	mcpRegistry                         *mcpregistry.Registry
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
@@ -151,6 +157,12 @@ func WithPublicURL(publicURL string) Option {
 	}
 }
 
+func WithPublicAPIURL(publicAPIURL string) Option {
+	return func(s *Server) {
+		s.publicAPIURL = strings.TrimRight(strings.TrimSpace(publicAPIURL), "/")
+	}
+}
+
 func WithBillingURL(billingURL string) Option {
 	return func(s *Server) {
 		s.billingURL = strings.TrimRight(strings.TrimSpace(billingURL), "/")
@@ -203,6 +215,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
+	}
+}
+
+func WithMCPRegistry(registry *mcpregistry.Registry) Option {
+	return func(s *Server) {
+		s.mcpRegistry = registry
 	}
 }
 
@@ -360,7 +378,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	if err != nil {
 		return nil, err
 	}
-	server.publicOrigin = publicOrigin
+	publicAPIOrigin, err := parseConfiguredOrigin(server.publicAPIURL)
+	if err != nil {
+		return nil, err
+	}
+	if publicOrigin.host != "" {
+		server.publicOrigins = append(server.publicOrigins, publicOrigin)
+		if publicAPIOrigin.host != "" {
+			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
 	server.authRoutes = httpauth.New(httpauth.Config{
 		Log:                  log,
 		Store:                authStore,
@@ -406,6 +433,11 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
+	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
+	server.sigV4CredentialCache, err = mcp.NewSigV4CredentialCache()
+	if err != nil {
+		return nil, err
+	}
 	return server, nil
 }
 

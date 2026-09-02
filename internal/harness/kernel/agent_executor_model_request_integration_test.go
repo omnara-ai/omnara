@@ -115,13 +115,14 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		string(modelprotocol.ErrorKindRuntime),
 		storeerr.ManagedWorkAdmissionDeniedCode,
 	)
-	var state, recoveryKind, errorKind, errorCode, apiFormat, requestID, responseID string
+	var state, recoveryKind, errorKind, errorCode, errorMessage, apiFormat, requestID, responseID string
 	var retryAbsent bool
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT context.state,
        coalesce(context.recovery_kind, ''),
        context.error_kind,
        context.error_code,
+       context.error_message,
        context.api_format,
        context.provider_request_id,
        context.provider_response_id,
@@ -135,6 +136,7 @@ WHERE context.project_id = $1
 		&recoveryKind,
 		&errorKind,
 		&errorCode,
+		&errorMessage,
 		&apiFormat,
 		&requestID,
 		&responseID,
@@ -144,14 +146,16 @@ WHERE context.project_id = $1
 	}
 	if state != string(executionstore.ModelCallContextFailed) || recoveryKind != "" ||
 		errorKind != string(modelprotocol.ErrorKindRuntime) ||
-		errorCode != storeerr.ManagedWorkAdmissionDeniedCode || apiFormat != "" ||
+		errorCode != storeerr.ManagedWorkAdmissionDeniedCode ||
+		errorMessage != "Insufficient Omnara credits." || apiFormat != "" ||
 		requestID != "" || responseID != "" || !retryAbsent {
 		t.Fatalf(
-			"denied context = %q/%q/%q/%q api=%q request=%q response=%q retry_absent=%v",
+			"denied context = %q/%q/%q/%q message=%q api=%q request=%q response=%q retry_absent=%v",
 			state,
 			recoveryKind,
 			errorKind,
 			errorCode,
+			errorMessage,
 			apiFormat,
 			requestID,
 			responseID,

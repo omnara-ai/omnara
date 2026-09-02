@@ -161,7 +161,7 @@ WHERE id = $3
   AND denied_at IS NULL
   AND consumed_at IS NULL
   AND expires_at > statement_timestamp()
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 `
 
 type ApproveAuthDeviceFlowParams struct {
@@ -187,6 +187,7 @@ func (q *Queries) ApproveAuthDeviceFlow(ctx context.Context, arg ApproveAuthDevi
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 	)
 	return i, err
 }
@@ -483,22 +484,24 @@ func (q *Queries) CountOwnedOrgMembershipsForUser(ctx context.Context, arg Count
 }
 
 const createAuthDeviceFlow = `-- name: CreateAuthDeviceFlow :one
-INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at)
+INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
 VALUES (
   $1,
   $2,
   $3,
   $4,
+  $5,
   transaction_timestamp(),
-  transaction_timestamp() + ($5::bigint * interval '1 second')
+  transaction_timestamp() + ($6::bigint * interval '1 second')
 )
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at,
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id,
   greatest(0, extract(epoch FROM expires_at - transaction_timestamp()))::bigint AS expires_in_seconds
 `
 
 type CreateAuthDeviceFlowParams struct {
 	DeviceCodeHash string
 	UserCodeHash   string
+	ClientID       string
 	ClientName     string
 	TokenName      string
 	TtlSeconds     int64
@@ -518,6 +521,7 @@ type CreateAuthDeviceFlowRow struct {
 	DeniedAt                 *time.Time
 	ConsumedAt               *time.Time
 	LastPolledAt             *time.Time
+	ClientID                 string
 	ExpiresInSeconds         int64
 }
 
@@ -525,6 +529,7 @@ func (q *Queries) CreateAuthDeviceFlow(ctx context.Context, arg CreateAuthDevice
 	row := q.db.QueryRow(ctx, createAuthDeviceFlow,
 		arg.DeviceCodeHash,
 		arg.UserCodeHash,
+		arg.ClientID,
 		arg.ClientName,
 		arg.TokenName,
 		arg.TtlSeconds,
@@ -544,6 +549,7 @@ func (q *Queries) CreateAuthDeviceFlow(ctx context.Context, arg CreateAuthDevice
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 		&i.ExpiresInSeconds,
 	)
 	return i, err
@@ -1708,7 +1714,7 @@ WHERE id = $1
   AND denied_at IS NULL
   AND consumed_at IS NULL
   AND expires_at > statement_timestamp()
-RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+RETURNING id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 `
 
 type DenyAuthDeviceFlowParams struct {
@@ -1732,6 +1738,7 @@ func (q *Queries) DenyAuthDeviceFlow(ctx context.Context, arg DenyAuthDeviceFlow
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 	)
 	return i, err
 }
@@ -2038,7 +2045,7 @@ func (q *Queries) GetAuthConnectorEmailTrustPolicy(ctx context.Context, arg GetA
 }
 
 const getAuthDeviceFlowByDeviceCodeForUpdate = `-- name: GetAuthDeviceFlowByDeviceCodeForUpdate :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE device_code_hash = $1
 FOR UPDATE
@@ -2065,12 +2072,13 @@ func (q *Queries) GetAuthDeviceFlowByDeviceCodeForUpdate(ctx context.Context, ar
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 	)
 	return i, err
 }
 
 const getAuthDeviceFlowByUserCode = `-- name: GetAuthDeviceFlowByUserCode :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE user_code_hash = $1
   AND approved_at IS NULL
@@ -2100,12 +2108,13 @@ func (q *Queries) GetAuthDeviceFlowByUserCode(ctx context.Context, arg GetAuthDe
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 	)
 	return i, err
 }
 
 const getAuthDeviceFlowByUserCodeForUpdate = `-- name: GetAuthDeviceFlowByUserCodeForUpdate :one
-SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at
+SELECT id, device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at, last_polled_at, client_id
 FROM auth_device_flows
 WHERE user_code_hash = $1
   AND approved_at IS NULL
@@ -2136,6 +2145,7 @@ func (q *Queries) GetAuthDeviceFlowByUserCodeForUpdate(ctx context.Context, arg 
 		&i.DeniedAt,
 		&i.ConsumedAt,
 		&i.LastPolledAt,
+		&i.ClientID,
 	)
 	return i, err
 }
@@ -3238,33 +3248,6 @@ func (q *Queries) ListProjectAuthorizationRolesForPrincipal(ctx context.Context,
 			return nil, err
 		}
 		items = append(items, role)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listProjectIDsForMaintenance = `-- name: ListProjectIDsForMaintenance :many
-SELECT id
-FROM projects
-WHERE deleted_at IS NULL
-ORDER BY id
-`
-
-func (q *Queries) ListProjectIDsForMaintenance(ctx context.Context) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listProjectIDsForMaintenance)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

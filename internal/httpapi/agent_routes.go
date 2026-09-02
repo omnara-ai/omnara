@@ -20,6 +20,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -57,7 +58,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 		request.Body.Source,
 	)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, agentConfigCompileError(err)
 	}
 	config, err := s.server.store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               project.ID,
@@ -248,8 +249,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	name := strings.TrimSpace(request.Body.Name)
-	if name == "" {
+	if request.Body.Name == "" {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "name is required")
 	}
 	principal, _ := principalFromContext(ctx)
@@ -260,7 +260,7 @@ func (s strictOpenAPIServer) RenameAgentProfile(
 	profile, err := s.server.store.Execution().RenameAgentProfile(ctx, executionstore.RenameAgentProfileInput{
 		ProjectID: scope.project.ID,
 		ProfileID: profileID,
-		Name:      name,
+		Name:      request.Body.Name,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -798,16 +798,12 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	name := ""
-	if request.Body.Name != nil {
-		name = strings.TrimSpace(*request.Body.Name)
-	}
 	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
 		LaunchedBy:     principal,
-		Name:           name,
+		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	})
@@ -866,7 +862,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		request.Body.Source,
 	)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return nil, agentConfigCompileError(err)
 	}
 	expectedCurrentConfigID := storage.NilID
 	if request.Body.ExpectedCurrentConfigId != nil {
@@ -1208,9 +1204,12 @@ func (s *Server) agentConfigResponseFromRecord(
 		ContextWindowTokens:    effectiveModel.ContextWindowTokens,
 		MaxOutputTokens:        effectiveModel.MaxOutputTokens,
 		DefaultMaxOutputTokens: nullableFromPtr(effectiveModel.DefaultMaxOutputTokens),
-		DefaultCacheRetention: openapi.ModelCacheRetention(
-			modelCacheRetention(effectiveModel.DefaultCacheRetention),
-		),
+		DefaultCacheRetention: openapi.ModelCacheRetention(model.EffectiveCacheRetention(
+			revision.APIFormat,
+			revision.APIVariant,
+			revision.ProviderModelSlug,
+			model.CacheRetention(effectiveModel.DefaultCacheRetention),
+		)),
 		SupportsTools:             effectiveModel.SupportsTools,
 		SupportsReasoning:         effectiveModel.SupportsReasoning,
 		DefaultReasoningEffort:    effectiveModel.DefaultReasoningEffort,
@@ -1253,13 +1252,6 @@ func (s *Server) agentConfigEffectiveModel(
 		revision.ConfiguredModelRevisionRecord,
 		options,
 	)
-}
-
-func modelCacheRetention(value string) string {
-	if value == "" {
-		return modelstore.ModelCacheRetentionNone
-	}
-	return value
 }
 
 func instructionHash(instruction string) string {
@@ -1317,10 +1309,9 @@ func (s *Server) compileAgentConfigBodyForProject(
 		providerConfig, err := s.store.Models().GetModelProviderConfigByName(ctx, project.OrgID, providerConfigName)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"model.provider_config %q was not found: %w",
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/provider_config",
+					fmt.Errorf("model provider config %q was not found: %w", providerConfigName, storeerr.ErrNotFound),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1333,11 +1324,14 @@ func (s *Server) compileAgentConfigBodyForProject(
 		)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"configured model name %q is not configured for model.provider_config %q: %w",
-					configuredModelName,
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/name",
+					fmt.Errorf(
+						"configured model %q is not configured for model provider config %q: %w",
+						configuredModelName,
+						providerConfigName,
+						storeerr.ErrNotFound,
+					),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1350,11 +1344,14 @@ func (s *Server) compileAgentConfigBodyForProject(
 		)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, fmt.Errorf(
-					"configured model name %q on model.provider_config %q does not have an active project grant: %w",
-					configuredModelName,
-					providerConfigName,
-					storeerr.ErrNotFound,
+				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+					"/model/name",
+					fmt.Errorf(
+						"configured model %q on model provider config %q does not have an active project grant: %w",
+						configuredModelName,
+						providerConfigName,
+						storeerr.ErrNotFound,
+					),
 				)
 			}
 			return agentconfig.ResolvedModelSelection{}, err
@@ -1445,4 +1442,25 @@ func (s *Server) compileAgentConfigBodyForProject(
 		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     result.Hash,
 	}, nil
+}
+
+func agentConfigCompileError(err error) apierror.ResponseError {
+	var validationErr *agentconfig.ValidationError
+	if !errors.As(err, &validationErr) {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	issues := make([]openapi.AgentConfigErrorIssue, 0, len(validationErr.Issues))
+	for _, issue := range validationErr.Issues {
+		converted := openapi.AgentConfigErrorIssue{Path: issue.Path, Message: issue.Message}
+		if issue.Line > 0 {
+			line := issue.Line
+			converted.Line = &line
+		}
+		if issue.Column > 0 {
+			column := issue.Column
+			converted.Column = &column
+		}
+		issues = append(issues, converted)
+	}
+	return apierror.WithIssues(openapi.ErrorCodeInvalidRequest, validationErr.Error(), issues)
 }

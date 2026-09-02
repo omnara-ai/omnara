@@ -46,9 +46,8 @@ func resolveSkillToolRequest(raw json.RawMessage) (skillToolInput, error) {
 			return skillToolInput{}, errors.New("skill name cannot be null")
 		}
 	}
-	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" {
-		return skillToolInput{}, errors.New("`name` is required")
+	if err := skills.ValidateName(input.Name); err != nil {
+		return skillToolInput{}, fmt.Errorf("skill name %w", err)
 	}
 	return input, nil
 }

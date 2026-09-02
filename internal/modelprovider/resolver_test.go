@@ -59,6 +59,12 @@ func TestCacheRetentionForModelDefaultsUnknownToNone(t *testing.T) {
 	}
 }
 
+func TestCacheRetentionForModelKeepsEmptyUnset(t *testing.T) {
+	if got := cacheRetentionForModel(""); got != model.CacheRetentionUnset {
+		t.Fatalf("cache retention = %q, want unset", got)
+	}
+}
+
 func TestRouteAuthForProviderConfig(t *testing.T) {
 	bearer, err := routeAuthForProviderConfig(modelstore.ModelProviderConfigRecord{
 		AuthKind:    modelstore.ModelProviderAuthKindBearerToken,

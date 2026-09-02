@@ -3,6 +3,21 @@
 import * as z from 'zod';
 
 /**
+ * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+ */
+export const zResourceName = z.string().min(1).refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).transform(value => value.normalize('NFC')).refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).refine(value => !/^\p{White_Space}|\p{White_Space}$/u.test(value), { message: 'Resource name must not start or end with whitespace' }).refine(value => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}⠀]/u.test(value), { message: 'Resource name contains an unsupported invisible, control, or format character' }).refine(value => !value.includes('�'), { message: 'Resource name contains the Unicode replacement character' }).refine(value => !Array.from(value).some(character => character !== ' ' && /\p{White_Space}/u.test(character)), { message: 'Resource name may only use ordinary spaces' });
+
+/**
+ * Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
+ */
+export const zAgentName = z.string().refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).transform(value => value.normalize('NFC')).refine(value => Array.from(value).length <= 64, { message: 'Resource name cannot exceed 64 Unicode characters' }).refine(value => !/^\p{White_Space}|\p{White_Space}$/u.test(value), { message: 'Resource name must not start or end with whitespace' }).refine(value => !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}⠀]/u.test(value), { message: 'Resource name contains an unsupported invisible, control, or format character' }).refine(value => !value.includes('�'), { message: 'Resource name contains the Unicode replacement character' }).refine(value => !Array.from(value).some(character => character !== ' ' && /\p{White_Space}/u.test(character)), { message: 'Resource name may only use ordinary spaces' });
+
+/**
+ * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export const zResourceListSort = z.enum([
@@ -24,8 +39,16 @@ export const zCreatedResourceListSort = z.enum([
     'created_at'
 ]).default('-created_at');
 
+export const zAgentConfigErrorIssue = z.object({
+    path: z.string(),
+    message: z.string(),
+    line: z.int().gte(1).optional(),
+    column: z.int().gte(1).optional()
+});
+
 export const zError = z.object({
     error: z.string(),
+    issues: z.array(zAgentConfigErrorIssue).optional(),
     code: z.enum([
         'invalid_request',
         'unauthorized',
@@ -169,7 +192,7 @@ export const zModelProviderApiVariantResponse = z.string();
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Default prompt-cache hint for model requests. `none` means Omnara does not send a cache hint; providers may still apply their own automatic caching. `short` and `long` are translated to the closest supported control for the selected API.
+ * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
  */
 export const zModelCacheRetention = z.enum([
     'none',
@@ -194,7 +217,7 @@ export const zModelCatalog = z.object({
 });
 
 export const zCreateConfiguredModelRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     provider_model_slug: z.string().min(1),
     context_window_tokens: z.int().gte(2).lte(2147483647),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
@@ -213,7 +236,7 @@ export const zCreateConfiguredModelRequest = z.object({
  * Update a configured model. Omitted fields keep their current values. Runtime changes create a new immutable model revision; changing only name just renames the model.
  */
 export const zUpdateConfiguredModelRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     provider_model_slug: z.string().min(1).optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
     max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
@@ -283,7 +306,7 @@ export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
  * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export const zCreateModelProviderConfigRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     preset: z.enum([
         'openai',
         'openrouter',
@@ -333,7 +356,7 @@ export const zModelProviderConfig = z.object({
     id: zModelProviderConfigId,
     org_id: zOrganizationId,
     management_kind: zManagementKind,
-    name: z.string(),
+    name: zResourceName,
     api_format: zModelApiFormat,
     api_variant: zModelProviderApiVariantResponse,
     base_url: z.string(),
@@ -363,13 +386,13 @@ export const zConfiguredModel = z.object({
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
     management_kind: zManagementKind,
-    name: z.string(),
+    name: zResourceName,
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),
     context_window_tokens: z.int(),
     max_output_tokens: z.int(),
     default_max_output_tokens: z.int().nullish(),
-    default_cache_retention: zModelCacheRetention,
+    default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
     supports_reasoning: z.boolean(),
     default_reasoning_effort: z.string(),
@@ -414,8 +437,8 @@ export const zConfiguredModelSummary = z.object({
     id: zConfiguredModelId,
     org_id: zOrganizationId,
     model_provider_config_id: zModelProviderConfigId,
-    name: z.string(),
-    provider_config: z.string(),
+    name: zResourceName,
+    provider_config: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -474,15 +497,33 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
+
+export const zSkillFile = z.object({
+    path: z.string(),
+    size: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
     owner: zSkillOwner,
-    name: z.string(),
+    name: zSkillName,
     revision_id: zSkillRevisionId,
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
     skill_md: z.string().optional(),
+    files: z.array(zSkillFile).optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -650,9 +691,125 @@ export const zToolCatalog = z.object({
     mcp_tool_permissions: zToolPermissionProfile
 });
 
-export const zAgentConfigModel = z.object({
-    provider_config: z.string(),
+export const zMcpRegistryHeader = z.object({
     name: z.string(),
+    description: z.string().optional(),
+    is_required: z.boolean(),
+    is_secret: z.boolean()
+});
+
+export const zMcpRegistryRemote = z.object({
+    type: z.string(),
+    url: z.string(),
+    headers: z.array(zMcpRegistryHeader).optional()
+});
+
+export const zMcpRegistryIcon = z.object({
+    src: z.string(),
+    mime_type: z.string().optional(),
+    sizes: z.array(z.string()).optional(),
+    theme: z.string().optional()
+});
+
+export const zMcpRegistryServer = z.object({
+    name: z.string(),
+    title: z.string().optional(),
+    description: z.string(),
+    version: z.string(),
+    website_url: z.string().optional(),
+    status: z.string(),
+    updated_at: z.iso.datetime({ offset: true }),
+    remotes: z.array(zMcpRegistryRemote),
+    icons: z.array(zMcpRegistryIcon)
+});
+
+export const zListMcpServersResponse = z.object({
+    data: z.array(zMcpRegistryServer),
+    next_cursor: z.string().nullable()
+});
+
+export const zMcpServerAuthNone = z.object({
+    type: z.enum(['none'])
+});
+
+export const zMcpServerAuthBearer = z.object({
+    type: z.enum(['bearer']),
+    secret_id: zSecretId
+});
+
+export const zMcpServerAuthOAuth = z.object({
+    type: z.enum(['oauth']),
+    secret_id: zSecretId
+});
+
+export const zMcpServerAuthSigV4 = z.object({
+    type: z.enum(['sigv4']),
+    secret_id: zSecretId,
+    service: z.string().min(1).max(64),
+    region: z.string().min(1).max(64)
+});
+
+/**
+ * How Omnara authenticates to the MCP server. Secret references must be available to the project, either owned by it or granted to it.
+ */
+export const zMcpServerAuth = z.discriminatedUnion('type', [
+    zMcpServerAuthNone.extend({ type: z.literal('none') }),
+    zMcpServerAuthBearer.extend({ type: z.literal('bearer') }),
+    zMcpServerAuthOAuth.extend({ type: z.literal('oauth') }),
+    zMcpServerAuthSigV4.extend({ type: z.literal('sigv4') })
+]);
+
+export const zMcpServerToolsRequest = z.object({
+    url: z.url().min(1).max(2048),
+    auth: zMcpServerAuth
+});
+
+export const zMcpServerAuthHint = z.object({
+    type: z.enum(['oauth', 'bearer']),
+    scopes: z.array(z.string()).optional(),
+    authorization_server: z.string().optional()
+});
+
+export const zMcpServerAuthRequiredError = z.object({
+    error: z.string(),
+    code: z.enum(['unprocessable']),
+    auth: zMcpServerAuthHint
+});
+
+export const zMcpServerInfo = z.object({
+    name: z.string(),
+    version: z.string(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    website_url: z.string().optional()
+});
+
+export const zMcpServerToolAnnotations = z.object({
+    title: z.string().optional(),
+    read_only_hint: z.boolean().optional(),
+    destructive_hint: z.boolean().optional(),
+    idempotent_hint: z.boolean().optional(),
+    open_world_hint: z.boolean().optional()
+});
+
+export const zMcpServerTool = z.object({
+    name: z.string(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    input_schema: z.record(z.string(), z.unknown()),
+    output_schema: z.record(z.string(), z.unknown()).optional(),
+    annotations: zMcpServerToolAnnotations.optional()
+});
+
+export const zMcpServerToolsResponse = z.object({
+    protocol_version: z.string(),
+    server_info: zMcpServerInfo,
+    tools: z.array(zMcpServerTool)
+});
+
+export const zAgentConfigModel = z.object({
+    provider_config: zResourceName,
+    name: zResourceName,
     provider_model_slug: z.string(),
     configured_model_id: zConfiguredModelId,
     current_revision_id: zConfiguredModelRevisionId,
@@ -685,7 +842,7 @@ export const zAgentConfig = z.object({
 });
 
 export const zCreateAgentProfileRequest = z.object({
-    name: z.string(),
+    name: zResourceName,
     config: zAgentConfigId
 });
 
@@ -695,14 +852,14 @@ export const zUpdateAgentProfileRequest = z.object({
 });
 
 export const zRenameAgentProfileRequest = z.object({
-    name: z.string()
+    name: zResourceName
 });
 
 export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
     project_id: zProjectId,
-    name: z.string(),
+    name: zResourceName,
     current_config_id: zAgentConfigId,
     current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     current_config: zAgentConfig,
@@ -752,7 +909,7 @@ export const zCronTriggerFailureReport = z.object({
 });
 
 export const zCreateCronTriggerRequest = z.object({
-    name: z.string(),
+    name: zResourceName,
     target: zCronTriggerTarget,
     cron: zCronExpression,
     timezone: zCronTimezone.optional(),
@@ -761,7 +918,7 @@ export const zCreateCronTriggerRequest = z.object({
 });
 
 export const zUpdateCronTriggerRequest = z.object({
-    name: z.string().optional(),
+    name: zResourceName.optional(),
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate.optional(),
@@ -772,7 +929,7 @@ export const zCronTrigger = z.object({
     id: zCronTriggerId,
     org_id: zOrganizationId,
     project_id: zProjectId,
-    name: z.string(),
+    name: zResourceName,
     target: zCronTriggerTarget,
     cron: zCronExpression,
     timezone: zCronTimezone,
@@ -793,13 +950,13 @@ export const zListCronTriggersResponse = z.object({
 export const zCreateAgentRequest = z.object({
     profile: zAgentProfileId.optional(),
     config: zAgentConfigId,
-    name: z.string().optional(),
+    name: zAgentName.optional(),
     message: z.string().optional()
 });
 
 export const zAgentModel = z.object({
-    provider_config: z.string(),
-    name: z.string()
+    provider_config: zResourceName,
+    name: zResourceName
 });
 
 export const zIntegrationTarget = z.object({
@@ -816,7 +973,7 @@ export const zAgent = z.object({
     project_id: zProjectId,
     agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
-    name: z.string(),
+    name: zAgentName,
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
@@ -975,6 +1132,9 @@ export const zTextContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+/**
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ */
 export const zInlineMediaContentBlock = z.object({
     type: z.enum(['media']),
     media_type: z.enum([
@@ -987,6 +1147,15 @@ export const zInlineMediaContentBlock = z.object({
         'text/markdown',
         'text/csv',
         'text/tab-separated-values',
+        'text/x-iif',
+        'application/msword',
+        'application/rtf',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.keynote',
+        'application/vnd.apple.iwork',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -999,6 +1168,7 @@ export const zInlineMediaContentBlock = z.object({
 export const zMediaRefContentBlock = z.object({
     type: z.enum(['media_ref']),
     artifact_id: zArtifactId,
+    exclude_from_model_context: z.boolean().optional(),
     metadata: zContentBlockMetadata.optional()
 });
 
@@ -1052,6 +1222,7 @@ export const zAgentInput = z.object({
     delivery_mode: zAgentInputDeliveryMode,
     input_kind: zAgentInputKind,
     actor_id: zActorId.optional(),
+    input_idempotency_key: z.string().optional(),
     content_blocks: z.array(zAgentInputContentBlock).optional(),
     queued_at: zTimestamp
 });
@@ -1545,7 +1716,7 @@ export const zSecretOwnerInput = z.discriminatedUnion('kind', [
 export const zMcpoAuthStartRequest = z.object({
     owner: zSecretOwnerInput,
     mcp_url: z.string().min(1),
-    name: z.string().min(1),
+    name: zResourceName,
     return_to: z.string().optional(),
     client_id: z.string().optional(),
     client_secret: z.string().optional(),
@@ -1614,13 +1785,13 @@ export const zSecretMaterial = z.discriminatedUnion('kind', [
 
 export const zCreateSecretRequest = z.object({
     owner: zSecretOwnerInput,
-    name: z.string().min(1),
+    name: zResourceName,
     metadata: zMetadata.optional(),
     material: zSecretMaterial
 });
 
 export const zUpdateSecretRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     metadata: zMetadata.optional()
 });
 
@@ -1644,7 +1815,7 @@ export const zSecret = z.object({
     org_id: zOrganizationId,
     management_kind: zManagementKind,
     owner: zSecretOwner,
-    name: z.string(),
+    name: zResourceName,
     kind: zSecretKind,
     metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -1693,12 +1864,12 @@ export const zSecretGrant = z.object({
 });
 
 export const zCreateOrganizationRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 export const zOrganization = z.object({
     id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1713,7 +1884,7 @@ export const zOrganizationMembership = z.object({
 export const zOrgInvitation = z.object({
     id: zOrgInvitationId,
     org_id: zOrganizationId,
-    org_name: z.string(),
+    org_name: zResourceName,
     email: z.email(),
     org_role: z.string(),
     created_at: zTimestamp
@@ -1730,13 +1901,13 @@ export const zCreateOrgInvitationRequest = z.object({
 });
 
 export const zCreatePersonalAccessTokenRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 export const zPersonalAccessToken = z.object({
     id: zPersonalAccessTokenId,
     user_id: zUserId,
-    name: z.string(),
+    name: zResourceName,
     token_id: z.string(),
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -1756,7 +1927,7 @@ export const zOrgApiKeyRole = z.enum(['admin', 'member']);
 export const zOrgApiKey = z.object({
     id: zOrgApiKeyId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     token_id: z.string(),
     org_role: z.string(),
     created_by_user_id: zUserId,
@@ -1767,7 +1938,7 @@ export const zOrgApiKey = z.object({
 });
 
 export const zCreateOrgApiKeyRequest = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     org_role: zOrgApiKeyRole
 });
 
@@ -1777,7 +1948,7 @@ export const zCreateOrgApiKeyResponse = z.object({
 });
 
 export const zUpdateOrgApiKeyRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     org_role: zOrgApiKeyRole.optional()
 });
 
@@ -1799,7 +1970,7 @@ export const zArtifact = z.object({
 });
 
 export const zCreateMachinePoolRequestBase = z.object({
-    name: z.string().min(1),
+    name: zResourceName,
     description: z.string().optional(),
     provider: z.string().min(1),
     default_machine_cpu: z.int().gte(1).lte(2147483647).optional(),
@@ -1848,7 +2019,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
 ]));
 
 export const zUpdateMachinePoolRequest = z.object({
-    name: z.string().min(1).optional(),
+    name: zResourceName.optional(),
     description: z.string().optional(),
     default_machine_cpu: z.int().gte(1).lte(2147483647).nullish(),
     default_machine_memory_mb: z.int().gte(1).lte(2147483647).nullish(),
@@ -1879,7 +2050,7 @@ export const zMachinePoolUsage = z.object({
 export const zMachinePool = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -1937,7 +2108,7 @@ export const zMachine = z.object({
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
     machine_pool_id: zMachinePoolId.nullish(),
-    display_name: z.string(),
+    display_name: zResourceName,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -1960,7 +2131,7 @@ export const zMachine = z.object({
 });
 
 export const zCreateMachineRequest = z.object({
-    display_name: z.string().min(1),
+    display_name: zResourceName,
     description: z.string().optional(),
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -1969,8 +2140,14 @@ export const zCreateMachineRequest = z.object({
 });
 
 export const zConnectByoMachineRequest = z.object({
-    display_name: z.string().min(1),
-    project_ids: z.array(zProjectId).max(100)
+    display_name: zResourceName,
+    description: z.string().optional(),
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    secret_env: z.record(z.string(), zSecretId).optional(),
+    metadata: zMachineMetadata.optional(),
+    project_ids: z.array(zProjectId).max(100).optional(),
+    token_name: zResourceName.optional()
 });
 
 export const zUpdateMachineRequest = z.object({
@@ -1986,7 +2163,7 @@ export const zMachineSummaryFields = z.object({
     id: zMachineId,
     org_id: zOrganizationId,
     source_kind: zMachineSourceKind,
-    display_name: z.string(),
+    display_name: zResourceName,
     description: z.string(),
     provider: z.string(),
     lifecycle_state: zMachineLifecycleState,
@@ -2133,7 +2310,7 @@ export const zUpdateProjectMachinePoolGrantRequest = z.object({
 export const zMachinePoolSummary = z.object({
     id: zMachinePoolId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     management_kind: zManagementKind,
     description: z.string(),
     provider: z.string(),
@@ -2152,7 +2329,7 @@ export const zListProjectMachinePoolGrantsResponse = z.object({
 });
 
 export const zCreateMachineDaemonTokenRequest = z.object({
-    name: z.string().optional(),
+    name: zResourceName.optional(),
     metadata: zMetadata.optional()
 });
 
@@ -2160,7 +2337,7 @@ export const zMachineDaemonToken = z.object({
     id: zMachineDaemonTokenId,
     org_id: zOrganizationId,
     machine_id: zMachineId,
-    name: z.string(),
+    name: zResourceName,
     metadata: zMetadata,
     created_at: zTimestamp,
     last_used_at: zTimestamp.nullable(),
@@ -2283,8 +2460,12 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
+export const zUploadArtifactResponse = z.object({
+    artifact_id: zArtifactId
+});
+
 export const zCreateProjectRequest = z.object({
-    name: z.string().min(1)
+    name: zResourceName
 });
 
 /**
@@ -2293,7 +2474,7 @@ export const zCreateProjectRequest = z.object({
 export const zProjectFields = z.object({
     id: zProjectId,
     org_id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -2356,7 +2537,7 @@ export const zCurrentUserIdentity = z.object({
 
 export const zCurrentUserOrg = z.object({
     id: zOrganizationId,
-    name: z.string(),
+    name: zResourceName,
     role: z.string(),
     created_at: zTimestamp
 });
@@ -2394,7 +2575,7 @@ export const zSetProjectMembershipRequest = z.object({
 
 export const zProjectMembershipGrant = z.object({
     project_id: zProjectId,
-    project_name: z.string(),
+    project_name: zResourceName,
     role: z.string(),
     created_at: zTimestamp
 });
@@ -2896,9 +3077,21 @@ export const zGetSkillPath = z.object({
 });
 
 /**
- * Visible skill metadata and instructions.
+ * Visible skill metadata, instructions, and archive file listing.
  */
 export const zGetSkillResponse = zSkill;
+
+export const zUpdateSkillBody = zUpdateSkillRequest;
+
+export const zUpdateSkillPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
+});
+
+/**
+ * Skill updated with a new revision.
+ */
+export const zUpdateSkillResponse = zSkill;
 
 export const zListSkillGrantsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3140,6 +3333,30 @@ export const zCreateAgentConfigResponse = zAgentConfig;
  * Built-in tools and permission modes available to agent configs.
  */
 export const zGetToolCatalogResponse = zToolCatalog;
+
+export const zListMcpServersQuery = z.object({
+    q: z.string().max(200).optional(),
+    remote_url: z.string().max(2048).optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Registry servers matching the query.
+ */
+export const zListMcpServersResponse2 = zListMcpServersResponse;
+
+export const zListMcpServerToolsBody = zMcpServerToolsRequest;
+
+export const zListMcpServerToolsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Tools advertised by the MCP server.
+ */
+export const zListMcpServerToolsResponse = zMcpServerToolsResponse;
 
 export const zGetAgentConfigPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3581,7 +3798,7 @@ export const zListQueuedBacklogInputsQuery = z.object({
 });
 
 /**
- * Queued backlog inputs.
+ * Waiting backlog inputs.
  */
 export const zListQueuedBacklogInputsResponse = zListAgentInputsResponse;
 
@@ -4256,3 +4473,28 @@ export const zGetDaemonSkillArchiveQuery = z.object({
  * Skill archive bytes.
  */
 export const zGetDaemonSkillArchiveResponse = z.string();
+
+export const zUploadDaemonArtifactBody = z.string();
+
+export const zUploadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId
+});
+
+export const zUploadDaemonArtifactQuery = z.object({
+    filename: z.string().min(1).max(255)
+});
+
+/**
+ * Artifact created.
+ */
+export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
+
+export const zDownloadDaemonArtifactPath = z.object({
+    toolCallID: zToolCallId,
+    artifactID: zArtifactId
+});
+
+/**
+ * Artifact bytes, served with the artifact's stored content type.
+ */
+export const zDownloadDaemonArtifactResponse = z.string();

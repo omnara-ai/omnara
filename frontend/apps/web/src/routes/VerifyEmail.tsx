@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { authTokenFromURL, clearAuthTokenFromURL } from '@/lib/auth-link'
+import { safeReturnTo } from '@/lib/auth-return-to'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 
@@ -21,6 +22,9 @@ interface VerifyEmailState {
 
 export function VerifyEmail() {
   const [token] = useState(authTokenFromURL)
+  const [returnTo] = useState(() =>
+    safeReturnTo(new URLSearchParams(window.location.search).get('return_to')),
+  )
   const [state, setState] = useState<VerifyEmailState>({
     displayName: '',
     password: '',
@@ -45,7 +49,7 @@ export function VerifyEmail() {
     setState((prev) => ({ ...prev, status: submitting }))
     try {
       await completeEmailVerification(token, state.password, state.displayName)
-      window.location.assign('/')
+      window.location.assign(returnTo)
     } catch (err) {
       const status = submitError(err, 'Email verification failed')
       setState((prev) => ({ ...prev, status }))

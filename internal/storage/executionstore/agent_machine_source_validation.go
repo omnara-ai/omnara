@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -57,9 +58,13 @@ func resolveMachinePoolName(
 	if machinePoolName == "" {
 		return NilID, false, nil
 	}
+	normalizedName, err := resourcename.CanonicalizeRequired("machine pool name", machinePoolName)
+	if err != nil {
+		return NilID, false, err
+	}
 	pool, err := qtx.GetMachinePoolByName(
 		ctx,
-		dbsqlc.GetMachinePoolByNameParams{OrgID: orgID, Name: machinePoolName},
+		dbsqlc.GetMachinePoolByNameParams{OrgID: orgID, Name: normalizedName},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return NilID, false, nil

@@ -471,7 +471,7 @@ func assertBYOMachineObservationResult(
 
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	ctx := context.Background()
-	fixture := newMachineDispatchFixture(t, ctx, "approved-machine-target-change")
+	fixture := newMachineDispatchFixture(t, ctx, "approved-target-change")
 	first := createExecutableBinding(
 		t,
 		ctx,
@@ -1241,8 +1241,8 @@ func assertManagedWorkAdmissionToolFailure(
 	}
 	body := toolResultMapFromTestParts(t, result.ContentParts)
 	if body["error_code"] != storeerr.ManagedWorkAdmissionDeniedCode ||
-		body["error"] != managedWorkAdmissionDeniedMessage ||
-		body["message"] != managedWorkAdmissionDeniedMessage ||
+		body["error"] != "Insufficient Omnara credits." ||
+		body["message"] != "Insufficient Omnara credits." ||
 		body["retryable"] != false {
 		t.Fatalf("denied tool result = %+v", body)
 	}

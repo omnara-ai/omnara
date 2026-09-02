@@ -4,11 +4,13 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
+import type { AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
+import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { type SyntheticEvent, useReducer, useRef, useState } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import {
   type AgentConfigMode,
@@ -20,14 +22,15 @@ import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import {
   type AgentTemplate,
-  agentTemplateConfig,
+  agentTemplateBasicConfig,
   agentTemplateName,
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
+import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
+import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import {
-  type BasicConfig,
   createBasicConfigSession,
   emptyBasicConfig,
   useAgentBuilderForm,
@@ -36,10 +39,15 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { configSubmitError } from '@/lib/agent-config-issues'
+import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
+import { resourceNameValid } from '@/lib/resource-name'
 import type { SubmitStatus } from '@/lib/submit-status'
-import { idle, settleSubmission, statusError, submitError, submitting } from '@/lib/submit-status'
+import { idle, settleSubmission, statusError, submitting } from '@/lib/submit-status'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
+import { useWebConfig } from '@/lib/web-config'
 
 type SubmitAction = 'profile' | 'launch'
 
@@ -73,23 +81,27 @@ export function CreateAgentFormView({
   const createAgentProfile = useCreateAgentProfile(activeOrg.id, projectId)
   const updateAgentProfile = useUpdateAgentProfile(activeOrg.id, projectId)
   const createAgent = useCreateAgent(activeOrg.id, projectId)
+  const { data: webConfig } = useWebConfig()
   const navigate = useNavigate()
   const [mode, dispatchMode] = useReducer(
     agentConfigModeReducer,
     initialAgentConfigModeState('builder'),
   )
+  const [restored] = useState(takeMcpBuilderOAuthRestore)
   const [draft, setDraft] = useState<CreateAgentDraft>(() => ({
-    name: initialTemplate?.name ?? '',
+    name: restored?.agentName ?? initialTemplate?.name ?? '',
     status: idle,
   }))
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
+  const [launchError, setLaunchError] = useState<ApiError>()
   const savedProfile = useRef<SavedProfile | null>(null)
   const [session, setSession] = useState(() => createBasicConfigSession(''))
   const form = useAgentBuilderForm(
     session,
-    initialTemplate
-      ? templateBasicConfig(initialTemplate)
-      : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) },
+    restored?.draft ??
+      (initialTemplate
+        ? agentTemplateBasicConfig(initialTemplate, catalog, defaultPool, defaultModel)
+        : { ...emptyBasicConfig, tools: defaultAgentTools(catalog) }),
   )
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
@@ -104,16 +116,8 @@ export function CreateAgentFormView({
     dispatchMode({ type: 'switch-mode', mode: nextMode })
   }
 
-  function templateBasicConfig(template: AgentTemplate): BasicConfig {
-    return {
-      mcpServers: [],
-      skillIds: [],
-      ...agentTemplateConfig(template, catalog, defaultPool, defaultModel),
-    }
-  }
-
   function applyTemplate(template: AgentTemplate) {
-    const next = templateBasicConfig(template)
+    const next = agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
     // Keep a model the user already picked; templates only fill the gap.
     if (form.model.providerConfig !== '' && form.model.modelName !== '') {
       next.providerConfig = form.model.providerConfig
@@ -123,6 +127,8 @@ export function CreateAgentFormView({
     setDraft((prev) => ({ ...prev, name: agentTemplateName(prev.name, template) }))
   }
 
+  const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
+
   if (project == null) return null
 
   const showBuilder = mode.mode === 'builder'
@@ -131,15 +137,17 @@ export function CreateAgentFormView({
   const yaml = mode.editorYaml ?? form.yaml
   const canSubmit =
     !isSubmitting &&
-    draft.name.trim() !== '' &&
+    resourceNameValid(draft.name) &&
     yaml.trim() !== '' &&
     !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
+    setLaunchError(undefined)
+    setIssues([])
     setDraft((prev) => ({ ...prev, status: submitting }))
     setPendingAction(action)
-    const name = draft.name.trim()
+    const name = draft.name
     const result = await settleSubmission(async () => {
       let profile = savedProfile.current
       if (profile?.name !== name || profile.yaml !== yaml) {
@@ -179,13 +187,17 @@ export function CreateAgentFormView({
     if (result.ok) {
       setDraft((prev) => ({ ...prev, status: idle }))
     } else {
-      const status = submitError(
+      if (action === 'launch' && isInsufficientCreditsError(result.error)) {
+        setLaunchError(result.error)
+      }
+      const failure = configSubmitError(
         result.error,
         action === 'launch' ? 'Could not create agent' : 'Could not create profile',
       )
+      setIssues(failure.issues)
       setDraft((prev) => ({
         ...prev,
-        status,
+        status: { phase: 'error', message: failure.message },
       }))
     }
   }
@@ -199,8 +211,8 @@ export function CreateAgentFormView({
         void submit('launch')
       }}
     >
-      {/* Negative margins offset the scroll container's p-6 so the scroll region and the pinned bar reach the pane edges. */}
-      <div className="-mx-6 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6">
+      {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
+      <div className="-mx-4 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
             items={[
@@ -251,6 +263,7 @@ export function CreateAgentFormView({
                     setDraft((prev) => ({ ...prev, name: event.target.value }))
                   }}
                 />
+                <ResourceNameFieldError value={draft.name} />
               </Field>
               {showBuilder && (
                 <AgentConfigModelField
@@ -263,13 +276,20 @@ export function CreateAgentFormView({
               )}
             </div>
             <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
-              <AgentConfigBasicForm orgId={activeOrg.id} projectId={projectId} form={form} />
+              <AgentConfigBasicForm
+                orgId={activeOrg.id}
+                projectId={projectId}
+                form={form}
+                agentName={draft.name}
+              />
+              <AgentConfigIssueList issues={issues} />
             </div>
             {!showBuilder && (
               <AgentConfigYamlField
                 id="agent-yaml"
                 value={yaml}
                 className="h-auto min-h-[24rem] flex-1"
+                issues={issues}
                 onChange={(value) => {
                   dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
                 }}
@@ -278,33 +298,44 @@ export function CreateAgentFormView({
           </FieldGroup>
         </div>
       </div>
-      <div className="bg-sidebar -mx-6 -mb-6 flex items-center justify-between gap-4 border-t px-8 py-3.5">
+      <div className="bg-sidebar -mx-4 -mb-4 flex flex-col gap-3 border-t px-4 py-3.5 sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
         <Button
           type="button"
           variant="ghost"
           disabled={isSubmitting}
+          className="w-full sm:w-auto"
           onClick={() => {
             void navigate({ to: '/projects/$projectId/agents', params: { projectId } })
           }}
         >
           Cancel
         </Button>
-        <div className="flex items-center gap-4">
-          {errorMessage && (
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+          {launchError && webConfig?.billingURL ? (
+            <p className="text-destructive whitespace-pre-wrap text-sm" role="alert">
+              <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
+            </p>
+          ) : errorMessage ? (
             <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
-          )}
+          ) : null}
           <Button
             type="button"
             variant="outline"
             disabled={!canSubmit}
             loading={pendingAction === 'profile'}
+            className="w-full sm:w-auto"
             onClick={() => {
               void submit('profile')
             }}
           >
             Create profile
           </Button>
-          <Button type="submit" disabled={!canSubmit} loading={pendingAction === 'launch'}>
+          <Button
+            type="submit"
+            disabled={!canSubmit}
+            loading={pendingAction === 'launch'}
+            className="w-full sm:w-auto"
+          >
             Create & launch agent
           </Button>
         </div>

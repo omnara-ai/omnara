@@ -14,10 +14,12 @@ export function AgentConfigBasicForm({
   orgId,
   projectId,
   form,
+  agentName,
 }: {
   orgId: string
   projectId: string
   form: AgentBuilderForm
+  agentName?: string
 }) {
   const toolCatalog = useToolCatalog()
   const showMissingMachineTools =
@@ -76,6 +78,8 @@ export function AgentConfigBasicForm({
             permissionProfile={toolCatalog.data?.mcp_tool_permissions}
             servers={form.mcpServers}
             onServersChange={form.setMcpServers}
+            builderDraft={form.draft}
+            agentName={agentName}
           />
         </div>
       </div>

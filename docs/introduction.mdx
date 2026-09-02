@@ -4,57 +4,59 @@ description: The API for Production-Grade Agents
 icon: "hand-wave"
 ---
 
-An agent your product or team can rely on is a service. It needs hosting, user and team access, integrations, durability, and clear rules about what it's allowed to do.
+Omnara is an open source platform for running managed agents. It handles execution and state while you choose the models, tools, machines, and how users interact with each agent.
 
-Omnara provides that service and makes it accessible through a console and stateful API. Conversations live in durable state, turning agents into durable API objects you can launch, stream, steer, and audit.
+## Use cases
 
-## Define, launch, converse
+Omnara can be used to build agents for internal use cases or external use cases, such as:
+* Internal slack bots
+* Code review agents
+* Agents integrated in a product dashboard
 
-Most workflows follow three steps:
+Omnara exposes a web interface, CLI, and REST API to enable these use cases.
 
-1. **Define** — use the console or write a small YAML config: an instruction, a model, and the tools the agent may use.
-2. **Launch** — create an agent from that config. The agent starts working immediately.
-3. **Converse** — stream its events live, send follow-up input, and resolve the approvals and questions it raises.
+## Build an agent
 
-## What you get
+An agent starts as a small YAML config:
 
-<CardGroup cols={2}>
-  <Card title="Durable agents" icon="database">
-    Agents keep their full history and live state across restarts, disconnects, and provider hiccups.
-  </Card>
-  <Card title="Humans in the loop" icon="user-check">
-    Agents pause for approvals and questions. Tool permissions decide what runs freely and what waits for a person.
-  </Card>
-  <Card title="Flexible compute" icon="server">
-    Bring your own machines or let Omnara allocate cloud machines from pools. Offline machines leave and rejoin seamlessly.
-  </Card>
-  <Card title="Open source, model-agnostic" icon="code-branch">
-    Start with hosted Omnara or self-host the same control plane and API. Use OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint.
-  </Card>
-</CardGroup>
+```yaml
+instruction: |
+  You are an engineering assistant. Use your machine to run
+  commands. Ask a question when a task is not clear.
+model:
+  provider_config: omnara-openrouter
+  name: anthropic/claude-fable-5
+tools:
+  run_command: {}
+  web_search: {}
+  ask_question: {}
+machine_sources:
+  - machine_pool_name: default-pool
+```
 
-## How it fits together
+You can create and launch the agent in two ways:
 
-1. An **organization** owns the shared resources: projects, secrets, model providers, machines.
-2. A **project** scopes agents and the grants that decide which shared resources they may use.
-3. An **agent** is one durable conversation with its config, tool calls, and history.
-4. You send **inputs**, stream **events**, and resolve **interactions** when the agent needs you.
+- **Dashboard** — click **New agent** in your project in the dashboard.
+- **Programmatically** - Omnara provides an **API**, **Typescript SDK**, and **CLI** to interact with Omnara
 
-[How Omnara works](/how-omnara-works) walks through this object model in detail.
+The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
+
+## Core concepts
+
+1. An **organization** owns shared resources for your team: **projects**, **secrets**, **model providers**, and **machines**.
+2. **Projects** contains agents. **Grants** decide which shared resources the project can use.
+3. An **agent** is one durable conversation with its config, tool calls, and history. **Profiles** provide reusable agent configurations.
+4. You send **inputs**, stream **events**, and resolve **interactions** in an agent.
+
+The [concepts](/concepts) page gives a short overview of this model.
 
 ## Start here
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Launch an agent and stream its first reply in about ten minutes
+    Write a config, create the grants, and launch an agent with the dashboard, the API, or the CLI
   </Card>
-  <Card title="How Omnara works" icon="sitemap" href="/how-omnara-works">
-    The object model, the agent loop, and how access control fits together
-  </Card>
-  <Card title="Repo Slack agent" icon="slack" href="/examples/repo-slack-agent">
-    The flagship example: a Slack bot doing engineering work on a real repository, on its own cloud machine
-  </Card>
-  <Card title="API reference" icon="code" href="/api/overview">
-    Conventions, authentication, errors, and every endpoint
+  <Card title="Concepts" icon="sitemap" href="/concepts">
+    The object model, the agent loop, and access control
   </Card>
 </CardGroup>

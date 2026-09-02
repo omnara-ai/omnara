@@ -29,10 +29,12 @@ import { StartupScriptField } from './StartupScriptField'
 export function OverridesCollapsible({
   title = 'Overrides',
   description,
+  keepMounted = false,
   children,
 }: {
   title?: string
   description?: string
+  keepMounted?: boolean
   children: ReactNode
 }) {
   return (
@@ -42,7 +44,10 @@ export function OverridesCollapsible({
         {title}
         {description && <span className="text-muted-foreground font-normal">— {description}</span>}
       </CollapsibleTrigger>
-      <CollapsibleContent>
+      <CollapsibleContent
+        forceMount={keepMounted || undefined}
+        className={keepMounted ? 'data-[state=closed]:hidden' : undefined}
+      >
         <div className="pt-4">{children}</div>
       </CollapsibleContent>
     </Collapsible>
@@ -168,7 +173,10 @@ export function CombinedEnvOverlayEditor({
           {combinedRows.map((row) => {
             const unset = row.kind === 'text' ? row.value === null : row.secretId === null
             return (
-              <div key={row.id} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+              <div
+                key={row.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[1fr_auto_1fr_auto]"
+              >
                 <Input
                   value={row.key}
                   autoComplete="off"

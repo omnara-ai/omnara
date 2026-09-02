@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -143,7 +144,7 @@ func main() {
 	}
 	replicaID := uuid.New()
 
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicURL)
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	for _, defaultPoolTemplate := range cfg.DefaultMachinePools {
 		if err := machinePoolManager.ValidateDefaultMachinePool(defaultPoolTemplate); err != nil {
 			log.Error("validate default machine pool", "error", err)
@@ -164,6 +165,22 @@ func main() {
 	if err != nil {
 		log.Error("configure api options", "error", err)
 		os.Exit(1)
+	}
+	mcpRegistry, err := mcpregistry.LoadSnapshot(cfg.MCPRegistrySnapshotPath)
+	if err != nil {
+		log.Warn(
+			"mcp registry snapshot unavailable; server search will fail",
+			"path", cfg.MCPRegistrySnapshotPath,
+			"error", err,
+		)
+	} else {
+		log.Info(
+			"loaded mcp registry snapshot",
+			"path", cfg.MCPRegistrySnapshotPath,
+			"servers", mcpRegistry.Len(),
+			"generated_at", mcpRegistry.GeneratedAt(),
+		)
+		apiOpts = append(apiOpts, httpapi.WithMCPRegistry(mcpRegistry))
 	}
 	apiServer, err := httpapi.New(log, store, apiOpts...)
 	if err != nil {
@@ -424,6 +441,7 @@ func apiOptions(
 	opts = append(opts, httpapi.WithPasswordAuthEnabled(cfg.AuthSignupEnabled, cfg.AuthPasswordResetEnabled))
 	if cfg.PublicURL != "" {
 		opts = append(opts, httpapi.WithPublicURL(cfg.PublicURL))
+		opts = append(opts, httpapi.WithPublicAPIURL(cfg.PublicAPIURL))
 	}
 	if cfg.BillingURL != "" {
 		opts = append(opts, httpapi.WithBillingURL(cfg.BillingURL))

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import {
   Select,
   SelectContent,
@@ -92,7 +93,7 @@ export function CreateModelProviderDialog({
     setStatus(idle)
     try {
       const common = {
-        name: values.name.trim(),
+        name: values.name,
         credential_secret_id: values.secretId,
       }
       let request: CreateModelProviderConfigRequest
@@ -138,7 +139,7 @@ export function CreateModelProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         {phase.step === 'provider' ? (
           <>
             <DialogHeader>
@@ -189,6 +190,7 @@ export function CreateModelProviderDialog({
                         setValues((prev) => ({ ...prev, name: event.target.value }))
                       }}
                     />
+                    <ResourceNameFieldError value={values.name} />
                   </Field>
                 </div>
                 {values.provider === 'bedrock' && (

@@ -147,7 +147,7 @@ func managedWorkAdmissionModelFailure(
 		ModelCallContextID: contextRow.ID,
 		ErrorKind:          modelprotocol.ErrorKindRuntime,
 		ErrorCode:          storeerr.ManagedWorkAdmissionDeniedCode,
-		ErrorMessage:       "new work using this deployment-managed model is temporarily unavailable",
+		ErrorMessage:       storeerr.InsufficientOmnaraCreditsMessage,
 	}
 }
 

@@ -38,6 +38,13 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-maintenance ./cmd/maintenance
 
+FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS mcp-registry-snapshot
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal/mcpregistry internal/mcpregistry
+COPY tools/mcp-registry-sync tools/mcp-registry-sync
+RUN go run ./tools/mcp-registry-sync -out /out/mcp-registry.json
+
 FROM go-base AS migrations-build
 ARG TARGETOS
 ARG TARGETARCH
@@ -48,7 +55,9 @@ WORKDIR /app
 
 FROM runtime AS api
 ENV OMNARA_WEB_SERVING=disabled
+ENV OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=/app/mcp-registry/mcp-registry.json
 COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
+COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
 ENTRYPOINT ["/usr/local/bin/omnara-api"]
 
 FROM runtime AS worker

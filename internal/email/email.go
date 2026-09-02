@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -39,31 +45,31 @@ type ConsoleSender struct {
 }
 
 func (s ConsoleSender) SendInvite(ctx context.Context, to, orgName string) error {
-	return s.log(ctx, to, "You have an Omnara invitation", inviteBody(orgName, s.PublicURL))
+	return s.log(ctx, to, inviteMessage(orgName, s.PublicURL))
 }
 
 func (s ConsoleSender) SendEmailVerification(ctx context.Context, to, verifyURL string) error {
-	return s.log(ctx, to, "Verify your Omnara email", emailVerificationBody(verifyURL))
+	return s.log(ctx, to, emailVerificationMessage(verifyURL))
 }
 
 func (s ConsoleSender) SendPasswordReset(ctx context.Context, to, resetURL string) error {
-	return s.log(ctx, to, "Reset your Omnara password", passwordResetBody(resetURL))
+	return s.log(ctx, to, passwordResetMessage(resetURL))
 }
 
 func (s ConsoleSender) SendAccountExists(ctx context.Context, to, signInURL string) error {
-	return s.log(ctx, to, "Your Omnara account already exists", accountExistsBody(signInURL))
+	return s.log(ctx, to, accountExistsMessage(signInURL))
 }
 
 func (s ConsoleSender) SendPasswordChangedNotice(ctx context.Context, to string) error {
-	return s.log(ctx, to, "Your Omnara password changed", passwordChangedBody())
+	return s.log(ctx, to, passwordChangedMessage())
 }
 
-func (s ConsoleSender) log(_ context.Context, to, subject, body string) error {
+func (s ConsoleSender) log(_ context.Context, to string, email message) error {
 	fmt.Printf(
 		"\n--- Omnara auth email ---\nTo: %s\nSubject: %s\n\n%s\n--- end Omnara auth email ---\n\n",
 		singleLine(to),
-		singleLine(subject),
-		body,
+		singleLine(email.subject),
+		email.text,
 	)
 	return nil
 }
@@ -82,26 +88,26 @@ type SMTPSender struct {
 }
 
 func (s SMTPSender) SendInvite(ctx context.Context, to, orgName string) error {
-	return s.sendPlainText(ctx, to, "You have an Omnara invitation", inviteBody(orgName, s.PublicURL))
+	return s.send(ctx, to, inviteMessage(orgName, s.PublicURL))
 }
 
 func (s SMTPSender) SendEmailVerification(ctx context.Context, to, verifyURL string) error {
-	return s.sendPlainText(ctx, to, "Verify your Omnara email", emailVerificationBody(verifyURL))
+	return s.send(ctx, to, emailVerificationMessage(verifyURL))
 }
 
 func (s SMTPSender) SendPasswordReset(ctx context.Context, to, resetURL string) error {
-	return s.sendPlainText(ctx, to, "Reset your Omnara password", passwordResetBody(resetURL))
+	return s.send(ctx, to, passwordResetMessage(resetURL))
 }
 
 func (s SMTPSender) SendAccountExists(ctx context.Context, to, signInURL string) error {
-	return s.sendPlainText(ctx, to, "Your Omnara account already exists", accountExistsBody(signInURL))
+	return s.send(ctx, to, accountExistsMessage(signInURL))
 }
 
 func (s SMTPSender) SendPasswordChangedNotice(ctx context.Context, to string) error {
-	return s.sendPlainText(ctx, to, "Your Omnara password changed", passwordChangedBody())
+	return s.send(ctx, to, passwordChangedMessage())
 }
 
-func (s SMTPSender) sendPlainText(ctx context.Context, to, subject, body string) error {
+func (s SMTPSender) send(ctx context.Context, to string, email message) error {
 	if s.Addr == "" {
 		return errors.New("smtp addr is required")
 	}
@@ -127,7 +133,11 @@ func (s SMTPSender) sendPlainText(ctx context.Context, to, subject, body string)
 	if s.Username != "" || s.Password != "" {
 		auth = smtp.PlainAuth("", s.Username, s.Password, host)
 	}
-	message, err := plainTextMessage(from, recipient, subject, body, time.Now().UTC())
+	html, err := email.renderHTML(s.PublicURL)
+	if err != nil {
+		return fmt.Errorf("render email HTML: %w", err)
+	}
+	data, err := multipartAlternativeMessage(from, recipient, email.subject, email.text, html, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -138,7 +148,7 @@ func (s SMTPSender) sendPlainText(ctx context.Context, to, subject, body string)
 		auth,
 		from.Address,
 		[]string{recipient.Address},
-		message,
+		data,
 		s.RequireTLS,
 	); err != nil {
 		return fmt.Errorf("send smtp email: %w", err)
@@ -146,22 +156,57 @@ func (s SMTPSender) sendPlainText(ctx context.Context, to, subject, body string)
 	return nil
 }
 
-func plainTextMessage(from, to *mail.Address, subject, body string, now time.Time) ([]byte, error) {
+func multipartAlternativeMessage(
+	from, to *mail.Address,
+	subject, text, html string,
+	now time.Time,
+) ([]byte, error) {
 	if strings.ContainsAny(subject, "\r\n") {
 		return nil, errors.New("email subject must not contain newlines")
 	}
-	body = strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n")
+	var multipartBody bytes.Buffer
+	writer := multipart.NewWriter(&multipartBody)
+	if err := writeEmailPart(writer, "text/plain; charset=utf-8", text); err != nil {
+		return nil, err
+	}
+	if err := writeEmailPart(writer, "text/html; charset=utf-8", html); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("close email multipart body: %w", err)
+	}
+
 	var message bytes.Buffer
 	message.WriteString("From: " + from.String() + "\r\n")
 	message.WriteString("To: " + to.String() + "\r\n")
 	message.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
 	message.WriteString("Subject: " + subject + "\r\n")
 	message.WriteString("MIME-Version: 1.0\r\n")
-	message.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	message.WriteString("Content-Type: " + mime.FormatMediaType(
+		"multipart/alternative",
+		map[string]string{"boundary": writer.Boundary()},
+	) + "\r\n")
 	message.WriteString("\r\n")
-	message.WriteString(body)
-	message.WriteString("\r\n")
+	message.Write(multipartBody.Bytes())
 	return message.Bytes(), nil
+}
+
+func writeEmailPart(writer *multipart.Writer, contentType, body string) error {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	header.Set("Content-Transfer-Encoding", "quoted-printable")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("create %s email part: %w", contentType, err)
+	}
+	encoded := quotedprintable.NewWriter(part)
+	if _, err := encoded.Write([]byte(body)); err != nil {
+		return fmt.Errorf("write %s email part: %w", contentType, err)
+	}
+	if err := encoded.Close(); err != nil {
+		return fmt.Errorf("close %s email part: %w", contentType, err)
+	}
+	return nil
 }
 
 func sendSMTPWithContext(
@@ -234,26 +279,26 @@ type SendGridSender struct {
 }
 
 func (s SendGridSender) SendInvite(ctx context.Context, to, orgName string) error {
-	return s.sendPlainText(ctx, to, "You have an Omnara invitation", inviteBody(orgName, s.PublicURL), "invite")
+	return s.send(ctx, to, inviteMessage(orgName, s.PublicURL), "invite")
 }
 
 func (s SendGridSender) SendEmailVerification(ctx context.Context, to, verifyURL string) error {
-	return s.sendPlainText(ctx, to, "Verify your Omnara email", emailVerificationBody(verifyURL), "email verification")
+	return s.send(ctx, to, emailVerificationMessage(verifyURL), "email verification")
 }
 
 func (s SendGridSender) SendPasswordReset(ctx context.Context, to, resetURL string) error {
-	return s.sendPlainText(ctx, to, "Reset your Omnara password", passwordResetBody(resetURL), "password reset")
+	return s.send(ctx, to, passwordResetMessage(resetURL), "password reset")
 }
 
 func (s SendGridSender) SendAccountExists(ctx context.Context, to, signInURL string) error {
-	return s.sendPlainText(ctx, to, "Your Omnara account already exists", accountExistsBody(signInURL), "account exists")
+	return s.send(ctx, to, accountExistsMessage(signInURL), "account exists")
 }
 
 func (s SendGridSender) SendPasswordChangedNotice(ctx context.Context, to string) error {
-	return s.sendPlainText(ctx, to, "Your Omnara password changed", passwordChangedBody(), "password changed notice")
+	return s.send(ctx, to, passwordChangedMessage(), "password changed notice")
 }
 
-func (s SendGridSender) sendPlainText(ctx context.Context, to, subject, text, label string) error {
+func (s SendGridSender) send(ctx context.Context, to string, email message, label string) error {
 	if s.APIKey == "" {
 		return errors.New("sendgrid api key is required")
 	}
@@ -268,6 +313,10 @@ func (s SendGridSender) sendPlainText(ctx context.Context, to, subject, text, la
 	if err != nil {
 		return fmt.Errorf("parse email recipient: %w", err)
 	}
+	html, err := email.renderHTML(s.PublicURL)
+	if err != nil {
+		return fmt.Errorf("render email HTML: %w", err)
+	}
 	client := s.HTTPClient
 	if client == nil {
 		client = defaultSendGridHTTPClient
@@ -278,11 +327,11 @@ func (s SendGridSender) sendPlainText(ctx context.Context, to, subject, text, la
 			"to": []map[string]string{sendGridAddress(recipient)},
 		}},
 		"from":    sendGridAddress(from),
-		"subject": subject,
-		"content": []map[string]string{{
-			"type":  "text/plain",
-			"value": text,
-		}},
+		"subject": email.subject,
+		"content": []map[string]string{
+			{"type": "text/plain", "value": email.text},
+			{"type": "text/html", "value": html},
+		},
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -321,32 +370,147 @@ func sendGridAddress(address *mail.Address) map[string]string {
 	return out
 }
 
-func inviteBody(orgName, publicURL string) string {
+type message struct {
+	subject  string
+	text     string
+	template emailTemplateData
+}
+
+type emailTemplateData struct {
+	Preheader    string
+	Heading      string
+	Paragraphs   []string
+	ActionLabel  string
+	ActionURL    string
+	Note         string
+	LogoWhiteURL string
+	LogoBlackURL string
+	MSOFontStyle template.HTML
+}
+
+//go:embed branded_email.html.tmpl
+var brandedEmailHTML string
+
+var brandedEmailTemplate = template.Must(template.New("branded-email").Parse(brandedEmailHTML))
+
+const msoFontStyle template.HTML = `<!--[if mso]>
+<style type="text/css">
+  body, table, td, h1, p, span {
+    font-family:'Segoe UI',Arial,sans-serif !important;
+  }
+  .email-shell { width:800px !important; }
+  .email-content { width:600px !important; }
+</style>
+<![endif]-->`
+
+func (m message) renderHTML(publicURL string) (string, error) {
+	m.template.MSOFontStyle = msoFontStyle
+	baseURL := strings.TrimRight(publicURL, "/")
+	if baseURL != "" {
+		m.template.LogoWhiteURL = baseURL + "/omnara-logo-white.png"
+		m.template.LogoBlackURL = baseURL + "/omnara-logo-black.png"
+	}
+	var rendered strings.Builder
+	if err := brandedEmailTemplate.Execute(&rendered, m.template); err != nil {
+		return "", err
+	}
+	return rendered.String(), nil
+}
+
+func inviteMessage(orgName, publicURL string) message {
 	if orgName == "" {
 		orgName = "an organization"
 	}
-	if publicURL == "" {
-		return "You have a pending invitation to join " + orgName + " in Omnara. Sign in to Omnara to accept or decline it."
+	actionURL := ""
+	text := "You have a pending invitation to join " + orgName + " in Omnara. Sign in to Omnara to accept or decline it."
+	if publicURL != "" {
+		actionURL = strings.TrimRight(publicURL, "/") + "/invitations"
+		text = "You have a pending invitation to join " + orgName + " in Omnara. Sign in at " +
+			actionURL + " to accept or decline it."
 	}
-	return "You have a pending invitation to join " + orgName + " in Omnara. Sign in at " +
-		strings.TrimRight(publicURL, "/") + "/invitations to accept or decline it."
-}
-
-func emailVerificationBody(verifyURL string) string {
-	return "Verify your Omnara email address by opening this link:\n\n" + verifyURL + "\n\nIf you did not request this, you can ignore this email."
-}
-
-func passwordResetBody(resetURL string) string {
-	return "Reset your Omnara password by opening this link:\n\n" + resetURL + "\n\nIf you did not request this, you can ignore this email."
-}
-
-func accountExistsBody(signInURL string) string {
-	if signInURL == "" {
-		return "An Omnara account already exists for this email address. Sign in or reset your password if you need access."
+	return message{
+		subject: "You have an Omnara invitation",
+		text:    text,
+		template: emailTemplateData{
+			Preheader: "You have a pending invitation to join " + orgName + " in Omnara.",
+			Heading:   "You're invited to join " + orgName,
+			Paragraphs: []string{
+				"You have a pending invitation to join " + orgName + " in Omnara. Review it to accept or decline.",
+			},
+			ActionLabel: "Review invitation",
+			ActionURL:   actionURL,
+		},
 	}
-	return "An Omnara account already exists for this email address. Sign in or reset your password here:\n\n" + signInURL
 }
 
-func passwordChangedBody() string {
-	return "Your Omnara password was changed. If you did not make this change, reset your password and revoke active tokens immediately."
+func emailVerificationMessage(verifyURL string) message {
+	return message{
+		subject: "Verify your Omnara email",
+		text: "Verify your Omnara email address by opening this link:\n\n" + verifyURL +
+			"\n\nIf you did not request this, you can ignore this email.",
+		template: emailTemplateData{
+			Preheader: "Verify your email address to finish setting up your Omnara account.",
+			Heading:   "Verify your email",
+			Paragraphs: []string{
+				"Confirm your email address to finish setting up your Omnara account.",
+			},
+			ActionLabel: "Verify email",
+			ActionURL:   verifyURL,
+			Note:        "If you didn't request this, you can safely ignore this email.",
+		},
+	}
+}
+
+func passwordResetMessage(resetURL string) message {
+	return message{
+		subject: "Reset your Omnara password",
+		text: "Reset your Omnara password by opening this link:\n\n" + resetURL +
+			"\n\nIf you did not request this, you can ignore this email.",
+		template: emailTemplateData{
+			Preheader: "Reset your Omnara password.",
+			Heading:   "Reset your password",
+			Paragraphs: []string{
+				"We received a request to reset your Omnara password.",
+			},
+			ActionLabel: "Reset password",
+			ActionURL:   resetURL,
+			Note:        "If you didn't request this, you can safely ignore this email.",
+		},
+	}
+}
+
+func accountExistsMessage(signInURL string) message {
+	text := "An Omnara account already exists for this email address. Sign in or reset your password if you need access."
+	if signInURL != "" {
+		text = "An Omnara account already exists for this email address. Sign in or reset your password here:\n\n" + signInURL
+	}
+	return message{
+		subject: "Your Omnara account already exists",
+		text:    text,
+		template: emailTemplateData{
+			Preheader: "An Omnara account already exists for this email address.",
+			Heading:   "Your Omnara account already exists",
+			Paragraphs: []string{
+				"An account already exists for this email address. Sign in or reset your password if you need access.",
+			},
+			ActionLabel: "Sign in to Omnara",
+			ActionURL:   signInURL,
+		},
+	}
+}
+
+func passwordChangedMessage() message {
+	return message{
+		subject: "Your Omnara password changed",
+		text: "Your Omnara password was changed. If you did not make this change, " +
+			"reset your password and revoke active tokens immediately.",
+		template: emailTemplateData{
+			Preheader: "Your Omnara password was changed.",
+			Heading:   "Your password was changed",
+			Paragraphs: []string{
+				"Your Omnara password was changed.",
+				"If you did not make this change, reset your password and revoke active tokens immediately.",
+			},
+		},
+	}
 }

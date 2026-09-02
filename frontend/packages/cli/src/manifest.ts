@@ -11,6 +11,7 @@ import {
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
@@ -49,7 +50,7 @@ export const commandGroups: CommandGroup[] = [
         path: schemas.zCreateAgentPath,
         body: zConfigAttachment.extend({
           profile: schemas.zAgentProfileId.optional(),
-          name: z.string().optional(),
+          name: schemas.zAgentName.optional(),
           message: z.string().optional(),
         }),
         transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
@@ -338,11 +339,18 @@ export const commandGroups: CommandGroup[] = [
       }),
       op({
         verb: 'create',
-        summary: 'Create a machine',
-        fn: sdk.createMachine,
-        format: formatRecord(),
-        path: schemas.zCreateMachinePath,
-        body: schemas.zCreateMachineBody,
+        summary: 'Create a machine with a daemon token and show how to install omnarad',
+        fn: sdk.connectByoMachine,
+        format: formatMachineSetup,
+        path: schemas.zConnectByoMachinePath,
+        body: schemas.zConnectByoMachineBody,
+      }),
+      flowOp({
+        verb: 'create-local',
+        summary: 'Create a machine and install omnarad on this machine',
+        path: schemas.zConnectByoMachinePath,
+        body: zMachineSetupBody,
+        run: runMachineCreateLocal,
       }),
       op({
         verb: 'update',
@@ -628,7 +636,7 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentProfile,
         format: formatRecord(),
         path: schemas.zCreateAgentProfilePath,
-        body: zConfigAttachment.extend({ name: z.string() }),
+        body: zConfigAttachment.extend({ name: schemas.zResourceName }),
         transformBody: async ({ name, ...attachment }, { client, path }) => ({
           name,
           config: await resolveConfigId(client, path, attachment),

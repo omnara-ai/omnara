@@ -172,14 +172,16 @@ export function EditModelGrantDialog({
                     <SelectValue>
                       {draft.cacheRetention === 'inherit'
                         ? model
-                          ? `Inherit (${model.default_cache_retention})`
+                          ? `Inherit (${model.default_cache_retention ?? 'provider default'})`
                           : 'Inherit'
                         : draft.cacheRetention}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="inherit">
-                      {model ? `Inherit (${model.default_cache_retention})` : 'Inherit'}
+                      {model
+                        ? `Inherit (${model.default_cache_retention ?? 'provider default'})`
+                        : 'Inherit'}
                     </SelectItem>
                     {CACHE_RETENTIONS.map((retention) => (
                       <SelectItem key={retention} value={retention}>

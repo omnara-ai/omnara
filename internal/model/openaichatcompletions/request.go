@@ -65,9 +65,18 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
+	cacheRetention := model.EffectiveCacheRetention(
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		apiVariant,
+		providerModelSlug,
+		input.Policy.CacheRetention,
+	)
 	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		payload.CacheControl = openRouterCacheControl(input.Policy.CacheRetention, providerModelSlug)
-	} else if retention := promptCacheRetention(input.Policy.CacheRetention); retention != "" {
+		payload.Messages = markOpenRouterCacheBreakpoints(
+			payload.Messages,
+			openRouterCacheControl(cacheRetention, providerModelSlug),
+		)
+	} else if retention := promptCacheRetention(cacheRetention); retention != "" {
 		payload.PromptCacheRetention = retention
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
@@ -129,7 +138,6 @@ type chatCompletionsRequest struct {
 	MaxCompletionTokens  int                  `json:"max_completion_tokens,omitempty"`
 	N                    int                  `json:"n"`
 	PromptCacheRetention string               `json:"prompt_cache_retention,omitempty"`
-	CacheControl         *chatCacheControl    `json:"cache_control,omitempty"`
 	ReasoningEffort      string               `json:"reasoning_effort,omitempty"`
 	Reasoning            *chatReasoning       `json:"reasoning,omitempty"`
 	Store                *bool                `json:"store,omitempty"`
@@ -218,6 +226,7 @@ func buildMessages(
 				entry.Message,
 				entry.AssistantContent,
 				entry.ToolResults,
+				bundle.ResolvedMedia,
 				replayIdentity,
 				policy,
 			)
@@ -255,7 +264,10 @@ func buildMessages(
 	}
 }
 
-func messageFromContext(message modelcontext.Message, media map[string]modelcontext.ResolvedMedia) (chatMessage, bool) {
+func messageFromContext(
+	message modelcontext.Message,
+	media map[string]modelcontext.ResolvedMedia,
+) (chatMessage, bool) {
 	switch message.Role {
 	case modelprotocol.RoleAssistant:
 		text := textContentFromParts(message.Content, nil)
@@ -297,12 +309,13 @@ func assistantMessagesForEntry(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
 ) ([]chatMessage, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
 		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
-			return appendToolResultMessages([]chatMessage{replay}, group), nil
+			return appendToolResultMessages([]chatMessage{replay}, group, media), nil
 		}
 	}
 	contentParts := make([]json.RawMessage, 0, len(content))
@@ -338,19 +351,25 @@ func assistantMessagesForEntry(
 	if assistant.Content == "" && len(assistant.ToolCalls) == 0 {
 		return nil, nil
 	}
-	return appendToolResultMessages([]chatMessage{assistant}, group), nil
+	return appendToolResultMessages([]chatMessage{assistant}, group, media), nil
 }
 
 func appendToolResultMessages(
 	messages []chatMessage,
 	results []modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
 ) []chatMessage {
+	var mediaContent []any
 	for _, result := range results {
 		messages = append(messages, chatMessage{
 			Role:       chatRoleTool,
 			ToolCallID: result.ProviderCallID,
-			Content:    toolResultOutput(result),
+			Content:    toolResultOutput(result, media),
 		})
+		mediaContent = append(mediaContent, toolResultMediaContent(result, media)...)
+	}
+	if len(mediaContent) > 0 {
+		messages = append(messages, chatMessage{Role: chatRoleUser, Content: mediaContent})
 	}
 	return messages
 }
@@ -379,7 +398,7 @@ func completeChatReplay(
 	if err != nil {
 		return chatMessage{}, false
 	}
-	return chatMessage{ProviderReplay: normalized}, true
+	return chatMessage{Role: chatRoleAssistant, ProviderReplay: normalized}, true
 }
 
 type chatReplaySemantic struct {

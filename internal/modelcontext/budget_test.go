@@ -81,6 +81,33 @@ func TestPreparedRequestBudgetRemovesOnlyStructuredMediaFields(t *testing.T) {
 	}
 }
 
+func TestPreparedRequestBudgetRemovesChatFileData(t *testing.T) {
+	data := bytes.Repeat([]byte("pdf-bytes"), 8_192)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	body := budgetFixtureJSON(t, map[string]any{
+		"messages": []map[string]any{{
+			"content": []map[string]any{{
+				"type": "file",
+				"file": map[string]string{
+					"filename":  "report.pdf",
+					"file_data": "data:application/pdf;base64," + encoded,
+				},
+			}},
+		}},
+	})
+	media := []RenderedMedia{{
+		Media: ResolvedMedia{
+			Kind:      AttachmentKindDocument,
+			MediaType: "application/pdf",
+			Data:      data,
+		},
+		Representation: MediaRepresentationInline,
+	}}
+	if estimate := EstimatePreparedRequest(body, media); estimate >= len(body)/4 {
+		t.Fatalf("estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
+	}
+}
+
 func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 	body := budgetFixtureJSON(t, map[string]any{"input": "small textual fallback"})
 	withNoRenderedMedia := EstimatePreparedRequest(body, nil)

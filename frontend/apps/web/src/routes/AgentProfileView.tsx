@@ -8,16 +8,21 @@ import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfig
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
 import { AgentsTable } from '@/components/agents/AgentsSection'
-import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
+import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
+import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DetailList } from '@/components/data-table/DetailList'
+import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/lib/format'
+import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
+import { useWebConfig } from '@/lib/web-config'
 
 type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents'
 
@@ -41,8 +46,10 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
   const [deployOpen, setDeployOpen] = useState(false)
   const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
+  const [launchError, setLaunchError] = useState<ApiError>()
 
   const createAgent = useCreateAgent(activeOrg.id, projectId)
+  const { data: webConfig } = useWebConfig()
   const deleteProfile = useDeleteAgentProfile(activeOrg.id, projectId)
   const navigate = useNavigate()
 
@@ -55,6 +62,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
     ) {
       return
     }
+    setLaunchError(undefined)
     try {
       const launched = await createAgent.mutateAsync({
         profile: profile.id,
@@ -65,7 +73,11 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         params: { projectId, agentId: launched.agent.id },
       })
     } catch (error) {
-      window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+      if (isInsufficientCreditsError(error)) {
+        setLaunchError(error)
+      } else {
+        window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+      }
     }
   }
 
@@ -97,6 +109,19 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
             { id: 'profile', label: profile.name },
           ]}
         />
+        {launchError && (
+          <div
+            className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+            role="alert"
+          >
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            {webConfig?.billingURL ? (
+              <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
+            ) : (
+              launchError.message
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <AgentProfileNameHeading
@@ -166,8 +191,9 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       )}
       {tab === 'schedules' && (
         <div className="flex flex-col gap-4">
-          {canManage && (
-            <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
+            {canManage && (
               <Button
                 size="sm"
                 variant="outline"
@@ -177,8 +203,8 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
               >
                 Add cron schedule
               </Button>
-            </div>
-          )}
+            )}
+          </div>
           <CronTriggersList
             orgId={activeOrg.id}
             projectId={projectId}
@@ -218,7 +244,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           orgId={activeOrg.id}
           projectId={projectId}
           target={{ type: 'profile', agent_profile_id: profile.id }}
-          targetLabel={`a new agent launched from ${profile.name}`}
+          targetLabel={profile.name}
         />
       )}
       <SlackOAuthOutcomeDialog />

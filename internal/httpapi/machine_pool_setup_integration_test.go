@@ -1349,10 +1349,10 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		MaxMachineMemoryMB:            intPtrForHTTPMachinePoolTest(1024),
 	}
 	manager := &machinepool.Manager{
-		Execution: store.Execution(),
-		Identity:  store.Identity(),
-		Catalog:   machinepool.DefaultCatalog(),
-		PublicURL: "https://app.omnara.test",
+		Execution:    store.Execution(),
+		Identity:     store.Identity(),
+		Catalog:      machinepool.DefaultCatalog(),
+		PublicAPIURL: "https://api.omnara.test/v1",
 	}
 	handler := newIntegrationHTTPHandler(withDefaultRequestOrigin(
 		mustNewServer(

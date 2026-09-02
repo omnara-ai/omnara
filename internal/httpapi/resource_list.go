@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"golang.org/x/text/unicode/norm"
 )
 
 const resourceListCursorVersion = 1
@@ -146,7 +147,11 @@ func decodeResourceListCursor(raw string) (resourceListCursor, error) {
 }
 
 func resourceNameGlobToLike(glob string) (string, error) {
-	if glob == "" || !utf8.ValidString(glob) || utf8.RuneCountInString(glob) > 200 {
+	if glob == "" || !utf8.ValidString(glob) {
+		return "", fmt.Errorf("%w: name glob must contain between 1 and 200 characters", errInvalidListQuery)
+	}
+	glob = norm.NFC.String(glob)
+	if utf8.RuneCountInString(glob) > 200 {
 		return "", fmt.Errorf("%w: name glob must contain between 1 and 200 characters", errInvalidListQuery)
 	}
 	var out strings.Builder

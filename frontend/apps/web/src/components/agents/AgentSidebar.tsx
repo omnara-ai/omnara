@@ -1,11 +1,14 @@
-import { useMachine } from '@omnara/react'
+import { useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { CreateCronTriggerDialog, CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
+import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DetailList } from '@/components/data-table/DetailList'
 import { InfoIcon, PlusIcon } from '@/components/icons'
+import { registryServerLabel } from '@/components/mcp/mcpRegistry'
+import { McpServerIcon } from '@/components/mcp/McpServerIcon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,6 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -25,13 +29,14 @@ export const sidebarToggleActiveClass =
   'bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-400'
 
 export function AgentSidebarToggle() {
-  const { open, toggleSidebar } = useSidebar()
+  const { isMobile, open, openMobile, toggleSidebar } = useSidebar()
+  const sidebarOpen = isMobile ? openMobile : open
   return (
     <Button
       size="icon"
       variant="ghost"
-      aria-label={open ? 'Hide agent details' : 'Show agent details'}
-      className={cn('text-muted-foreground', open && sidebarToggleActiveClass)}
+      aria-label={sidebarOpen ? 'Hide agent details' : 'Show agent details'}
+      className={cn('text-muted-foreground', sidebarOpen && sidebarToggleActiveClass)}
       onClick={toggleSidebar}
     >
       <InfoIcon />
@@ -176,7 +181,7 @@ function AgentCronGroup({
           <Button
             size="sm"
             variant="ghost"
-            className="text-muted-foreground h-7 px-2"
+            className="text-muted-foreground h-9 px-2 sm:h-7"
             onClick={onAdd}
           >
             <PlusIcon />
@@ -209,23 +214,56 @@ function AgentMcpGroup({ connections }: { connections: AgentMcpConnection[] }) {
         ) : (
           <SidebarMenu>
             {active.map((connection) => (
-              <SidebarMenuItem
-                key={connection.server_key}
-                className="flex items-center justify-between gap-2 py-1.5 text-sm"
-              >
-                <span className="truncate">{connection.server_key}</span>
-                <Badge variant="outline">
-                  {connection.state === 'ready'
-                    ? 'Connected'
-                    : connection.state === 'initializing'
-                      ? 'Connecting'
-                      : 'Disconnected'}
-                </Badge>
-              </SidebarMenuItem>
+              <AgentMcpConnectionItem key={connection.server_key} connection={connection} />
             ))}
           </SidebarMenu>
         )}
       </SidebarGroupContent>
     </SidebarGroup>
+  )
+}
+
+function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection }) {
+  const info = useServerInfo(connection.endpoint_url)
+  const server = info.data ?? null
+  const stateLabel =
+    connection.state === 'ready'
+      ? 'Connected'
+      : connection.state === 'initializing'
+        ? 'Connecting'
+        : 'Disconnected'
+
+  return (
+    <SidebarMenuItem className="py-1.5 text-sm">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2">
+              <McpServerIcon server={server} url={connection.endpoint_url} />
+              <span className="truncate">{connection.server_key}</span>
+            </span>
+            <Badge variant="outline">{stateLabel}</Badge>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-xs space-y-1 text-left">
+          <div className="flex items-center gap-2 font-medium">
+            <McpServerIcon server={server} url={connection.endpoint_url} className="size-4" />
+            <span className="truncate">
+              {server ? registryServerLabel(server) : connection.server_key}
+            </span>
+          </div>
+          {server && <div className="text-muted-foreground break-all">{server.name}</div>}
+          {server?.description && <div>{server.description}</div>}
+          <div className="text-muted-foreground break-all">{connection.endpoint_url}</div>
+          <div className="text-muted-foreground">
+            {stateLabel}
+            {connection.protocol_version ? ` · MCP ${connection.protocol_version}` : ''}
+          </div>
+          {connection.initialize_error && (
+            <div className="text-destructive">{connection.initialize_error}</div>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </SidebarMenuItem>
   )
 }

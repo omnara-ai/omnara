@@ -624,15 +624,9 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release runtime after terminal model error: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild terminal model error wakeup: %v", err)
-	}
-	if rebuilt != 0 {
-		t.Fatalf("rebuild restored %d wakeups for terminal model error, want 0", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
+		t.Fatalf("terminal-model-error wakeups = %d, want 0", wakeups)
 	}
 	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("load seed after terminal model error: %v", err)

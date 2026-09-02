@@ -340,23 +340,28 @@ FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
   AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
+  AND input.delivery_mode IN ('steering', 'queued')
   AND input.input_kind = 'content'
   AND (
-    $3::bigint IS NULL
-    OR (input.input_rank, input.queued_at, input.id) > ($3::bigint, $4::timestamptz, $5::uuid)
+    $3::text IS NULL
+    OR input.delivery_mode < $3::text
+    OR (
+      input.delivery_mode = $3::text
+      AND (input.input_rank, input.queued_at, input.id) > ($4::bigint, $5::timestamptz, $6::uuid)
+    )
   )
-ORDER BY input.input_rank ASC, input.queued_at ASC, input.id ASC
-LIMIT $6::bigint
+ORDER BY input.delivery_mode DESC, input.input_rank ASC, input.queued_at ASC, input.id ASC
+LIMIT $7::bigint
 `
 
 type ListQueuedBacklogInputsParams struct {
-	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
-	CursorInputRank *int64
-	CursorQueuedAt  *time.Time
-	CursorID        *uuid.UUID
-	RowLimit        int64
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	CursorDeliveryMode *string
+	CursorInputRank    *int64
+	CursorQueuedAt     *time.Time
+	CursorID           *uuid.UUID
+	RowLimit           int64
 }
 
 type ListQueuedBacklogInputsRow struct {
@@ -386,6 +391,7 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 	rows, err := q.db.Query(ctx, listQueuedBacklogInputs,
 		arg.ProjectID,
 		arg.AgentID,
+		arg.CursorDeliveryMode,
 		arg.CursorInputRank,
 		arg.CursorQueuedAt,
 		arg.CursorID,
@@ -780,47 +786,68 @@ func (q *Queries) MoveQueuedBacklogInputToFront(ctx context.Context, arg MoveQue
 	return result.RowsAffected(), nil
 }
 
-const promoteQueuedInputToSteering = `-- name: PromoteQueuedInputToSteering :execrows
-UPDATE agent_inputs input
-SET delivery_mode = 'steering',
-    input_rank = coalesce(
-      (
-        SELECT max(existing.input_rank) + $1::bigint
-        FROM agent_inputs existing
-        WHERE existing.project_id = input.project_id
-          AND existing.agent_id = input.agent_id
-          AND existing.delivery_mode = 'steering'
-          AND existing.state = 'received'
-          AND existing.input_kind = 'content'
-      ),
-      $1::bigint
-    )
-WHERE input.project_id = $2
-  AND input.agent_id = $3
-  AND input.id = $4
-  AND input.state = 'received'
-  AND input.delivery_mode = 'queued'
-  AND input.input_kind = 'content'
+const promoteQueuedInputToSteering = `-- name: PromoteQueuedInputToSteering :one
+WITH promoted AS (
+  UPDATE agent_inputs input
+  SET delivery_mode = 'steering',
+      input_rank = coalesce(
+        (
+          SELECT max(existing.input_rank) + $4::bigint
+          FROM agent_inputs existing
+          WHERE existing.project_id = input.project_id
+            AND existing.agent_id = input.agent_id
+            AND existing.delivery_mode = 'steering'
+            AND existing.state = 'received'
+            AND existing.input_kind = 'content'
+        ),
+        $4::bigint
+      )
+  WHERE input.project_id = $1
+    AND input.agent_id = $2
+    AND input.id = $3
+    AND input.state = 'received'
+    AND input.delivery_mode = 'queued'
+    AND input.input_kind = 'content'
+  RETURNING TRUE
+)
+SELECT EXISTS (SELECT 1 FROM promoted) AS changed,
+       EXISTS (SELECT 1 FROM promoted)
+       OR EXISTS (
+         SELECT 1
+         FROM agent_inputs input
+         WHERE input.project_id = $1
+           AND input.agent_id = $2
+           AND input.id = $3
+           AND input.input_kind = 'content'
+           AND (
+             (input.state = 'received' AND input.delivery_mode = 'steering')
+             OR (input.state = 'resolved' AND input.admitted_event_id IS NOT NULL)
+           )
+       ) AS effective
 `
 
 type PromoteQueuedInputToSteeringParams struct {
-	RankStride int64
 	ProjectID  uuid.UUID
 	AgentID    uuid.UUID
 	ID         uuid.UUID
+	RankStride int64
 }
 
-func (q *Queries) PromoteQueuedInputToSteering(ctx context.Context, arg PromoteQueuedInputToSteeringParams) (int64, error) {
-	result, err := q.db.Exec(ctx, promoteQueuedInputToSteering,
-		arg.RankStride,
+type PromoteQueuedInputToSteeringRow struct {
+	Changed   bool
+	Effective *bool
+}
+
+func (q *Queries) PromoteQueuedInputToSteering(ctx context.Context, arg PromoteQueuedInputToSteeringParams) (PromoteQueuedInputToSteeringRow, error) {
+	row := q.db.QueryRow(ctx, promoteQueuedInputToSteering,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ID,
+		arg.RankStride,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i PromoteQueuedInputToSteeringRow
+	err := row.Scan(&i.Changed, &i.Effective)
+	return i, err
 }
 
 const queuedBacklogMoveIsValid = `-- name: QueuedBacklogMoveIsValid :one
@@ -899,94 +926,6 @@ func (q *Queries) RebalanceQueuedBacklogRanks(ctx context.Context, arg Rebalance
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const rebuildMissingAgentWakeupsBatch = `-- name: RebuildMissingAgentWakeupsBatch :many
-WITH locked_agents AS MATERIALIZED (
-  SELECT agent.id, agent.project_id
-  FROM agents agent
-  WHERE agent.project_id = $1
-    AND agent.state <> 'archived'
-    AND (
-      $2::uuid IS NULL
-      OR agent.id > $2::uuid
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM agent_wakeups wake
-      WHERE wake.agent_id = agent.id
-    )
-  ORDER BY agent.id
-  LIMIT $3
-  FOR UPDATE OF agent SKIP LOCKED
-),
-desired AS MATERIALIZED (
-  SELECT agent.id,
-         agent.project_id,
-         agent_next_wakeup_ready_at(
-           agent.project_id,
-           agent.id
-         ) AS ready_at
-  FROM locked_agents agent
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM agent_runtime_locks runtime_lock
-    WHERE runtime_lock.agent_id = agent.id
-  )
-),
-inserted AS (
-  INSERT INTO agent_wakeups(agent_id, ready_at, updated_at, metadata)
-  SELECT desired.id,
-         desired.ready_at,
-         statement_timestamp(),
-         $4
-  FROM desired
-  WHERE desired.ready_at IS NOT NULL
-  ON CONFLICT (agent_id) DO NOTHING
-  RETURNING agent_id
-)
-SELECT locked.id AS agent_id,
-       (inserted.agent_id IS NOT NULL)::boolean AS inserted
-FROM locked_agents locked
-LEFT JOIN inserted ON inserted.agent_id = locked.id
-ORDER BY locked.id
-`
-
-type RebuildMissingAgentWakeupsBatchParams struct {
-	ProjectID    uuid.UUID
-	AfterAgentID *uuid.UUID
-	BatchLimit   int32
-	Metadata     json.RawMessage
-}
-
-type RebuildMissingAgentWakeupsBatchRow struct {
-	AgentID  uuid.UUID
-	Inserted bool
-}
-
-func (q *Queries) RebuildMissingAgentWakeupsBatch(ctx context.Context, arg RebuildMissingAgentWakeupsBatchParams) ([]RebuildMissingAgentWakeupsBatchRow, error) {
-	rows, err := q.db.Query(ctx, rebuildMissingAgentWakeupsBatch,
-		arg.ProjectID,
-		arg.AfterAgentID,
-		arg.BatchLimit,
-		arg.Metadata,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []RebuildMissingAgentWakeupsBatchRow{}
-	for rows.Next() {
-		var i RebuildMissingAgentWakeupsBatchRow
-		if err := rows.Scan(&i.AgentID, &i.Inserted); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const reconcileAgentWakeup = `-- name: ReconcileAgentWakeup :exec

@@ -166,6 +166,13 @@ func TestOrgAPIKeyLifecycleAndAuthorization(t *testing.T) {
 		t.Fatalf("owner role for key error = %v, want check violation", err)
 	}
 
+	if _, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
+		OrgID: testOrgID,
+		KeyID: created.Record.ID,
+		Name:  " invalid key ",
+	}); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("update org API key with invalid name error = %v, want invalid request", err)
+	}
 	updated, err := store.Identity().UpdateOrgAPIKey(ctx, identitystore.UpdateOrgAPIKeyInput{
 		OrgID:   testOrgID,
 		KeyID:   created.Record.ID,

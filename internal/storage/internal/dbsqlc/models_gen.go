@@ -166,6 +166,7 @@ type AuthDeviceFlow struct {
 	DeniedAt                 *time.Time
 	ConsumedAt               *time.Time
 	LastPolledAt             *time.Time
+	ClientID                 string
 }
 
 type BrowserSession struct {

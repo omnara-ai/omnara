@@ -8,6 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
 const openInteractionsQuery = { state: 'open', limit: 100 } as const
 const activeAgentRefetchIntervalMs = 1000
@@ -91,6 +92,9 @@ export function useCancelAgent(orgID: string, projectID: string, agentID: string
         }),
         queryClient.invalidateQueries({
           queryKey: openAgentInteractionsQueryKey(client, { orgID, projectID, agentID }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: agentInputBacklogQueryKey(client, { orgID, projectID, agentID }),
         }),
       ])
     },

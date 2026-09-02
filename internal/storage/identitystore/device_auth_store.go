@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -19,26 +18,35 @@ const (
 	DeviceAuthFlowTTL      = 15 * time.Minute
 	DeviceAuthPollInterval = 5 * time.Second
 	deviceAuthCodeAttempts = 5
-	deviceAuthNameMaxRunes = 128
+	deviceAuthClientIDMax  = 256
 )
 
 func (s *Store) StartDeviceAuthFlow(
 	ctx context.Context,
 	input StartDeviceAuthFlowInput,
 ) (DeviceAuthFlowStartRecord, error) {
-	clientName := strings.TrimSpace(input.ClientName)
+	clientID := input.ClientID
+	if clientID == "" || len(clientID) > deviceAuthClientIDMax || strings.IndexFunc(clientID, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) >= 0 {
+		return DeviceAuthFlowStartRecord{}, storeerr.ErrInvalidDeviceAuthFlow
+	}
+	clientName := input.ClientName
 	if clientName == "" {
 		clientName = "Device"
 	}
-	tokenName := strings.TrimSpace(input.TokenName)
+	tokenName := input.TokenName
 	if tokenName == "" {
 		tokenName = "Device login"
 	}
-	if err := validateDeviceAuthFlowName("client_name", clientName); err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+	var err error
+	clientName, err = resourcename.CanonicalizeRequired("client_name", clientName)
+	if err != nil {
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
-	if err := validateDeviceAuthFlowName("token_name", tokenName); err != nil {
-		return DeviceAuthFlowStartRecord{}, err
+	tokenName, err = resourcename.CanonicalizeRequired("token_name", tokenName)
+	if err != nil {
+		return DeviceAuthFlowStartRecord{}, storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, err)
 	}
 	var deviceCode string
 	var userCode string
@@ -55,6 +63,7 @@ func (s *Store) StartDeviceAuthFlow(
 		flow, err := s.q.CreateAuthDeviceFlow(ctx, dbsqlc.CreateAuthDeviceFlowParams{
 			DeviceCodeHash: HashBearerToken(deviceCode),
 			UserCodeHash:   HashBearerToken(NormalizeDeviceUserCode(userCode)),
+			ClientID:       clientID,
 			ClientName:     clientName,
 			TokenName:      tokenName,
 			TtlSeconds:     int64(DeviceAuthFlowTTL / time.Second),
@@ -201,7 +210,7 @@ func (s *Store) PollDeviceAuthFlow(
 	ctx context.Context,
 	input DeviceAuthFlowPollInput,
 ) (DeviceAuthFlowPollRecord, error) {
-	if input.DeviceCode == "" {
+	if input.DeviceCode == "" || input.ClientID == "" {
 		return DeviceAuthFlowPollRecord{}, storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -219,6 +228,9 @@ func (s *Store) PollDeviceAuthFlow(
 	}
 	if err != nil {
 		return DeviceAuthFlowPollRecord{}, fmt.Errorf("load device auth flow: %w", err)
+	}
+	if flow.ClientID != input.ClientID {
+		return DeviceAuthFlowPollRecord{Status: DeviceAuthFlowStatusInvalid, Interval: DeviceAuthPollInterval}, nil
 	}
 	pollState, err := qtx.GetAuthDeviceFlowPollState(
 		ctx,
@@ -304,21 +316,6 @@ func (s *Store) PollDeviceAuthFlow(
 	}, nil
 }
 
-func validateDeviceAuthFlowName(field, value string) error {
-	if utf8.RuneCountInString(value) > deviceAuthNameMaxRunes {
-		return storeerr.Tag(
-			storeerr.ErrInvalidDeviceAuthFlow,
-			fmt.Errorf("%s cannot exceed %d characters", field, deviceAuthNameMaxRunes),
-		)
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return storeerr.Tag(storeerr.ErrInvalidDeviceAuthFlow, errors.New(field+" cannot include control characters"))
-		}
-	}
-	return nil
-}
-
 func NormalizeDeviceUserCode(code string) string {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	code = strings.ReplaceAll(code, "-", "")
@@ -326,11 +323,24 @@ func NormalizeDeviceUserCode(code string) string {
 	return code
 }
 
+func CanonicalDeviceUserCode(code string) (string, bool) {
+	code = NormalizeDeviceUserCode(code)
+	if len(code) != 10 || strings.IndexFunc(code, func(char rune) bool {
+		return (char < 'A' || char > 'F') && (char < '0' || char > '9')
+	}) >= 0 {
+		return "", false
+	}
+	return code[:5] + "-" + code[5:], true
+}
+
 func randomUserCode() (string, error) {
 	raw, err := randomTokenPart(5)
 	if err != nil {
 		return "", fmt.Errorf("generate user code: %w", err)
 	}
-	code := strings.ToUpper(raw)
-	return code[:5] + "-" + code[5:], nil
+	code, ok := CanonicalDeviceUserCode(raw)
+	if !ok {
+		return "", errors.New("generated invalid user code")
+	}
+	return code, nil
 }

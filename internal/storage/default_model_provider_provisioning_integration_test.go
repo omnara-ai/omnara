@@ -154,6 +154,7 @@ func TestDefaultModelProviderProvisioningDoesNotClaimConfiguredSecretName(t *tes
 	store := newSecretIntegrationStore(pool)
 	user := mustCreateIdentityUser(t, ctx, store, "provider-secret-name@example.com", "Provider Secret Owner")
 	template := testProvisioningTemplate()
+	template.CredentialSecretName = strings.Repeat("界", 64)
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
 		UserID: user.ID, Name: "Provider Secret Org", IdempotencyKey: "provider-secret-org",
 		ProvisionDefaultModelProvider: true,
@@ -177,7 +178,8 @@ func TestDefaultModelProviderProvisioningDoesNotClaimConfiguredSecretName(t *tes
 	if err != nil {
 		t.Fatalf("get default provider credential: %v", err)
 	}
-	if !strings.HasPrefix(credential.Name, template.CredentialSecretName+"-") {
+	if !strings.HasPrefix(credential.Name, strings.Repeat("界", 41)+"-") ||
+		len([]rune(credential.Name)) != 64 {
 		t.Fatalf("credential name = %q, want generated suffix", credential.Name)
 	}
 }

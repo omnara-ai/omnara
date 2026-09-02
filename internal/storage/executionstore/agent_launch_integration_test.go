@@ -5426,6 +5426,7 @@ model:
 		t.Fatalf("profile launch should use profile name, got agent=%+v", retargetedLaunch.Agent)
 	}
 
+	explicitName := "Explicit Name"
 	named, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -5433,7 +5434,7 @@ model:
 			ProfileID:      profile.ID,
 			AgentConfigID:  retargetedConfigID,
 			LaunchedBy:     userPrincipal(user.ID),
-			Name:           "Explicit Name",
+			Name:           &explicitName,
 			Message:        "named",
 			IdempotencyKey: "idem-launch-named",
 		},
@@ -5443,6 +5444,25 @@ model:
 	}
 	if named.Agent.Name != "Explicit Name" {
 		t.Fatalf("explicit launch name should override profile name, got agent=%+v", named.Agent)
+	}
+	emptyName := ""
+	unnamed, err := store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  retargetedConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           &emptyName,
+			Message:        "unnamed",
+			IdempotencyKey: "idem-launch-unnamed",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch explicitly unnamed agent: %v", err)
+	}
+	if unnamed.Agent.Name != "" {
+		t.Fatalf("explicit empty name should not inherit profile name, got agent=%+v", unnamed.Agent)
 	}
 
 	pinned, err := store.Execution().LaunchAgent(
@@ -5483,13 +5503,14 @@ model:
 		t.Fatalf("config-only launch should use requested config and have no name, got agent=%+v", configOnly.Agent)
 	}
 
+	configOnlyName := "Config Only Named"
 	configOnlyNamed, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,
 			AgentConfigID:  retargetedConfigID,
 			LaunchedBy:     userPrincipal(user.ID),
-			Name:           "Config Only Named",
+			Name:           &configOnlyName,
 			Message:        "config only named",
 			IdempotencyKey: "idem-launch-config-only-named",
 		},

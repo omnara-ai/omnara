@@ -135,7 +135,10 @@ const (
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
 	operationGetSkill                      operationID = "GetSkill"
+	operationUpdateSkill                   operationID = "UpdateSkill"
 	operationGetToolCatalog                operationID = "GetToolCatalog"
+	operationListMCPServers                operationID = "ListMCPServers"
+	operationListMCPServerTools            operationID = "ListMCPServerTools"
 	operationGetProjectMachinePoolGrant    operationID = "GetProjectMachinePoolGrant"
 	operationListActors                    operationID = "ListActors"
 	operationGetActor                      operationID = "GetActor"
@@ -199,6 +202,8 @@ const (
 	operationUpdateOrgMember               operationID = "UpdateOrgMember"
 	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
 	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
+	operationDownloadDaemonArtifact        operationID = "DownloadDaemonArtifact"
+	operationUploadDaemonArtifact          operationID = "UploadDaemonArtifact"
 )
 
 type operationPolicy struct {
@@ -265,7 +270,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationConnectBYOMachine:          browserSessionPolicy(orgScope(identitystore.OrgActionManage)),
+	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -300,6 +305,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteSkill:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationDeleteSkillGrant:           accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetSkill:                   accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationUpdateSkill:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListSkills:                 accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListSkillGrants:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListProjectAvailableSkills: accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -319,6 +325,8 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationGetToolCatalog:                accountPolicy(noScope()),
+	operationListMCPServers:                accountPolicy(noScope()),
+	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListIntegrationInstalls:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
@@ -389,6 +397,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 		customScope("machine daemon token + token-scoped runtime ownership"),
 	),
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
+	operationUploadDaemonArtifact: machineDaemonPolicy(
+		customScope("machine daemon token + active upload_artifact process"),
+	),
+	operationDownloadDaemonArtifact: machineDaemonPolicy(
+		customScope("machine daemon token + active download_artifact process"),
+	),
 }
 
 func newOpenAPIAuthorizer() (operationAuthorizer, error) {

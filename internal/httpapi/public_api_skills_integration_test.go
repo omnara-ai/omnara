@@ -47,6 +47,78 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 	if got["skill_md"] == "" {
 		t.Fatalf("get skill omitted skill_md: %+v", got)
 	}
+	files, ok := got["files"].([]any)
+	if !ok || len(files) != 2 {
+		t.Fatalf("get skill files = %+v", got["files"])
+	}
+	paths := map[string]bool{}
+	for _, item := range files {
+		file, fileOK := item.(map[string]any)
+		if !fileOK {
+			t.Fatalf("skill file entry = %+v", item)
+		}
+		size, sizeOK := file["size"].(float64)
+		if !sizeOK || size <= 0 {
+			t.Fatalf("skill file entry = %+v", file)
+		}
+		path, _ := file["path"].(string)
+		paths[path] = true
+	}
+	if !paths["SKILL.md"] || !paths["references/guide.md"] {
+		t.Fatalf("skill file paths = %+v", paths)
+	}
+	listed := requestJSONWithHeaders(t, handler, http.MethodGet, basePath,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	listedData, ok := listed["data"].([]any)
+	if !ok || len(listedData) == 0 {
+		t.Fatalf("list skills = %+v", listed)
+	}
+	if _, hasFiles := listedData[0].(map[string]any)["files"]; hasFiles {
+		t.Fatal("list skills unexpectedly included files")
+	}
+
+	updated := requestSkillReupload(t, handler, basePath+"/"+skillID,
+		"project-skill", project.AdminToken, http.StatusOK)
+	if updated["id"] != skillID {
+		t.Fatalf("updated skill id = %v, want %s", updated["id"], skillID)
+	}
+	if revision, revisionOK := updated["revision"].(float64); !revisionOK || revision != 2 {
+		t.Fatalf("updated skill revision = %v", updated["revision"])
+	}
+	if updatedFiles, filesOK := updated["files"].([]any); !filesOK || len(updatedFiles) != 2 {
+		t.Fatalf("updated skill files = %+v", updated["files"])
+	}
+	requestSkillReupload(t, handler, basePath+"/"+skillID,
+		"renamed-skill", project.AdminToken, http.StatusBadRequest)
+
+	editedMd := "---\nname: project-skill\ndescription: edited via skill_md\n---\n\n# Edited\n"
+	edited := requestSkillMdEdit(t, handler, basePath+"/"+skillID,
+		editedMd, project.AdminToken, http.StatusOK)
+	if revision, revisionOK := edited["revision"].(float64); !revisionOK || revision != 3 {
+		t.Fatalf("edited skill revision = %v", edited["revision"])
+	}
+	if edited["skill_md"] != editedMd || edited["description"] != "edited via skill_md" {
+		t.Fatalf("edited skill = %+v", edited)
+	}
+	editedPaths := map[string]bool{}
+	editedFiles, ok := edited["files"].([]any)
+	if !ok {
+		t.Fatalf("edited skill files = %+v", edited["files"])
+	}
+	for _, item := range editedFiles {
+		file, fileOK := item.(map[string]any)
+		if !fileOK {
+			t.Fatalf("edited skill file entry = %+v", item)
+		}
+		path, _ := file["path"].(string)
+		editedPaths[path] = true
+	}
+	if len(editedPaths) != 2 || !editedPaths["SKILL.md"] || !editedPaths["references/guide.md"] {
+		t.Fatalf("edited skill file paths = %+v", editedPaths)
+	}
+	requestSkillMdEdit(t, handler, basePath+"/"+skillID,
+		"---\nname: renamed-skill\ndescription: bad rename\n---\n\n# Renamed\n",
+		project.AdminToken, http.StatusBadRequest)
 	secondProjectSkill := requestSkillUpload(t, handler, basePath,
 		`{"kind":"project","project_id":"`+project.ProjectID+`"}`,
 		"project-skill-two", project.AdminToken, http.StatusCreated)
@@ -193,6 +265,70 @@ func requestSkillUpload(
 	return response
 }
 
+func requestSkillReupload(
+	t *testing.T,
+	handler http.Handler,
+	path, name, token string,
+	wantStatus int,
+) map[string]any {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	archivePart, err := writer.CreateFormFile("archive", name+".zip")
+	if err != nil {
+		t.Fatalf("create archive part: %v", err)
+	}
+	if _, err := archivePart.Write(buildPublicSkillZip(t, name)); err != nil {
+		t.Fatalf("write archive part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("POST %s status=%d want=%d body=%s", path, rec.Code, wantStatus, rec.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode skill response: %v body=%s", err, rec.Body.String())
+	}
+	return response
+}
+
+func requestSkillMdEdit(
+	t *testing.T,
+	handler http.Handler,
+	path, skillMd, token string,
+	wantStatus int,
+) map[string]any {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("skill_md", skillMd); err != nil {
+		t.Fatalf("write skill_md field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("POST %s status=%d want=%d body=%s", path, rec.Code, wantStatus, rec.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode skill response: %v body=%s", err, rec.Body.String())
+	}
+	return response
+}
+
 func buildPublicSkillZip(t *testing.T, name string) []byte {
 	t.Helper()
 	var archive bytes.Buffer
@@ -204,6 +340,13 @@ func buildPublicSkillZip(t *testing.T, name string) []byte {
 	body := "---\nname: " + name + "\ndescription: integration skill\n---\n\n# Integration skill\n"
 	if _, err := file.Write([]byte(body)); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
+	}
+	reference, err := writer.Create(name + "/references/guide.md")
+	if err != nil {
+		t.Fatalf("create reference file: %v", err)
+	}
+	if _, err := reference.Write([]byte("# Guide\n")); err != nil {
+		t.Fatalf("write reference file: %v", err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close skill zip: %v", err)

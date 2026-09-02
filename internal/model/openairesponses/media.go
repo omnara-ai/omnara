@@ -3,7 +3,9 @@ package openairesponses
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -26,13 +28,16 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		switch {
 		case occurrence.MessageRole == modelprotocol.RoleUser || occurrence.IsToolResult():
 			tokenEstimate := 0
+			representation := modelcontext.MediaRepresentationInline
 			if item.Kind == modelcontext.AttachmentKindImage {
 				tokenEstimate = model.OpenAIImageTokenEstimate(p.client.ProviderModelSlug, item)
+			} else if rendersAsInputText(item) {
+				representation = modelcontext.MediaRepresentationInlineText
 			}
 			rendered = append(rendered, modelcontext.RenderedMedia{
 				Occurrence:     occurrence.Ref,
 				Media:          item,
-				Representation: modelcontext.MediaRepresentationInline,
+				Representation: representation,
 				TokenEstimate:  tokenEstimate,
 			})
 		}
@@ -54,7 +59,18 @@ func renderableMedia(media map[string]modelcontext.ResolvedMedia) map[string]mod
 }
 
 func openaiMediaPart(resolved modelcontext.ResolvedMedia) (map[string]any, bool) {
-	dataURL := "data:" + resolved.MediaType + ";base64," + base64.StdEncoding.EncodeToString(resolved.Data)
+	if rendersAsInputText(resolved) {
+		text := string(resolved.Data)
+		if resolved.Filename != "" {
+			text = "File: " + strconv.Quote(resolved.Filename) + "\n\n" + text
+		}
+		return map[string]any{"type": responsesContentTypeInputText, "text": text}, true
+	}
+	dataMediaType := resolved.MediaType
+	if dataMediaType == "text/tab-separated-values" {
+		dataMediaType = "text/tsv"
+	}
+	dataURL := "data:" + dataMediaType + ";base64," + base64.StdEncoding.EncodeToString(resolved.Data)
 	switch resolved.Kind {
 	case modelcontext.AttachmentKindImage:
 		return map[string]any{"type": responsesContentTypeInputImage, "image_url": dataURL}, true
@@ -67,6 +83,11 @@ func openaiMediaPart(resolved modelcontext.ResolvedMedia) (map[string]any, bool)
 	default:
 		return nil, false
 	}
+}
+
+func rendersAsInputText(resolved modelcontext.ResolvedMedia) bool {
+	return modelcontext.IsTextDocumentMediaType(resolved.MediaType) &&
+		(len(resolved.Data) == 0 || utf8.Valid(resolved.Data))
 }
 
 func renderOpenAIInputContent(
@@ -96,6 +117,9 @@ func renderOpenAIContent(
 			artifactID := jsonFieldText(part["artifact_id"])
 			if resolved, ok := media[artifactID]; ok {
 				if block, ok := openaiMediaPart(resolved); ok {
+					if ref := modelcontext.ArtifactPublicID(artifactID); ref != "" {
+						out = append(out, map[string]any{"type": textType, "text": "artifact_id: " + ref})
+					}
 					out = append(out, block)
 				}
 				continue
@@ -130,7 +154,10 @@ func renderOpenAIContent(
 	return out
 }
 
-func toolResultOutput(result modelcontext.ToolResultRef, media map[string]modelcontext.ResolvedMedia) any {
+func toolResultOutput(
+	result modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
+) any {
 	return renderOpenAIInputContent(result.ContentParts, media)
 }
 

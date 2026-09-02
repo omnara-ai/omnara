@@ -14,7 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 )
 
-const daemonAPIPath = "/api/v1/daemon"
+const daemonAPIPath = "/daemon"
 
 type httpStatusError struct {
 	StatusCode int
