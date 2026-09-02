@@ -12,39 +12,48 @@ export interface OmnaraClientOptions {
   headers?: Record<string, string>
 }
 
-type Dispatch = (options?: Record<string, unknown>) => unknown
+type HttpMethod =
+  | 'connect'
+  | 'delete'
+  | 'get'
+  | 'head'
+  | 'options'
+  | 'patch'
+  | 'post'
+  | 'put'
+  | 'trace'
+
+const httpMethods = [
+  'connect',
+  'delete',
+  'get',
+  'head',
+  'options',
+  'patch',
+  'post',
+  'put',
+  'trace',
+] satisfies HttpMethod[]
+
+function withoutClientSelector<O extends object>(options: O): O {
+  const stripped = { ...options }
+  Reflect.deleteProperty(stripped, 'client')
+  return stripped
+}
 
 // The generated client leaks per-call options — including the `client`
 // selector — into the Request init, which throws on Deno and Bun (they
 // reserve the `client` init key). Drop the key before dispatch.
 // TODO: remove once hey-api/hey-api#4177 is fixed and regenerated.
 function stripClientSelector(client: OmnaraClient): void {
-  const strip =
-    (dispatch: Dispatch): Dispatch =>
-    (options) => {
-      if (options == null || !('client' in options)) return dispatch(options)
-      const rest = { ...options }
-      delete rest.client
-      return dispatch(rest)
-    }
-  const methods = [
-    'connect',
-    'delete',
-    'get',
-    'head',
-    'options',
-    'patch',
-    'post',
-    'put',
-    'request',
-    'trace',
-  ] as const
-  const wrap = (target: object) => {
-    const dispatches = target as Partial<Record<(typeof methods)[number], Dispatch>>
-    for (const method of methods) dispatches[method] &&= strip(dispatches[method])
+  const { request } = client
+  client.request = (options) => request(withoutClientSelector(options))
+  for (const method of httpMethods) {
+    const dispatch = client[method]
+    client[method] = (options) => dispatch(withoutClientSelector(options))
+    const sseDispatch = client.sse[method]
+    client.sse[method] = (options) => sseDispatch(withoutClientSelector(options))
   }
-  wrap(client)
-  wrap(client.sse)
 }
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
