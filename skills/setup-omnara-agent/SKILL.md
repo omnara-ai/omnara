@@ -6,7 +6,7 @@ description: Install and set up Omnara. Use when the user asks to install Omnara
 Read https://docs.omnara.com/llms.txt and the Quickstart guide first. Fetch other
 documentation pages as you need them.
 
-Before doing anything, check if the user is logged in with `npx omnara whoami`. If they are not logged in, first instruct the user to login with `npx omnara login`.
+Before doing anything, check if the user is logged in with `npx omnara whoami`. If they are not logged in, run `npx omnara login` and direct the user to the login link.
 
 Then, ask the user questions on what type of agent they'd like to create:
 
