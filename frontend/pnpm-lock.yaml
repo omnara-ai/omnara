@@ -206,6 +206,9 @@ importers:
       '@omnara/sdk':
         specifier: workspace:*
         version: link:../sdk
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@tanstack/react-query':
         specifier: ^5.59.0

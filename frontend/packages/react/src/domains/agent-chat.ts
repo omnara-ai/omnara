@@ -171,7 +171,7 @@ export class AgentChatSession {
         return
       }
       const sendError = error instanceof Error ? error : new Error('Could not send message')
-      if (!isDefiniteSendFailure(error)) {
+      if (!isDefiniteSendFailure(sendError)) {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })

@@ -2,7 +2,7 @@ import { type AgentInput, ApiError, type OmnaraClient, sdk } from '@omnara/sdk'
 
 import type { AgentChatMessageInput, LocalAgentInput } from './agent-chat-types'
 
-export function isDefiniteSendFailure(error: unknown): boolean {
+export function isDefiniteSendFailure(error: Error): boolean {
   if (!(error instanceof ApiError)) return false
   return error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
 }

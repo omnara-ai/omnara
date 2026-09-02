@@ -310,7 +310,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('does not clear another pending send when one request fails', async () => {
-    let rejectFirst!: (reason: unknown) => void
+    let rejectFirst!: (reason: Error) => void
     let resolveSecond!: (value: ReturnType<typeof acceptedInput>) => void
     sdkMocks.createAgentInput
       .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
@@ -386,7 +386,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('clears the pending send the moment its durable event outraces the send response', async () => {
-    let resolveSend!: (value: unknown) => void
+    let resolveSend!: (value: ReturnType<typeof acceptedInput>) => void
     sdkMocks.createAgentInput.mockImplementation(
       () => new Promise((resolve) => (resolveSend = resolve)),
     )
@@ -405,7 +405,7 @@ describe('AgentChatSession input lifecycle', () => {
     expect(raced.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
     expect(raced.messages.filter((message) => message.role === 'user')).toHaveLength(1)
 
-    resolveSend({ data: { agent_input: { id: 'input-1' } } })
+    resolveSend(acceptedInput('input-1', 'Hello'))
     await send
     const settled = read(session)
     expect(settled.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
@@ -488,7 +488,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('resolves a send whose echo landed before its response failed, without an error', async () => {
-    let rejectSend!: (reason: unknown) => void
+    let rejectSend!: (reason: Error) => void
     sdkMocks.createAgentInput.mockImplementation(
       () => new Promise((_resolve, reject) => (rejectSend = reject)),
     )

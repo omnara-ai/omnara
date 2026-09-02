@@ -1,4 +1,10 @@
-import { type AgentInput, type ListAgentInputsResponse, type OmnaraClient, sdk } from '@omnara/sdk'
+import {
+  type AgentInput,
+  type ListAgentInputsResponse,
+  type OkResponse,
+  type OmnaraClient,
+  sdk,
+} from '@omnara/sdk'
 import {
   listQueuedBacklogInputsOptions,
   listQueuedBacklogInputsQueryKey,
@@ -49,9 +55,9 @@ export interface AgentInputBacklogControls {
   inputs: AgentInputBacklogItem[]
   actionPending: boolean
   beginCancellation: (inputIDs: string[]) => Promise<() => void>
-  cancel: (inputID: string) => Promise<unknown>
-  promote: (inputID: string) => Promise<unknown>
-  move: (input: AgentInputBacklogMove) => Promise<unknown>
+  cancel: (inputID: string) => Promise<OkResponse>
+  promote: (inputID: string) => Promise<OkResponse>
+  move: (input: AgentInputBacklogMove) => Promise<OkResponse>
 }
 
 export function agentInputBacklogQueryKey(client: OmnaraClient, path: AgentInputBacklogScope) {
@@ -96,12 +102,12 @@ export function useAgentInputBacklog(path: AgentInputBacklogScope) {
         applyUpdate(variables)
         return { previous }
       },
-      onSuccess: async (_data: unknown, variables: Variables) => {
+      onSuccess: async (_data: OkResponse, variables: Variables) => {
         await queryClient.cancelQueries({ queryKey })
         applyUpdate(variables)
       },
       onError: (
-        _error: unknown,
+        _error: Error,
         _variables: Variables,
         context: { previous: ListAgentInputsResponse | undefined } | undefined,
       ) => {

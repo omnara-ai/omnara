@@ -3,6 +3,7 @@ import type {
   AgentEventStreamFrame,
   AgentInput,
   AgentInputEvent,
+  ContentBlockMetadata,
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
@@ -10,6 +11,7 @@ import type {
   ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
+import { z } from 'zod'
 
 import type {
   AgentChatData,
@@ -87,22 +89,17 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   }
 }
 
-function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
+function isHiddenContentBlock(block: { metadata?: ContentBlockMetadata }): boolean {
   return block.metadata?.omnara_hidden === 'true'
 }
 
+const structuredToolError = z.object({ error_code: z.string() })
+
 function structuredToolErrorCode(blocks: ToolResultContentBlock[]): string | undefined {
   for (const block of blocks) {
-    if (
-      block.type !== 'structured_data' ||
-      block.value == null ||
-      typeof block.value !== 'object'
-    ) {
-      continue
-    }
-    if (!('error_code' in block.value)) continue
-    const errorCode = block.value.error_code
-    if (typeof errorCode === 'string') return errorCode
+    if (block.type !== 'structured_data') continue
+    const parsed = structuredToolError.safeParse(block.value)
+    if (parsed.success) return parsed.data.error_code
   }
   return undefined
 }
@@ -113,11 +110,10 @@ function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
     const id = `${event.id}:block:${String(blockIndex)}`
     if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      const displayText = block.metadata?.omnara_display_text
       parts.push({
         type: 'text',
         id,
-        text: typeof displayText === 'string' ? displayText : block.text,
+        text: block.metadata?.omnara_display_text ?? block.text,
         state: 'done',
       })
     }
