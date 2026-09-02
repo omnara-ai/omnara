@@ -169,20 +169,9 @@ async function* openConnection(
   callerSignal: AbortSignal | undefined,
 ): AsyncGenerator<ConnectionEvent, never> {
   const attempt = new AbortController()
-  const forwardAbort = () => {
-    attempt.abort(callerSignal?.reason)
-  }
-  if (callerSignal?.aborted === true) forwardAbort()
-  else callerSignal?.addEventListener('abort', forwardAbort, { once: true })
+  const signal =
+    callerSignal == null ? attempt.signal : AbortSignal.any([callerSignal, attempt.signal])
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-  // A fetch that ignores the signal would leave a read pending forever; settle it directly.
-  attempt.signal.addEventListener(
-    'abort',
-    () => {
-      void reader?.cancel(attempt.signal.reason).catch(() => undefined)
-    },
-    { once: true },
-  )
   try {
     const dispatch = { started: false }
     const { error, response }: { error?: unknown; response?: Response } = await settleWithin(
@@ -193,7 +182,7 @@ async function* openConnection(
         query,
         headers: { Accept: 'text/event-stream', ...headers },
         parseAs: 'stream',
-        signal: attempt.signal,
+        signal,
         throwOnError: false,
         fetch: (input, init) => {
           dispatch.started = true
@@ -232,12 +221,12 @@ async function* openConnection(
       throw streamError('contract', 'Agent event stream response has no body')
     }
     reader = response.body.getReader()
-    attempt.signal.throwIfAborted()
+    signal.throwIfAborted()
     yield { kind: 'connected' }
     const parser = createServerSentEventParser()
     const decoder = new TextDecoder()
     for (;;) {
-      attempt.signal.throwIfAborted()
+      signal.throwIfAborted()
       const chunk = await settleWithin(reader.read(), stallTimeoutMs, attempt)
       if (chunk.done) throw streamError('transport', 'Agent event stream ended unexpectedly')
       for (const data of parser.push(decoder.decode(chunk.value, { stream: true }))) {
@@ -249,7 +238,6 @@ async function* openConnection(
       ? error
       : streamError('transport', 'Agent event stream disconnected', { cause: error })
   } finally {
-    callerSignal?.removeEventListener('abort', forwardAbort)
     await reader?.cancel().catch(() => undefined)
   }
 }

@@ -39,6 +39,7 @@ function sse(...frames: unknown[]): Response {
 
 function controlledSse(initial: string) {
   const cancel = vi.fn()
+  let aborted = false
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -47,14 +48,32 @@ function controlledSse(initial: string) {
     },
     cancel,
   })
+  const response = new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+  // Like fetch: an aborted request errors the body, an already-aborted one never responds.
+  const fetch: typeof globalThis.fetch = (input) => {
+    const signal = input instanceof Request ? input.signal : undefined
+    if (signal?.aborted === true) return Promise.reject(signal.reason as Error)
+    signal?.addEventListener(
+      'abort',
+      () => {
+        aborted = true
+        streamController?.error(signal.reason)
+      },
+      { once: true },
+    )
+    return Promise.resolve(response)
+  }
   return {
     cancel,
+    fetch,
+    get aborted() {
+      return aborted
+    },
     close: () => streamController?.close(),
     enqueue: (chunk: string) => streamController?.enqueue(new TextEncoder().encode(chunk)),
-    response: new Response(body, {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    }),
   }
 }
 
@@ -64,12 +83,13 @@ function clientWithFetch(fetch: typeof globalThis.fetch) {
   return client
 }
 
-function scriptedClient(...results: (Response | Error)[]) {
-  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(() => {
+function scriptedClient(...results: (Response | Error | { fetch: typeof globalThis.fetch })[]) {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation((input, init) => {
     const result = results.shift()
     if (result == null) return Promise.resolve(new Response(null, { status: 401 }))
     if (result instanceof Error) return Promise.reject(result)
-    return Promise.resolve(result)
+    if (result instanceof Response) return Promise.resolve(result)
+    return result.fetch(input, init)
   })
   return { client: clientWithFetch(fetch), fetch }
 }
@@ -355,7 +375,7 @@ describe('openAgentEventStream', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
     const active = controlledSse(': ok\n\n')
     const controller = new AbortController()
-    const { client } = scriptedClient(new Response(null, { status: 503 }), active.response)
+    const { client } = scriptedClient(new Response(null, { status: 503 }), active)
     const delays: number[] = []
     const next = openAgentEventStream({
       client,
@@ -511,9 +531,9 @@ describe('openAgentEventStream', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
-  it('ends normally and cancels the physical body when aborted during an active read', async () => {
+  it('ends normally when the caller aborts during an active read', async () => {
     const active = controlledSse(': ok\n\n')
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(active.response)
+    const fetch = vi.fn(active.fetch)
     const controller = new AbortController()
     const stream = openAgentEventStream({
       client: clientWithFetch(fetch),
@@ -528,23 +548,25 @@ describe('openAgentEventStream', () => {
     controller.abort()
 
     await expect(next).resolves.toEqual({ done: true, value: undefined })
-    expect(active.cancel).toHaveBeenCalledTimes(1)
+    expect(active.aborted).toBe(true)
   })
 
   it('does not report a connection when fetch resolves after caller cancellation', async () => {
     const active = controlledSse(': ok\n\n')
-    let resolveFetch!: (response: Response) => void
+    let resolveFetch!: () => void
     let fetchStarted!: () => void
     const started = new Promise<void>((resolve) => {
       fetchStarted = resolve
     })
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve
-          fetchStarted()
-        }),
-    )
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation((input) => {
+      const response = active.fetch(input)
+      return new Promise<Response>((resolve) => {
+        resolveFetch = () => {
+          resolve(response)
+        }
+        fetchStarted()
+      })
+    })
     const controller = new AbortController()
     const states: unknown[] = []
     const next = openAgentEventStream({
@@ -556,17 +578,17 @@ describe('openAgentEventStream', () => {
     await started
 
     controller.abort()
-    resolveFetch(active.response)
+    resolveFetch()
 
     await expect(next).resolves.toEqual({ done: true, value: undefined })
     expect(states).toEqual([])
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(active.cancel).toHaveBeenCalledTimes(1)
+    expect(active.aborted).toBe(true)
   })
 
-  it('cancels before reading when the connected callback aborts synchronously', async () => {
+  it('aborts before reading when the connected callback aborts synchronously', async () => {
     const active = controlledSse(': ok\n\n')
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(active.response)
+    const fetch = vi.fn(active.fetch)
     const controller = new AbortController()
     const states: unknown[] = []
     const next = openAgentEventStream({
@@ -582,12 +604,12 @@ describe('openAgentEventStream', () => {
     await expect(next).resolves.toEqual({ done: true, value: undefined })
     expect(states).toMatchObject([{ state: 'connected', reconnected: false }])
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(active.cancel).toHaveBeenCalledTimes(1)
+    expect(active.aborted).toBe(true)
   })
 
   it('cancels the physical body without reconnecting when the consumer returns', async () => {
     const active = controlledSse(`data: ${JSON.stringify(toolUpdate)}\n\n`)
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(active.response)
+    const fetch = vi.fn(active.fetch)
     const stream = openAgentEventStream({ client: clientWithFetch(fetch), path })
 
     await expect(stream.next()).resolves.toEqual({ done: false, value: toolUpdate })
@@ -600,7 +622,7 @@ describe('openAgentEventStream', () => {
   it('does not run the active-read watchdog while the consumer holds a yielded frame', async () => {
     vi.useFakeTimers()
     const active = controlledSse(`data: ${JSON.stringify(toolUpdate)}\n\n`)
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(active.response)
+    const fetch = vi.fn(active.fetch)
     const controller = new AbortController()
     const stream = openAgentEventStream({
       client: clientWithFetch(fetch),
@@ -619,7 +641,7 @@ describe('openAgentEventStream', () => {
     vi.useFakeTimers()
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const active = controlledSse(': ok\n\n')
-    const { client, fetch } = scriptedClient(active.response, new Response(null, { status: 401 }))
+    const { client, fetch } = scriptedClient(active, new Response(null, { status: 401 }))
     let connected!: () => void
     const sawConnected = new Promise<void>((resolve) => {
       connected = resolve
@@ -641,7 +663,7 @@ describe('openAgentEventStream', () => {
 
     await rejected
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(active.cancel).toHaveBeenCalledTimes(1)
+    expect(active.aborted).toBe(true)
   })
 
   it('reconnects when a connection attempt stalls for 35 seconds', async () => {
@@ -671,7 +693,7 @@ describe('openAgentEventStream', () => {
   it('keeps an active read alive when periodic SSE comments arrive', async () => {
     vi.useFakeTimers()
     const active = controlledSse(': ok\n\n')
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(active.response)
+    const fetch = vi.fn(active.fetch)
     const controller = new AbortController()
     const next = openAgentEventStream({
       client: clientWithFetch(fetch),
@@ -693,7 +715,7 @@ describe('openAgentEventStream', () => {
 
   it('treats a connected callback exception as a terminal client error', async () => {
     const active = controlledSse('')
-    const { client, fetch } = scriptedClient(active.response)
+    const { client, fetch } = scriptedClient(active)
 
     const result = await collectUntilError(
       openAgentEventStream({
@@ -713,7 +735,7 @@ describe('openAgentEventStream', () => {
   it('emits connected, reconnecting, then reconnected for a recovered connection', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const controller = new AbortController()
-    const { client } = scriptedClient(sse(toolUpdate), controlledSse(': ok\n\n').response)
+    const { client } = scriptedClient(sse(toolUpdate), controlledSse(': ok\n\n'))
     const states: { state: string; reconnected?: boolean }[] = []
     const stream = openAgentEventStream({
       client,
