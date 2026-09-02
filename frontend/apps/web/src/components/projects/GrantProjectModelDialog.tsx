@@ -5,7 +5,7 @@ import {
   useProjectModelGrants,
 } from '@omnara/react'
 import { type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +37,46 @@ const ConfiguredModelMultiCombobox = createResourceMultiCombobox<ConfiguredModel
   placeholder: 'Search configured models…',
   emptyMessage: 'No ungranted models found.',
 })
+
+function useGrantableModels(
+  orgId: string,
+  projectId: string,
+  provider: ModelProviderConfig | null,
+  open: boolean,
+) {
+  const modelsQuery = useConfiguredModels(orgId, provider?.id ?? '', {
+    enabled: open && provider !== null,
+  })
+  const grantsQuery = useProjectModelGrants(orgId, projectId, { enabled: open })
+  const completeGrants = useCompleteInfiniteQueryItems(grantsQuery, open)
+  const grantedModelIds = new Set(
+    completeGrants.items.map((item) => item.grant.configured_model_id),
+  )
+  const models = useInfiniteQueryItems(modelsQuery).filter(
+    (model) => !grantedModelIds.has(model.id),
+  )
+  return { modelsQuery, grantsQuery, completeGrants, models }
+}
+
+function QueryErrorNotice({
+  visible,
+  onRetry,
+  children,
+}: {
+  visible: boolean
+  onRetry: () => void
+  children: ReactNode
+}) {
+  if (!visible) return null
+  return (
+    <p className="text-destructive text-sm">
+      {children}{' '}
+      <button type="button" className="underline" onClick={onRetry}>
+        Retry
+      </button>
+    </p>
+  )
+}
 
 export function GrantProjectModelDialog({
   open,
@@ -70,18 +110,16 @@ export function GrantProjectModelDialog({
     enabled: open,
   })
   const providers = useInfiniteQueryItems(providersQuery)
-  const modelsQuery = useConfiguredModels(orgId, provider?.id ?? '', {
-    enabled: open && provider !== null,
-  })
-  const grantsQuery = useProjectModelGrants(orgId, projectId, { enabled: open })
-  const completeGrants = useCompleteInfiniteQueryItems(grantsQuery, open)
-  const grantedModelIds = new Set(
-    completeGrants.items.map((item) => item.grant.configured_model_id),
-  )
-  const models = useInfiniteQueryItems(modelsQuery).filter(
-    (model) => !grantedModelIds.has(model.id),
+  const { modelsQuery, grantsQuery, completeGrants, models } = useGrantableModels(
+    orgId,
+    projectId,
+    provider,
+    open,
   )
   const queryError = providersQuery.isError || modelsQuery.isError || grantsQuery.isError
+  const modelsLocked =
+    provider === null || batch.isSubmitting || queryError || !completeGrants.isComplete
+  const showEmptyModels = !queryError && provider !== null && models.length === 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -117,47 +155,31 @@ export function GrantProjectModelDialog({
                 onValueChange={batch.setItems}
                 query={modelsQuery}
                 pending={(provider !== null && modelsQuery.isPending) || completeGrants.isPending}
-                disabled={
-                  provider === null ||
-                  batch.isSubmitting ||
-                  queryError ||
-                  !completeGrants.isComplete
-                }
+                disabled={modelsLocked}
               />
-              {!queryError && provider !== null && models.length === 0 && (
+              {showEmptyModels && (
                 <FieldDescription>
                   This provider has no ungranted configured models.
                 </FieldDescription>
               )}
             </Field>
-            {queryError && (
-              <p className="text-destructive text-sm">
-                Could not load grantable models.{' '}
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => {
-                    void Promise.all([
-                      providersQuery.refetch(),
-                      modelsQuery.refetch(),
-                      grantsQuery.refetch(),
-                    ])
-                  }}
-                >
-                  Retry
-                </button>
-              </p>
-            )}
+            <QueryErrorNotice
+              visible={queryError}
+              onRetry={() => {
+                void Promise.all([
+                  providersQuery.refetch(),
+                  modelsQuery.refetch(),
+                  grantsQuery.refetch(),
+                ])
+              }}
+            >
+              Could not load grantable models.
+            </QueryErrorNotice>
             {batch.errorMessage && <p className="text-destructive text-sm">{batch.errorMessage}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={
-                  batch.isSubmitting ||
-                  batch.items.length === 0 ||
-                  queryError ||
-                  !completeGrants.isComplete
-                }
+                disabled={modelsLocked || batch.items.length === 0}
                 loading={batch.isSubmitting}
               >
                 Grant models

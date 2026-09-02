@@ -1,15 +1,7 @@
 import type { UseAgentChatResult } from '@omnara/react'
 import type { AgentConfigModel } from '@omnara/sdk'
 import { useMessageScroller } from '@shadcn/react/message-scroller'
-import {
-  type ChangeEvent,
-  type KeyboardEvent,
-  type SyntheticEvent,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from 'react'
+import { type ChangeEvent, type KeyboardEvent, type SyntheticEvent, useRef, useState } from 'react'
 
 import { File, FilePlus, SendHorizontal, Square, Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -21,6 +13,67 @@ import {
   selectAgentAttachment,
   type SelectedAgentAttachment,
 } from '@/lib/agent-attachments'
+
+import { useWindowFileDrop } from './useWindowFileDrop'
+
+function attachmentSelectionError(
+  current: readonly SelectedAgentAttachment[],
+  files: readonly File[],
+): string | undefined {
+  if (current.length + files.length > maxAttachmentCount) {
+    return `You can attach up to ${String(maxAttachmentCount)} files.`
+  }
+  const totalBytes = [...current.map(({ file }) => file), ...files].reduce(
+    (sum, file) => sum + file.size,
+    0,
+  )
+  return totalBytes > maxTotalAttachmentBytes
+    ? 'Attachments exceed the 24 MB combined limit.'
+    : undefined
+}
+
+function composerPlaceholder(
+  canOperate: boolean,
+  historyStatus: UseAgentChatResult['historyStatus'],
+): string {
+  if (!canOperate) return 'You don’t have permission to message this agent'
+  return historyStatus === 'pending' ? 'Loading conversation…' : 'Message the agent…'
+}
+
+function ComposerNotice({ message, role }: { message: string | undefined; role?: 'alert' }) {
+  if (!message) return null
+  return (
+    <p role={role} className="text-destructive break-words px-2 pb-2 text-xs">
+      {message}
+    </p>
+  )
+}
+
+function AttachmentStrip({
+  attachments,
+  disabled,
+  onRemove,
+}: {
+  attachments: SelectedAgentAttachment[]
+  disabled: boolean
+  onRemove: (id: string) => void
+}) {
+  if (attachments.length === 0) return null
+  return (
+    <div className="flex gap-2 overflow-x-auto px-1 pb-2">
+      {attachments.map((attachment) => (
+        <SelectedAttachment
+          key={attachment.id}
+          attachment={attachment}
+          disabled={disabled}
+          onRemove={() => {
+            onRemove(attachment.id)
+          }}
+        />
+      ))}
+    </div>
+  )
+}
 
 function SelectedAttachment({
   attachment,
@@ -87,13 +140,16 @@ export function AgentComposer({
   const [attachmentError, setAttachmentError] = useState<string>()
   const [addingFiles, setAddingFiles] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const busyRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const working = chat.isWorking
   const ready = canOperate && chat.historyStatus === 'success'
   const busy = addingFiles || submitting
+  const acceptsFiles = ready && model != null && !busy
   const canSend = ready && !busy && (text.trim() !== '' || attachments.length > 0)
+  const dragging = useWindowFileDrop(acceptsFiles, (files) => {
+    void addFiles(files)
+  })
 
   async function send() {
     if (!canSend || busyRef.current) return
@@ -125,17 +181,10 @@ export function AgentComposer({
 
   async function addFiles(files: FileList | readonly File[] | null) {
     if (files == null || files.length === 0 || model == null || busyRef.current) return
-    if (attachments.length + files.length > maxAttachmentCount) {
-      setAttachmentError(`You can attach up to ${String(maxAttachmentCount)} files.`)
-      return
-    }
     const selectedFiles = Array.from(files)
-    const totalBytes = [...attachments.map(({ file }) => file), ...selectedFiles].reduce(
-      (sum, file) => sum + file.size,
-      0,
-    )
-    if (totalBytes > maxTotalAttachmentBytes) {
-      setAttachmentError('Attachments exceed the 24 MB combined limit.')
+    const selectionError = attachmentSelectionError(attachments, selectedFiles)
+    if (selectionError !== undefined) {
+      setAttachmentError(selectionError)
       return
     }
 
@@ -154,44 +203,10 @@ export function AgentComposer({
     setAddingFiles(false)
   }
 
-  const addDroppedFiles = useEffectEvent((files: FileList | null) => {
-    void addFiles(files)
-  })
-
-  useEffect(() => {
-    const acceptsFiles = ready && model != null && !busy
-
-    function hasFiles(event: DragEvent) {
-      return Array.from(event.dataTransfer?.types ?? []).includes('Files')
-    }
-
-    function onDragOver(event: DragEvent) {
-      if (!hasFiles(event)) return
-      event.preventDefault()
-      if (event.dataTransfer != null) event.dataTransfer.dropEffect = acceptsFiles ? 'copy' : 'none'
-      if (acceptsFiles) setDragging(true)
-    }
-
-    function onDragLeave(event: DragEvent) {
-      if (event.relatedTarget == null) setDragging(false)
-    }
-
-    function onDrop(event: DragEvent) {
-      if (!hasFiles(event)) return
-      event.preventDefault()
-      setDragging(false)
-      if (acceptsFiles) addDroppedFiles(event.dataTransfer?.files ?? null)
-    }
-
-    window.addEventListener('dragover', onDragOver)
-    window.addEventListener('dragleave', onDragLeave)
-    window.addEventListener('drop', onDrop)
-    return () => {
-      window.removeEventListener('dragover', onDragOver)
-      window.removeEventListener('dragleave', onDragLeave)
-      window.removeEventListener('drop', onDrop)
-    }
-  }, [busy, model, ready])
+  function removeAttachment(id: string) {
+    if (busyRef.current) return
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+  }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     void addFiles(event.target.files)
@@ -217,35 +232,17 @@ export function AgentComposer({
           <Upload className="size-5" /> Drop files to attach
         </div>
       )}
-      {attachments.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto px-1 pb-2">
-          {attachments.map((attachment) => (
-            <SelectedAttachment
-              key={attachment.id}
-              attachment={attachment}
-              disabled={busy}
-              onRemove={() => {
-                if (busyRef.current) return
-                setAttachments((current) => current.filter(({ id }) => id !== attachment.id))
-              }}
-            />
-          ))}
-        </div>
-      )}
-      {chat.error && <p className="text-destructive px-2 pb-2 text-xs">{chat.error.message}</p>}
-      {cancelError && <p className="text-destructive px-2 pb-2 text-xs">{cancelError.message}</p>}
-      {attachmentError && (
-        <p role="alert" className="text-destructive break-words px-2 pb-2 text-xs">
-          {attachmentError}
-        </p>
-      )}
+      <AttachmentStrip attachments={attachments} disabled={busy} onRemove={removeAttachment} />
+      <ComposerNotice message={chat.error?.message} />
+      <ComposerNotice message={cancelError?.message} />
+      <ComposerNotice message={attachmentError} role="alert" />
       <div className="flex items-end gap-1">
         <input
           ref={inputRef}
           type="file"
           multiple
           hidden
-          disabled={!ready || model == null || busy}
+          disabled={!acceptsFiles}
           onChange={onFileChange}
         />
         <Button
@@ -255,20 +252,14 @@ export function AgentComposer({
           className="shrink-0 rounded-full"
           aria-label="Add files"
           title="Add files"
-          disabled={!ready || model == null || busy}
+          disabled={!acceptsFiles}
           loading={addingFiles}
           icon={<FilePlus className="size-4.5" />}
           onClick={() => inputRef.current?.click()}
         />
         <Textarea
           value={text}
-          placeholder={
-            !canOperate
-              ? 'You don’t have permission to message this agent'
-              : chat.historyStatus === 'pending'
-                ? 'Loading conversation…'
-                : 'Message the agent…'
-          }
+          placeholder={composerPlaceholder(canOperate, chat.historyStatus)}
           className="max-h-40 min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
           disabled={!ready}
           readOnly={submitting}
@@ -278,7 +269,7 @@ export function AgentComposer({
           onKeyDown={onKeyDown}
           onPaste={(event) => {
             const files = event.clipboardData.files
-            if (files.length === 0 || !ready || model == null || busyRef.current) return
+            if (files.length === 0 || !acceptsFiles) return
             event.preventDefault()
             void addFiles(files)
           }}

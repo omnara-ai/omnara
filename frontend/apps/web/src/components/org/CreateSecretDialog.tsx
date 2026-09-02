@@ -1,6 +1,6 @@
 import { useCreateSecret, useGrantSecretToProject, useStartSecretMcpOAuth } from '@omnara/react'
 import type { SecretOwnerInput } from '@omnara/sdk'
-import { type SyntheticEvent, useReducer } from 'react'
+import { type Dispatch, type SyntheticEvent, useReducer } from 'react'
 
 import { isMcpOAuthLoginUrl } from '@/components/agents/mcpOAuthLogin'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
@@ -31,12 +31,129 @@ import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
   isSecretKind,
   newSecretDialogState,
+  type SecretDialogAction,
   secretDialogReducer,
+  type SecretDialogState,
   secretKinds,
 } from './CreateSecretDialogState'
 import { submitSecretTransaction } from './createSecretSubmission'
 import { McpOAuthSecretFields } from './McpOAuthSecretFields'
 import { OAuthTokenFields } from './OAuthTokenFields'
+
+type SecretDraft = SecretDialogState['secret']
+
+function secretDraftValid(secret: SecretDraft): boolean {
+  switch (secret.kind) {
+    case 'generic':
+      return secret.value !== ''
+    case 'aws_credentials':
+      return (
+        secret.accessKeyId.trim() !== '' &&
+        secret.secretAccessKey.trim() !== '' &&
+        (secret.externalId.trim() === '' || secret.roleArn.trim() !== '')
+      )
+    case 'mcp_oauth':
+      return isMcpOAuthLoginUrl(secret.serverUrl.trim())
+    case 'oauth_token_set':
+      return oauthTokenSetMaterial(secret.entries) !== undefined
+  }
+}
+
+function submitLabel(state: SecretDialogState): string {
+  if (state.createdSecret) return 'Retry project grants'
+  return state.secret.kind === 'mcp_oauth' && secretDraftValid(state.secret)
+    ? 'Authorize and Create Secret'
+    : 'Create secret'
+}
+
+function SecretKindFields({
+  secret,
+  dispatch,
+}: {
+  secret: SecretDraft
+  dispatch: Dispatch<SecretDialogAction>
+}) {
+  switch (secret.kind) {
+    case 'generic':
+      return (
+        <Field>
+          <FieldLabel htmlFor="secret-value">Value</FieldLabel>
+          <Input
+            id="secret-value"
+            type="password"
+            required
+            value={secret.value}
+            autoComplete="new-password"
+            placeholder="sk-…"
+            onChange={(event) => {
+              dispatch({ type: 'set-generic-value', value: event.target.value })
+            }}
+          />
+          <FieldDescription>Stored under the key value.</FieldDescription>
+        </Field>
+      )
+    case 'aws_credentials':
+      return (
+        <AWSCredentialsSecretFields
+          value={secret}
+          onChange={(patch) => {
+            dispatch({ type: 'patch-aws-credentials', patch })
+          }}
+        />
+      )
+    case 'mcp_oauth':
+      return (
+        <McpOAuthSecretFields
+          value={secret}
+          onChange={(patch) => {
+            dispatch({ type: 'patch-mcp-oauth', patch })
+          }}
+        />
+      )
+    case 'oauth_token_set':
+      return (
+        <OAuthTokenFields
+          entries={secret.entries}
+          onChange={(entries) => {
+            dispatch({ type: 'set-oauth-entries', entries })
+          }}
+        />
+      )
+  }
+}
+
+function SecretKindSelect({
+  kind,
+  dispatch,
+}: {
+  kind: SecretDraft['kind']
+  dispatch: Dispatch<SecretDialogAction>
+}) {
+  return (
+    <Field>
+      <FieldLabel htmlFor="secret-kind">Kind</FieldLabel>
+      <Select
+        value={kind}
+        onValueChange={(value) => {
+          if (isSecretKind(value)) dispatch({ type: 'set-kind', kind: value })
+        }}
+      >
+        <SelectTrigger id="secret-kind" className="w-full">
+          <SelectValue>
+            {secretKinds.find((option) => option.value === kind)?.label ?? kind}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {secretKinds.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+}
 
 export function CreateSecretDialog({
   open,
@@ -53,24 +170,7 @@ export function CreateSecretDialog({
   const grantSecret = useGrantSecretToProject(orgId)
   const startMcpOAuth = useStartSecretMcpOAuth(orgId)
   const [state, dispatch] = useReducer(secretDialogReducer, undefined, newSecretDialogState)
-
-  const validMcpUrl =
-    state.secret.kind === 'mcp_oauth' && isMcpOAuthLoginUrl(state.secret.serverUrl.trim())
-  const oauthMaterial =
-    state.secret.kind === 'oauth_token_set'
-      ? oauthTokenSetMaterial(state.secret.entries)
-      : undefined
-  const valid =
-    resourceNameValid(state.name) &&
-    (state.secret.kind === 'generic'
-      ? state.secret.value !== ''
-      : state.secret.kind === 'aws_credentials'
-        ? state.secret.accessKeyId.trim() !== '' &&
-          state.secret.secretAccessKey.trim() !== '' &&
-          (state.secret.externalId.trim() === '' || state.secret.roleArn.trim() !== '')
-        : state.secret.kind === 'mcp_oauth'
-          ? validMcpUrl
-          : oauthMaterial !== undefined)
+  const valid = resourceNameValid(state.name) && secretDraftValid(state.secret)
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -94,6 +194,10 @@ export function CreateSecretDialog({
     if ('secret' in result && result.secret && !state.createdSecret) {
       dispatch({ type: 'created', secret: result.secret })
     }
+    settleSubmission(result)
+  }
+
+  function settleSubmission(result: Awaited<ReturnType<typeof submitSecretTransaction>>) {
     switch (result.kind) {
       case 'redirect':
         window.location.assign(result.authorizationUrl)
@@ -152,67 +256,8 @@ export function CreateSecretDialog({
               />
               <ResourceNameFieldError value={state.name} />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="secret-kind">Kind</FieldLabel>
-              <Select
-                value={state.secret.kind}
-                onValueChange={(value) => {
-                  if (isSecretKind(value)) dispatch({ type: 'set-kind', kind: value })
-                }}
-              >
-                <SelectTrigger id="secret-kind" className="w-full">
-                  <SelectValue>
-                    {secretKinds.find((option) => option.value === state.secret.kind)?.label ??
-                      state.secret.kind}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {secretKinds.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            {state.secret.kind === 'generic' ? (
-              <Field>
-                <FieldLabel htmlFor="secret-value">Value</FieldLabel>
-                <Input
-                  id="secret-value"
-                  type="password"
-                  required
-                  value={state.secret.value}
-                  autoComplete="new-password"
-                  placeholder="sk-…"
-                  onChange={(event) => {
-                    dispatch({ type: 'set-generic-value', value: event.target.value })
-                  }}
-                />
-                <FieldDescription>Stored under the key value.</FieldDescription>
-              </Field>
-            ) : state.secret.kind === 'aws_credentials' ? (
-              <AWSCredentialsSecretFields
-                value={state.secret}
-                onChange={(patch) => {
-                  dispatch({ type: 'patch-aws-credentials', patch })
-                }}
-              />
-            ) : state.secret.kind === 'mcp_oauth' ? (
-              <McpOAuthSecretFields
-                value={state.secret}
-                onChange={(patch) => {
-                  dispatch({ type: 'patch-mcp-oauth', patch })
-                }}
-              />
-            ) : (
-              <OAuthTokenFields
-                entries={state.secret.entries}
-                onChange={(entries) => {
-                  dispatch({ type: 'set-oauth-entries', entries })
-                }}
-              />
-            )}
+            <SecretKindSelect kind={state.secret.kind} dispatch={dispatch} />
+            <SecretKindFields secret={state.secret} dispatch={dispatch} />
             <ProjectGrantsField
               orgId={orgId}
               isProjectEligible={(project) => project.access.can_manage}
@@ -230,11 +275,7 @@ export function CreateSecretDialog({
                 disabled={state.submitting || (!state.createdSecret && !valid)}
                 loading={state.submitting}
               >
-                {state.createdSecret
-                  ? 'Retry project grants'
-                  : state.secret.kind === 'mcp_oauth' && validMcpUrl
-                    ? 'Authorize and Create Secret'
-                    : 'Create secret'}
+                {submitLabel(state)}
               </Button>
             </DialogFooter>
           </FieldGroup>
