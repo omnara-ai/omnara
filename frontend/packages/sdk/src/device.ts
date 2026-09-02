@@ -34,10 +34,10 @@ const zDeviceAuthApprovedResponse = z.object({
 
 export type DeviceAuthFailureCode = 'access_denied' | 'expired_token'
 
-const DEVICE_AUTH_FAILURE_MESSAGES: Record<DeviceAuthFailureCode, string> = {
+const DEVICE_AUTH_FAILURE_MESSAGES = {
   access_denied: 'the login request was denied',
   expired_token: 'the login request expired before it was approved',
-}
+} satisfies Record<DeviceAuthFailureCode, string>
 
 export class DeviceAuthError extends Error {
   readonly code: DeviceAuthFailureCode
@@ -63,7 +63,7 @@ export interface DeviceAuthStart {
 async function postOAuthForm(
   fetchImpl: typeof fetch,
   endpoint: string,
-  body: Record<string, string>,
+  body: URLSearchParams,
 ): Promise<Response> {
   return fetchImpl(endpoint, {
     method: 'POST',
@@ -71,7 +71,7 @@ async function postOAuthForm(
       Accept: 'application/json',
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: new URLSearchParams(body).toString(),
+    body: body.toString(),
   })
 }
 
@@ -114,8 +114,8 @@ export async function startDeviceAuth(options: StartDeviceAuthOptions): Promise<
   if (!metadata.token_endpoint_auth_methods_supported.includes('none')) {
     throw new Error('authorization server does not support public OAuth clients')
   }
-  const body: Record<string, string> = { client_id: options.clientId }
-  if (options.tokenName !== undefined) body.token_name = options.tokenName
+  const body = new URLSearchParams({ client_id: options.clientId })
+  if (options.tokenName !== undefined) body.set('token_name', options.tokenName)
   const response = await postOAuthForm(fetchImpl, metadata.device_authorization_endpoint, body)
   if (!response.ok) throw await ApiError.fromResponse(response)
   const data = zDeviceAuthStartResponse.parse(await response.json())
@@ -150,11 +150,15 @@ export async function pollDeviceAuthToken(options: PollDeviceAuthTokenOptions): 
   let interval = options.intervalSeconds
   while (true) {
     await sleep(interval)
-    const response = await postOAuthForm(fetchImpl, options.tokenEndpoint, {
-      grant_type: OAUTH_DEVICE_GRANT_TYPE,
-      device_code: options.deviceCode,
-      client_id: options.clientId,
-    })
+    const response = await postOAuthForm(
+      fetchImpl,
+      options.tokenEndpoint,
+      new URLSearchParams({
+        grant_type: OAUTH_DEVICE_GRANT_TYPE,
+        device_code: options.deviceCode,
+        client_id: options.clientId,
+      }),
+    )
     if (response.status === 200) {
       return zDeviceAuthApprovedResponse.parse(await response.json()).access_token
     }

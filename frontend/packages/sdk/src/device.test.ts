@@ -15,10 +15,17 @@ interface RecordedRequest {
   body: Record<string, string> | undefined
 }
 
-function fetchQueue(responses: Response[]): {
+interface FetchQueue {
   fetch: typeof fetch
   requests: RecordedRequest[]
-} {
+}
+
+interface RecordedSleep {
+  sleep: (seconds: number) => Promise<void>
+  sleeps: number[]
+}
+
+function fetchQueue(responses: Response[]): FetchQueue {
   const requests: RecordedRequest[] = []
   const queued = [...responses]
   const fetchImpl: typeof fetch = (input, init) => {
@@ -47,7 +54,7 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
-function recordedSleep(): { sleep: (seconds: number) => Promise<void>; sleeps: number[] } {
+function recordedSleep(): RecordedSleep {
   const sleeps: number[] = []
   return {
     sleep: (seconds) => {
