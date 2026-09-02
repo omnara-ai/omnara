@@ -71,7 +71,7 @@ The response is a standard `text/event-stream`. The SSE `event` name tells you w
 | `model_output_delta` | A live preview while the model responds | No |
 | `error` | A stream-closing error; retry only `service_unavailable` | No |
 
-Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) only keep the connection open and can be ignored. While a connection remains open, the server keeps it caught up from its last delivered saved sequence. After a disconnect, reconnecting with `Last-Event-ID` catches up every saved event after that cursor. A simplified exchange looks like:
+Saved events use their `sequence` as the SSE `id`. Heartbeat comments (`:` lines) arrive every 10 seconds while the stream is idle; they only keep the connection open and can be ignored. While a connection remains open, the server keeps it caught up from its last delivered saved sequence. After a disconnect, reconnecting with `Last-Event-ID` catches up every saved event after that cursor. A simplified exchange looks like:
 
 ```text
 event: model_output_delta

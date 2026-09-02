@@ -2,7 +2,6 @@ import * as z from 'zod'
 
 import type { OmnaraClient } from './client'
 import { ApiError, type ApiErrorCode } from './errors'
-import { mergeHeaders, type ResolvedRequestOptions } from './generated/client'
 import type {
   AgentEventStreamData,
   Error as ApiErrorBody,
@@ -69,7 +68,9 @@ const retryBaseDelayMs = 1_000
 const retryMaximumDelayMs = 30_000
 const retryAfterMaximumDelayMs = 60_000
 const stableConnectionResetMs = 10_000
-const activeReadTimeoutMs = 35_000
+// Must stay above the server heartbeat interval (agentEventStreamHeartbeatInterval in
+// internal/httpapi/agent_runtime_routes.go); a quieter server would look stalled.
+const stallTimeoutMs = 35_000
 
 // event_kind stays open so kinds newer than this SDK still advance the cursor.
 const zDurableCursor = z.object({
@@ -140,49 +141,23 @@ function notifyConnectionState(
 }
 
 type ConnectionEvent = { kind: 'connected' } | { kind: 'message'; data: string }
-
 type ConnectionOptions = Pick<OpenAgentEventStreamOptions, 'path' | 'query' | 'headers'>
 
-async function prepareRequest(
-  client: OmnaraClient,
-  { path, query, headers }: ConnectionOptions,
-  signal: AbortSignal,
-): Promise<Request> {
-  const config = client.getConfig()
-  const requestHeaders = mergeHeaders({ Accept: 'text/event-stream' }, config.headers, headers)
-  // The client's default Content-Type describes a request body; this request has none.
-  requestHeaders.delete('Content-Type')
-  const options = {
-    ...config,
-    method: 'GET',
-    url: streamUrl,
-    path,
-    query,
-    headers: requestHeaders,
-    signal,
-  } as ResolvedRequestOptions
-  let request = new Request(client.buildUrl({ url: streamUrl, path, query }), {
-    method: 'GET',
-    headers: requestHeaders,
-    signal,
-    credentials: config.credentials,
-  })
-  for (const interceptor of client.interceptors.request.fns) {
-    if (interceptor != null) request = await interceptor(request, options)
-  }
-  return request
-}
-
-async function readWithDeadline(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+async function settleWithin<T>(
+  pending: Promise<T>,
   ms: number,
-  deadline: AbortController,
-): Promise<ReadableStreamReadResult<Uint8Array>> {
-  const timer = globalThis.setTimeout(() => {
-    deadline.abort()
-  }, ms)
+  attempt: AbortController,
+): Promise<T> {
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = globalThis.setTimeout(() => {
+      const error = streamError('transport', 'Agent event stream stalled')
+      attempt.abort(error)
+      reject(error)
+    }, ms)
+  })
   try {
-    return await reader.read()
+    return await Promise.race([pending, deadline])
   } finally {
     globalThis.clearTimeout(timer)
   }
@@ -190,74 +165,92 @@ async function readWithDeadline(
 
 async function* openConnection(
   client: OmnaraClient,
-  options: ConnectionOptions,
+  { path, query, headers }: ConnectionOptions,
   callerSignal: AbortSignal | undefined,
 ): AsyncGenerator<ConnectionEvent, never> {
-  const readDeadline = new AbortController()
-  const signal =
-    callerSignal == null
-      ? readDeadline.signal
-      : AbortSignal.any([callerSignal, readDeadline.signal])
-  const prepared = await prepareRequest(client, options, signal).catch((error: unknown) => {
-    throw streamError('client', 'Agent event stream request could not be prepared', {
-      cause: error,
-    })
-  })
-  const response = await (client.getConfig().fetch ?? globalThis.fetch)(prepared).catch(
-    (error: unknown) => {
-      throw streamError('transport', 'Agent event stream disconnected', { cause: error })
-    },
-  )
-  if (response.status !== 200) {
-    const apiError = await ApiError.fromResponse(response)
-    await response.body?.cancel().catch(() => undefined)
-    throw streamError('http', apiError.message, {
-      status: response.status,
-      code: apiError.code,
-      retryAfterMs: parseRetryAfter(response.headers.get('Retry-After')),
-      cause: apiError,
-    })
+  const attempt = new AbortController()
+  const forwardAbort = () => {
+    attempt.abort(callerSignal?.reason)
   }
-  const mediaType = response.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
-  if (mediaType !== 'text/event-stream') {
-    await response.body?.cancel().catch(() => undefined)
-    throw streamError('contract', 'Agent event stream response is not text/event-stream')
-  }
-  if (response.body == null) {
-    throw streamError('contract', 'Agent event stream response has no body')
-  }
-
-  const reader = response.body.getReader()
+  if (callerSignal?.aborted === true) forwardAbort()
+  else callerSignal?.addEventListener('abort', forwardAbort, { once: true })
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   // A fetch that ignores the signal would leave a read pending forever; settle it directly.
-  const cancelRead = () => {
-    void reader.cancel(signal.reason).catch(() => undefined)
-  }
-  signal.addEventListener('abort', cancelRead, { once: true })
+  attempt.signal.addEventListener(
+    'abort',
+    () => {
+      void reader?.cancel(attempt.signal.reason).catch(() => undefined)
+    },
+    { once: true },
+  )
   try {
-    signal.throwIfAborted()
+    const dispatch = { started: false }
+    const { error, response }: { error?: unknown; response?: Response } = await settleWithin(
+      client.request({
+        method: 'GET',
+        url: streamUrl,
+        path,
+        query,
+        headers: { Accept: 'text/event-stream', ...headers },
+        parseAs: 'stream',
+        signal: attempt.signal,
+        throwOnError: false,
+        fetch: (input, init) => {
+          dispatch.started = true
+          return (client.getConfig().fetch ?? globalThis.fetch)(input, init)
+        },
+      }),
+      stallTimeoutMs,
+      attempt,
+    )
+    if (response == null) {
+      throw dispatch.started
+        ? streamError('transport', 'Agent event stream disconnected', { cause: error })
+        : streamError('client', 'Agent event stream request could not be prepared', {
+            cause: error,
+          })
+    }
+    if (response.status !== 200) {
+      const apiError = error instanceof ApiError ? error : await ApiError.fromResponse(response)
+      await response.body?.cancel().catch(() => undefined)
+      throw streamError('http', apiError.message, {
+        status: response.status,
+        code: apiError.code,
+        retryAfterMs: parseRetryAfter(response.headers.get('Retry-After')),
+        cause: apiError,
+      })
+    }
+    if (error !== undefined) {
+      throw streamError('client', 'Agent event stream response was rejected', { cause: error })
+    }
+    const mediaType = response.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
+    if (mediaType !== 'text/event-stream') {
+      await response.body?.cancel().catch(() => undefined)
+      throw streamError('contract', 'Agent event stream response is not text/event-stream')
+    }
+    if (response.body == null) {
+      throw streamError('contract', 'Agent event stream response has no body')
+    }
+    reader = response.body.getReader()
+    attempt.signal.throwIfAborted()
     yield { kind: 'connected' }
     const parser = createServerSentEventParser()
     const decoder = new TextDecoder()
     for (;;) {
-      signal.throwIfAborted()
-      const chunk = await readWithDeadline(reader, activeReadTimeoutMs, readDeadline)
+      attempt.signal.throwIfAborted()
+      const chunk = await settleWithin(reader.read(), stallTimeoutMs, attempt)
       if (chunk.done) throw streamError('transport', 'Agent event stream ended unexpectedly')
       for (const data of parser.push(decoder.decode(chunk.value, { stream: true }))) {
         yield { kind: 'message', data }
       }
     }
   } catch (error) {
-    if (readDeadline.signal.aborted) {
-      throw streamError('transport', 'Agent event stream timed out waiting for data', {
-        cause: error,
-      })
-    }
     throw error instanceof AgentEventStreamError
       ? error
       : streamError('transport', 'Agent event stream disconnected', { cause: error })
   } finally {
-    signal.removeEventListener('abort', cancelRead)
-    await reader.cancel().catch(() => undefined)
+    callerSignal?.removeEventListener('abort', forwardAbort)
+    await reader?.cancel().catch(() => undefined)
   }
 }
 
@@ -298,7 +291,6 @@ export async function* openAgentEventStream({
 
   while (true) {
     let connectedAt: number | undefined
-    let delivered = false
     try {
       const connection = openConnection(
         client,
@@ -320,27 +312,24 @@ export async function* openAgentEventStream({
         }
         const data = await decodeFrame(event.data)
         signal?.throwIfAborted()
-        if ((await schemaMismatch(zError, data)) == null) {
+        const sequence = durableSequence(data)
+        if (sequence == null && (await schemaMismatch(zError, data)) == null) {
           const body = data as ApiErrorBody
           throw streamError('api', body.error, { code: body.code })
         }
-        const sequence = durableSequence(data)
         if (sequence != null && cursor != null && sequence <= cursor) continue
         yield data as AgentEventStreamFrame
-        delivered = true
+        consecutiveFailures = 0
         if (sequence != null) cursor = sequence
       }
     } catch (error) {
       if (signal?.aborted === true) return
       if (!(error instanceof AgentEventStreamError) || !retryable(error)) throw error
-      if (
-        delivered ||
-        (connectedAt != null && Date.now() - connectedAt >= stableConnectionResetMs)
-      ) {
+      if (connectedAt != null && Date.now() - connectedAt >= stableConnectionResetMs) {
         consecutiveFailures = 0
       }
       consecutiveFailures += 1
-      const delayMs = error.retryAfterMs ?? reconnectDelay(consecutiveFailures)
+      const delayMs = Math.max(reconnectDelay(consecutiveFailures), error.retryAfterMs ?? 0)
       notifyConnectionState(onConnectionStateChange, {
         state: 'reconnecting',
         attempt: consecutiveFailures,

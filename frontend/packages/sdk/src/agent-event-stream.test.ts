@@ -276,72 +276,36 @@ describe('openAgentEventStream', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
-  it('parses an HTTP-date Retry-After value', async () => {
+  async function firstReconnectDelay(retryAfter: string): Promise<number | undefined> {
+    const controller = new AbortController()
+    let delayMs: number | undefined
+    const { client } = scriptedClient(
+      new Response(null, { status: 503, headers: { 'Retry-After': retryAfter } }),
+    )
+    const next = openAgentEventStream({
+      client,
+      path,
+      signal: controller.signal,
+      onConnectionStateChange(state) {
+        if (state.state !== 'reconnecting') return
+        delayMs = state.delayMs
+        controller.abort()
+      },
+    }).next()
+    await expect(next).resolves.toEqual({ done: true, value: undefined })
+    return delayMs
+  }
+
+  it.each([
+    ['600', 60_000],
+    ['Tue, 25 Aug 2026 12:00:03 GMT', 3_000],
+    ['0', 500],
+  ])('turns Retry-After %s into a %d ms delay', async (retryAfter, expected) => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-25T12:00:00Z'))
-    const controller = new AbortController()
-    let reconnectDelay: number | undefined
-    const { client } = scriptedClient(
-      new Response(null, {
-        status: 503,
-        headers: { 'Retry-After': 'Tue, 25 Aug 2026 12:00:03 GMT' },
-      }),
-    )
-    const next = openAgentEventStream({
-      client,
-      path,
-      signal: controller.signal,
-      onConnectionStateChange(state) {
-        if (state.state !== 'reconnecting') return
-        reconnectDelay = state.delayMs
-        controller.abort()
-      },
-    }).next()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
-    await expect(next).resolves.toEqual({ done: true, value: undefined })
-    expect(reconnectDelay).toBe(3_000)
-  })
-
-  it('caps Retry-After at 60 seconds', async () => {
-    const controller = new AbortController()
-    let reconnectDelay: number | undefined
-    const { client } = scriptedClient(
-      new Response(null, { status: 503, headers: { 'Retry-After': '600' } }),
-    )
-    const next = openAgentEventStream({
-      client,
-      path,
-      signal: controller.signal,
-      onConnectionStateChange(state) {
-        if (state.state !== 'reconnecting') return
-        reconnectDelay = state.delayMs
-        controller.abort()
-      },
-    }).next()
-
-    await expect(next).resolves.toEqual({ done: true, value: undefined })
-    expect(reconnectDelay).toBe(60_000)
-  })
-
-  it('honors Retry-After zero as an immediate retry', async () => {
-    const controller = new AbortController()
-    let reconnectDelay: number | undefined
-    const { client } = scriptedClient(
-      new Response(null, { status: 503, headers: { 'Retry-After': '0' } }),
-    )
-    const next = openAgentEventStream({
-      client,
-      path,
-      signal: controller.signal,
-      onConnectionStateChange(state) {
-        if (state.state !== 'reconnecting') return
-        reconnectDelay = state.delayMs
-        controller.abort()
-      },
-    }).next()
-
-    await expect(next).resolves.toEqual({ done: true, value: undefined })
-    expect(reconnectDelay).toBe(0)
+    await expect(firstReconnectDelay(retryAfter)).resolves.toBe(expected)
   })
 
   it('grows backoff, resets after a yielded frame, and never resets on an error envelope', async () => {
@@ -456,6 +420,12 @@ describe('openAgentEventStream', () => {
     const wrongMedia = scriptedClient(
       new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
     )
+    const wrongType = scriptedClient(
+      new Response('data: {"event_kind":123}\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    )
 
     await expect(
       collectUntilError(openAgentEventStream({ client: malformed.client, path })),
@@ -463,8 +433,12 @@ describe('openAgentEventStream', () => {
     await expect(
       collectUntilError(openAgentEventStream({ client: wrongMedia.client, path })),
     ).resolves.toMatchObject({ error: { kind: 'contract' } })
+    await expect(
+      collectUntilError(openAgentEventStream({ client: wrongType.client, path })),
+    ).resolves.toMatchObject({ error: { kind: 'contract' } })
     expect(malformed.fetch).toHaveBeenCalledTimes(1)
     expect(wrongMedia.fetch).toHaveBeenCalledTimes(1)
+    expect(wrongType.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('preserves forward-compatible fields on a valid known frame', async () => {
@@ -668,6 +642,30 @@ describe('openAgentEventStream', () => {
     await rejected
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(active.cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconnects when a connection attempt stalls for 35 seconds', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(() => new Promise<Response>(() => undefined))
+      .mockImplementationOnce(() => Promise.resolve(new Response(null, { status: 401 })))
+    const states: unknown[] = []
+    const next = openAgentEventStream({
+      client: clientWithFetch(fetch),
+      path,
+      onConnectionStateChange: (state) => states.push(state),
+    }).next()
+    const rejected = expect(next).rejects.toMatchObject({ kind: 'http', status: 401 })
+    await vi.advanceTimersByTimeAsync(34_999)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.runOnlyPendingTimersAsync()
+
+    await rejected
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(states).toMatchObject([{ state: 'reconnecting', attempt: 1, delayMs: 0 }])
   })
 
   it('keeps an active read alive when periodic SSE comments arrive', async () => {

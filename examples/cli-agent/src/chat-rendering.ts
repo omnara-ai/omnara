@@ -39,10 +39,6 @@ export class DeltaRenderer {
         this.updatePreview()
         return
       }
-      case 'block_stop':
-      case 'message_stop':
-        this.discard()
-        return
       case 'error':
         this.discard()
         this.terminal.printBlock(`${this.errorLabel} ${event.error.message}`)

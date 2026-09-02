@@ -58,6 +58,8 @@ test('reconnect discards partial output and stale thinking detail', () => {
 
   renderer.handle(delta({ kind: 'text_delta', block_index: 0, delta: 'complete answer' }))
   renderer.handle(delta({ kind: 'block_stop', block_index: 0 }))
+  assert.equal(terminal.previews.at(-1), 'agent complete answer')
+  renderer.complete(modelCallContextId)
   assert.deepEqual(terminal.printed, [])
   assert.equal(terminal.previews.at(-1), undefined)
 })

@@ -19,19 +19,22 @@ describe('createServerSentEventParser', () => {
     ])
   })
 
-  it('completes a message whose CRLF pair is split across chunks', () => {
+  it('assembles a message from many chunks and returns several from one', () => {
     const parser = createServerSentEventParser()
 
     expect(parser.push('data: {"a"')).toEqual([])
-    expect(parser.push(':1}\r')).toEqual([])
-    expect(parser.push('\n\r\n')).toEqual(['{"a":1}'])
+    expect(parser.push(':1,"b"')).toEqual([])
+    expect(parser.push(':2}\n')).toEqual([])
+    expect(parser.push('\ndata: 3\n\ndata: 4\n\ndata: 5')).toEqual(['{"a":1,"b":2}', '3', '4'])
+    expect(parser.push('\n\n')).toEqual(['5'])
   })
 
-  it('treats a bare CR as a line ending once the next chunk shows it was not CRLF', () => {
+  it('treats CRLF and bare CR as line endings, including a CRLF split across chunks', () => {
     const parser = createServerSentEventParser()
 
-    expect(parser.push('data: 2\r\r')).toEqual([])
-    expect(parser.push('data: 3\n\n')).toEqual(['2', '3'])
+    expect(parser.push('data: 1\r')).toEqual([])
+    expect(parser.push('\n\r\ndata: 2\r\rdata: 3\r\n')).toEqual(['1', '2'])
+    expect(parser.push('\r\n')).toEqual(['3'])
   })
 
   it('does not dispatch a message without data', () => {
@@ -40,10 +43,11 @@ describe('createServerSentEventParser', () => {
     expect(parser.push('event: ping\nid: 3\n\n: keepalive\n\n')).toEqual([])
   })
 
-  it('keeps an incomplete trailing message buffered', () => {
+  it('ignores empty chunks without losing a pending line ending', () => {
     const parser = createServerSentEventParser()
 
-    expect(parser.push('data: partial\n')).toEqual([])
-    expect(parser.push('\n')).toEqual(['partial'])
+    expect(parser.push('data: x\r')).toEqual([])
+    expect(parser.push('')).toEqual([])
+    expect(parser.push('\n\n')).toEqual(['x'])
   })
 })

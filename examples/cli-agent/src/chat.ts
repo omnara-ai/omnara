@@ -508,15 +508,16 @@ export async function runChat(target: ChatTarget): Promise<void> {
             setAgentState('working…')
           }
           if (frame.event_kind === 'tool_result') setAgentState('working…')
+          if (frame.event_kind === 'model_output') deltas.complete(frame.model_call_context_id)
+          printEvent(terminal, frame, toolCalls)
+          renderRunningTools()
           if (frame.event_kind === 'model_output') {
-            deltas.complete(frame.model_call_context_id)
             if (frame.stop_reason === 'tool_use') setAgentState('running tools…')
             else finishTurn()
           }
-          printEvent(terminal, frame, toolCalls)
-          renderRunningTools()
         } else if ('event' in frame) {
           const delta = frame.event
+          deltas.handle(frame)
           if (delta.kind === 'block_start') {
             if (delta.block.kind === 'tool_use') {
               if (!toolCalls.has(delta.block.tool_call_id)) {
@@ -538,11 +539,9 @@ export async function runChat(target: ChatTarget): Promise<void> {
           } else if (delta.kind === 'message_stop') {
             thinkingTail = ''
             if (delta.stop.reason === 'tool_use') setAgentState('running tools…')
-            else finishTurn()
           } else if (delta.kind === 'error') {
             finishTurn()
           }
-          deltas.handle(frame)
         }
       }
     } catch (error) {

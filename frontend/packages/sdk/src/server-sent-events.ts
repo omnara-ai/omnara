@@ -4,21 +4,31 @@ export interface ServerSentEventParser {
 
 // Dispatch rules: https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation
 export function createServerSentEventParser(): ServerSentEventParser {
-  let buffer = ''
+  // The message in progress is kept as chunks so a large frame is never rescanned or recopied.
+  let parts: string[] = []
+  let pendingCarriageReturn = false
   return {
     push(chunk) {
-      buffer += chunk
-      // A trailing CR may be the first half of a CRLF pair split across chunks.
-      const heldCarriageReturn = buffer.endsWith('\r')
-      if (heldCarriageReturn) buffer = buffer.slice(0, -1)
-      buffer = buffer.replaceAll(/\r\n?/g, '\n')
-      const messages: string[] = []
-      for (let end = buffer.indexOf('\n\n'); end !== -1; end = buffer.indexOf('\n\n')) {
-        const data = messageData(buffer.slice(0, end))
-        if (data != null) messages.push(data)
-        buffer = buffer.slice(end + 2)
+      if (chunk === '') return []
+      // A CR that ended the previous chunk already counted as a line ending; drop the LF that pairs with it.
+      let text = pendingCarriageReturn && chunk.startsWith('\n') ? chunk.slice(1) : chunk
+      pendingCarriageReturn = chunk.endsWith('\r')
+      text = text.replaceAll(/\r\n?/g, '\n')
+      // A blank line can straddle chunks: move a buffered trailing LF into this chunk so one scan sees it.
+      const last = parts.at(-1)
+      if (last?.endsWith('\n') === true) {
+        parts[parts.length - 1] = last.slice(0, -1)
+        text = `\n${text}`
       }
-      if (heldCarriageReturn) buffer += '\r'
+      const messages: string[] = []
+      let from = 0
+      for (let end = text.indexOf('\n\n'); end !== -1; end = text.indexOf('\n\n', from)) {
+        const data = messageData(parts.join('') + text.slice(from, end))
+        parts = []
+        if (data != null) messages.push(data)
+        from = end + 2
+      }
+      if (from < text.length) parts.push(text.slice(from))
       return messages
     },
   }
