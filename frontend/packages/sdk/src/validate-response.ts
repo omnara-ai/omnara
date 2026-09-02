@@ -55,7 +55,7 @@ export function parseResponse<T extends z.ZodType>(
   return { error: result.error }
 }
 
-export function validateResponse(schema: z.ZodType, data: unknown): Promise<void> {
+export function validateResponse(schema: z.ZodType, data: unknown): void {
   const { error } = parseResponse(schema, data)
-  return error == null ? Promise.resolve() : Promise.reject(error)
+  if (error != null) throw error
 }
