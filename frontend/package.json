@@ -19,6 +19,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.79.0",
     "eslint-plugin-simple-import-sort": "^12.0.0",
     "oxlint": "1.79.0",
     "oxlint-tsgolint": "7.0.2001",
