@@ -1,3 +1,4 @@
+import { useAgentInteractions, useResolveAgentInteraction } from '@omnara/react'
 import type {
   AgentInteraction,
   InteractionAnswer,
@@ -8,9 +9,11 @@ import { useState } from 'react'
 
 import { KeyRound, MessageCircleQuestion } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+import { errorMessage } from '@/lib/submit-status'
+import { cn } from '@/lib/utils'
 
 type Resolve = (interactionID: string, body: ResolveAgentInteractionRequest) => Promise<unknown>
 
@@ -57,6 +60,7 @@ function InteractionFormCard({
     }
   }
   const contextItems = keyedContextItems(interaction)
+  const toolName = interaction.tool_name ?? null
 
   function submit() {
     const answers: InteractionAnswer[] = []
@@ -79,27 +83,36 @@ function InteractionFormCard({
   }
 
   return (
-    <Card className="border-primary/35 bg-primary/[0.04] shadow-none">
-      <CardHeader className="gap-1 pb-3">
-        <div className="text-primary flex items-center gap-2">
-          {isPermission ? (
-            <KeyRound className="size-4" />
-          ) : (
-            <MessageCircleQuestion className="size-4" />
-          )}
-          <span className="text-xs font-semibold uppercase tracking-wide">
-            {isPermission ? 'Permission required' : 'Agent question'}
-          </span>
-        </div>
-        <CardTitle className="text-sm">{interaction.request.title}</CardTitle>
+    <Card className="border-primary/35 bg-primary/[0.04] min-w-0 gap-3 shadow-none">
+      <CardHeader className="min-w-0 gap-1">
+        {isPermission ? (
+          <CardTitle className="wrap-anywhere flex flex-wrap items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+            <KeyRound className="size-4 shrink-0" />
+            {toolName == null ? (
+              interaction.request.title
+            ) : (
+              <>
+                Permission requested for
+                <span className="bg-muted text-foreground rounded-md px-2 py-1 font-mono text-xs">
+                  {toolName}
+                </span>
+              </>
+            )}
+          </CardTitle>
+        ) : (
+          <CardTitle className="wrap-anywhere text-primary flex items-center gap-2 text-sm">
+            <MessageCircleQuestion className="size-4 shrink-0" />
+            {interaction.request.title}
+          </CardTitle>
+        )}
       </CardHeader>
-      <CardContent className="grid gap-5">
+      <CardContent className="grid min-w-0 gap-4">
         {contextItems.length > 0 && (
-          <dl className="bg-background grid gap-2 rounded-md border p-3 text-xs">
+          <dl className="bg-background grid min-w-0 gap-2 rounded-md border p-3 text-xs">
             {contextItems.map(({ item, key }) => (
-              <div key={key} className="grid gap-1">
-                <dt className="text-muted-foreground font-medium">{item.label}</dt>
-                <dd className="whitespace-pre-wrap font-mono">{item.value}</dd>
+              <div key={key} className="grid min-w-0 gap-1">
+                <dt className="text-muted-foreground wrap-anywhere font-medium">{item.label}</dt>
+                <dd className="wrap-anywhere whitespace-pre-wrap font-mono">{item.value}</dd>
               </div>
             ))}
           </dl>
@@ -110,16 +123,24 @@ function InteractionFormCard({
           const allowsText = selectedOptions(question.options, optionIndices).some(
             (option) => option.allows_text === true,
           )
+          const isLast = questionIndex === questions.length - 1
+          const responseId = `${interaction.id}-${questionIndex}-response`
+          const responseLabel = isPermission ? 'Reason (optional)' : 'Details (optional)'
           return (
-            <fieldset key={questionIndex} className="grid gap-3">
-              <legend className="text-sm font-medium">{question.prompt}</legend>
-              <div className="flex flex-wrap gap-2">
+            <fieldset key={questionIndex} className="grid min-w-0 gap-3">
+              <legend
+                className={cn('wrap-anywhere mb-3 text-sm font-medium', isPermission && 'sr-only')}
+              >
+                {question.prompt}
+              </legend>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {question.options.map((candidate, optionIndex) => (
                   <Button
                     key={optionIndex}
                     type="button"
                     size="sm"
                     variant={optionIndexSet.has(optionIndex) ? 'default' : 'outline'}
+                    className="wrap-anywhere h-auto min-h-8 max-w-full whitespace-normal text-left"
                     disabled={!canOperate || pending}
                     onClick={() => {
                       const nextOptionIndices =
@@ -148,57 +169,84 @@ function InteractionFormCard({
                     {candidate.label}
                   </Button>
                 ))}
+                {allowsText && (
+                  <>
+                    <Label htmlFor={responseId} className="sr-only">
+                      {responseLabel}
+                    </Label>
+                    <Input
+                      id={responseId}
+                      className="h-8 min-w-40 flex-1 sm:h-8"
+                      value={responses[questionIndex] ?? ''}
+                      placeholder={responseLabel}
+                      disabled={!canOperate || pending}
+                      onChange={(event) => {
+                        setResponses((current) => ({
+                          ...current,
+                          [questionIndex]: event.target.value,
+                        }))
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === 'Enter' &&
+                          !event.nativeEvent.isComposing &&
+                          complete &&
+                          !pending
+                        ) {
+                          event.preventDefault()
+                          submit()
+                        }
+                      }}
+                    />
+                  </>
+                )}
+                {isLast && (
+                  <Button
+                    size="sm"
+                    className="ml-auto"
+                    disabled={!canOperate || pending || !complete}
+                    onClick={submit}
+                  >
+                    Submit
+                  </Button>
+                )}
               </div>
-              {allowsText && (
-                <div className="grid gap-2">
-                  <Label htmlFor={`${interaction.id}-${questionIndex}-response`}>
-                    Additional details (optional)
-                  </Label>
-                  <Textarea
-                    id={`${interaction.id}-${questionIndex}-response`}
-                    value={responses[questionIndex] ?? ''}
-                    placeholder="Add details"
-                    disabled={!canOperate || pending}
-                    onChange={(event) => {
-                      setResponses((current) => ({
-                        ...current,
-                        [questionIndex]: event.target.value,
-                      }))
-                    }}
-                  />
-                </div>
-              )}
             </fieldset>
           )
         })}
       </CardContent>
-      <CardFooter className="justify-end">
-        <Button size="sm" disabled={!canOperate || pending || !complete} onClick={submit}>
-          Submit
-        </Button>
-      </CardFooter>
     </Card>
   )
 }
 
 export function AgentInteractions({
-  interactions,
-  onResolve,
-  pending,
-  error,
-  loadError,
+  orgID,
+  projectID,
+  agentID,
+  agentActive,
   canOperate,
 }: {
-  interactions: AgentInteraction[]
-  onResolve: Resolve
-  pending: boolean
-  error?: Error | null
-  loadError?: string | null
+  orgID: string
+  projectID: string
+  agentID: string
+  agentActive: boolean
   canOperate: boolean
 }) {
+  const interactionsQuery = useAgentInteractions(orgID, projectID, agentID, agentActive)
+  const resolveInteraction = useResolveAgentInteraction(orgID, projectID, agentID)
+  const interactions = interactionsQuery.data?.data ?? []
+  const loadError =
+    interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
+  const error = resolveInteraction.error
+  const pending = resolveInteraction.isPending
+  const onResolve: Resolve = (interactionID, body) =>
+    resolveInteraction.mutateAsync({ interactionID, body })
   if (interactions.length === 0 && loadError == null) return null
   return (
-    <section className="grid max-h-[40svh] gap-3 overflow-y-auto pr-1" aria-label="Agent requests">
+    <section
+      className="grid max-h-[40svh] min-w-0 gap-3 overflow-y-auto overflow-x-hidden pr-1"
+      aria-label="Agent requests"
+    >
       {loadError != null && (
         <p className="text-destructive text-xs">Could not load pending requests: {loadError}</p>
       )}
