@@ -10068,7 +10068,7 @@ components:
     AgentInteraction:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, interaction_kind, state, request, created_at]
+      required: [id, org_id, project_id, agent_id, tool_call_id, interaction_kind, state, request, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentInteractionID'
@@ -10078,6 +10078,12 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        tool_call_id:
+          description: The tool call that is waiting on this interaction — the guarded tool for a permission, or the ask_question call for a question.
+          $ref: '#/components/schemas/ToolCallID'
+        tool_name:
+          type: string
+          description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

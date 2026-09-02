@@ -35,9 +35,6 @@ function keyedContextItems(interaction: AgentInteraction) {
   })
 }
 
-// Matches the title produced by internal/harness/tools/permission_modes.go.
-const permissionTitlePrefix = 'Permission requested for '
-
 function InteractionFormCard({
   interaction,
   resolve,
@@ -61,10 +58,7 @@ function InteractionFormCard({
     }
   }
   const contextItems = keyedContextItems(interaction)
-  const toolName =
-    isPermission && interaction.request.title.startsWith(permissionTitlePrefix)
-      ? interaction.request.title.slice(permissionTitlePrefix.length)
-      : null
+  const toolName = interaction.tool_name ?? null
 
   function submit() {
     const answers: InteractionAnswer[] = []
@@ -96,7 +90,7 @@ function InteractionFormCard({
               interaction.request.title
             ) : (
               <>
-                {permissionTitlePrefix.trimEnd()}
+                Permission requested for
                 <span className="bg-muted text-foreground rounded-md px-2 py-1 font-mono text-xs">
                   {toolName}
                 </span>
