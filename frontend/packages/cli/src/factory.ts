@@ -3,7 +3,7 @@ import { type Command, InvalidArgumentError } from 'commander'
 import * as z from 'zod'
 
 import type { CliConfig } from './config.ts'
-import { updateConfigFile } from './config-file.ts'
+import type { ConfigStore } from './config-file.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { OutputFormat } from './format.ts'
 import {
@@ -329,9 +329,13 @@ function deepMerge(base: FlagObject, patch: FlagObject): FlagObject {
   return Object.fromEntries(merged)
 }
 
-function saveConfigDefault(configKey: 'org_id' | 'project_id', value: string): void {
+function saveConfigDefault(
+  store: ConfigStore,
+  configKey: 'org_id' | 'project_id',
+  value: string,
+): void {
   try {
-    updateConfigFile(
+    store.update(
       configKey === 'org_id' ? { org_id: value, project_id: undefined } : { [configKey]: value },
     )
     console.error(`saved ${configKey}=${value} as your default (change with omnara config)`)
@@ -386,7 +390,7 @@ async function resolvePathValues(
     let value = explicit ?? param.resolve(config, path)
     if (value === undefined && canPromptInteractively()) {
       value = await param.prompt(config, path)
-      if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
+      if (!usedExplicitOverride) saveConfigDefault(config.store, param.configKey, value)
     }
     if (value === undefined) {
       throw new CliInputError(`missing ${param.optionKey}: ${param.describe}`)

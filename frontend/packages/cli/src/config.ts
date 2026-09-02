@@ -1,7 +1,7 @@
 import { bearerToken, createOmnaraClient, type OmnaraClient } from '@omnara/sdk'
 import type { Command } from 'commander'
 
-import { type ConfigFile, configFilePath, readConfigFile, updateConfigFile } from './config-file.ts'
+import { type ConfigFile, type ConfigStore, fileConfigStore } from './config-file.ts'
 import { createLoginReporter, loginWithDevice } from './device-login.ts'
 import {
   canPromptInteractively,
@@ -9,6 +9,7 @@ import {
   promptProjectSelection,
 } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
+import { sleepSeconds } from './poll.ts'
 
 export const DEFAULT_API_URL = 'https://api.omnara.com/v1'
 export const DEFAULT_ISSUER_URL = 'https://app.omnara.com'
@@ -19,6 +20,9 @@ export interface CliConfig {
   issuerUrl: string
   readonly defaultOrgId?: string
   readonly defaultProjectId?: string
+  store: ConfigStore
+  fetch: typeof fetch
+  sleep: (seconds: number) => Promise<void>
   ensureLoggedIn: () => Promise<void>
 }
 
@@ -70,10 +74,10 @@ export function createTokenResolver(options: TokenResolverOptions): () => Promis
 }
 
 export function loadConfig(): CliConfig {
-  const loaded = readConfigFile()
+  const store = fileConfigStore()
+  const loaded = store.read()
   const migrated = migrateLegacyBaseUrl(loaded)
-  const file =
-    migrated === undefined ? loaded : updateConfigFile({ ...migrated, base_url: undefined })
+  const file = migrated === undefined ? loaded : store.update({ ...migrated, base_url: undefined })
   const { apiUrl, issuerUrl } = resolveUrls(file, process.env)
   let saved: SavedDefaults = { orgId: file.org_id, projectId: file.project_id }
   const resolveToken = createTokenResolver({
@@ -81,7 +85,15 @@ export function loadConfig(): CliConfig {
     canPrompt: canPromptInteractively,
     login: async () => {
       const report = createLoginReporter(`Not logged in yet. Log in to ${issuerUrl}`)
-      const login = await loginWithDevice({ apiUrl, issuerUrl, browser: true, report })
+      const login = await loginWithDevice({
+        apiUrl,
+        issuerUrl,
+        browser: true,
+        report,
+        store,
+        fetch: globalThis.fetch,
+        sleep: sleepSeconds,
+      })
       saved = { orgId: login.orgId, projectId: login.projectId }
       report.finish('Continuing')
       return login.token
@@ -96,6 +108,9 @@ export function loadConfig(): CliConfig {
     client,
     apiUrl,
     issuerUrl,
+    store,
+    fetch: globalThis.fetch,
+    sleep: sleepSeconds,
     get defaultOrgId() {
       return process.env.OMNARA_ORG_ID ?? saved.orgId
     },
@@ -130,9 +145,9 @@ function describeValue(
   return '(not set)'
 }
 
-function printConfig(): void {
-  const file = readConfigFile()
-  console.log(`config file  ${configFilePath()}`)
+function printConfig(store: ConfigStore): void {
+  const file = store.read()
+  console.log(`config file  ${store.path}`)
   console.log(`org_id       ${describeValue('OMNARA_ORG_ID', file.org_id)}`)
   console.log(`project_id   ${describeValue('OMNARA_PROJECT_ID', file.project_id)}`)
   const { apiUrl, issuerUrl } = resolveUrls(file, {})
@@ -167,9 +182,9 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
           if (options.project !== undefined) patch.project_id = options.project
           if (options.apiUrl !== undefined) patch.api_url = options.apiUrl
           if (options.issuerUrl !== undefined) patch.issuer_url = options.issuerUrl
-          updateConfigFile(patch)
+          cli.store.update(patch)
         }
-        printConfig()
+        printConfig(cli.store)
       })
     })
   config
@@ -183,8 +198,8 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
         await cli.ensureLoggedIn()
         const orgId = await promptOrgSelection(cli.client, cli.issuerUrl)
         const projectId = await promptProjectSelection(cli.client, orgId)
-        updateConfigFile({ org_id: orgId, project_id: projectId })
-        printConfig()
+        cli.store.update({ org_id: orgId, project_id: projectId })
+        printConfig(cli.store)
       })
     })
 }

@@ -67,6 +67,16 @@ export function readConfigFileForUpdate(): ConfigFile {
   )
 }
 
+export interface ConfigStore {
+  readonly path: string
+  read(): ConfigFile
+  update(patch: Partial<ConfigFile>): ConfigFile
+}
+
+export function fileConfigStore(): ConfigStore {
+  return { path: configFilePath(), read: readConfigFile, update: updateConfigFile }
+}
+
 export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
   const merged = Object.fromEntries(
     Object.entries({ ...readConfigFileForUpdate(), ...patch }).filter(

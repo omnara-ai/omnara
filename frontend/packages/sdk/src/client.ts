@@ -10,6 +10,7 @@ export interface OmnaraClientOptions {
   credentials?: RequestCredentials
   auth?: AuthStrategy
   headers?: Record<string, string>
+  fetch?: typeof fetch
 }
 
 type HttpMethod =
@@ -66,6 +67,7 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     baseUrl: options.baseUrl ?? specDefaultClient.getConfig().baseUrl,
     credentials: options.credentials,
     headers: options.headers,
+    fetch: options.fetch,
   })
   const { auth } = options
   if (auth) {
