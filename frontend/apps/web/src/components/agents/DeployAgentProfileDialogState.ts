@@ -51,7 +51,7 @@ export function readFileBase64(file: File): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result
-      if (typeof result !== 'string') {
+      if (result === null || result instanceof ArrayBuffer) {
         reject(new Error('Could not read icon file'))
         return
       }

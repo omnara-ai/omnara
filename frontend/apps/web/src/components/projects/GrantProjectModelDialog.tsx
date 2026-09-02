@@ -56,8 +56,9 @@ export function GrantProjectModelDialog({
     label: 'model grant',
     fallbackError: 'Could not grant models',
     itemKey: (model) => model.id,
-    grant: (model) =>
-      createGrant.mutateAsync({ projectID: projectId, configured_model_id: model.id }),
+    grant: async (model) => {
+      await createGrant.mutateAsync({ projectID: projectId, configured_model_id: model.id })
+    },
     onSuccess: () => {
       onOpenChange(false)
     },

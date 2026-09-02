@@ -14,7 +14,7 @@ import { errorMessage } from '@/lib/submit-status'
 
 interface SecretSubmissionOperations {
   createSecret: (request: CreateSecretRequest) => Promise<Secret>
-  grantSecret: (input: { secretID: string; projectID: string }) => Promise<unknown>
+  grantSecret: (input: { secretID: string; projectID: string }) => Promise<void>
   startMcpOAuth: (request: McpoAuthStartRequest) => Promise<McpoAuthStartResponse>
   savePendingMcpGrants: (projectIds: string[]) => void
 }

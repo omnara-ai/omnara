@@ -10,11 +10,14 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { Suspense } from 'react'
+import { z } from 'zod'
 
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
+import { queryClient } from '@/lib/query'
 import { requireOrganization } from '@/lib/require-organization'
 import { RootError } from '@/routes/RootError'
+import { omnaraClient } from '@/transport'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -153,11 +156,12 @@ const agentProfileRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/AgentProfileView'), 'AgentProfileView'),
 })
 
+const createAgentSearch = z.object({ template: z.string().optional().catch(undefined) })
+
 const createAgentRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents/new',
-  validateSearch: (search: Record<string, unknown>): { template?: string } =>
-    typeof search.template === 'string' ? { template: search.template } : {},
+  validateSearch: createAgentSearch,
   component: lazyRouteComponent(() => import('@/routes/CreateAgentPage'), 'CreateAgentPage'),
 })
 
@@ -257,10 +261,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  context: {
-    queryClient: undefined as unknown as QueryClient,
-    omnaraClient: undefined as unknown as OmnaraClient,
-  },
+  context: { queryClient, omnaraClient },
   defaultPreload: 'intent',
   defaultPendingComponent: FullPageSpinner,
   defaultErrorComponent: RootError,

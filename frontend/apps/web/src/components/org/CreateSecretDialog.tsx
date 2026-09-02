@@ -81,7 +81,9 @@ export function CreateSecretDialog({
       returnTo: window.location.pathname + window.location.search + window.location.hash,
       operations: {
         createSecret: createSecret.mutateAsync,
-        grantSecret: grantSecret.mutateAsync,
+        grantSecret: async (input) => {
+          await grantSecret.mutateAsync(input)
+        },
         startMcpOAuth: startMcpOAuth.mutateAsync,
         savePendingMcpGrants: (projectIds) => {
           savePendingMcpSecretGrants(orgId, projectIds)

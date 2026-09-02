@@ -1,4 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
+import type { Document } from 'yaml'
 import { z } from 'zod'
 
 import type {
@@ -19,8 +20,10 @@ import { memoryGbDraft } from '@/lib/machine-memory'
 
 const permission = z.strictObject({
   mode: z.string(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
+  parameters: z.record(z.string(), z.json()).optional(),
 })
+
+export type PermissionEntry = z.infer<typeof permission>
 
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
@@ -35,6 +38,8 @@ const machineEntry = z.strictObject({
   secret_env_overlay: overlay,
 })
 
+export type MachineEntry = z.infer<typeof machineEntry>
+
 const poolEntry = z.strictObject({
   machine_pool_name: z.string(),
   initial_num_machines: nonNegativeCount,
@@ -47,6 +52,8 @@ const poolEntry = z.strictObject({
   env_overlay: overlay,
   secret_env_overlay: overlay,
 })
+
+export type PoolEntry = z.infer<typeof poolEntry>
 
 const mcpAuth = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('oauth'), secret_id: z.string() }),
@@ -64,6 +71,8 @@ const mcpToolEntry = z.strictObject({
   permission: permission.optional(),
 })
 
+export type McpToolEntry = z.infer<typeof mcpToolEntry>
+
 const mcpEntry = z.strictObject({
   url: z.string(),
   permission: permission.optional(),
@@ -72,11 +81,15 @@ const mcpEntry = z.strictObject({
   tools: z.record(z.string(), mcpToolEntry).optional(),
 })
 
+export type McpEntry = z.infer<typeof mcpEntry>
+
 const toolEntry = z.strictObject({
   type: z.literal('built_in').optional(),
   enabled: z.literal(true).nullable().optional(),
   permission: permission.optional(),
 })
+
+export type ToolEntry = z.infer<typeof toolEntry>
 
 const optionalText = z.string().nullable().optional()
 
@@ -90,8 +103,8 @@ const basicDocument = z.looseObject({
   mcp: z.record(z.string(), mcpEntry).optional(),
 })
 
-export function extractBasicConfig(js: unknown): BasicConfig | null {
-  const parsed = basicDocument.safeParse(js)
+export function extractBasicConfig(document: Document): BasicConfig | null {
+  const parsed = basicDocument.safeParse(document.toJS())
   if (!parsed.success) return null
   const doc = parsed.data
 

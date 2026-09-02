@@ -76,7 +76,7 @@ export function AgentComposer({
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
-  onCancel: () => Promise<unknown>
+  onCancel: () => Promise<void>
   cancelPending: boolean
   cancelError?: Error | null
   canOperate: boolean

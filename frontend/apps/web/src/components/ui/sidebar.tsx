@@ -350,7 +350,7 @@ function SidebarMenuButton({
 }: ComponentProps<'button'> & {
   asChild?: boolean
   isActive?: boolean
-  tooltip?: string | ComponentProps<typeof TooltipContent>
+  tooltip?: string
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? SlotPrimitive.Root : 'button'
   const { isMobile, state } = useSidebar()
@@ -370,17 +370,12 @@ function SidebarMenuButton({
     return button
   }
 
-  const tooltipProps = typeof tooltip === 'string' ? { children: tooltip } : tooltip
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        align="center"
-        hidden={state !== 'collapsed' || isMobile}
-        {...tooltipProps}
-      />
+      <TooltipContent side="right" align="center" hidden={state !== 'collapsed' || isMobile}>
+        {tooltip}
+      </TooltipContent>
     </Tooltip>
   )
 }

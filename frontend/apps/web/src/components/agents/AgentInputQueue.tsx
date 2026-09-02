@@ -33,14 +33,7 @@ function inputPreview(input: AgentInputBacklogItem) {
   const attachmentCount = blocks?.filter((block) => block.type === 'media_ref').length ?? 0
   const text = blocks
     ?.flatMap((block) =>
-      block.type === 'text'
-        ? [
-            (typeof block.metadata?.omnara_display_text === 'string'
-              ? block.metadata.omnara_display_text
-              : block.text
-            ).trim(),
-          ]
-        : [],
+      block.type === 'text' ? [(block.metadata?.omnara_display_text ?? block.text).trim()] : [],
     )
     .filter(Boolean)
     .join('\n')
@@ -91,8 +84,8 @@ export function AgentInputQueue({
     }
     startTransition(async () => {
       moveOptimistically(move)
-      await backlog.move(move).catch((error: unknown) => {
-        window.alert(errorMessage(error, 'Could not reorder this message'))
+      await backlog.move(move).catch((cause: unknown) => {
+        window.alert(errorMessage(cause, 'Could not reorder this message'))
       })
     })
   }
@@ -120,13 +113,13 @@ export function AgentInputQueue({
                 canSendNow={canSendNow}
                 actionPending={backlog.actionPending}
                 onPromote={() => {
-                  void backlog.promote(input.id).catch((error: unknown) => {
-                    window.alert(errorMessage(error, 'Could not send this message now'))
+                  void backlog.promote(input.id).catch((cause: unknown) => {
+                    window.alert(errorMessage(cause, 'Could not send this message now'))
                   })
                 }}
                 onCancel={() => {
-                  void backlog.cancel(input.id).catch((error: unknown) => {
-                    window.alert(errorMessage(error, 'Could not remove this message'))
+                  void backlog.cancel(input.id).catch((cause: unknown) => {
+                    window.alert(errorMessage(cause, 'Could not remove this message'))
                   })
                 }}
               />

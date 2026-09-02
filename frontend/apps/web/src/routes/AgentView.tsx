@@ -81,7 +81,7 @@ export function AgentView() {
     }
     const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
     try {
-      return await cancelAgent.mutateAsync()
+      await cancelAgent.mutateAsync()
     } catch (error) {
       rollback()
       throw error
@@ -209,7 +209,7 @@ function AgentDock({
   agentID: string
   cancelPending: boolean
   cancelError: Error | null
-  onCancel: () => Promise<unknown>
+  onCancel: () => Promise<void>
 }) {
   return (
     <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">

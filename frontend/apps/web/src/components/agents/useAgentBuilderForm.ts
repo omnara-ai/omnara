@@ -1,8 +1,18 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
 import { useState } from 'react'
-import { Document, isMap, isNode, parseDocument } from 'yaml'
+import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
+import { z } from 'zod'
 
-import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
+import {
+  extractBasicConfig,
+  type MachineEntry,
+  type McpEntry,
+  type McpToolEntry,
+  normalizeMultiline,
+  type PermissionEntry,
+  type PoolEntry,
+  type ToolEntry,
+} from '@/components/agents/agentConfigBasicExtract'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
@@ -109,7 +119,7 @@ export interface BasicConfigSession {
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc.toJS())
+  const initialDraft = doc == null ? null : extractBasicConfig(doc)
   return {
     initialDraft,
     apply(config) {
@@ -256,6 +266,19 @@ function parseSourceDocument(source: string): Document | null {
   }
 }
 
+type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
+
+interface WireObject {
+  [key: string]: WireValue
+}
+
+type YamlInput = WireValue | Node | YamlInput[]
+
+type Setter = (path: string[], value: YamlInput) => void
+type Deleter = (path: (string | number)[]) => void
+
+const jsonParameters = z.record(z.string(), z.json())
+
 function applyToDocument(
   doc: Document,
   baselineSource: string,
@@ -263,7 +286,7 @@ function applyToDocument(
   config: BasicConfig,
 ): string {
   const edits = { count: 0 }
-  const set = (path: string[], value: unknown) => {
+  const set: Setter = (path, value) => {
     const node = doc.createNode(value)
     const previous = doc.getIn(path, true)
     if (isNode(previous) && isNode(node)) {
@@ -273,7 +296,7 @@ function applyToDocument(
     doc.setIn(path, node)
     edits.count += 1
   }
-  const del = (path: (string | number)[]) => {
+  const del: Deleter = (path) => {
     if (doc.deleteIn(path)) edits.count += 1
   }
 
@@ -309,10 +332,10 @@ function applyToDocument(
 
 function applyNamedEntries(
   key: string,
-  desired: [string, unknown][],
-  baseline: [string, unknown][] | null,
-  set: (path: string[], value: unknown) => void,
-  del: (path: string[]) => void,
+  desired: [string, WireValue][],
+  baseline: [string, WireValue][] | null,
+  set: Setter,
+  del: Deleter,
 ) {
   const baselineByName = new Map(baseline ?? [])
   if (desired.length === 0) {
@@ -334,8 +357,8 @@ function applyMachineSources(
   doc: Document,
   rows: BasicMachineSource[],
   baselineRows: BasicMachineSource[] | null,
-  set: (path: string[], value: unknown) => void,
-  del: (path: string[]) => void,
+  set: Setter,
+  del: Deleter,
 ) {
   const desired = rows.map(machineSourceComparable)
   const baseline = baselineRows?.map(machineSourceComparable) ?? null
@@ -344,21 +367,17 @@ function applyMachineSources(
     del(['machine_sources'])
     return
   }
-  const items = rows.map((row, index) => {
+  const items = rows.map((row, index): YamlInput => {
     if (baseline != null && index < baseline.length && deepEqual(desired[index], baseline[index])) {
-      return doc.getIn(['machine_sources', index], true)
+      const existing = doc.getIn(['machine_sources', index], true)
+      if (isNode(existing)) return existing
     }
     return machineSourceWire(row)
   })
   set(['machine_sources'], items)
 }
 
-function applySkills(
-  skillIds: string[],
-  baselineIds: string[] | null,
-  set: (path: string[], value: unknown) => void,
-  del: (path: string[]) => void,
-) {
+function applySkills(skillIds: string[], baselineIds: string[] | null, set: Setter, del: Deleter) {
   if (baselineIds != null && deepEqual(skillIds, baselineIds)) return
   if (skillIds.length === 0) {
     del(['skills'])
@@ -377,78 +396,83 @@ function machineSourceComparable(source: BasicMachineSource) {
     deleteAfterIdleMinutes: source.deleteAfterIdleMinutes,
     machineCpu: source.machineCpu,
     machineMemoryGb: source.machineMemoryGb,
-    providerOptions: source.providerOptions,
+    providerOptions: { ...source.providerOptions },
     env: envOverlayFromRows(source.envRows) ?? null,
     secretEnv: secretEnvOverlayFromRows(source.secretEnvRows) ?? null,
   }
 }
 
-function deepEqual(a: unknown, b: unknown, depth = 0): boolean {
+function isWireObject(value: WireValue): value is WireObject {
+  return value !== null && value !== undefined && !Array.isArray(value) && value instanceof Object
+}
+
+function deepEqual(a: WireValue, b: WireValue, depth = 0): boolean {
   if (Object.is(a, b)) return true
   if (depth > 64) return false
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
     return a.every((item, index) => deepEqual(item, b[index], depth + 1))
   }
-  if (!isRecord(a) || !isRecord(b)) return false
+  if (!isWireObject(a) || !isWireObject(b)) return false
   const keys = Object.keys(a)
   if (keys.length !== Object.keys(b).length) return false
   return keys.every((key) => key in b && deepEqual(a[key], b[key], depth + 1))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry {
+  const name = normalizeResourceName(source.name)
+  if (source.kind !== 'pool') {
+    const wire: MachineEntry = { machine_name: name }
+    applySourceOverlays(wire, source)
+    return wire
+  }
+  const wire: PoolEntry = { machine_pool_name: name }
+  if (source.initialNumMachines !== '') {
+    wire.initial_num_machines = Number(source.initialNumMachines)
+  }
+  if (source.maxMachines !== '') wire.max_machines = Number(source.maxMachines)
+  if (source.deleteAfterIdleMinutes !== '') {
+    wire.delete_after_idle_minutes = Number(source.deleteAfterIdleMinutes)
+  }
+  if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
+  if (source.machineMemoryGb !== '') wire.machine_memory_mb = memoryGbToMb(source.machineMemoryGb)
+  const optionsOverlay = isMachinePoolProvider(source.provider)
+    ? providerOptionsOverlay(source.provider, source.providerOptions)
+    : undefined
+  if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
+  applySourceOverlays(wire, source)
+  return wire
 }
 
-function machineSourceWire(source: BasicMachineSource): Record<string, unknown> {
-  const wire: Record<string, unknown> = {}
-  const name = normalizeResourceName(source.name)
-  if (source.kind === 'pool') {
-    wire.machine_pool_name = name
-    if (source.initialNumMachines !== '') {
-      wire.initial_num_machines = Number(source.initialNumMachines)
-    }
-    if (source.maxMachines !== '') wire.max_machines = Number(source.maxMachines)
-    if (source.deleteAfterIdleMinutes !== '') {
-      wire.delete_after_idle_minutes = Number(source.deleteAfterIdleMinutes)
-    }
-    if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
-    if (source.machineMemoryGb !== '') wire.machine_memory_mb = memoryGbToMb(source.machineMemoryGb)
-    const optionsOverlay = isMachinePoolProvider(source.provider)
-      ? providerOptionsOverlay(source.provider, source.providerOptions)
-      : undefined
-    if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
-  } else {
-    wire.machine_name = name
-  }
+function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
   const envOverlay = envOverlayFromRows(source.envRows)
   if (envOverlay) wire.env_overlay = envOverlay
   const secretEnvOverlay = secretEnvOverlayFromRows(source.secretEnvRows)
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
-  return wire
 }
 
-function toolWire(tool: BasicTool): Record<string, unknown> {
-  const wire: Record<string, unknown> = { type: 'built_in' }
+function toolWire(tool: BasicTool): ToolEntry {
+  const wire: ToolEntry = { type: 'built_in' }
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   return wire
 }
 
-function mcpWire(server: BasicMcpServer): Record<string, unknown> {
-  const wire: Record<string, unknown> = { url: server.url.trim() }
+function mcpWire(server: BasicMcpServer): McpEntry {
+  const wire: McpEntry = { url: server.url.trim() }
   if (server.permission != null) wire.permission = permissionWire(server.permission)
   wire.default_enabled = server.defaultEnabled
   if (server.authType !== 'none') {
-    const auth: Record<string, string> = {
-      type: server.authType,
-      secret_id: server.secretId.trim(),
-    }
-    if (server.authType === 'sigv4') {
-      auth.service = server.service.trim()
-      auth.region = server.region.trim()
-    }
-    wire.auth = auth
+    const secretId = server.secretId.trim()
+    wire.auth =
+      server.authType === 'sigv4'
+        ? {
+            type: 'sigv4',
+            secret_id: secretId,
+            service: server.service.trim(),
+            region: server.region.trim(),
+          }
+        : { type: server.authType, secret_id: secretId }
   }
   const tools = server.tools.filter((tool) => tool.enabled != null || tool.permission != null)
   if (tools.length > 0) {
@@ -457,15 +481,16 @@ function mcpWire(server: BasicMcpServer): Record<string, unknown> {
   return wire
 }
 
-function mcpToolWire(tool: BasicMcpTool): Record<string, unknown> {
-  const wire: Record<string, unknown> = {}
+function mcpToolWire(tool: BasicMcpTool): McpToolEntry {
+  const wire: McpToolEntry = {}
   if (tool.enabled != null) wire.enabled = tool.enabled
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   return wire
 }
 
-function permissionWire(permission: ToolPermissionSelection): Record<string, unknown> {
-  return Object.keys(permission.parameters).length > 0
-    ? { mode: permission.mode, parameters: permission.parameters }
+function permissionWire(permission: ToolPermissionSelection): PermissionEntry {
+  const parameters = jsonParameters.parse(permission.parameters)
+  return Object.keys(parameters).length > 0
+    ? { mode: permission.mode, parameters }
     : { mode: permission.mode }
 }

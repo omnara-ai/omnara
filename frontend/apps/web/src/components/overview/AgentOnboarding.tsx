@@ -12,6 +12,7 @@ import {
   cliLoginCommand,
   cliSetupPrompt,
   profileCreateSpec,
+  shellCode,
 } from '@/components/overview/onboardingCli'
 import { ProfileDraftStep } from '@/components/overview/OnboardingProfileDraft'
 import { OnboardingStep, OnboardingSteps } from '@/components/overview/OnboardingSteps'
@@ -90,7 +91,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
         nextStatus={createProfile}
         completion={cliToken ? cliLoginTokenHost(cliToken) : 'CLI access is set up'}
       >
-        {login !== 'done' && <CodeBlock content={cliLoginCommand} label="command" />}
+        {login !== 'done' && <CodeBlock content={shellCode(cliLoginCommand)} label="command" />}
       </OnboardingStep>
       <OnboardingStep
         index={2}
@@ -194,7 +195,7 @@ function CliProfileOptions({
         {
           value: 'prompt',
           label: 'Prompt',
-          content: { copy: cliSetupPrompt, segments: [cliSetupPrompt], language: 'text' },
+          content: { copy: cliSetupPrompt, segments: [{ text: cliSetupPrompt }], language: 'text' },
           emphasis: true,
           footer: false,
         },

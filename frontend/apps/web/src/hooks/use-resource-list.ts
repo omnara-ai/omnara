@@ -29,11 +29,15 @@ export function createSortOptions<TSort extends string>(
 export const resourceSortOptions = createSortOptions(RESOURCE_LIST_SORTS)
 export const createdResourceSortOptions = createSortOptions(CREATED_RESOURCE_LIST_SORTS)
 
+export interface ResourceListFilters {
+  name?: string
+}
+
 export function useResourceList<TSort extends string>(defaultSort: TSort) {
   const { search, setSearch, name } = useTypeaheadSearch()
   const [sort, setSort] = useState<TSort>(defaultSort)
 
-  const apiFilters: Record<string, unknown> = name ? { name } : {}
+  const apiFilters: ResourceListFilters = name ? { name } : {}
 
   return {
     search,

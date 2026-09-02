@@ -4,6 +4,10 @@ import { type BasicConfig, createBasicConfigSession } from '@/components/agents/
 import type { CodeContent } from '@/components/overview/CodeBlock'
 
 export const cliLoginCommand = 'npx omnara login'
+
+export function shellCode(command: string): CodeContent {
+  return { copy: command, segments: [{ text: command }], language: 'shell' }
+}
 export const cliSetupPrompt =
   'Read https://omnara.com/SKILL.md and help me create an Omnara agent profile.'
 function shellLines(parts: string[]) {
@@ -37,7 +41,7 @@ export function profileCreateSpec(input: {
     json,
     command: {
       copy: `${prefix}${shellJson}'`,
-      segments: [prefix, { json }, "'"],
+      segments: [{ text: prefix }, { json }, { text: "'" }],
       language: 'shell',
     },
   }
@@ -85,8 +89,8 @@ console.log(launched.data.agent.id)`
   -H "Content-Type: application/json" \\
   -d '{ "profile": "${input.profileId}", "config": "${input.configId}", "message": "${message}" }'`
   return {
-    cli: { copy: cli, segments: [cli], language: 'shell' },
-    sdk: { copy: sdk, segments: [sdk], language: 'typescript' },
-    curl: { copy: curl, segments: [curl], language: 'shell' },
+    cli: { copy: cli, segments: [{ text: cli }], language: 'shell' },
+    sdk: { copy: sdk, segments: [{ text: sdk }], language: 'typescript' },
+    curl: { copy: curl, segments: [{ text: curl }], language: 'shell' },
   }
 }

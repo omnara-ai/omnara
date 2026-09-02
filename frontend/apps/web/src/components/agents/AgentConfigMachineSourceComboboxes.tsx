@@ -51,14 +51,14 @@ const MachineNameCombobox = createResourceCombobox<MachineOption>({
   emptyMessage: 'No machines granted.',
 })
 
-function useStaleName<TItem>(
+function useStaleName<TItem, TFetchResult>(
   lookupQuery: {
     data?: { pages: { data: TItem[] }[] }
     hasNextPage: boolean
     isError: boolean
     isFetching: boolean
     isPending: boolean
-    fetchNextPage: () => Promise<unknown>
+    fetchNextPage: () => Promise<TFetchResult>
   },
   enabled: boolean,
   value: string,

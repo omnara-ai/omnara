@@ -333,8 +333,8 @@ function McpServerSecretField({
               ? `This will update the existing secret "${existingLoginSecret.name}"`
               : undefined,
             onSelect: () => {
-              login.start({ name: loginSecretName }).catch((error: unknown) => {
-                setDialog({ error: errorMessage(error, 'Could not start login') })
+              login.start({ name: loginSecretName }).catch((cause: unknown) => {
+                setDialog({ error: errorMessage(cause, 'Could not start login') })
               })
             },
           },

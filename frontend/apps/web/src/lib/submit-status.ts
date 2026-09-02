@@ -28,14 +28,14 @@ export async function settleSubmission<T>(submit: () => Promise<T>): Promise<Sub
   }
 }
 
-export function submitError(err: unknown, fallback: string): SubmitStatus {
-  return { phase: 'error', message: errorMessage(err, fallback) }
+export function submitError(cause: unknown, fallback: string): SubmitStatus {
+  return { phase: 'error', message: errorMessage(cause, fallback) }
 }
 
 export function statusError(status: SubmitStatus): string | null {
   return status.phase === 'error' ? status.message : null
 }
 
-export function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback
+export function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError ? cause.message : fallback
 }

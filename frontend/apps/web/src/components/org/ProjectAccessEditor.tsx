@@ -36,7 +36,7 @@ interface ProjectAccessQuery {
   isFetching: boolean
   error: unknown
   data?: ListProjectMembershipGrantsResponse
-  refetch: () => Promise<unknown>
+  refetch: () => void
 }
 
 export function ProjectAccessEditor({
@@ -74,7 +74,7 @@ export function ProjectAccessEditor({
           disabled={accessQuery.isFetching || projectsQuery.isFetching}
           loading={accessQuery.isFetching || projectsQuery.isFetching}
           onClick={() => {
-            if (accessQuery.isError) void accessQuery.refetch()
+            if (accessQuery.isError) accessQuery.refetch()
             if (projectsQuery.isError) void projectsQuery.refetch()
           }}
         >
