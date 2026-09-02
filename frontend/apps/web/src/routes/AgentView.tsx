@@ -177,6 +177,7 @@ export function AgentView() {
         agent={agent}
         machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
+        subagents={data.subagents ?? []}
         profile={profile}
         canManage={project?.access.can_manage ?? false}
       />

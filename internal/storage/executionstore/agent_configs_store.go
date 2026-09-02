@@ -630,3 +630,24 @@ func configDefinitionHash(definition json.RawMessage) string {
 	sum := sha256.Sum256(normalized)
 	return hex.EncodeToString(sum[:])
 }
+
+func (s *Store) ResolveAgentConfigProfileName(ctx context.Context, projectID ID, profileName string) (ID, error) {
+	if isNilID(projectID) || profileName == "" {
+		return NilID, errors.New("project and profile name are required")
+	}
+	normalizedName, err := resourcename.CanonicalizeRequired("agent profile name", profileName)
+	if err != nil {
+		return NilID, storeerr.InvalidRequest(err)
+	}
+	id, err := s.q.GetAgentProfileIDByName(
+		ctx,
+		dbsqlc.GetAgentProfileIDByNameParams{ProjectID: projectID, Name: normalizedName},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return NilID, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return NilID, fmt.Errorf("resolve agent profile name: %w", err)
+	}
+	return id, nil
+}

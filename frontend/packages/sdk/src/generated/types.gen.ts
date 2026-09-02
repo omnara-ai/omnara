@@ -1303,9 +1303,43 @@ export type Agent = {
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
+    /**
+     * Set when this agent is a subagent spawned by another agent.
+     */
+    parent_agent_id?: AgentId;
+    /**
+     * The subagents handle this agent was spawned from.
+     */
+    subagent_handle?: string;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
+};
+
+export type SubagentSummary = {
+    id: AgentId;
+    name: AgentName;
+    handle: string;
+    state: 'running' | 'idle' | 'waiting_on_parent' | 'archived';
+    last_activity_at: Timestamp;
+};
+
+export type AgentUsageResponse = {
+    /**
+     * Number of agents aggregated, including the agent itself.
+     */
+    agent_count: number;
+    model_call_count: number;
+    input_tokens_total: number;
+    uncached_input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_write_input_tokens: number;
+    output_tokens_total: number;
+    reasoning_output_tokens: number;
+    /**
+     * Sum of provider-reported cost in USD as a decimal string.
+     */
+    provider_reported_cost_usd?: string;
 };
 
 export type AgentModel = {
@@ -1345,6 +1379,10 @@ export type GetAgentResponse = {
      * The agent's MCP server connections, ordered by server key.
      */
     mcp_connections: Array<AgentMcpConnection>;
+    /**
+     * Direct subagents of this agent, in creation order.
+     */
+    subagents?: Array<SubagentSummary>;
 };
 
 export type ListAgentsResponse = {
@@ -8333,6 +8371,14 @@ export type ListAgentsData = {
          * Return only agents launched from this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -9212,6 +9258,45 @@ export type StreamEventsResponses = {
 };
 
 export type StreamEventsResponse = StreamEventsResponses[keyof StreamEventsResponses];
+
+export type GetAgentUsageData = {
+    body?: never;
+    path: {
+        orgID: string;
+        projectID: string;
+        agentID: string;
+    };
+    query?: {
+        include_children?: boolean;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage';
+};
+
+export type GetAgentUsageErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+};
+
+export type GetAgentUsageError = GetAgentUsageErrors[keyof GetAgentUsageErrors];
+
+export type GetAgentUsageResponses = {
+    /**
+     * Aggregated model usage.
+     */
+    200: AgentUsageResponse;
+};
+
+export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageResponses];
 
 export type CancelAgentData = {
     body?: CancelAgentRequest;

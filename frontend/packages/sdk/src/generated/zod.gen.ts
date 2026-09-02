@@ -954,6 +954,31 @@ export const zCreateAgentRequest = z.object({
     message: z.string().optional()
 });
 
+export const zSubagentSummary = z.object({
+    id: zAgentId,
+    name: zAgentName,
+    handle: z.string(),
+    state: z.enum([
+        'running',
+        'idle',
+        'waiting_on_parent',
+        'archived'
+    ]),
+    last_activity_at: zTimestamp
+});
+
+export const zAgentUsageResponse = z.object({
+    agent_count: z.int().gte(0),
+    model_call_count: z.int().gte(0),
+    input_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    uncached_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_read_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    cache_write_input_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    output_tokens_total: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    reasoning_output_tokens: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    provider_reported_cost_usd: z.string().optional()
+});
+
 export const zAgentModel = z.object({
     provider_config: zResourceName,
     name: zResourceName
@@ -977,6 +1002,8 @@ export const zAgent = z.object({
     integration_target: zIntegrationTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
+    parent_agent_id: zAgentId.optional(),
+    subagent_handle: z.string().optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     archived_at: zTimestamp.optional()
@@ -1004,7 +1031,8 @@ export const zCurrentAgentResponse = z.object({
 export const zGetAgentResponse = z.object({
     agent: zAgent,
     machine_ids: z.array(zMachineId),
-    mcp_connections: z.array(zAgentMcpConnection)
+    mcp_connections: z.array(zAgentMcpConnection),
+    subagents: z.array(zSubagentSummary).optional()
 });
 
 export const zListAgentsResponse = z.object({
@@ -3560,6 +3588,8 @@ export const zListAgentsPath = z.object({
 export const zListAgentsQuery = z.object({
     name: z.string().min(1).max(200).optional(),
     agent_profile_id: zAgentProfileId.optional(),
+    parent_agent_id: zAgentId.optional(),
+    include_subagents: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -3743,6 +3773,21 @@ export const zStreamEventsQuery = z.object({
  * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and terminal stream errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
+
+export const zGetAgentUsagePath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/)
+});
+
+export const zGetAgentUsageQuery = z.object({
+    include_children: z.boolean().optional()
+});
+
+/**
+ * Aggregated model usage.
+ */
+export const zGetAgentUsageResponse = zAgentUsageResponse;
 
 export const zCancelAgentBody = zCancelAgentRequest;
 

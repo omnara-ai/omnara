@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -206,6 +207,7 @@ func main() {
 			MachinePoolManager:    machinePoolManager,
 			BackgroundRunner:      backgroundRunner,
 			SkillBroadcaster:      skillBroadcaster,
+			AgentConfigOptions:    agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
 		},
 		StreamPublisher: redisBus,
 		StreamLog:       log,

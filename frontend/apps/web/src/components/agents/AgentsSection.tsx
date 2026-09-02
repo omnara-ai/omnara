@@ -1,10 +1,13 @@
 import { type AgentListSort, useAgents, useArchiveAgent } from '@omnara/react'
 import { type Agent, ApiError } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 
@@ -45,26 +48,43 @@ export function AgentsTable({
   emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
-  const query = useAgents(orgId, projectId, {
-    filters: profileId ? { ...list.apiFilters, agent_profile_id: profileId } : list.apiFilters,
-    sort: list.sort,
-  })
-  const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
+  const [includeSubagents, setIncludeSubagents] = useState(false)
+  const filters = {
+    ...list.apiFilters,
+    ...(profileId ? { agent_profile_id: profileId } : {}),
+    ...(includeSubagents ? { include_subagents: true } : {}),
+  }
+  const query = useAgents(orgId, projectId, { filters, sort: list.sort })
+  const paged = usePagedQuery(query, `${list.queryKey}:${includeSubagents ? 'all' : 'top'}`)
+  const showToolbar =
+    list.isFiltering || includeSubagents || paged.pagination.page > 0 || paged.pagination.canNext
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 
   return (
     <div className="flex flex-col gap-3">
       {showToolbar && (
-        <ResourceListToolbar
-          search={list.search}
-          onSearchChange={list.setSearch}
-          sort={list.sort}
-          sortOptions={resourceSortOptions}
-          onSortChange={list.setSort}
-          placeholder="Search agents by name…"
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <ResourceListToolbar
+            search={list.search}
+            onSearchChange={list.setSearch}
+            sort={list.sort}
+            sortOptions={resourceSortOptions}
+            onSortChange={list.setSort}
+            placeholder="Search agents by name…"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant={includeSubagents ? 'secondary' : 'outline'}
+            aria-pressed={includeSubagents}
+            onClick={() => {
+              setIncludeSubagents((value) => !value)
+            }}
+          >
+            Show subagents
+          </Button>
+        </div>
       )}
       <DataTable
         columns={[
@@ -74,6 +94,11 @@ export function AgentsTable({
             cell: (agent) => (
               <span className="flex items-baseline gap-2.5 overflow-hidden">
                 <span className="font-medium">{agent.name || 'Agent'}</span>
+                {agent.parent_agent_id && (
+                  <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
+                    subagent
+                  </Badge>
+                )}
                 <span className="text-muted-foreground/70 truncate font-mono text-xs">
                   {agent.id}
                 </span>

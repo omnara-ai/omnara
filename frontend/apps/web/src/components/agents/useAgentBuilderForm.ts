@@ -4,6 +4,14 @@ import { Document, isMap, isNode, parseDocument } from 'yaml'
 
 import { extractBasicConfig, normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
+import {
+  type BasicSubagent,
+  newSubagent,
+  subagentHandleError,
+  subagentsValid,
+  type SubagentType,
+  subagentWire,
+} from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
@@ -46,6 +54,8 @@ export interface BasicMcpServer {
 
 export type MachineSourceKind = 'pool' | 'machine'
 
+export { type BasicSubagent, newSubagent, subagentHandleError, type SubagentType }
+
 export interface BasicMachineSource {
   id: string
   kind: MachineSourceKind
@@ -71,6 +81,8 @@ export interface BasicConfig {
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
   skillIds: string[]
+  subagents: BasicSubagent[]
+  maxSubagents: string
 }
 
 export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
@@ -100,6 +112,8 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   mcpServers: [],
   skillIds: [],
+  subagents: [],
+  maxSubagents: '',
 }
 
 export interface BasicConfigSession {
@@ -151,6 +165,8 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     tools: draft.tools,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
+    subagents: draft.subagents,
+    maxSubagents: draft.maxSubagents,
     setInstruction: (instruction: string) => {
       patch({ instruction })
     },
@@ -177,6 +193,12 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
     },
+    setSubagents: (subagents: BasicSubagent[]) => {
+      patch({ subagents })
+    },
+    setMaxSubagents: (maxSubagents: string) => {
+      patch({ maxSubagents })
+    },
     reportModelUnavailable: setModelUnavailable,
     reportUnavailableSourceIds: setUnavailableSourceIds,
     reportUnavailableSkillIds: setUnavailableSkillIds,
@@ -190,7 +212,8 @@ export function basicConfigValid(draft: BasicConfig) {
     resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&
     mcpServerNamesUnique(draft.mcpServers) &&
-    draft.mcpServers.every(mcpServerValid)
+    draft.mcpServers.every(mcpServerValid) &&
+    subagentsValid(draft.subagents, draft.maxSubagents)
   )
 }
 
@@ -296,6 +319,19 @@ function applyToDocument(
     del,
   )
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
+  applyNamedEntries(
+    'subagents',
+    config.subagents.map((subagent) => [subagent.handle, subagentWire(subagent)]),
+    baseline == null
+      ? null
+      : baseline.subagents.map((subagent) => [subagent.handle, subagentWire(subagent)]),
+    set,
+    del,
+  )
+  if (config.maxSubagents !== (baseline?.maxSubagents ?? '')) {
+    if (config.maxSubagents === '') del(['max_subagents'])
+    else set(['max_subagents'], Number(config.maxSubagents))
+  }
   applyNamedEntries(
     'mcp',
     config.mcpServers.map((server) => [server.name, mcpWire(server)]),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -535,6 +536,18 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		); err != nil {
 			return events.Event{}, err
 		}
+		if turnText, ended := modelOutputEndsTurn(input.ProviderResponse); ended {
+			message := subagentMessage{
+				Kind:           SubagentMessageKindResult,
+				Text:           turnText,
+				IdempotencyKey: "model_output:" + modelOutput.ID.String(),
+			}
+			if err := handleSubagentTurnEndedTx(
+				ctx, txNotifications, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID, message,
+			); err != nil {
+				return events.Event{}, err
+			}
+		}
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model output"); err != nil {
 		return events.Event{}, err
@@ -640,4 +653,20 @@ func completeSuccessfulNormalModelCallTx(
 		return err
 	}
 	return nil
+}
+
+func modelOutputEndsTurn(envelope modelenvelope.ResponseEnvelope) (string, bool) {
+	var texts []string
+	for _, part := range envelope.Normalized.Content {
+		switch part.Type {
+		case modelenvelope.ResponsePartTypeToolCall:
+			return "", false
+		case modelenvelope.ResponsePartTypeText:
+			if strings.TrimSpace(part.Text) != "" {
+				texts = append(texts, part.Text)
+			}
+		case modelenvelope.ResponsePartTypeError, modelenvelope.ResponsePartTypeReasoning:
+		}
+	}
+	return strings.Join(texts, "\n"), true
 }

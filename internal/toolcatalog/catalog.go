@@ -269,6 +269,21 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameSkill], err = skillTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameSpawnAgent], err = spawnAgentTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameWaitAgents], err = waitAgentsTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSendAgentMessage], err = sendAgentMessageTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameStopAgent], err = stopAgentTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameListAgents], err = listAgentsTool(); err != nil {
+		return Catalog{}, err
+	}
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
 			return Catalog{}, err

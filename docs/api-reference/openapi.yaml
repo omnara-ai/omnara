@@ -3155,6 +3155,18 @@ paths:
           description: Return only agents launched from this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
         - name: sort
           in: query
           schema:
@@ -3833,6 +3845,51 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+    get:
+      operationId: getAgentUsage
+      tags: [Agents]
+      summary: Get agent model usage
+      description: >-
+        Token and cost totals across the agent's model calls. Pass
+        include_children to aggregate over the agent and every subagent beneath it.
+      parameters:
+        - name: include_children
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Aggregated model usage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentUsageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel:
     parameters:
       - name: orgID
@@ -8778,12 +8835,81 @@ components:
           $ref: '#/components/schemas/AgentConfigID'
         model:
           $ref: '#/components/schemas/AgentModel'
+        parent_agent_id:
+          description: Set when this agent is a subagent spawned by another agent.
+          $ref: '#/components/schemas/AgentID'
+        subagent_handle:
+          description: The subagents handle this agent was spawned from.
+          type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
           $ref: '#/components/schemas/Timestamp'
+    SubagentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, handle, state, last_activity_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentID'
+        name:
+          $ref: '#/components/schemas/AgentName'
+        handle:
+          type: string
+        state:
+          type: string
+          enum: [running, idle, waiting_on_parent, archived]
+        last_activity_at:
+          $ref: '#/components/schemas/Timestamp'
+    AgentUsageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_count
+        - model_call_count
+        - input_tokens_total
+        - uncached_input_tokens
+        - cache_read_input_tokens
+        - cache_write_input_tokens
+        - output_tokens_total
+        - reasoning_output_tokens
+      properties:
+        agent_count:
+          description: Number of agents aggregated, including the agent itself.
+          type: integer
+          minimum: 0
+        model_call_count:
+          type: integer
+          minimum: 0
+        input_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        uncached_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_read_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cache_write_input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens_total:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoning_output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        provider_reported_cost_usd:
+          description: Sum of provider-reported cost in USD as a decimal string.
+          type: string
     AgentModel:
       type: object
       additionalProperties: false
@@ -8853,6 +8979,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AgentMCPConnection'
+        subagents:
+          description: Direct subagents of this agent, in creation order.
+          type: array
+          items:
+            $ref: '#/components/schemas/SubagentSummary'
     ListAgentsResponse:
       type: object
       additionalProperties: false

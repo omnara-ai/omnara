@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"net/http"
 	"time"
 
@@ -64,6 +65,7 @@ type Executor struct {
 	Now                      func() time.Time
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
+	AgentConfigOptions       agentconfig.CompileOptions
 }
 
 func (e Executor) skillStore() SkillStore {

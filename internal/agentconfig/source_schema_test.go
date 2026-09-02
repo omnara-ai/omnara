@@ -228,13 +228,16 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"AgentConfigModelSource":   reflect.TypeOf(AgentConfigModelSource{}),
-		"AgentConfigMachineSource": reflect.TypeOf(AgentConfigMachineSource{}),
-		"AgentConfigToolSource":    reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigMCPSource":     reflect.TypeOf(AgentConfigMCPSource{}),
-		"AgentConfigMCPAuthSource": reflect.TypeOf(AgentConfigMCPAuthSource{}),
-		"AgentConfigMCPToolSource": reflect.TypeOf(AgentConfigMCPToolSource{}),
-		"ToolPermissionSelection":  reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigModelSource":               reflect.TypeOf(AgentConfigModelSource{}),
+		"AgentConfigMachineSource":             reflect.TypeOf(AgentConfigMachineSource{}),
+		"AgentConfigToolSource":                reflect.TypeOf(AgentConfigToolSource{}),
+		"AgentConfigMCPSource":                 reflect.TypeOf(AgentConfigMCPSource{}),
+		"AgentConfigMCPAuthSource":             reflect.TypeOf(AgentConfigMCPAuthSource{}),
+		"AgentConfigMCPToolSource":             reflect.TypeOf(AgentConfigMCPToolSource{}),
+		"ToolPermissionSelection":              reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigSubagentSource":            reflect.TypeOf(AgentConfigSubagentSource{}),
+		"AgentConfigSubagentModelSource":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
+		"AgentConfigSubagentInstructionSource": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
 	}
 	// Custom tool input_schema decodes into map[string]any, so its schema
 	// stays deliberately open.

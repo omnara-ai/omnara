@@ -6,6 +6,7 @@ import type {
   BasicMachineSource,
   BasicMcpServer,
   BasicMcpTool,
+  BasicSubagent,
 } from '@/components/agents/useAgentBuilderForm'
 import {
   emptyProviderOptions,
@@ -80,6 +81,16 @@ const toolEntry = z.strictObject({
 
 const optionalText = z.string().nullable().optional()
 
+const subagentEntry = z.looseObject({
+  type: z.enum(['profile', 'self']),
+  profile: z.string().optional(),
+  description: z.string().optional(),
+  model: z.record(z.string(), z.unknown()).optional(),
+  instruction: z.strictObject({ append: z.string().optional() }).optional(),
+  max_concurrent: positiveCount,
+  archive_after_idle_minutes: positiveCount,
+})
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
@@ -88,6 +99,8 @@ const basicDocument = z.looseObject({
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
+  subagents: z.record(z.string(), subagentEntry).optional(),
+  max_subagents: positiveCount,
 })
 
 export function extractBasicConfig(js: unknown): BasicConfig | null {
@@ -113,6 +126,24 @@ export function extractBasicConfig(js: unknown): BasicConfig | null {
     })),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
+    subagents: Object.entries(doc.subagents ?? {}).map(([handle, entry]) =>
+      subagentDraft(handle, entry),
+    ),
+    maxSubagents: countDraft(doc.max_subagents),
+  }
+}
+
+function subagentDraft(handle: string, entry: z.infer<typeof subagentEntry>): BasicSubagent {
+  return {
+    id: crypto.randomUUID(),
+    handle,
+    type: entry.type,
+    profileName: entry.profile ?? '',
+    description: entry.description ?? '',
+    instructionAppend: normalizeMultiline(entry.instruction?.append ?? ''),
+    maxConcurrent: countDraft(entry.max_concurrent),
+    archiveAfterIdleMinutes: countDraft(entry.archive_after_idle_minutes),
+    modelOverride: entry.model,
   }
 }
 

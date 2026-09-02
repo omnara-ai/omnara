@@ -21,7 +21,18 @@ type RuntimeContract struct {
 	Tools           []RuntimeTool
 	MCPServers      []RuntimeMCPServer
 	Skills          []SkillCompiled
+	Subagents       map[string]SubagentCompiled
+	MaxSubagents    *int
 	configuredTools map[string]struct{}
+}
+
+func (contract RuntimeContract) SubagentHandles() []string {
+	handles := make([]string, 0, len(contract.Subagents))
+	for handle := range contract.Subagents {
+		handles = append(handles, handle)
+	}
+	sort.Strings(handles)
+	return handles
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
@@ -126,10 +137,24 @@ func RuntimeContractFromCompiled(
 		Tools:           tools,
 		MCPServers:      mcpServers,
 		Skills:          compiled.Skills,
+		Subagents:       compiled.Subagents,
+		MaxSubagents:    compiled.MaxSubagents,
 		configuredTools: configuredTools,
 	}
 	if len(compiled.Skills) > 0 {
-		return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+		if err != nil {
+			return RuntimeContract{}, err
+		}
+	}
+	for _, name := range toolcatalog.SubagentToolNames() {
+		if len(compiled.Subagents) == 0 {
+			break
+		}
+		contract, err = contract.WithImplicitBuiltInTool(name)
+		if err != nil {
+			return RuntimeContract{}, err
+		}
 	}
 	return contract, nil
 }

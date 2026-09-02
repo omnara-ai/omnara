@@ -28,8 +28,12 @@ export const commandGroups: CommandGroup[] = [
         summary: 'List agents in a project',
         fn: sdk.listAgents,
         format: (response) =>
-          formatTable(['id', 'name', 'state', 'model', 'created_at'])({
-            data: response.data.map((agent) => ({ ...agent, model: agent.model?.name })),
+          formatTable(['id', 'name', 'state', 'model', 'parent_agent_id', 'created_at'])({
+            data: response.data.map((agent) => ({
+              ...agent,
+              model: agent.model?.name,
+              parent_agent_id: agent.parent_agent_id ?? '',
+            })),
             next_cursor: response.next_cursor,
           }),
         path: schemas.zListAgentsPath,

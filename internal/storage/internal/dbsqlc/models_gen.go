@@ -134,6 +134,20 @@ type AgentRuntimeLock struct {
 	CancelRequestedAt *time.Time
 }
 
+type AgentWait struct {
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
+	ToolCallID  uuid.UUID
+	Mode        string
+	State       string
+	DeadlineAt  *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CompletedAt *time.Time
+}
+
 type AuthConnector struct {
 	ID                    uuid.UUID
 	Slug                  string

@@ -373,11 +373,12 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
-		"Agent.name":                 "#/components/schemas/AgentName",
-		"CreateAgentRequest.name":    "#/components/schemas/AgentName",
-		"Skill.name":                 "#/components/schemas/SkillName",
-		"Actor.display_name":         "",
-		"AgentInteraction.tool_name": "",
+		"Agent.name":                                     "#/components/schemas/AgentName",
+		"SubagentSummary.name":                           "#/components/schemas/AgentName",
+		"CreateAgentRequest.name":                        "#/components/schemas/AgentName",
+		"Skill.name":                                     "#/components/schemas/SkillName",
+		"Actor.display_name":                             "",
+		"AgentInteraction.tool_name":                     "",
 		"CreateMachinePoolRequestBase.provider_config":   "",
 		"CreateSlackSetupRequest.app_name":               "",
 		"CurrentUserIdentity.display_name":               "",
