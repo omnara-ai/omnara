@@ -249,12 +249,8 @@ function decodeFrame(text: string): AgentEventStreamData {
   return frame.data
 }
 
-// A durable frame is never an error envelope, whatever fields it carries.
-function isErrorEnvelope(
-  data: AgentEventStreamData,
-  sequence: number | undefined,
-): data is ApiErrorBody {
-  return sequence == null && parseResponse(zError, data).data != null
+function isErrorEnvelope(data: AgentEventStreamData): data is ApiErrorBody {
+  return parseResponse(zError, data).data != null
 }
 
 function durableSequence(data: AgentEventStreamData): number | undefined {
@@ -294,10 +290,8 @@ export async function* openAgentEventStream({
         }
         const data = decodeFrame(event.data)
         signal?.throwIfAborted()
+        if (isErrorEnvelope(data)) throw streamError('api', data.error, { code: data.code })
         const sequence = durableSequence(data)
-        if (isErrorEnvelope(data, sequence)) {
-          throw streamError('api', data.error, { code: data.code })
-        }
         if (sequence != null && cursor != null && sequence <= cursor) continue
         yield data
         consecutiveFailures = 0
