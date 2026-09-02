@@ -132,19 +132,17 @@ func TestGetUserAndPrimaryVerifiedUserEmail(t *testing.T) {
 		t.Fatalf("create split user: %v", err)
 	}
 	if _, err := store.Identity().CreateUserEmail(ctx, identitystore.CreateUserEmailInput{
-		UserID:          splitUser.ID,
-		Email:           "unverified-primary@example.com",
-		NormalizedEmail: identitystore.NormalizeEmail("unverified-primary@example.com"),
-		IsPrimary:       true,
+		UserID:    splitUser.ID,
+		Email:     "unverified-primary@example.com",
+		IsPrimary: true,
 	}); err != nil {
 		t.Fatalf("create unverified primary email: %v", err)
 	}
 	if _, err := store.Identity().CreateUserEmail(ctx, identitystore.CreateUserEmailInput{
-		UserID:          splitUser.ID,
-		Email:           "verified-secondary@example.com",
-		NormalizedEmail: identitystore.NormalizeEmail("verified-secondary@example.com"),
-		Verified:        true,
-		IsPrimary:       false,
+		UserID:    splitUser.ID,
+		Email:     "verified-secondary@example.com",
+		Verified:  true,
+		IsPrimary: false,
 	}); err != nil {
 		t.Fatalf("create verified secondary email: %v", err)
 	}

@@ -97,11 +97,10 @@ type UserRecord struct {
 }
 
 type CreateUserEmailInput struct {
-	UserID          ID
-	Email           string
-	NormalizedEmail string
-	Verified        bool
-	IsPrimary       bool
+	UserID    ID
+	Email     string
+	Verified  bool
+	IsPrimary bool
 }
 
 type UserEmailRecord struct {

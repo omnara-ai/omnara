@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/authn"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -161,7 +162,7 @@ func (h *Handler) completeEmailVerificationRoute(w http.ResponseWriter, r *http.
 	) {
 		return
 	}
-	normalizedEmail, err := h.store.ActiveAuthTokenNormalizedEmail(
+	email, err := h.store.ActiveAuthTokenEmail(
 		r.Context(),
 		body.Token,
 		identitystore.UserAuthTokenPurposeEmailVerification,
@@ -170,7 +171,7 @@ func (h *Handler) completeEmailVerificationRoute(w http.ResponseWriter, r *http.
 		h.writeAuthTokenStorageError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.Password, normalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.Password, email)
 	if !ok {
 		return
 	}
@@ -332,7 +333,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 	) {
 		return
 	}
-	normalizedEmail, err := h.store.ActiveAuthTokenNormalizedEmail(
+	email, err := h.store.ActiveAuthTokenEmail(
 		r.Context(),
 		body.Token,
 		identitystore.UserAuthTokenPurposePasswordReset,
@@ -341,7 +342,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 		h.writeAuthTokenStorageError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.Password, normalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.Password, email)
 	if !ok {
 		return
 	}
@@ -414,7 +415,7 @@ func (h *Handler) changePasswordRoute(w http.ResponseWriter, r *http.Request) {
 		h.writeAuthServerError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.NewPassword, email.NormalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.NewPassword, email.Email)
 	if !ok {
 		return
 	}
@@ -493,8 +494,8 @@ func (h *Handler) requirePublicAuthJSON(w http.ResponseWriter, r *http.Request) 
 	return true
 }
 
-func passwordHashForNewPassword(w http.ResponseWriter, password, normalizedEmail string) (string, bool) {
-	if err := authn.ValidateNewPassword(password, normalizedEmail); err != nil {
+func passwordHashForNewPassword(w http.ResponseWriter, password, email string) (string, bool) {
+	if err := authn.ValidateNewPassword(password, email); err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return "", false
 	}
@@ -510,9 +511,9 @@ func normalizeAuthEmail(email string) (string, string, bool) {
 	trimmed := strings.TrimSpace(email)
 	parsed, err := mail.ParseAddress(trimmed)
 	if err != nil || parsed.Address != trimmed {
-		return "", identitystore.NormalizeEmail(email), false
+		return "", emailaddr.Normalize(email), false
 	}
-	return parsed.Address, identitystore.NormalizeEmail(parsed.Address), true
+	return parsed.Address, emailaddr.Normalize(parsed.Address), true
 }
 
 func padPublicAuthResponse(ctx context.Context, start time.Time) {
