@@ -83,41 +83,47 @@ export function cacheAgentInputBacklog(
   queryClient.setQueryData<ListAgentInputsResponse>(queryKey, { ...current, data: inputs })
 }
 
+export function optimisticBacklogUpdate<Variables>(
+  queryClient: QueryClient,
+  queryKey: ReturnType<typeof agentInputBacklogQueryKey>,
+  update: (inputs: AgentInput[], variables: Variables) => AgentInput[],
+) {
+  const applyUpdate = (variables: Variables) => {
+    queryClient.setQueryData<ListAgentInputsResponse>(queryKey, (current) =>
+      current == null ? current : { ...current, data: update(current.data, variables) },
+    )
+  }
+  return {
+    onMutate: async (variables: Variables) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
+      applyUpdate(variables)
+      return { previous }
+    },
+    onSuccess: async (_data: OkResponse, variables: Variables) => {
+      await queryClient.cancelQueries({ queryKey })
+      applyUpdate(variables)
+    },
+    onError: (
+      _error: Error,
+      _variables: Variables,
+      context: { previous: ListAgentInputsResponse | undefined } | undefined,
+    ) => {
+      if (context?.previous != null) queryClient.setQueryData(queryKey, context.previous)
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey })
+    },
+  }
+}
+
 export function useAgentInputBacklog(path: AgentInputBacklogScope) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   const queryKey = agentInputBacklogQueryKey(client, path)
   const optimisticUpdate = <Variables>(
     update: (inputs: AgentInput[], variables: Variables) => AgentInput[],
-  ) => {
-    const applyUpdate = (variables: Variables) => {
-      queryClient.setQueryData<ListAgentInputsResponse>(queryKey, (current) =>
-        current == null ? current : { ...current, data: update(current.data, variables) },
-      )
-    }
-    return {
-      onMutate: async (variables: Variables) => {
-        await queryClient.cancelQueries({ queryKey })
-        const previous = queryClient.getQueryData<ListAgentInputsResponse>(queryKey)
-        applyUpdate(variables)
-        return { previous }
-      },
-      onSuccess: async (_data: OkResponse, variables: Variables) => {
-        await queryClient.cancelQueries({ queryKey })
-        applyUpdate(variables)
-      },
-      onError: (
-        _error: Error,
-        _variables: Variables,
-        context: { previous: ListAgentInputsResponse | undefined } | undefined,
-      ) => {
-        if (context?.previous != null) queryClient.setQueryData(queryKey, context.previous)
-      },
-      onSettled: () => {
-        void queryClient.invalidateQueries({ queryKey })
-      },
-    }
-  }
+  ) => optimisticBacklogUpdate(queryClient, queryKey, update)
   const query = useQuery(listQueuedBacklogInputsOptions({ path, query: backlogQuery, client }))
   const beginCancellation = async (inputIDs: string[], dismissRelatedInputs: () => () => void) => {
     const ids = new Set(inputIDs)

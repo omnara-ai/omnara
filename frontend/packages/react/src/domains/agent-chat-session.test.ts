@@ -3,7 +3,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  chatSdkMocks,
+  chatTransport,
   client,
   connection,
   createChatTestSession,
@@ -19,20 +19,21 @@ import {
   userInputEvent,
   waitForSnapshot,
 } from './agent-chat-test-support'
+import type { CreateAgentInputResult } from './agent-chat-types'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
-const sdkMocks = chatSdkMocks()
+const transport = chatTransport()
 
-function acceptedInput(id: string, text: string) {
+function acceptedInput(id: string, text: string): CreateAgentInputResult {
   return {
     data: {
       agent_input: {
         id,
         agent_id: 'agent',
         state: 'received',
-        delivery_mode: 'queued' as const,
-        input_kind: 'content' as const,
-        content_blocks: [{ type: 'text' as const, text }],
+        delivery_mode: 'queued',
+        input_kind: 'content',
+        content_blocks: [{ type: 'text', text }],
         queued_at: '2026-07-14T00:00:00Z',
       },
     },
@@ -47,11 +48,11 @@ describe('AgentChatSession input lifecycle', () => {
     session.subscribe(() => undefined)
 
     await Promise.resolve()
-    expect(sdkMocks.openAgentEventStream).not.toHaveBeenCalled()
+    expect(transport.openAgentEventStream).not.toHaveBeenCalled()
 
     session.start(42)
     await connection(0)
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledWith(
+    expect(transport.openAgentEventStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: { after_sequence: 42, stream_deltas: true } }),
     )
     session.disconnect()
@@ -137,10 +138,10 @@ describe('AgentChatSession input lifecycle', () => {
     expect(messageText(submitted.messages.at(-1))).toEqual(['Hello'])
     await send
 
-    expect(sdkMocks.createAgentInput).toHaveBeenCalledWith(
+    expect(transport.createAgentInput).toHaveBeenCalledWith(
       expect.objectContaining({
         path: scope,
-        headers: { 'Idempotency-Key': expect.any(String) as unknown as string },
+        headers: { 'Idempotency-Key': sentIdempotencyKey() },
         body: {
           content_blocks: [
             {
@@ -187,7 +188,7 @@ describe('AgentChatSession input lifecycle', () => {
       { type: 'data-media', data: attachment },
     ])
     await send
-    expect(sdkMocks.createAgentInput).toHaveBeenCalledWith(
+    expect(transport.createAgentInput).toHaveBeenCalledWith(
       expect.objectContaining({
         body: {
           content_blocks: [
@@ -214,7 +215,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('retains accepted immediate attachments until their durable echo arrives', async () => {
-    sdkMocks.createAgentInput.mockResolvedValueOnce({
+    transport.createAgentInput.mockResolvedValueOnce({
       data: {
         agent_input: {
           ...acceptedInput('input-1', '').data.agent_input,
@@ -240,7 +241,7 @@ describe('AgentChatSession input lifecycle', () => {
   it('keeps overlapping sends visible through reversed responses and events', async () => {
     let resolveFirst!: (value: ReturnType<typeof acceptedInput>) => void
     let resolveSecond!: (value: ReturnType<typeof acceptedInput>) => void
-    sdkMocks.createAgentInput
+    transport.createAgentInput
       .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
       .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
     const session = startSession()
@@ -312,7 +313,7 @@ describe('AgentChatSession input lifecycle', () => {
   it('does not clear another pending send when one request fails', async () => {
     let rejectFirst!: (reason: Error) => void
     let resolveSecond!: (value: ReturnType<typeof acceptedInput>) => void
-    sdkMocks.createAgentInput
+    transport.createAgentInput
       .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
       .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
     const session = startSession()
@@ -387,7 +388,7 @@ describe('AgentChatSession input lifecycle', () => {
 
   it('clears the pending send the moment its durable event outraces the send response', async () => {
     let resolveSend!: (value: ReturnType<typeof acceptedInput>) => void
-    sdkMocks.createAgentInput.mockImplementation(
+    transport.createAgentInput.mockImplementation(
       () => new Promise((resolve) => (resolveSend = resolve)),
     )
     const session = startSession()
@@ -422,7 +423,7 @@ describe('AgentChatSession input lifecycle', () => {
     'restores a %s after the confirmation grace and reuses its idempotency key',
     async (_name, error) => {
       vi.useFakeTimers()
-      sdkMocks.createAgentInput.mockRejectedValueOnce(error)
+      transport.createAgentInput.mockRejectedValueOnce(error)
       const queryClient = new QueryClient()
       const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
       const session = startSession([], client(), queryClient)
@@ -440,7 +441,7 @@ describe('AgentChatSession input lifecycle', () => {
         })
 
         await session.sendMessage({ text: 'Hello' })
-        expect(sdkMocks.createAgentInput).toHaveBeenCalledTimes(2)
+        expect(transport.createAgentInput).toHaveBeenCalledTimes(2)
         expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
       } finally {
         session.disconnect()
@@ -451,7 +452,7 @@ describe('AgentChatSession input lifecycle', () => {
 
   it('uses backlog confirmation when the event stream fails during the grace period', async () => {
     vi.useFakeTimers()
-    sdkMocks.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
+    transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
     const session = startSession([], client(), queryClient)
@@ -489,7 +490,7 @@ describe('AgentChatSession input lifecycle', () => {
 
   it('resolves a send whose echo landed before its response failed, without an error', async () => {
     let rejectSend!: (reason: Error) => void
-    sdkMocks.createAgentInput.mockImplementation(
+    transport.createAgentInput.mockImplementation(
       () => new Promise((_resolve, reject) => (rejectSend = reject)),
     )
     const session = startSession()
@@ -514,7 +515,7 @@ describe('AgentChatSession input lifecycle', () => {
 
   it('clears a send error when its durable echo arrives after the confirmation grace', async () => {
     vi.useFakeTimers()
-    sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
+    transport.createAgentInput.mockRejectedValue(new Error('response lost'))
     const session = startSession()
     const stream = await connection(0)
 
@@ -541,7 +542,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('uses backlog correlation to confirm a send whose response was lost', async () => {
-    sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
+    transport.createAgentInput.mockRejectedValue(new Error('response lost'))
     const session = startSession()
     await connection(0)
     const attachment = {
@@ -592,7 +593,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('compares failed attachment retries by their wire payload', async () => {
-    sdkMocks.createAgentInput
+    transport.createAgentInput
       .mockRejectedValueOnce(new Error('response lost'))
       .mockRejectedValueOnce(new Error('response lost'))
     const session = startSession()
@@ -620,7 +621,7 @@ describe('AgentChatSession input lifecycle', () => {
   })
 
   it('restores the composer error state when the send fails', async () => {
-    sdkMocks.createAgentInput.mockRejectedValue(new ApiError(422, 'input rejected'))
+    transport.createAgentInput.mockRejectedValue(new ApiError(422, 'input rejected'))
     const session = startSession()
     await connection(0)
 

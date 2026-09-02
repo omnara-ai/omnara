@@ -8,6 +8,7 @@ export {
   AgentChatSession,
   type AgentChatSessionOptions,
   type AgentChatStatus,
+  type AgentChatTransport,
   type OmnaraMessageMetadata,
   type OmnaraUIMessage,
   useAgentChat,
