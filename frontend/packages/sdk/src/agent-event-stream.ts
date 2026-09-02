@@ -8,7 +8,7 @@ import type {
   Error as ApiErrorBody,
   StreamEventsData,
 } from './generated/types.gen'
-import { zError, zStreamEventsResponse } from './generated/zod.gen'
+import { zAgentSequence, zError, zStreamEventsResponse } from './generated/zod.gen'
 import { createServerSentEventParser } from './server-sent-events'
 import { schemaMismatch } from './validate-response'
 
@@ -74,7 +74,7 @@ const activeReadTimeoutMs = 35_000
 // event_kind stays open so kinds newer than this SDK still advance the cursor.
 const zDurableCursor = z.object({
   event_kind: z.string(),
-  sequence: z.number().int().nonnegative(),
+  sequence: zAgentSequence,
 })
 
 function streamError(
