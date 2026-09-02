@@ -11,3 +11,7 @@ export function safeReturnTo(value: string | null): string {
     return '/'
   }
 }
+
+export function isDeviceApprovalReturnTo(returnTo: string): boolean {
+  return returnTo === '/device' || returnTo.startsWith('/device?')
+}

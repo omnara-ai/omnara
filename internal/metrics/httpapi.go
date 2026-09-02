@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,6 +11,18 @@ import (
 )
 
 type routeContextKey struct{}
+type statusContextKey struct{}
+
+type httpRequestStatus struct {
+	code int
+}
+
+func SetHTTPRequestStatusCode(ctx context.Context, status int) {
+	requestStatus, _ := ctx.Value(statusContextKey{}).(*httpRequestStatus)
+	if requestStatus != nil {
+		requestStatus.code = status
+	}
+}
 
 type HTTPRecorder struct {
 	requestsTotal   *prometheus.CounterVec
@@ -53,10 +66,18 @@ func (m *HTTPRecorder) Middleware(mux *http.ServeMux) func(http.Handler) http.Ha
 			route, _ := ctx.Value(routeContextKey{}).(string)
 			return route
 		})
+		statusLabel := promhttp.WithLabelFromCtx("code", func(ctx context.Context) string {
+			requestStatus, _ := ctx.Value(statusContextKey{}).(*httpRequestStatus)
+			if requestStatus == nil || requestStatus.code == 0 {
+				return "unknown"
+			}
+			return strconv.Itoa(requestStatus.code)
+		})
 		instrumented := promhttp.InstrumentHandlerInFlight(m.inFlight,
 			promhttp.InstrumentHandlerCounter(m.requestsTotal,
-				promhttp.InstrumentHandlerDuration(m.requestDuration, next, routeLabel),
+				promhttp.InstrumentHandlerDuration(m.requestDuration, next, routeLabel, statusLabel),
 				routeLabel,
+				statusLabel,
 			),
 		)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,8 +85,10 @@ func (m *HTTPRecorder) Middleware(mux *http.ServeMux) func(http.Handler) http.Ha
 				next.ServeHTTP(w, r)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), routeContextKey{}, routePattern(mux, r)))
-			instrumented.ServeHTTP(w, r)
+			requestStatus := &httpRequestStatus{}
+			ctx := context.WithValue(r.Context(), routeContextKey{}, routePattern(mux, r))
+			ctx = context.WithValue(ctx, statusContextKey{}, requestStatus)
+			instrumented.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

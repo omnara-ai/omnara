@@ -297,12 +297,6 @@ JOIN principal_project_authorization_roles roles
  )
 ORDER BY p.created_at DESC, p.id DESC, roles.role;
 
--- name: ListProjectIDsForMaintenance :many
-SELECT id
-FROM projects
-WHERE deleted_at IS NULL
-ORDER BY id;
-
 -- name: CreateUser :one
 INSERT INTO users(display_name, created_at, updated_at)
 VALUES (sqlc.arg(display_name), transaction_timestamp(), transaction_timestamp())

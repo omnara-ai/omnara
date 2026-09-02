@@ -606,7 +606,7 @@ func TestLoadRuntimeConfigAppliesTemporaryEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load runtime config: %v", err)
 	}
-	if config.APIURL != "https://other.example.com" || config.MachineToken != "environment-token" ||
+	if config.APIURL != "https://other.example.com/api/v1" || config.MachineToken != "environment-token" ||
 		config.DaemonVersion != version ||
 		config.ExpectedInstallationID != "inst-stored" || config.ExpectedMachineID != "mch-stored" ||
 		config.RunnerPath != "/environment/bin" {

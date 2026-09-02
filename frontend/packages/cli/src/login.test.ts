@@ -3,7 +3,8 @@ import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CliConfig } from './config.ts'
-import { loginTokenName, registerLoginCommand } from './login.ts'
+import { loginTokenName, loginWithDevice } from './device-login.ts'
+import { registerLoginCommand } from './login.ts'
 
 const mocks = vi.hoisted(() => ({
   bearerToken: vi.fn(() => ({ authenticate: vi.fn() })),
@@ -46,7 +47,7 @@ vi.mock('@omnara/sdk', async (importOriginal) => ({
   startDeviceAuth: mocks.startDeviceAuth,
 }))
 
-vi.mock('./config.ts', () => ({
+vi.mock('./config-file.ts', () => ({
   configFilePath: () => '/tmp/omnara-config.json',
   readConfigFile: mocks.readConfigFile,
   updateConfigFile: mocks.updateConfigFile,
@@ -61,6 +62,15 @@ vi.mock('./output.ts', () => ({
   runCliAction: (action: () => void | Promise<void>) => Promise.resolve(action()),
 }))
 
+function testConfig(apiUrl: string, issuerUrl: string): CliConfig {
+  return {
+    client: {} as CliConfig['client'],
+    apiUrl,
+    issuerUrl,
+    ensureLoggedIn: () => Promise.resolve(),
+  }
+}
+
 describe('loginTokenName', () => {
   it('preserves an explicit valid name exactly', () => {
     expect(loginTokenName('CLI on R&D workstation', 'ignored')).toBe('CLI on R&D workstation')
@@ -74,6 +84,48 @@ describe('loginTokenName', () => {
 
   it('uses a valid fallback when the generated hostname name is invalid', () => {
     expect(loginTokenName(undefined, 'x'.repeat(64))).toBe('Omnara CLI')
+  })
+})
+
+describe('loginWithDevice', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => patch)
+    vi.restoreAllMocks()
+  })
+
+  it('drops saved defaults the new account cannot access', async () => {
+    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => ({
+      org_id: 'org_00000000000000000000000001',
+      project_id: 'proj_0000000000000000000000001',
+      ...patch,
+    }))
+
+    const result = await loginWithDevice({
+      apiUrl: 'https://self-hosted.example/api/v1',
+      issuerUrl: 'https://self-hosted.example',
+      browser: false,
+      report: {
+        showCode: () => undefined,
+        startWaiting: () => undefined,
+        stopWaiting: () => undefined,
+        success: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        finish: () => undefined,
+      },
+    })
+
+    expect(result).toEqual({ token: 'omnara_pat_v1_test', orgId: undefined, projectId: undefined })
+    expect(mocks.updateConfigFile).toHaveBeenCalledWith({
+      org_id: undefined,
+      project_id: undefined,
+    })
   })
 })
 
@@ -92,11 +144,7 @@ describe('login', () => {
     const apiUrl = 'https://self-hosted.example/api/v1'
     const issuerUrl = 'https://self-hosted.example'
     const program = new Command()
-    const cli: CliConfig = {
-      client: {} as CliConfig['client'],
-      apiUrl,
-      issuerUrl,
-    }
+    const cli = testConfig(apiUrl, issuerUrl)
     registerLoginCommand(program, cli)
 
     await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
@@ -122,11 +170,7 @@ describe('login', () => {
 
   it('verifies the config can be written before starting the device flow', async () => {
     const program = new Command()
-    const cli: CliConfig = {
-      client: {} as CliConfig['client'],
-      apiUrl: 'https://self-hosted.example/api/v1',
-      issuerUrl: 'https://self-hosted.example',
-    }
+    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
     mocks.updateConfigFile.mockImplementationOnce(() => {
       throw new Error('config is not writable')
     })
@@ -144,11 +188,7 @@ describe('login', () => {
     const apiUrl = 'https://self-hosted.example/api/v1'
     const issuerUrl = 'https://self-hosted.example'
     const program = new Command()
-    const cli: CliConfig = {
-      client: {} as CliConfig['client'],
-      apiUrl,
-      issuerUrl,
-    }
+    const cli = testConfig(apiUrl, issuerUrl)
     mocks.getCurrentUser.mockRejectedValueOnce(new Error('temporary network failure'))
     registerLoginCommand(program, cli)
 

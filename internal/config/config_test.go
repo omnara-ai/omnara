@@ -481,6 +481,34 @@ func TestValidateAPIEmailDrivers(t *testing.T) {
 	}
 }
 
+func TestValidateAPIExternalEmailRequiresPublicURLInDev(t *testing.T) {
+	tests := []struct {
+		name   string
+		driver string
+	}{
+		{name: "smtp", driver: "smtp"},
+		{name: "sendgrid", driver: "sendgrid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_PUBLIC_URL", "")
+			t.Setenv("OMNARA_EMAIL_DRIVER", tt.driver)
+			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
+			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
+			t.Setenv("SENDGRID_API_KEY", "sg-secret")
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_URL") {
+				t.Fatalf("expected missing public URL error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	t.Setenv("OMNARA_DATABASE_URL", "postgres://example/db")
 	t.Setenv("OMNARA_REDIS_URL", "redis://example:6379")

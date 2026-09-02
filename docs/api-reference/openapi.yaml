@@ -7026,10 +7026,12 @@ components:
     ModelCacheRetention:
       type: string
       description: >-
-        Default prompt-cache hint for model requests. `none` means Omnara does
-        not send a cache hint; providers may still apply their own automatic
-        caching. `short` and `long` are translated to the closest supported
-        control for the selected API.
+        Default prompt-cache hint for model requests. When omitted, the
+        provider adapter chooses: Anthropic models (direct or via OpenRouter)
+        default to `short`; other providers rely on their own automatic
+        caching. `none` means Omnara does not send a cache hint. `short` and
+        `long` are translated to the closest supported control for the
+        selected API.
       enum: [none, short, long]
     CreateModelProviderConfigRequest:
       type: object
@@ -7321,7 +7323,7 @@ components:
     ConfiguredModel:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
+      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'

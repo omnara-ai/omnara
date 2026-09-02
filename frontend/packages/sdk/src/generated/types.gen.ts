@@ -157,7 +157,7 @@ export type ModelApiVariantOptions = {
 };
 
 /**
- * Default prompt-cache hint for model requests. `none` means Omnara does not send a cache hint; providers may still apply their own automatic caching. `short` and `long` are translated to the closest supported control for the selected API.
+ * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
  */
 export type ModelCacheRetention = 'none' | 'short' | 'long';
 
@@ -410,7 +410,7 @@ export type ConfiguredModel = {
      * Default per-request output-token cap sent to the provider unless an agent config overrides it.
      */
     default_max_output_tokens?: number | null;
-    default_cache_retention: ModelCacheRetention;
+    default_cache_retention?: ModelCacheRetention;
     /**
      * Whether this configured model can receive tool definitions and emit tool calls.
      */

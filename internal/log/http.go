@@ -2,8 +2,13 @@ package log
 
 import (
 	"context"
+	"errors"
 	"net/http"
+
+	"github.com/omnara-ai/omnara/internal/errutil"
 )
+
+const statusClientClosedRequest = 499
 
 func HTTPRequest(
 	ctx context.Context,
@@ -18,6 +23,23 @@ func HTTPRequest(
 	rec := NewResponseRecorder(w)
 	event.beforeDoneFunc(func(f Finalizer) {
 		status := rec.StatusCode()
+		if errors.Is(ctx.Err(), context.Canceled) {
+			fields := Fields{
+				"http.request.cancel_cause":  context.Cause(ctx).Error(),
+				"http.request.cancel_source": "request_context",
+			}
+			if deadline, ok := ctx.Deadline(); ok {
+				fields["http.request.deadline"] = deadline.UTC()
+			}
+			f.Attach(fields)
+			if errutil.OnlyMatches(f.e.err, context.Canceled) {
+				status = statusClientClosedRequest
+				f.e.err = nil
+				f.e.level = InfoLevel
+				f.e.levelSet = true
+			}
+		}
+		rec.telemetryStatus = status
 		f.Attach(Fields{
 			"http.status_code":    status,
 			"http.response_bytes": rec.BytesWritten(),
@@ -34,8 +56,9 @@ func HTTPRequest(
 
 type ResponseRecorder struct {
 	http.ResponseWriter
-	status int
-	bytes  int64
+	status          int
+	telemetryStatus int
+	bytes           int64
 }
 
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
@@ -76,6 +99,13 @@ func (r *ResponseRecorder) StatusCode() int {
 		return http.StatusOK
 	}
 	return r.status
+}
+
+func (r *ResponseRecorder) TelemetryStatusCode() int {
+	if r.telemetryStatus == 0 {
+		return r.StatusCode()
+	}
+	return r.telemetryStatus
 }
 
 func (r *ResponseRecorder) BytesWritten() int64 { return r.bytes }

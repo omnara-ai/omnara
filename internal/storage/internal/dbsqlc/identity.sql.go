@@ -3254,33 +3254,6 @@ func (q *Queries) ListProjectAuthorizationRolesForPrincipal(ctx context.Context,
 	return items, nil
 }
 
-const listProjectIDsForMaintenance = `-- name: ListProjectIDsForMaintenance :many
-SELECT id
-FROM projects
-WHERE deleted_at IS NULL
-ORDER BY id
-`
-
-func (q *Queries) ListProjectIDsForMaintenance(ctx context.Context) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listProjectIDsForMaintenance)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProjectMembershipsForOrgAPIKey = `-- name: ListProjectMembershipsForOrgAPIKey :many
 SELECT pm.project_id, p.name AS project_name, pm.role, pm.created_at
 FROM project_memberships pm

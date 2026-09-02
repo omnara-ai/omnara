@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -137,25 +138,83 @@ func TestIdleMachineDeletionMaintenanceTickRecoversAndAllowsNextTick(t *testing.
 	}
 }
 
-func TestProviderRuntimeResultDistinguishesShutdownCancellation(t *testing.T) {
+func TestCompletedMaintenanceOutcome(t *testing.T) {
+	failure := errors.New("provider failed")
+	tests := []struct {
+		name            string
+		canceled        bool
+		err             error
+		wantInterrupted bool
+		wantErr         error
+	}{
+		{name: "success"},
+		{name: "live cancellation is a failure", err: context.Canceled, wantErr: context.Canceled},
+		{name: "shutdown without operation error", canceled: true, wantInterrupted: true},
+		{name: "shutdown cancellation", canceled: true, err: context.Canceled, wantInterrupted: true},
+		{
+			name:            "wrapped shutdown cancellation",
+			canceled:        true,
+			err:             fmt.Errorf("query: %w", context.Canceled),
+			wantInterrupted: true,
+		},
+		{name: "shutdown failure", canceled: true, err: failure, wantInterrupted: true, wantErr: failure},
+		{
+			name:            "shutdown mixed error",
+			canceled:        true,
+			err:             errors.Join(context.Canceled, failure),
+			wantInterrupted: true,
+			wantErr:         failure,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.canceled {
+				cancel()
+			}
+			outcome := completedMaintenanceOutcome(ctx, test.err)
+			if outcome.interrupted != test.wantInterrupted {
+				t.Fatalf("interrupted = %t, want %t", outcome.interrupted, test.wantInterrupted)
+			}
+			if test.wantErr == nil && outcome.err != nil {
+				t.Fatalf("err = %v, want nil", outcome.err)
+			}
+			if test.wantErr != nil && !errors.Is(outcome.err, test.wantErr) {
+				t.Fatalf("err = %v, want %v", outcome.err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestProviderRuntimeResultUsesCompletedOutcome(t *testing.T) {
 	for _, test := range []struct {
-		name        string
-		err         error
-		shutdownErr error
-		want        metrics.ProviderRuntimeResult
+		name    string
+		outcome maintenanceOutcome
+		want    metrics.ProviderRuntimeResult
 	}{
 		{name: "success", want: metrics.ProviderRuntimeResultSuccess},
-		{name: "failure", err: errors.New("provider failed"), want: metrics.ProviderRuntimeResultError},
 		{
-			name:        "shutdown cancellation",
-			err:         context.Canceled,
-			shutdownErr: context.Canceled,
-			want:        metrics.ProviderRuntimeResultCanceled,
+			name:    "failure",
+			outcome: maintenanceOutcome{err: errors.New("provider failed")},
+			want:    metrics.ProviderRuntimeResultError,
 		},
-		{name: "unrelated cancellation", err: context.Canceled, want: metrics.ProviderRuntimeResultError},
+		{
+			name:    "shutdown cancellation",
+			outcome: maintenanceOutcome{interrupted: true},
+			want:    metrics.ProviderRuntimeResultCanceled,
+		},
+		{
+			name: "failure during shutdown",
+			outcome: maintenanceOutcome{
+				interrupted: true,
+				err:         errors.New("provider failed"),
+			},
+			want: metrics.ProviderRuntimeResultError,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := providerRuntimeResult(test.err, test.shutdownErr); got != test.want {
+			if got := providerRuntimeResult(test.outcome); got != test.want {
 				t.Fatalf("provider runtime result = %q, want %q", got, test.want)
 			}
 		})

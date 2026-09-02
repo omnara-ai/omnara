@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -46,9 +47,7 @@ func (f Finalizer) Level(level EventLevel) {
 }
 
 func (f Finalizer) Error(err error) {
-	if err != nil && f.e.err == nil {
-		f.e.err = err
-	}
+	f.e.err = mergeEventErrors(f.e.err, err)
 }
 
 func NewEvent(ctx context.Context, name string, fieldSets ...Fields) *Event {
@@ -94,10 +93,23 @@ func (e *Event) Error(err error) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.done || e.err != nil {
+	if e.done {
 		return
 	}
-	e.err = err
+	e.err = mergeEventErrors(e.err, err)
+}
+
+func mergeEventErrors(existing, additional error) error {
+	switch {
+	case existing == nil:
+		return additional
+	case additional == nil:
+		return existing
+	case errors.Is(existing, additional):
+		return existing
+	default:
+		return errors.Join(existing, additional)
+	}
 }
 
 func (e *Event) Level(level EventLevel) {

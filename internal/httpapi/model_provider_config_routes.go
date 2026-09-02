@@ -1084,9 +1084,10 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 	supportedReasoningEfforts := cloneStringSlice(record.SupportedReasoningEfforts)
 	inputModalities := cloneStringSlice(record.InputModalities)
 	outputModalities := cloneStringSlice(record.OutputModalities)
-	cacheRetention := record.DefaultCacheRetention
-	if cacheRetention == "" {
-		cacheRetention = modelstore.ModelCacheRetentionNone
+	var cacheRetention *openapigen.ModelCacheRetention
+	if record.DefaultCacheRetention != "" {
+		value := openapigen.ModelCacheRetention(record.DefaultCacheRetention)
+		cacheRetention = &value
 	}
 	return openapigen.ConfiguredModel{
 		Id:                        id,
@@ -1099,7 +1100,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		ContextWindowTokens:       record.ContextWindowTokens,
 		MaxOutputTokens:           record.MaxOutputTokens,
 		DefaultMaxOutputTokens:    nullableFromPtr(record.DefaultMaxOutputTokens),
-		DefaultCacheRetention:     openapigen.ModelCacheRetention(cacheRetention),
+		DefaultCacheRetention:     cacheRetention,
 		SupportsTools:             record.SupportsTools,
 		SupportsReasoning:         record.SupportsReasoning,
 		DefaultReasoningEffort:    record.DefaultReasoningEffort,
@@ -1221,8 +1222,7 @@ func (s strictOpenAPIServer) authorizeModelProviderCredentialBinding(
 		Action:    identitystore.OrgActionSecretsManage,
 	})
 	if err != nil {
-		logent.AuthorizationCheckFailed(ctx, err)
-		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")
+		return authorizationAPIError(ctx, err)
 	}
 	if !allowed {
 		return apierror.FromCode(openapigen.ErrorCodeForbidden, "forbidden")
