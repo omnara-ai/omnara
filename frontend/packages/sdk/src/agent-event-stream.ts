@@ -239,8 +239,6 @@ async function* openConnection(
       : streamError('transport', 'Agent event stream disconnected', { cause: error })
   } finally {
     await reader?.cancel().catch(() => undefined)
-    // Ending the attempt aborts its signal, which releases anything still bound to it.
-    attempt.abort()
   }
 }
 

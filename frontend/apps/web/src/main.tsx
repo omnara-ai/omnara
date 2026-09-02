@@ -1,4 +1,3 @@
-import '@/polyfills'
 import '@/styles/index.css'
 import '@/fonts'
 
