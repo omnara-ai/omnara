@@ -21,6 +21,30 @@ const (
 	ToolNameUploadArtifact         = "upload_artifact"
 	ToolNameDownloadArtifact       = "download_artifact"
 	ToolNameSkill                  = "skill"
+	ToolNameSpawnAgent             = "spawn_agent"
+	ToolNameWaitAgents             = "wait_agents"
+	ToolNameSendAgentMessage       = "send_agent_message"
+	ToolNameStopAgent              = "stop_agent"
+	ToolNameListAgents             = "list_agents"
 )
+
+func SubagentToolNames() []string {
+	return []string{
+		ToolNameSpawnAgent,
+		ToolNameWaitAgents,
+		ToolNameSendAgentMessage,
+		ToolNameStopAgent,
+		ToolNameListAgents,
+	}
+}
+
+func IsSubagentToolName(name string) bool {
+	for _, candidate := range SubagentToolNames() {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

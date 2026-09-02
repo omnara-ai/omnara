@@ -268,6 +268,126 @@
       ],
       "type": "object"
     },
+    "AgentConfigSubagentInstructionSource": {
+      "additionalProperties": false,
+      "properties": {
+        "append": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigSubagentModelSource": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_retention": {
+          "enum": [
+            "none",
+            "short",
+            "long"
+          ]
+        },
+        "context_window_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "default_max_output_tokens": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$",
+          "type": "string"
+        },
+        "provider_config": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$",
+          "type": "string"
+        },
+        "reasoning": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "required": [
+            "effort"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "AgentConfigSubagentSource": {
+      "additionalProperties": false,
+      "else": {
+        "not": {
+          "required": [
+            "profile"
+          ],
+          "type": "object"
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "profile"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "properties": {
+        "archive_after_idle_minutes": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "instruction": {
+          "$ref": "#/$defs/AgentConfigSubagentInstructionSource"
+        },
+        "max_concurrent": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/AgentConfigSubagentModelSource"
+        },
+        "profile": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "profile",
+            "self"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "then": {
+        "required": [
+          "profile"
+        ]
+      },
+      "type": "object"
+    },
     "AgentConfigToolSource": {
       "additionalProperties": false,
       "else": {
@@ -397,6 +517,11 @@
         }
       ]
     },
+    "max_subagents": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "type": "integer"
+    },
     "mcp": {
       "additionalProperties": {
         "$ref": "#/$defs/AgentConfigMCPSource"
@@ -424,6 +549,16 @@
           "type": "null"
         }
       ]
+    },
+    "subagents": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigSubagentSource"
+      },
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+        "type": "string"
+      },
+      "type": "object"
     },
     "tools": {
       "additionalProperties": {

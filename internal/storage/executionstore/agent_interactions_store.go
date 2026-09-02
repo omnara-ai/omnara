@@ -209,7 +209,11 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("load created question interaction: %w", err)
 	}
 	t.hasDurableCompletionOwner = true
-	return agentInteractionRecordFromSQLC(row), nil
+	record := agentInteractionRecordFromSQLC(row)
+	if err := handleSubagentQuestionTx(ctx, t.notifications, t.tx, t.q, record); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
 }
 
 func markToolCallAwaitingPermissionTx(
@@ -265,6 +269,23 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	record, err := resolveAgentInteractionTx(ctx, txNotifications, tx, qtx, input)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
+}
+
+func resolveAgentInteractionTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	input ResolveAgentInteractionInput,
+) (AgentInteractionRecord, error) {
 	if _, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -423,9 +444,6 @@ func (s *Store) ResolveAgentInteraction(
 		},
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("mark interaction resolution wakeup: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
-		return AgentInteractionRecord{}, err
 	}
 	return record, nil
 }

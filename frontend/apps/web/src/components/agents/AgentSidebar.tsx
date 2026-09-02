@@ -1,5 +1,5 @@
 import { useMachine, useServerInfo } from '@omnara/react'
-import type { Agent, AgentMcpConnection, AgentProfile } from '@omnara/sdk'
+import type { Agent, AgentMcpConnection, AgentProfile, SubagentSummary } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -50,6 +50,7 @@ export function AgentSidebar({
   agent,
   machineIds,
   mcpConnections,
+  subagents,
   profile,
   canManage,
 }: {
@@ -58,6 +59,7 @@ export function AgentSidebar({
   agent: Agent
   machineIds: string[]
   mcpConnections: AgentMcpConnection[]
+  subagents: SubagentSummary[]
   profile?: AgentProfile
   canManage: boolean
 }) {
@@ -88,6 +90,19 @@ export function AgentSidebar({
                       </Link>
                     ) : undefined,
                   },
+                  {
+                    label: 'Parent',
+                    value: agent.parent_agent_id ? (
+                      <Link
+                        to="/projects/$projectId/agents/$agentId"
+                        params={{ projectId, agentId: agent.parent_agent_id }}
+                        className="font-mono text-xs hover:underline"
+                      >
+                        {agent.parent_agent_id}
+                      </Link>
+                    ) : undefined,
+                  },
+                  { label: 'Handle', value: agent.subagent_handle, mono: true },
                   { label: 'Config', value: agent.current_config_id, mono: true },
                   { label: 'Created', value: formatDateTime(agent.created_at) },
                 ]}
@@ -95,6 +110,7 @@ export function AgentSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
           <AgentMachinesGroup orgId={orgId} machineIds={machineIds} />
+          <AgentSubagentsGroup projectId={projectId} subagents={subagents} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentCronGroup
             orgId={orgId}
@@ -132,6 +148,50 @@ function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: 
           <SidebarMenu>
             {machineIds.map((machineId) => (
               <AgentMachineRow key={machineId} orgId={orgId} machineId={machineId} />
+            ))}
+          </SidebarMenu>
+        )}
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+export function AgentSubagentsGroup({
+  projectId,
+  subagents,
+}: {
+  projectId: string
+  subagents: SubagentSummary[]
+}) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="px-0 text-sm">Subagents</SidebarGroupLabel>
+      <SidebarGroupContent>
+        {subagents.length === 0 ? (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">No subagents.</p>
+        ) : (
+          <SidebarMenu>
+            {subagents.map((subagent) => (
+              <SidebarMenuItem
+                key={subagent.id}
+                className="flex items-center justify-between gap-2 py-1.5 text-sm"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <Link
+                    to="/projects/$projectId/agents/$agentId"
+                    params={{ projectId, agentId: subagent.id }}
+                    className="truncate hover:underline"
+                  >
+                    {subagent.name || subagent.handle}
+                  </Link>
+                  <span className="text-muted-foreground truncate font-mono text-xs">
+                    {subagent.handle}
+                  </span>
+                </span>
+                <Badge variant="outline" className="capitalize">
+                  {subagent.state.replaceAll('_', ' ')}
+                </Badge>
+              </SidebarMenuItem>
             ))}
           </SidebarMenu>
         )}
