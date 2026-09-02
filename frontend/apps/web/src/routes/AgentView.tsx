@@ -10,7 +10,7 @@ import {
   useResolveAgentInteraction,
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { type CSSProperties, useRef, useState } from 'react'
+import { type ComponentProps, type CSSProperties, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
@@ -68,6 +68,15 @@ export function AgentView() {
     setConfigOpen(false)
   }
 
+  function toggleConfig() {
+    if (!configOpen) {
+      setConfigOpen(true)
+      return
+    }
+    if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
+    closeConfig()
+  }
+
   async function resolve(
     interactionID: string,
     body: Parameters<typeof resolveInteraction.mutateAsync>[0]['body'],
@@ -121,14 +130,7 @@ export function AgentView() {
                     variant="ghost"
                     aria-label="Agent configuration"
                     className={cn('text-muted-foreground', configOpen && sidebarToggleActiveClass)}
-                    onClick={() => {
-                      if (!configOpen) {
-                        setConfigOpen(true)
-                        return
-                      }
-                      if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
-                      closeConfig()
-                    }}
+                    onClick={toggleConfig}
                   >
                     <SettingsIcon />
                   </Button>
@@ -163,50 +165,24 @@ export function AgentView() {
             </main>
           )}
 
-          <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
-            {!archived && (
-              <AgentInteractions
-                interactions={interactions.data?.data ?? []}
-                pending={resolveInteraction.isPending}
-                error={resolveInteraction.error}
-                loadError={
-                  interactions.error != null
-                    ? errorMessage(interactions.error, 'Unknown error')
-                    : null
-                }
-                onResolve={resolve}
-                canOperate={canOperate}
-              />
-            )}
-            {archived ? (
-              !configOpen && (
-                <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
-                  <p className="text-sm font-medium">This agent is archived</p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    You can view its conversation, but it can no longer receive messages.
-                  </p>
-                </div>
-              )
-            ) : (
-              <div className={cn('min-w-0', configOpen && 'hidden')}>
-                <AgentInputQueue
-                  backlog={chat.inputBacklog}
-                  canOperate={canOperate}
-                  canSendNow={canSendNow}
-                />
-                {!configOpen && (
-                  <AgentComposer
-                    chat={chat}
-                    model={agentConfig?.model}
-                    cancelPending={cancelAgent.isPending}
-                    cancelError={cancelAgent.error}
-                    onCancel={cancelCurrent}
-                    canOperate={canOperate}
-                  />
-                )}
-              </div>
-            )}
-          </div>
+          <AgentDock
+            archived={archived}
+            configOpen={configOpen}
+            chat={chat}
+            model={agentConfig?.model}
+            canOperate={canOperate}
+            canSendNow={canSendNow}
+            interactions={interactions.data?.data ?? []}
+            interactionsLoadError={
+              interactions.error != null ? errorMessage(interactions.error, 'Unknown error') : null
+            }
+            resolvePending={resolveInteraction.isPending}
+            resolveError={resolveInteraction.error}
+            onResolve={resolve}
+            cancelPending={cancelAgent.isPending}
+            cancelError={cancelAgent.error}
+            onCancel={cancelCurrent}
+          />
         </div>
       </MessageScrollerProvider>
       <AgentSidebar
@@ -219,5 +195,80 @@ export function AgentView() {
         canManage={project?.access.can_manage ?? false}
       />
     </SidebarProvider>
+  )
+}
+
+function AgentDock({
+  archived,
+  configOpen,
+  chat,
+  model,
+  canOperate,
+  canSendNow,
+  interactions,
+  interactionsLoadError,
+  resolvePending,
+  resolveError,
+  onResolve,
+  cancelPending,
+  cancelError,
+  onCancel,
+}: {
+  archived: boolean
+  configOpen: boolean
+  chat: ReturnType<typeof useAgentChat>
+  model: ComponentProps<typeof AgentComposer>['model']
+  canOperate: boolean
+  canSendNow: boolean
+  interactions: ComponentProps<typeof AgentInteractions>['interactions']
+  interactionsLoadError: string | null
+  resolvePending: boolean
+  resolveError: Error | null
+  onResolve: ComponentProps<typeof AgentInteractions>['onResolve']
+  cancelPending: boolean
+  cancelError: Error | null
+  onCancel: () => Promise<unknown>
+}) {
+  return (
+    <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
+      {!archived && !configOpen && (
+        <AgentInteractions
+          interactions={interactions}
+          pending={resolvePending}
+          error={resolveError}
+          loadError={interactionsLoadError}
+          onResolve={onResolve}
+          canOperate={canOperate}
+        />
+      )}
+      {archived ? (
+        !configOpen && (
+          <div className="bg-muted/30 rounded-xl border px-4 py-3 text-center">
+            <p className="text-sm font-medium">This agent is archived</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              You can view its conversation, but it can no longer receive messages.
+            </p>
+          </div>
+        )
+      ) : (
+        <div className={cn('min-w-0', configOpen && 'hidden')}>
+          <AgentInputQueue
+            backlog={chat.inputBacklog}
+            canOperate={canOperate}
+            canSendNow={canSendNow}
+          />
+          {!configOpen && (
+            <AgentComposer
+              chat={chat}
+              model={model}
+              cancelPending={cancelPending}
+              cancelError={cancelError}
+              onCancel={onCancel}
+              canOperate={canOperate}
+            />
+          )}
+        </div>
+      )}
+    </div>
   )
 }
