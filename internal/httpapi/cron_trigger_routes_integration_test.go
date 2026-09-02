@@ -46,6 +46,9 @@ func TestCronTriggerRoutes(t *testing.T) {
 	if created["enabled"] != true {
 		t.Fatalf("expected trigger enabled by default: %+v", created)
 	}
+	if created["delivery_mode"] != "queued" {
+		t.Fatalf("expected default delivery_mode queued: %+v", created)
+	}
 	if created["last_fired_at"] != nil {
 		t.Fatalf("expected null last_fired_at: %+v", created)
 	}
@@ -106,6 +109,28 @@ func TestCronTriggerRoutes(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		triggersPath,
+		`{"name":"profile-steering","target":{"type":"profile","agent_profile_id":"`+profileID+`"},`+
+			`"cron":"0 9 * * *","message_template":"Profile steering.","delivery_mode":"steering"}`,
+		"idem-cron-trigger-profile-steering",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		triggersPath+"/"+triggerID,
+		`{"delivery_mode":"steering"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+
 	otherProject := bootstrapPublicHTTPProject(t, handler, "cron-triggers-foreign")
 	foreignProfile := createPublicHTTPAgent(
 		t,
@@ -135,7 +160,8 @@ func TestCronTriggerRoutes(t *testing.T) {
 		http.MethodPost,
 		triggersPath,
 		`{"name":"agent-nudge","target":{"type":"agent","agent_id":"`+agentID+`"},`+
-			`"cron":"30 8 * * *","timezone":"America/New_York","message_template":"Check the queue.","enabled":false}`,
+			`"cron":"30 8 * * *","timezone":"America/New_York","message_template":"Check the queue.",`+
+			`"delivery_mode":"steering","enabled":false}`,
 		"idem-cron-trigger-agent",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -154,6 +180,32 @@ func TestCronTriggerRoutes(t *testing.T) {
 	if agentTarget["type"] != "agent" || agentTarget["agent_id"] != agentID {
 		t.Fatalf("unexpected agent target: %+v", agentTarget)
 	}
+	if agentTrigger["delivery_mode"] != "steering" {
+		t.Fatalf("expected steering delivery_mode: %+v", agentTrigger)
+	}
+	requeued := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		triggersPath+"/"+agentTriggerID,
+		`{"delivery_mode":"queued"}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if requeued["delivery_mode"] != "queued" {
+		t.Fatalf("expected delivery_mode patched to queued: %+v", requeued)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPatch,
+		triggersPath+"/"+agentTriggerID,
+		`{"delivery_mode":"immediate"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
 
 	listed := requestJSONWithHeaders(
 		t,

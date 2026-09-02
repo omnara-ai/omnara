@@ -1,9 +1,14 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
-import { type CronTrigger, type CronTriggerTarget } from '@omnara/sdk'
+import { type CronTrigger, type CronTriggerDeliveryMode, type CronTriggerTarget } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import cronstrue from 'cronstrue'
 import { useState } from 'react'
 
+import {
+  cronTriggerDeliveryModeHint,
+  cronTriggerDeliveryModeLabel,
+  cronTriggerDeliveryModeOptions,
+} from '@/components/agents/cron-trigger-delivery-mode'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -24,6 +29,13 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
@@ -85,6 +97,7 @@ interface CronTriggerFormValues {
   cron: string
   timezone: string
   messageTemplate: string
+  deliveryMode: CronTriggerDeliveryMode
 }
 
 function CronTriggerFormDialog({
@@ -94,6 +107,7 @@ function CronTriggerFormDialog({
   description,
   submitLabel,
   errorFallback,
+  target,
   defaultValues,
   isPending,
   onSubmit,
@@ -104,6 +118,7 @@ function CronTriggerFormDialog({
   description: string
   submitLabel: string
   errorFallback: string
+  target: CronTriggerTarget
   defaultValues: CronTriggerFormValues
   isPending: boolean
   onSubmit: (value: CronTriggerFormValues) => Promise<void>
@@ -232,6 +247,35 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
+            {target.type === 'agent' && (
+              <form.Field name="deliveryMode">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="cron-trigger-delivery-mode">Delivery</FieldLabel>
+                    <Select
+                      value={field.state.value}
+                      onValueChange={(value: CronTriggerDeliveryMode) => {
+                        field.handleChange(value)
+                      }}
+                    >
+                      <SelectTrigger id="cron-trigger-delivery-mode" className="w-full">
+                        <SelectValue>{cronTriggerDeliveryModeLabel(field.state.value)}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {cronTriggerDeliveryModeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      {cronTriggerDeliveryModeHint(field.state.value)}
+                    </FieldDescription>
+                  </Field>
+                )}
+              </form.Field>
+            )}
             {error && <p className="text-destructive whitespace-pre-wrap text-sm">{error}</p>}
             <DialogFooter>
               <form.Subscribe
@@ -286,7 +330,14 @@ export function CreateCronTriggerDialog({
       description={targetDescription(target, targetLabel)}
       submitLabel="Create schedule"
       errorFallback="Could not create schedule"
-      defaultValues={{ name: '', cron: '', timezone: browserTimezone, messageTemplate: '' }}
+      target={target}
+      defaultValues={{
+        name: '',
+        cron: '',
+        timezone: browserTimezone,
+        messageTemplate: '',
+        deliveryMode: 'queued',
+      }}
       isPending={createTrigger.isPending}
       onSubmit={async (value) => {
         const trigger = await createTrigger.mutateAsync({
@@ -295,6 +346,7 @@ export function CreateCronTriggerDialog({
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
+          delivery_mode: value.deliveryMode,
         })
         onCreated?.(trigger)
       }}
@@ -324,11 +376,13 @@ export function EditCronTriggerDialog({
       description={targetDescription(trigger.target)}
       submitLabel="Save changes"
       errorFallback="Could not update schedule"
+      target={trigger.target}
       defaultValues={{
         name: trigger.name,
         cron: trigger.cron,
         timezone: trigger.timezone,
         messageTemplate: trigger.message_template,
+        deliveryMode: trigger.delivery_mode,
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
@@ -338,6 +392,7 @@ export function EditCronTriggerDialog({
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
+          delivery_mode: value.deliveryMode,
         })
       }}
     />

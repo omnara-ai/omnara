@@ -902,6 +902,11 @@ export const zCronTimezone = z.string().max(64).default('UTC');
  */
 export const zCronMessageTemplate = z.string().max(65536);
 
+/**
+ * How each firing's message is delivered to an existing agent target. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs. Agent profile targets always use `queued`: each firing launches a new agent with the message as its initial prompt.
+ */
+export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']).default('queued');
+
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
     will_retry: z.boolean(),
@@ -914,6 +919,7 @@ export const zCreateCronTriggerRequest = z.object({
     cron: zCronExpression,
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate,
+    delivery_mode: zCronTriggerDeliveryMode.optional(),
     enabled: z.boolean().optional().default(true)
 });
 
@@ -922,6 +928,7 @@ export const zUpdateCronTriggerRequest = z.object({
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate.optional(),
+    delivery_mode: zCronTriggerDeliveryMode.optional(),
     enabled: z.boolean().optional()
 });
 
@@ -934,6 +941,7 @@ export const zCronTrigger = z.object({
     cron: zCronExpression,
     timezone: zCronTimezone,
     message_template: zCronMessageTemplate,
+    delivery_mode: zCronTriggerDeliveryMode,
     enabled: z.boolean(),
     last_fired_at: zTimestamp.nullable(),
     next_fire_at: zTimestamp.nullable(),

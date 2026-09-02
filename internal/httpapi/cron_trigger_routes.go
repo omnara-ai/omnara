@@ -43,6 +43,10 @@ func (s strictOpenAPIServer) createCronTrigger(
 	if request.Body.Enabled != nil {
 		enabled = *request.Body.Enabled
 	}
+	deliveryMode := executionstore.DeliveryModeQueued
+	if request.Body.DeliveryMode != nil {
+		deliveryMode = executionstore.AgentInputDeliveryMode(*request.Body.DeliveryMode)
+	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -54,6 +58,7 @@ func (s strictOpenAPIServer) createCronTrigger(
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
 		MessageTemplate: request.Body.MessageTemplate,
+		DeliveryMode:    deliveryMode,
 		Enabled:         enabled,
 		IdempotencyKey:  idempotencyKey,
 	})
@@ -210,6 +215,11 @@ func (s strictOpenAPIServer) updateCronTrigger(
 		trimmed := strings.TrimSpace(*timezone)
 		timezone = &trimmed
 	}
+	var deliveryMode *executionstore.AgentInputDeliveryMode
+	if request.Body.DeliveryMode != nil {
+		mode := executionstore.AgentInputDeliveryMode(*request.Body.DeliveryMode)
+		deliveryMode = &mode
+	}
 	trigger, err := s.server.store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
 		ProjectID:       project.ID,
 		TriggerID:       triggerID,
@@ -217,6 +227,7 @@ func (s strictOpenAPIServer) updateCronTrigger(
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
 		MessageTemplate: request.Body.MessageTemplate,
+		DeliveryMode:    deliveryMode,
 		Enabled:         request.Body.Enabled,
 	})
 	if err != nil {
@@ -372,6 +383,7 @@ func cronTriggerResponseFromRecord(
 		Cron:            record.CronExpression,
 		Timezone:        record.Timezone,
 		MessageTemplate: record.MessageTemplate,
+		DeliveryMode:    openapi.CronTriggerDeliveryMode(record.DeliveryMode),
 		Enabled:         record.Enabled,
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),

@@ -7,8 +7,9 @@ import {
 import { type CronTrigger } from '@omnara/sdk'
 import { useState } from 'react'
 
+import { cronTriggerDeliveryModeLabel } from '@/components/agents/cron-trigger-delivery-mode'
 import { EditCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
-import { PencilIcon, Trash2 } from '@/components/icons'
+import { PauseIcon, PencilIcon, PlayIcon, Trash2 } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -83,11 +84,12 @@ export function CronTriggersList({
                       {trigger.message_template}
                     </TooltipContent>
                   </Tooltip>
-                  {!trigger.enabled && <Badge variant="secondary">Disabled</Badge>}
                   {trigger.failure_report && <Badge variant="destructive">Failing</Badge>}
                 </div>
                 <p className="text-muted-foreground truncate text-xs">
                   <span className="font-mono">{trigger.cron}</span> · {trigger.timezone}
+                  {trigger.target.type === 'agent' &&
+                    ` · ${cronTriggerDeliveryModeLabel(trigger.delivery_mode)}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
                 {trigger.failure_report && (
@@ -99,10 +101,11 @@ export function CronTriggersList({
                 )}
               </div>
               {canManage && (
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center">
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
+                    className="text-muted-foreground size-8 sm:size-7"
                     aria-label={`Edit schedule ${trigger.name}`}
                     onClick={() => {
                       setEditing(trigger)
@@ -111,8 +114,11 @@ export function CronTriggersList({
                     <PencilIcon />
                   </Button>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
+                    className="text-muted-foreground size-8 sm:size-7"
+                    aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} schedule ${trigger.name}`}
+                    title={trigger.enabled ? 'Disable' : 'Enable'}
                     disabled={
                       updateTrigger.isPending &&
                       updateTrigger.variables.cronTriggerID === trigger.id
@@ -128,11 +134,13 @@ export function CronTriggersList({
                       )
                     }}
                   >
-                    {trigger.enabled ? 'Disable' : 'Enable'}
+                    {trigger.enabled ? <PauseIcon /> : <PlayIcon />}
                   </Button>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
+                    className="text-muted-foreground size-8 sm:size-7"
+                    aria-label={`Delete schedule ${trigger.name}`}
                     disabled={deleteTrigger.isPending && deleteTrigger.variables === trigger.id}
                     onClick={() => {
                       if (!window.confirm(`Delete schedule ${trigger.name}?`)) return

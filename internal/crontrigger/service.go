@@ -189,7 +189,7 @@ func (s *Service) sendAgentInput(
 		AgentID:        trigger.Target.ID,
 		Actor:          actor,
 		ContentBlocks:  contentBlocks,
-		DeliveryMode:   executionstore.DeliveryModeQueued,
+		DeliveryMode:   trigger.DeliveryMode,
 		IdempotencyKey: idempotencyKey,
 	}); err != nil {
 		return fmt.Errorf("send cron trigger input: %w", err)
