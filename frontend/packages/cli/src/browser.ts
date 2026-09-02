@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 
-function browserCommand(url: string): {
+interface BrowserCommand {
   command: string
   args: string[]
   windowsVerbatimArguments: boolean
-} {
+}
+
+function browserCommand(url: string): BrowserCommand {
   if (process.platform === 'darwin') {
     return { command: 'open', args: [url], windowsVerbatimArguments: false }
   }

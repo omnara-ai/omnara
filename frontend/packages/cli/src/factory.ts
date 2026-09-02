@@ -191,13 +191,10 @@ function registerFlag(command: Command, spec: FlagSpec): void {
   }
 }
 
-function collectFlagValues(
-  specs: FlagSpec[],
-  options: Record<string, unknown>,
-): Record<string, unknown> {
+function collectFlagValues(specs: FlagSpec[], options: Record<string, unknown>) {
   const root: Record<string, unknown> = {}
   const containers = new Map<string, Record<string, unknown>>()
-  const containerFor = (path: readonly string[]): Record<string, unknown> => {
+  const containerFor = (path: readonly string[]) => {
     const name = path[path.length - 1]
     if (name === undefined) return root
     const pathKey = path.join('.')
@@ -248,14 +245,16 @@ function deepMerge(
   base: Record<string, unknown>,
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
-  const merged = { ...base }
+  const merged = new Map(Object.entries(base))
   for (const [key, value] of Object.entries(patch)) {
-    const existing = zBodyObject.safeParse(merged[key])
+    const existing = zBodyObject.safeParse(merged.get(key))
     const incoming = zBodyObject.safeParse(value)
-    merged[key] =
-      existing.success && incoming.success ? deepMerge(existing.data, incoming.data) : value
+    merged.set(
+      key,
+      existing.success && incoming.success ? deepMerge(existing.data, incoming.data) : value,
+    )
   }
-  return merged
+  return Object.fromEntries(merged)
 }
 
 function saveConfigDefault(configKey: 'org_id' | 'project_id', value: string): void {

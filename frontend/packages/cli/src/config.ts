@@ -159,17 +159,15 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
           options.apiUrl !== undefined ||
           options.issuerUrl !== undefined
         ) {
-          const clearStaleProject = options.org !== undefined && options.project === undefined
-          updateConfigFile({
-            ...(options.org !== undefined ? { org_id: options.org } : {}),
-            ...(clearStaleProject
-              ? { project_id: undefined }
-              : options.project !== undefined
-                ? { project_id: options.project }
-                : {}),
-            ...(options.apiUrl !== undefined ? { api_url: options.apiUrl } : {}),
-            ...(options.issuerUrl !== undefined ? { issuer_url: options.issuerUrl } : {}),
-          })
+          const patch: Partial<ConfigFile> = {}
+          if (options.org !== undefined) {
+            patch.org_id = options.org
+            patch.project_id = undefined
+          }
+          if (options.project !== undefined) patch.project_id = options.project
+          if (options.apiUrl !== undefined) patch.api_url = options.apiUrl
+          if (options.issuerUrl !== undefined) patch.issuer_url = options.issuerUrl
+          updateConfigFile(patch)
         }
         printConfig()
       })
