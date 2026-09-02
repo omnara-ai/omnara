@@ -9,12 +9,13 @@ signalStatics.any ??= (signals) => {
       controller.abort(signal.reason)
       break
     }
+    // Released as soon as the composite aborts, so nothing lingers on a long-lived input.
     signal.addEventListener(
       'abort',
       () => {
         controller.abort(signal.reason)
       },
-      { once: true },
+      { once: true, signal: controller.signal },
     )
   }
   return controller.signal
