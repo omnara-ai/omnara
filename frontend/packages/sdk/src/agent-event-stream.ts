@@ -19,7 +19,6 @@ export class AgentEventStreamError extends Error {
   readonly kind: AgentEventStreamErrorKind
   readonly status: number | undefined
   readonly code: ApiErrorCode | undefined
-  /** Delay the server requested before reconnecting, when the response carried Retry-After. */
   readonly retryAfterMs: number | undefined
 
   constructor({
@@ -72,8 +71,7 @@ const retryAfterMaximumDelayMs = 60_000
 const stableConnectionResetMs = 10_000
 const activeReadTimeoutMs = 35_000
 
-// A durable event carries its sequence. The kind is left open so an event
-// kind added after this SDK shipped still advances the resume cursor.
+// event_kind stays open so kinds newer than this SDK still advance the cursor.
 const zDurableCursor = z.object({
   event_kind: z.string(),
   sequence: z.number().int().nonnegative(),
@@ -141,8 +139,6 @@ function notifyConnectionState(
   }
 }
 
-// One physical connection ----------------------------------------------------
-
 type ConnectionEvent = { kind: 'connected' } | { kind: 'message'; data: string }
 
 type ConnectionOptions = Pick<OpenAgentEventStreamOptions, 'path' | 'query' | 'headers'>
@@ -177,7 +173,6 @@ async function prepareRequest(
   return request
 }
 
-/** One read that must settle within `ms`; otherwise `deadline` is aborted. */
 async function readWithDeadline(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   ms: number,
@@ -193,21 +188,16 @@ async function readWithDeadline(
   }
 }
 
-/**
- * Opens one physical connection: yields `connected` once the response is
- * accepted, then every server-sent message. It never ends quietly — every
- * outcome, including the caller's abort, surfaces as a thrown error that the
- * session classifies.
- */
 async function* openConnection(
   client: OmnaraClient,
   options: ConnectionOptions,
   callerSignal: AbortSignal | undefined,
 ): AsyncGenerator<ConnectionEvent, never> {
-  // `attempt` is aborted by the read deadline alone, so its state means "timed out".
-  const attempt = new AbortController()
+  const readDeadline = new AbortController()
   const signal =
-    callerSignal == null ? attempt.signal : AbortSignal.any([callerSignal, attempt.signal])
+    callerSignal == null
+      ? readDeadline.signal
+      : AbortSignal.any([callerSignal, readDeadline.signal])
   const prepared = await prepareRequest(client, options, signal).catch((error: unknown) => {
     throw streamError('client', 'Agent event stream request could not be prepared', {
       cause: error,
@@ -250,14 +240,14 @@ async function* openConnection(
     const decoder = new TextDecoder()
     for (;;) {
       signal.throwIfAborted()
-      const chunk = await readWithDeadline(reader, activeReadTimeoutMs, attempt)
+      const chunk = await readWithDeadline(reader, activeReadTimeoutMs, readDeadline)
       if (chunk.done) throw streamError('transport', 'Agent event stream ended unexpectedly')
       for (const data of parser.push(decoder.decode(chunk.value, { stream: true }))) {
         yield { kind: 'message', data }
       }
     }
   } catch (error) {
-    if (attempt.signal.aborted) {
+    if (readDeadline.signal.aborted) {
       throw streamError('transport', 'Agent event stream timed out waiting for data', {
         cause: error,
       })
@@ -270,8 +260,6 @@ async function* openConnection(
     await reader.cancel().catch(() => undefined)
   }
 }
-
-// The logical stream across connections --------------------------------------
 
 async function decodeFrame(text: string): Promise<AgentEventStreamData> {
   let data: unknown

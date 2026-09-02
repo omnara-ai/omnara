@@ -40,11 +40,6 @@ export function isUnknownEnumError(error: z.ZodError, data: unknown): boolean {
   return error.issues.every((issue) => isUnknownEnumIssue(issue, data))
 }
 
-/**
- * Resolves to the validation error when `data` does not conform to `schema`,
- * or `undefined` when it does. A value that differs only by enum members this
- * SDK does not know yet conforms, so newer servers keep working.
- */
 export async function schemaMismatch(
   schema: z.ZodType,
   data: unknown,

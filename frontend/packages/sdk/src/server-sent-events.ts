@@ -1,13 +1,8 @@
 export interface ServerSentEventParser {
-  /** Consumes decoded text and returns the data of each message it completes, in order. */
   push(chunk: string): string[]
 }
 
-/**
- * Incremental `text/event-stream` parser: a message ends at a blank line,
- * `data` lines join with LF, comment lines and other fields are ignored, and a
- * message without data is not dispatched.
- */
+// Dispatch rules: https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation
 export function createServerSentEventParser(): ServerSentEventParser {
   let buffer = ''
   return {

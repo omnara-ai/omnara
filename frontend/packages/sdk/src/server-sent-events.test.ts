@@ -19,15 +19,18 @@ describe('createServerSentEventParser', () => {
     ])
   })
 
-  it('buffers a message across chunks and holds a trailing CR until it can be classified', () => {
+  it('completes a message whose CRLF pair is split across chunks', () => {
     const parser = createServerSentEventParser()
 
     expect(parser.push('data: {"a"')).toEqual([])
     expect(parser.push(':1}\r')).toEqual([])
-    // The CR that ended the previous chunk completes a CRLF here. The chunk's own
-    // trailing CR could still be half of a CRLF, so message 2 is not dispatched yet.
-    expect(parser.push('\n\r\ndata: 2\r\r')).toEqual(['{"a":1}'])
-    // Bare CR line endings resolve once the next byte proves they were not CRLF.
+    expect(parser.push('\n\r\n')).toEqual(['{"a":1}'])
+  })
+
+  it('treats a bare CR as a line ending once the next chunk shows it was not CRLF', () => {
+    const parser = createServerSentEventParser()
+
+    expect(parser.push('data: 2\r\r')).toEqual([])
     expect(parser.push('data: 3\n\n')).toEqual(['2', '3'])
   })
 
