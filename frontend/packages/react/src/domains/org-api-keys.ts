@@ -8,21 +8,22 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { useOmnaraClient } from '../omnara-client'
 import { DEFAULT_LIST_PAGE_SIZE } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
+import { generatedQueryKey } from './query-keys'
 
 export function useOrgApiKeys(orgID: string, pageSize = DEFAULT_LIST_PAGE_SIZE) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
-    ...listOrgApiKeysInfiniteOptions({ path: { orgID }, query: { limit: pageSize }, client }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listOrgApiKeysInfiniteOptions({ path: { orgID }, query: { limit: pageSize }, client }),
+    ),
   })
 }
 
 function invalidateOrgApiKeys(queryClient: ReturnType<typeof useQueryClient>) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const entry = query.queryKey[0] as { _id?: string } | undefined
-      return entry?._id === 'listOrgApiKeys'
+      return generatedQueryKey(query)?._id === 'listOrgApiKeys'
     },
   })
 }

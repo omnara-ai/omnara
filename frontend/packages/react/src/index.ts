@@ -160,7 +160,7 @@ export {
   useOrgMembers,
   useOrgOverview,
 } from './domains/orgs'
-export { cursorPagination } from './domains/pagination'
+export { cursorPaginated } from './domains/pagination'
 export {
   useCreatePersonalAccessToken,
   usePersonalAccessTokens,

@@ -5,33 +5,32 @@ import {
   listVisibleProjectsQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
-  type SkipToken,
+  skipToken,
   useInfiniteQuery,
   useQueryClient,
   useSuspenseInfiniteQuery,
 } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 export function useProjects(orgID: string) {
   const client = useOmnaraClient()
   const options = listVisibleProjectsInfiniteOptions({ path: { orgID }, client })
-  return useSuspenseInfiniteQuery({
-    ...options,
-    // The generated queryFn type includes skipToken, which the suspense
-    // variant forbids; the generated builder never actually emits it.
-    queryFn: options.queryFn as Exclude<typeof options.queryFn, SkipToken | undefined>,
-    ...cursorPagination,
-  })
+  const { queryFn } = options
+  // The generated queryFn type includes skipToken, which the suspense
+  // variant forbids; the generated builder never actually emits it.
+  if (queryFn === undefined || queryFn === skipToken) {
+    throw new Error('listVisibleProjects has no query function')
+  }
+  return useSuspenseInfiniteQuery(cursorPaginated({ ...options, queryFn }))
 }
 
 export function useVisibleProjectsList(orgID: string, options?: { enabled?: boolean }) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
-    ...listVisibleProjectsInfiniteOptions({ path: { orgID }, client }),
-    ...cursorPagination,
+    ...cursorPaginated(listVisibleProjectsInfiniteOptions({ path: { orgID }, client })),
     enabled: options?.enabled ?? true,
   })
 }

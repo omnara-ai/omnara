@@ -552,7 +552,8 @@ function modelCallPreviewParts(
       const part = parts[tool.partIndex]
       if (part?.type === 'dynamic-tool' && part.state === 'input-streaming') {
         try {
-          parts[tool.partIndex] = { ...part, input: JSON.parse(tool.inputText) as unknown }
+          const input: unknown = JSON.parse(tool.inputText)
+          parts[tool.partIndex] = { ...part, input }
         } catch {
           // Partial JSON; the part updates once the input parses or the
           // durable event provides it.
