@@ -41,7 +41,7 @@ function installScriptUrl(apiUrl: string): string {
   return new URL('/install/omnarad.sh', apiUrl).toString()
 }
 
-function installCommand(apiUrl: string): string {
+export function installCommand(apiUrl: string): string {
   return `curl -fsSL ${shellQuote(installScriptUrl(apiUrl))} | sh`
 }
 
