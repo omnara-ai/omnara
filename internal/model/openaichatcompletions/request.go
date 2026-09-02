@@ -65,9 +65,18 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
+	cacheRetention := model.EffectiveCacheRetention(
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		apiVariant,
+		providerModelSlug,
+		input.Policy.CacheRetention,
+	)
 	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		payload.CacheControl = openRouterCacheControl(input.Policy.CacheRetention, providerModelSlug)
-	} else if retention := promptCacheRetention(input.Policy.CacheRetention); retention != "" {
+		payload.Messages = markOpenRouterCacheBreakpoints(
+			payload.Messages,
+			openRouterCacheControl(cacheRetention, providerModelSlug),
+		)
+	} else if retention := promptCacheRetention(cacheRetention); retention != "" {
 		payload.PromptCacheRetention = retention
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
@@ -129,7 +138,6 @@ type chatCompletionsRequest struct {
 	MaxCompletionTokens  int                  `json:"max_completion_tokens,omitempty"`
 	N                    int                  `json:"n"`
 	PromptCacheRetention string               `json:"prompt_cache_retention,omitempty"`
-	CacheControl         *chatCacheControl    `json:"cache_control,omitempty"`
 	ReasoningEffort      string               `json:"reasoning_effort,omitempty"`
 	Reasoning            *chatReasoning       `json:"reasoning,omitempty"`
 	Store                *bool                `json:"store,omitempty"`
@@ -390,7 +398,7 @@ func completeChatReplay(
 	if err != nil {
 		return chatMessage{}, false
 	}
-	return chatMessage{ProviderReplay: normalized}, true
+	return chatMessage{Role: chatRoleAssistant, ProviderReplay: normalized}, true
 }
 
 type chatReplaySemantic struct {
