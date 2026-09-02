@@ -9,7 +9,7 @@ import type {
 } from './generated/types.gen'
 import { zAgentSequence, zError, zStreamEventsResponse } from './generated/zod.gen'
 import { createServerSentEventParser } from './server-sent-events'
-import { parseResponse } from './validate-response'
+import { safeParseResponse } from './validate-response'
 
 export type AgentEventStreamFrame = Exclude<AgentEventStreamData, ApiErrorBody>
 export type AgentEventStreamErrorKind = 'api' | 'client' | 'contract' | 'http' | 'transport'
@@ -240,7 +240,7 @@ function decodeFrame(text: string): AgentEventStreamData {
       cause: error,
     })
   }
-  const frame = parseResponse(zStreamEventsResponse, data)
+  const frame = safeParseResponse(zStreamEventsResponse, data)
   if (!frame.success) {
     throw streamError('contract', 'Agent event stream received data outside its API contract', {
       cause: frame.error,
@@ -250,7 +250,7 @@ function decodeFrame(text: string): AgentEventStreamData {
 }
 
 function isErrorFrame(data: AgentEventStreamData): data is ApiErrorBody {
-  return parseResponse(zError, data).success
+  return safeParseResponse(zError, data).success
 }
 
 function durableSequence(data: AgentEventStreamData): number | undefined {
