@@ -9,25 +9,19 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import { AgentArtifactCard } from '@/components/agents/AgentArtifactCard'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 let container: HTMLDivElement
 let queryClient: QueryClient
 let root: Root
-let previousActEnvironment: boolean | undefined
+let restoreActEnvironment: () => void
 
 beforeAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+  restoreActEnvironment = enableReactActEnvironment()
 })
 
 afterAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+  restoreActEnvironment()
 })
 
 beforeEach(() => {

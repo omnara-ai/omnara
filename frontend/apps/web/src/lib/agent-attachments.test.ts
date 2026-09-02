@@ -1,15 +1,12 @@
 import type { AgentConfigModel, InlineMediaContentBlock } from '@omnara/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
+import { agentConfigModel } from '@/test/fixtures'
+
 import { selectAgentAttachment } from './agent-attachments'
 
 function model(overrides: Partial<AgentConfigModel> = {}): AgentConfigModel {
-  return {
-    api_format: 'openai-responses',
-    api_variant: 'openai',
-    input_modalities: [],
-    ...overrides,
-  } as AgentConfigModel
+  return agentConfigModel(overrides)
 }
 
 const canonicalMediaTypes = {
