@@ -32,13 +32,11 @@ import { idle, statusError, submitError } from '@/lib/submit-status'
 import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
 import {
   awsRegionPattern,
-  type BedrockAPI,
   bedrockAPIOption,
   bedrockAPIOptions,
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
-  type ModelProviderOption,
   modelProviderOption,
   modelProviderOptions,
   providerSecretName,
@@ -159,12 +157,12 @@ export function CreateModelProviderDialog({
                     <FieldLabel htmlFor="mp-provider">Provider</FieldLabel>
                     <Select
                       value={values.provider}
-                      onValueChange={(provider) => {
-                        setValues((prev) => ({
-                          ...prev,
-                          provider: provider as ModelProviderOption,
-                          secretId: '',
-                        }))
+                      onValueChange={(value) => {
+                        const option = modelProviderOptions.find(
+                          (candidate) => candidate.value === value,
+                        )
+                        if (!option) return
+                        setValues((prev) => ({ ...prev, provider: option.value, secretId: '' }))
                       }}
                     >
                       <SelectTrigger id="mp-provider" className="w-full">
@@ -199,11 +197,12 @@ export function CreateModelProviderDialog({
                       <FieldLabel htmlFor="mp-bedrock-api">API and endpoint</FieldLabel>
                       <Select
                         value={values.bedrockAPI}
-                        onValueChange={(bedrockAPI) => {
-                          setValues((prev) => ({
-                            ...prev,
-                            bedrockAPI: bedrockAPI as BedrockAPI,
-                          }))
+                        onValueChange={(value) => {
+                          const option = bedrockAPIOptions.find(
+                            (candidate) => candidate.value === value,
+                          )
+                          if (!option) return
+                          setValues((prev) => ({ ...prev, bedrockAPI: option.value }))
                         }}
                       >
                         <SelectTrigger id="mp-bedrock-api" className="w-full">

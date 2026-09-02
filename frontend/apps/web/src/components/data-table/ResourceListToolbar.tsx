@@ -46,7 +46,8 @@ export function ResourceListToolbar<TSort extends string>({
         <Select
           value={sort}
           onValueChange={(value) => {
-            onSortChange(value as TSort)
+            const option = sortOptions.find((candidate) => candidate.value === value)
+            if (option) onSortChange(option.value)
           }}
         >
           <SelectTrigger

@@ -174,7 +174,8 @@ export function ProjectAccessEditor({
               value={selectedRole}
               disabled={!selectedProject || setAccess.isPending}
               onValueChange={(value) => {
-                setSelectedRole(value as (typeof PROJECT_ROLES)[number])
+                const role = PROJECT_ROLES.find((candidate) => candidate === value)
+                if (role !== undefined) setSelectedRole(role)
               }}
             >
               <SelectTrigger className="h-10 w-full capitalize sm:h-8">

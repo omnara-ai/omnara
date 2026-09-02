@@ -39,9 +39,4 @@ const monacoEnvironment = {
   },
 }
 
-const monacoGlobal = globalThis as typeof globalThis & {
-  MonacoEnvironment?: typeof monacoEnvironment
-}
-
-monacoGlobal.MonacoEnvironment = monacoEnvironment
 self.MonacoEnvironment = monacoEnvironment
