@@ -241,7 +241,7 @@ function decodeFrame(text: string): AgentEventStreamData {
     })
   }
   const frame = parseResponse(zStreamEventsResponse, data)
-  if (frame.error) {
+  if (!frame.success) {
     throw streamError('contract', 'Agent event stream received data outside its API contract', {
       cause: frame.error,
     })
@@ -250,7 +250,7 @@ function decodeFrame(text: string): AgentEventStreamData {
 }
 
 function isErrorFrame(data: AgentEventStreamData): data is ApiErrorBody {
-  return parseResponse(zError, data).data != null
+  return parseResponse(zError, data).success
 }
 
 function durableSequence(data: AgentEventStreamData): number | undefined {

@@ -40,7 +40,7 @@ export function isUnknownEnumError(error: z.ZodError, data: unknown): boolean {
   return error.issues.every((issue) => isUnknownEnumIssue(issue, data))
 }
 
-type ParsedResponse<T> = { data: T; error?: undefined } | { data?: undefined; error: z.ZodError }
+type ParsedResponse<T> = { success: true; data: T } | { success: false; error: z.ZodError }
 
 // Accepts unknown enum members and keeps unknown fields so newer servers keep
 // working; anything else must match. Returns the original value, typed.
@@ -50,12 +50,12 @@ export function parseResponse<T extends z.ZodType>(
 ): ParsedResponse<z.output<T>> {
   const result = schema.safeParse(data)
   if (result.success || isUnknownEnumError(result.error, data)) {
-    return { data: data as z.output<T> }
+    return { success: true, data: data as z.output<T> }
   }
-  return { error: result.error }
+  return { success: false, error: result.error }
 }
 
 export function validateResponse(schema: z.ZodType, data: unknown): void {
-  const { error } = parseResponse(schema, data)
-  if (error != null) throw error
+  const result = parseResponse(schema, data)
+  if (!result.success) throw result.error
 }
