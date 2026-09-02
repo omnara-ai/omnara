@@ -14,21 +14,16 @@
     "doctor": "npx --yes react-doctor@latest . --project \"*\" --scope changed --blocking warning",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "oxlint --deny-warnings .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@eslint/js": "^9.13.0",
-    "eslint": "^9.13.0",
-    "eslint-plugin-jsx-a11y": "^6.10.0",
-    "eslint-plugin-react-hooks": "^6.1.1",
-    "eslint-plugin-react-refresh": "^0.4.0",
     "eslint-plugin-simple-import-sort": "^12.0.0",
-    "globals": "^15.11.0",
+    "oxlint": "1.79.0",
+    "oxlint-tsgolint": "7.0.2001",
     "prettier": "^3.3.0",
     "prettier-plugin-tailwindcss": "^0.6.0",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.10.0"
+    "typescript": "^5.6.0"
   }
 }
