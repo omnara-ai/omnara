@@ -3,7 +3,7 @@ export interface AuthStrategy {
 }
 
 export function bearerToken(token: string | (() => string | Promise<string>)): AuthStrategy {
-  const resolve = typeof token === 'function' ? token : () => token
+  const resolve = token instanceof Function ? token : () => token
   return {
     async authenticate(request) {
       const value = await resolve()

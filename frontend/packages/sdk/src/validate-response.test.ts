@@ -2,18 +2,26 @@ import { describe, expect, it } from 'vitest'
 import * as z from 'zod'
 
 import { zAgentEvent, zCreateAgentResponse, zListTurnEventsResponse } from './generated/zod.gen'
-import { validateResponse } from './validate-response'
+import type { JsonBody } from './json-body'
+import { relaxedResponseValidator, relaxedSchema } from './validate-response'
 
-function outcome(schema: z.ZodType, data: unknown): 'accepted' | 'rejected' {
+function outcome(schema: z.ZodType, data: JsonBody): 'accepted' | 'rejected' {
+  return relaxedSchema(schema).safeParse(data).success ? 'accepted' : 'rejected'
+}
+
+async function validatorOutcome(
+  schema: z.ZodType,
+  data: JsonBody,
+): Promise<'accepted' | 'rejected'> {
   try {
-    validateResponse(schema, data)
+    await relaxedResponseValidator(schema)(data)
     return 'accepted'
   } catch {
     return 'rejected'
   }
 }
 
-describe('validateResponse', () => {
+describe('relaxedSchema', () => {
   it('accepts data that matches the schema', () => {
     expect(outcome(z.object({ a: z.string() }), { a: 'x' })).toBe('accepted')
   })
@@ -70,5 +78,12 @@ describe('validateResponse', () => {
       id: 'not-an-event-id',
     }
     expect(outcome(zListTurnEventsResponse, { data: [event] })).toBe('rejected')
+  })
+})
+
+describe('relaxedResponseValidator', () => {
+  it('accepts an unknown enum value and rejects a contract mismatch', async () => {
+    await expect(validatorOutcome(z.enum(['x', 'y']), 'brand-new')).resolves.toBe('accepted')
+    await expect(validatorOutcome(zCreateAgentResponse, 'not an object')).resolves.toBe('rejected')
   })
 })

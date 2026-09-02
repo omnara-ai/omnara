@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import * as z from 'zod'
 
 import {
   DeviceAuthError,
@@ -7,6 +8,7 @@ import {
   startDeviceAuth,
 } from './device'
 import { ApiError } from './errors'
+import type { JsonBody } from './json-body'
 
 interface RecordedRequest {
   url: string
@@ -31,13 +33,14 @@ function fetchQueue(responses: Response[]): FetchQueue {
   const fetchImpl: typeof fetch = (input, init) => {
     const headers = new Headers(init?.headers)
     const contentType = headers.get('Content-Type') ?? undefined
+    const form = z.string().safeParse(init?.body)
     requests.push({
-      url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+      url: input instanceof URL ? input.toString() : input instanceof Request ? input.url : input,
       method: init?.method,
       contentType,
       body:
-        typeof init?.body === 'string' && contentType === 'application/x-www-form-urlencoded'
-          ? Object.fromEntries(new URLSearchParams(init.body))
+        form.success && contentType === 'application/x-www-form-urlencoded'
+          ? Object.fromEntries(new URLSearchParams(form.data))
           : undefined,
     })
     const next = queued.shift()
@@ -47,7 +50,7 @@ function fetchQueue(responses: Response[]): FetchQueue {
   return { fetch: fetchImpl, requests }
 }
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: JsonBody): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },

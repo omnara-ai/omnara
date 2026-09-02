@@ -1,6 +1,7 @@
 import * as z from 'zod'
 
 import { ApiError } from './errors'
+import { jsonBody } from './json-body'
 
 export const OMNARA_CLI_OAUTH_CLIENT_ID = 'omnara-cli'
 export const OAUTH_DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -163,12 +164,7 @@ export async function pollDeviceAuthToken(options: PollDeviceAuthTokenOptions): 
       return zDeviceAuthApprovedResponse.parse(await response.json()).access_token
     }
     if (response.status === 400) {
-      const failure = zDeviceAuthErrorResponse.safeParse(
-        await response
-          .clone()
-          .json()
-          .catch((): unknown => undefined),
-      )
+      const failure = zDeviceAuthErrorResponse.safeParse(await jsonBody(response))
       if (failure.success) {
         if (failure.data.error === 'authorization_pending') continue
         if (failure.data.error === 'slow_down') {
