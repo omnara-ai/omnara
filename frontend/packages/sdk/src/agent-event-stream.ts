@@ -249,7 +249,7 @@ function decodeFrame(text: string): AgentEventStreamData {
   return frame.data
 }
 
-function isErrorEnvelope(data: AgentEventStreamData): data is ApiErrorBody {
+function isErrorFrame(data: AgentEventStreamData): data is ApiErrorBody {
   return parseResponse(zError, data).data != null
 }
 
@@ -290,7 +290,7 @@ export async function* openAgentEventStream({
         }
         const data = decodeFrame(event.data)
         signal?.throwIfAborted()
-        if (isErrorEnvelope(data)) throw streamError('api', data.error, { code: data.code })
+        if (isErrorFrame(data)) throw streamError('api', data.error, { code: data.code })
         const sequence = durableSequence(data)
         if (sequence != null && cursor != null && sequence <= cursor) continue
         yield data
