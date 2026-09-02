@@ -1627,6 +1627,8 @@ export const zAgentInteraction = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    tool_call_id: zToolCallId,
+    tool_name: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
     state: zAgentInteractionState,
     request: zInteractionForm,

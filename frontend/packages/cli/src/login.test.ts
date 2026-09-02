@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
     Promise.resolve({
       data: {
         user: { email: 'person@example.com', display_name: 'Person' },
-        orgs: [],
+        orgs: [] as { id: string; name: string }[],
       },
     }),
   ),
@@ -121,7 +121,12 @@ describe('loginWithDevice', () => {
       },
     })
 
-    expect(result).toEqual({ token: 'omnara_pat_v1_test', orgId: undefined, projectId: undefined })
+    expect(result).toEqual({
+      token: 'omnara_pat_v1_test',
+      orgId: undefined,
+      projectId: undefined,
+      hasOrganizations: false,
+    })
     expect(mocks.updateConfigFile).toHaveBeenCalledWith({
       org_id: undefined,
       project_id: undefined,
@@ -182,6 +187,36 @@ describe('login', () => {
 
     expect(mocks.startDeviceAuth).not.toHaveBeenCalled()
     expect(mocks.pollDeviceAuthToken).not.toHaveBeenCalled()
+  })
+
+  it('points an account without organizations to browser onboarding', async () => {
+    const program = new Command()
+    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
+    registerLoginCommand(program, cli)
+
+    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+
+    expect(console.log).toHaveBeenCalledWith(
+      "This account has no organization yet. Create one at https://self-hosted.example/onboarding, then run 'omnara config select'.",
+    )
+  })
+
+  it('asks an account with organizations but no default to run config select', async () => {
+    const program = new Command()
+    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
+    mocks.getCurrentUser.mockResolvedValueOnce({
+      data: {
+        user: { email: 'person@example.com', display_name: 'Person' },
+        orgs: [{ id: 'org_00000000000000000000000001', name: 'Acme' }],
+      },
+    })
+    registerLoginCommand(program, cli)
+
+    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+
+    expect(console.log).toHaveBeenCalledWith(
+      "Run 'omnara config select' to choose a default organization and project.",
+    )
   })
 
   it('keeps the login successful when account validation fails', async () => {

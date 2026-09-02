@@ -2042,6 +2042,14 @@ export type AgentInteraction = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The tool call that is waiting on this interaction — the guarded tool for a permission, or the ask_question call for a question.
+     */
+    tool_call_id: ToolCallId;
+    /**
+     * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+     */
+    tool_name?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;

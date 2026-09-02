@@ -17,7 +17,7 @@ type Store interface {
 		context.Context,
 		identitystore.PasswordSignupStartInput,
 	) (identitystore.PasswordSignupStartRecord, error)
-	ActiveAuthTokenNormalizedEmail(context.Context, string, string) (string, error)
+	ActiveAuthTokenEmail(context.Context, string, string) (string, error)
 	CompletePasswordSignup(
 		context.Context,
 		identitystore.CompletePasswordSignupInput,

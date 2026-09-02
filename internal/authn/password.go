@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -35,7 +37,7 @@ func (e PasswordPolicyError) Error() string {
 	return e.Reason
 }
 
-func ValidateNewPassword(password, normalizedEmail string) error {
+func ValidateNewPassword(password, email string) error {
 	if len(password) > MaxPasswordBytes {
 		return PasswordPolicyError{Reason: "password is too long"}
 	}
@@ -63,10 +65,18 @@ func ValidateNewPassword(password, normalizedEmail string) error {
 			Reason: "password must include at least one lowercase letter, one uppercase letter, one number, and one symbol",
 		}
 	}
-	lower := strings.ToLower(password)
-	normalizedEmail = strings.ToLower(strings.TrimSpace(normalizedEmail))
-	if normalizedEmail != "" && strings.Contains(lower, normalizedEmail) {
-		return PasswordPolicyError{Reason: "password must not include the email address"}
+	lowered := strings.ToLower(strings.TrimSpace(password))
+	haystacks := []string{lowered, norm.NFC.String(lowered)}
+	address := strings.ToLower(strings.TrimSpace(email))
+	for _, spelling := range []string{address, norm.NFC.String(address), emailaddr.Normalize(email)} {
+		if spelling == "" {
+			continue
+		}
+		for _, haystack := range haystacks {
+			if strings.Contains(haystack, spelling) {
+				return PasswordPolicyError{Reason: "password must not include the email address"}
+			}
+		}
 	}
 	return nil
 }

@@ -792,7 +792,7 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	for _, field := range []string{"turn_id", "model_call_context_id", "tool_call_id"} {
+	for _, field := range []string{"turn_id", "model_call_context_id"} {
 		if _, ok := decoded[field]; ok {
 			t.Fatalf("public response leaked %s: %s", field, string(body))
 		}
@@ -806,6 +806,12 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	}
 	if request["title"] != "Permission requested for set_integration_target" {
 		t.Fatalf("public response lost interaction form title: %+v", request)
+	}
+	if decoded["tool_name"] != "set_integration_target" {
+		t.Fatalf("public response lost permission tool name: %+v", decoded)
+	}
+	if toolCallID, ok := decoded["tool_call_id"].(string); !ok || !strings.HasPrefix(toolCallID, "tcl_") {
+		t.Fatalf("public response lost tool call id: %+v", decoded)
 	}
 	questions, ok := request["questions"].([]any)
 	if !ok || len(questions) != 1 {
