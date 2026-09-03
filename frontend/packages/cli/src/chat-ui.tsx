@@ -1,10 +1,12 @@
 import {
   type AgentChatScope,
+  type AgentInputBacklogItem,
   type OmnaraUIMessage,
   useAgentChat,
   useAgentInteractions,
   useResolveAgentInteraction,
 } from '@omnara/react'
+import type { InteractionAnswer } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import { Box, Static, Text, useApp } from 'ink'
 import { useEffect, useState, useSyncExternalStore } from 'react'
@@ -264,6 +266,98 @@ function StatusLine({
   )
 }
 
+function backlogText(input: AgentInputBacklogItem): string {
+  if (input.delivery_mode === 'optimistic') {
+    return input.text.trim() !== '' ? input.text : `${String(input.attachmentCount)} attachment(s)`
+  }
+  const lines: string[] = []
+  let attachments = 0
+  for (const block of input.content_blocks ?? []) {
+    if (block.metadata?.omnara_hidden === 'true') continue
+    if (block.type === 'media_ref') attachments += 1
+    if (block.type !== 'text') continue
+    const display = block.metadata?.omnara_display_text
+    const text = (typeof display === 'string' ? display : block.text).trim()
+    if (text !== '') lines.push(text)
+  }
+  if (lines.length > 0) return lines.join('\n')
+  return attachments === 0 ? 'Message' : `${String(attachments)} attachment(s)`
+}
+
+function backlogState(input: AgentInputBacklogItem, queueIndex: number): string {
+  if (input.delivery_mode === 'steering') return 'sending'
+  if (input.delivery_mode === 'optimistic') return 'pending'
+  return queueIndex === 0 ? 'next' : `queued #${String(queueIndex + 1)}`
+}
+
+function BacklogView({ inputs }: { inputs: AgentInputBacklogItem[] }) {
+  const waiting = inputs.filter((input) => input.delivery_mode !== 'steering')
+  return (
+    <Box flexDirection="column">
+      {inputs.map((input) => (
+        <Box key={input.id} marginTop={1}>
+          <Text>
+            <Label name="you" color="cyan" />{' '}
+            <Text dimColor>({backlogState(input, waiting.indexOf(input))})</Text>{' '}
+            {backlogText(input)}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+function ErrorLines({ errors }: { errors: unknown[] }) {
+  const messages = new Set<string>()
+  for (const error of errors) {
+    const message = errorMessage(error)
+    if (message != null) messages.add(message)
+  }
+  return (
+    <>
+      {[...messages].map((message) => (
+        <Text key={message}>
+          <Label name="error" color="red" /> {message}
+        </Text>
+      ))}
+    </>
+  )
+}
+
+function Composer({
+  draft,
+  onDraftChange,
+  onSend,
+  onQuit,
+}: {
+  draft: string
+  onDraftChange: (value: string) => void
+  onSend: (text: string) => void
+  onQuit: () => void
+}) {
+  return (
+    <Box>
+      <Text bold color="cyan">
+        ❯{' '}
+      </Text>
+      <TextInput
+        value={draft}
+        onChange={onDraftChange}
+        onSubmit={(line) => {
+          const trimmed = line.trim()
+          onDraftChange('')
+          if (trimmed === '') return
+          if (trimmed === '/quit' || trimmed === '/exit') {
+            onQuit()
+            return
+          }
+          onSend(trimmed)
+        }}
+      />
+    </Box>
+  )
+}
+
 type TranscriptItem = { kind: 'older' } | { kind: 'message'; message: OmnaraUIMessage }
 
 function splitLive(
@@ -281,38 +375,31 @@ function splitLive(
   return [messages.slice(0, start), messages.slice(start)]
 }
 
-export function Chat({ scope }: { scope: AgentChatScope }) {
-  const chat = useAgentChat(scope)
-  const interactions = useAgentInteractions(
-    scope.orgID,
-    scope.projectID,
-    scope.agentID,
-    chat.isWorking,
-  )
+function usePendingInteraction(scope: AgentChatScope, isWorking: boolean) {
+  const interactions = useAgentInteractions(scope.orgID, scope.projectID, scope.agentID, isWorking)
   const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
-  const { exit } = useApp()
-  const [draft, setDraft] = useState('')
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
-
-  const ready = chat.historyStatus === 'success'
-  const [settled, live] = splitLive(chat.messages, chat.isWorking)
-  const transcript: TranscriptItem[] = [
-    ...(chat.hasOlderMessages && ready ? [{ kind: 'older' as const }] : []),
-    ...settled.map((message) => ({ kind: 'message' as const, message })),
-  ]
   const interaction = (interactions.data?.data ?? []).find((item) => !answered.has(item.id))
-  const activity =
-    interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
-  const timer = useWorkTimer(interaction != null ? 'paused' : chat.isWorking ? 'working' : 'idle')
-  const errors = new Set<string>()
-  for (const error of [chat.error, interactions.error, resolveInteraction.error]) {
-    const message = errorMessage(error)
-    if (message != null) errors.add(message)
+  return {
+    interaction,
+    errors: [interactions.error, resolveInteraction.error],
+    answer(interactionID: string, answers: InteractionAnswer[]) {
+      setAnswered((current) => new Set(current).add(interactionID))
+      resolveInteraction.mutateAsync({ interactionID, body: { answers } }).catch(() => {
+        setAnswered((current) => {
+          const next = new Set(current)
+          next.delete(interactionID)
+          return next
+        })
+      })
+    },
   }
+}
 
+function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMessage[] }) {
   return (
-    <Box flexDirection="column">
-      <Static items={transcript}>
+    <>
+      <Static items={items}>
         {(item) =>
           item.kind === 'older' ? (
             <Text key="older" dimColor>
@@ -326,20 +413,39 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
       {live.map((message) => (
         <MessageView key={message.id} message={message} live />
       ))}
-      {!ready && chat.historyStatus === 'pending' && <Text dimColor>loading history…</Text>}
-      {interaction == null &&
-        !chat.isWorking &&
-        timer.lastDuration != null &&
-        timer.lastDuration >= 1000 && (
-          <Box marginTop={1}>
-            <Text dimColor>✔ Worked for {formatDuration(timer.lastDuration)}</Text>
-          </Box>
-        )}
-      {[...errors].map((message) => (
-        <Text key={message}>
-          <Label name="error" color="red" /> {message}
-        </Text>
-      ))}
+    </>
+  )
+}
+
+export function Chat({ scope }: { scope: AgentChatScope }) {
+  const chat = useAgentChat(scope)
+  const pending = usePendingInteraction(scope, chat.isWorking)
+  const { exit } = useApp()
+  const [draft, setDraft] = useState('')
+
+  const ready = chat.historyStatus === 'success'
+  const [settled, live] = splitLive(chat.messages, chat.isWorking)
+  const transcript: TranscriptItem[] = [
+    ...(chat.hasOlderMessages && ready ? [{ kind: 'older' as const }] : []),
+    ...settled.map((message) => ({ kind: 'message' as const, message })),
+  ]
+  const { interaction } = pending
+  const activity =
+    interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
+  const timer = useWorkTimer(interaction != null ? 'paused' : chat.isWorking ? 'working' : 'idle')
+  const lastDuration = interaction == null && !chat.isWorking ? timer.lastDuration : undefined
+
+  return (
+    <Box flexDirection="column">
+      <Transcript items={transcript} live={live} />
+      <BacklogView inputs={chat.inputBacklog.inputs} />
+      {chat.historyStatus === 'pending' && <Text dimColor>loading history…</Text>}
+      {lastDuration != null && lastDuration >= 1000 && (
+        <Box marginTop={1}>
+          <Text dimColor>✔ Worked for {formatDuration(lastDuration)}</Text>
+        </Box>
+      )}
+      <ErrorLines errors={[chat.error, ...pending.errors]} />
       <Box marginTop={1}>
         <StatusLine activity={activity} timer={timer} />
       </Box>
@@ -348,39 +454,19 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           key={interaction.id}
           interaction={interaction}
           onAnswer={(answers) => {
-            setAnswered((current) => new Set(current).add(interaction.id))
-            resolveInteraction
-              .mutateAsync({ interactionID: interaction.id, body: { answers } })
-              .catch(() => {
-                setAnswered((current) => {
-                  const next = new Set(current)
-                  next.delete(interaction.id)
-                  return next
-                })
-              })
+            pending.answer(interaction.id, answers)
           }}
         />
       ) : (
         ready && (
-          <Box>
-            <Text bold color="cyan">
-              ❯{' '}
-            </Text>
-            <TextInput
-              value={draft}
-              onChange={setDraft}
-              onSubmit={(line) => {
-                const trimmed = line.trim()
-                setDraft('')
-                if (trimmed === '') return
-                if (trimmed === '/quit' || trimmed === '/exit') {
-                  exit()
-                  return
-                }
-                void chat.sendMessage({ text: trimmed }).catch(() => undefined)
-              }}
-            />
-          </Box>
+          <Composer
+            draft={draft}
+            onDraftChange={setDraft}
+            onQuit={exit}
+            onSend={(text) => {
+              void chat.sendMessage({ text }).catch(() => undefined)
+            }}
+          />
         )
       )}
     </Box>
