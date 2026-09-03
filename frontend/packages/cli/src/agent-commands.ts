@@ -1,96 +1,56 @@
 import { openAgentEventStream } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
-import type { Command } from 'commander'
 import * as z from 'zod'
 
 import { runChat } from './chat.tsx'
-import type { CliConfig } from './config.ts'
-import {
-  type CustomSpec,
-  parseNumberFlag,
-  parseWithSchema,
-  planPathParams,
-  registerPathParams,
-  resolvePathValues,
-} from './factory.ts'
+import { customOp, parseNumberFlag, parseWithSchema } from './factory.ts'
 import { canPromptInteractively, promptAgentSelection } from './interactive.ts'
-import { CliInputError, runCliAction } from './output.ts'
+import { CliInputError } from './output.ts'
 
-const zProjectScopePath = schemas.zListAgentsPath
-
-function registerProjectScope(
-  command: Command,
-  config: CliConfig,
-): () => Promise<z.output<typeof zProjectScopePath>> {
-  const plan = planPathParams(zProjectScopePath, [])
-  registerPathParams(command, plan)
-  return async () =>
-    parseWithSchema(
-      zProjectScopePath,
-      await resolvePathValues(plan, [], command.opts<Record<string, unknown>>(), config),
-      'arguments',
-    )
-}
-
-export const agentChatOp: CustomSpec = {
-  type: 'custom',
-  register(parent, config) {
-    const command = parent
-      .command('chat')
-      .description('Chat interactively with an agent')
-      .argument('[agent-id]')
-    const resolveScope = registerProjectScope(command, config)
-    command.action(async (agentArg: string | undefined) => {
-      await runCliAction(async () => {
-        if (!canPromptInteractively()) {
-          throw new CliInputError('agents chat needs an interactive terminal')
-        }
-        const scope = await resolveScope()
-        const agentId = parseWithSchema(
-          schemas.zAgentId,
-          agentArg ?? (await promptAgentSelection(config.client, scope.orgID, scope.projectID)),
-          'agent id',
-        )
-        await runChat({
-          client: config.client,
-          orgId: scope.orgID,
-          projectId: scope.projectID,
-          agentId,
-        })
-      })
-    })
+export const agentChatOp = customOp({
+  verb: 'chat',
+  summary: 'Chat interactively with an agent',
+  path: schemas.zListAgentsPath,
+  configure: (command) => {
+    command.argument('[agent-id]')
   },
-}
+  run: async ({ client, path, args }) => {
+    if (!canPromptInteractively()) {
+      throw new CliInputError('agents chat needs an interactive terminal')
+    }
+    const agentID = parseWithSchema(
+      schemas.zAgentId,
+      args[0] ?? (await promptAgentSelection(client, path.orgID, path.projectID)),
+      'agent id',
+    )
+    await runChat(client, { ...path, agentID })
+  },
+})
 
-export const agentEventsStreamOp: CustomSpec = {
-  type: 'custom',
-  register(parent, config) {
-    const command = parent
-      .command('stream')
-      .description("Stream an agent's events as JSON lines")
+export const agentEventsStreamOp = customOp({
+  verb: 'stream',
+  summary: "Stream an agent's events as JSON lines",
+  path: schemas.zListAgentsPath,
+  configure: (command) => {
+    command
       .argument('<agent-id>')
       .option('--after-sequence <sequence>', 'resume after this event sequence', parseNumberFlag)
       .option('--deltas', 'include best-effort model output preview frames')
-    const resolveScope = registerProjectScope(command, config)
-    command.action(async (agentArg: string) => {
-      await runCliAction(async () => {
-        const options = command.opts<Record<string, unknown>>()
-        const scope = await resolveScope()
-        const agentID = parseWithSchema(schemas.zAgentId, agentArg, 'agent id')
-        const afterSequence =
-          parseWithSchema(z.int().gte(0).optional(), options.afterSequence, '--after-sequence') ?? 0
-        const abort = new AbortController()
-        process.once('SIGINT', () => {
-          abort.abort()
-        })
-        const frames = openAgentEventStream({
-          client: config.client,
-          path: { ...scope, agentID },
-          query: { after_sequence: afterSequence, stream_deltas: options.deltas === true },
-          signal: abort.signal,
-        })
-        for await (const frame of frames) console.log(JSON.stringify(frame))
-      })
-    })
   },
-}
+  run: async ({ client, path, args, options }) => {
+    const agentID = parseWithSchema(schemas.zAgentId, args[0], 'agent id')
+    const afterSequence =
+      parseWithSchema(z.int().gte(0).optional(), options.afterSequence, '--after-sequence') ?? 0
+    const abort = new AbortController()
+    process.once('SIGINT', () => {
+      abort.abort()
+    })
+    const frames = openAgentEventStream({
+      client,
+      path: { ...path, agentID },
+      query: { after_sequence: afterSequence, stream_deltas: options.deltas === true },
+      signal: abort.signal,
+    })
+    for await (const frame of frames) console.log(JSON.stringify(frame))
+  },
+})

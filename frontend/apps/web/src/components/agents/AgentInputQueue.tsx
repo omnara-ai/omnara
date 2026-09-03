@@ -17,37 +17,14 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
+  backlogInputPreview,
   reorderAgentInputBacklog,
   type UseAgentChatResult,
 } from '@omnara/react'
 import { File, GripVertical, X } from 'lucide-react'
-import { startTransition, useOptimistic } from 'react'
+import { type ComponentProps, type CSSProperties, startTransition, useOptimistic } from 'react'
 
 import { errorMessage } from '@/lib/submit-status'
-
-function inputPreview(input: AgentInputBacklogItem) {
-  if (input.delivery_mode === 'optimistic') {
-    return { text: input.text, attachmentCount: input.attachmentCount }
-  }
-  const blocks = input.content_blocks?.filter((block) => block.metadata?.omnara_hidden !== 'true')
-  const attachmentCount = blocks?.filter((block) => block.type === 'media_ref').length ?? 0
-  const text = blocks
-    ?.flatMap((block) =>
-      block.type === 'text' ? [(block.metadata?.omnara_display_text ?? block.text).trim()] : [],
-    )
-    .filter(Boolean)
-    .join('\n')
-  if (text != null && text !== '') return { text, attachmentCount }
-  return {
-    text:
-      attachmentCount === 0
-        ? 'Message'
-        : attachmentCount === 1
-          ? 'Attachment'
-          : `${String(attachmentCount)} attachments`,
-    attachmentCount,
-  }
-}
 
 export function AgentInputQueue({
   backlog,
@@ -131,6 +108,84 @@ export function AgentInputQueue({
   )
 }
 
+function ReorderHandle({
+  label,
+  disabled,
+  visible,
+  handleProps,
+}: {
+  label: string
+  disabled: boolean
+  visible: boolean
+  handleProps: ComponentProps<'button'>
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title="Drag to reorder"
+      disabled={disabled}
+      className={`text-muted-foreground hover:text-foreground cursor-grab touch-none rounded p-1.5 transition-colors active:cursor-grabbing disabled:pointer-events-none disabled:opacity-50 ${visible ? '' : 'invisible'}`}
+      {...handleProps}
+    >
+      <GripVertical className="size-3.5" />
+    </button>
+  )
+}
+
+function dragStyle(
+  isDragging: boolean,
+  transform: Parameters<typeof CSS.Transform.toString>[0],
+  transition: string | undefined,
+): CSSProperties {
+  return {
+    transform: CSS.Transform.toString(transform && { ...transform, x: 0 }),
+    transition,
+    opacity: isDragging ? 0.7 : undefined,
+    zIndex: isDragging ? 1 : undefined,
+  }
+}
+
+function queuePosition(sending: boolean, queueIndex: number): string | number {
+  if (sending) return 'Now'
+  return queueIndex === 0 ? 'Next' : queueIndex + 1
+}
+
+function SendNowButton({
+  sending,
+  canSendNow,
+  actionPending,
+  onPromote,
+}: {
+  sending: boolean
+  canSendNow: boolean
+  actionPending: boolean
+  onPromote: () => void
+}) {
+  if (sending) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="text-muted-foreground w-16 shrink-0 rounded py-1 text-xs font-medium disabled:opacity-50"
+      >
+        Sending…
+      </button>
+    )
+  }
+  if (!canSendNow) return <span className="w-16 shrink-0" />
+  return (
+    <button
+      type="button"
+      disabled={actionPending}
+      className="text-muted-foreground hover:text-primary w-16 shrink-0 rounded py-1 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50"
+      onClick={onPromote}
+    >
+      Send now
+    </button>
+  )
+}
+
 function QueueRow({
   input,
   queueIndex,
@@ -154,40 +209,31 @@ function QueueRow({
 }) {
   const pending = input.delivery_mode === 'optimistic'
   const sending = input.delivery_mode === 'steering'
-  const preview = inputPreview(input)
+  const preview = backlogInputPreview(input)
+  const busy = pending || !canOperate || actionPending
+  const dragDisabled = busy || !reorderable
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: input.id,
-    disabled: pending || !reorderable || !canOperate || actionPending,
+    disabled: dragDisabled,
   })
+  const kind = sending ? 'sending' : 'queued'
 
   return (
     <div
       ref={setNodeRef}
       className={`relative flex min-w-0 items-center gap-2 px-3 py-2 ${isDragging ? 'bg-background shadow-sm' : ''}`}
-      style={{
-        transform: CSS.Transform.toString(transform && { ...transform, x: 0 }),
-        transition,
-        opacity: isDragging ? 0.7 : undefined,
-        zIndex: isDragging ? 1 : undefined,
-      }}
+      style={dragStyle(isDragging, transform, transition)}
     >
       {showReorderHandle && (
-        <button
-          type="button"
-          aria-label={
-            sending ? 'Reorder sending message' : `Reorder queued message ${queueIndex + 1}`
-          }
-          title="Drag to reorder"
-          disabled={pending || !reorderable || !canOperate || actionPending}
-          className={`text-muted-foreground hover:text-foreground cursor-grab touch-none rounded p-1.5 transition-colors active:cursor-grabbing disabled:pointer-events-none disabled:opacity-50 ${reorderable ? '' : 'invisible'}`}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="size-3.5" />
-        </button>
+        <ReorderHandle
+          label={sending ? 'Reorder sending message' : `Reorder queued message ${queueIndex + 1}`}
+          disabled={dragDisabled}
+          visible={reorderable}
+          handleProps={{ ...attributes, ...listeners }}
+        />
       )}
       <span className="text-muted-foreground w-8 shrink-0 text-xs font-medium tabular-nums">
-        {sending ? 'Now' : queueIndex === 0 ? 'Next' : queueIndex + 1}
+        {queuePosition(sending, queueIndex)}
       </span>
       <p className="text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-sm">
         {preview.attachmentCount > 0 && (
@@ -195,30 +241,16 @@ function QueueRow({
         )}
         <span className="truncate">{preview.text}</span>
       </p>
-      {sending || pending ? (
-        <button
-          type="button"
-          disabled
-          className="text-muted-foreground w-16 shrink-0 rounded py-1 text-xs font-medium disabled:opacity-50"
-        >
-          Sending…
-        </button>
-      ) : canSendNow ? (
-        <button
-          type="button"
-          disabled={actionPending}
-          className="text-muted-foreground hover:text-primary w-16 shrink-0 rounded py-1 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50"
-          onClick={onPromote}
-        >
-          Send now
-        </button>
-      ) : (
-        <span className="w-16 shrink-0" />
-      )}
+      <SendNowButton
+        sending={sending || pending}
+        canSendNow={canSendNow}
+        actionPending={actionPending}
+        onPromote={onPromote}
+      />
       <button
         type="button"
-        aria-label={sending ? 'Remove sending message' : 'Remove queued message'}
-        disabled={pending || !canOperate || actionPending || sending}
+        aria-label={`Remove ${kind} message`}
+        disabled={busy || sending}
         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1 transition-colors disabled:pointer-events-none disabled:opacity-50"
         onClick={onCancel}
       >

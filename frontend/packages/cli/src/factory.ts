@@ -96,9 +96,21 @@ export interface FlowSpec {
   execute: (input: FlowInput) => Promise<void>
 }
 
+export interface CustomContext<Path> {
+  client: OmnaraClient
+  apiUrl: string
+  path: Path
+  args: string[]
+  options: Record<string, unknown>
+}
+
 export interface CustomSpec {
   type: 'custom'
-  register: (parent: Command, config: CliConfig) => void
+  verb: string
+  summary: string
+  path: z.ZodObject<z.ZodRawShape>
+  configure?: (command: Command) => void
+  execute: (context: CustomContext<Record<string, unknown>>) => Promise<void>
 }
 
 export type CommandSpec = OperationSpec | FlowSpec | CustomSpec
@@ -199,6 +211,22 @@ export function flowOp<P extends z.ZodObject, B extends z.ZodType>(spec: {
         body: parseWithSchema(spec.body, input.body, 'flags'),
         report: createFlowReporter(spec.summary),
       }),
+  }
+}
+
+export function customOp<P extends z.ZodObject<z.ZodRawShape>>(spec: {
+  verb: string
+  summary: string
+  path: P
+  configure?: (command: Command) => void
+  run: (context: CustomContext<z.output<P>>) => Promise<void>
+}): CustomSpec {
+  const { run, ...base } = spec
+  return {
+    ...base,
+    type: 'custom',
+    execute: (context) =>
+      run({ ...context, path: parseWithSchema(spec.path, context.path, 'arguments') }),
   }
 }
 
@@ -350,7 +378,7 @@ function saveConfigDefault(
   }
 }
 
-export interface PathPlan {
+interface PathPlan {
   positionalParams: string[]
   configParams: ConfigParam[]
 }
@@ -368,7 +396,7 @@ export function planPathParams(path: z.ZodObject | undefined, positional: string
   }
 }
 
-export function registerPathParams(command: Command, plan: PathPlan): void {
+function registerPathParams(command: Command, plan: PathPlan): void {
   for (const param of plan.positionalParams) command.argument(`<${kebabCase(param)}>`)
   for (const param of plan.configParams) {
     command.option(param.option, `defaults from config (${param.describe})`)
@@ -461,6 +489,26 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   })
 }
 
+function registerCustom(parent: Command, config: CliConfig, spec: CustomSpec): void {
+  const command = parent.command(spec.verb).description(spec.summary)
+  const plan = planPathParams(spec.path, [])
+  registerPathParams(command, plan)
+  spec.configure?.(command)
+  command.action(async (...args: string[]) => {
+    await runCliAction(async () => {
+      await config.ensureLoggedIn()
+      const options = command.opts<Record<string, unknown>>()
+      await spec.execute({
+        client: config.client,
+        apiUrl: config.apiUrl,
+        path: await resolvePathValues(plan, args, options, config),
+        args: args.slice(plan.positionalParams.length),
+        options,
+      })
+    })
+  })
+}
+
 export function registerGroup(program: Command, config: CliConfig, group: CommandGroup): void {
   const groupCommand = program
     .command(group.name)
@@ -469,7 +517,7 @@ export function registerGroup(program: Command, config: CliConfig, group: Comman
   for (const spec of group.operations ?? []) {
     if (spec.type === 'op') registerOperation(groupCommand, config, spec)
     else if (spec.type === 'flow') registerFlow(groupCommand, config, spec)
-    else spec.register(groupCommand, config)
+    else registerCustom(groupCommand, config, spec)
   }
   for (const subgroup of group.groups ?? []) registerGroup(groupCommand, config, subgroup)
 }

@@ -17,6 +17,8 @@ export {
 export {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
+  type AgentInputBacklogPreview,
+  backlogInputPreview,
   reorderAgentInputBacklog,
   useAgentInputBacklog,
 } from './domains/agent-input-backlog'

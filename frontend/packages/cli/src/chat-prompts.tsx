@@ -2,22 +2,12 @@ import type { AgentInteraction, InteractionAnswer } from '@omnara/sdk'
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 
-type InteractionKindLabel = 'approval' | 'question'
-
 export function Label({ name, color }: { name: string; color: string }) {
   return (
     <Text bold color={color}>
       {name}
     </Text>
   )
-}
-
-function interactionKindLabel(interaction: AgentInteraction): InteractionKindLabel {
-  return interaction.interaction_kind === 'permission' ? 'approval' : 'question'
-}
-
-function kindColor(kind: InteractionKindLabel): string {
-  return kind === 'approval' ? 'yellow' : 'cyan'
 }
 
 export function TextInput({
@@ -80,11 +70,7 @@ function SelectList({
         return next
       })
     } else if (key.return) {
-      if (!multiple) {
-        onSubmit([active])
-        return
-      }
-      onSubmit(selected.size === 0 ? [active] : [...selected].sort((a, b) => a - b))
+      onSubmit(multiple && selected.size > 0 ? [...selected].sort((a, b) => a - b) : [active])
     }
   })
   return (
@@ -114,7 +100,7 @@ export function InteractionPrompt({
   interaction: AgentInteraction
   onAnswer: (answers: InteractionAnswer[]) => void
 }) {
-  const kind = interactionKindLabel(interaction)
+  const approval = interaction.interaction_kind === 'permission'
   const form = interaction.request
   const [answers, setAnswers] = useState<InteractionAnswer[]>([])
   const [pendingText, setPendingText] = useState<number[]>()
@@ -132,7 +118,8 @@ export function InteractionPrompt({
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text>
-        <Label name={kind} color={kindColor(kind)} /> {form.title}
+        <Label name={approval ? 'approval' : 'question'} color={approval ? 'yellow' : 'cyan'} />{' '}
+        {form.title}
       </Text>
       {(form.context ?? []).map((item) => (
         <Text key={item.label}>

@@ -1,15 +1,16 @@
 import {
   type AgentChatScope,
+  type AgentChatStatus,
   type AgentInputBacklogItem,
+  backlogInputPreview,
   type OmnaraUIMessage,
   useAgentChat,
   useAgentInteractions,
   useResolveAgentInteraction,
 } from '@omnara/react'
-import type { InteractionAnswer } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import { Box, Static, Text, useApp } from 'ink'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useReducer, useState } from 'react'
 import * as z from 'zod'
 
 import { blockText, summaryWidth, toolCallSummary } from './agent-rendering.ts'
@@ -23,21 +24,12 @@ const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '
 const streamingTailLines = 8
 const streamingTailChars = 1500
 const zToolInput = z.record(z.string(), z.unknown())
-const zErrorBody = z.object({ error: z.string() })
-
-function errorMessage(error: unknown): string | undefined {
-  if (error == null) return undefined
-  if (error instanceof Error) return error.message
-  const body = zErrorBody.safeParse(error)
-  if (body.success) return body.data.error
-  return typeof error === 'string' ? error : 'unknown error'
-}
 const zToolOutput = z.object({
   outcome: schemas.zToolCallOutcome,
   contentBlocks: z.array(schemas.zToolResultContentBlock),
 })
 
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
   const seconds = Math.max(1, Math.round(ms / 1000))
   if (seconds < 60) return `${seconds}s`
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
@@ -66,8 +58,8 @@ function toolOutput(part: ToolPart): { outcome: string; text: string | undefined
 }
 
 function ToolPartView({ part }: { part: ToolPart }) {
-  const summary = toolSummary(part)
-  const output = toolOutput(part)
+  const summary = useMemo(() => toolSummary(part), [part])
+  const output = useMemo(() => toolOutput(part), [part])
   return (
     <Box flexDirection="column">
       <Text>
@@ -125,30 +117,25 @@ function PartView({ part, live }: { part: MessagePart; live: boolean }) {
 
 function MessageView({ message, live }: { message: OmnaraUIMessage; live: boolean }) {
   if (message.role === 'user') {
-    const lines: string[] = []
-    for (const part of message.parts) {
-      if (part.type === 'text' && part.text.trim() !== '') lines.push(part.text)
-    }
+    const lines = message.parts.flatMap((part) =>
+      part.type === 'text' && part.text.trim() !== '' ? [part.text] : [],
+    )
     if (lines.length === 0) return null
-    const text = lines.join('\n')
     return (
       <Box marginTop={1}>
         <Text>
-          <Label name="you" color="cyan" /> {text}
+          <Label name="you" color="cyan" /> {lines.join('\n')}
         </Text>
       </Box>
     )
   }
   return (
     <Box flexDirection="column">
-      {message.parts.map((part) => {
-        const view = <PartView part={part} live={live} />
-        return (
-          <Box key={part.id} marginTop={1}>
-            {view}
-          </Box>
-        )
-      })}
+      {message.parts.map((part) => (
+        <Box key={part.id} marginTop={1}>
+          <PartView part={part} live={live} />
+        </Box>
+      ))}
     </Box>
   )
 }
@@ -159,25 +146,20 @@ interface Activity {
 }
 
 function currentActivity(
-  status: ReturnType<typeof useAgentChat>['status'],
+  status: AgentChatStatus,
   isWorking: boolean,
   live: OmnaraUIMessage[],
 ): Activity | undefined {
   if (status === 'submitted') return { text: 'sending…' }
   if (!isWorking) return undefined
-  const parts: MessagePart[] = []
-  const running: string[] = []
-  for (const message of live) {
-    if (message.role !== 'assistant') continue
-    for (const part of message.parts) {
-      parts.push(part)
-      if (part.type === 'dynamic-tool' && part.state !== 'output-available') {
-        running.push(part.toolName)
-      }
-    }
-  }
+  const assistant = live.filter((message) => message.role === 'assistant')
+  const running = assistant.flatMap((message) =>
+    message.parts.flatMap((part) =>
+      part.type === 'dynamic-tool' && part.state !== 'output-available' ? [part.toolName] : [],
+    ),
+  )
   if (running.length > 0) return { text: `running ${running.join(', ')}…` }
-  const last = parts.at(-1)
+  const last = assistant.at(-1)?.parts.at(-1)
   if (last?.type === 'reasoning') return { text: 'thinking…', detail: last.text.slice(-200) }
   if (last?.type === 'data-thinking' && last.data.active) return { text: 'thinking…' }
   if (last?.type === 'text' && last.state === 'streaming') return { text: 'writing…' }
@@ -192,43 +174,29 @@ interface WorkTimerSnapshot {
 
 type WorkTimerPhase = 'working' | 'paused' | 'idle'
 
-class WorkTimer {
-  private listeners = new Set<() => void>()
-  private snapshot: WorkTimerSnapshot = { accumulatedMs: 0 }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+function transitionWorkTimer(
+  snapshot: WorkTimerSnapshot,
+  phase: WorkTimerPhase,
+): WorkTimerSnapshot {
+  const now = Date.now()
+  const { startedAt, accumulatedMs } = snapshot
+  const elapsed = accumulatedMs + (startedAt == null ? 0 : now - startedAt)
+  if (phase === 'working') {
+    return startedAt != null ? snapshot : { startedAt: now, accumulatedMs }
   }
-
-  getSnapshot = (): WorkTimerSnapshot => this.snapshot
-
-  setPhase(phase: WorkTimerPhase): void {
-    const now = Date.now()
-    const { startedAt, accumulatedMs } = this.snapshot
-    const elapsed = accumulatedMs + (startedAt == null ? 0 : now - startedAt)
-    if (phase === 'working') {
-      if (startedAt != null) return
-      this.snapshot = { startedAt: now, accumulatedMs }
-    } else if (phase === 'paused') {
-      if (startedAt == null) return
-      this.snapshot = { accumulatedMs: elapsed }
-    } else {
-      if (startedAt == null && accumulatedMs === 0) return
-      this.snapshot = { accumulatedMs: 0, lastDuration: elapsed }
-    }
-    for (const listener of this.listeners) listener()
+  if (phase === 'paused') {
+    return startedAt == null ? snapshot : { accumulatedMs: elapsed }
   }
+  if (startedAt == null && accumulatedMs === 0) return snapshot
+  return { accumulatedMs: 0, lastDuration: elapsed }
 }
 
 function useWorkTimer(phase: WorkTimerPhase): WorkTimerSnapshot {
-  const [timer] = useState(() => new WorkTimer())
+  const [snapshot, transition] = useReducer(transitionWorkTimer, { accumulatedMs: 0 })
   useEffect(() => {
-    timer.setPhase(phase)
-  }, [phase, timer])
-  return useSyncExternalStore(timer.subscribe, timer.getSnapshot, timer.getSnapshot)
+    transition(phase)
+  }, [phase])
+  return snapshot
 }
 
 function StatusLine({
@@ -242,18 +210,19 @@ function StatusLine({
     frame: 0,
     now: undefined,
   })
+  const active = activity != null
   useEffect(() => {
-    if (activity == null) return
-    const timer = setInterval(() => {
+    if (!active) return
+    const interval = setInterval(() => {
       setTick((previous) => ({
         frame: (previous.frame + 1) % spinnerFrames.length,
         now: Date.now(),
       }))
     }, 120)
     return () => {
-      clearInterval(timer)
+      clearInterval(interval)
     }
-  }, [activity])
+  }, [active])
   if (activity == null) return null
   return (
     <Text wrap="truncate-end">
@@ -266,24 +235,6 @@ function StatusLine({
   )
 }
 
-function backlogText(input: AgentInputBacklogItem): string {
-  if (input.delivery_mode === 'optimistic') {
-    return input.text.trim() !== '' ? input.text : `${String(input.attachmentCount)} attachment(s)`
-  }
-  const lines: string[] = []
-  let attachments = 0
-  for (const block of input.content_blocks ?? []) {
-    if (block.metadata?.omnara_hidden === 'true') continue
-    if (block.type === 'media_ref') attachments += 1
-    if (block.type !== 'text') continue
-    const display = block.metadata?.omnara_display_text
-    const text = (typeof display === 'string' ? display : block.text).trim()
-    if (text !== '') lines.push(text)
-  }
-  if (lines.length > 0) return lines.join('\n')
-  return attachments === 0 ? 'Message' : `${String(attachments)} attachment(s)`
-}
-
 function backlogState(input: AgentInputBacklogItem, queueIndex: number): string {
   if (input.delivery_mode === 'steering') return 'sending'
   if (input.delivery_mode === 'optimistic') return 'pending'
@@ -291,15 +242,18 @@ function backlogState(input: AgentInputBacklogItem, queueIndex: number): string 
 }
 
 function BacklogView({ inputs }: { inputs: AgentInputBacklogItem[] }) {
-  const waiting = inputs.filter((input) => input.delivery_mode !== 'steering')
+  const queueIndexes = new Map<string, number>()
+  for (const input of inputs) {
+    if (input.delivery_mode !== 'steering') queueIndexes.set(input.id, queueIndexes.size)
+  }
   return (
     <Box flexDirection="column">
       {inputs.map((input) => (
         <Box key={input.id} marginTop={1}>
           <Text>
             <Label name="you" color="cyan" />{' '}
-            <Text dimColor>({backlogState(input, waiting.indexOf(input))})</Text>{' '}
-            {backlogText(input)}
+            <Text dimColor>({backlogState(input, queueIndexes.get(input.id) ?? 0)})</Text>{' '}
+            {backlogInputPreview(input).text}
           </Text>
         </Box>
       ))}
@@ -307,12 +261,12 @@ function BacklogView({ inputs }: { inputs: AgentInputBacklogItem[] }) {
   )
 }
 
-function ErrorLines({ errors }: { errors: unknown[] }) {
-  const messages = new Set<string>()
-  for (const error of errors) {
-    const message = errorMessage(error)
-    if (message != null) messages.add(message)
-  }
+function ErrorLines({ errors }: { errors: (Error | { error: string } | null | undefined)[] }) {
+  const messages = new Set(
+    errors.flatMap((error) =>
+      error == null ? [] : [error instanceof Error ? error.message : error.error],
+    ),
+  )
   return (
     <>
       {[...messages].map((message) => (
@@ -375,27 +329,6 @@ function splitLive(
   return [messages.slice(0, start), messages.slice(start)]
 }
 
-function usePendingInteraction(scope: AgentChatScope, isWorking: boolean) {
-  const interactions = useAgentInteractions(scope.orgID, scope.projectID, scope.agentID, isWorking)
-  const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
-  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
-  const interaction = (interactions.data?.data ?? []).find((item) => !answered.has(item.id))
-  return {
-    interaction,
-    errors: [interactions.error, resolveInteraction.error],
-    answer(interactionID: string, answers: InteractionAnswer[]) {
-      setAnswered((current) => new Set(current).add(interactionID))
-      resolveInteraction.mutateAsync({ interactionID, body: { answers } }).catch(() => {
-        setAnswered((current) => {
-          const next = new Set(current)
-          next.delete(interactionID)
-          return next
-        })
-      })
-    },
-  }
-}
-
 function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMessage[] }) {
   return (
     <>
@@ -419,17 +352,30 @@ function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMe
 
 export function Chat({ scope }: { scope: AgentChatScope }) {
   const chat = useAgentChat(scope)
-  const pending = usePendingInteraction(scope, chat.isWorking)
+  const interactions = useAgentInteractions(
+    scope.orgID,
+    scope.projectID,
+    scope.agentID,
+    chat.isWorking,
+  )
+  const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
   const { exit } = useApp()
   const [draft, setDraft] = useState('')
 
   const ready = chat.historyStatus === 'success'
-  const [settled, live] = splitLive(chat.messages, chat.isWorking)
-  const transcript: TranscriptItem[] = [
-    ...(chat.hasOlderMessages && ready ? [{ kind: 'older' as const }] : []),
-    ...settled.map((message) => ({ kind: 'message' as const, message })),
-  ]
-  const { interaction } = pending
+  const showOlder = chat.hasOlderMessages && ready
+  const [settled, live] = useMemo(
+    () => splitLive(chat.messages, chat.isWorking),
+    [chat.messages, chat.isWorking],
+  )
+  const transcript = useMemo<TranscriptItem[]>(
+    () => [
+      ...(showOlder ? [{ kind: 'older' as const }] : []),
+      ...settled.map((message) => ({ kind: 'message' as const, message })),
+    ],
+    [settled, showOlder],
+  )
+  const interaction = interactions.data?.data[0]
   const activity =
     interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
   const timer = useWorkTimer(interaction != null ? 'paused' : chat.isWorking ? 'working' : 'idle')
@@ -445,7 +391,7 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           <Text dimColor>✔ Worked for {formatDuration(lastDuration)}</Text>
         </Box>
       )}
-      <ErrorLines errors={[chat.error, ...pending.errors]} />
+      <ErrorLines errors={[chat.error, interactions.error, resolveInteraction.error]} />
       <Box marginTop={1}>
         <StatusLine activity={activity} timer={timer} />
       </Box>
@@ -454,7 +400,9 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           key={interaction.id}
           interaction={interaction}
           onAnswer={(answers) => {
-            pending.answer(interaction.id, answers)
+            void resolveInteraction
+              .mutateAsync({ interactionID: interaction.id, body: { answers } })
+              .catch(() => undefined)
           }}
         />
       ) : (
