@@ -83,11 +83,7 @@ type promptCacheCapability struct {
 func promptCacheCapabilityFor(route PromptCacheRoute) promptCacheCapability {
 	switch route.APIFormat {
 	case modelprotocol.APIFormatAnthropicMessages:
-		return promptCacheCapability{
-			explicit: true,
-			longRetention: route.APIVariant != modelprotocol.APIVariantBedrock ||
-				bedrockSupportsOneHourCache(route.ProviderModelSlug),
-		}
+		return promptCacheCapability{explicit: true, longRetention: true}
 	case modelprotocol.APIFormatOpenAIResponses:
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
@@ -135,9 +131,4 @@ var openRouterExplicitCacheSlugs = map[string]bool{
 
 func openRouterUsesExplicitCacheControl(slug string) bool {
 	return strings.HasPrefix(slug, "anthropic/claude-") || openRouterExplicitCacheSlugs[slug]
-}
-
-// One-hour cache support per https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html.
-func bedrockSupportsOneHourCache(providerModelSlug string) bool {
-	return !strings.Contains(normalizedProviderModelSlug(providerModelSlug), "claude-3-")
 }

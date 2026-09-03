@@ -34,9 +34,6 @@ func TestPlanPromptCache(t *testing.T) {
 	}
 	bedrock := anthropic
 	bedrock.APIVariant = modelprotocol.APIVariantBedrock
-	bedrock.ProviderModelSlug = "anthropic.claude-sonnet-5"
-	bedrockClaude3 := bedrock
-	bedrockClaude3.ProviderModelSlug = "anthropic.claude-3-7-sonnet-20250219-v1:0"
 	openRouterClaude := PromptCacheRoute{
 		APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
@@ -83,11 +80,6 @@ func TestPlanPromptCache(t *testing.T) {
 		{
 			name: "bedrock long", route: bedrock, bundle: bundle, retention: CacheRetentionLong,
 			want: PromptCachePlan{Explicit: true, LongRetention: true},
-		},
-		{
-			name: "bedrock long on a five-minute-only model", route: bedrockClaude3, bundle: bundle,
-			retention: CacheRetentionLong,
-			want:      PromptCachePlan{Explicit: true},
 		},
 		{name: "none disables everything", route: openRouterClaude, bundle: bundle, retention: CacheRetentionNone},
 		{

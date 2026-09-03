@@ -157,7 +157,7 @@ export type ModelApiVariantOptions = {
 };
 
 /**
- * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` additionally asks for the longest retention the route supports (Anthropic's one-hour cache on models that offer it, OpenAI extended retention) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` additionally asks for the longest retention the route supports (Anthropic's one-hour cache, OpenAI extended retention) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export type ModelCacheRetention = 'none' | 'short' | 'long';
 
