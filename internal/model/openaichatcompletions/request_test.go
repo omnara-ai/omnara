@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -1183,5 +1185,270 @@ func TestPrepareWalksPastTrailingReplayedAssistantForOpenRouterCacheBreakpoint(t
 			marks,
 			prepared.Body,
 		)
+	}
+}
+
+func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
+	agentID := uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+	for _, tc := range []struct {
+		name               string
+		client             Client
+		retention          model.CacheRetention
+		wantSessionID      bool
+		wantPromptCacheKey bool
+		wantRetention      string
+	}{
+		{
+			name: "openrouter automatic model",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "moonshotai/kimi-k3",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			wantSessionID: true,
+		},
+		{
+			name: "openrouter long keeps session id without retention field",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "deepseek/deepseek-v4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			retention:     model.CacheRetentionLong,
+			wantSessionID: true,
+		},
+		{
+			name: "openrouter none",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			retention: model.CacheRetentionNone,
+		},
+		{
+			name:               "openai default base url",
+			client:             Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			wantPromptCacheKey: true,
+		},
+		{
+			name:               "openai long",
+			client:             Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			retention:          model.CacheRetentionLong,
+			wantPromptCacheKey: true,
+			wantRetention:      "24h",
+		},
+		{
+			name: "openai-compatible host",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://api.deepseek.com/v1",
+				ProviderModelSlug: "deepseek-chat",
+			},
+			retention: model.CacheRetentionLong,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					AgentID: agentID,
+					Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+						Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+					}},
+				},
+				Policy: model.RequestPolicy{CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				SessionID            string `json:"session_id"`
+				PromptCacheKey       string `json:"prompt_cache_key"`
+				PromptCacheRetention string `json:"prompt_cache_retention"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			wantSessionID, wantPromptCacheKey := "", ""
+			if tc.wantSessionID {
+				wantSessionID = agentID.String()
+			}
+			if tc.wantPromptCacheKey {
+				wantPromptCacheKey = agentID.String()
+			}
+			if payload.SessionID != wantSessionID {
+				t.Fatalf("session_id = %q, want %q: %s", payload.SessionID, wantSessionID, prepared.Body)
+			}
+			if payload.PromptCacheKey != wantPromptCacheKey {
+				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, wantPromptCacheKey, prepared.Body)
+			}
+			if payload.PromptCacheRetention != tc.wantRetention {
+				t.Fatalf("prompt_cache_retention = %q, want %q: %s", payload.PromptCacheRetention, tc.wantRetention, prepared.Body)
+			}
+		})
+	}
+}
+
+func TestPrepareOmitsConversationKeyWithoutAgent(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if strings.Contains(string(prepared.Body), "session_id") {
+		t.Fatalf("session_id must be omitted without an agent: %s", prepared.Body)
+	}
+}
+
+func TestPrepareOpenRouterLongRetentionUsesOneHourTTL(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "anthropic/claude-sonnet-4",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt: "system prompt",
+			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 || marks[0].control.TTL != "1h" || marks[1].control.TTL != "1h" {
+		t.Fatalf("cache_control marks = %+v, want two 1h breakpoints: %s", marks, prepared.Body)
+	}
+	if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
+		t.Fatalf("openrouter must not receive prompt_cache_retention: %s", prepared.Body)
+	}
+}
+
+func TestPrepareFallsBackToLastMarkableMessageForOpenRouterCacheBreakpoint(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			messageAtSequence(assistantToolCallMessage("mcc_1", "tcl_1"), 20),
+		},
+		ToolResults: []modelcontext.ToolResultRef{{
+			ToolCallID:          "tcl_1",
+			ModelCallContextID:  "mcc_1",
+			ProviderCallID:      "call_1",
+			Name:                "run_command",
+			Input:               json.RawMessage(`{}`),
+			ContentParts:        json.RawMessage(`[]`),
+			SourceEventSequence: 20,
+			ResultEventSequence: 30,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf(
+			"cache_control marks = %+v, want system and the user turn before the empty tool result: %s",
+			marks,
+			prepared.Body,
+		)
+	}
+}
+
+func TestPrepareLetsAPIVariantOptionsOverrideConversationKey(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+		APIVariantOptions: json.RawMessage(`{"session_id":"pinned-by-operator"}`),
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.SessionID != "pinned-by-operator" {
+		t.Fatalf("session_id = %q, want the explicit provider option to win: %s", payload.SessionID, prepared.Body)
+	}
+}
+
+func TestPrepareSuppressesGeneratedAffinityWhenAnyNativeAffinityIsConfigured(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+		APIVariantOptions: json.RawMessage(`{"prompt_cache_key":"pinned-by-operator"}`),
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		SessionID      string `json:"session_id"`
+		PromptCacheKey string `json:"prompt_cache_key"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.SessionID != "" || payload.PromptCacheKey != "pinned-by-operator" {
+		t.Fatalf("payload = %+v, want only the operator's prompt_cache_key: %s", payload, prepared.Body)
+	}
+}
+
+func TestPrepareMarksOpenRouterExplicitFiveMinuteModelsWithoutTTL(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "qwen/qwen3-coder-plus",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt: "system prompt",
+			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 || marks[0].control.TTL != "" || marks[1].control.TTL != "" {
+		t.Fatalf("cache_control marks = %+v, want two default-ttl breakpoints: %s", marks, prepared.Body)
 	}
 }

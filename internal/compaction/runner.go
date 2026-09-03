@@ -386,6 +386,7 @@ func (r Runner) run(
 			ProviderResponseID:      response.ID,
 			Usage:                   response.Usage,
 			ProviderReportedCostUSD: response.ProviderReportedCostUSD,
+			ProviderMetadata:        response.ProviderMetadata,
 		},
 	)
 	if err != nil {

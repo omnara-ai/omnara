@@ -36,6 +36,7 @@ type normalCallFailureEvidence struct {
 	ProviderResponseID      string
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 func collectNormalCallFailureEvidence(
@@ -58,6 +59,7 @@ func collectNormalCallFailureEvidence(
 	out.ProviderResponseID = response.ID
 	out.Usage = response.Usage
 	out.ProviderReportedCostUSD = response.ProviderReportedCostUSD
+	out.ProviderMetadata = response.ProviderMetadata
 	return out
 }
 
@@ -170,6 +172,7 @@ func (e AgentExecutor) enterContextMaintenance(
 		ErrorDetails:            trigger.Details,
 		Usage:                   evidence.Usage,
 		ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
+		ProviderMetadata:        evidence.ProviderMetadata,
 	}
 	handoff, err := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
@@ -235,6 +238,7 @@ func (e AgentExecutor) recordTerminalContextMaintenanceFailure(
 			ErrorDetails:            trigger.Details,
 			Usage:                   evidence.Usage,
 			ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
+			ProviderMetadata:        evidence.ProviderMetadata,
 		},
 	)
 	if err != nil {

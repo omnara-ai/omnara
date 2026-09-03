@@ -651,7 +651,7 @@ func loadModelCallContextByID(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	return modelCallContextRecordFromSQLC(row), nil
+	return modelCallContextRecordFromSQLC(row)
 }
 
 func loadModelCallContextByIDTx(

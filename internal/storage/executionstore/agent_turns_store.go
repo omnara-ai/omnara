@@ -42,19 +42,21 @@ type AgentEventReadRecord struct {
 	// InputIdempotencyKey echoes the caller-chosen idempotency key of the
 	// content input behind this event, so producers can correlate their own
 	// submissions. Empty for events from any other input path.
-	InputIdempotencyKey            string                   `json:"input_idempotency_key,omitempty"`
-	ControlType                    string                   `json:"control_type,omitempty"`
-	TargetInteractionID            ID                       `json:"target_interaction_id,omitzero"`
-	AgentConfigID                  ID                       `json:"agent_config_id,omitzero"`
-	ToolCallID                     ID                       `json:"tool_call_id,omitempty"`
-	ToolOutcome                    ToolResultOutcome        `json:"tool_outcome,omitempty"`
-	ModelCallContextID             ID                       `json:"model_call_context_id,omitempty"`
-	ModelStopReason                modelenvelope.StopReason `json:"model_stop_reason,omitempty"`
-	ContextCheckpointID            ID                       `json:"context_checkpoint_id,omitempty"`
-	SummarizedThroughEventSequence int64                    `json:"summarized_through_event_sequence,omitempty"`
-	CheckpointSummary              string                   `json:"checkpoint_summary,omitempty"`
-	ContentBlocks                  json.RawMessage          `json:"content_blocks"`
-	CreatedAt                      time.Time                `json:"created_at"`
+	InputIdempotencyKey            string                         `json:"input_idempotency_key,omitempty"`
+	ControlType                    string                         `json:"control_type,omitempty"`
+	TargetInteractionID            ID                             `json:"target_interaction_id,omitzero"`
+	AgentConfigID                  ID                             `json:"agent_config_id,omitzero"`
+	ToolCallID                     ID                             `json:"tool_call_id,omitempty"`
+	ToolOutcome                    ToolResultOutcome              `json:"tool_outcome,omitempty"`
+	ModelCallContextID             ID                             `json:"model_call_context_id,omitempty"`
+	ModelStopReason                modelenvelope.StopReason       `json:"model_stop_reason,omitempty"`
+	ContextCheckpointID            ID                             `json:"context_checkpoint_id,omitempty"`
+	SummarizedThroughEventSequence int64                          `json:"summarized_through_event_sequence,omitempty"`
+	CheckpointSummary              string                         `json:"checkpoint_summary,omitempty"`
+	ContentBlocks                  json.RawMessage                `json:"content_blocks"`
+	ModelUsage                     modelenvelope.Usage            `json:"model_usage,omitzero"`
+	ProviderMetadata               modelenvelope.ProviderMetadata `json:"provider_metadata,omitzero"`
+	CreatedAt                      time.Time                      `json:"created_at"`
 }
 
 type AgentEventFrontier struct {
@@ -255,7 +257,11 @@ func (s *Store) ListAgentEventsForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, agentEventReadRecordFromSQLC(row))
+		record, err := agentEventReadRecordFromSQLC(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
 	}
 	return out, nil
 }
@@ -319,7 +325,11 @@ func (s *Store) ListAgentEventsBeforeForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, agentEventReadRecordFromSQLC(row))
+		record, err := agentEventReadRecordFromSQLC(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
 	}
 	slices.Reverse(out)
 	return out, nil
@@ -358,7 +368,11 @@ func (s *Store) ListTurnEventsForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, agentEventReadRecordFromSQLC(row))
+		record, err := agentEventReadRecordFromSQLC(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, record)
 	}
 	slices.Reverse(out)
 	return out, nil
@@ -430,7 +444,10 @@ func (s *Store) ListAgentTurnsForRead(
 		turnIndex[out[i].ID] = i
 	}
 	for _, row := range boundaryRows {
-		event := agentEventReadRecordFromSQLC(row)
+		event, err := agentEventReadRecordFromSQLC(row)
+		if err != nil {
+			return nil, err
+		}
 		i, ok := turnIndex[event.TurnID]
 		if !ok {
 			continue
@@ -480,7 +497,7 @@ func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentI
 	return nil
 }
 
-func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEventReadRecord {
+func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) (AgentEventReadRecord, error) {
 	record := AgentEventReadRecord{
 		ID:                  row.ID,
 		OrgID:               row.OrgID,
@@ -500,7 +517,22 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEven
 		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
 		CheckpointSummary:   stringFromSQLCText(row.CheckpointSummary),
 		ContentBlocks:       normalizedJSONArray(row.ContentBlocks),
-		CreatedAt:           row.CreatedAt,
+		ModelUsage: modelUsageFromSQLC(
+			row.InputTokensTotal,
+			row.UncachedInputTokens,
+			row.CacheReadInputTokens,
+			row.CacheWriteInputTokens,
+			row.OutputTokensTotal,
+			row.ReasoningOutputTokens,
+		),
+		CreatedAt: row.CreatedAt,
+	}
+	if row.ProviderMetadata != nil {
+		providerMetadata, err := providerMetadataFromSQLC(*row.ProviderMetadata)
+		if err != nil {
+			return AgentEventReadRecord{}, err
+		}
+		record.ProviderMetadata = providerMetadata
 	}
 	record.ActorID = idFromSQLCPtr(row.ActorID)
 	record.AgentInputID = idFromSQLCPtr(row.AgentInputID)
@@ -512,5 +544,5 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEven
 	if row.SummarizedThroughEventSequence != nil {
 		record.SummarizedThroughEventSequence = *row.SummarizedThroughEventSequence
 	}
-	return record
+	return record, nil
 }

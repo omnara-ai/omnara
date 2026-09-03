@@ -42,10 +42,15 @@ func ValidateProviderResponse(response Response) error {
 		{name: "response id", value: response.ID},
 		{name: "request id", value: response.ProviderRequestID},
 		{name: "served model slug", value: response.ServedProviderModelSlug},
+		{name: "served provider", value: response.ProviderMetadata.OpenRouter.Provider},
 	} {
 		if err := validateProviderIdentity(field.value); err != nil {
 			return fmt.Errorf("%s: %w", field.name, err)
 		}
+	}
+	if creation := response.ProviderMetadata.Anthropic.CacheCreation; creation.Ephemeral5mInputTokens < 0 ||
+		creation.Ephemeral1hInputTokens < 0 {
+		return errors.New("anthropic cache creation token counts cannot be negative")
 	}
 	if err := validateProviderString(string(response.StopReason)); err != nil {
 		return fmt.Errorf("response stop reason: %w", err)
@@ -91,6 +96,7 @@ func ResponseEvidenceForStorage(response Response) Response {
 		ProviderRequestID:       response.ProviderRequestID,
 		ServedProviderModelSlug: response.ServedProviderModelSlug,
 		ProviderReportedCostUSD: response.ProviderReportedCostUSD,
+		ProviderMetadata:        response.ProviderMetadata,
 		Usage:                   response.Usage,
 	}
 	if err := ValidateProviderResponse(evidence); err != nil {

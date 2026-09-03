@@ -31,6 +31,7 @@ type RecordModelCallErrorAndCompleteContextInput struct {
 	ErrorDetails            json.RawMessage
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 func (s *Store) RecordModelCallErrorAndCompleteContext(
@@ -154,6 +155,7 @@ func recordTerminalModelCallFailureTx(
 		ErrorDetails:            input.ErrorDetails,
 		Usage:                   normalizedUsage,
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	}, runtimeAuthority)
 	if err != nil {
 		return terminalModelCallFailureResult{}, err
@@ -196,7 +198,8 @@ func sameTerminalModelCallErrorContextIntent(
 		sameJSON(contextRecord.ErrorDetails, input.ErrorDetails) &&
 		contextRecord.RetryAt == nil &&
 		contextRecord.Usage == usage &&
-		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD
+		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD &&
+		contextRecord.ProviderMetadata == input.ProviderMetadata
 }
 
 type modelCallErrorOutputInput struct {

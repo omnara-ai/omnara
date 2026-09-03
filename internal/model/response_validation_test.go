@@ -3,6 +3,8 @@ package model
 import (
 	"strings"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 func TestResponseEvidenceForStorageKeepsOnlySafeAuditFields(t *testing.T) {
@@ -75,5 +77,24 @@ func TestValidateProviderResponseRejectsOversizedIdentities(t *testing.T) {
 				t.Fatalf("oversized identity error = %v", err)
 			}
 		})
+	}
+}
+
+func TestResponseEvidenceForStorageDiscardsUnsafeProviderMetadata(t *testing.T) {
+	response := Response{
+		ID:                      "resp_1",
+		ServedProviderModelSlug: "served-model",
+		ProviderMetadata: modelenvelope.ProviderMetadata{
+			OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moon\x00shot"},
+		},
+		Usage: Usage{InputTokens: 12, OutputTokens: 4},
+	}
+	if evidence := ResponseEvidenceForStorage(response); evidence.ID != "" ||
+		evidence.ProviderMetadata != (modelenvelope.ProviderMetadata{}) || evidence.Usage != (Usage{}) {
+		t.Fatalf("unsafe provider metadata evidence = %+v, want discarded", evidence)
+	}
+	response.ProviderMetadata.OpenRouter.Provider = "Moonshot AI"
+	if evidence := ResponseEvidenceForStorage(response); evidence.ProviderMetadata != response.ProviderMetadata {
+		t.Fatalf("safe provider metadata evidence = %+v, want retained", evidence.ProviderMetadata)
 	}
 }

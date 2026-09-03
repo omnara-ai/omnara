@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -418,5 +420,138 @@ func TestPrepareKeepsResponsesReasoningIncludeOwned(t *testing.T) {
 	}
 	if string(payload["reasoning"]) != `{"effort":"high"}` {
 		t.Fatalf("reasoning = %s, want adapter-owned reasoning effort in %s", payload["reasoning"], prepared.Body)
+	}
+}
+
+func TestPrepareSendsPromptCacheKeyOnlyToOpenAI(t *testing.T) {
+	agentID := uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+	for _, tc := range []struct {
+		name      string
+		client    Client
+		retention model.CacheRetention
+		wantKey   bool
+	}{
+		{
+			name:    "default base url",
+			client:  Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			wantKey: true,
+		},
+		{
+			name: "explicit openai base url",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://api.openai.com/v1/",
+				ProviderModelSlug: "gpt-test",
+			},
+			wantKey: true,
+		},
+		{
+			name: "other host",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://proxy.example.test/v1",
+				ProviderModelSlug: "gpt-test",
+			},
+		},
+		{
+			name:      "none",
+			client:    Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			retention: model.CacheRetentionNone,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					AgentID: agentID,
+					Messages: []modelcontext.Message{
+						{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+					},
+				},
+				Policy: model.RequestPolicy{CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				PromptCacheKey string `json:"prompt_cache_key"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			want := ""
+			if tc.wantKey {
+				want = agentID.String()
+			}
+			if payload.PromptCacheKey != want {
+				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, want, prepared.Body)
+			}
+		})
+	}
+}
+
+func TestPrepareOmitsLongRetentionOffOpenAI(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		BaseURL:           "https://proxy.example.test/v1",
+		ProviderModelSlug: "gpt-test",
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{
+				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+			},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
+		t.Fatalf("prompt_cache_retention must only target api.openai.com: %s", prepared.Body)
+	}
+}
+
+func TestPrepareOmitsPromptCacheKeyWithoutAgent(t *testing.T) {
+	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{
+				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if strings.Contains(string(prepared.Body), "prompt_cache_key") {
+		t.Fatalf("prompt_cache_key must be omitted without an agent: %s", prepared.Body)
+	}
+}
+
+func TestPrepareLetsAPIVariantOptionsOverridePromptCacheKey(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "gpt-test",
+		APIVariantOptions: json.RawMessage(`{"prompt_cache_key":"pinned-by-operator"}`),
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+			Messages: []modelcontext.Message{
+				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		PromptCacheKey string `json:"prompt_cache_key"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.PromptCacheKey != "pinned-by-operator" {
+		t.Fatalf("prompt_cache_key = %q, want the explicit provider option to win: %s", payload.PromptCacheKey, prepared.Body)
 	}
 }

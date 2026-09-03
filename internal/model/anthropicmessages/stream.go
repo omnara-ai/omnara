@@ -152,6 +152,7 @@ func (a *anthropicStreamAccumulator) partialResponse() model.Response {
 		ID:                      a.id,
 		ServedProviderModelSlug: a.servedModel,
 		Usage:                   usageFromResponse(a.usageRaw),
+		ProviderMetadata:        providerMetadataFromUsage(a.usageRaw),
 	}
 }
 
@@ -486,6 +487,12 @@ func mergeAnthropicUsage(into, delta usage) usage {
 	}
 	if delta.CacheReadInputTokens > into.CacheReadInputTokens {
 		into.CacheReadInputTokens = delta.CacheReadInputTokens
+	}
+	if delta.CacheCreation.Ephemeral5mInputTokens > into.CacheCreation.Ephemeral5mInputTokens {
+		into.CacheCreation.Ephemeral5mInputTokens = delta.CacheCreation.Ephemeral5mInputTokens
+	}
+	if delta.CacheCreation.Ephemeral1hInputTokens > into.CacheCreation.Ephemeral1hInputTokens {
+		into.CacheCreation.Ephemeral1hInputTokens = delta.CacheCreation.Ephemeral1hInputTokens
 	}
 	return into
 }

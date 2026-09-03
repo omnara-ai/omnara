@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
@@ -59,8 +60,20 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxOutputTokens = input.Policy.MaxOutputTokens
 	}
-	if retention := promptCacheRetention(input.Policy.CacheRetention); retention != "" {
-		payload.PromptCacheRetention = retention
+	plan := model.PlanPromptCache(
+		model.PromptCacheRoute{
+			APIFormat:  modelprotocol.APIFormatOpenAIResponses,
+			APIVariant: c.ModelAPIVariant(),
+			BaseURL:    c.endpoint().ResolvedBaseURL(),
+		},
+		input.Context,
+		input.Policy.CacheRetention,
+	)
+	if plan.Affinity == model.PromptCacheAffinityPromptCacheKey {
+		payload.PromptCacheKey = plan.ConversationKey
+	}
+	if plan.LongRetention {
+		payload.PromptCacheRetention = model.OpenAIExtendedPromptCacheRetention
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
@@ -89,15 +102,6 @@ func responsesOwnedFields(supportsReasoning bool, reasoningEffort string) []stri
 	return fields
 }
 
-func promptCacheRetention(retention model.CacheRetention) string {
-	switch retention {
-	case model.CacheRetentionLong:
-		return "24h"
-	default:
-		return ""
-	}
-}
-
 func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) error {
 	for _, result := range results {
 		if result.ProviderCallID == "" {
@@ -116,6 +120,7 @@ type responsesRequest struct {
 	ToolChoice           string              `json:"tool_choice,omitempty"`
 	ParallelToolCalls    bool                `json:"parallel_tool_calls,omitempty"`
 	MaxOutputTokens      int                 `json:"max_output_tokens,omitempty"`
+	PromptCacheKey       string              `json:"prompt_cache_key,omitempty"`
 	PromptCacheRetention string              `json:"prompt_cache_retention,omitempty"`
 	Include              []string            `json:"include,omitempty"`
 	Reasoning            *responsesReasoning `json:"reasoning,omitempty"`

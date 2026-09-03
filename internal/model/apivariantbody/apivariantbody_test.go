@@ -109,3 +109,13 @@ func TestMarshalWithAPIVariantOptionsSkipsOwnedFieldsAbsentFromBase(t *testing.T
 		t.Fatalf("temperature = %s, want passthrough option", payload["temperature"])
 	}
 }
+
+func TestSetsReportsTopLevelKeys(t *testing.T) {
+	options := json.RawMessage(`{"provider":{"only":["moonshotai"]},"prompt_cache_key":"pinned"}`)
+	if !Sets(options, "session_id", "prompt_cache_key") {
+		t.Fatal("expected prompt_cache_key to be reported as set")
+	}
+	if Sets(options, "session_id") || Sets(nil, "provider") || Sets(json.RawMessage(`[]`), "provider") {
+		t.Fatal("unset, empty, and non-object options must not report keys")
+	}
+}

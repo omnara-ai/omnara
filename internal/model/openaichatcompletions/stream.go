@@ -167,6 +167,8 @@ type chatStreamAccumulator struct {
 	choices        map[int]*chatStreamChoiceState
 	id             string
 	servedModel    string
+	provider       string
+	metadata       *openRouterMetadata
 	usage          chatUsage
 	usageReceived  bool
 	completed      bool
@@ -175,9 +177,11 @@ type chatStreamAccumulator struct {
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
 	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
-		ID:    a.id,
-		Model: a.servedModel,
-		Usage: a.usage,
+		ID:                 a.id,
+		Model:              a.servedModel,
+		Provider:           a.provider,
+		OpenRouterMetadata: a.metadata,
+		Usage:              a.usage,
 	})
 }
 
@@ -217,11 +221,13 @@ type chatStreamReasoningDetailState struct {
 }
 
 type chatStreamChunk struct {
-	ID      string             `json:"id"`
-	Model   string             `json:"model"`
-	Choices []chatStreamChoice `json:"choices"`
-	Usage   *chatUsage         `json:"usage"`
-	Error   chatProviderError  `json:"error"`
+	ID                 string              `json:"id"`
+	Model              string              `json:"model"`
+	Provider           string              `json:"provider"`
+	OpenRouterMetadata *openRouterMetadata `json:"openrouter_metadata"`
+	Choices            []chatStreamChoice  `json:"choices"`
+	Usage              *chatUsage          `json:"usage"`
+	Error              chatProviderError   `json:"error"`
 }
 
 type chatStreamChoice struct {
@@ -276,6 +282,12 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	}
 	if chunk.Model != "" {
 		a.servedModel = chunk.Model
+	}
+	if chunk.Provider != "" {
+		a.provider = chunk.Provider
+	}
+	if chunk.OpenRouterMetadata != nil {
+		a.metadata = chunk.OpenRouterMetadata
 	}
 	if chunk.Usage != nil {
 		a.usage = *chunk.Usage
@@ -580,10 +592,12 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 		})
 	}
 	return json.Marshal(chatCompletionsResponse{
-		ID:      a.id,
-		Model:   a.servedModel,
-		Choices: choices,
-		Usage:   a.usage,
+		ID:                 a.id,
+		Model:              a.servedModel,
+		Provider:           a.provider,
+		OpenRouterMetadata: a.metadata,
+		Choices:            choices,
+		Usage:              a.usage,
 	})
 }
 

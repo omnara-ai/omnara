@@ -157,7 +157,7 @@ export type ModelApiVariantOptions = {
 };
 
 /**
- * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` additionally asks for the longest retention the route supports (Anthropic's one-hour cache on models that offer it, OpenAI extended retention) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export type ModelCacheRetention = 'none' | 'short' | 'long';
 
@@ -1728,6 +1728,13 @@ export type ModelOutputEvent = {
     model_call_context_id: ModelCallContextId;
     stop_reason: ModelOutputStopReason;
     content_blocks: Array<ModelOutputContentBlock>;
+    usage?: ModelUsage;
+    /**
+     * Facts the provider reported about this call, keyed by provider (for example `openrouter.provider` names the upstream that served an OpenRouter request). Present only when the provider reported something.
+     */
+    provider_metadata?: {
+        [key: string]: unknown;
+    };
     created_at: Timestamp;
 };
 

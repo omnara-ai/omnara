@@ -119,6 +119,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 		ErrorDetails:            failure.ErrorDetails,
 		Usage:                   failure.Usage,
 		ProviderReportedCostUSD: failure.ProviderReportedCostUSD,
+		ProviderMetadata:        failure.ProviderMetadata,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
@@ -290,6 +291,7 @@ func (s *Store) ReplaceCompactionSource(
 		ErrorDetails:            input.ErrorDetails,
 		Usage:                   input.Usage,
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	}); err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}

@@ -1,6 +1,7 @@
 package anthropicmessages
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -42,16 +43,20 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolNames(input.Context.ToolSpecs); err != nil {
 		return nil, err
 	}
-	input.Policy.CacheRetention = model.EffectiveCacheRetention(
-		modelprotocol.APIFormatAnthropicMessages,
-		c.APIVariant,
-		providerModelSlug,
+	control := cacheControl(model.PlanPromptCache(
+		model.PromptCacheRoute{
+			APIFormat:         modelprotocol.APIFormatAnthropicMessages,
+			APIVariant:        c.APIVariant,
+			ProviderModelSlug: providerModelSlug,
+		},
+		input.Context,
 		input.Policy.CacheRetention,
-	)
+	))
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
+		control,
 	)
 	if err != nil {
 		return nil, err
@@ -59,9 +64,9 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	payload := messagesRequest{
 		Model:     providerModelSlug,
 		MaxTokens: maxTokens,
-		System:    systemContent(input.Context, input.Policy.CacheRetention),
+		System:    systemContent(input.Context, control),
 		Messages:  messages,
-		Tools:     buildTools(input.Context.ToolSpecs, input.Policy.CacheRetention),
+		Tools:     buildTools(input.Context.ToolSpecs, control),
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
@@ -143,9 +148,8 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 	return nil
 }
 
-func systemContent(bundle modelcontext.Bundle, retention model.CacheRetention) any {
+func systemContent(bundle modelcontext.Bundle, control map[string]string) any {
 	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
-	control := cacheControl(retention)
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		blocks = append(blocks, textBlock{
 			Type: "text",
@@ -175,6 +179,7 @@ func buildMessages(
 	bundle modelcontext.Bundle,
 	policy model.RequestPolicy,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
+	control map[string]string,
 ) ([]message, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -190,7 +195,7 @@ func buildMessages(
 		block := textBlock{
 			Type:         "text",
 			Text:         modelcontext.ProjectedCheckpointContent(*checkpoint),
-			CacheControl: cacheControl(policy.CacheRetention),
+			CacheControl: control,
 		}
 		messages = appendMessageBlocks(messages, anthropicRoleUser, []any{block})
 	}
@@ -240,7 +245,7 @@ func buildMessages(
 		}
 	}
 	if historyAdded {
-		messages = markLastMessageCacheBreakpoint(messages, cacheControl(policy.CacheRetention))
+		messages = markLastMessageCacheBreakpoint(messages, control)
 	}
 	if len(messages) > 0 && messages[0].Role == anthropicRoleAssistant {
 		messages = append(
@@ -257,36 +262,47 @@ func buildMessages(
 }
 
 func markLastMessageCacheBreakpoint(messages []message, control map[string]string) []message {
-	if len(messages) == 0 || control == nil {
+	if control == nil {
 		return messages
 	}
-	blocks, ok := messages[len(messages)-1].Content.([]any)
-	if !ok || len(blocks) == 0 {
-		return messages
-	}
-	raw, err := json.Marshal(blocks[len(blocks)-1])
-	if err != nil {
-		return messages
-	}
-	var block map[string]any
-	if json.Unmarshal(raw, &block) != nil || block == nil {
-		return messages
-	}
-	blockType, _ := block["type"].(string)
-	switch blockType {
-	case "text":
-		text, _ := block["text"].(string)
-		if strings.TrimSpace(text) == "" {
+	for index := len(messages) - 1; index >= 0; index-- {
+		blocks, ok := messages[index].Content.([]any)
+		if !ok {
+			continue
+		}
+		for blockIndex := len(blocks) - 1; blockIndex >= 0; blockIndex-- {
+			block, ok := cacheableBlock(blocks[blockIndex])
+			if !ok {
+				continue
+			}
+			block["cache_control"] = control
+			blocks[blockIndex] = block
+			messages[index].Content = blocks
 			return messages
 		}
-	case "tool_use", "tool_result", "image", "document":
-	default:
-		return messages
 	}
-	block["cache_control"] = control
-	blocks[len(blocks)-1] = block
-	messages[len(messages)-1].Content = blocks
 	return messages
+}
+
+func cacheableBlock(value any) (map[string]any, bool) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var block map[string]any
+	if decoder.Decode(&block) != nil || block == nil {
+		return nil, false
+	}
+	switch block["type"] {
+	case "text":
+		text, _ := block["text"].(string)
+		return block, strings.TrimSpace(text) != ""
+	case "tool_use", "tool_result", "image", "document":
+		return block, true
+	}
+	return nil, false
 }
 
 func appendMessageBlocks(messages []message, role anthropicRole, blocks []any) []message {
@@ -607,9 +623,8 @@ func sanitizeID(value string) string {
 	return b.String()
 }
 
-func buildTools(specs []modelcontext.ToolSpec, retention model.CacheRetention) []toolDefinition {
+func buildTools(specs []modelcontext.ToolSpec, control map[string]string) []toolDefinition {
 	tools := make([]toolDefinition, 0, len(specs))
-	control := cacheControl(retention)
 	for index, spec := range specs {
 		schema := spec.InputSchema
 		if len(schema) == 0 {
@@ -624,13 +639,13 @@ func buildTools(specs []modelcontext.ToolSpec, retention model.CacheRetention) [
 	return tools
 }
 
-func cacheControl(retention model.CacheRetention) map[string]string {
-	switch retention {
-	case model.CacheRetentionShort:
-		return map[string]string{"type": "ephemeral", "ttl": "5m"}
-	case model.CacheRetentionLong:
-		return map[string]string{"type": "ephemeral", "ttl": "1h"}
-	default:
+func cacheControl(plan model.PromptCachePlan) map[string]string {
+	if !plan.Explicit {
 		return nil
 	}
+	control := map[string]string{"type": "ephemeral"}
+	if plan.LongRetention {
+		control["ttl"] = "1h"
+	}
+	return control
 }

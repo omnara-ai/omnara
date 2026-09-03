@@ -148,6 +148,7 @@ func (p protocol) chatResponseEvidence(
 		Usage:                   usageFromResponse(response.Usage),
 	}
 	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+		out.ProviderMetadata.OpenRouter.Provider = response.servedProvider()
 		cost, issue := openRouterReportedCost(response.Usage)
 		out.ProviderReportedCostUSD = cost
 		switch issue {
@@ -166,11 +167,33 @@ func (p protocol) chatResponseEvidence(
 }
 
 type chatCompletionsResponse struct {
-	ID      string            `json:"id"`
-	Model   string            `json:"model"`
-	Choices []chatChoice      `json:"choices"`
-	Usage   chatUsage         `json:"usage"`
-	Error   chatProviderError `json:"error"`
+	ID                 string              `json:"id"`
+	Model              string              `json:"model"`
+	Provider           string              `json:"provider,omitempty"`
+	OpenRouterMetadata *openRouterMetadata `json:"openrouter_metadata,omitempty"`
+	Choices            []chatChoice        `json:"choices"`
+	Usage              chatUsage           `json:"usage"`
+	Error              chatProviderError   `json:"error"`
+}
+
+type openRouterMetadata struct {
+	Endpoints struct {
+		Available []struct {
+			Provider string `json:"provider"`
+			Selected bool   `json:"selected"`
+		} `json:"available"`
+	} `json:"endpoints"`
+}
+
+func (r chatCompletionsResponse) servedProvider() string {
+	if r.OpenRouterMetadata != nil {
+		for _, endpoint := range r.OpenRouterMetadata.Endpoints.Available {
+			if endpoint.Selected {
+				return endpoint.Provider
+			}
+		}
+	}
+	return r.Provider
 }
 
 type chatChoice struct {

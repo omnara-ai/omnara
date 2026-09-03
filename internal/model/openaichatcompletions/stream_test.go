@@ -744,3 +744,54 @@ func TestChatCompletionsConsumeMalformedStreamIsAmbiguous(t *testing.T) {
 		t.Fatalf("malformed stream = %T %v, want ambiguous outcome", err, err)
 	}
 }
+
+func TestChatCompletionsConsumeStreamRecordsOpenRouterServedProvider(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"}}]}`,
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1,"cost":0.00001},`+
+			`"openrouter_metadata":{"endpoints":{"total":1,"available":[{"provider":"Moonshot AI","model":"moonshotai/kimi-k3","selected":true}]}}}`,
+		`[DONE]`,
+	)
+	resp, err := consumeChatCompletionsStream(t, stream, &chatRecordingSink{}, modelprotocol.APIVariantOpenRouter)
+	if err != nil {
+		t.Fatalf("consume stream: %v", err)
+	}
+	if resp.ProviderMetadata.OpenRouter.Provider != "Moonshot AI" {
+		t.Fatalf("provider metadata = %+v, want OpenRouter provider Moonshot AI", resp.ProviderMetadata)
+	}
+}
+
+func TestChatCompletionsOpenRouterRequestsOptIntoRouterMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		variant modelprotocol.APIVariant
+		want    string
+	}{
+		{variant: modelprotocol.APIVariantOpenRouter, want: "enabled"},
+		{variant: modelprotocol.APIVariantDefault, want: ""},
+	} {
+		t.Run(string(tc.variant), func(t *testing.T) {
+			var got string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Get("X-Openrouter-Metadata")
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte(chatCompletionsSSE(
+					`{"id":"chatcmpl_1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
+					`{"id":"chatcmpl_1","model":"m","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
+					`[DONE]`,
+				)))
+			}))
+			defer server.Close()
+			client := testRespondClient(server)
+			client.APIVariant = tc.variant
+			if _, err := client.Respond(context.Background(), model.Request{
+				ProviderRequest: json.RawMessage(`{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":true}`),
+			}); err != nil {
+				t.Fatalf("respond: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("X-OpenRouter-Metadata = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

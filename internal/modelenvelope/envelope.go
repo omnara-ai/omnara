@@ -16,6 +16,7 @@ type ResponseEnvelope struct {
 	APIFormat                  modelprotocol.APIFormat  `json:"api_format"`
 	APIVariant                 modelprotocol.APIVariant `json:"api_variant"`
 	ProviderReportedCostUSD    ProviderReportedCostUSD  `json:"provider_reported_cost_usd,omitempty"`
+	ProviderMetadata           ProviderMetadata         `json:"provider_metadata,omitzero"`
 	ProviderReplay             json.RawMessage          `json:"provider_replay,omitempty"`
 	Normalized                 ResponseNormalized       `json:"normalized"`
 }

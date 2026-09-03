@@ -7,6 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -429,7 +430,15 @@ func publicModelOutputEvent(
 		ModelCallContextId: modelCallContextID,
 		StopReason:         stopReason,
 		ContentBlocks:      blocks,
+		Usage:              publicModelUsage(record.ModelUsage),
 		CreatedAt:          record.CreatedAt,
+	}
+	if record.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
+		providerMetadata, err := json.Marshal(record.ProviderMetadata)
+		if err != nil {
+			return openapi.AgentEvent{}, err
+		}
+		event.ProviderMetadata = providerMetadata
 	}
 	var response openapi.AgentEvent
 	if err := response.FromModelOutputEvent(event); err != nil {
@@ -567,4 +576,18 @@ func jsonMapOrFallback(raw json.RawMessage, fallback json.RawMessage) (map[strin
 		out = map[string]interface{}{}
 	}
 	return out, nil
+}
+
+func publicModelUsage(usage modelenvelope.Usage) *openapi.ModelUsage {
+	if usage == (modelenvelope.Usage{}) {
+		return nil
+	}
+	return &openapi.ModelUsage{
+		InputTokensTotal:      &usage.InputTokens,
+		UncachedInputTokens:   &usage.UncachedInputTokens,
+		CacheReadInputTokens:  &usage.CacheReadTokens,
+		CacheWriteInputTokens: &usage.CacheWriteTokens,
+		OutputTokensTotal:     &usage.OutputTokens,
+		ReasoningOutputTokens: &usage.ReasoningTokens,
+	}
 }

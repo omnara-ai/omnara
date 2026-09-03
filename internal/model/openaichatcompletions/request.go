@@ -65,20 +65,20 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
-	cacheRetention := model.EffectiveCacheRetention(
-		modelprotocol.APIFormatOpenAIChatCompletions,
-		apiVariant,
-		providerModelSlug,
+	plan := model.PlanPromptCache(
+		model.PromptCacheRoute{
+			APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
+			APIVariant:        apiVariant,
+			BaseURL:           c.endpoint().ResolvedBaseURL(),
+			ProviderModelSlug: providerModelSlug,
+		},
+		input.Context,
 		input.Policy.CacheRetention,
 	)
-	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		payload.Messages = markOpenRouterCacheBreakpoints(
-			payload.Messages,
-			openRouterCacheControl(cacheRetention, providerModelSlug),
-		)
-	} else if retention := promptCacheRetention(cacheRetention); retention != "" {
-		payload.PromptCacheRetention = retention
+	if apivariantbody.Sets(c.APIVariantOptions, "session_id", "prompt_cache_key") {
+		plan.Affinity = model.PromptCacheAffinityNone
 	}
+	applyPromptCachePlan(&payload, plan)
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
@@ -111,15 +111,6 @@ func chatCompletionsOwnsReasoning(capabilities model.Capabilities, policy model.
 	return supportsReasoning && policy.ReasoningEffort != ""
 }
 
-func promptCacheRetention(retention model.CacheRetention) string {
-	switch retention {
-	case model.CacheRetentionLong:
-		return "24h"
-	default:
-		return ""
-	}
-}
-
 func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) error {
 	for _, result := range results {
 		if result.ProviderCallID == "" {
@@ -137,7 +128,9 @@ type chatCompletionsRequest struct {
 	ToolChoice           string               `json:"tool_choice,omitempty"`
 	MaxCompletionTokens  int                  `json:"max_completion_tokens,omitempty"`
 	N                    int                  `json:"n"`
+	PromptCacheKey       string               `json:"prompt_cache_key,omitempty"`
 	PromptCacheRetention string               `json:"prompt_cache_retention,omitempty"`
+	SessionID            string               `json:"session_id,omitempty"`
 	ReasoningEffort      string               `json:"reasoning_effort,omitempty"`
 	Reasoning            *chatReasoning       `json:"reasoning,omitempty"`
 	Store                *bool                `json:"store,omitempty"`

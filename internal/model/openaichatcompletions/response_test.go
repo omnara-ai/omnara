@@ -715,3 +715,40 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 		t.Fatalf("impossible cache-write distribution produced usage: %+v", got)
 	}
 }
+
+func TestParseResponseRecordsOpenRouterServedProvider(t *testing.T) {
+	documented := json.RawMessage(`{"id":"chatcmpl_provider","model":"moonshotai/kimi-k3",` +
+		`"openrouter_metadata":{"requested":"moonshotai/kimi-k3","strategy":"direct","endpoints":{"total":2,` +
+		`"available":[{"provider":"Together","model":"moonshotai/kimi-k3","selected":false},` +
+		`{"provider":"Moonshot AI","model":"moonshotai/kimi-k3","selected":true}]}},` +
+		`"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+		`"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+	fallback := json.RawMessage(`{"id":"chatcmpl_provider","model":"moonshotai/kimi-k3","provider":"Moonshot AI",` +
+		`"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+		`"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+
+	openRouter := protocol{client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}}
+	for name, body := range map[string]json.RawMessage{"router metadata": documented, "top-level provider": fallback} {
+		response, err := openRouter.ParseResponse(context.Background(), route.Response{
+			StatusCode: http.StatusOK,
+			Body:       body,
+		})
+		if err != nil {
+			t.Fatalf("parse OpenRouter response (%s): %v", name, err)
+		}
+		if response.ProviderMetadata.OpenRouter.Provider != "Moonshot AI" {
+			t.Fatalf("%s: provider metadata = %+v, want Moonshot AI", name, response.ProviderMetadata)
+		}
+	}
+
+	response, err := (protocol{}).ParseResponse(context.Background(), route.Response{
+		StatusCode: http.StatusOK,
+		Body:       documented,
+	})
+	if err != nil {
+		t.Fatalf("parse default response: %v", err)
+	}
+	if response.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
+		t.Fatalf("default variant provider metadata = %+v, want none", response.ProviderMetadata)
+	}
+}

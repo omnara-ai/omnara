@@ -161,7 +161,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -221,6 +225,13 @@ func (q *Queries) ListAgentEventsBeforeForRead(ctx context.Context, arg ListAgen
 			&i.CheckpointSummary,
 			&i.ContentBlocks,
 			&i.CreatedAt,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -242,7 +253,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -299,6 +314,13 @@ func (q *Queries) ListAgentEventsForRead(ctx context.Context, arg ListAgentEvent
 			&i.CheckpointSummary,
 			&i.ContentBlocks,
 			&i.CreatedAt,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -534,7 +556,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id
@@ -592,6 +618,13 @@ func (q *Queries) ListTurnBoundaryEventsForRead(ctx context.Context, arg ListTur
 			&i.CheckpointSummary,
 			&i.ContentBlocks,
 			&i.CreatedAt,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -613,7 +646,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -676,6 +713,13 @@ func (q *Queries) ListTurnEventsForRead(ctx context.Context, arg ListTurnEventsF
 			&i.CheckpointSummary,
 			&i.ContentBlocks,
 			&i.CreatedAt,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.ProviderMetadata,
 		); err != nil {
 			return nil, err
 		}
