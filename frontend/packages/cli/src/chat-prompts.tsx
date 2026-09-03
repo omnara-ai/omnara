@@ -93,7 +93,7 @@ function SelectList({
         const isActive = index === active
         const marker = multiple ? (selected.has(index) ? '[x] ' : '[ ] ') : ''
         return (
-          <Text key={index}>
+          <Text key={item.label}>
             <Text color="cyan">{isActive ? '❯' : ' '}</Text> {marker}
             <Text color={isActive ? 'cyan' : undefined}>{item.label}</Text>
             {item.hint != null && <Text dimColor> {item.hint}</Text>}
@@ -134,8 +134,8 @@ export function InteractionPrompt({
       <Text>
         <Label name={kind} color={kindColor(kind)} /> {form.title}
       </Text>
-      {(form.context ?? []).map((item, index) => (
-        <Text key={index}>
+      {(form.context ?? []).map((item) => (
+        <Text key={item.label}>
           {'  '}
           <Text dimColor>{item.label}:</Text> {item.value}
         </Text>
@@ -147,7 +147,7 @@ export function InteractionPrompt({
           .map((optionIndex) => answered.options[optionIndex]?.label)
           .join(', ')
         return (
-          <Text key={index}>
+          <Text key={answered.prompt}>
             {'  '}
             <Text dimColor>{answered.prompt}</Text> {chosen}
             {answer.text != null ? `: ${answer.text}` : ''}

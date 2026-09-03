@@ -55,11 +55,12 @@ function toolOutput(part: ToolPart): { outcome: string; text: string | undefined
   if (part.state !== 'output-available') return undefined
   const output = zToolOutput.safeParse(part.output)
   if (!output.success) return undefined
-  const text = output.data.contentBlocks
-    .filter((block) => block.type === 'text' || block.type === 'structured_data')
-    .map(blockText)
-    .find((line) => line.trim() !== '')
-  return { outcome: output.data.outcome, text }
+  for (const block of output.data.contentBlocks) {
+    if (block.type !== 'text' && block.type !== 'structured_data') continue
+    const text = blockText(block)
+    if (text.trim() !== '') return { outcome: output.data.outcome, text }
+  }
+  return { outcome: output.data.outcome, text: undefined }
 }
 
 function ToolPartView({ part }: { part: ToolPart }) {
@@ -122,11 +123,12 @@ function PartView({ part, live }: { part: MessagePart; live: boolean }) {
 
 function MessageView({ message, live }: { message: OmnaraUIMessage; live: boolean }) {
   if (message.role === 'user') {
-    const text = message.parts
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .filter((line) => line.trim() !== '')
-      .join('\n')
-    if (text === '') return null
+    const lines: string[] = []
+    for (const part of message.parts) {
+      if (part.type === 'text' && part.text.trim() !== '') lines.push(part.text)
+    }
+    if (lines.length === 0) return null
+    const text = lines.join('\n')
     return (
       <Box marginTop={1}>
         <Text>
@@ -161,14 +163,18 @@ function currentActivity(
 ): Activity | undefined {
   if (status === 'submitted') return { text: 'sending…' }
   if (!isWorking) return undefined
-  const parts = live.filter((message) => message.role === 'assistant').flatMap((m) => m.parts)
-  const running = parts.filter(
-    (part): part is ToolPart => part.type === 'dynamic-tool' && part.state !== 'output-available',
-  )
-  if (running.length > 0) {
-    const names = running.map((part) => part.toolName).join(', ')
-    return { text: `running ${names}…` }
+  const parts: MessagePart[] = []
+  const running: string[] = []
+  for (const message of live) {
+    if (message.role !== 'assistant') continue
+    for (const part of message.parts) {
+      parts.push(part)
+      if (part.type === 'dynamic-tool' && part.state !== 'output-available') {
+        running.push(part.toolName)
+      }
+    }
   }
+  if (running.length > 0) return { text: `running ${running.join(', ')}…` }
   const last = parts.at(-1)
   if (last?.type === 'reasoning') return { text: 'thinking…', detail: last.text.slice(-200) }
   if (last?.type === 'data-thinking' && last.data.active) return { text: 'thinking…' }
@@ -178,12 +184,15 @@ function currentActivity(
 
 interface WorkTimerSnapshot {
   startedAt?: number
+  accumulatedMs: number
   lastDuration?: number
 }
 
+type WorkTimerPhase = 'working' | 'paused' | 'idle'
+
 class WorkTimer {
   private listeners = new Set<() => void>()
-  private snapshot: WorkTimerSnapshot = {}
+  private snapshot: WorkTimerSnapshot = { accumulatedMs: 0 }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
@@ -194,33 +203,38 @@ class WorkTimer {
 
   getSnapshot = (): WorkTimerSnapshot => this.snapshot
 
-  setActive(active: boolean): void {
+  setPhase(phase: WorkTimerPhase): void {
     const now = Date.now()
-    if (active) {
-      if (this.snapshot.startedAt != null) return
-      this.snapshot = { startedAt: now }
+    const { startedAt, accumulatedMs } = this.snapshot
+    const elapsed = accumulatedMs + (startedAt == null ? 0 : now - startedAt)
+    if (phase === 'working') {
+      if (startedAt != null) return
+      this.snapshot = { startedAt: now, accumulatedMs }
+    } else if (phase === 'paused') {
+      if (startedAt == null) return
+      this.snapshot = { accumulatedMs: elapsed }
     } else {
-      if (this.snapshot.startedAt == null) return
-      this.snapshot = { lastDuration: now - this.snapshot.startedAt }
+      if (startedAt == null && accumulatedMs === 0) return
+      this.snapshot = { accumulatedMs: 0, lastDuration: elapsed }
     }
     for (const listener of this.listeners) listener()
   }
 }
 
-function useWorkTimer(active: boolean): WorkTimerSnapshot {
+function useWorkTimer(phase: WorkTimerPhase): WorkTimerSnapshot {
   const [timer] = useState(() => new WorkTimer())
   useEffect(() => {
-    timer.setActive(active)
-  }, [active, timer])
+    timer.setPhase(phase)
+  }, [phase, timer])
   return useSyncExternalStore(timer.subscribe, timer.getSnapshot, timer.getSnapshot)
 }
 
 function StatusLine({
   activity,
-  startedAt,
+  timer,
 }: {
   activity: Activity | undefined
-  startedAt: number | undefined
+  timer: WorkTimerSnapshot
 }) {
   const [tick, setTick] = useState<{ frame: number; now: number | undefined }>({
     frame: 0,
@@ -242,8 +256,8 @@ function StatusLine({
   return (
     <Text wrap="truncate-end">
       <Text color="cyan">{spinnerFrames[tick.frame]}</Text> {activity.text}
-      {startedAt != null && tick.now != null && (
-        <Text dimColor> ({formatDuration(tick.now - startedAt)})</Text>
+      {timer.startedAt != null && tick.now != null && (
+        <Text dimColor> ({formatDuration(timer.accumulatedMs + tick.now - timer.startedAt)})</Text>
       )}
       {activity.detail != null && <Text dimColor> {abbreviate(activity.detail, 60)}</Text>}
     </Text>
@@ -257,10 +271,14 @@ function splitLive(
   isWorking: boolean,
 ): [OmnaraUIMessage[], OmnaraUIMessage[]] {
   if (!isWorking) return [messages, []]
-  let lastAssistant = messages.length - 1
-  while (lastAssistant >= 0 && messages[lastAssistant]?.role !== 'assistant') lastAssistant -= 1
-  if (lastAssistant < 0) return [messages, []]
-  return [messages.slice(0, lastAssistant), messages.slice(lastAssistant)]
+  const currentTurn = messages.at(-1)?.metadata?.turnId
+  let start = messages.length
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message == null || message.metadata?.turnId !== currentTurn) break
+    if (message.role === 'assistant') start = index
+  }
+  return [messages.slice(0, start), messages.slice(start)]
 }
 
 export function Chat({ scope }: { scope: AgentChatScope }) {
@@ -285,10 +303,12 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
   const interaction = (interactions.data?.data ?? []).find((item) => !answered.has(item.id))
   const activity =
     interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
-  const timer = useWorkTimer(chat.isWorking && interaction == null)
-  const errors = [chat.error, interactions.error, resolveInteraction.error]
-    .map(errorMessage)
-    .filter((message) => message != null)
+  const timer = useWorkTimer(interaction != null ? 'paused' : chat.isWorking ? 'working' : 'idle')
+  const errors = new Set<string>()
+  for (const error of [chat.error, interactions.error, resolveInteraction.error]) {
+    const message = errorMessage(error)
+    if (message != null) errors.add(message)
+  }
 
   return (
     <Box flexDirection="column">
@@ -307,18 +327,21 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
         <MessageView key={message.id} message={message} live />
       ))}
       {!ready && chat.historyStatus === 'pending' && <Text dimColor>loading history…</Text>}
-      {activity == null && timer.lastDuration != null && timer.lastDuration >= 1000 && (
-        <Box marginTop={1}>
-          <Text dimColor>✔ Worked for {formatDuration(timer.lastDuration)}</Text>
-        </Box>
-      )}
-      {errors.map((message, index) => (
-        <Text key={index}>
+      {interaction == null &&
+        !chat.isWorking &&
+        timer.lastDuration != null &&
+        timer.lastDuration >= 1000 && (
+          <Box marginTop={1}>
+            <Text dimColor>✔ Worked for {formatDuration(timer.lastDuration)}</Text>
+          </Box>
+        )}
+      {[...errors].map((message) => (
+        <Text key={message}>
           <Label name="error" color="red" /> {message}
         </Text>
       ))}
       <Box marginTop={1}>
-        <StatusLine activity={activity} startedAt={timer.startedAt} />
+        <StatusLine activity={activity} timer={timer} />
       </Box>
       {interaction != null ? (
         <InteractionPrompt
