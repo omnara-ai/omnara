@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:commander --external:ink --external:react --external:tar --external:yaml --external:zod",
+    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:@tanstack/react-query --external:commander --external:ink --external:react --external:tar --external:yaml --external:zod",
     "prepublishOnly": "pnpm build",
     "omnara": "tsx src/bin.ts",
     "test": "vitest run",
@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
+    "@tanstack/react-query": "^5.101.0",
     "commander": "^14.0.0",
     "ink": "^7.1.1",
     "react": "^19.2.8",
@@ -36,6 +37,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@omnara/react": "workspace:*",
     "@omnara/sdk": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.17",

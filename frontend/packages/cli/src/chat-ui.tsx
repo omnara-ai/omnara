@@ -1,28 +1,43 @@
-import type { AgentInteraction, InteractionAnswer } from '@omnara/sdk'
-import { Box, Static, Text, useApp, useInput } from 'ink'
-import { useEffect, useState } from 'react'
-
-import { type ChatTarget, useChatSession } from './chat-session.ts'
 import {
-  type AgentActivity,
-  formatDuration,
-  type InteractionKindLabel,
-  interactionKindLabel,
-  type ToolCallInfo,
-  type TranscriptEntry,
-} from './chat-state.ts'
+  type AgentChatScope,
+  type OmnaraUIMessage,
+  useAgentChat,
+  useAgentInteractions,
+  useResolveAgentInteraction,
+} from '@omnara/react'
+import { Box, Static, Text, useApp } from 'ink'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import * as z from 'zod'
+
+import { blockText, summaryWidth, toolCallSummary } from './agent-rendering.ts'
+import { InteractionPrompt, Label, TextInput } from './chat-prompts.tsx'
 import { abbreviate } from './output.ts'
+
+type MessagePart = OmnaraUIMessage['parts'][number]
+type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
 
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const streamingTailLines = 8
 const streamingTailChars = 1500
+const zToolInput = z.record(z.string(), z.unknown())
+const zErrorBody = z.object({ error: z.string() })
 
-function Label({ name, color }: { name: string; color: string }) {
-  return (
-    <Text bold color={color}>
-      {name}
-    </Text>
-  )
+function errorMessage(error: unknown): string | undefined {
+  if (error == null) return undefined
+  if (error instanceof Error) return error.message
+  const body = zErrorBody.safeParse(error)
+  if (body.success) return body.data.error
+  return typeof error === 'string' ? error : 'unknown error'
+}
+const zToolOutput = z.object({
+  outcome: z.string(),
+  contentBlocks: z.array(z.object({ type: z.string(), text: z.string().optional() })),
+})
+
+export function formatDuration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 
 function outcomeColor(outcome: string): string {
@@ -30,96 +45,181 @@ function outcomeColor(outcome: string): string {
   return outcome === 'canceled' ? 'yellow' : 'red'
 }
 
-function EntryView({ entry }: { entry: TranscriptEntry }) {
-  switch (entry.kind) {
-    case 'user':
-      return (
-        <Text>
-          <Label name="you" color="cyan" /> {entry.text}
-        </Text>
-      )
-    case 'agent':
-      return (
-        <Text>
-          <Label name="agent" color="green" /> {entry.text}
-        </Text>
-      )
-    case 'tool':
-      return (
-        <Box flexDirection="column">
-          <Text>
-            <Label name="tool" color="magenta" /> {entry.name}{' '}
-            <Text color={outcomeColor(entry.outcome)}>({entry.outcome})</Text>
-          </Text>
-          {entry.summary != null && <Text dimColor>{`  ${entry.summary}`}</Text>}
-          {entry.output != null && <Text dimColor>{`  → ${entry.output}`}</Text>}
-        </Box>
-      )
-    case 'checkpoint':
-      return (
-        <Text>
-          <Label name="checkpoint" color="gray" /> context summarized
-        </Text>
-      )
-    case 'error':
-      return (
-        <Text>
-          <Label name={entry.label} color="red" /> {entry.text}
-        </Text>
-      )
-    case 'note':
-      return <Text dimColor>{entry.text}</Text>
-    case 'answer':
-      return (
-        <Box flexDirection="column">
-          <Text>
-            <Label name={entry.kindLabel} color={kindColor(entry.kindLabel)} /> {entry.title}
-          </Text>
-          {entry.lines.map((line, index) => (
-            <Text key={index} dimColor>{`  ${line}`}</Text>
-          ))}
-        </Box>
-      )
-  }
+function toolSummary(part: ToolPart): string | undefined {
+  const input = zToolInput.safeParse(part.input)
+  return input.success ? toolCallSummary(part.toolName, input.data) : undefined
 }
 
-function kindColor(kind: InteractionKindLabel): string {
-  return kind === 'approval' ? 'yellow' : 'cyan'
+function toolOutput(part: ToolPart): { outcome: string; text: string | undefined } | undefined {
+  if (part.state !== 'output-available') return undefined
+  const output = zToolOutput.safeParse(part.output)
+  if (!output.success) return undefined
+  const text = output.data.contentBlocks
+    .filter((block) => block.type === 'text' || block.type === 'structured_data')
+    .map(blockText)
+    .find((line) => line.trim() !== '')
+  return { outcome: output.data.outcome, text }
 }
 
-function StreamingText({ text }: { text: string }) {
-  const lines = text.slice(-streamingTailChars).split('\n')
-  const clipped = text.length > streamingTailChars || lines.length > streamingTailLines
-  const tail = lines.slice(-streamingTailLines).join('\n')
+function ToolPartView({ part }: { part: ToolPart }) {
+  const summary = toolSummary(part)
+  const output = toolOutput(part)
   return (
-    <Box marginTop={1}>
+    <Box flexDirection="column">
       <Text>
-        <Label name="agent" color="green" /> {clipped ? '…' : ''}
-        {tail}
+        <Label name="tool" color="magenta" /> {part.toolName}{' '}
+        {output != null ? (
+          <Text color={outcomeColor(output.outcome)}>({output.outcome})</Text>
+        ) : part.state === 'output-error' ? (
+          <Text color="red">(error)</Text>
+        ) : (
+          <Text dimColor>(running)</Text>
+        )}
       </Text>
+      {summary != null && <Text dimColor>{`  ${summary}`}</Text>}
+      {output?.text != null && (
+        <Text dimColor>{`  → ${abbreviate(output.text, summaryWidth)}`}</Text>
+      )}
+      {part.state === 'output-error' && <Text color="red">{`  ${part.errorText}`}</Text>}
     </Box>
   )
 }
 
-function RunningTools({ toolCalls }: { toolCalls: Record<string, ToolCallInfo> }) {
-  const tools = Object.values(toolCalls)
-  if (tools.length === 0) return null
-  const parts = tools.map((tool) =>
-    tool.summary != null ? `${tool.name} · ${tool.summary}` : tool.name,
-  )
+function clipTail(text: string): string {
+  const lines = text.slice(-streamingTailChars).split('\n')
+  const clipped = text.length > streamingTailChars || lines.length > streamingTailLines
+  return `${clipped ? '…' : ''}${lines.slice(-streamingTailLines).join('\n')}`
+}
+
+function PartView({ part, live }: { part: MessagePart; live: boolean }) {
+  switch (part.type) {
+    case 'text':
+      if (part.text.trim() === '') return null
+      return (
+        <Text>
+          <Label name="agent" color="green" /> {live ? clipTail(part.text) : part.text}
+        </Text>
+      )
+    case 'dynamic-tool':
+      return <ToolPartView part={part} />
+    case 'data-model-error':
+      return (
+        <Text>
+          <Label name="error" color="red" /> {part.data.text}
+        </Text>
+      )
+    case 'data-agent-config':
+      return <Text dimColor>agent config {part.data.action}</Text>
+    case 'data-media':
+      return (
+        <Text dimColor>[media{part.data.filename != null ? ` ${part.data.filename}` : ''}]</Text>
+      )
+    default:
+      return null
+  }
+}
+
+function MessageView({ message, live }: { message: OmnaraUIMessage; live: boolean }) {
+  if (message.role === 'user') {
+    const text = message.parts
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .filter((line) => line.trim() !== '')
+      .join('\n')
+    if (text === '') return null
+    return (
+      <Box marginTop={1}>
+        <Text>
+          <Label name="you" color="cyan" /> {text}
+        </Text>
+      </Box>
+    )
+  }
   return (
-    <Text wrap="truncate-end">
-      <Label name="tool" color="magenta" /> <Text dimColor>{parts.join(' | ')} …</Text>
-    </Text>
+    <Box flexDirection="column">
+      {message.parts.map((part) => {
+        const view = <PartView part={part} live={live} />
+        return (
+          <Box key={part.id} marginTop={1}>
+            {view}
+          </Box>
+        )
+      })}
+    </Box>
   )
+}
+
+interface Activity {
+  text: string
+  detail?: string
+}
+
+function currentActivity(
+  status: ReturnType<typeof useAgentChat>['status'],
+  isWorking: boolean,
+  live: OmnaraUIMessage[],
+): Activity | undefined {
+  if (status === 'submitted') return { text: 'sending…' }
+  if (!isWorking) return undefined
+  const parts = live.filter((message) => message.role === 'assistant').flatMap((m) => m.parts)
+  const running = parts.filter(
+    (part): part is ToolPart => part.type === 'dynamic-tool' && part.state !== 'output-available',
+  )
+  if (running.length > 0) {
+    const names = running.map((part) => part.toolName).join(', ')
+    return { text: `running ${names}…` }
+  }
+  const last = parts.at(-1)
+  if (last?.type === 'reasoning') return { text: 'thinking…', detail: last.text.slice(-200) }
+  if (last?.type === 'data-thinking' && last.data.active) return { text: 'thinking…' }
+  if (last?.type === 'text' && last.state === 'streaming') return { text: 'writing…' }
+  return { text: 'working…' }
+}
+
+interface WorkTimerSnapshot {
+  startedAt?: number
+  lastDuration?: number
+}
+
+class WorkTimer {
+  private listeners = new Set<() => void>()
+  private snapshot: WorkTimerSnapshot = {}
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  getSnapshot = (): WorkTimerSnapshot => this.snapshot
+
+  setActive(active: boolean): void {
+    const now = Date.now()
+    if (active) {
+      if (this.snapshot.startedAt != null) return
+      this.snapshot = { startedAt: now }
+    } else {
+      if (this.snapshot.startedAt == null) return
+      this.snapshot = { lastDuration: now - this.snapshot.startedAt }
+    }
+    for (const listener of this.listeners) listener()
+  }
+}
+
+function useWorkTimer(active: boolean): WorkTimerSnapshot {
+  const [timer] = useState(() => new WorkTimer())
+  useEffect(() => {
+    timer.setActive(active)
+  }, [active, timer])
+  return useSyncExternalStore(timer.subscribe, timer.getSnapshot, timer.getSnapshot)
 }
 
 function StatusLine({
   activity,
-  workStart,
+  startedAt,
 }: {
-  activity: AgentActivity | undefined
-  workStart: number | undefined
+  activity: Activity | undefined
+  startedAt: number | undefined
 }) {
   const [tick, setTick] = useState<{ frame: number; now: number | undefined }>({
     frame: 0,
@@ -141,238 +241,97 @@ function StatusLine({
   return (
     <Text wrap="truncate-end">
       <Text color="cyan">{spinnerFrames[tick.frame]}</Text> {activity.text}
-      {workStart != null && tick.now != null && (
-        <Text dimColor> ({formatDuration(tick.now - workStart)})</Text>
+      {startedAt != null && tick.now != null && (
+        <Text dimColor> ({formatDuration(tick.now - startedAt)})</Text>
       )}
       {activity.detail != null && <Text dimColor> {abbreviate(activity.detail, 60)}</Text>}
     </Text>
   )
 }
 
-function TextInput({
-  value,
-  onChange,
-  onSubmit,
-  active,
-}: {
-  value: string
-  onChange: (value: string) => void
-  onSubmit: (value: string) => void
-  active: boolean
-}) {
-  useInput(
-    (input, key) => {
-      if (key.return) {
-        onSubmit(value)
-        return
-      }
-      if (key.backspace || key.delete) {
-        onChange(value.slice(0, -1))
-        return
-      }
-      if (key.ctrl || key.meta || key.escape || key.tab) return
-      if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return
-      if (key.pageUp || key.pageDown) return
-      onChange(value + input)
-    },
-    { isActive: active },
-  )
-  return (
-    <Text>
-      {value}
-      <Text inverse> </Text>
-    </Text>
-  )
+function splitLive(
+  messages: OmnaraUIMessage[],
+  isWorking: boolean,
+): [OmnaraUIMessage[], OmnaraUIMessage[]] {
+  if (!isWorking) return [messages, []]
+  let lastAssistant = messages.length - 1
+  while (lastAssistant >= 0 && messages[lastAssistant]?.role !== 'assistant') lastAssistant -= 1
+  if (lastAssistant < 0) return [messages, []]
+  return [messages.slice(0, lastAssistant), messages.slice(lastAssistant)]
 }
 
-export interface SelectItem {
-  label: string
-  hint?: string
-}
-
-function SelectList({
-  items,
-  multiple,
-  onSubmit,
-}: {
-  items: SelectItem[]
-  multiple: boolean
-  onSubmit: (indices: number[]) => void
-}) {
-  const [active, setActive] = useState(0)
-  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set())
-  useInput((input, key) => {
-    if (key.upArrow || input === 'k') {
-      setActive((current) => (current - 1 + items.length) % items.length)
-    } else if (key.downArrow || input === 'j') {
-      setActive((current) => (current + 1) % items.length)
-    } else if (input === ' ' && multiple) {
-      setSelected((current) => {
-        const next = new Set(current)
-        if (next.has(active)) next.delete(active)
-        else next.add(active)
-        return next
-      })
-    } else if (key.return) {
-      if (!multiple) {
-        onSubmit([active])
-        return
-      }
-      const chosen = selected.size === 0 ? [active] : [...selected].sort((a, b) => a - b)
-      onSubmit(chosen)
-    }
-  })
-  return (
-    <Box flexDirection="column">
-      {items.map((item, index) => {
-        const isActive = index === active
-        const marker = multiple ? (selected.has(index) ? '[x] ' : '[ ] ') : ''
-        return (
-          <Text key={index}>
-            <Text color="cyan">{isActive ? '❯' : ' '}</Text> {marker}
-            <Text color={isActive ? 'cyan' : undefined}>{item.label}</Text>
-            {item.hint != null && <Text dimColor> {item.hint}</Text>}
-          </Text>
-        )
-      })}
-      <Text dimColor>
-        {multiple ? '↑/↓ move · space toggle · enter confirm' : '↑/↓ move · enter confirm'}
-      </Text>
-    </Box>
+export function Chat({ scope }: { scope: AgentChatScope }) {
+  const chat = useAgentChat(scope)
+  const interactions = useAgentInteractions(
+    scope.orgID,
+    scope.projectID,
+    scope.agentID,
+    chat.isWorking,
   )
-}
-
-function InteractionPrompt({
-  interaction,
-  onAnswer,
-}: {
-  interaction: AgentInteraction
-  onAnswer: (answers: InteractionAnswer[]) => void
-}) {
-  const kind = interactionKindLabel(interaction)
-  const form = interaction.request
-  const [answers, setAnswers] = useState<InteractionAnswer[]>([])
-  const [pendingText, setPendingText] = useState<number[]>()
-  const [text, setText] = useState('')
-  const question = form.questions[answers.length]
-
-  const commit = (answer: InteractionAnswer) => {
-    const next = [...answers, answer]
-    setAnswers(next)
-    setPendingText(undefined)
-    setText('')
-    if (next.length === form.questions.length) onAnswer(next)
-  }
-
-  return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text>
-        <Label name={kind} color={kindColor(kind)} /> {form.title}
-      </Text>
-      {(form.context ?? []).map((item, index) => (
-        <Text key={index}>
-          {'  '}
-          <Text dimColor>{item.label}:</Text> {item.value}
-        </Text>
-      ))}
-      {answers.map((answer, index) => {
-        const answered = form.questions[index]
-        if (answered == null) return null
-        const chosen = answer.option_indices
-          .map((optionIndex) => answered.options[optionIndex]?.label)
-          .join(', ')
-        return (
-          <Text key={index}>
-            {'  '}
-            <Text dimColor>{answered.prompt}</Text> {chosen}
-            {answer.text != null ? `: ${answer.text}` : ''}
-          </Text>
-        )
-      })}
-      {question != null && pendingText == null && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text>{question.prompt}</Text>
-          <SelectList
-            key={answers.length}
-            items={question.options.map((option) => ({
-              label: option.label,
-              hint: option.allows_text === true ? 'accepts text' : undefined,
-            }))}
-            multiple={question.multiple === true}
-            onSubmit={(indices) => {
-              const allowsText = indices.some(
-                (index) => question.options[index]?.allows_text === true,
-              )
-              if (allowsText) setPendingText(indices)
-              else commit({ option_indices: indices })
-            }}
-          />
-        </Box>
-      )}
-      {question != null && pendingText != null && (
-        <Text>
-          <Text dimColor>optional text (enter to skip)</Text> <Text color="cyan">❯</Text>{' '}
-          <TextInput
-            value={text}
-            onChange={setText}
-            active
-            onSubmit={(line) => {
-              const trimmed = line.trim()
-              commit(
-                trimmed === ''
-                  ? { option_indices: pendingText }
-                  : { option_indices: pendingText, text: trimmed },
-              )
-            }}
-          />
-        </Text>
-      )}
-    </Box>
-  )
-}
-
-export function Chat({ target }: { target: ChatTarget }) {
-  const { state, send, answer } = useChatSession(target)
+  const resolveInteraction = useResolveAgentInteraction(scope.orgID, scope.projectID, scope.agentID)
   const { exit } = useApp()
   const [draft, setDraft] = useState('')
-  useEffect(() => {
-    if (state.ended) exit()
-  }, [state.ended, exit])
-  const interaction = state.interactions[0]
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
+
+  const [settled, live] = splitLive(chat.messages, chat.isWorking)
+  const interaction = (interactions.data?.data ?? []).find((item) => !answered.has(item.id))
+  const activity =
+    interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
+  const timer = useWorkTimer(chat.isWorking && interaction == null)
+  const ready = chat.historyStatus === 'success'
+  const errors = [chat.error, interactions.error, resolveInteraction.error]
+    .map(errorMessage)
+    .filter((message) => message != null)
 
   return (
     <Box flexDirection="column">
-      <Static items={state.entries}>
-        {(entry) => (
-          <Box key={entry.id} marginTop={1}>
-            <EntryView entry={entry} />
-          </Box>
-        )}
+      <Static items={settled}>
+        {(message) => <MessageView key={message.id} message={message} live={false} />}
       </Static>
-      {state.streaming != null && <StreamingText text={state.streaming.text} />}
-      <Box flexDirection="column" marginTop={1}>
-        <RunningTools toolCalls={state.toolCalls} />
-        <StatusLine activity={state.activity} workStart={state.workStart} />
+      {live.map((message) => (
+        <MessageView key={message.id} message={message} live />
+      ))}
+      {!ready && chat.historyStatus === 'pending' && <Text dimColor>loading history…</Text>}
+      {chat.hasOlderMessages && ready && <Text dimColor>(older history omitted)</Text>}
+      {activity == null && timer.lastDuration != null && timer.lastDuration >= 1000 && (
+        <Box marginTop={1}>
+          <Text dimColor>✔ Worked for {formatDuration(timer.lastDuration)}</Text>
+        </Box>
+      )}
+      {errors.map((message, index) => (
+        <Text key={index}>
+          <Label name="error" color="red" /> {message}
+        </Text>
+      ))}
+      <Box marginTop={1}>
+        <StatusLine activity={activity} startedAt={timer.startedAt} />
       </Box>
       {interaction != null ? (
         <InteractionPrompt
           key={interaction.id}
           interaction={interaction}
           onAnswer={(answers) => {
-            void answer(interaction, answers)
+            setAnswered((current) => new Set(current).add(interaction.id))
+            resolveInteraction
+              .mutateAsync({ interactionID: interaction.id, body: { answers } })
+              .catch(() => {
+                setAnswered((current) => {
+                  const next = new Set(current)
+                  next.delete(interaction.id)
+                  return next
+                })
+              })
           }}
         />
       ) : (
-        state.ready &&
-        !state.ended && (
-          <Box marginTop={1}>
+        ready && (
+          <Box>
             <Text bold color="cyan">
               ❯{' '}
             </Text>
             <TextInput
               value={draft}
               onChange={setDraft}
-              active
               onSubmit={(line) => {
                 const trimmed = line.trim()
                 setDraft('')
@@ -381,7 +340,7 @@ export function Chat({ target }: { target: ChatTarget }) {
                   exit()
                   return
                 }
-                void send(trimmed)
+                void chat.sendMessage({ text: trimmed }).catch(() => undefined)
               }}
             />
           </Box>

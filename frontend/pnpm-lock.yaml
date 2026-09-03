@@ -169,6 +169,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.7.0
         version: 1.7.0
+      '@tanstack/react-query':
+        specifier: ^5.101.0
+        version: 5.101.0(react@19.3.0-canary-eb8feb71-20260814)
       commander:
         specifier: ^14.0.0
         version: 14.0.3
@@ -182,6 +185,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@omnara/react':
+        specifier: workspace:*
+        version: link:../react
       '@omnara/sdk':
         specifier: workspace:*
         version: link:../sdk

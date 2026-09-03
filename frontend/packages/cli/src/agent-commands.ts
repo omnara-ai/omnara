@@ -62,27 +62,6 @@ export const agentChatOp: CustomSpec = {
   },
 }
 
-export const zAgentInputCliBody = schemas.zCreateAgentInputBody
-  .extend({
-    content_blocks: z
-      .array(schemas.zCreateAgentInputContentBlock)
-      .min(1)
-      .optional()
-      .describe('content blocks as a JSON array, instead of --message'),
-    message: z.string().optional().describe('plain text to send as a single text block'),
-  })
-  .transform(({ message, content_blocks, ...rest }, ctx) => {
-    if (message !== undefined && content_blocks !== undefined) {
-      ctx.addIssue('pass either --message or --content-blocks, not both')
-      return z.NEVER
-    }
-    if (content_blocks !== undefined) return { ...rest, content_blocks }
-    if (message !== undefined)
-      return { ...rest, content_blocks: [{ type: 'text' as const, text: message }] }
-    ctx.addIssue('pass --message or --content-blocks')
-    return z.NEVER
-  })
-
 export const agentEventsStreamOp: CustomSpec = {
   type: 'custom',
   register(parent, config) {

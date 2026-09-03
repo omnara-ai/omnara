@@ -2,7 +2,7 @@ import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
-import { agentChatOp, agentEventsStreamOp, zAgentInputCliBody } from './agent-commands.ts'
+import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
 import {
   currentProfileConfigId,
@@ -111,7 +111,21 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.createAgentInput,
         format: (response) => formatRecord()(response.agent_input),
         path: schemas.zCreateAgentInputPath,
-        body: zAgentInputCliBody,
+        body: schemas.zCreateAgentInputBody
+          .partial({ content_blocks: true })
+          .extend({
+            message: z.string().optional().describe('plain text to send as a single text block'),
+          })
+          .transform(({ message, content_blocks, ...rest }, ctx) => {
+            if (content_blocks !== undefined && message === undefined) {
+              return { ...rest, content_blocks }
+            }
+            if (message !== undefined && content_blocks === undefined) {
+              return { ...rest, content_blocks: [{ type: 'text' as const, text: message }] }
+            }
+            ctx.addIssue('pass exactly one of --message or --content-blocks')
+            return z.NEVER
+          }),
       }),
     ],
     groups: [
