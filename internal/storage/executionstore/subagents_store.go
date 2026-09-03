@@ -30,7 +30,6 @@ const (
 	SubagentMessageKindArchived        = "archived"
 	SubagentMessageKindWaitingOnParent = "waiting_on_parent"
 	SubagentMessageKindWaitingOnHuman  = "waiting_on_human"
-	SubagentMessageKindPermission      = "permission"
 	SubagentMessageKindTimeout         = "timeout"
 
 	SubagentStateRunning         = "running"
@@ -888,8 +887,6 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 		header = label + " failed:"
 	case SubagentMessageKindQuestion:
 		header = label + " asked a question. Answer it with send_agent_message using the interaction_id below."
-	case SubagentMessageKindPermission:
-		header = label + " is blocked on a tool permission that only a human can grant."
 	case SubagentMessageKindCanceled:
 		header = label + " was canceled."
 	case SubagentMessageKindArchived:
@@ -960,6 +957,8 @@ func handleSubagentQuestionTx(
 	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, message)
 }
 
+// handleSubagentPermissionTx only settles a parent parked in wait_agents;
+// a pending human permission is never announced to the parent model.
 func handleSubagentPermissionTx(
 	ctx context.Context,
 	txNotifications *notifications.TxNotifications,
@@ -985,17 +984,15 @@ func handleSubagentPermissionTx(
 	if err != nil {
 		return fmt.Errorf("list open agent waits: %w", err)
 	}
-	message := subagentMessage{
-		Kind:           SubagentMessageKindPermission,
+	if len(waits) == 0 {
+		return nil
+	}
+	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, subagentMessage{
+		Kind:           SubagentMessageKindWaitingOnHuman,
 		Text:           text,
 		InteractionID:  interaction.ID,
 		IdempotencyKey: "permission:" + interaction.ID.String(),
-	}
-	if len(waits) == 0 {
-		return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, message)
-	}
-	message.Kind = SubagentMessageKindWaitingOnHuman
-	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, message)
+	})
 }
 
 type ListAgentInteractionsForAgentTreeInput struct {
