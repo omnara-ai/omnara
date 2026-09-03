@@ -6,9 +6,8 @@ import type {
   ListAgentEventsResponse,
   OmnaraClient,
 } from '@omnara/sdk'
-import { ApiError, sdk } from '@omnara/sdk'
+import { ApiError, openAgentEventStream, sdk } from '@omnara/sdk'
 
-import { followAgentEvents } from './agent-events.ts'
 import { blockText } from './content-blocks.ts'
 import { DeltaRenderer } from './delta-renderer.ts'
 import { abbreviate } from './output.ts'
@@ -289,14 +288,13 @@ export async function runChat(target: ChatTarget): Promise<void> {
 
   const streamTask = (async () => {
     try {
-      const frames = followAgentEvents({
+      const frames = openAgentEventStream({
         client,
         path,
-        afterSequence: initialSequence,
-        streamDeltas: true,
+        query: { after_sequence: initialSequence, stream_deltas: true },
         signal: abort.signal,
-        onReconnect: () => {
-          deltas.reset()
+        onConnectionStateChange: (state) => {
+          if (state.state === 'reconnecting') deltas.reset()
         },
       })
       for await (const frame of frames) {
@@ -332,11 +330,10 @@ export async function runChat(target: ChatTarget): Promise<void> {
             finishTurn()
           }
           deltas.handle(frame)
-        } else if ('code' in frame) {
-          terminal.printBlock(`${label('stream error', ansi.red)} ${frame.error}`)
         }
       }
     } catch (error) {
+      if (abort.signal.aborted) return
       deltas.reset()
       terminal.printBlock(
         `${label('stream error', ansi.red)} ${error instanceof Error ? error.message : String(error)}`,

@@ -1,10 +1,9 @@
 import type { AgentEvent, ListAgentEventsResponse } from '@omnara/sdk'
-import { sdk } from '@omnara/sdk'
+import { openAgentEventStream, sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import type { Command } from 'commander'
 import * as z from 'zod'
 
-import { followAgentEvents } from './agent-events.ts'
 import { runChat } from './chat.ts'
 import type { CliConfig } from './config.ts'
 import { blockText } from './content-blocks.ts'
@@ -158,11 +157,10 @@ export const agentEventsStreamOp: CustomSpec = {
         process.once('SIGINT', () => {
           abort.abort()
         })
-        const frames = followAgentEvents({
+        const frames = openAgentEventStream({
           client: config.client,
           path: { ...scope, agentID },
-          afterSequence,
-          streamDeltas: options.deltas === true,
+          query: { after_sequence: afterSequence, stream_deltas: options.deltas === true },
           signal: abort.signal,
         })
         for await (const frame of frames) console.log(JSON.stringify(frame))
