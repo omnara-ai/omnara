@@ -90,6 +90,17 @@ func livePromptCacheRoutes() []livePromptCacheRoute {
 				}
 			},
 		},
+		{
+			name: "openai chat", keyEnv: "OPENAI_API_KEY",
+			client: func(apiKey string) model.Client {
+				return openaichatcompletions.Client{
+					Auth:              route.BearerToken{Token: apiKey},
+					BaseURL:           os.Getenv("OPENAI_BASE_URL"),
+					EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
+					ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
+				}
+			},
+		},
 	}
 }
 
@@ -101,31 +112,22 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 				t.Skipf("%s is not set", r.keyEnv)
 			}
 			client := r.client(apiKey)
-			bundle := modelcontext.Bundle{
-				AgentID:      uuid.New(),
-				SystemPrompt: liveStableSystemPrompt(),
-				Messages: []modelcontext.Message{
-					liveTextMessage(modelprotocol.RoleUser, 10, "Reply with the single word ready."),
-				},
-			}
-			first := liveRespond(t, client, bundle)
-			if r.writesCache && first.Usage.CacheWriteTokens == 0 {
-				t.Fatalf("first turn wrote nothing to the cache: %+v", first.Usage)
-			}
-			bundle.Messages = append(bundle.Messages,
-				liveTextMessage(modelprotocol.RoleAssistant, 20, first.Text()),
-				liveTextMessage(modelprotocol.RoleUser, 30, "Reply with the single word again."),
-			)
-			var second model.Response
+			var first, second model.Response
 			for attempt := 0; attempt < 3; attempt++ {
-				second = liveRespond(t, client, bundle)
+				first, second = liveConversationPair(t, client)
 				if second.Usage.CacheReadTokens > 0 {
 					break
 				}
 				time.Sleep(3 * time.Second)
 			}
+			if r.writesCache && first.Usage.CacheWriteTokens == 0 {
+				t.Fatalf("first turn wrote nothing to the cache: %+v", first.Usage)
+			}
 			if second.Usage.CacheReadTokens == 0 {
 				t.Fatalf("second turn read nothing from the cache: %+v", second.Usage)
+			}
+			if r.writesCache && second.Usage.CacheReadTokens < first.Usage.CacheWriteTokens {
+				t.Fatalf("second turn reused less than the first turn's prefix: first=%+v second=%+v", first.Usage, second.Usage)
 			}
 			if client.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter &&
 				second.ProviderMetadata.OpenRouter.Provider == "" {
@@ -138,6 +140,23 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 			t.Logf("first=%+v second=%+v", first.Usage, second.Usage)
 		})
 	}
+}
+
+func liveConversationPair(t *testing.T, client model.Client) (model.Response, model.Response) {
+	t.Helper()
+	bundle := modelcontext.Bundle{
+		AgentID:      uuid.New(),
+		SystemPrompt: liveStableSystemPrompt(),
+		Messages: []modelcontext.Message{
+			liveTextMessage(modelprotocol.RoleUser, 10, "Reply with the single word ready."),
+		},
+	}
+	first := liveRespond(t, client, bundle)
+	bundle.Messages = append(bundle.Messages,
+		liveTextMessage(modelprotocol.RoleAssistant, 20, first.Text()),
+		liveTextMessage(modelprotocol.RoleUser, 30, "Reply with the single word again."),
+	)
+	return first, liveRespond(t, client, bundle)
 }
 
 func liveRespond(t *testing.T, client model.Client, bundle modelcontext.Bundle) model.Response {

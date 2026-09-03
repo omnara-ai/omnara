@@ -444,13 +444,14 @@ test-live-web:
 test-live-openai-responses:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Responses tests}"; \
-	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache' && \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_responses$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIResponses(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint$$'
 
 test-live-openai-chat-completions:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Chat Completions tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_chat$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenAIChatCompletionsText$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletions(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint$$'
@@ -458,7 +459,7 @@ test-live-openai-chat-completions:
 test-live-openrouter:
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live OpenRouter tests}"; \
-	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache' && \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openrouter_.*$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
@@ -466,7 +467,7 @@ test-live-openrouter:
 test-live-anthropic:
 	@$(LOAD_DOTENV); \
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live Anthropic tests}"; \
-	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache' && \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/anthropic$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveAnthropicCompactionCreatesCheckpoint$$'
 
