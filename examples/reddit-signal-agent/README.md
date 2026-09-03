@@ -1,10 +1,17 @@
-# X Signal Agent
+# Reddit Signal Agent
 
-An agent that listens to X (Twitter) for you. Once a day it searches the last
-24 hours of conversation about any topic you pick, filters out the noise, and
-delivers a short digest — at most five posts, each with why it matters and a
-suggested action. Reply in Slack (or the Omnara console) to ask for reply
-drafts or push back on the filtering. It never posts to X.
+An agent that listens to Reddit for you. Once a day it searches the last 24
+hours of conversation about any topic you pick, filters out the noise, and
+delivers a short digest — at most five threads, each with why it matters and
+a suggested action. Reply in Slack (or the Omnara console) to ask for reply
+drafts or push back on the filtering. It never posts to Reddit.
+
+There is no Reddit API key involved. Reddit gates its Data API behind a
+manual approval process, so this agent fetches through an Apify-hosted MCP
+server backed by a maintained Reddit scraper — an Apify account token is the
+only credential, and the free plan covers a daily scan. Unlike the
+[X signal agent](../x-signal-agent), this agent needs no machine pool: its
+entire fetch layer is the MCP server.
 
 The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent itself
 is a single config object — there is no service to deploy. Run it top to
@@ -13,9 +20,10 @@ bottom and you have your own.
 ## What you need
 
 - An Omnara account ([app.omnara.com](https://app.omnara.com)) with an API key
-- An X API bearer token with pay-per-use billing
-  ([console.x.com](https://console.x.com)) — a daily scan costs on the order
-  of cents
+- A free Apify account ([console.apify.com](https://console.apify.com/sign-up))
+  — no credit card; the API token is under **Settings → Integrations**. The
+  scraper is pay-per-result ($3.40 per 1,000 results), so a capped daily scan
+  costs a few cents against the free plan's $5/month
 - A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
   Node 22.18+, or [Bun](https://bun.sh)
 
@@ -24,8 +32,8 @@ bottom and you have your own.
 ```sh
 brew install deno
 
-cd examples/x-signal-agent
-cp .env.example .env      # set OMNARA_API_KEY and X_BEARER_TOKEN
+cd examples/reddit-signal-agent
+cp .env.example .env      # set OMNARA_API_KEY and APIFY_TOKEN
 deno install              # fetch @omnara/sdk into node_modules
 deno run --env-file --allow-all demo.ts
 ```
@@ -43,8 +51,8 @@ Prefer notebook cells? `demo.ts` is in
 [jupytext](https://jupytext.readthedocs.io/) percent format — open it in
 Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
 
-One section holds the topic and the X search
-query — edit those two lines to point the agent at whatever you want to
+One section holds the topic and the Reddit
+search terms — edit those lines to point the agent at whatever you want to
 track. Every section is idempotent: rerun after editing and the agent updates
 in place.
 
