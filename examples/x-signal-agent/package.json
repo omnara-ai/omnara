@@ -2,6 +2,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@omnara/sdk": "^0.1.7"
+    "@omnara/sdk": "^0.1.8"
   }
 }

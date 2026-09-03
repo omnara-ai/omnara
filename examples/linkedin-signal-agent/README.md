@@ -27,7 +27,8 @@ bottom and you have your own.
   — no credit card; the API token is under **Settings → Integrations**. Both
   scrapers are pay-per-result (~$2 per 1,000 posts), so a capped scan costs
   about $0.52; a weekday cron runs ~$11/month, past the free plan's $5 credit
-- [Deno](https://docs.deno.com/runtime/getting_started/installation/)
+- A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
+  Node 22.18+, or [Bun](https://bun.sh)
 
 ## Run it
 
@@ -37,12 +38,17 @@ brew install deno
 cd examples/linkedin-signal-agent
 cp .env.example .env      # set OMNARA_API_KEY and APIFY_TOKEN
 deno install              # fetch @omnara/sdk into node_modules
-deno run --allow-all demo.ts
+deno run --env-file --allow-all demo.ts
 ```
 
-Deno runs the TypeScript directly (`deno install` fetches `@omnara/sdk` from
-`package.json`). The SDK itself works on Node and Bun too — `demo.ts` is a
-plain script you can lift into any project.
+Nothing in `demo.ts` is Deno-specific — `.env` loading is native in every
+runtime and `@omnara/sdk` is a normal npm package, so Node and Bun run the
+same file:
+
+```sh
+npm install && node --env-file=.env demo.ts   # Node 22.18+
+bun install && bun demo.ts                    # Bun (reads .env automatically)
+```
 
 Prefer notebook cells? `demo.ts` is in
 [jupytext](https://jupytext.readthedocs.io/) percent format — open it in

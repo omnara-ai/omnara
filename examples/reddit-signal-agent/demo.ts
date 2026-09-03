@@ -33,19 +33,28 @@
 // 2. Get a free Apify token ([console.apify.com](https://console.apify.com/sign-up),
 //    no credit card) — it's under **Settings → Integrations**.
 // 3. `cp .env.example .env` and fill in `OMNARA_API_KEY` and `APIFY_TOKEN`.
-// 4. Install [Deno](https://docs.deno.com/runtime/) (`brew install deno`),
-//    then run `deno install` once in this folder to fetch
-//    [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk).
+// 4. Fetch [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk) with
+//    your runtime's installer — once, in this folder: `deno install`,
+//    `npm install`, or `bun install`.
 //
-// Then: `deno run --allow-all demo.ts`. Prefer notebook cells? This file is
-// jupytext percent format — open it in Jupyter with the Deno kernel
-// (`deno jupyter --install`).
+// Then run it with any TypeScript runtime — nothing in this file is
+// runtime-specific, and `.env` loading is native everywhere:
+//
+// - [Deno](https://docs.deno.com/runtime/): `deno run --env-file --allow-all demo.ts`
+// - Node 22.18+: `node --env-file=.env demo.ts`
+// - [Bun](https://bun.sh): `bun demo.ts` (reads `.env` automatically)
+//
+// Prefer notebook cells? This file is jupytext percent format — open it in
+// Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { load } from 'jsr:@std/dotenv'
 import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
 
-const env = await load()
+// process.env is available in Deno, Node, and Bun; declaring it inline keeps
+// this file dependency-free (no @types/node).
+declare const process: { env: Record<string, string | undefined> }
+const env = process.env
+if (!env.OMNARA_API_KEY) throw new Error('set OMNARA_API_KEY in .env')
 
 const client = createOmnaraClient({
   baseUrl: 'https://api.omnara.com/v1',
