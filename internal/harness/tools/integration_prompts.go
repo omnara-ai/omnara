@@ -21,14 +21,9 @@ func (e Executor) postIntegrationPrompt(
 	turn Turn,
 	interaction executionstore.AgentInteractionRecord,
 ) error {
-	target, ok, err := e.resolveIntegrationPromptTarget(ctx, turn, interaction)
-	if err != nil || !ok {
-		return err
-	}
-	return e.postIntegrationPromptToTarget(
+	return e.postIntegrationPromptToAutomaticChannel(
 		ctx,
 		turn,
-		target,
 		interaction,
 		func(ctx context.Context) error {
 			return e.ensureIntegrationPostOwnership(ctx, turn)
@@ -96,20 +91,124 @@ func (e Executor) copyPermissionPromptToIntegration(
 	if !found || current.State != executionstore.AgentInteractionStateOpen {
 		return nil
 	}
-	target, ok, err := e.resolveIntegrationPromptTarget(ctx, turn, current)
-	if err != nil || !ok {
-		return err
-	}
-	if err := e.postIntegrationPromptToTarget(
+	if err := e.postIntegrationPromptToAutomaticChannel(
 		ctx,
 		turn,
-		target,
 		current,
 		nil,
 	); err != nil {
 		return fmt.Errorf("copy permission interaction to integration: %w", err)
 	}
 	return nil
+}
+
+func (e Executor) postIntegrationPromptToAutomaticChannel(
+	ctx context.Context,
+	turn Turn,
+	interaction executionstore.AgentInteractionRecord,
+	beforeAttempt func(context.Context) error,
+) error {
+	if interaction.State != executionstore.AgentInteractionStateOpen {
+		return nil
+	}
+	destination, err := e.resolveAutomaticChannelDestination(ctx, turn)
+	if err != nil {
+		if errors.Is(err, errMissingChannel) || errors.Is(err, errAmbiguousChannel) ||
+			errors.Is(err, errChannelDisabled) || errors.Is(err, errMissingIntegrationTarget) ||
+			errors.Is(err, errIntegrationDisabled) {
+			return nil
+		}
+		return err
+	}
+	if !isNativeSlackChannelDestination(destination) {
+		if !destination.Binding.ReceiveAllowed || !destination.Binding.SendAllowed {
+			return nil
+		}
+		if beforeAttempt != nil {
+			if err := beforeAttempt(ctx); err != nil {
+				return err
+			}
+		}
+		return e.enqueueConnectorInteractionPrompt(ctx, turn, destination, interaction)
+	}
+	target, ok, err := e.resolveIntegrationPromptTarget(ctx, turn, interaction)
+	if err != nil || !ok {
+		return err
+	}
+	return e.postIntegrationPromptToTarget(
+		ctx,
+		turn,
+		target,
+		interaction,
+		beforeAttempt,
+	)
+}
+
+type channelInteractionPromptPayloadV1 struct {
+	Destination channelOutboundDestinationV1 `json:"destination"`
+	Interaction channelInteractionPromptV1   `json:"interaction"`
+	Context     channelOutboundContextV1     `json:"context"`
+}
+
+type channelInteractionPromptV1 struct {
+	ID   string          `json:"id"`
+	Kind string          `json:"kind"`
+	Form json.RawMessage `json:"form"`
+}
+
+func (e Executor) enqueueConnectorInteractionPrompt(
+	ctx context.Context,
+	turn Turn,
+	destination channelDestination,
+	interaction executionstore.AgentInteractionRecord,
+) error {
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, destination.Target.ID)
+	if err != nil {
+		return err
+	}
+	agentID, err := publicid.Encode(publicid.KindAgent, turn.AgentID)
+	if err != nil {
+		return err
+	}
+	interactionID, err := publicid.Encode(publicid.KindAgentInteraction, interaction.ID)
+	if err != nil {
+		return err
+	}
+	form, err := interaction.Form()
+	if err != nil {
+		return err
+	}
+	formJSON, err := json.Marshal(form)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(channelInteractionPromptPayloadV1{
+		Destination: channelOutboundDestinationV1{
+			ChannelID: channelID, ProviderRefKind: destination.Target.ProviderRefKind,
+			ProviderRef:      destination.Target.ProviderRef,
+			ProviderMetadata: destination.Target.ProviderMetadata,
+		},
+		Interaction: channelInteractionPromptV1{
+			ID: interactionID, Kind: string(interaction.InteractionKind), Form: formJSON,
+		},
+		Context: channelOutboundContextV1{
+			AgentID: agentID, ProviderCallID: interaction.ProviderCallID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = e.enqueueConnectorChannelDelivery(
+		ctx,
+		turn,
+		destination,
+		connectorChannelDeliveryIntent{
+			Kind: "interaction", PayloadVersion: "channel-interaction.v1", Payload: payload,
+			IdempotencyScope: "channel_interaction_prompt/interaction",
+			IdempotencyKey:   interaction.ID.String(),
+		},
+	)
+	return err
 }
 
 func (e Executor) resolveIntegrationPromptTarget(

@@ -42,7 +42,7 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 	); err != nil {
 		return AgentRecord{}, fmt.Errorf("load agent config: %w", err)
 	}
-	if err := lockProjectAgentLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
+	if err := lockProjectLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
 		return AgentRecord{}, err
 	}
 	record, _, err := insertAgentWithProjectLifecycleLockTx(ctx, tx, qtx, insertAgentInput{

@@ -823,30 +823,30 @@ func (q *Queries) LockAgentLaunchIdempotencyKey(ctx context.Context, arg LockAge
 	return err
 }
 
-const lockProjectAgentLifecycleExclusive = `-- name: LockProjectAgentLifecycleExclusive :exec
+const lockProjectLifecycleExclusive = `-- name: LockProjectLifecycleExclusive :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 `
 
-type LockProjectAgentLifecycleExclusiveParams struct {
+type LockProjectLifecycleExclusiveParams struct {
 	ProjectID string
 }
 
-func (q *Queries) LockProjectAgentLifecycleExclusive(ctx context.Context, arg LockProjectAgentLifecycleExclusiveParams) error {
-	_, err := q.db.Exec(ctx, lockProjectAgentLifecycleExclusive, arg.ProjectID)
+func (q *Queries) LockProjectLifecycleExclusive(ctx context.Context, arg LockProjectLifecycleExclusiveParams) error {
+	_, err := q.db.Exec(ctx, lockProjectLifecycleExclusive, arg.ProjectID)
 	return err
 }
 
-const lockProjectAgentLifecycleShared = `-- name: LockProjectAgentLifecycleShared :exec
+const lockProjectLifecycleShared = `-- name: LockProjectLifecycleShared :exec
 SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))
 `
 
-type LockProjectAgentLifecycleSharedParams struct {
+type LockProjectLifecycleSharedParams struct {
 	ProjectID string
 }
 
-// Agent creation takes the shared side: creates never conflict with each
-// other, only with project/org deletion, which holds the exclusive side.
-func (q *Queries) LockProjectAgentLifecycleShared(ctx context.Context, arg LockProjectAgentLifecycleSharedParams) error {
-	_, err := q.db.Exec(ctx, lockProjectAgentLifecycleShared, arg.ProjectID)
+// Project-owned resource creation takes the shared side: creates never conflict
+// with each other, only with project/org deletion, which holds the exclusive side.
+func (q *Queries) LockProjectLifecycleShared(ctx context.Context, arg LockProjectLifecycleSharedParams) error {
+	_, err := q.db.Exec(ctx, lockProjectLifecycleShared, arg.ProjectID)
 	return err
 }

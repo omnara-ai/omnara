@@ -1147,6 +1147,50 @@ func (q *Queries) DeleteOrganizationConfiguredModels(ctx context.Context, arg De
 	return err
 }
 
+const deleteOrganizationIntegrationApps = `-- name: DeleteOrganizationIntegrationApps :exec
+UPDATE integration_apps
+SET credential_secret_id = NULL,
+    state = 'disabled',
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteOrganizationIntegrationAppsParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) DeleteOrganizationIntegrationApps(ctx context.Context, arg DeleteOrganizationIntegrationAppsParams) error {
+	_, err := q.db.Exec(ctx, deleteOrganizationIntegrationApps, arg.OrgID)
+	return err
+}
+
+const deleteOrganizationIntegrationRuntimeUnits = `-- name: DeleteOrganizationIntegrationRuntimeUnits :exec
+UPDATE integration_runtime_units
+SET desired_state = 'stopped',
+    status = 'stopped',
+    lease_owner = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    renewed_at = NULL,
+    lease_expires_at = NULL,
+    lease_spec_revision = NULL,
+    lease_app_configuration_revision = NULL,
+    lease_install_configuration_revision = NULL,
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteOrganizationIntegrationRuntimeUnitsParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) DeleteOrganizationIntegrationRuntimeUnits(ctx context.Context, arg DeleteOrganizationIntegrationRuntimeUnitsParams) error {
+	_, err := q.db.Exec(ctx, deleteOrganizationIntegrationRuntimeUnits, arg.OrgID)
+	return err
+}
+
 const deleteOrganizationMemberships = `-- name: DeleteOrganizationMemberships :exec
 DELETE FROM org_memberships
 WHERE org_id = $1
@@ -1312,6 +1356,29 @@ func (q *Queries) DeleteProjectCronTriggers(ctx context.Context, arg DeleteProje
 	return err
 }
 
+const deleteProjectIntegrationApps = `-- name: DeleteProjectIntegrationApps :exec
+UPDATE integration_apps
+SET credential_secret_id = NULL,
+    state = 'disabled',
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = $1
+  AND owner_project_id = $2::uuid
+  AND deleted_at IS NULL
+`
+
+type DeleteProjectIntegrationAppsParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+// Only registrations restricted to this project are project-owned. Shared
+// organization registrations survive project deletion.
+func (q *Queries) DeleteProjectIntegrationApps(ctx context.Context, arg DeleteProjectIntegrationAppsParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectIntegrationApps, arg.OrgID, arg.ProjectID)
+	return err
+}
+
 const deleteProjectIntegrationInstalls = `-- name: DeleteProjectIntegrationInstalls :exec
 UPDATE integration_installs
 SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
@@ -1326,6 +1393,62 @@ type DeleteProjectIntegrationInstallsParams struct {
 // Clearing the credential releases the secret for the deletion below.
 func (q *Queries) DeleteProjectIntegrationInstalls(ctx context.Context, arg DeleteProjectIntegrationInstallsParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectIntegrationInstalls, arg.OrgID, arg.ProjectID)
+	return err
+}
+
+const deleteProjectIntegrationRoutes = `-- name: DeleteProjectIntegrationRoutes :exec
+UPDATE integration_routes
+SET state = 'disabled', deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteProjectIntegrationRoutesParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) DeleteProjectIntegrationRoutes(ctx context.Context, arg DeleteProjectIntegrationRoutesParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectIntegrationRoutes, arg.ProjectID)
+	return err
+}
+
+const deleteProjectIntegrationRuntimeUnits = `-- name: DeleteProjectIntegrationRuntimeUnits :exec
+UPDATE integration_runtime_units
+SET desired_state = 'stopped',
+    status = 'stopped',
+    lease_owner = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    renewed_at = NULL,
+    lease_expires_at = NULL,
+    lease_spec_revision = NULL,
+    lease_app_configuration_revision = NULL,
+    lease_install_configuration_revision = NULL,
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE integration_runtime_units.org_id = $1
+  AND (
+    integration_runtime_units.project_id = $2::uuid
+    OR (
+      integration_runtime_units.project_id IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM integration_apps app
+        WHERE app.id = integration_runtime_units.integration_app_id
+          AND app.org_id = $1
+          AND app.owner_project_id = $2::uuid
+      )
+    )
+  )
+  AND integration_runtime_units.deleted_at IS NULL
+`
+
+type DeleteProjectIntegrationRuntimeUnitsParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) DeleteProjectIntegrationRuntimeUnits(ctx context.Context, arg DeleteProjectIntegrationRuntimeUnitsParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectIntegrationRuntimeUnits, arg.OrgID, arg.ProjectID)
 	return err
 }
 
@@ -1785,6 +1908,10 @@ WHERE secret.org_id = version.org_id
   AND NOT EXISTS (
     SELECT 1 FROM integration_installs install
     WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM integration_apps app
+    WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id
   )
 `
 
@@ -3615,6 +3742,25 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	return id, err
 }
 
+const lockOrganizationLifecycleShared = `-- name: LockOrganizationLifecycleShared :one
+SELECT id
+FROM orgs
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR SHARE
+`
+
+type LockOrganizationLifecycleSharedParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) LockOrganizationLifecycleShared(ctx context.Context, arg LockOrganizationLifecycleSharedParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockOrganizationLifecycleShared, arg.OrgID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockUserEmailsByNormalizedEmail = `-- name: LockUserEmailsByNormalizedEmail :many
 SELECT id
 FROM user_emails
@@ -3872,6 +4018,7 @@ SELECT EXISTS (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integration_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4068,6 +4215,23 @@ type RevokePersonalAccessTokensForUserParams struct {
 
 func (q *Queries) RevokePersonalAccessTokensForUser(ctx context.Context, arg RevokePersonalAccessTokensForUserParams) error {
 	_, err := q.db.Exec(ctx, revokePersonalAccessTokensForUser, arg.UserID)
+	return err
+}
+
+const revokeProjectIntegrationTargetBindings = `-- name: RevokeProjectIntegrationTargetBindings :exec
+UPDATE integration_target_bindings
+SET revoked_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE project_id = $1
+  AND revoked_at IS NULL
+`
+
+type RevokeProjectIntegrationTargetBindingsParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) RevokeProjectIntegrationTargetBindings(ctx context.Context, arg RevokeProjectIntegrationTargetBindingsParams) error {
+	_, err := q.db.Exec(ctx, revokeProjectIntegrationTargetBindings, arg.ProjectID)
 	return err
 }
 

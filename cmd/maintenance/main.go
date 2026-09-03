@@ -25,10 +25,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 const (
 	runtimeLockReapBatchSize         int32 = 100
+	integrationDeliveryBatchSize           = 1000
 	providerRuntimeDiscoveryInterval       = 5 * time.Minute
 	providerRuntimeRecheckInterval         = 30 * time.Second
 	idleMachineReconcileInterval           = time.Minute
@@ -209,6 +211,8 @@ func main() {
 		logger,
 		store,
 		cfg.MaintenanceInterval,
+		cfg.IntegrationDeliveryRetention,
+		redisBus,
 		healthErr,
 	)
 	cancel()
@@ -328,6 +332,8 @@ func runCoreMaintenanceLoop(
 	log *slog.Logger,
 	store *storage.Store,
 	interval time.Duration,
+	integrationDeliveryRetention time.Duration,
+	integrationDeliveryPublisher notifications.IntegrationDeliveryPublisher,
 	healthErr <-chan error,
 ) int {
 	ticker := time.NewTicker(interval)
@@ -335,7 +341,13 @@ func runCoreMaintenanceLoop(
 	for {
 		now := time.Now().UTC()
 		loopCtx, event := logent.MaintenanceLoop(ctx, interval, now)
-		runCoreMaintenanceTick(loopCtx, log, store)
+		runCoreMaintenanceTick(
+			loopCtx,
+			log,
+			store,
+			integrationDeliveryRetention,
+			integrationDeliveryPublisher,
+		)
 		event.Done(loopCtx)
 		select {
 		case <-ctx.Done():
@@ -357,6 +369,8 @@ func runCoreMaintenanceTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
+	integrationDeliveryRetention time.Duration,
+	integrationDeliveryPublisher notifications.IntegrationDeliveryPublisher,
 ) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -383,6 +397,24 @@ func runCoreMaintenanceTick(
 	expireUnreachableToolsOutcome := completedMaintenanceOutcome(ctx, expireUnreachableToolsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
+	expiredDeliveries, expireDeliveriesErr := store.Integrations().ExpireIntegrationDeliveryClaims(
+		ctx,
+		integrationDeliveryBatchSize,
+	)
+	expireDeliveriesOutcome := completedMaintenanceOutcome(ctx, expireDeliveriesErr)
+	canceledDeliveries, cancelDeliveriesErr := store.Integrations().CancelUnavailableIntegrationDeliveries(
+		ctx,
+		integrationDeliveryBatchSize,
+	)
+	cancelDeliveriesOutcome := completedMaintenanceOutcome(ctx, cancelDeliveriesErr)
+	deletedDeliveries, deleteDeliveriesErr := store.Integrations().DeleteRetainedIntegrationDeliveries(
+		ctx,
+		integrationstore.DeleteRetainedIntegrationDeliveriesInput{
+			Retention: integrationDeliveryRetention,
+			Limit:     integrationDeliveryBatchSize,
+		},
+	)
+	deleteDeliveriesOutcome := completedMaintenanceOutcome(ctx, deleteDeliveriesErr)
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
@@ -390,7 +422,10 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredUnreachableTools > 0 ||
-		authCleanupDeleted
+		authCleanupDeleted ||
+		len(expiredDeliveries) > 0 ||
+		len(canceledDeliveries) > 0 ||
+		deletedDeliveries > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -401,6 +436,9 @@ func runCoreMaintenanceTick(
 			expireDaemonRuntimesOutcome.err,
 			expireUnreachableToolsOutcome.err,
 			authCleanupOutcome.err,
+			expireDeliveriesOutcome.err,
+			cancelDeliveriesOutcome.err,
+			deleteDeliveriesOutcome.err,
 		),
 	)
 	if expireDaemonRuntimesOutcome.err != nil {
@@ -427,6 +465,59 @@ func runCoreMaintenanceTick(
 			"deleted_device_flows",
 			authCleanup.DeletedDeviceFlows,
 		)
+	}
+	logIntegrationDeliveryMaintenance(
+		ctx,
+		log,
+		integrationDeliveryPublisher,
+		expiredDeliveries,
+		canceledDeliveries,
+		deletedDeliveries,
+		expireDeliveriesOutcome.interrupted ||
+			cancelDeliveriesOutcome.interrupted ||
+			deleteDeliveriesOutcome.interrupted,
+		expireDeliveriesOutcome.err,
+		cancelDeliveriesOutcome.err,
+		deleteDeliveriesOutcome.err,
+	)
+}
+
+func logIntegrationDeliveryMaintenance(
+	ctx context.Context,
+	log *slog.Logger,
+	publisher notifications.IntegrationDeliveryPublisher,
+	expired, canceled []integrationstore.IntegrationDeliveryUpdate,
+	deleted int64,
+	interrupted bool,
+	expireErr, cancelErr, deleteErr error,
+) {
+	if expireErr != nil {
+		log.Error("expire channel delivery claims", "error", expireErr)
+	}
+	if cancelErr != nil {
+		log.Error("cancel unavailable channel deliveries", "error", cancelErr)
+	}
+	if deleteErr != nil {
+		log.Error("delete retained channel deliveries", "error", deleteErr)
+	}
+	if !interrupted && (len(expired) > 0 || len(canceled) > 0 || deleted > 0) {
+		log.Info(
+			"maintained channel deliveries",
+			"expired_claims", len(expired),
+			"canceled", len(canceled),
+			"deleted", deleted,
+		)
+	}
+	if interrupted {
+		return
+	}
+	for _, update := range append(expired, canceled...) {
+		if update.NotifyRef == storage.NilID || publisher == nil {
+			continue
+		}
+		if err := publisher.PublishIntegrationDeliveryUpdate(ctx, update.NotifyRef); err != nil {
+			log.Warn("publish maintained channel delivery update", "delivery_id", update.ID, "error", err)
+		}
 	}
 }
 

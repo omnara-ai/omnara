@@ -115,7 +115,7 @@ func (s strictOpenAPIServer) SubmitToolCallResult(
 		ProjectID:      scope.project.ID,
 		AgentID:        scope.agent.ID,
 		IdempotencyKey: "tool-result:" + toolCallID.String(),
-	}, contentBlocks)
+	}, contentBlocks, inlineMediaToolResult)
 	if err != nil {
 		return nil, mediaIngestAPIError(err)
 	}

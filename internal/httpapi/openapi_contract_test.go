@@ -176,6 +176,9 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	if _, ok := doc.Components.SecuritySchemes["machineDaemonAuth"]; !ok {
 		t.Fatal("machineDaemonAuth security scheme is required for daemon routes")
 	}
+	if _, ok := doc.Components.SecuritySchemes["channelConnectorAuth"]; !ok {
+		t.Fatal("channelConnectorAuth security scheme is required for connector routes")
+	}
 	if !openAPISecurityHasRequirement(doc.Security, "bearerAuth") ||
 		!openAPISecurityHasRequirement(doc.Security, "browserSessionCookie") {
 		t.Fatalf("global OpenAPI security must document bearer and browser session auth, got %+v", doc.Security)
@@ -316,6 +319,17 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"post /daemon/runtimes/{runtimeID}/sleep":       true,
 		"post /daemon/tool-calls/{toolCallID}/artifact": true,
 	}
+	connectorOnlyMutations := map[string]bool{
+		"post /channel-connector/apps/{integrationAppID}/events":                                                             true,
+		"post /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events":                               true,
+		"post /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve": true,
+		"post /channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve":                               true,
+		"post /channel-connector/deliveries/claim":                                                                           true,
+		"post /channel-connector/deliveries/{deliveryID}/complete":                                                           true,
+		"post /channel-connector/runtime-units/claim":                                                                        true,
+		"post /channel-connector/runtime-units/{runtimeUnitID}/heartbeat":                                                    true,
+		"post /channel-connector/runtime-units/{runtimeUnitID}/release":                                                      true,
+	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
 		pathItem, ok := pathItemAny.(map[string]any)
@@ -343,6 +357,10 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 			case machineOnlyMutations[key]:
 				if !openAPISecurityHasRequirement(security, "machineDaemonAuth") {
 					t.Fatalf("%s must document machine daemon auth, got %+v", key, security)
+				}
+			case connectorOnlyMutations[key]:
+				if !openAPISecurityHasRequirement(security, "channelConnectorAuth") {
+					t.Fatalf("%s must document channel connector auth, got %+v", key, security)
 				}
 			case browserOnlyMutations[key]:
 				if openAPISecurityHasRequirement(security, "bearerAuth") ||
@@ -373,30 +391,36 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
-		"Agent.name":                 "#/components/schemas/AgentName",
-		"CreateAgentRequest.name":    "#/components/schemas/AgentName",
-		"Skill.name":                 "#/components/schemas/SkillName",
-		"Actor.display_name":         "",
-		"AgentInteraction.tool_name": "",
-		"CreateMachinePoolRequestBase.provider_config":   "",
-		"CreateSlackSetupRequest.app_name":               "",
-		"CurrentUserIdentity.display_name":               "",
-		"DiscoveredProviderModel.display_name":           "",
-		"ExternalActorParams.display_name":               "",
-		"IntegrationInstall.provider_agent_display_name": "",
-		"IntegrationTarget.display_name":                 "",
-		"MachinePool.provider_config":                    "",
-		"MCPRegistryHeader.name":                         "",
-		"MCPRegistryServer.name":                         "",
-		"MCPServerInfo.name":                             "",
-		"MCPServerTool.name":                             "",
-		"ModelOutputToolUseStreamBlock.tool_name":        "",
-		"ModelToolCallContentBlock.name":                 "",
-		"OrgMember.display_name":                         "",
-		"ToolCall.name":                                  "",
-		"ToolCatalogEntry.name":                          "",
-		"ToolPermissionMode.name":                        "",
-		"UpdateMachinePoolRequest.provider_config":       "",
+		"Agent.name":                                          "#/components/schemas/AgentName",
+		"CreateAgentRequest.name":                             "#/components/schemas/AgentName",
+		"Skill.name":                                          "#/components/schemas/SkillName",
+		"Actor.display_name":                                  "",
+		"AgentInteraction.tool_name":                          "",
+		"ChannelActor.display_name":                           "",
+		"ChannelConnectorApp.display_name":                    "",
+		"ChannelConnectorApp.provider_config":                 "#/components/schemas/ChannelOpaqueObject",
+		"ChannelConnectorInstall.provider_agent_display_name": "",
+		"ChannelConnectorInstall.provider_config":             "#/components/schemas/ChannelOpaqueObject",
+		"ChannelConversation.display_name":                    "",
+		"CreateMachinePoolRequestBase.provider_config":        "",
+		"CreateSlackSetupRequest.app_name":                    "",
+		"CurrentUserIdentity.display_name":                    "",
+		"DiscoveredProviderModel.display_name":                "",
+		"ExternalActorParams.display_name":                    "",
+		"IntegrationInstall.provider_agent_display_name":      "",
+		"IntegrationTarget.display_name":                      "",
+		"MachinePool.provider_config":                         "",
+		"MCPRegistryHeader.name":                              "",
+		"MCPRegistryServer.name":                              "",
+		"MCPServerInfo.name":                                  "",
+		"MCPServerTool.name":                                  "",
+		"ModelOutputToolUseStreamBlock.tool_name":             "",
+		"ModelToolCallContentBlock.name":                      "",
+		"OrgMember.display_name":                              "",
+		"ToolCall.name":                                       "",
+		"ToolCatalogEntry.name":                               "",
+		"ToolPermissionMode.name":                             "",
+		"UpdateMachinePoolRequest.provider_config":            "",
 	}
 
 	var failures []string

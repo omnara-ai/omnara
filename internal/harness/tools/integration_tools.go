@@ -95,6 +95,8 @@ func (e Executor) ensureIntegrationPostOwnership(ctx context.Context, turn Turn)
 type integrationToolResult struct {
 	Provider           string `json:"provider,omitempty"`
 	Code               string `json:"code"`
+	ChannelID          string `json:"channel_id,omitempty"`
+	DeliveryID         string `json:"delivery_id,omitempty"`
 	TargetRef          string `json:"target_ref,omitempty"`
 	ProviderMessageID  string `json:"provider_message_id,omitempty"`
 	Message            string `json:"message,omitempty"`
@@ -114,6 +116,38 @@ type integrationToolTarget struct {
 }
 
 func (e Executor) PostIntegrationRuntimeMessage(ctx context.Context, turn Turn, text string) error {
+	destination, destinationErr := e.resolveAutomaticChannelDestination(ctx, turn)
+	if destinationErr != nil {
+		if errors.Is(destinationErr, errMissingChannel) ||
+			errors.Is(destinationErr, errAmbiguousChannel) ||
+			errors.Is(destinationErr, errChannelDisabled) ||
+			errors.Is(destinationErr, errMissingIntegrationTarget) ||
+			errors.Is(destinationErr, errIntegrationDisabled) {
+			return nil
+		}
+		return destinationErr
+	}
+	if !isNativeSlackChannelDestination(destination) {
+		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+			return err
+		}
+		providerCallID := "runtime_error:" + turn.RuntimeLockID.String()
+		payload, err := channelMessageDeliveryPayload(turn, destination, text, providerCallID)
+		if err != nil {
+			return err
+		}
+		_, err = e.enqueueConnectorChannelDelivery(
+			ctx,
+			turn,
+			destination,
+			connectorChannelDeliveryIntent{
+				Kind: "message", PayloadVersion: "channel-message.v1", Payload: payload,
+				IdempotencyScope: "channel_runtime_message/runtime_lock",
+				IdempotencyKey:   turn.RuntimeLockID.String(),
+			},
+		)
+		return err
+	}
 	target, err := e.currentIntegrationToolTarget(ctx, turn)
 	if err != nil {
 		if errors.Is(err, errMissingIntegrationTarget) || errors.Is(err, errIntegrationDisabled) {
@@ -175,12 +209,22 @@ func (e Executor) dispatchIntegrationMessageSend(
 		}
 		return result, targetErr
 	}
+	return e.dispatchIntegrationMessageToTarget(ctx, turn, target, record, input)
+}
+
+func (e Executor) dispatchIntegrationMessageToTarget(
+	ctx context.Context,
+	turn Turn,
+	target integrationToolTarget,
+	record executionstore.ToolCallRecord,
+	input integrationMessageRequest,
+) (toolResultContent, error) {
 	slackTarget, err := slackMessageTarget(target)
 	if err != nil {
 		return toolResultContent{}, err
 	}
 	if len(input.ArtifactIDs) != 0 {
-		return e.dispatchIntegrationArtifactSend(ctx, turn, slackTarget, input)
+		return e.dispatchIntegrationArtifactSend(ctx, turn, target, slackTarget, input)
 	}
 
 	agentPublicID, err := publicid.Encode(publicid.KindAgent, turn.AgentID)
@@ -205,14 +249,14 @@ func (e Executor) dispatchIntegrationMessageSend(
 		}
 		switch {
 		case posted.MessageID != "":
-			return e.integrationDelivered(target.TargetRef, posted.MessageID)
+			return e.integrationDelivered(target, posted.MessageID)
 		case posted.RateLimited:
 			if slept, err := sleepForIntegrationRateLimit(ctx, posted.RetryAfter, &rateLimitSlept, attempt); err != nil {
 				return toolResultContent{}, err
 			} else if slept {
 				continue
 			}
-			return e.integrationRateLimited(target.TargetRef, posted.RetryAfter)
+			return e.integrationRateLimited(target, posted.RetryAfter)
 		case posted.DeliveryUnknown, posted.TransientFailure:
 			if result, handled, err := e.integrationReadbackResult(
 				ctx,
@@ -225,14 +269,14 @@ func (e Executor) dispatchIntegrationMessageSend(
 				return result, err
 			}
 			if attempt == integrationMessageSendAttempts {
-				return e.integrationDeliveryUnknown(target.TargetRef, errors.New(posted.Message))
+				return e.integrationDeliveryUnknown(target, errors.New(posted.Message))
 			}
 		default:
 			return integrationSlackFailureResult(target.TargetRef, posted)
 		}
 	}
 	return e.integrationDeliveryUnknown(
-		target.TargetRef,
+		target,
 		errors.New("message delivery could not be confirmed"),
 	)
 }
@@ -240,6 +284,7 @@ func (e Executor) dispatchIntegrationMessageSend(
 func (e Executor) dispatchIntegrationArtifactSend(
 	ctx context.Context,
 	turn Turn,
+	target integrationToolTarget,
 	slackTarget slack.MessageTarget,
 	input integrationMessageRequest,
 ) (toolResultContent, error) {
@@ -286,7 +331,7 @@ func (e Executor) dispatchIntegrationArtifactSend(
 				} else if slept {
 					continue
 				}
-				return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+				return e.integrationRateLimited(target, result.RetryAfter)
 			case result.TransientFailure && attempt < integrationMessageSendAttempts:
 				continue
 			default:
@@ -312,26 +357,26 @@ func (e Executor) dispatchIntegrationArtifactSend(
 		}
 		switch {
 		case result == (slack.APIResult{}):
-			return e.integrationDelivered(slackTarget.TargetRef, "")
+			return e.integrationDelivered(target, "")
 		case result.RateLimited:
 			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
 				return toolResultContent{}, err
 			} else if slept {
 				continue
 			}
-			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+			return e.integrationRateLimited(target, result.RetryAfter)
 		case result.DeliveryUnknown:
 			message := result.Message
 			if message == "" {
 				message = "file delivery could not be confirmed"
 			}
-			return e.integrationDeliveryUnknown(slackTarget.TargetRef, errors.New(message))
+			return e.integrationDeliveryUnknown(target, errors.New(message))
 		default:
 			return integrationSlackFailureResult(slackTarget.TargetRef, result)
 		}
 	}
 	return e.integrationDeliveryUnknown(
-		slackTarget.TargetRef,
+		target,
 		errors.New("file delivery could not be confirmed"),
 	)
 }
@@ -397,19 +442,19 @@ func (e Executor) integrationReadbackResult(
 		since,
 	)
 	if err != nil {
-		result, resultErr := e.integrationDeliveryUnknown(target.TargetRef, err)
+		result, resultErr := e.integrationDeliveryUnknown(target, err)
 		return result, true, resultErr
 	}
 	if readback.RateLimited || readback.TransientFailure || readback.PermanentFailure ||
 		readback.DeliveryUnknown {
 		result, resultErr := e.integrationDeliveryUnknown(
-			target.TargetRef,
+			target,
 			errors.New(readback.Message),
 		)
 		return result, true, resultErr
 	}
 	if found {
-		result, resultErr := e.integrationDelivered(target.TargetRef, delivered)
+		result, resultErr := e.integrationDelivered(target, delivered)
 		return result, true, resultErr
 	}
 	return toolResultContent{}, false, nil
@@ -553,8 +598,16 @@ func (e Executor) integrationToolTargetByID(
 	if err != nil {
 		return integrationToolTarget{}, err
 	}
-	if target.AgentID != agentID {
-		return integrationToolTarget{}, errMissingIntegrationTarget
+	if _, err := e.Store.Integrations().GetActiveSendBindingForTarget(
+		ctx,
+		projectID,
+		agentID,
+		targetID,
+	); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return integrationToolTarget{}, errMissingIntegrationTarget
+		}
+		return integrationToolTarget{}, err
 	}
 	publicID, err := publicid.Encode(publicid.KindIntegrationTarget, target.ID)
 	if err != nil {
@@ -625,27 +678,30 @@ func slackMessageTarget(target integrationToolTarget) (slack.MessageTarget, erro
 }
 
 func (e Executor) integrationDelivered(
-	target, providerMessageID string,
+	target integrationToolTarget,
+	providerMessageID string,
 ) (toolResultContent, error) {
 	return structuredToolResultContent(
 		integrationToolResult{
 			Provider:          integrationstore.IntegrationProviderSlack,
 			Code:              "delivered",
-			TargetRef:         target,
+			ChannelID:         target.PublicID,
+			TargetRef:         target.TargetRef,
 			ProviderMessageID: providerMessageID,
 		},
 	)
 }
 
 func (e Executor) integrationRateLimited(
-	target string,
+	target integrationToolTarget,
 	retryAfter time.Duration,
 ) (toolResultContent, error) {
 	seconds := int(retryAfter.Seconds())
 	result := integrationToolResult{
 		Provider:          integrationstore.IntegrationProviderSlack,
 		Code:              "rate_limited",
-		TargetRef:         target,
+		ChannelID:         target.PublicID,
+		TargetRef:         target.TargetRef,
 		Message:           "integration provider rate limited the request",
 		RetryAfterSeconds: seconds,
 	}
@@ -660,7 +716,7 @@ func (e Executor) integrationRateLimited(
 }
 
 func (e Executor) integrationDeliveryUnknown(
-	target string,
+	target integrationToolTarget,
 	cause error,
 ) (toolResultContent, error) {
 	message := "integration delivery outcome is unknown"
@@ -671,7 +727,8 @@ func (e Executor) integrationDeliveryUnknown(
 		integrationToolResult{
 			Provider:  integrationstore.IntegrationProviderSlack,
 			Code:      "delivery_unknown",
-			TargetRef: target,
+			ChannelID: target.PublicID,
+			TargetRef: target.TargetRef,
 			Message:   message,
 		},
 	)

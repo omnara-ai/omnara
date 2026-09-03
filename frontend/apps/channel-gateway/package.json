@@ -1,0 +1,26 @@
+{
+  "name": "@omnara/channel-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chat": "4.39.0",
+    "redis": "5.11.0"
+  },
+  "devDependencies": {
+    "@omnara/sdk": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.0",
+    "vitest": "4.1.9"
+  }
+}

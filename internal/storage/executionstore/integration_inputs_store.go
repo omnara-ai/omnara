@@ -21,6 +21,14 @@ func (s *Store) CreateIntegrationTargetContentInput(
 			"integration install, integration target, provider user, and idempotency key are required",
 		)
 	}
+	if isNilID(input.IntegrationTargetBindingID) != isNilID(input.AgentID) {
+		return AgentInputRecord{}, nil, errors.New(
+			"integration target binding and agent must either both be set or both be omitted",
+		)
+	}
+	if err := integrationstore.ValidateIntegrationRuntimeLeaseProof(input.RuntimeLease); err != nil {
+		return AgentInputRecord{}, nil, err
+	}
 	contentBlocks, err := parseAgentInputContentBlocks(input.ContentBlocks)
 	if err != nil {
 		return AgentInputRecord{}, nil, err
@@ -53,11 +61,41 @@ func (s *Store) CreateIntegrationTargetContentInput(
 	if target.IntegrationInstallID != install.ID {
 		return AgentInputRecord{}, nil, storeerr.ErrConflict
 	}
+	agentID := target.AgentID
+	if !isNilID(input.IntegrationTargetBindingID) {
+		agentID = input.AgentID
+	}
+	if _, err := qtx.LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: install.ProjectID, ID: agentID},
+	); err != nil {
+		return AgentInputRecord{}, nil, fmt.Errorf("lock agent for integration input: %w", err)
+	}
+	idempotencyScope := integrationstore.IdempotencyScope(install)
+	var binding integrationstore.IntegrationTargetBindingRecord
+	if !isNilID(input.IntegrationTargetBindingID) {
+		binding, err = s.integrations.GetActiveReceiveBindingTx(
+			ctx,
+			tx,
+			install.ProjectID,
+			input.AgentID,
+			install.ID,
+			target.ID,
+			input.IntegrationTargetBindingID,
+		)
+		if err != nil {
+			return AgentInputRecord{}, nil, err
+		}
+		idempotencyScope = integrationstore.BindingIdempotencyScope(install, binding)
+	}
 	if existing, found, err := integrationTargetInputByIdempotency(
 		ctx,
 		qtx,
-		install,
-		target,
+		install.ProjectID,
+		agentID,
+		target.ID,
+		input.IntegrationTargetBindingID,
+		idempotencyScope,
 		input.IdempotencyKey,
 	); err != nil {
 		return AgentInputRecord{}, nil, err
@@ -70,32 +108,51 @@ func (s *Store) CreateIntegrationTargetContentInput(
 	if err := integrationstore.ValidateProviderUserTenant(install, input.ProviderTenantID); err != nil {
 		return AgentInputRecord{}, nil, err
 	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: install.ProjectID, ID: target.AgentID},
-	); err != nil {
-		return AgentInputRecord{}, nil, fmt.Errorf("lock agent for integration input: %w", err)
-	}
-	agent, err := loadAgentInProjectTx(ctx, tx, install.ProjectID, target.AgentID)
+	agent, err := loadAgentInProjectTx(ctx, tx, install.ProjectID, agentID)
 	if err != nil {
 		return AgentInputRecord{}, nil, err
 	}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.RuntimeLease,
+		install.ProjectID,
+		install.ID,
+	); err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if input.RefreshTarget {
+		target, err = s.integrations.GetOrCreateIntegrationTargetForBindingTx(
+			ctx,
+			tx,
+			integrationstore.CreateIntegrationTargetInput{
+				ProjectID: install.ProjectID, AgentID: agentID,
+				IntegrationInstallID: install.ID, ProviderRef: target.ProviderRef,
+				ProviderRefKind: target.ProviderRefKind, DisplayName: input.TargetDisplayName,
+				ProviderMetadata: input.TargetProviderMetadata,
+			},
+		)
+		if err != nil {
+			return AgentInputRecord{}, nil, err
+		}
+	}
 	contentInput := CreateAgentContentInputInput{
 		ProjectID: install.ProjectID,
-		AgentID:   target.AgentID,
+		AgentID:   agentID,
 		Actor: &ActorParams{
 			Provider:         install.Provider,
 			ProviderTenantID: input.ProviderTenantID,
 			ProviderUserID:   input.ProviderUserID,
 			DisplayName:      &input.ActorDisplayName,
 		},
-		IntegrationTargetID:    target.ID,
-		ContentBlocks:          input.ContentBlocks,
-		Metadata:               input.Metadata,
-		DeliveryMode:           input.DeliveryMode,
-		IdempotencyScope:       integrationstore.IdempotencyScope(install),
-		IdempotencyKey:         input.IdempotencyKey,
-		CancelOpenInteractions: input.CancelOpenInteractions,
+		IntegrationTargetID:        target.ID,
+		IntegrationTargetBindingID: input.IntegrationTargetBindingID,
+		ContentBlocks:              input.ContentBlocks,
+		Metadata:                   input.Metadata,
+		DeliveryMode:               input.DeliveryMode,
+		IdempotencyScope:           idempotencyScope,
+		IdempotencyKey:             input.IdempotencyKey,
+		CancelOpenInteractions:     input.CancelOpenInteractions,
 	}
 	contentInput, err = prepareCreateAgentContentInput(contentInput)
 	if err != nil {
@@ -112,13 +169,15 @@ func (s *Store) CreateIntegrationTargetContentInput(
 	)
 	if err != nil {
 		if errors.Is(err, storeerr.ErrIdempotencyConflict) {
-			if existing, found, replayErr := s.GetIntegrationTargetInputByIdempotency(
+			if existing, found, replayErr := integrationTargetInputByIdempotency(
 				ctx,
-				GetIntegrationTargetInputByIdempotencyInput{
-					IntegrationInstallID: input.IntegrationInstallID,
-					IntegrationTargetID:  input.IntegrationTargetID,
-					IdempotencyKey:       input.IdempotencyKey,
-				},
+				s.q,
+				install.ProjectID,
+				agentID,
+				target.ID,
+				input.IntegrationTargetBindingID,
+				idempotencyScope,
+				input.IdempotencyKey,
 			); replayErr != nil {
 				return AgentInputRecord{}, nil, replayErr
 			} else if found {
@@ -128,7 +187,7 @@ func (s *Store) CreateIntegrationTargetContentInput(
 		return AgentInputRecord{}, nil, err
 	}
 	agentInput := result.agentInput
-	if result.created && agent.IntegrationTargetID != target.ID {
+	if result.created && isNilID(input.IntegrationTargetBindingID) && agent.IntegrationTargetID != target.ID {
 		if _, err := qtx.SetAgentIntegrationTarget(
 			ctx,
 			dbsqlc.SetAgentIntegrationTargetParams{
@@ -149,6 +208,179 @@ func (s *Store) CreateIntegrationTargetContentInput(
 		return AgentInputRecord{}, nil, err
 	}
 	return agentInput, result.canceledInteractionIDs, nil
+}
+
+func (s *Store) CreateBoundIntegrationTargetContentInput(
+	ctx context.Context,
+	input CreateBoundIntegrationTargetContentInput,
+) (CreateBoundIntegrationTargetContentResult, error) {
+	targetInput := input.Target
+	if isNilID(targetInput.ProjectID) || isNilID(targetInput.AgentID) ||
+		isNilID(targetInput.IntegrationInstallID) || input.ProviderUserID == "" ||
+		input.IdempotencyKey == "" {
+		return CreateBoundIntegrationTargetContentResult{}, errors.New(
+			"project, agent, integration install, provider user, and idempotency key are required",
+		)
+	}
+	if err := integrationstore.ValidateIntegrationRuntimeLeaseProof(input.RuntimeLease); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	contentBlocks, err := parseAgentInputContentBlocks(input.ContentBlocks)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	input.ContentBlocks, err = marshalAgentInputContentBlocks(contentBlocks)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	txNotifications := s.newTxNotifications()
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, fmt.Errorf(
+			"begin create bound integration target input: %w",
+			err,
+		)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+
+	install, err := s.integrations.GetIntegrationInstallByIDTx(
+		ctx,
+		tx,
+		targetInput.IntegrationInstallID,
+	)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	if install.ProjectID != targetInput.ProjectID {
+		return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrConflict
+	}
+	if install.State != integrationstore.IntegrationInstallStateActive {
+		return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrUnauthorized
+	}
+	if err := integrationstore.ValidateProviderUserTenant(install, input.ProviderTenantID); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	if _, err := qtx.LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{
+			ProjectID: targetInput.ProjectID,
+			ID:        targetInput.AgentID,
+		},
+	); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, fmt.Errorf(
+			"lock agent for bound integration input: %w",
+			err,
+		)
+	}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.RuntimeLease,
+		install.ProjectID,
+		install.ID,
+	); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	target, err := s.integrations.GetOrCreateIntegrationTargetForBindingTx(
+		ctx,
+		tx,
+		targetInput,
+	)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	idempotencyScope := integrationstore.RouteIdempotencyScope(install, input.IntegrationRouteID)
+	if existing, found, existingErr := integrationTargetInputByIdempotency(
+		ctx,
+		qtx,
+		install.ProjectID,
+		targetInput.AgentID,
+		target.ID,
+		NilID,
+		idempotencyScope,
+		input.IdempotencyKey,
+	); existingErr != nil {
+		return CreateBoundIntegrationTargetContentResult{}, existingErr
+	} else if found {
+		return CreateBoundIntegrationTargetContentResult{
+			AgentInput:                 existing,
+			IntegrationTargetID:        existing.IntegrationTargetID,
+			IntegrationTargetBindingID: existing.IntegrationTargetBindingID,
+		}, nil
+	}
+	agent, err := loadAgentInProjectTx(ctx, tx, install.ProjectID, targetInput.AgentID)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	if agent.State != AgentStateActive {
+		return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrStateTransitionConflict
+	}
+	binding, err := s.integrations.CreateIntegrationTargetBindingTx(
+		ctx,
+		tx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID:            install.ProjectID,
+			AgentID:              targetInput.AgentID,
+			IntegrationInstallID: install.ID,
+			IntegrationTargetID:  target.ID,
+			IntegrationRouteID:   input.IntegrationRouteID,
+			ReceiveAllowed:       input.ReceiveAllowed,
+			SendAllowed:          input.SendAllowed,
+			Source:               input.BindingSource,
+			Metadata:             input.BindingMetadata,
+		},
+	)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	contentInput, err := prepareCreateAgentContentInput(CreateAgentContentInputInput{
+		ProjectID: install.ProjectID,
+		AgentID:   targetInput.AgentID,
+		Actor: &ActorParams{
+			Provider:         install.Provider,
+			ProviderTenantID: input.ProviderTenantID,
+			ProviderUserID:   input.ProviderUserID,
+			DisplayName:      &input.ActorDisplayName,
+		},
+		IntegrationTargetID:        target.ID,
+		IntegrationTargetBindingID: binding.ID,
+		ContentBlocks:              input.ContentBlocks,
+		Metadata:                   input.Metadata,
+		DeliveryMode:               input.DeliveryMode,
+		IdempotencyScope:           idempotencyScope,
+		IdempotencyKey:             input.IdempotencyKey,
+		CancelOpenInteractions:     input.CancelOpenInteractions,
+	})
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	created, err := createAgentContentInputTx(
+		ctx,
+		txNotifications,
+		tx,
+		qtx,
+		agent,
+		contentInput,
+		contentBlocks,
+	)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	if err := s.commitTxWithNotifications(
+		ctx,
+		tx,
+		txNotifications,
+		"create bound integration target input",
+	); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	return CreateBoundIntegrationTargetContentResult{
+		AgentInput:                 created.agentInput,
+		CanceledInteractionIDs:     created.canceledInteractionIDs,
+		IntegrationTargetID:        target.ID,
+		IntegrationTargetBindingID: binding.ID,
+	}, nil
 }
 
 func (s *Store) GetIntegrationTargetInputByIdempotency(
@@ -172,22 +404,31 @@ func (s *Store) GetIntegrationTargetInputByIdempotency(
 	if target.IntegrationInstallID != install.ID {
 		return AgentInputRecord{}, false, storeerr.ErrConflict
 	}
-	return integrationTargetInputByIdempotency(ctx, s.q, install, target, input.IdempotencyKey)
+	return integrationTargetInputByIdempotency(
+		ctx,
+		s.q,
+		install.ProjectID,
+		target.AgentID,
+		target.ID,
+		NilID,
+		integrationstore.IdempotencyScope(install),
+		input.IdempotencyKey,
+	)
 }
 
 func integrationTargetInputByIdempotency(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	install integrationstore.IntegrationInstallRecord,
-	target integrationstore.IntegrationTargetRecord,
+	projectID, agentID, integrationTargetID, integrationTargetBindingID ID,
+	idempotencyScope string,
 	idempotencyKey string,
 ) (AgentInputRecord, bool, error) {
 	row, err := q.GetAgentInputByIdempotency(
 		ctx,
 		dbsqlc.GetAgentInputByIdempotencyParams{
-			ProjectID:           install.ProjectID,
-			AgentID:             target.AgentID,
-			IdempotencyScope:    integrationstore.IdempotencyScope(install),
+			ProjectID:           projectID,
+			AgentID:             agentID,
+			IdempotencyScope:    idempotencyScope,
 			InputIdempotencyKey: idempotencyKey,
 		},
 	)
@@ -198,7 +439,9 @@ func integrationTargetInputByIdempotency(
 		return AgentInputRecord{}, false, fmt.Errorf("load agent input by idempotency: %w", err)
 	}
 	agentInput := agentInputRecordFromIdempotencySQLC(row)
-	if agentInput.IntegrationTargetID != target.ID {
+	if agentInput.IntegrationTargetID != integrationTargetID ||
+		(!isNilID(integrationTargetBindingID) &&
+			agentInput.IntegrationTargetBindingID != integrationTargetBindingID) {
 		return AgentInputRecord{}, false, storeerr.ErrIdempotencyConflict
 	}
 	return agentInput, true, nil

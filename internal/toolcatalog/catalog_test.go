@@ -17,6 +17,19 @@ func TestDefaultCatalogDoesNotUseReservedMCPNamespace(t *testing.T) {
 	}
 }
 
+func TestIsBindingManagedTool(t *testing.T) {
+	for name, want := range map[string]bool{
+		ToolNameListChannels:           true,
+		ToolNameSendChannelMessage:     true,
+		ToolNameRunCommand:             false,
+		ToolNameSendIntegrationMessage: false,
+	} {
+		if got := IsBindingManagedTool(name); got != want {
+			t.Errorf("IsBindingManagedTool(%q) = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestEntryRejectsReservedMCPNamespace(t *testing.T) {
 	catalog, err := Default()
 	if err != nil {

@@ -63,16 +63,16 @@ type IntegrationTargetDisplay struct {
 	DisplayName      string `json:"display_name,omitempty"`
 }
 
-func lockProjectAgentLifecycleSharedTx(
+func lockProjectLifecycleSharedTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	projectID ID,
 ) error {
-	if err := qtx.LockProjectAgentLifecycleShared(
+	if err := qtx.LockProjectLifecycleShared(
 		ctx,
-		dbsqlc.LockProjectAgentLifecycleSharedParams{ProjectID: projectID.String()},
+		dbsqlc.LockProjectLifecycleSharedParams{ProjectID: projectID.String()},
 	); err != nil {
-		return fmt.Errorf("lock project agent lifecycle: %w", err)
+		return fmt.Errorf("lock project lifecycle: %w", err)
 	}
 	return nil
 }
@@ -176,6 +176,9 @@ func (s *Store) GetAgentInProject(ctx context.Context, projectID, id ID) (AgentR
 		dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: id},
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AgentRecord{}, storeerr.ErrNotFound
+		}
 		return AgentRecord{}, fmt.Errorf("load agent in project: %w", err)
 	}
 	return agentRecordFromProjectSQLC(row), nil
@@ -428,6 +431,15 @@ func archiveAgentTx(
 	}
 	if rows == 0 {
 		return nil, storeerr.ErrNotFound
+	}
+	if err := qtx.RevokeIntegrationTargetBindingsForAgent(
+		ctx,
+		dbsqlc.RevokeIntegrationTargetBindingsForAgentParams{
+			ProjectID: projectID,
+			AgentID:   agentID,
+		},
+	); err != nil {
+		return nil, fmt.Errorf("revoke archived agent channel bindings: %w", err)
 	}
 
 	if _, err := qtx.CancelQueuedBacklogInputsForAgent(ctx, dbsqlc.CancelQueuedBacklogInputsForAgentParams{

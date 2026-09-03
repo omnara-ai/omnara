@@ -116,9 +116,12 @@ export interface BasicConfigSession {
   apply(config: BasicConfig): string
 }
 
+const legacyBindingManagedToolNames = new Set(['list_channels', 'send_channel_message'])
+
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc)
+  const initialDraft =
+    doc == null ? null : extractBasicConfig(withoutLegacyBindingManagedTools(doc))
   return {
     initialDraft,
     apply(config) {
@@ -343,8 +346,21 @@ function applyToDocument(
     doc.setIn(path, node)
     edits.count += 1
   }
-  const del: Deleter = (path) => {
-    if (doc.deleteIn(path)) edits.count += 1
+  const del = (path: (string | number)[]) => {
+    const deleted = doc.deleteIn(path)
+    if (deleted) edits.count += 1
+    return deleted
+  }
+
+  const existingTools = doc.getIn(['tools'], true)
+  if (isMap(existingTools)) {
+    let removedLegacyTool = false
+    for (const name of legacyBindingManagedToolNames) {
+      removedLegacyTool = del(['tools', name]) || removedLegacyTool
+    }
+    const remainingTools = doc.getIn(['tools'], true)
+    if (removedLegacyTool && isMap(remainingTools) && remainingTools.items.length === 0)
+      del(['tools'])
   }
 
   const instruction = normalizeMultiline(config.instruction)
@@ -360,7 +376,9 @@ function applyToDocument(
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools.map((tool) => [tool.name, toolWire(tool)]),
+    config.tools
+      .filter((tool) => !legacyBindingManagedToolNames.has(tool.name))
+      .map((tool) => [tool.name, toolWire(tool)]),
     baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,
@@ -489,6 +507,12 @@ function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry
   if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
   applySourceOverlays(wire, source)
   return wire
+}
+
+function withoutLegacyBindingManagedTools(document: Document): Document {
+  const draft = document.clone()
+  for (const name of legacyBindingManagedToolNames) draft.deleteIn(['tools', name])
+  return draft
 }
 
 function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {

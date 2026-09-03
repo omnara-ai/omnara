@@ -19,34 +19,54 @@ SELECT EXISTS (
   FROM actors actor
   JOIN integration_targets target
     ON target.project_id = $1
-   AND target.agent_id = $2
-   AND target.id = $3
+   AND target.id = $2
    AND target.deleted_at IS NULL
   JOIN integration_installs install
     ON install.project_id = target.project_id
    AND install.id = target.integration_install_id
    AND install.state = 'active'
    AND install.deleted_at IS NULL
-  WHERE actor.id = $4
+  WHERE actor.id = $3
     AND actor.project_id = target.project_id
     AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
+    AND actor.provider_tenant_id IS NOT DISTINCT FROM nullif(install.provider_tenant_id, '')
+    AND EXISTS (
+      SELECT 1
+      FROM integration_target_bindings binding
+      WHERE binding.project_id = target.project_id
+        AND binding.agent_id = $4
+        AND binding.integration_target_id = target.id
+        AND binding.receive_allowed
+        AND binding.revoked_at IS NULL
+        AND (
+          (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
+          OR EXISTS (
+            SELECT 1
+            FROM integration_routes route
+            WHERE route.project_id = binding.project_id
+              AND route.integration_install_id = binding.integration_install_id
+              AND route.id = binding.integration_route_id
+              AND route.state = 'active'
+              AND route.deleted_at IS NULL
+          )
+        )
+    )
 ) AS matches
 `
 
 type ActorMatchesIntegrationTargetParams struct {
 	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
 	IntegrationTargetID uuid.UUID
 	ActorID             uuid.UUID
+	AgentID             uuid.UUID
 }
 
 func (q *Queries) ActorMatchesIntegrationTarget(ctx context.Context, arg ActorMatchesIntegrationTargetParams) (bool, error) {
 	row := q.db.QueryRow(ctx, actorMatchesIntegrationTarget,
 		arg.ProjectID,
-		arg.AgentID,
 		arg.IntegrationTargetID,
 		arg.ActorID,
+		arg.AgentID,
 	)
 	var matches bool
 	err := row.Scan(&matches)

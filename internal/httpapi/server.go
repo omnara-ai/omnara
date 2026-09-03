@@ -13,6 +13,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -34,6 +35,8 @@ type Server struct {
 	log                                 *slog.Logger
 	store                               *storage.Store
 	integrations                        *integration.Service
+	channels                            *integration.ChannelService
+	channelRouteHandlers                integration.ChannelRouteHandlers
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
@@ -45,12 +48,15 @@ type Server struct {
 	publicURL                           string
 	publicAPIURL                        string
 	publicOrigins                       []configuredOrigin
+	internalOriginURLs                  []string
+	internalOrigins                     []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
 	agentToolCallUpdateSubscriber       notifications.AgentToolCallUpdateSubscriber
 	agentStreamDeltaSubscriber          notifications.AgentStreamDeltaSubscriber
 	agentEventStreamReconciler          *agentEventStreamReconciler
+	integrationDeliveryPublisher        notifications.IntegrationDeliveryPublisher
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
@@ -71,6 +77,7 @@ type Server struct {
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
 	mcpRegistry                         *mcpregistry.Registry
+	channelConnectorAuth                *channelconnector.Authenticator
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
@@ -167,6 +174,15 @@ func WithPublicAPIURL(publicAPIURL string) Option {
 	}
 }
 
+// WithInternalAPIOrigins allows exact private service origins through the Host
+// guard for channel-connector control-plane routes only. Authentication and
+// authorization still apply normally.
+func WithInternalAPIOrigins(origins []string) Option {
+	return func(s *Server) {
+		s.internalOriginURLs = append([]string(nil), origins...)
+	}
+}
+
 func WithBillingURL(billingURL string) Option {
 	return func(s *Server) {
 		s.billingURL = strings.TrimRight(strings.TrimSpace(billingURL), "/")
@@ -228,6 +244,21 @@ func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 	}
 }
 
+func WithChannelConnectorAuthenticator(authenticator *channelconnector.Authenticator) Option {
+	return func(s *Server) {
+		s.channelConnectorAuth = authenticator
+	}
+}
+
+// WithChannelRouteHandlers injects compiled route implementations. Production
+// has no connector-backed provider handler in the foundation release; tests use
+// this option to exercise the provider-neutral ingress contract end to end.
+func WithChannelRouteHandlers(handlers integration.ChannelRouteHandlers) Option {
+	return func(s *Server) {
+		s.channelRouteHandlers = handlers
+	}
+}
+
 func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {
 	return func(s *Server) {
 		s.recorder = recorder
@@ -269,6 +300,12 @@ func WithAgentToolCallUpdateSubscriber(subscriber notifications.AgentToolCallUpd
 func WithAgentStreamDeltaSubscriber(subscriber notifications.AgentStreamDeltaSubscriber) Option {
 	return func(s *Server) {
 		s.agentStreamDeltaSubscriber = subscriber
+	}
+}
+
+func WithIntegrationDeliveryPublisher(publisher notifications.IntegrationDeliveryPublisher) Option {
+	return func(s *Server) {
+		s.integrationDeliveryPublisher = publisher
 	}
 }
 
@@ -379,6 +416,11 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	for _, opt := range opts {
 		opt(server)
 	}
+	if store != nil {
+		server.channels = integration.NewChannelService(
+			store.Execution(), store.Integrations(), server.channelRouteHandlers,
+		)
+	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {
 		return nil, err
@@ -391,6 +433,15 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		server.publicOrigins = append(server.publicOrigins, publicOrigin)
 		if publicAPIOrigin.host != "" {
 			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
+	for _, raw := range server.internalOriginURLs {
+		origin, err := parseConfiguredOrigin(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid internal API origin: %w", err)
+		}
+		if origin.host != "" {
+			server.internalOrigins = append(server.internalOrigins, origin)
 		}
 	}
 	server.authRoutes = httpauth.New(httpauth.Config{
@@ -466,6 +517,7 @@ func (s *Server) Handler() http.Handler {
 		s.requestLog,
 		maxBody(requestBodyLimit),
 		s.publicHostGuard,
+		channelConnectorNoStore,
 		s.auth,
 		s.openAPIRequestValidator,
 	)

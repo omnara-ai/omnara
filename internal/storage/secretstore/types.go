@@ -19,10 +19,11 @@ const (
 	SecretAvailabilityDirect = "direct"
 	SecretAvailabilityGrant  = "grant"
 
-	SecretKindGeneric             = secrets.KindGeneric
-	SecretKindOAuthTokenSet       = secrets.KindOAuthTokenSet
-	SecretKindSlackAppCredentials = secrets.KindSlackAppCredentials
-	SecretKindAWSCredentials      = secrets.KindAWSCredentials
+	SecretKindGeneric                = secrets.KindGeneric
+	SecretKindOAuthTokenSet          = secrets.KindOAuthTokenSet
+	SecretKindSlackAppCredentials    = secrets.KindSlackAppCredentials
+	SecretKindAWSCredentials         = secrets.KindAWSCredentials
+	SecretKindIntegrationCredentials = secrets.KindIntegrationCredentials
 
 	MaxSecretMetadataBytes = 16 * 1024
 )
@@ -58,6 +59,11 @@ type SecretVersionRecord struct {
 	Nonce             []byte    `json:"-"`
 	Ciphertext        []byte    `json:"-"`
 	CreatedAt         time.Time `json:"created_at"`
+}
+
+type AssociatedSecretPayload struct {
+	Kind    secrets.Kind
+	Payload secrets.Payload
 }
 
 type SecretGrantRecord struct {

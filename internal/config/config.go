@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -40,6 +41,7 @@ const (
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
 const defaultMigrationTimeout = 30 * time.Minute
+const defaultIntegrationDeliveryRetention = 7 * 24 * time.Hour
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"
@@ -70,6 +72,7 @@ type Config struct {
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
+	IntegrationDeliveryRetention      time.Duration
 	ExaAPIKey                         string
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
@@ -81,8 +84,10 @@ type Config struct {
 	SMTPPassword                      string
 	SMTPRequireTLS                    bool
 	AuthConnectors                    []AuthConnectorConfig
+	ChannelConnectors                 []channelconnector.Config
 	PublicURL                         string
 	PublicAPIURL                      string
+	InternalAPIOrigins                []string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
 	DaemonReleaseURL                  string
@@ -201,6 +206,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	channelConnectors, err := getenvChannelConnectors("OMNARA_CHANNEL_CONNECTORS_JSON")
+	if err != nil {
+		return Config{}, err
+	}
 	workerCapacity, err := getenvInt("OMNARA_WORKER_CAPACITY", 4)
 	if err != nil {
 		return Config{}, err
@@ -249,6 +258,7 @@ func Load() (Config, error) {
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
+		IntegrationDeliveryRetention:      defaultIntegrationDeliveryRetention,
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,
@@ -260,8 +270,10 @@ func Load() (Config, error) {
 		SMTPPassword:                      getenv("OMNARA_SMTP_PASSWORD", ""),
 		SMTPRequireTLS:                    smtpRequireTLS,
 		AuthConnectors:                    authConnectors,
+		ChannelConnectors:                 channelConnectors,
 		PublicURL:                         publicURL,
 		PublicAPIURL:                      publicAPIURL,
+		InternalAPIOrigins:                getenvCSV("OMNARA_INTERNAL_API_ORIGINS"),
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
@@ -365,6 +377,16 @@ func Load() (Config, error) {
 		}
 		cfg.MaintenanceInterval = duration
 	}
+	if raw := os.Getenv("OMNARA_INTEGRATION_DELIVERY_RETENTION"); raw != "" {
+		duration, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_INTEGRATION_DELIVERY_RETENTION: %w", err)
+		}
+		if duration <= 0 {
+			return Config{}, fmt.Errorf("OMNARA_INTEGRATION_DELIVERY_RETENTION must be positive")
+		}
+		cfg.IntegrationDeliveryRetention = duration
+	}
 	return cfg, nil
 }
 
@@ -418,6 +440,11 @@ func (cfg Config) ValidateAPI() error {
 	if err := cfg.validatePublicURL(true); err != nil {
 		return err
 	}
+	for _, origin := range cfg.InternalAPIOrigins {
+		if err := validateHTTPOrigin("OMNARA_INTERNAL_API_ORIGINS", origin); err != nil {
+			return err
+		}
+	}
 	if err := cfg.validateWebServingConfig(); err != nil {
 		return err
 	}
@@ -462,6 +489,9 @@ func (cfg Config) ValidateAPI() error {
 	}
 	if err := validateAuthConnectors(cfg.AuthConnectors, cfg.AllowInsecureDev); err != nil {
 		return err
+	}
+	if _, err := channelconnector.NewAuthenticator(cfg.ChannelConnectors); err != nil {
+		return fmt.Errorf("OMNARA_CHANNEL_CONNECTORS_JSON: %w", err)
 	}
 	for _, cidr := range cfg.TrustedProxyCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
@@ -728,6 +758,9 @@ func (cfg Config) ValidateMaintenance() error {
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
 	}
+	if cfg.IntegrationDeliveryRetention <= 0 {
+		return fmt.Errorf("OMNARA_INTEGRATION_DELIVERY_RETENTION must be positive")
+	}
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err
 	}
@@ -882,6 +915,18 @@ func getenvAuthConnectors(key string) ([]AuthConnectorConfig, error) {
 	}
 	for i := range connectors {
 		connectors[i] = connectors[i].Normalized()
+	}
+	return connectors, nil
+}
+
+func getenvChannelConnectors(key string) ([]channelconnector.Config, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	var connectors []channelconnector.Config
+	if err := json.Unmarshal([]byte(raw), &connectors); err != nil {
+		return nil, fmt.Errorf("%s must be a JSON array of channel connectors: %w", key, err)
 	}
 	return connectors, nil
 }

@@ -4,18 +4,32 @@ package executionstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
+
+func passthroughChannelInboundContent(
+	_ context.Context,
+	content json.RawMessage,
+) (integration.MaterializeChannelInboundContentFunc, error) {
+	return func(
+		context.Context,
+		integration.MaterializeChannelInboundContentInput,
+	) (json.RawMessage, error) {
+		return content, nil
+	}, nil
+}
 
 var (
 	testOrgID                                  = testID("org_test")

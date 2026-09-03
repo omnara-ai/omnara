@@ -52,6 +52,22 @@ func parseAgentInputContentBlocks(
 	return blocks, nil
 }
 
+// ValidateAgentInputContentBlocks runs the canonical storage validation without
+// creating any durable rows. Ingress paths use it before starting a workflow
+// whose later steps may create agents or artifacts.
+func ValidateAgentInputContentBlocks(contentBlocks json.RawMessage) error {
+	_, err := parseAgentInputContentBlocks(contentBlocks)
+	return err
+}
+
+// ValidateToolResultContentBlocks is the tool-result counterpart to
+// ValidateAgentInputContentBlocks. Tool results additionally admit structured
+// data and may be empty.
+func ValidateToolResultContentBlocks(contentBlocks json.RawMessage) error {
+	_, err := parseToolResultContentBlocks(contentBlocks)
+	return err
+}
+
 func parseToolResultContentBlocks(
 	contentBlocks json.RawMessage,
 ) ([]CreateContentBlockInput, error) {

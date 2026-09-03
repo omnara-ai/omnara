@@ -34,10 +34,13 @@ func executableToolSet(specs []modelcontext.ToolSpec) map[string]tools.ToolSpec 
 
 func toToolTurn(input ModelWorkExecution) tools.Turn {
 	return tools.Turn{
-		OrgID:         input.OrgID,
-		ProjectID:     input.ProjectID,
-		AgentID:       input.AgentID,
-		RuntimeLockID: input.RuntimeLockID,
+		OrgID:              input.OrgID,
+		ProjectID:          input.ProjectID,
+		AgentID:            input.AgentID,
+		TurnID:             input.TurnID,
+		RuntimeLockID:      input.RuntimeLockID,
+		ModelCallContextID: input.ModelCallContextID,
+		OpeningInputIDs:    append([]storage.ID(nil), input.InputIDs...),
 	}
 }
 
@@ -46,6 +49,7 @@ func toolWorkTurn(input ToolWorkExecution, orgID storage.ID, specs []modelcontex
 		OrgID:              orgID,
 		ProjectID:          input.ProjectID,
 		AgentID:            input.AgentID,
+		TurnID:             input.TurnID,
 		SourceEventID:      input.SourceEventID,
 		RuntimeLockID:      input.RuntimeLockID,
 		ModelCallContextID: input.ModelCallContextID,

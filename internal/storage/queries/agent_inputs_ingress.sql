@@ -2,7 +2,7 @@
 WITH generated AS (
     SELECT coalesce(sqlc.narg(id), uuidv7()) AS id
 )
-INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
+INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
 SELECT generated.id, agent.project_id, agent.id, 'received',
        coalesce(
          (
@@ -18,16 +18,17 @@ SELECT generated.id, agent.project_id, agent.id, 'received',
        ),
        sqlc.arg(actor_id), 'content',
        sqlc.narg(integration_target_id)::uuid,
+       sqlc.narg(integration_target_binding_id)::uuid,
        sqlc.arg(delivery_mode)::text,
        sqlc.narg(idempotency_scope), sqlc.narg(input_idempotency_key), statement_timestamp(), sqlc.arg(metadata)
 FROM agents agent
 JOIN generated ON true
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.id = sqlc.arg(agent_id)
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
 
 -- name: GetAgentInputByIdempotency :one
-SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 FROM agent_inputs
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)

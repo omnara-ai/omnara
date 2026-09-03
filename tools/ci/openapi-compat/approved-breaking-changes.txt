@@ -33,3 +33,6 @@ Unset cache retention is reported as absent: GET /orgs/{orgID}/model-provider-co
 Unset cache retention is reported as absent: POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models the response property `default_cache_retention` became optional for the status `200`
 Unset cache retention is reported as absent: POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models the response property `default_cache_retention` became optional for the status `201`
 Unset cache retention is reported as absent: PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID} the response property `default_cache_retention` became optional for the status `200`
+Channel provider registry expansion; the legacy value remains accepted: GET /orgs/{orgID}/projects/{projectID}/actors removed the enum value `external` from the `query` request parameter `provider`
+Channel provider registry expansion; the legacy value remains accepted: GET /orgs/{orgID}/projects/{projectID}/actors removed the enum value `omnara` from the `query` request parameter `provider`
+Channel provider registry expansion; the legacy value remains accepted: GET /orgs/{orgID}/projects/{projectID}/actors removed the enum value `slack` from the `query` request parameter `provider`

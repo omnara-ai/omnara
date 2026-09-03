@@ -17,6 +17,7 @@ const (
 type UpsertIntegrationInstallInput struct {
 	OrgID                    ID
 	ProjectID                ID
+	IntegrationAppID         ID
 	AgentProfileID           ID
 	AgentID                  ID
 	InstalledByUserID        ID
@@ -38,6 +39,7 @@ type IntegrationInstallRecord struct {
 	ID                       ID                      `json:"id"`
 	OrgID                    ID                      `json:"org_id"`
 	ProjectID                ID                      `json:"project_id"`
+	IntegrationAppID         ID                      `json:"integration_app_id"`
 	AgentProfileID           ID                      `json:"agent_profile_id,omitempty"`
 	AgentID                  ID                      `json:"agent_id,omitempty"`
 	InstalledByUserID        ID                      `json:"installed_by_user_id"`
@@ -52,6 +54,7 @@ type IntegrationInstallRecord struct {
 	ProviderConfig           json.RawMessage         `json:"provider_config"`
 	ProviderIdentity         json.RawMessage         `json:"provider_identity"`
 	ProviderMetadata         json.RawMessage         `json:"provider_metadata"`
+	ConfigurationRevision    int64                   `json:"configuration_revision"`
 	LastOAuthFlowID          ID                      `json:"last_oauth_flow_id,omitempty"`
 	CreatedAt                time.Time               `json:"created_at"`
 	UpdatedAt                time.Time               `json:"updated_at"`
@@ -65,6 +68,7 @@ type CreateIntegrationTargetInput struct {
 	ProviderRef          string
 	ProviderRefKind      string
 	DisplayName          string
+	ProviderMetadata     json.RawMessage
 }
 
 type IntegrationTargetRecord struct {
