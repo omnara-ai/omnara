@@ -43,7 +43,15 @@ func TestValidateDiscoveredTools(t *testing.T) {
 		{
 			name:  "unsupported name",
 			tools: []*sdkmcp.Tool{{Name: "search docs"}},
-			want:  `tool name "search docs" cannot be exposed to the model`,
+			want:  `tool name "search docs" cannot be exposed to the model: mcp tool name "search docs" must match`,
+		},
+		{
+			name:  "prefixed name too long",
+			tools: []*sdkmcp.Tool{{Name: strings.Repeat("a", 60)}},
+			want: `tool name "` + strings.Repeat("a", 60) + `" cannot be exposed to the model: tool "` +
+				strings.Repeat("a", 60) + `" becomes "mcp__docs__` + strings.Repeat("a", 60) +
+				`" (71 characters) once the server name is prefixed, but the model only accepts tool names of 64 characters or fewer; ` +
+				`the tool name itself is too long to expose under any server name`,
 		},
 		{
 			name: "duplicate name",

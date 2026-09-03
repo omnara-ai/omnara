@@ -319,9 +319,8 @@ func validateDiscoveredTools(serverKey string, tools []*sdkmcp.Tool) error {
 		if tool == nil {
 			return fmt.Errorf("tool at index %d is null", index)
 		}
-		runtimeName := toolcatalog.MCPRuntimeToolName(serverKey, tool.Name)
-		if !toolcatalog.IsMCPRuntimeToolName(runtimeName) {
-			return fmt.Errorf("tool name %q cannot be exposed to the model", tool.Name)
+		if err := toolcatalog.ValidateMCPRuntimeToolName(serverKey, tool.Name); err != nil {
+			return fmt.Errorf("tool name %q cannot be exposed to the model: %w", tool.Name, err)
 		}
 		if _, duplicate := seen[tool.Name]; duplicate {
 			return fmt.Errorf("duplicate tool name %q", tool.Name)

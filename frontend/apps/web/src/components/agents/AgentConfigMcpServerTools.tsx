@@ -10,10 +10,13 @@ import {
 import { useState } from 'react'
 
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
-import type {
-  BasicMcpServer,
-  BasicMcpTool,
-  McpAuthType,
+import {
+  type BasicMcpServer,
+  type BasicMcpTool,
+  type McpAuthType,
+  mcpRuntimeToolName,
+  mcpRuntimeToolNameError,
+  mcpRuntimeToolNameMaxLength,
 } from '@/components/agents/useAgentBuilderForm'
 import { SearchIcon, Trash2Icon, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -72,8 +75,13 @@ export function AgentConfigMcpServerTools({
   const typedName = query.trim()
   const typedNameAddable =
     mcpToolNamePattern.test(typedName) &&
+    mcpRuntimeToolNameError(server.name, typedName) === undefined &&
     !overriddenNames.has(typedName) &&
     !discoveredByName.has(typedName)
+  const unexposableTools = discovered.flatMap((tool) => {
+    const error = mcpRuntimeToolNameError(server.name, tool.name)
+    return error === undefined ? [] : [{ name: tool.name, error }]
+  })
 
   function addOverride(name: string) {
     if (overriddenNames.has(name)) return
@@ -297,6 +305,9 @@ export function AgentConfigMcpServerTools({
           </div>
         )}
       </div>
+      {unexposableTools.length > 0 && (
+        <UnexposableTools serverName={server.name} tools={unexposableTools} />
+      )}
       {discovery.isError && (authType !== 'none' || detectedAuthType(discovery.error) == null) && (
         <DiscoveryFailure
           error={discovery.error}
@@ -351,6 +362,44 @@ function DiscoveryFailure({
       >
         {switchable ? (detected === 'oauth' ? 'Use OAuth' : 'Use bearer secret') : 'Retry'}
       </Button>
+    </div>
+  )
+}
+
+function UnexposableTools({
+  serverName,
+  tools,
+}: {
+  serverName: string
+  tools: { name: string; error: string }[]
+}) {
+  const longestToolName = Math.max(...tools.map((tool) => tool.name.length))
+  const maxServerNameLength =
+    mcpRuntimeToolNameMaxLength - mcpRuntimeToolName('', '').length - longestToolName
+  return (
+    <div role="alert" className="text-destructive flex items-start gap-2 text-sm">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="font-medium">
+          {tools.length === 1
+            ? 'One tool cannot be exposed to the model, so the agent will fail to connect to this server.'
+            : `${tools.length} tools cannot be exposed to the model, so the agent will fail to connect to this server.`}
+        </p>
+        <p className="text-muted-foreground">
+          Omnara names MCP tools <code className="font-mono">mcp__{serverName}__&lt;tool&gt;</code>,
+          and the full name must be {mcpRuntimeToolNameMaxLength} characters or fewer.{' '}
+          {maxServerNameLength >= 1
+            ? `Shorten the server name to ${maxServerNameLength} characters or fewer.`
+            : 'Some tool names are too long to expose under any server name.'}
+        </p>
+        <ul className="text-muted-foreground list-disc space-y-0.5 pl-5">
+          {tools.map((tool) => (
+            <li key={tool.name} className="break-all font-mono text-xs">
+              {tool.name}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }
