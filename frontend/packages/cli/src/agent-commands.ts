@@ -1,4 +1,3 @@
-import type { AgentEvent, ListAgentEventsResponse } from '@omnara/sdk'
 import { openAgentEventStream } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import type { Command } from 'commander'
@@ -6,7 +5,6 @@ import * as z from 'zod'
 
 import { runChat } from './chat.ts'
 import type { CliConfig } from './config.ts'
-import { blockText } from './content-blocks.ts'
 import {
   type CustomSpec,
   parseNumberFlag,
@@ -15,45 +13,10 @@ import {
   registerPathParams,
   resolvePathValues,
 } from './factory.ts'
-import type { OutputFormat } from './format.ts'
 import { canPromptInteractively, promptAgentSelection } from './interactive.ts'
-import { abbreviate, CliInputError, runCliAction } from './output.ts'
+import { CliInputError, runCliAction } from './output.ts'
 
 const zProjectScopePath = schemas.zListAgentsPath
-
-const previewWidth = 80
-
-function eventPreview(event: AgentEvent): string {
-  switch (event.event_kind) {
-    case 'agent_input':
-    case 'model_output':
-      return abbreviate(event.content_blocks.map(blockText).join(' '), previewWidth)
-    case 'tool_result':
-      return abbreviate(
-        `${event.outcome}: ${event.content_blocks.map(blockText).join(' ')}`,
-        previewWidth,
-      )
-    case 'context_checkpoint':
-      return abbreviate(`context summarized: ${event.summary}`, previewWidth)
-  }
-}
-
-export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (response) => ({
-  value: {
-    data: response.data.map((event) => ({
-      sequence: event.sequence,
-      event_kind: event.event_kind,
-      turn_sequence: event.turn_sequence,
-      preview: eventPreview(event),
-      created_at: event.created_at,
-    })),
-    has_more: response.has_more,
-    next_after_sequence: response.next_after_sequence,
-    ...(response.next_before_sequence == null
-      ? {}
-      : { next_before_sequence: response.next_before_sequence }),
-  },
-})
 
 function registerProjectScope(
   command: Command,

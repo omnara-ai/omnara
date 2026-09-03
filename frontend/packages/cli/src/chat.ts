@@ -8,8 +8,12 @@ import type {
 } from '@omnara/sdk'
 import { ApiError, openAgentEventStream, sdk } from '@omnara/sdk'
 
-import { blockText } from './content-blocks.ts'
-import { DeltaRenderer } from './delta-renderer.ts'
+import {
+  DeltaRenderer,
+  printEvent,
+  printHistoryEvent,
+  type ToolCallInfo,
+} from './agent-rendering.ts'
 import { abbreviate } from './output.ts'
 import { sleepSeconds } from './poll.ts'
 import { pick } from './select.ts'
@@ -22,118 +26,7 @@ export interface ChatTarget {
   agentId: string
 }
 
-const summaryWidth = 100
-
-function toolCallSummary(name: string, input: Record<string, unknown>): string | undefined {
-  if (name === 'run_command' && typeof input.command === 'string') {
-    return `command: ${abbreviate(input.command, summaryWidth)}`
-  }
-  const entries = Object.entries(input)
-  if (entries.length === 0) return undefined
-  return abbreviate(
-    entries
-      .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
-      .join(', '),
-    summaryWidth,
-  )
-}
-
-interface ToolCallInfo {
-  name: string
-  summary?: string
-}
-
-function printModelText(terminal: Terminal, text: string, streamedText: string | undefined): void {
-  if (streamedText === undefined) {
-    if (text.trim() !== '') terminal.printBlock(`${label('agent', ansi.green)} ${text}`)
-    return
-  }
-  if (!text.startsWith(streamedText)) {
-    if (text.trim() !== '') terminal.printBlock(`${label('agent', ansi.green)} ${text}`)
-    return
-  }
-  const remainder = text.slice(streamedText.length)
-  if (remainder.trim() === '') return
-  const continuation =
-    streamedText.trim() === '' ? `${label('agent', ansi.green)} ${remainder}` : `  ${remainder}`
-  terminal.printBlock(continuation)
-}
-
-function printEvent(
-  terminal: Terminal,
-  event: AgentEvent,
-  streamedTextByContext: Map<string, string>,
-  toolCalls: Map<string, ToolCallInfo>,
-): void {
-  switch (event.event_kind) {
-    case 'agent_input':
-      return
-    case 'model_output': {
-      const streamedText = streamedTextByContext.get(event.model_call_context_id)
-      streamedTextByContext.delete(event.model_call_context_id)
-      const fullText = event.content_blocks
-        .map((block) => (block.type === 'text' ? block.text : ''))
-        .join('')
-      printModelText(terminal, fullText, streamedText)
-      for (const block of event.content_blocks) {
-        if (block.type === 'tool_call') {
-          toolCalls.set(block.tool_call_id, {
-            name: block.name,
-            summary: toolCallSummary(block.name, block.input),
-          })
-        } else if (block.type === 'error') {
-          terminal.printBlock(`${label('error', ansi.red)} ${block.text}`)
-        }
-      }
-      return
-    }
-    case 'tool_result': {
-      const call = toolCalls.get(event.tool_call_id)
-      toolCalls.delete(event.tool_call_id)
-      const name = call?.name ?? event.tool_call_id
-      const output = event.content_blocks
-        .filter((block) => block.type === 'text' || block.type === 'structured_data')
-        .map(blockText)
-        .find((text) => text.trim() !== '')
-      const outcomeColor =
-        event.outcome === 'succeeded'
-          ? ansi.green
-          : event.outcome === 'canceled'
-            ? ansi.yellow
-            : ansi.red
-      terminal.printBlock(
-        `${label('tool', ansi.magenta)} ${name} ${outcomeColor}(${event.outcome})${ansi.reset}` +
-          (call?.summary != null ? `\n  ${ansi.dim}${call.summary}${ansi.reset}` : '') +
-          (output != null
-            ? `\n  ${ansi.dim}→ ${abbreviate(output, summaryWidth)}${ansi.reset}`
-            : ''),
-      )
-      return
-    }
-    case 'context_checkpoint':
-      terminal.printBlock(`${label('checkpoint', ansi.gray)} context summarized`)
-      return
-  }
-}
-
 const historyEventLimit = 500
-
-function printHistoryEvent(
-  terminal: Terminal,
-  event: AgentEvent,
-  toolCalls: Map<string, ToolCallInfo>,
-): void {
-  if (event.event_kind === 'agent_input') {
-    if (event.input_kind !== 'content') return
-    const text = event.content_blocks
-      .map((block) => (block.type === 'text' ? block.text : ''))
-      .filter((line) => line.trim() !== '')
-      .join('\n')
-    if (text !== '') terminal.printBlock(`${label('you', ansi.cyan)} ${text}`)
-    return
-  }
-  printEvent(terminal, event, new Map(), toolCalls)
-}
 
 async function loadHistory(
   client: OmnaraClient,

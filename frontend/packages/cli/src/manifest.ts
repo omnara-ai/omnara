@@ -2,12 +2,8 @@ import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
-import {
-  agentChatOp,
-  agentEventsStreamOp,
-  formatAgentEventList,
-  zAgentInputCliBody,
-} from './agent-commands.ts'
+import { agentChatOp, agentEventsStreamOp, zAgentInputCliBody } from './agent-commands.ts'
+import { formatAgentEventList } from './agent-rendering.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
