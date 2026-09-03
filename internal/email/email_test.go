@@ -1,10 +1,13 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/mail"
@@ -58,8 +61,15 @@ func TestSendGridSenderSendInviteBuildsRequest(t *testing.T) {
 	if err := json.NewDecoder(seenRequest.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	assertSendGridInviteBody(
-		t, body, "user@example.com", "noreply@example.com", "Acme", "https://app.example.com/invitations",
+	assertSendGridMessageBody(
+		t,
+		body,
+		"user@example.com",
+		"noreply@example.com",
+		"You have an Omnara invitation",
+		"Acme",
+		"https://app.example.com/invitations",
+		"accept or decline",
 	)
 	personalization := firstMapInSlice(t, body["personalizations"])
 	toEntry := firstMapInSlice(t, personalization["to"])
@@ -103,7 +113,7 @@ func TestSendGridSenderSendInviteUsesDefaultInviteText(t *testing.T) {
 }
 
 func TestInviteBodyNormalizesInvitationsURL(t *testing.T) {
-	value := inviteBody("Acme", "https://app.example.com/")
+	value := inviteMessage("Acme", "https://app.example.com/").text
 	if !strings.Contains(value, "https://app.example.com/invitations") {
 		t.Fatalf("invite body = %q, want invitations URL", value)
 	}
@@ -209,8 +219,151 @@ func TestSendGridSenderAuthEmailBodies(t *testing.T) {
 			if err := tt.send(context.Background(), sender); err != nil {
 				t.Fatalf("send: %v", err)
 			}
-			assertSendGridTextBody(t, body, "user@example.com", "noreply@example.com", tt.subject, tt.contains...)
+			assertSendGridMessageBody(t, body, "user@example.com", "noreply@example.com", tt.subject, tt.contains...)
 		})
+	}
+}
+
+func TestMessagesRenderBrandedHTML(t *testing.T) {
+	tests := []struct {
+		name        string
+		message     message
+		heading     string
+		actionLabel string
+		actionURL   string
+	}{
+		{
+			name:        "invite",
+			message:     inviteMessage("Acme", "https://app.example.com"),
+			heading:     "You&#39;re invited to join Acme",
+			actionLabel: "Review invitation",
+			actionURL:   "https://app.example.com/invitations",
+		},
+		{
+			name:        "verification",
+			message:     emailVerificationMessage("https://app.example.com/verify-email?token=verify"),
+			heading:     "Verify your email",
+			actionLabel: "Verify email",
+			actionURL:   "https://app.example.com/verify-email?token=verify",
+		},
+		{
+			name:        "password reset",
+			message:     passwordResetMessage("https://app.example.com/reset-password?token=reset"),
+			heading:     "Reset your password",
+			actionLabel: "Reset password",
+			actionURL:   "https://app.example.com/reset-password?token=reset",
+		},
+		{
+			name:        "account exists",
+			message:     accountExistsMessage("https://app.example.com/login"),
+			heading:     "Your Omnara account already exists",
+			actionLabel: "Sign in to Omnara",
+			actionURL:   "https://app.example.com/login",
+		},
+		{
+			name:    "password changed",
+			message: passwordChangedMessage(),
+			heading: "Your password was changed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rendered, err := tt.message.renderHTML("https://app.example.com")
+			if err != nil {
+				t.Fatalf("render HTML: %v", err)
+			}
+			for _, want := range []string{
+				"<!doctype html>",
+				"https://app.example.com/omnara-logo-white.png",
+				"https://app.example.com/omnara-logo-black.png",
+				"background:#ebecf0",
+				"max-width:800px",
+				"max-width:600px",
+				"u + .email-body",
+				"[data-ogsc]",
+				"mix-blend-mode: difference",
+				"mso-hide:all",
+				"overflow-wrap:anywhere",
+				"word-break:break-word",
+				"@media (prefers-color-scheme: dark)",
+				"<!--[if mso]>",
+				"font-family:'Segoe UI',Arial,sans-serif !important",
+				"line-height:125%",
+				"line-height:160%",
+				tt.heading,
+			} {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("HTML missing %q: %s", want, rendered)
+				}
+			}
+			if tt.actionURL == "" {
+				if strings.Contains(rendered, "<a ") {
+					t.Fatalf("HTML unexpectedly contains an action: %s", rendered)
+				}
+				return
+			}
+			for _, want := range []string{
+				tt.actionLabel,
+				`href="` + tt.actionURL + `"`,
+				"background:#4372cf",
+				"background-image:linear-gradient(#4372cf,#4372cf)",
+				"line-height:100%",
+				"mso-padding-alt:16px 32px",
+			} {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("HTML missing %q: %s", want, rendered)
+				}
+			}
+			if strings.Contains(rendered, `>`+tt.actionURL+`<`) {
+				t.Fatalf("HTML exposes raw action URL: %s", rendered)
+			}
+		})
+	}
+}
+
+func TestEmailVerificationHTMLMatchesApprovedCopy(t *testing.T) {
+	rendered, err := emailVerificationMessage("https://app.example.com/verify-email?token=verify").renderHTML(
+		"https://app.example.com",
+	)
+	if err != nil {
+		t.Fatalf("render HTML: %v", err)
+	}
+	for _, want := range []string{
+		"Verify your email",
+		"Confirm your email address to finish setting up your Omnara account.",
+		"If you didn&#39;t request this, you can safely ignore this email.",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("HTML missing %q: %s", want, rendered)
+		}
+	}
+}
+
+func TestMessageHTMLWithoutPublicURLOmitsLogoImages(t *testing.T) {
+	rendered, err := passwordChangedMessage().renderHTML("")
+	if err != nil {
+		t.Fatalf("render HTML: %v", err)
+	}
+	if strings.Contains(rendered, "omnara-logo-") {
+		t.Fatalf("HTML contains a relative logo URL: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Omnara") {
+		t.Fatalf("HTML missing brand name: %s", rendered)
+	}
+}
+
+func TestMessageHTMLIsEscaped(t *testing.T) {
+	rendered, err := inviteMessage(`<script>alert("x")</script>`, "https://app.example.com").renderHTML(
+		"https://app.example.com",
+	)
+	if err != nil {
+		t.Fatalf("render HTML: %v", err)
+	}
+	if strings.Contains(rendered, `<script>alert("x")</script>`) {
+		t.Fatalf("HTML contains unescaped organization name: %s", rendered)
+	}
+	if !strings.Contains(rendered, `&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;`) {
+		t.Fatalf("HTML missing escaped organization name: %s", rendered)
 	}
 }
 
@@ -308,7 +461,7 @@ func TestSendGridSenderSendInviteWrapsClientError(t *testing.T) {
 	}
 }
 
-func TestPlainTextMessageBuildsMIMEMessage(t *testing.T) {
+func TestMultipartAlternativeMessageBuildsMIMEMessage(t *testing.T) {
 	from, err := mail.ParseAddress("Omnara <noreply@example.com>")
 	if err != nil {
 		t.Fatalf("parse from: %v", err)
@@ -317,36 +470,74 @@ func TestPlainTextMessageBuildsMIMEMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse to: %v", err)
 	}
-	message, err := plainTextMessage(
+	message, err := multipartAlternativeMessage(
 		from,
 		to,
 		"Verify your Omnara email",
 		"line one\nline two",
+		"<p>line one</p><p>line two</p>",
 		time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	)
 	if err != nil {
-		t.Fatalf("plain text message: %v", err)
+		t.Fatalf("multipart alternative message: %v", err)
 	}
-	got := string(message)
-	for _, want := range []string{
-		"From: \"Omnara\" <noreply@example.com>\r\n",
-		"To: \"User\" <user@example.com>\r\n",
-		"Date: Fri, 02 Jan 2026 03:04:05 +0000\r\n",
-		"Subject: Verify your Omnara email\r\n",
-		"MIME-Version: 1.0\r\n",
-		"Content-Type: text/plain; charset=utf-8\r\n",
-		"\r\nline one\r\nline two\r\n",
+	parsed, err := mail.ReadMessage(bytes.NewReader(message))
+	if err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	for header, want := range map[string]string{
+		"From":         "\"Omnara\" <noreply@example.com>",
+		"To":           "\"User\" <user@example.com>",
+		"Date":         "Fri, 02 Jan 2026 03:04:05 +0000",
+		"Subject":      "Verify your Omnara email",
+		"MIME-Version": "1.0",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("message = %q, want %q", got, want)
+		if got := parsed.Header.Get(header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
 		}
+	}
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parse content type: %v", err)
+	}
+	if mediaType != "multipart/alternative" {
+		t.Fatalf("content type = %q, want multipart/alternative", mediaType)
+	}
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	for index, want := range []struct {
+		contentType string
+		body        string
+	}{
+		{contentType: "text/plain; charset=utf-8", body: "line one\r\nline two"},
+		{contentType: "text/html; charset=utf-8", body: "<p>line one</p><p>line two</p>"},
+	} {
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Fatalf("read part %d: %v", index, err)
+		}
+		if got := part.Header.Get("Content-Type"); got != want.contentType {
+			t.Fatalf("part %d content type = %q, want %q", index, got, want.contentType)
+		}
+		body, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatalf("read part %d body: %v", index, err)
+		}
+		if got := strings.TrimSuffix(string(body), "\r\n"); got != want.body {
+			t.Fatalf("part %d body = %q, want %q", index, got, want.body)
+		}
+	}
+	if part, err := reader.NextPart(); !errors.Is(err, io.EOF) {
+		if part != nil {
+			_ = part.Close()
+		}
+		t.Fatalf("extra MIME part error = %v, want EOF", err)
 	}
 }
 
-func TestPlainTextMessageRejectsSubjectNewline(t *testing.T) {
+func TestMultipartAlternativeMessageRejectsSubjectNewline(t *testing.T) {
 	from, _ := mail.ParseAddress("noreply@example.com")
 	to, _ := mail.ParseAddress("user@example.com")
-	if _, err := plainTextMessage(from, to, "bad\r\nsubject", "body", time.Now()); err == nil {
+	if _, err := multipartAlternativeMessage(from, to, "bad\r\nsubject", "text", "<p>html</p>", time.Now()); err == nil {
 		t.Fatal("expected subject newline error")
 	}
 }
@@ -380,39 +571,7 @@ func TestSMTPSenderRequiresSTARTTLSWhenConfigured(t *testing.T) {
 	<-done
 }
 
-func assertSendGridInviteBody(t *testing.T, body map[string]any, to, from, orgName, inviteURL string) {
-	t.Helper()
-
-	personalization := firstMapInSlice(t, body["personalizations"])
-	toEntry := firstMapInSlice(t, personalization["to"])
-	if got := toEntry["email"]; got != to {
-		t.Fatalf("to email = %v, want %s", got, to)
-	}
-
-	fromEntry, ok := body["from"].(map[string]any)
-	if !ok {
-		t.Fatalf("from = %#v, want object", body["from"])
-	}
-	if got := fromEntry["email"]; got != from {
-		t.Fatalf("from email = %v, want %s", got, from)
-	}
-	if got := body["subject"]; got != "You have an Omnara invitation" {
-		t.Fatalf("subject = %v", got)
-	}
-
-	content := firstMapInSlice(t, body["content"])
-	if got := content["type"]; got != "text/plain" {
-		t.Fatalf("content type = %v, want text/plain", got)
-	}
-	value, _ := content["value"].(string)
-	for _, want := range []string{orgName, inviteURL, "accept or decline"} {
-		if !strings.Contains(value, want) {
-			t.Fatalf("invite body = %q, want to contain %q", value, want)
-		}
-	}
-}
-
-func assertSendGridTextBody(t *testing.T, body map[string]any, to, from, subject string, contains ...string) {
+func assertSendGridMessageBody(t *testing.T, body map[string]any, to, from, subject string, contains ...string) {
 	t.Helper()
 
 	personalization := firstMapInSlice(t, body["personalizations"])
@@ -430,11 +589,19 @@ func assertSendGridTextBody(t *testing.T, body map[string]any, to, from, subject
 	if got := body["subject"]; got != subject {
 		t.Fatalf("subject = %v, want %s", got, subject)
 	}
-	content := firstMapInSlice(t, body["content"])
-	value, _ := content["value"].(string)
-	for _, want := range contains {
-		if !strings.Contains(value, want) {
-			t.Fatalf("body = %q, want %q", value, want)
+	content := mapsInSlice(t, body["content"])
+	if len(content) != 2 {
+		t.Fatalf("content parts = %d, want 2", len(content))
+	}
+	for index, contentType := range []string{"text/plain", "text/html"} {
+		if got := content[index]["type"]; got != contentType {
+			t.Fatalf("content %d type = %v, want %s", index, got, contentType)
+		}
+		value, _ := content[index]["value"].(string)
+		for _, want := range contains {
+			if !strings.Contains(value, want) {
+				t.Fatalf("content %d = %q, want %q", index, value, want)
+			}
 		}
 	}
 }
@@ -442,15 +609,24 @@ func assertSendGridTextBody(t *testing.T, body map[string]any, to, from, subject
 func firstMapInSlice(t *testing.T, value any) map[string]any {
 	t.Helper()
 
+	return mapsInSlice(t, value)[0]
+}
+
+func mapsInSlice(t *testing.T, value any) []map[string]any {
+	t.Helper()
+
 	items, ok := value.([]any)
 	if !ok || len(items) == 0 {
 		t.Fatalf("value = %#v, want non-empty array", value)
 	}
-	item, ok := items[0].(map[string]any)
-	if !ok {
-		t.Fatalf("first item = %#v, want object", items[0])
+	maps := make([]map[string]any, len(items))
+	for index, item := range items {
+		maps[index], ok = item.(map[string]any)
+		if !ok {
+			t.Fatalf("item %d = %#v, want object", index, item)
+		}
 	}
-	return item
+	return maps
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

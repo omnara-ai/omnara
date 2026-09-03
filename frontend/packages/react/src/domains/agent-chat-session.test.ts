@@ -1,4 +1,4 @@
-import { ApiError } from '@omnara/sdk'
+import { AgentEventStreamError, ApiError } from '@omnara/sdk'
 import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -168,6 +168,72 @@ describe('AgentChatSession input lifecycle', () => {
     const userMessages = streaming.messages.filter((message) => message.role === 'user')
     expect(userMessages).toHaveLength(1)
     expect(userMessages[0]?.id).toBe('input-event')
+    session.disconnect()
+  })
+
+  it('keeps accepted conversation attachments visible until their durable echo', async () => {
+    const session = startSession()
+    await connection(0)
+    const attachment = {
+      data: 'aGk=',
+      mediaType: 'text/plain' as const,
+      filename: 'notes.txt',
+      sizeBytes: 2,
+    }
+
+    const send = session.sendMessage({ text: '', attachments: [attachment] })
+
+    expect(read(session).messages.at(-1)?.parts).toMatchObject([
+      { type: 'data-media', data: attachment },
+    ])
+    await send
+    expect(sdkMocks.createAgentInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          content_blocks: [
+            {
+              type: 'text',
+              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
+              metadata: { omnara_hidden: 'true' },
+            },
+            {
+              type: 'media',
+              media_type: 'text/plain',
+              filename: 'notes.txt',
+              data: 'aGk=',
+            },
+          ],
+        },
+      }),
+    )
+    expect(session.getData().localInputs[0]?.attachments).toEqual([attachment])
+    expect(read(session).messages.at(-1)?.parts).toMatchObject([
+      { type: 'data-media', data: attachment },
+    ])
+    session.disconnect()
+  })
+
+  it('retains accepted immediate attachments until their durable echo arrives', async () => {
+    sdkMocks.createAgentInput.mockResolvedValueOnce({
+      data: {
+        agent_input: {
+          ...acceptedInput('input-1', '').data.agent_input,
+          delivery_mode: 'immediate',
+        },
+      },
+    })
+    const session = startSession()
+    await connection(0)
+    const attachment = {
+      data: 'aGk=',
+      mediaType: 'text/plain' as const,
+      filename: 'notes.txt',
+      sizeBytes: 2,
+    }
+
+    await session.sendMessage({ text: '', attachments: [attachment] })
+
+    expect(session.getData().localInputs[0]?.attachments).toEqual([attachment])
     session.disconnect()
   })
 
@@ -398,11 +464,13 @@ describe('AgentChatSession input lifecycle', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(invalidate).toHaveBeenCalled()
 
-      stream.push({
-        event: 'error',
-        data: { code: 'internal_error', error: 'event projection failed' },
-      })
-      stream.end()
+      stream.fail(
+        new AgentEventStreamError({
+          kind: 'api',
+          code: 'internal_error',
+          message: 'event projection failed',
+        }),
+      )
       await vi.advanceTimersByTimeAsync(0)
       expect(read(session).error?.message).toBe('event projection failed')
 
@@ -476,9 +544,16 @@ describe('AgentChatSession input lifecycle', () => {
     sdkMocks.createAgentInput.mockRejectedValue(new Error('response lost'))
     const session = startSession()
     await connection(0)
+    const attachment = {
+      data: 'aGk=',
+      mediaType: 'text/plain' as const,
+      filename: 'notes.txt',
+      sizeBytes: 2,
+    }
 
-    const send = session.sendMessage({ text: 'Hello' })
+    const send = session.sendMessage({ text: 'Hello', attachments: [attachment] }, 'backlog')
     const key = sentIdempotencyKey()
+    expect(session.getData().localInputs[0]?.attachments).toEqual([attachment])
 
     session.confirmBacklogInputs([
       {
@@ -494,7 +569,10 @@ describe('AgentChatSession input lifecycle', () => {
     ])
     await send
     expect(read(session).error).toBeUndefined()
-    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    expect(session.getData().localInputs).toMatchObject([
+      { agentInputID: 'input-1', attachmentCount: 1 },
+    ])
+    expect(session.getData().localInputs[0]?.attachments).toBeUndefined()
     session.disconnect()
   })
 
@@ -510,6 +588,34 @@ describe('AgentChatSession input lifecycle', () => {
 
     rollback()
     expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+    session.disconnect()
+  })
+
+  it('compares failed attachment retries by their wire payload', async () => {
+    sdkMocks.createAgentInput
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockRejectedValueOnce(new Error('response lost'))
+    const session = startSession()
+    await connection(0)
+    const first = {
+      data: 'b25l',
+      mediaType: 'text/plain' as const,
+      filename: 'notes.txt',
+      sizeBytes: 3,
+    }
+    const resized = { ...first, sizeBytes: 4 }
+    const changed = { ...resized, data: 'dHdv' }
+
+    await expect(session.sendMessage({ text: 'Review', attachments: [first] })).rejects.toThrow(
+      'response lost',
+    )
+    await expect(session.sendMessage({ text: 'Review', attachments: [resized] })).rejects.toThrow(
+      'response lost',
+    )
+    expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+
+    await session.sendMessage({ text: 'Review', attachments: [changed] })
+    expect(sentIdempotencyKey(2)).not.toBe(sentIdempotencyKey(1))
     session.disconnect()
   })
 

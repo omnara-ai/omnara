@@ -1,6 +1,8 @@
 export {
+  type AgentEventStreamConnectionState,
   AgentEventStreamError,
   type AgentEventStreamErrorKind,
+  type AgentEventStreamFrame,
   openAgentEventStream,
   type OpenAgentEventStreamOptions,
 } from './agent-event-stream'
@@ -13,6 +15,8 @@ export {
   DeviceAuthError,
   type DeviceAuthFailureCode,
   type DeviceAuthStart,
+  OAUTH_DEVICE_GRANT_TYPE,
+  OMNARA_CLI_OAUTH_CLIENT_ID,
   pollDeviceAuthToken,
   type PollDeviceAuthTokenOptions,
   startDeviceAuth,

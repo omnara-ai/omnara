@@ -666,3 +666,39 @@ func TestPrepareDoesNotEmitThinkingOption(t *testing.T) {
 		t.Fatalf("Anthropic provider-specific thinking option leaked into neutral harness payload: %s", prepared.Body)
 	}
 }
+
+func TestPrepareDefaultsCacheBreakpointsToShortRetention(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		retention model.CacheRetention
+		wantTTL   string
+	}{
+		{name: "unset", retention: model.CacheRetentionUnset, wantTTL: "5m"},
+		{name: "none", retention: model.CacheRetentionNone, wantTTL: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					SystemPrompt: "sys",
+					Messages:     []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+					ToolSpecs:    []modelcontext.ToolSpec{{Name: "tool_1"}},
+				},
+				Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			body := string(prepared.Body)
+			if tc.wantTTL == "" {
+				if strings.Contains(body, "cache_control") {
+					t.Fatalf("cache_control should be omitted: %s", body)
+				}
+				return
+			}
+			if !strings.Contains(body, `"ttl":"`+tc.wantTTL+`"`) || strings.Count(body, "cache_control") != 3 {
+				t.Fatalf("want 3 cache breakpoints with ttl %s: %s", tc.wantTTL, body)
+			}
+		})
+	}
+}

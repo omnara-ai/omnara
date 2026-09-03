@@ -64,6 +64,7 @@ model:
 	if launch.Agent.State != "active" {
 		t.Fatalf("launched agent state = %s, want active", launch.Agent.State)
 	}
+	requireAgentWakeupCoverage(t, ctx, store, testProjectID, launch.Agent.ID)
 	if launch.ConfigChange.AgentInput.InputKind != "config_change" || launch.ConfigChange.AgentInput.State != "resolved" ||
 		launch.ConfigChange.AgentInput.AgentConfigID != launch.AgentConfig.ID {
 		t.Fatalf("initial config change should be resolved with launch config: %+v", launch.ConfigChange.AgentInput)

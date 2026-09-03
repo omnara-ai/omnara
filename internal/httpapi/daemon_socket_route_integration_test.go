@@ -1089,7 +1089,7 @@ func TestDaemonSocketRouteReceivesRealRoutedRedisWakes(t *testing.T) {
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	httpServer := httptest.NewServer(handler)
 	t.Cleanup(func() {
-		server.CloseDaemonSockets()
+		server.Close()
 		httpServer.Close()
 	})
 	project := bootstrapPublicHTTPProject(
@@ -1262,7 +1262,7 @@ func TestDaemonSocketRouteFallbackDrainDeliversAfterMissedRedisWakeup(
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	httpServer := httptest.NewServer(handler)
 	t.Cleanup(func() {
-		server.CloseDaemonSockets()
+		server.Close()
 		httpServer.Close()
 	})
 	project := bootstrapPublicHTTPProject(

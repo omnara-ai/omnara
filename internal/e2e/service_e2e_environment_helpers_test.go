@@ -125,13 +125,14 @@ SELECT coalesce((
 	apiPort := ports[0]
 	apiMetricsPort := ports[1]
 	maintenancePort := ports[2]
-	containerAPIURL := "http://host.docker.internal:" + apiPort
+	containerPublicURL := "http://host.docker.internal:" + apiPort
+	containerAPIURL := containerPublicURL + "/api/v1"
 	env := &serviceE2EEnvironment{
 		seed:                  uniqueSeed,
 		root:                  root,
 		repoRoot:              repoRoot,
 		apiURL:                "http://127.0.0.1:" + apiPort,
-		publicURL:             containerAPIURL,
+		publicURL:             containerPublicURL,
 		publicURLHost:         "host.docker.internal:" + apiPort,
 		apiListenAddr:         "0.0.0.0:" + apiPort,
 		apiMetricsURL:         "http://127.0.0.1:" + apiMetricsPort,

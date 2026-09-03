@@ -1,7 +1,7 @@
 import type * as OmnaraSDK from '@omnara/sdk'
 import {
   type AgentEvent,
-  AgentEventStreamError,
+  type AgentEventStreamConnectionState,
   type AgentInputEvent,
   type ModelOutputEvent,
   type ModelOutputStreamDelta,
@@ -35,29 +35,19 @@ import { QueryClient } from '@tanstack/react-query'
 
 import { AgentChatSession } from './agent-chat'
 import {
-  type AgentChatStatus,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import type { AgentChatStatus } from './agent-chat-types'
 
 export const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 
-export function client(statuses: number[] = [200]): OmnaraClient {
-  let connection = 0
+export function client(): OmnaraClient {
   return {
     getConfig: () => ({
-      fetch: () => {
-        const status = statuses[connection] ?? statuses.at(-1) ?? 200
-        connection += 1
-        return Promise.resolve(
-          new Response(': ok\n\n', {
-            status,
-            headers: { 'Content-Type': 'text/event-stream' },
-          }),
-        )
-      },
+      fetch,
     }),
   } as unknown as OmnaraClient
 }
@@ -179,6 +169,11 @@ export class FakeStream {
   private wake: (() => void) | null = null
   private ended = false
   private failure: Error | undefined
+  private onConnectionStateChange: ((state: AgentEventStreamConnectionState) => void) | undefined
+
+  constructor(onConnectionStateChange?: (state: AgentEventStreamConnectionState) => void) {
+    this.onConnectionStateChange = onConnectionStateChange
+  }
 
   push(frame: Frame): void {
     this.queue.push(frame)
@@ -195,7 +190,11 @@ export class FakeStream {
     this.end()
   }
 
-  async *drive(open: () => Promise<boolean>): AsyncGenerator {
+  connectionState(state: AgentEventStreamConnectionState): void {
+    this.onConnectionStateChange?.(state)
+  }
+
+  async *drive(open: () => boolean | Promise<boolean>): AsyncGenerator {
     if (!(await open())) return
     for (;;) {
       while (this.queue.length > 0) {
@@ -217,29 +216,22 @@ export class FakeStream {
 const connections: FakeStream[] = []
 
 function installStreaming(): void {
-  sdkMocks.openAgentEventStream.mockImplementation(async (options: Record<string, unknown>) => {
-    const stream = new FakeStream()
+  sdkMocks.openAgentEventStream.mockImplementation((options: Record<string, unknown>) => {
+    const stream = new FakeStream(
+      options.onConnectionStateChange as
+        | ((state: AgentEventStreamConnectionState) => void)
+        | undefined,
+    )
     connections.push(stream)
-    await Promise.resolve()
     const signal = options.signal as AbortSignal | undefined
     signal?.addEventListener('abort', () => {
       stream.end()
     })
-    const open = async () => {
-      const configuredFetch = (options.client as OmnaraClient).getConfig().fetch ?? fetch
-      const response = await configuredFetch(new Request('https://example.test/events/stream'))
-      if (!response.ok) {
-        const status = response.status
-        throw new AgentEventStreamError({
-          kind: 'http',
-          message: `Agent event stream request failed with HTTP ${status}`,
-          retryable: status === 408 || status === 429 || status >= 500,
-          status,
-        })
-      }
+    const open = () => {
+      stream.connectionState({ state: 'connected', reconnected: false })
       return true
     }
-    return { stream: stream.drive(open) }
+    return stream.drive(open)
   })
 }
 
@@ -294,7 +286,7 @@ export function createChatTestSession(
     client: sessionClient,
     queryClient,
     ...scope,
-    reconnectDelayMs: 1,
+    inputReconciliationDelayMs: 1,
   })
 }
 

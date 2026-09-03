@@ -69,7 +69,15 @@ afterEach(() => {
 })
 
 describe('Device authorization decisions', () => {
-  it('redirects to the overview after approving', async () => {
+  it('asks the user to match the code shown by the CLI', async () => {
+    await renderDeviceAuth()
+
+    expect(container.textContent).toContain(
+      'Only approve if this code matches the one shown by the CLI where you started login.',
+    )
+  })
+
+  it('confirms approval and sends the user back to the CLI', async () => {
     sdk.approveDeviceAuth.mockResolvedValue(undefined)
     await renderDeviceAuth()
 
@@ -79,7 +87,8 @@ describe('Device authorization decisions', () => {
     })
 
     expect(sdk.approveDeviceAuth).toHaveBeenCalledWith('ABCD-EFGH')
-    expect(window.location.pathname).toBe('/')
+    expect(container.textContent).toContain('Device approved')
+    expect(container.textContent).toContain('Return to the CLI to continue.')
   })
 
   it('marks Deny, rather than Approve, as busy while denial is pending', async () => {

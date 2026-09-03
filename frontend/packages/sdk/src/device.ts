@@ -2,6 +2,17 @@ import * as z from 'zod'
 
 import { ApiError } from './errors'
 
+export const OMNARA_CLI_OAUTH_CLIENT_ID = 'omnara-cli'
+export const OAUTH_DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
+
+const zAuthorizationServerMetadata = z.object({
+  issuer: z.url(),
+  device_authorization_endpoint: z.url(),
+  token_endpoint: z.url(),
+  grant_types_supported: z.array(z.string()),
+  token_endpoint_auth_methods_supported: z.array(z.string()),
+})
+
 const zDeviceAuthStartResponse = z.object({
   device_code: z.string().min(1),
   user_code: z.string().min(1),
@@ -11,12 +22,9 @@ const zDeviceAuthStartResponse = z.object({
   interval: z.number().int().positive(),
 })
 
-const zDeviceAuthWaitingResponse = z.object({
-  interval: z.number().int().positive(),
-})
-
-const zDeviceAuthFailureResponse = z.object({
-  error: z.enum(['access_denied', 'expired_token']),
+const zDeviceAuthErrorResponse = z.object({
+  error: z.string().min(1),
+  error_description: z.string().optional(),
 })
 
 const zDeviceAuthApprovedResponse = z.object({
@@ -24,7 +32,7 @@ const zDeviceAuthApprovedResponse = z.object({
   token_type: z.string(),
 })
 
-export type DeviceAuthFailureCode = z.infer<typeof zDeviceAuthFailureResponse>['error']
+export type DeviceAuthFailureCode = 'access_denied' | 'expired_token'
 
 const DEVICE_AUTH_FAILURE_MESSAGES: Record<DeviceAuthFailureCode, string> = {
   access_denied: 'the login request was denied',
@@ -48,44 +56,78 @@ export interface DeviceAuthStart {
   verificationUriComplete: string
   expiresInSeconds: number
   intervalSeconds: number
+  tokenEndpoint: string
+  clientId: string
 }
 
-async function postDeviceAuthJSON(
+async function postOAuthForm(
   fetchImpl: typeof fetch,
-  baseUrl: string,
-  path: string,
-  body: unknown,
+  endpoint: string,
+  body: Record<string, string>,
 ): Promise<Response> {
-  return fetchImpl(`${baseUrl.replace(/\/+$/, '')}${path}`, {
+  return fetchImpl(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams(body).toString(),
   })
 }
 
 export interface StartDeviceAuthOptions {
-  baseUrl: string
-  clientName: string
-  tokenName: string
+  issuerUrl: string
+  clientId: string
+  tokenName?: string
   fetch?: typeof fetch
 }
 
+function normalizeIssuer(raw: string): string {
+  const issuer = new URL(raw)
+  if (
+    issuer.username !== '' ||
+    issuer.password !== '' ||
+    issuer.pathname !== '/' ||
+    issuer.search !== '' ||
+    issuer.hash !== ''
+  ) {
+    throw new Error('authorization server issuer must be an origin')
+  }
+  return issuer.origin
+}
+
 export async function startDeviceAuth(options: StartDeviceAuthOptions): Promise<DeviceAuthStart> {
-  const response = await postDeviceAuthJSON(
-    options.fetch ?? fetch,
-    options.baseUrl,
-    '/api/auth/device/code',
-    { client_name: options.clientName, token_name: options.tokenName },
-  )
+  const fetchImpl = options.fetch ?? fetch
+  const expectedIssuer = normalizeIssuer(options.issuerUrl)
+  const metadataUrl = new URL('/.well-known/oauth-authorization-server', `${expectedIssuer}/`)
+  const metadataResponse = await fetchImpl(metadataUrl, { headers: { Accept: 'application/json' } })
+  if (!metadataResponse.ok) throw await ApiError.fromResponse(metadataResponse)
+  const metadata = zAuthorizationServerMetadata.parse(await metadataResponse.json())
+  if (normalizeIssuer(metadata.issuer) !== expectedIssuer) {
+    throw new Error(
+      `authorization server issuer mismatch: expected ${expectedIssuer}, received ${metadata.issuer}`,
+    )
+  }
+  if (!metadata.grant_types_supported.includes(OAUTH_DEVICE_GRANT_TYPE)) {
+    throw new Error('authorization server does not support the OAuth device grant')
+  }
+  if (!metadata.token_endpoint_auth_methods_supported.includes('none')) {
+    throw new Error('authorization server does not support public OAuth clients')
+  }
+  const body: Record<string, string> = { client_id: options.clientId }
+  if (options.tokenName !== undefined) body.token_name = options.tokenName
+  const response = await postOAuthForm(fetchImpl, metadata.device_authorization_endpoint, body)
   if (!response.ok) throw await ApiError.fromResponse(response)
   const data = zDeviceAuthStartResponse.parse(await response.json())
   return {
     deviceCode: data.device_code,
     userCode: data.user_code,
-    verificationUri: new URL(data.verification_uri, options.baseUrl).toString(),
-    verificationUriComplete: new URL(data.verification_uri_complete, options.baseUrl).toString(),
+    verificationUri: new URL(data.verification_uri, metadata.issuer).toString(),
+    verificationUriComplete: new URL(data.verification_uri_complete, metadata.issuer).toString(),
     expiresInSeconds: data.expires_in,
     intervalSeconds: data.interval,
+    tokenEndpoint: metadata.token_endpoint,
+    clientId: options.clientId,
   }
 }
 
@@ -94,7 +136,8 @@ function defaultSleep(seconds: number): Promise<void> {
 }
 
 export interface PollDeviceAuthTokenOptions {
-  baseUrl: string
+  tokenEndpoint: string
+  clientId: string
   deviceCode: string
   intervalSeconds: number
   fetch?: typeof fetch
@@ -107,29 +150,31 @@ export async function pollDeviceAuthToken(options: PollDeviceAuthTokenOptions): 
   let interval = options.intervalSeconds
   while (true) {
     await sleep(interval)
-    const response = await postDeviceAuthJSON(
-      fetchImpl,
-      options.baseUrl,
-      '/api/auth/device/token',
-      {
-        device_code: options.deviceCode,
-      },
-    )
+    const response = await postOAuthForm(fetchImpl, options.tokenEndpoint, {
+      grant_type: OAUTH_DEVICE_GRANT_TYPE,
+      device_code: options.deviceCode,
+      client_id: options.clientId,
+    })
     if (response.status === 200) {
       return zDeviceAuthApprovedResponse.parse(await response.json()).access_token
     }
-    if (response.status === 202) {
-      interval = zDeviceAuthWaitingResponse.parse(await response.json()).interval
-      continue
-    }
     if (response.status === 400) {
-      const failure = zDeviceAuthFailureResponse.safeParse(
+      const failure = zDeviceAuthErrorResponse.safeParse(
         await response
           .clone()
           .json()
           .catch((): unknown => undefined),
       )
-      if (failure.success) throw new DeviceAuthError(failure.data.error)
+      if (failure.success) {
+        if (failure.data.error === 'authorization_pending') continue
+        if (failure.data.error === 'slow_down') {
+          interval += 5
+          continue
+        }
+        if (failure.data.error === 'access_denied' || failure.data.error === 'expired_token') {
+          throw new DeviceAuthError(failure.data.error)
+        }
+      }
     }
     throw await ApiError.fromResponse(response)
   }

@@ -2,7 +2,8 @@ import type { OmnaraClient } from '@omnara/sdk'
 import { type Command, InvalidArgumentError } from 'commander'
 import * as z from 'zod'
 
-import { type CliConfig, updateConfigFile } from './config.ts'
+import type { CliConfig } from './config.ts'
+import { updateConfigFile } from './config-file.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { OutputFormat } from './format.ts'
 import {
@@ -41,7 +42,7 @@ export interface OperationSpec<Response = never, ParsedBody = never> {
 
 export interface FlowContext<Path, Body> {
   client: OmnaraClient
-  baseUrl: string
+  apiUrl: string
   path: Path
   body: Body
   report: FlowReporter
@@ -49,7 +50,7 @@ export interface FlowContext<Path, Body> {
 
 interface FlowInput {
   client: OmnaraClient
-  baseUrl: string
+  apiUrl: string
   path: Record<string, unknown>
   body: unknown
 }
@@ -98,7 +99,7 @@ export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType
     execute: (input) =>
       run({
         client: input.client,
-        baseUrl: input.baseUrl,
+        apiUrl: input.apiUrl,
         path: parseWithSchema(spec.path, input.path, 'arguments'),
         body: parseWithSchema(spec.body, input.body, 'flags'),
         report: createFlowReporter(spec.summary),
@@ -113,7 +114,7 @@ interface ConfigParam {
   configKey: 'org_id' | 'project_id'
   describe: string
   resolve: (config: CliConfig, path: Record<string, unknown>) => string | undefined
-  prompt: (client: OmnaraClient, path: Record<string, unknown>) => Promise<string>
+  prompt: (config: CliConfig, path: Record<string, unknown>) => Promise<string>
 }
 
 const CONFIG_PARAMS: ConfigParam[] = [
@@ -124,7 +125,7 @@ const CONFIG_PARAMS: ConfigParam[] = [
     configKey: 'org_id',
     describe: 'pass --org or set OMNARA_ORG_ID',
     resolve: (config) => config.defaultOrgId,
-    prompt: (client) => promptOrgSelection(client),
+    prompt: (config) => promptOrgSelection(config.client, config.issuerUrl),
   },
   {
     key: 'projectID',
@@ -136,12 +137,12 @@ const CONFIG_PARAMS: ConfigParam[] = [
       path.orgID === undefined || path.orgID === config.defaultOrgId
         ? config.defaultProjectId
         : undefined,
-    prompt: (client, path) => {
+    prompt: (config, path) => {
       const orgId = path.orgID
       if (typeof orgId !== 'string') {
         throw new CliInputError('cannot select a project before an organization is set')
       }
-      return promptProjectSelection(client, orgId)
+      return promptProjectSelection(config.client, orgId)
     },
   },
 ]
@@ -314,7 +315,7 @@ async function resolvePathValues(
     usedExplicitOverride = usedExplicitOverride || explicit !== undefined
     let value = explicit ?? param.resolve(config, path)
     if (value === undefined && canPromptInteractively()) {
-      value = await param.prompt(config.client, path)
+      value = await param.prompt(config, path)
       if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
     }
     if (value === undefined) {
@@ -342,6 +343,7 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
   command.option('--json', 'print the raw JSON response')
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       const input: CallInput = { client: config.client }
       if (spec.path) {
@@ -369,7 +371,9 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
         renderResult(data, true)
         return
       }
-      const formatted = spec.format(data as never, { baseUrl: config.baseUrl })
+      const formatted = spec.format(data as never, {
+        apiUrl: config.apiUrl,
+      })
       renderResult(formatted.value, false, { columns: formatted.columns })
     })
   })
@@ -386,10 +390,11 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   for (const flag of bodyFlags) registerFlag(command, flag)
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
+      await config.ensureLoggedIn()
       const options = command.opts<Record<string, unknown>>()
       await spec.execute({
         client: config.client,
-        baseUrl: config.baseUrl,
+        apiUrl: config.apiUrl,
         path: await resolvePathValues(plan, args, options, config),
         body: collectFlagValues(bodyFlags, options),
       })

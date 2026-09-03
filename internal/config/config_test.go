@@ -2,10 +2,11 @@ package config
 
 import (
 	"encoding/base64"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
@@ -81,6 +82,60 @@ func TestLoadPublicURL(t *testing.T) {
 	}
 	if cfg.PublicURL != "http://localhost:5173" {
 		t.Fatalf("expected public URL, got %q", cfg.PublicURL)
+	}
+	if cfg.PublicAPIURL != "http://localhost:5173/api/v1" {
+		t.Fatalf("expected derived public API URL, got %q", cfg.PublicAPIURL)
+	}
+}
+
+func TestLoadPublicAPIURL(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
+	t.Setenv("OMNARA_PUBLIC_API_URL", " https://api.example.com/v1/ ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.PublicAPIURL != "https://api.example.com/v1" {
+		t.Fatalf("expected configured public API URL, got %q", cfg.PublicAPIURL)
+	}
+}
+
+func TestValidateAPIRejectsInvalidPublicAPIURL(t *testing.T) {
+	for _, value := range []string{
+		"api.example.com/v1",
+		"https://user@api.example.com/v1",
+		"https://api.example.com/v1?region=us",
+		"https://api.example.com/v1#fragment",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_PUBLIC_URL", "https://app.example.com")
+			t.Setenv("OMNARA_PUBLIC_API_URL", value)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_API_URL") {
+				t.Fatalf("expected OMNARA_PUBLIC_API_URL validation error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateAPIRejectsPublicAPIURLWithoutPublicURL(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PUBLIC_URL", "")
+	t.Setenv("OMNARA_PUBLIC_API_URL", "https://api.example.com/v1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_URL") {
+		t.Fatalf("expected OMNARA_PUBLIC_URL dependency error, got %v", err)
 	}
 }
 
@@ -423,6 +478,34 @@ func TestValidateAPIEmailDrivers(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err != nil {
 		t.Fatalf("validate insecure plaintext smtp config: %v", err)
+	}
+}
+
+func TestValidateAPIExternalEmailRequiresPublicURLInDev(t *testing.T) {
+	tests := []struct {
+		name   string
+		driver string
+	}{
+		{name: "smtp", driver: "smtp"},
+		{name: "sendgrid", driver: "sendgrid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_PUBLIC_URL", "")
+			t.Setenv("OMNARA_EMAIL_DRIVER", tt.driver)
+			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
+			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
+			t.Setenv("SENDGRID_API_KEY", "sg-secret")
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_URL") {
+				t.Fatalf("expected missing public URL error, got %v", err)
+			}
+		})
 	}
 }
 

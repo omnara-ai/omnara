@@ -129,7 +129,7 @@ export function AgentConfigMcpServerTools({
             <SearchIcon className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
             <ComboboxPrimitive.Input
               id={`${server.id}-tool-override`}
-              className="placeholder:text-muted-foreground h-11 w-full bg-transparent pl-10 pr-3 text-sm outline-none"
+              className="placeholder:text-muted-foreground pointer-coarse:text-base h-11 w-full bg-transparent pl-10 pr-3 text-base outline-none md:text-sm"
               placeholder={
                 toolCountLabel == null
                   ? 'Add a tool override'
@@ -183,9 +183,12 @@ export function AgentConfigMcpServerTools({
             {server.tools.map((tool) => {
               const description = discoveredByName.get(tool.name)?.description
               return (
-                <div key={tool.name} className="flex items-center gap-3 px-3 py-2">
+                <div
+                  key={tool.name}
+                  className="flex flex-wrap items-center gap-2 px-3 py-2 sm:flex-nowrap sm:gap-3"
+                >
                   <div
-                    className="-my-2 flex min-w-0 flex-1 items-center self-stretch py-2"
+                    className="-my-2 flex min-w-0 flex-1 basis-full items-center self-stretch py-2 sm:basis-auto"
                     onPointerEnter={() => {
                       setOpenDescription(tool.name)
                     }}
@@ -231,7 +234,11 @@ export function AgentConfigMcpServerTools({
                       })
                     }}
                   >
-                    <SelectTrigger size="sm" className="w-36" aria-label={`${tool.name} enabled`}>
+                    <SelectTrigger
+                      size="sm"
+                      className="min-w-0 flex-1 sm:w-36 sm:flex-none"
+                      aria-label={`${tool.name} enabled`}
+                    >
                       <SelectValue>
                         {tool.enabled == null ? 'Default' : tool.enabled ? 'Enabled' : 'Disabled'}
                       </SelectValue>
@@ -253,7 +260,7 @@ export function AgentConfigMcpServerTools({
                   >
                     <SelectTrigger
                       size="sm"
-                      className="w-40"
+                      className="min-w-0 flex-1 sm:w-40 sm:flex-none"
                       aria-label={`${tool.name} permission`}
                     >
                       <SelectValue>

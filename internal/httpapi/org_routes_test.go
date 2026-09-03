@@ -1,9 +1,8 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"net/http"
 	"testing"
 
@@ -12,9 +11,6 @@ import (
 )
 
 func TestCreateOrganizationStorageErrorIsDomainSpecificAndOpaque(t *testing.T) {
-	server := strictOpenAPIServer{server: &Server{
-		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}}
 	tests := []struct {
 		name        string
 		err         error
@@ -48,13 +44,16 @@ func TestCreateOrganizationStorageErrorIsDomainSpecificAndOpaque(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := server.createOrganizationStorageError("test organization storage", test.err)
+			err := createOrganizationStorageError(context.Background(), "test organization storage", test.err)
 			var responseError apierror.ResponseError
 			if !errors.As(err, &responseError) {
 				t.Fatalf("error = %T %v, want api response error", err, err)
 			}
 			if responseError.Status != test.wantStatus || responseError.Message != test.wantMessage {
 				t.Fatalf("response error = %+v, want status=%d message=%q", responseError, test.wantStatus, test.wantMessage)
+			}
+			if !errors.Is(err, test.err) {
+				t.Fatalf("response error does not preserve cause %v", test.err)
 			}
 		})
 	}

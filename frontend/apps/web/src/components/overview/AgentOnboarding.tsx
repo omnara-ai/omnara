@@ -27,7 +27,7 @@ export function AgentOnboarding({ orgId, project }: { orgId: string; project: Vi
   const [tab, setTab] = useState<OnboardingTab>('cli')
 
   return (
-    <div className="flex w-full max-w-4xl flex-col gap-10 py-4">
+    <div className="flex w-full max-w-4xl flex-col gap-8 py-2 sm:gap-10 sm:py-4">
       <Tabs
         value={tab}
         onValueChange={(value) => {
@@ -41,7 +41,7 @@ export function AgentOnboarding({ orgId, project }: { orgId: string; project: Vi
               Follow the steps to create an agent profile and start a chat.
             </p>
           </div>
-          <TabsList aria-label="Setup method" className="h-10 self-start">
+          <TabsList aria-label="Setup method" className="h-10 w-full self-start sm:h-10 sm:w-fit">
             <TabsTrigger value="cli" className="px-4">
               <Terminal />
               CLI
@@ -52,10 +52,10 @@ export function AgentOnboarding({ orgId, project }: { orgId: string; project: Vi
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="cli" className="pt-14">
+        <TabsContent value="cli" className="pt-8 sm:pt-14">
           <CliSteps orgId={orgId} project={project} />
         </TabsContent>
-        <TabsContent value="browser" className="pt-14">
+        <TabsContent value="browser" className="pt-8 sm:pt-14">
           <BrowserSteps orgId={orgId} project={project} />
         </TabsContent>
       </Tabs>

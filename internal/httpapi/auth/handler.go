@@ -17,7 +17,7 @@ type Store interface {
 		context.Context,
 		identitystore.PasswordSignupStartInput,
 	) (identitystore.PasswordSignupStartRecord, error)
-	ActiveAuthTokenNormalizedEmail(context.Context, string, string) (string, error)
+	ActiveAuthTokenEmail(context.Context, string, string) (string, error)
 	CompletePasswordSignup(
 		context.Context,
 		identitystore.CompletePasswordSignupInput,
@@ -121,6 +121,7 @@ func (r RouteContract) RequiresAuth() bool {
 }
 
 var authRouteContracts = []RouteContract{
+	{Method: http.MethodGet, Pattern: OAuthAuthorizationServerMetadataPath, Access: RouteAccessPublicAuth},
 	{Method: http.MethodPost, Pattern: "/api/auth/signup", Access: RouteAccessPublicSameOrigin},
 	{Method: http.MethodPost, Pattern: "/api/auth/login", Access: RouteAccessPublicSameOrigin},
 	{Method: http.MethodPost, Pattern: "/api/auth/logout", Access: RouteAccessBrowserSession},
@@ -133,8 +134,8 @@ var authRouteContracts = []RouteContract{
 	{Method: http.MethodGet, Pattern: authConnectorsPath, Access: RouteAccessPublicAuth},
 	{Method: http.MethodGet, Pattern: authConnectorLoginPathPattern, Access: RouteAccessOAuthState},
 	{Method: http.MethodGet, Pattern: authConnectorCallbackPattern, Access: RouteAccessOAuthState},
-	{Method: http.MethodPost, Pattern: "/api/auth/device/code", Access: RouteAccessPublicAuth},
-	{Method: http.MethodPost, Pattern: "/api/auth/device/token", Access: RouteAccessPublicAuth},
+	{Method: http.MethodPost, Pattern: OAuthDeviceAuthorizationPath, Access: RouteAccessPublicAuth},
+	{Method: http.MethodPost, Pattern: OAuthTokenPath, Access: RouteAccessPublicAuth},
 	{Method: http.MethodGet, Pattern: "/api/auth/device/pending", Access: RouteAccessBrowserSession},
 	{Method: http.MethodPost, Pattern: "/api/auth/device/approve", Access: RouteAccessBrowserSession},
 	{Method: http.MethodPost, Pattern: "/api/auth/device/deny", Access: RouteAccessBrowserSession},
@@ -169,6 +170,7 @@ func httpClientWithoutRedirects(client *http.Client) *http.Client {
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", h.authorizationServerMetadataRoute)
 	mux.HandleFunc("POST /api/auth/signup", h.passwordSignupRoute)
 	mux.HandleFunc("POST /api/auth/login", h.passwordLoginRoute)
 	mux.HandleFunc("POST /api/auth/logout", h.logoutRoute)

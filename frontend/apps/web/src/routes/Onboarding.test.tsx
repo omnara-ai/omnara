@@ -11,6 +11,7 @@ const hooks = vi.hoisted(() => ({
   createOrganization: vi.fn(),
   declineInvitation: vi.fn(),
   refetchInvitations: vi.fn(),
+  pendingInvitations: [] as unknown[],
 }))
 
 vi.mock('@omnara/react', () => ({
@@ -18,7 +19,7 @@ vi.mock('@omnara/react', () => ({
   useCreateOrganization: () => ({ mutateAsync: hooks.createOrganization }),
   useDeclineInvitation: () => ({ mutateAsync: hooks.declineInvitation }),
   usePendingInvitations: () => ({
-    data: { data: [] },
+    data: { data: hooks.pendingInvitations },
     refetch: hooks.refetchInvitations,
   }),
 }))
@@ -79,6 +80,7 @@ beforeEach(() => {
   hooks.createOrganization.mockReset()
   hooks.declineInvitation.mockReset()
   hooks.refetchInvitations.mockReset()
+  hooks.pendingInvitations.length = 0
   hooks.createOrganization.mockImplementation(() => new Promise(() => undefined))
   window.history.replaceState(null, '', '/onboarding')
 
@@ -103,6 +105,76 @@ describe('Onboarding organization creation', () => {
     await submitOrganization()
 
     expect(hooks.createOrganization).toHaveBeenCalledOnce()
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('returns to the device approval page it was sent from after creating the organization', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/onboarding?return_to=%2Fdevice%3Fuser_code%3DABCDE-F1234',
+    )
+    hooks.createOrganization.mockResolvedValueOnce(undefined)
+    renderOnboarding()
+
+    expect(container.textContent).toContain(
+      'Create your organization, then we will bring you back to approve the CLI login.',
+    )
+
+    setOrganizationName('Acme Inc.')
+    await submitOrganization()
+
+    expect(window.location.pathname).toBe('/device')
+    expect(window.location.search).toBe('?user_code=ABCDE-F1234')
+  })
+
+  it('returns to the device approval page after accepting an invitation', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/onboarding?return_to=%2Fdevice%3Fuser_code%3DABCDE-F1234',
+    )
+    const invitation = {
+      id: 'inv_1',
+      org_id: 'org_1',
+      org_name: 'Acme Inc.',
+      email: 'person@example.com',
+      org_role: 'member',
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    hooks.pendingInvitations.push(invitation)
+    hooks.acceptInvitation.mockResolvedValueOnce(invitation)
+    renderOnboarding()
+
+    const accept = Array.from(container.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent.trim() === 'Accept',
+    )
+    if (!accept) throw new Error('Missing Accept button')
+    await act(async () => {
+      accept.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(hooks.acceptInvitation).toHaveBeenCalledWith('inv_1')
+    expect(window.location.pathname).toBe('/device')
+    expect(window.location.search).toBe('?user_code=ABCDE-F1234')
+  })
+
+  it('ignores an unsafe return destination', async () => {
+    const host = window.location.host
+    window.history.replaceState(
+      null,
+      '',
+      '/onboarding?return_to=https%3A%2F%2Fevil.example%2Fsteal',
+    )
+    hooks.createOrganization.mockResolvedValueOnce(undefined)
+    renderOnboarding()
+    setOrganizationName('Acme Inc.')
+
+    await submitOrganization()
+
+    expect(window.location.host).toBe(host)
     expect(window.location.pathname).toBe('/')
   })
 

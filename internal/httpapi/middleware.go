@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -45,13 +46,21 @@ func requestBodyLimit(r *http.Request) int64 {
 		strings.Contains(r.URL.Path, "/tool-calls/") &&
 			strings.HasSuffix(r.URL.Path, "/result"):
 		return maxAttachmentRequestBodyBytes
-	case strings.HasSuffix(r.URL.Path, "/skills"):
+	case strings.HasSuffix(r.URL.Path, "/skills"), isSkillUpdatePath(r.URL.Path):
 		return maxSkillUploadRequestBodyBytes
-	case strings.HasPrefix(r.URL.Path, "/api/v1/daemon/tool-calls/") &&
+	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/tool-calls/") &&
 		strings.HasSuffix(r.URL.Path, "/artifact"):
 		return daemonprotocol.MaxArtifactUploadBytes
 	}
 	return maxRequestBodyBytes
+}
+
+func isSkillUpdatePath(path string) bool {
+	idx := strings.LastIndexByte(path, '/')
+	if idx < 0 {
+		return false
+	}
+	return path[idx+1:] != "" && strings.HasSuffix(path[:idx], "/skills")
 }
 
 type middleware func(http.Handler) http.Handler
@@ -68,7 +77,10 @@ func requestLog(log *slog.Logger) middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := logpkg.WithLogger(r.Context(), log)
 			ctx, rec, event := logpkg.HTTPRequest(ctx, w, r)
-			defer event.Done(ctx)
+			defer func() {
+				event.Done(ctx)
+				metrics.SetHTTPRequestStatusCode(ctx, rec.TelemetryStatusCode())
+			}()
 			defer recoverRequestPanic(ctx, rec)
 
 			next.ServeHTTP(rec, r.WithContext(ctx))
@@ -220,7 +232,7 @@ func (s *Server) authenticateBearerToken(
 }
 
 func requiresAuth(path string) bool {
-	if strings.HasPrefix(path, "/api/v1/") {
+	if strings.HasPrefix(path, openAPIBasePath+"/") {
 		return true
 	}
 	for _, route := range serverManualRouteContracts {

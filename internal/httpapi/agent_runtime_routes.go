@@ -620,7 +620,11 @@ func (s strictOpenAPIServer) StreamEvents(
 	return s.streamEvents(ctx, request, scope.project, scope.agent)
 }
 
-const streamFrameChannelSize = 4096
+const (
+	streamFrameChannelSize = 4096
+	// The TypeScript SDK treats 35s of silence as a stalled connection (stallTimeoutMs); stay well below that.
+	agentEventStreamHeartbeatInterval = 10 * time.Second
+)
 
 func (s strictOpenAPIServer) streamEvents(
 	ctx context.Context,
@@ -727,10 +731,6 @@ func (s *Server) streamAgentEvents(
 		func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
 			select {
 			case toolCallUpdates <- update:
-				select {
-				case notify <- struct{}{}:
-				default:
-				}
 			default:
 				if s.log != nil {
 					s.log.Debug(
@@ -777,34 +777,45 @@ func (s *Server) streamAgentEvents(
 		}
 		defer func() { _ = streamSubscription.Unsubscribe() }()
 	}
+	if s.agentEventStreamReconciler == nil {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
+	}
+	reconciliation, ok := s.agentEventStreamReconciler.register(agent.ID, after, notify)
+	if !ok {
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
+	}
+	defer reconciliation.unregister()
+	streamCtx, cancelStream := context.WithCancel(r.Context())
+	//nolint:contextcheck // server shutdown must also cancel this request-derived stream context
+	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), cancelStream)
+	defer func() {
+		stopCloseWatch()
+		cancelStream()
+	}()
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	heartbeat := s.timer.Ticker(agentEventStreamHeartbeatInterval)
+	defer heartbeat.Stop()
 	if _, err := fmt.Fprint(w, ": ok\n\n"); err != nil {
 		return
 	}
 	flusher.Flush()
-	heartbeat := time.NewTicker(25 * time.Second)
-	defer heartbeat.Stop()
 	completedModelCallContexts := map[string]struct{}{}
 	for {
-		if streamDeltas != nil {
-			drained := false
-			for !drained {
-				select {
-				case payload := <-streamDeltas:
-					if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
-						return
-					}
-					flusher.Flush()
-				default:
-					drained = true
-				}
-			}
+		select {
+		case <-streamCtx.Done():
+			return
+		default:
 		}
-		records, err := s.store.Execution().ListAgentEventsForRead(r.Context(), project.ID, agent.ID, after, 100)
+		records, err := s.store.Execution().ListAgentEventsForRead(streamCtx, project.ID, agent.ID, after, 100)
 		if err != nil {
+			if streamCtx.Err() != nil {
+				return
+			}
 			if !writeSSEJSONFrame(
 				w,
 				"error",
@@ -849,38 +860,43 @@ func (s *Server) streamAgentEvents(
 				completedModelCallContexts[contextID] = struct{}{}
 			}
 			after = record.Sequence
+			reconciliation.advance(after)
 			flusher.Flush()
 		}
-		drained := false
-		for !drained {
+		if len(records) == 100 {
+			continue
+		}
+	waitForDurableWakeup:
+		for {
+			// Prefer a buffered durable wakeup; at most one racing best-effort
+			// frame can precede reconciliation.
 			select {
+			case <-notify:
+				break waitForDurableWakeup
+			default:
+			}
+			select {
+			case <-streamCtx.Done():
+				return
+			case <-notify:
+				break waitForDurableWakeup
 			case update := <-toolCallUpdates:
 				if !writeToolCallUpdateFrame(w, update) {
 					flusher.Flush()
 					return
 				}
 				flusher.Flush()
-			default:
-				drained = true
+			case payload := <-streamDeltas:
+				if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
+					return
+				}
+				flusher.Flush()
+			case <-heartbeat.C:
+				if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
 			}
-		}
-		if len(records) == 100 {
-			continue
-		}
-		select {
-		case <-r.Context().Done():
-			return
-		case <-notify:
-		case payload := <-streamDeltas:
-			if !writeModelOutputDeltaFrame(w, payload, completedModelCallContexts) {
-				return
-			}
-			flusher.Flush()
-		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
 		}
 	}
 }

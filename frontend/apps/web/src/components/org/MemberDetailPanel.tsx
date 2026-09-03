@@ -28,12 +28,12 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
 
   return (
     <div className="flex flex-col gap-3">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-8 gap-y-2 text-sm">
-        <div className="col-span-2 grid grid-cols-subgrid">
+      <dl className="grid gap-y-3 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-2">
+        <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">User ID</dt>
           <dd className="break-all font-mono text-xs leading-5">{member.user_id}</dd>
         </div>
-        <div className="col-span-2 grid grid-cols-subgrid">
+        <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">Joined</dt>
           <dd className="break-words">{formatDateTime(member.created_at)}</dd>
         </div>
@@ -41,12 +41,12 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
       {canManage && (
         <>
           <Separator />
-          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-8 gap-y-2 text-sm">
+          <dl className="grid gap-y-3 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-2">
             {canManageThisMember && (
-              <div className="col-span-2 grid grid-cols-subgrid items-center">
+              <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:items-center sm:gap-0">
                 <dt className="text-muted-foreground">Org role</dt>
-                <dd className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3">
+                <dd className="flex min-w-0 flex-col gap-2">
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <div className="flex gap-2">
                       {ORG_ROLES.map((role) => (
                         <Button
@@ -85,16 +85,16 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                     </Button>
                   </div>
                   {removeError && (
-                    <p role="alert" className="text-destructive text-right text-xs">
+                    <p role="alert" className="text-destructive text-xs sm:text-right">
                       {removeError}
                     </p>
                   )}
                 </dd>
               </div>
             )}
-            <div className="col-span-2 grid grid-cols-subgrid">
+            <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
               <dt className="text-muted-foreground">Project access</dt>
-              <dd className="break-words">
+              <dd className="min-w-0 break-words">
                 <MemberProjectAccessSection orgId={orgId} member={member} />
               </dd>
             </div>

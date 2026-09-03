@@ -44,8 +44,8 @@ func testMachineProvisioning(
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api:             api,
-		omnaraPublicURL: "https://app.omnara.test",
+		api:          api,
+		omnaraAPIURL: "https://api.omnara.test/v1",
 	}
 }
 

@@ -57,6 +57,11 @@ type AgentEventReadRecord struct {
 	CreatedAt                      time.Time                `json:"created_at"`
 }
 
+type AgentEventFrontier struct {
+	AgentID       ID
+	EventSequence int64
+}
+
 type AgentTurnReadRecord struct {
 	AgentTurnRecord
 	EventCount          int64
@@ -253,6 +258,30 @@ func (s *Store) ListAgentEventsForRead(
 		out = append(out, agentEventReadRecordFromSQLC(row))
 	}
 	return out, nil
+}
+
+func (s *Store) ListAgentEventFrontiers(
+	ctx context.Context,
+	agentIDs []ID,
+) ([]AgentEventFrontier, error) {
+	if len(agentIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListAgentEventFrontiers(
+		ctx,
+		dbsqlc.ListAgentEventFrontiersParams{AgentIds: agentIDs},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list agent event frontiers: %w", err)
+	}
+	frontiers := make([]AgentEventFrontier, 0, len(rows))
+	for _, row := range rows {
+		frontiers = append(frontiers, AgentEventFrontier{
+			AgentID:       row.AgentID,
+			EventSequence: row.EventSequence,
+		})
+	}
+	return frontiers, nil
 }
 
 // ListAgentEventsBeforeForRead returns one older event page for an agent,

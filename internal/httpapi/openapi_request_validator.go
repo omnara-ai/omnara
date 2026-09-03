@@ -28,7 +28,7 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
-	spec.Servers = nil
+	spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
 	queryRouter, err := gorillamux.NewRouter(spec)
 	if err != nil {
 		return nil, fmt.Errorf("build openapi query validator: %w", err)
@@ -37,13 +37,14 @@ func newOpenAPIRequestValidator() (middleware, error) {
 		Options: openapi3filter.Options{
 			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
 		},
-		ErrorHandlerWithOpts: openAPIValidationErrorHandler,
+		SilenceServersWarning: true,
+		ErrorHandlerWithOpts:  openAPIValidationErrorHandler,
 	})
 
 	return func(next http.Handler) http.Handler {
 		validated := validator(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			if !strings.HasPrefix(r.URL.Path, openAPIBasePath+"/") {
 				next.ServeHTTP(w, r)
 				return
 			}

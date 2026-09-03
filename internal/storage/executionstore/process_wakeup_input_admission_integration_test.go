@@ -45,15 +45,9 @@ func TestConfigOnlyTurnDoesNotBecomeContinuationSeed(t *testing.T) {
 	) {
 		t.Fatalf("load current continuable turn for config-only turn: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before config-only rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild config-only wakeup: %v", err)
-	}
-	if rebuilt != 0 {
-		t.Fatalf("rebuild restored %d wakeups for config-only turn, want 0", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
+		t.Fatalf("config-only wakeups = %d, want 0", wakeups)
 	}
 	if err := fixture.Store.Execution().MarkAgentWakeup(
 		ctx,
@@ -226,11 +220,11 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 	}
 }
 
-func TestRebuildMissingWakeupForCompletedToolResultUntilLaterModelOutput(t *testing.T) {
+func TestCompletedToolResultWakeupClearsAfterLaterModelOutput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "rebuild_completed_tool_result_frontier")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "rebuild_completed_tool_result_frontier", "read_process")
+	fixture := newProcessDaemonFixture(t, ctx, "completed_tool_result_frontier")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "completed_tool_result_frontier", "read_process")
 	turnID := turnIDForProcessToolCallTest(t, ctx, fixture, toolCallID)
 	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
@@ -259,18 +253,12 @@ func TestRebuildMissingWakeupForCompletedToolResultUntilLaterModelOutput(t *test
 	); err != nil {
 		t.Fatalf("release runtime lock: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild wakeups after completed tool result: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups after completed tool result, want 1", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
+		t.Fatalf("completed-tool-result wakeups = %d, want 1", wakeups)
 	}
 	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete rebuilt wakeup: %v", err)
+		t.Fatalf("consume completed-tool-result wakeup: %v", err)
 	}
 	recoveryNow := time.Now().UTC().Add(time.Second)
 	continuationLock, err := fixture.Store.Execution().AcquireAgentRuntimeLock(
@@ -308,9 +296,9 @@ func TestRebuildMissingWakeupForCompletedToolResultUntilLaterModelOutput(t *test
 		continuationFixture,
 		turnID,
 		continuationContext.ID,
-		"rebuild_completed_tool_result_continuation",
+		"completed_tool_result_continuation",
 		"end_turn",
-		"resp_rebuild_completed_tool_result_continuation",
+		"resp_completed_tool_result_continuation",
 		recoveryNow.Add(500*time.Millisecond),
 	)
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -332,24 +320,21 @@ func TestRebuildMissingWakeupForCompletedToolResultUntilLaterModelOutput(t *test
 	) {
 		t.Fatalf("load current continuable turn after continuation output: %v", err)
 	}
-	rebuilt, err = fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild wakeups after continuation output: %v", err)
-	}
-	if rebuilt != 0 {
-		t.Fatalf("rebuild restored %d wakeups after continuation output, want 0", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
+		t.Fatalf("wakeups after continuation output = %d, want 0", wakeups)
 	}
 }
 
-func TestRebuildMissingWakeupForPendingToolPermission(t *testing.T) {
+func TestRuntimeReleaseCreatesWakeupForPendingToolPermission(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "rebuild_pending_tool_permission")
+	fixture := newProcessDaemonFixture(t, ctx, "release_pending_tool_permission")
 	toolCallID := createToolCallForProcessTestWithPermission(
 		t,
 		ctx,
 		fixture,
-		"rebuild_pending_tool_permission",
+		"release_pending_tool_permission",
 		"read_process",
 		false,
 	)
@@ -363,16 +348,7 @@ func TestRebuildMissingWakeupForPendingToolPermission(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release runtime lock: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild pending permission wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups for pending permission, want 1", rebuilt)
-	}
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
 
 	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, testClaimNextAgentWorkInput())
 	if err != nil {
@@ -383,11 +359,11 @@ func TestRebuildMissingWakeupForPendingToolPermission(t *testing.T) {
 	}
 }
 
-func TestRebuildMissingWakeupForResolvedInteraction(t *testing.T) {
+func TestResolvedInteractionCreatesWakeup(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "rebuild_resolved_interaction")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "rebuild_resolved_interaction", "ask_question")
+	fixture := newProcessDaemonFixture(t, ctx, "resolved_interaction_wakeup")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "resolved_interaction_wakeup", "ask_question")
 	interaction := createQuestionInteractionForTest(t, ctx, fixture, toolCallID)
 	questionToolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
 	if err != nil {
@@ -432,15 +408,9 @@ func TestRebuildMissingWakeupForResolvedInteraction(t *testing.T) {
 			resolvedToolCall.CompletedAt,
 		)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild wakeup after resolved interaction: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups after resolved interaction, want 1", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
+		t.Fatalf("resolved-interaction wakeups = %d, want 1", wakeups)
 	}
 }
 

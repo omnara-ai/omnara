@@ -38,9 +38,16 @@ func TestDaytonaProviderLiveSmoke(t *testing.T) {
 	if omnaraPublicURL == "" {
 		omnaraPublicURL = "https://app.omnara.com"
 	}
+	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
+	if omnaraPublicAPIURL == "" {
+		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
+	}
 	machineProvider, err := (Definition{}).NewProvider(
 		config,
-		providers.RuntimeConfig{PublicURL: omnaraPublicURL, ProviderAuthToken: token},
+		providers.RuntimeConfig{
+			OmnaraAPIURL:      omnaraPublicAPIURL,
+			ProviderAuthToken: token,
+		},
 	)
 	if err != nil {
 		t.Fatalf("new live daytona provider: %v", err)

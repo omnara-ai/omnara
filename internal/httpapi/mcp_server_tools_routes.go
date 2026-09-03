@@ -184,17 +184,20 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 	var httpErr *mcp.HTTPError
 	switch {
 	case errors.Is(err, ssrf.ErrBlockedAddress):
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, message)
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, message).WithCause(err)
 	case storeerr.IsNotFound(err):
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "auth.secret_id is not available to the project")
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeNotFound,
+			"auth.secret_id is not available to the project",
+		).WithCause(err)
 	case errors.Is(err, context.Canceled):
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp server request was canceled")
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp server request was canceled").WithCause(err)
 	case errors.As(err, &httpErr) &&
 		(httpErr.Status == http.StatusUnauthorized || httpErr.Status == http.StatusForbidden):
 		return s.mcpServerAuthRequired(ctx, endpoint, message)
 	default:
 		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery failed", "error", err)
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, message)
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, message).WithCause(err)
 	}
 }
 
@@ -218,8 +221,11 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 		hint := openapi.MCPServerAuthHint{Type: openapi.MCPServerAuthHintTypeBearer}
 		return mcpServerAuthRequiredResponse(hint, "mcp server requires a bearer token: "+message), nil
 	default:
-		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp auth probe failed", "error", err)
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, message+"; auth probe failed: "+err.Error())
+		logpkg.Error(ctx, fmt.Errorf("mcp auth probe failed: %w", err))
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeUpstreamError,
+			message+"; auth probe failed: "+err.Error(),
+		).WithCause(err)
 	}
 }
 

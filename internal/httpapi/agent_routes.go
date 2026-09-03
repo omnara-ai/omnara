@@ -20,6 +20,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -1203,9 +1204,12 @@ func (s *Server) agentConfigResponseFromRecord(
 		ContextWindowTokens:    effectiveModel.ContextWindowTokens,
 		MaxOutputTokens:        effectiveModel.MaxOutputTokens,
 		DefaultMaxOutputTokens: nullableFromPtr(effectiveModel.DefaultMaxOutputTokens),
-		DefaultCacheRetention: openapi.ModelCacheRetention(
-			modelCacheRetention(effectiveModel.DefaultCacheRetention),
-		),
+		DefaultCacheRetention: openapi.ModelCacheRetention(model.EffectiveCacheRetention(
+			revision.APIFormat,
+			revision.APIVariant,
+			revision.ProviderModelSlug,
+			model.CacheRetention(effectiveModel.DefaultCacheRetention),
+		)),
 		SupportsTools:             effectiveModel.SupportsTools,
 		SupportsReasoning:         effectiveModel.SupportsReasoning,
 		DefaultReasoningEffort:    effectiveModel.DefaultReasoningEffort,
@@ -1248,13 +1252,6 @@ func (s *Server) agentConfigEffectiveModel(
 		revision.ConfiguredModelRevisionRecord,
 		options,
 	)
-}
-
-func modelCacheRetention(value string) string {
-	if value == "" {
-		return modelstore.ModelCacheRetentionNone
-	}
-	return value
 }
 
 func instructionHash(instruction string) string {

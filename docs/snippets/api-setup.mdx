@@ -22,7 +22,7 @@ const token = process.env.OMNARA_TOKEN
 if (!token) throw new Error('Set OMNARA_TOKEN')
 
 const client = createOmnaraClient({
-  baseUrl: 'https://api.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken(token),
 })
 

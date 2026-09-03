@@ -60,13 +60,16 @@ export function AgentProfileIntegrations({
       ) : (
         <ul className="bg-background flex flex-col divide-y rounded-md border">
           {installs.map((install) => (
-            <li key={install.id} className="flex items-center justify-between gap-3 px-3 py-2">
+            <li
+              key={install.id}
+              className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+            >
               <div className="flex min-w-0 items-center gap-2 text-sm">
                 <span className="truncate font-medium">{installName(install)}</span>
                 <Badge variant="outline">{providerLabel(install.provider)}</Badge>
                 {install.state === 'disabled' && <Badge variant="secondary">Disabled</Badge>}
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex min-w-0 items-center justify-between gap-3 sm:shrink-0 sm:justify-start">
                 <span className="text-muted-foreground text-xs">
                   Installed {formatDateTime(install.created_at)}
                 </span>

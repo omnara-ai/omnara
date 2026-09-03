@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -32,15 +33,16 @@ import (
 )
 
 type capturedAuthEmail struct {
-	to    string
-	token string
-	path  string
+	to       string
+	token    string
+	path     string
+	returnTo string
 }
 
 type captureAuthEmailSender struct {
 	verification chan capturedAuthEmail
 	reset        chan capturedAuthEmail
-	account      chan string
+	account      chan capturedAuthEmail
 	changed      chan string
 }
 
@@ -48,6 +50,13 @@ type allowAllAuthLimiter struct{}
 
 func (allowAllAuthLimiter) Allow(context.Context, string, int, time.Duration) error {
 	return nil
+}
+
+func newOAuthFormRequest(method, target string, values url.Values) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(values.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	return req
 }
 
 func withRedisOAuthStateAndAllowAllLimiter(t testing.TB) Option {
@@ -63,7 +72,7 @@ func newCaptureAuthEmailSender() *captureAuthEmailSender {
 	return &captureAuthEmailSender{
 		verification: make(chan capturedAuthEmail, 16),
 		reset:        make(chan capturedAuthEmail, 16),
-		account:      make(chan string, 16),
+		account:      make(chan capturedAuthEmail, 16),
 		changed:      make(chan string, 16),
 	}
 }
@@ -82,8 +91,8 @@ func (s *captureAuthEmailSender) SendPasswordReset(_ context.Context, to, resetU
 	return nil
 }
 
-func (s *captureAuthEmailSender) SendAccountExists(_ context.Context, to, _ string) error {
-	s.account <- to
+func (s *captureAuthEmailSender) SendAccountExists(_ context.Context, to, loginURL string) error {
+	s.account <- authEmailFromURL(to, loginURL)
 	return nil
 }
 
@@ -97,7 +106,12 @@ func authEmailFromURL(to, raw string) capturedAuthEmail {
 	if err != nil {
 		return capturedAuthEmail{to: to}
 	}
-	return capturedAuthEmail{to: to, token: parsed.Query().Get("token"), path: parsed.Path}
+	return capturedAuthEmail{
+		to:       to,
+		token:    parsed.Query().Get("token"),
+		path:     parsed.Path,
+		returnTo: parsed.Query().Get("return_to"),
+	}
 }
 
 func waitAuthEmail(t *testing.T, ch <-chan capturedAuthEmail) capturedAuthEmail {
@@ -1211,6 +1225,30 @@ func TestBearerAuthStorageErrorReturnsServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
+	if err != nil {
+		t.Fatalf("format valid personal access token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/invitations", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	requestCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(requestCtx)
+	rec := performRequest(handler, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected canceled bearer auth to return 503, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "authentication unavailable") {
+		t.Fatalf("expected authentication unavailable body, got %s", rec.Body.String())
+	}
+}
+
 func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1238,14 +1276,19 @@ func TestPasswordAuthSignupVerifyLoginAndReset(t *testing.T) {
 		return req
 	}
 
-	req := authReq(http.MethodPost, "/api/auth/signup", `{"email":"`+email+`"}`)
+	req := authReq(
+		http.MethodPost,
+		"/api/auth/signup",
+		`{"email":"`+email+`","return_to":"/device?user_code=ABCDE-F1234"}`,
+	)
 	rec := performRequest(handler, req)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("signup status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	assertAuthNoSessionCookies(t, rec)
 	verification := waitAuthEmail(t, emailSender.verification)
-	if verification.to != email || verification.token == "" || verification.path != "/verify-email" {
+	if verification.to != email || verification.token == "" || verification.path != "/verify-email" ||
+		verification.returnTo != "/device?user_code=ABCDE-F1234" {
 		t.Fatalf("unexpected verification email: %+v", verification)
 	}
 
@@ -1469,8 +1512,8 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 		return req
 	}
 	signupBodies := []string{
-		`{"email":"` + email + `"}`,
-		`{"email":"new-` + runKey + `@example.com"}`,
+		`{"email":"` + email + `","return_to":"/device?user_code=ABCDE-F1234"}`,
+		`{"email":"new-` + runKey + `@example.com","return_to":"https://evil.example/device"}`,
 		`{"email":"not an email"}`,
 	}
 	var signupBody string
@@ -1486,14 +1529,15 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 			t.Fatalf("signup %d body=%q want %q", i, rec.Body.String(), signupBody)
 		}
 	}
-	if got := waitStringEmail(t, emailSender.account); got != email {
-		t.Fatalf("existing-account signup notice to=%q want %q", got, email)
+	if got := waitAuthEmail(t, emailSender.account); got.to != email || got.path != "/login" || got.returnTo != "" {
+		t.Fatalf("unexpected existing-account signup notice: %+v", got)
 	}
-	if got := waitAuthEmail(t, emailSender.verification); got.to != "new-"+runKey+"@example.com" {
-		t.Fatalf("new-account verification to=%q", got.to)
+	if got := waitAuthEmail(t, emailSender.verification); got.to != "new-"+runKey+"@example.com" ||
+		got.returnTo != "" {
+		t.Fatalf("unexpected new-account verification: %+v", got)
 	}
 	assertNoAuthEmail(t, emailSender.verification)
-	assertNoStringEmail(t, emailSender.account)
+	assertNoAuthEmail(t, emailSender.account)
 
 	loginBodies := []string{
 		`{"email":"` + email + `","password":"wrong horse battery staple"}`,
@@ -2052,6 +2096,31 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		WithPublicURL("http://app.omnara.test"),
 		WithAuthRateLimiter(allowAllAuthLimiter{}),
 	)
+	metadataRec := performRequest(
+		handler,
+		httptest.NewRequest(http.MethodGet, "http://app.omnara.test/.well-known/oauth-authorization-server", nil),
+	)
+	if metadataRec.Code != http.StatusOK ||
+		!strings.Contains(metadataRec.Header().Get("Cache-Control"), "public") {
+		t.Fatalf("authorization server metadata status=%d headers=%v body=%s", metadataRec.Code, metadataRec.Header(), metadataRec.Body.String())
+	}
+	var metadata struct {
+		Issuer                      string   `json:"issuer"`
+		DeviceAuthorizationEndpoint string   `json:"device_authorization_endpoint"`
+		TokenEndpoint               string   `json:"token_endpoint"`
+		GrantTypesSupported         []string `json:"grant_types_supported"`
+		TokenAuthMethodsSupported   []string `json:"token_endpoint_auth_methods_supported"`
+	}
+	if err := json.Unmarshal(metadataRec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode authorization server metadata: %v", err)
+	}
+	if metadata.Issuer != "http://app.omnara.test" ||
+		metadata.DeviceAuthorizationEndpoint != "http://app.omnara.test/api/auth/device/code" ||
+		metadata.TokenEndpoint != "http://app.omnara.test/api/auth/device/token" ||
+		!slices.Contains(metadata.GrantTypesSupported, httpauth.OAuthDeviceGrantType) ||
+		!slices.Contains(metadata.TokenAuthMethodsSupported, "none") {
+		t.Fatalf("authorization server metadata = %+v", metadata)
+	}
 	store := integrationStoreForHandler(t, handler)
 	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-http@example.com", DisplayName: "Device HTTP"})
 	if err != nil {
@@ -2069,23 +2138,70 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create browser session: %v", err)
 	}
-	for name, body := range map[string]string{
-		"unpaired surrogate": `{"client_name":"CLI\ud800App","token_name":"CLI token"}`,
-		"invalid UTF-8":      `{"client_name":"CLI` + string([]byte{0xff}) + `App","token_name":"CLI token"}`,
+	for _, tc := range []struct {
+		name      string
+		req       *http.Request
+		errorCode string
+	}{
+		{
+			name: "json content type",
+			req: newJSONRequest(
+				http.MethodPost,
+				"http://app.omnara.test/api/auth/device/code",
+				`{"client_id":"omnara-cli","token_name":"CLI token"}`,
+			),
+			errorCode: "invalid_request",
+		},
+		{
+			name: "repeated client id",
+			req: newOAuthFormRequest(
+				http.MethodPost,
+				"http://app.omnara.test/api/auth/device/code",
+				url.Values{"client_id": {"omnara-cli", "other"}},
+			),
+			errorCode: "invalid_request",
+		},
+		{
+			name: "invalid token name",
+			req: newOAuthFormRequest(
+				http.MethodPost,
+				"http://app.omnara.test/api/auth/device/code",
+				url.Values{"client_id": {"omnara-cli"}, "token_name": {"bad\ntoken"}},
+			),
+			errorCode: "invalid_request",
+		},
+		{
+			name: "unknown client",
+			req: newOAuthFormRequest(
+				http.MethodPost,
+				"http://app.omnara.test/api/auth/device/code",
+				url.Values{"client_id": {"unknown-client"}},
+			),
+			errorCode: "invalid_client",
+		},
+		{
+			name: "unsupported scope",
+			req: newOAuthFormRequest(
+				http.MethodPost,
+				"http://app.omnara.test/api/auth/device/code",
+				url.Values{"client_id": {"omnara-cli"}, "scope": {"write"}},
+			),
+			errorCode: "invalid_scope",
+		},
 	} {
-		t.Run(name, func(t *testing.T) {
-			req := newJSONRequest(http.MethodPost, "http://app.omnara.test/api/auth/device/code", body)
-			rec := performRequest(handler, req)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("malformed device name status=%d body=%s", rec.Code, rec.Body.String())
+		t.Run(tc.name, func(t *testing.T) {
+			rec := performRequest(handler, tc.req)
+			if rec.Code != http.StatusBadRequest ||
+				!strings.Contains(rec.Body.String(), `"error":"`+tc.errorCode+`"`) {
+				t.Fatalf("invalid device authorization request status=%d body=%s", rec.Code, rec.Body.String())
 			}
 		})
 	}
 
-	req := newJSONRequest(
+	req := newOAuthFormRequest(
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/code",
-		`{"client_name":"CLI","token_name":"CLI token"}`,
+		url.Values{"client_id": {"omnara-cli"}, "token_name": {"CLI token"}},
 	)
 	rec := performRequest(handler, req)
 	if rec.Code != http.StatusOK {
@@ -2156,7 +2272,7 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &pendingFlow); err != nil {
 		t.Fatalf("decode pending flow: %v", err)
 	}
-	if pendingFlow.ClientName != "CLI" || pendingFlow.TokenName != "CLI token" || pendingFlow.CreatedAt.IsZero() ||
+	if pendingFlow.ClientName != "Omnara CLI" || pendingFlow.TokenName != "CLI token" || pendingFlow.CreatedAt.IsZero() ||
 		pendingFlow.ExpiresAt.IsZero() {
 		t.Fatalf("pending flow = %+v", pendingFlow)
 	}
@@ -2166,14 +2282,32 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid or expired device code") {
 		t.Fatalf("pending invalid code status=%d body=%s", rec.Code, rec.Body.String())
 	}
-
-	req = newJSONRequest(
+	req = newOAuthFormRequest(
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/token",
-		`{"device_code":"`+started.DeviceCode+`"}`,
+		url.Values{
+			"grant_type":  {"authorization_code"},
+			"device_code": {started.DeviceCode},
+			"client_id":   {httpauth.OmnaraCLIClientID},
+		},
 	)
 	rec = performRequest(handler, req)
-	if rec.Code != http.StatusAccepted ||
+	if rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), `"error":"unsupported_grant_type"`) {
+		t.Fatalf("unsupported device grant status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = newOAuthFormRequest(
+		http.MethodPost,
+		"http://app.omnara.test/api/auth/device/token",
+		url.Values{
+			"grant_type":  {httpauth.OAuthDeviceGrantType},
+			"device_code": {started.DeviceCode},
+			"client_id":   {httpauth.OmnaraCLIClientID},
+		},
+	)
+	rec = performRequest(handler, req)
+	if rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), string(identitystore.DeviceAuthFlowStatusPending)) {
 		t.Fatalf("pending device token status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -2236,10 +2370,14 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		t.Fatalf("pending approved flow status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = newJSONRequest(
+	req = newOAuthFormRequest(
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/token",
-		`{"device_code":"`+started.DeviceCode+`"}`,
+		url.Values{
+			"grant_type":  {httpauth.OAuthDeviceGrantType},
+			"device_code": {started.DeviceCode},
+			"client_id":   {httpauth.OmnaraCLIClientID},
+		},
 	)
 	rec = performRequest(handler, req)
 	if rec.Code != http.StatusOK {
@@ -2265,10 +2403,14 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		principal.PersonalAccessTokenID == storage.NilID {
 		t.Fatalf("device PAT principal = %+v", principal)
 	}
-	req = newJSONRequest(
+	req = newOAuthFormRequest(
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/token",
-		`{"device_code":"`+started.DeviceCode+`"}`,
+		url.Values{
+			"grant_type":  {httpauth.OAuthDeviceGrantType},
+			"device_code": {started.DeviceCode},
+			"client_id":   {httpauth.OmnaraCLIClientID},
+		},
 	)
 	rec = performRequest(handler, req)
 	if rec.Code != http.StatusBadRequest ||
@@ -2285,7 +2427,11 @@ func TestDeviceAuthTokenPollingAllowsAdvertisedIntervalBudget(t *testing.T) {
 	handler := newIntegrationServer(pool, WithPublicURL("http://omnara.test"), WithRedisBackedAuth(redisClient))
 	runKey := identitystore.HashBearerToken(t.Name() + time.Now().UTC().Format(time.RFC3339Nano))[:12]
 
-	req := newJSONRequest(http.MethodPost, "/api/auth/device/code", `{"client_name":"CLI","token_name":"CLI token"}`)
+	req := newOAuthFormRequest(
+		http.MethodPost,
+		"/api/auth/device/code",
+		url.Values{"client_id": {httpauth.OmnaraCLIClientID}, "token_name": {"CLI token"}},
+	)
 	req.RemoteAddr = "device-poll-start-" + runKey
 	rec := performRequest(handler, req)
 	if rec.Code != http.StatusOK {
@@ -2305,13 +2451,23 @@ func TestDeviceAuthTokenPollingAllowsAdvertisedIntervalBudget(t *testing.T) {
 
 	polls := started.ExpiresIn / started.Interval
 	for i := 0; i < polls; i++ {
-		req = newJSONRequest(http.MethodPost, "/api/auth/device/token", `{"device_code":"`+started.DeviceCode+`"}`)
+		req = newOAuthFormRequest(
+			http.MethodPost,
+			"/api/auth/device/token",
+			url.Values{
+				"grant_type":  {httpauth.OAuthDeviceGrantType},
+				"device_code": {started.DeviceCode},
+				"client_id":   {httpauth.OmnaraCLIClientID},
+			},
+		)
 		req.RemoteAddr = "device-poll-client-" + runKey
 		rec = performRequest(handler, req)
 		if rec.Code == http.StatusTooManyRequests {
 			t.Fatalf("device token poll %d was rate-limited body=%s", i, rec.Body.String())
 		}
-		if rec.Code != http.StatusAccepted {
+		if rec.Code != http.StatusBadRequest ||
+			(!strings.Contains(rec.Body.String(), `"error":"authorization_pending"`) &&
+				!strings.Contains(rec.Body.String(), `"error":"slow_down"`)) {
 			t.Fatalf("device token poll %d status=%d body=%s", i, rec.Code, rec.Body.String())
 		}
 	}

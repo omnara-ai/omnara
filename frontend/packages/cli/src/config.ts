@@ -1,12 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
-
 import { bearerToken, createOmnaraClient, type OmnaraClient } from '@omnara/sdk'
-import { zOrganizationId, zProjectId } from '@omnara/sdk/zod'
 import type { Command } from 'commander'
-import * as z from 'zod'
 
+import { type ConfigFile, configFilePath, readConfigFile, updateConfigFile } from './config-file.ts'
+import { createLoginReporter, loginWithDevice } from './device-login.ts'
 import {
   canPromptInteractively,
   promptOrgSelection,
@@ -14,108 +10,109 @@ import {
 } from './interactive.ts'
 import { CliInputError, runCliAction } from './output.ts'
 
-export const DEFAULT_BASE_URL = 'https://app.omnara.com'
-
-const zConfigFile = z.looseObject({
-  base_url: z.url().optional(),
-  token: z.string().min(1).optional(),
-  org_id: zOrganizationId.optional(),
-  project_id: zProjectId.optional(),
-})
-
-export type ConfigFile = z.infer<typeof zConfigFile>
+export const DEFAULT_API_URL = 'https://api.omnara.com/v1'
+export const DEFAULT_ISSUER_URL = 'https://app.omnara.com'
 
 export interface CliConfig {
   client: OmnaraClient
-  baseUrl: string
-  defaultOrgId?: string
-  defaultProjectId?: string
+  apiUrl: string
+  issuerUrl: string
+  readonly defaultOrgId?: string
+  readonly defaultProjectId?: string
+  ensureLoggedIn: () => Promise<void>
 }
 
-export function configFilePath(): string {
-  return join(homedir(), '.config', 'omnara', 'config.json')
+interface SavedDefaults {
+  orgId?: string
+  projectId?: string
 }
 
-let warnedAboutConfig = false
-
-function warnConfigIgnored(message: string): void {
-  if (warnedAboutConfig) return
-  warnedAboutConfig = true
-  console.error(message)
+export interface ResolvedUrls {
+  apiUrl: string
+  issuerUrl: string
 }
 
-const zConfigContents = z
-  .string()
-  .transform((raw, ctx): unknown => {
-    try {
-      return JSON.parse(raw)
-    } catch (error) {
-      ctx.addIssue(error instanceof Error ? error.message : String(error))
-      return z.NEVER
-    }
-  })
-  .pipe(zConfigFile)
-
-function loadConfigFile(): z.ZodSafeParseResult<ConfigFile> {
-  const path = configFilePath()
-  if (!existsSync(path)) return { success: true, data: {} }
-  return zConfigContents.safeParse(readFileSync(path, 'utf8'))
-}
-
-export function readConfigFile(): ConfigFile {
-  const result = loadConfigFile()
-  if (result.success) return result.data
-  warnConfigIgnored(
-    `warning: ignoring unreadable config at ${configFilePath()}: ${z.prettifyError(result.error)}`,
-  )
-  return {}
-}
-
-export function readConfigFileForUpdate(): ConfigFile {
-  const result = loadConfigFile()
-  if (result.success) return result.data
-  throw new CliInputError(
-    `refusing to modify unreadable config at ${configFilePath()} (fix or delete it first): ${z.prettifyError(result.error)}`,
-  )
-}
-
-export function updateConfigFile(patch: Partial<ConfigFile>): ConfigFile {
-  const merged = Object.fromEntries(
-    Object.entries({ ...readConfigFileForUpdate(), ...patch }).filter(
-      ([, value]) => value !== undefined,
-    ),
-  )
-  const result = zConfigFile.safeParse(merged)
-  if (!result.success) {
-    throw new CliInputError(`refusing to save invalid config:\n${z.prettifyError(result.error)}`)
+export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedUrls {
+  return {
+    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? DEFAULT_API_URL,
+    issuerUrl: env.OMNARA_ISSUER_URL ?? file.issuer_url ?? DEFAULT_ISSUER_URL,
   }
-  mkdirSync(dirname(configFilePath()), { recursive: true, mode: 0o700 })
-  writeFileSync(configFilePath(), `${JSON.stringify(result.data, null, 2)}\n`, { mode: 0o600 })
-  chmodSync(configFilePath(), 0o600)
-  return result.data
+}
+
+export function migrateLegacyBaseUrl(file: ConfigFile): ConfigFile | undefined {
+  const { base_url: baseUrl, ...rest } = file
+  if (baseUrl === undefined) return undefined
+  return rest
+}
+
+export interface TokenResolverOptions {
+  savedToken: string | undefined
+  canPrompt: () => boolean
+  login: () => Promise<string>
+}
+
+export function createTokenResolver(options: TokenResolverOptions): () => Promise<string> {
+  let token = options.savedToken
+  let pending: Promise<string> | undefined
+  return () => {
+    if (token !== undefined) return Promise.resolve(token)
+    if (!options.canPrompt()) {
+      return Promise.reject(
+        new CliInputError("not logged in: run 'omnara login' or set OMNARA_API_KEY"),
+      )
+    }
+    pending ??= options.login().then((result) => {
+      token = result
+      return result
+    })
+    return pending
+  }
 }
 
 export function loadConfig(): CliConfig {
-  const file = readConfigFile()
-  const baseUrl = process.env.OMNARA_BASE_URL ?? file.base_url ?? DEFAULT_BASE_URL
-  const token = process.env.OMNARA_API_KEY ?? file.token
+  const loaded = readConfigFile()
+  const migrated = migrateLegacyBaseUrl(loaded)
+  const file =
+    migrated === undefined ? loaded : updateConfigFile({ ...migrated, base_url: undefined })
+  const { apiUrl, issuerUrl } = resolveUrls(file, process.env)
+  let saved: SavedDefaults = { orgId: file.org_id, projectId: file.project_id }
+  const resolveToken = createTokenResolver({
+    savedToken: process.env.OMNARA_API_KEY ?? file.token,
+    canPrompt: canPromptInteractively,
+    login: async () => {
+      const report = createLoginReporter(`Not logged in yet. Log in to ${issuerUrl}`)
+      const login = await loginWithDevice({ apiUrl, issuerUrl, browser: true, report })
+      saved = { orgId: login.orgId, projectId: login.projectId }
+      report.finish('Continuing')
+      return login.token
+    },
+  })
   const client = createOmnaraClient({
-    baseUrl,
-    auth: token ? bearerToken(token) : undefined,
+    baseUrl: apiUrl,
+    auth: bearerToken(resolveToken),
     headers: { 'User-Agent': 'omnara-cli' },
   })
   return {
     client,
-    baseUrl,
-    defaultOrgId: process.env.OMNARA_ORG_ID ?? file.org_id,
-    defaultProjectId: process.env.OMNARA_PROJECT_ID ?? file.project_id,
+    apiUrl,
+    issuerUrl,
+    get defaultOrgId() {
+      return process.env.OMNARA_ORG_ID ?? saved.orgId
+    },
+    get defaultProjectId() {
+      return process.env.OMNARA_PROJECT_ID ?? saved.projectId
+    },
+    ensureLoggedIn: async () => {
+      await resolveToken()
+    },
   }
 }
 
 interface ConfigOptions {
   org?: string
   project?: string
-  baseUrl?: string
+  apiUrl?: string
+  issuerUrl?: string
 }
 
 function describeValue(
@@ -138,7 +135,9 @@ function printConfig(): void {
   console.log(`config file  ${configFilePath()}`)
   console.log(`org_id       ${describeValue('OMNARA_ORG_ID', file.org_id)}`)
   console.log(`project_id   ${describeValue('OMNARA_PROJECT_ID', file.project_id)}`)
-  console.log(`base_url     ${describeValue('OMNARA_BASE_URL', file.base_url, DEFAULT_BASE_URL)}`)
+  const { apiUrl, issuerUrl } = resolveUrls(file, {})
+  console.log(`api_url      ${describeValue('OMNARA_API_URL', file.api_url, apiUrl)}`)
+  console.log(`issuer_url   ${describeValue('OMNARA_ISSUER_URL', file.issuer_url, issuerUrl)}`)
 }
 
 export function registerConfigCommand(program: Command, cli: CliConfig): void {
@@ -147,13 +146,18 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
     .description('Show or set the default organization and project')
     .option('--org <org-id>', 'save this organization ID as the default')
     .option('--project <project-id>', 'save this project ID as the default')
-    .option('--base-url <url>', 'save this API base URL as the default')
+    .option('--api-url <url>', 'save this API root URL (used for requests) as the default')
+    .option(
+      '--issuer-url <url>',
+      'save this web app origin (used for login and browser links) as the default',
+    )
     .action(async (options: ConfigOptions) => {
       await runCliAction(() => {
         if (
           options.org !== undefined ||
           options.project !== undefined ||
-          options.baseUrl !== undefined
+          options.apiUrl !== undefined ||
+          options.issuerUrl !== undefined
         ) {
           const clearStaleProject = options.org !== undefined && options.project === undefined
           updateConfigFile({
@@ -163,7 +167,8 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
               : options.project !== undefined
                 ? { project_id: options.project }
                 : {}),
-            ...(options.baseUrl !== undefined ? { base_url: options.baseUrl } : {}),
+            ...(options.apiUrl !== undefined ? { api_url: options.apiUrl } : {}),
+            ...(options.issuerUrl !== undefined ? { issuer_url: options.issuerUrl } : {}),
           })
         }
         printConfig()
@@ -177,7 +182,8 @@ export function registerConfigCommand(program: Command, cli: CliConfig): void {
         if (!canPromptInteractively()) {
           throw new CliInputError('interactive selection needs a terminal')
         }
-        const orgId = await promptOrgSelection(cli.client)
+        await cli.ensureLoggedIn()
+        const orgId = await promptOrgSelection(cli.client, cli.issuerUrl)
         const projectId = await promptProjectSelection(cli.client, orgId)
         updateConfigFile({ org_id: orgId, project_id: projectId })
         printConfig()

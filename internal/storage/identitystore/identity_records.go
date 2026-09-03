@@ -97,11 +97,10 @@ type UserRecord struct {
 }
 
 type CreateUserEmailInput struct {
-	UserID          ID
-	Email           string
-	NormalizedEmail string
-	Verified        bool
-	IsPrimary       bool
+	UserID    ID
+	Email     string
+	Verified  bool
+	IsPrimary bool
 }
 
 type UserEmailRecord struct {
@@ -252,6 +251,7 @@ type ResolveAuthIdentitySessionInput struct {
 }
 
 type StartDeviceAuthFlowInput struct {
+	ClientID   string
 	ClientName string
 	TokenName  string
 }
@@ -270,11 +270,13 @@ const (
 	DeviceAuthFlowStatusSlowDown DeviceAuthFlowStatus = "slow_down"
 	DeviceAuthFlowStatusDenied   DeviceAuthFlowStatus = "access_denied"
 	DeviceAuthFlowStatusExpired  DeviceAuthFlowStatus = "expired_token"
+	DeviceAuthFlowStatusInvalid  DeviceAuthFlowStatus = "invalid_grant"
 	DeviceAuthFlowStatusApproved DeviceAuthFlowStatus = "approved"
 )
 
 type DeviceAuthFlowPollInput struct {
 	DeviceCode string
+	ClientID   string
 }
 
 type DeviceAuthFlowPollRecord struct {

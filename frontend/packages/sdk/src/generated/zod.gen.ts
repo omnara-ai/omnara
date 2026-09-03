@@ -192,7 +192,7 @@ export const zModelProviderApiVariantResponse = z.string();
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Default prompt-cache hint for model requests. `none` means Omnara does not send a cache hint; providers may still apply their own automatic caching. `short` and `long` are translated to the closest supported control for the selected API.
+ * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
  */
 export const zModelCacheRetention = z.enum([
     'none',
@@ -392,7 +392,7 @@ export const zConfiguredModel = z.object({
     context_window_tokens: z.int(),
     max_output_tokens: z.int(),
     default_max_output_tokens: z.int().nullish(),
-    default_cache_retention: zModelCacheRetention,
+    default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
     supports_reasoning: z.boolean(),
     default_reasoning_effort: z.string(),
@@ -497,6 +497,23 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
+
+export const zSkillFile = z.object({
+    path: z.string(),
+    size: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
@@ -506,6 +523,7 @@ export const zSkill = z.object({
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
     skill_md: z.string().optional(),
+    files: z.array(zSkillFile).optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -1114,6 +1132,9 @@ export const zTextContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+/**
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ */
 export const zInlineMediaContentBlock = z.object({
     type: z.enum(['media']),
     media_type: z.enum([
@@ -1126,6 +1147,15 @@ export const zInlineMediaContentBlock = z.object({
         'text/markdown',
         'text/csv',
         'text/tab-separated-values',
+        'text/x-iif',
+        'application/msword',
+        'application/rtf',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.keynote',
+        'application/vnd.apple.iwork',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -1485,7 +1515,7 @@ export const zModelOutputDelta = z.object({
 });
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a terminal stream error.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
  */
 export const zAgentEventStreamData = z.union([
     zAgentEvent,
@@ -1597,6 +1627,8 @@ export const zAgentInteraction = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    tool_call_id: zToolCallId,
+    tool_name: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
     state: zAgentInteractionState,
     request: zInteractionForm,
@@ -3047,9 +3079,21 @@ export const zGetSkillPath = z.object({
 });
 
 /**
- * Visible skill metadata and instructions.
+ * Visible skill metadata, instructions, and archive file listing.
  */
 export const zGetSkillResponse = zSkill;
+
+export const zUpdateSkillBody = zUpdateSkillRequest;
+
+export const zUpdateSkillPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
+});
+
+/**
+ * Skill updated with a new revision.
+ */
+export const zUpdateSkillResponse = zSkill;
 
 export const zListSkillGrantsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3696,7 +3740,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and terminal stream errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 

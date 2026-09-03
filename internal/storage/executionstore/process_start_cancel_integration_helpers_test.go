@@ -767,6 +767,26 @@ func countAgentWakeups(t *testing.T, ctx context.Context, store *Store, agentID 
 	return wakeups
 }
 
+func requireAgentWakeupCoverage(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	projectID, agentID ID,
+) {
+	t.Helper()
+	var runnable, hasWakeup, hasRuntimeLock bool
+	if err := store.pool.QueryRow(ctx, `
+SELECT agent_next_wakeup_ready_at($1, $2) IS NOT NULL,
+       EXISTS (SELECT 1 FROM agent_wakeups WHERE agent_id = $2),
+       EXISTS (SELECT 1 FROM agent_runtime_locks WHERE agent_id = $2)
+`, projectID, agentID).Scan(&runnable, &hasWakeup, &hasRuntimeLock); err != nil {
+		t.Fatalf("load agent wakeup coverage: %v", err)
+	}
+	if runnable && !hasWakeup && !hasRuntimeLock {
+		t.Fatalf("agent %s has runnable work without a wakeup or runtime lock", agentID)
+	}
+}
+
 func assertModelCallContextRetryHistory(
 	t *testing.T,
 	ctx context.Context,

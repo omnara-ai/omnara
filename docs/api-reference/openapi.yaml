@@ -4,6 +4,11 @@ info:
   title: Omnara API
   version: 0.1.0
   description: Public HTTP API contract for Omnara.
+servers:
+  - url: https://api.omnara.com/v1
+    description: Hosted Omnara
+  - url: /api/v1
+    description: Self-hosted Omnara, relative to the deployment origin
 security:
   - bearerAuth: []
   - browserSessionCookie: []
@@ -1505,7 +1510,7 @@ paths:
       summary: Get skill through ownership authority
       responses:
         '200':
-          description: Visible skill metadata and instructions.
+          description: Visible skill metadata, instructions, and archive file listing.
           content:
             application/json:
               schema:
@@ -1518,6 +1523,56 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: updateSkill
+      tags: [Skills]
+      summary: Update skill by uploading a new revision
+      description: >-
+        Creates the skill's next revision from either a replacement archive or
+        replacement SKILL.md content (which keeps every other file from the
+        current revision). The SKILL.md frontmatter `name` must match the
+        skill's existing name.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateSkillRequest'
+      responses:
+        '200':
+          description: Skill updated with a new revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: The uploaded skill archive is too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -3756,10 +3811,12 @@ paths:
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
             Best-effort tool lifecycle updates use `tool_call_update`, model
-            previews use `model_output_delta`, and terminal stream errors use
+            previews use `model_output_delta`, and stream-closing errors use
             `error`; none carries an SSE `id`, so reconnects resume from the
-            last durable event. Heartbeats are SSE comments and carry no JSON
-            payload.
+            last durable event. The response closes after every `error` frame.
+            Raw clients reconnect when the error's stable code is
+            `service_unavailable` and treat other current codes as terminal.
+            Heartbeats are SSE comments and carry no JSON payload.
           content:
             text/event-stream:
               schema:
@@ -6969,10 +7026,12 @@ components:
     ModelCacheRetention:
       type: string
       description: >-
-        Default prompt-cache hint for model requests. `none` means Omnara does
-        not send a cache hint; providers may still apply their own automatic
-        caching. `short` and `long` are translated to the closest supported
-        control for the selected API.
+        Default prompt-cache hint for model requests. When omitted, the
+        provider adapter chooses: Anthropic models (direct or via OpenRouter)
+        default to `short`; other providers rely on their own automatic
+        caching. `none` means Omnara does not send a cache hint. `short` and
+        `long` are translated to the closest supported control for the
+        selected API.
       enum: [none, short, long]
     CreateModelProviderConfigRequest:
       type: object
@@ -7264,7 +7323,7 @@ components:
     ConfiguredModel:
       type: object
       additionalProperties: false
-      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
+      required: [id, org_id, model_provider_config_id, management_kind, name, current_revision_id, provider_model_slug, context_window_tokens, max_output_tokens, supports_tools, supports_reasoning, default_reasoning_effort, supported_reasoning_efforts, input_modalities, output_modalities, api_variant_options, created_at, updated_at, revision_created_at]
       properties:
         id:
           $ref: '#/components/schemas/ConfiguredModelID'
@@ -7668,6 +7727,31 @@ components:
         archive:
           type: string
           format: binary
+    UpdateSkillRequest:
+      type: object
+      properties:
+        archive:
+          type: string
+          format: binary
+        skill_md:
+          type: string
+          description: >-
+            Replacement SKILL.md content. Every other file in the current
+            revision's archive is preserved unchanged.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [archive]
+          properties:
+            archive:
+              type: string
+              format: binary
+        - type: object
+          additionalProperties: false
+          required: [skill_md]
+          properties:
+            skill_md:
+              type: string
     Skill:
       type: object
       additionalProperties: false
@@ -7692,10 +7776,29 @@ components:
           type: string
         skill_md:
           type: string
+        files:
+          type: array
+          description: >-
+            Files in the skill archive, including SKILL.md, with paths relative
+            to the skill's top-level directory. Returned when fetching a single
+            skill; omitted from list responses.
+          items:
+            $ref: '#/components/schemas/SkillFile'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    SkillFile:
+      type: object
+      additionalProperties: false
+      required: [path, size]
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+          minimum: 0
     ListSkillsResponse:
       type: object
       additionalProperties: false
@@ -8839,6 +8942,15 @@ components:
           $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
+      description: >-
+        Files that pass validation are stored as artifacts. Model input always
+        includes the artifact ID, whether or not the file contents can be sent
+        directly. Text media must contain valid UTF-8 and is sent as text. Images
+        and PDFs are sent directly when supported by the configured provider and
+        model; unsupported combinations are rejected. Other binary documents are
+        sent directly only to OpenAI Responses models with file input support.
+        Chat Completions and Anthropic Messages receive the artifact ID and the
+        filename, if provided, instead of the contents of those documents.
       additionalProperties: false
       required: [type, media_type, data]
       properties:
@@ -8857,6 +8969,15 @@ components:
             - text/markdown
             - text/csv
             - text/tab-separated-values
+            - text/x-iif
+            - application/msword
+            - application/rtf
+            - application/vnd.oasis.opendocument.text
+            - application/vnd.apple.pages
+            - application/vnd.apple.keynote
+            - application/vnd.apple.iwork
+            - application/vnd.ms-powerpoint
+            - application/vnd.ms-excel
             - application/vnd.openxmlformats-officedocument.wordprocessingml.document
             - application/vnd.openxmlformats-officedocument.presentationml.presentation
             - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
@@ -8867,6 +8988,7 @@ components:
           type: string
           format: byte
           minLength: 1
+          description: Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
         metadata:
           $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:
@@ -9694,7 +9816,9 @@ components:
       description: >-
         One JSON payload from the event stream: an authoritative durable event,
         a best-effort tool-call update, a best-effort model-output preview, or
-        a terminal stream error.
+        a stream-closing error. The wire response ends after an error payload;
+        `service_unavailable` is retryable and other current codes are
+        terminal.
       oneOf:
         - $ref: '#/components/schemas/AgentEvent'
         - $ref: '#/components/schemas/ToolCallUpdate'
@@ -9948,7 +10072,7 @@ components:
     AgentInteraction:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, interaction_kind, state, request, created_at]
+      required: [id, org_id, project_id, agent_id, tool_call_id, interaction_kind, state, request, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentInteractionID'
@@ -9958,6 +10082,12 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        tool_call_id:
+          description: The tool call that is waiting on this interaction — the guarded tool for a permission, or the ask_question call for a question.
+          $ref: '#/components/schemas/ToolCallID'
+        tool_name:
+          type: string
+          description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:
@@ -12069,7 +12199,3 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
-# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1.
-servers:
-  - url: https://api.omnara.com/v1
-    description: Hosted Omnara
