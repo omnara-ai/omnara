@@ -13,7 +13,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 const (
@@ -27,11 +29,14 @@ const (
 	SubagentMessageKindCanceled        = "canceled"
 	SubagentMessageKindArchived        = "archived"
 	SubagentMessageKindWaitingOnParent = "waiting_on_parent"
+	SubagentMessageKindWaitingOnHuman  = "waiting_on_human"
+	SubagentMessageKindPermission      = "permission"
 	SubagentMessageKindTimeout         = "timeout"
 
 	SubagentStateRunning         = "running"
 	SubagentStateIdle            = "idle"
 	SubagentStateWaitingOnParent = "waiting_on_parent"
+	SubagentStateWaitingOnHuman  = "waiting_on_human"
 	SubagentStateArchived        = "archived"
 
 	AgentWaitModeAll = "all"
@@ -49,16 +54,17 @@ type SubagentLaunch struct {
 }
 
 type SubagentStatus struct {
-	AgentID         ID
-	Name            string
-	Handle          string
-	State           string
-	LastActivityAt  time.Time
-	CreatedAt       time.Time
-	Archived        bool
-	IsRunning       bool
-	HasOpenQuestion bool
-	HasModelOutput  bool
+	AgentID           ID
+	Name              string
+	Handle            string
+	State             string
+	LastActivityAt    time.Time
+	CreatedAt         time.Time
+	Archived          bool
+	IsRunning         bool
+	HasOpenQuestion   bool
+	HasOpenPermission bool
+	HasModelOutput    bool
 }
 
 type AgentWaitRecord struct {
@@ -277,21 +283,24 @@ func shareParentMachineBindingsTx(
 
 func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 	status := SubagentStatus{
-		AgentID:         row.ID,
-		Name:            row.Name,
-		Handle:          row.SubagentHandle,
-		LastActivityAt:  row.LastActivityAt,
-		CreatedAt:       row.CreatedAt,
-		Archived:        row.State == string(AgentStateArchived),
-		IsRunning:       row.IsRunning,
-		HasOpenQuestion: row.HasOpenQuestion,
-		HasModelOutput:  row.HasModelOutput,
+		AgentID:           row.ID,
+		Name:              row.Name,
+		Handle:            row.SubagentHandle,
+		LastActivityAt:    row.LastActivityAt,
+		CreatedAt:         row.CreatedAt,
+		Archived:          row.State == string(AgentStateArchived),
+		IsRunning:         row.IsRunning,
+		HasOpenQuestion:   row.HasOpenQuestion,
+		HasOpenPermission: row.HasOpenPermission,
+		HasModelOutput:    row.HasModelOutput,
 	}
 	switch {
 	case status.Archived:
 		status.State = SubagentStateArchived
 	case status.HasOpenQuestion:
 		status.State = SubagentStateWaitingOnParent
+	case status.HasOpenPermission:
+		status.State = SubagentStateWaitingOnHuman
 	case status.IsRunning:
 		status.State = SubagentStateRunning
 	default:
@@ -301,7 +310,7 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 }
 
 func (status SubagentStatus) settled() bool {
-	if status.Archived || status.HasOpenQuestion {
+	if status.Archived || status.HasOpenQuestion || status.HasOpenPermission {
 		return true
 	}
 	return !status.IsRunning && status.HasModelOutput
@@ -408,6 +417,36 @@ func openQuestionTextTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, age
 	return renderQuestionForParent(row.ID, form), row.ID, nil
 }
 
+func openPermissionTextTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) (string, error) {
+	row, err := qtx.GetOpenPermissionInteractionForAgent(ctx, dbsqlc.GetOpenPermissionInteractionForAgentParams{
+		ProjectID: projectID,
+		AgentID:   agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load open subagent permission: %w", err)
+	}
+	return renderPermissionForParent(row.ID, row.Request)
+}
+
+func renderPermissionForParent(interactionID ID, request json.RawMessage) (string, error) {
+	parsed, err := toolpermission.ParseRequest(request)
+	if err != nil {
+		return "", err
+	}
+	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
+	if err != nil {
+		interactionPublicID = interactionID.String()
+	}
+	return fmt.Sprintf(
+		"Waiting for a human to approve tool %q (interaction_id %s). Only a person can resolve it from the console.",
+		parsed.Authorization.ToolName,
+		interactionPublicID,
+	), nil
+}
+
 func renderQuestionForParent(interactionID ID, form interactionform.Form) string {
 	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
 	if err != nil {
@@ -446,6 +485,9 @@ func subagentTargetOutcomeTx(
 	case status.HasOpenQuestion:
 		text, _, err := openQuestionTextTx(ctx, qtx, projectID, status.AgentID)
 		return SubagentMessageKindWaitingOnParent, text, err
+	case status.HasOpenPermission:
+		text, err := openPermissionTextTx(ctx, qtx, projectID, status.AgentID)
+		return SubagentMessageKindWaitingOnHuman, text, err
 	default:
 		text, err := latestModelOutputTextTx(ctx, qtx, projectID, status.AgentID)
 		return SubagentMessageKindResult, text, err
@@ -647,6 +689,8 @@ func completeAgentWaitTx(
 			state = SubagentStateArchived
 		case SubagentMessageKindWaitingOnParent:
 			state = SubagentStateWaitingOnParent
+		case SubagentMessageKindWaitingOnHuman:
+			state = SubagentStateWaitingOnHuman
 		case SubagentMessageKindResult, SubagentMessageKindFailed, SubagentMessageKindCanceled:
 			state = SubagentStateIdle
 		}
@@ -844,6 +888,8 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 		header = label + " failed:"
 	case SubagentMessageKindQuestion:
 		header = label + " asked a question. Answer it with send_agent_message using the interaction_id below."
+	case SubagentMessageKindPermission:
+		header = label + " is blocked on a tool permission that only a human can grant."
 	case SubagentMessageKindCanceled:
 		header = label + " was canceled."
 	case SubagentMessageKindArchived:
@@ -912,6 +958,131 @@ func handleSubagentQuestionTx(
 	}
 	message.Kind = SubagentMessageKindWaitingOnParent
 	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, message)
+}
+
+func handleSubagentPermissionTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	interaction AgentInteractionRecord,
+) error {
+	child, err := loadAgentInProjectTx(ctx, tx, interaction.ProjectID, interaction.AgentID)
+	if err != nil {
+		return err
+	}
+	if isNilID(child.ParentAgentID) {
+		return nil
+	}
+	text, err := renderPermissionForParent(interaction.ID, interaction.Request)
+	if err != nil {
+		return err
+	}
+	waits, err := qtx.ListOpenAgentWaitsForTarget(ctx, dbsqlc.ListOpenAgentWaitsForTargetParams{
+		ProjectID:     child.ProjectID,
+		TargetAgentID: child.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("list open agent waits: %w", err)
+	}
+	message := subagentMessage{
+		Kind:           SubagentMessageKindPermission,
+		Text:           text,
+		InteractionID:  interaction.ID,
+		IdempotencyKey: "permission:" + interaction.ID.String(),
+	}
+	if len(waits) == 0 {
+		return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, message)
+	}
+	message.Kind = SubagentMessageKindWaitingOnHuman
+	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, message)
+}
+
+type ListAgentInteractionsForAgentTreeInput struct {
+	ProjectID ID
+	AgentID   ID
+	State     AgentInteractionState
+	Limit     int
+	After     listing.KeysetCursor
+}
+
+type AgentTreeInteraction struct {
+	AgentInteractionRecord
+	AgentName      string
+	SubagentHandle string
+}
+
+type ListAgentInteractionsForAgentTreeResult struct {
+	Interactions []AgentTreeInteraction
+	HasMore      bool
+}
+
+// ListAgentInteractionsForAgentTree lists interactions for an agent and every
+// subagent beneath it so a parent's page can surface the whole subtree's
+// pending permissions and questions.
+func (s *Store) ListAgentInteractionsForAgentTree(
+	ctx context.Context,
+	input ListAgentInteractionsForAgentTreeInput,
+) (ListAgentInteractionsForAgentTreeResult, error) {
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
+		return ListAgentInteractionsForAgentTreeResult{}, errors.New("project and agent are required")
+	}
+	if input.Limit <= 0 {
+		return ListAgentInteractionsForAgentTreeResult{}, errors.New("limit must be positive")
+	}
+	descendants, err := s.ListAgentDescendantIDs(ctx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return ListAgentInteractionsForAgentTreeResult{}, err
+	}
+	params := dbsqlc.ListAgentInteractionsForAgentsParams{
+		ProjectID: input.ProjectID,
+		AgentIds:  append([]ID{input.AgentID}, descendants...),
+		State:     string(input.State),
+		RowLimit:  int64(input.Limit) + 1,
+	}
+	if input.After.Set {
+		createdAt := input.After.CreatedAt
+		id := input.After.ID
+		params.CursorCreatedAt = &createdAt
+		params.CursorID = &id
+	}
+	rows, err := s.q.ListAgentInteractionsForAgents(ctx, params)
+	if err != nil {
+		return ListAgentInteractionsForAgentTreeResult{}, fmt.Errorf("list agent tree interactions: %w", err)
+	}
+	result := ListAgentInteractionsForAgentTreeResult{}
+	if len(rows) > input.Limit {
+		result.HasMore = true
+		rows = rows[:input.Limit]
+	}
+	result.Interactions = make([]AgentTreeInteraction, 0, len(rows))
+	for _, row := range rows {
+		var resolvedAt time.Time
+		if row.ResolvedAt != nil {
+			resolvedAt = *row.ResolvedAt
+		}
+		result.Interactions = append(result.Interactions, AgentTreeInteraction{
+			AgentInteractionRecord: AgentInteractionRecord{
+				ID:                 row.ID,
+				ProjectID:          row.ProjectID,
+				AgentID:            row.AgentID,
+				TurnID:             row.TurnID,
+				ModelCallContextID: row.ModelCallContextID,
+				ToolCallID:         row.ToolCallID,
+				ProviderCallID:     row.ProviderCallID,
+				InteractionKind:    AgentInteractionKind(row.InteractionKind),
+				State:              AgentInteractionState(row.State),
+				Request:            row.Request,
+				Resolution:         row.Resolution,
+				ResolvedByInputID:  idFromSQLCPtr(row.ResolvedByInputID),
+				CreatedAt:          row.CreatedAt,
+				ResolvedAt:         resolvedAt,
+			},
+			AgentName:      row.AgentName,
+			SubagentHandle: row.SubagentHandle,
+		})
+	}
+	return result, nil
 }
 
 type SendSubagentMessageInput struct {

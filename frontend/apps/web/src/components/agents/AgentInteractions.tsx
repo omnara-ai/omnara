@@ -15,7 +15,10 @@ import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
-type Resolve = (interactionID: string, body: ResolveAgentInteractionRequest) => Promise<void>
+type Resolve = (
+  interaction: AgentInteraction,
+  body: ResolveAgentInteractionRequest,
+) => Promise<void>
 
 function selectedOptions(
   options: InteractionFormOption[],
@@ -35,6 +38,13 @@ function keyedContextItems(interaction: AgentInteraction) {
       key: `${interaction.id}:context:${contentKey}:${String(occurrence)}`,
     }
   })
+}
+
+function subagentSourceLabel(interaction: AgentInteraction): string | null {
+  if (interaction.agent_name == null) return null
+  const candidates = [interaction.agent_name, interaction.subagent_handle, interaction.agent_id]
+  const name = candidates.find((value) => value != null && value !== '') ?? interaction.agent_id
+  return `From subagent ${name}`
 }
 
 function InteractionFormCard({
@@ -61,6 +71,7 @@ function InteractionFormCard({
   }
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
+  const subagentLabel = subagentSourceLabel(interaction)
 
   function submit() {
     const answers: InteractionAnswer[] = []
@@ -77,7 +88,7 @@ function InteractionFormCard({
       }
       answers.push(answer)
     }
-    void resolve(interaction.id, {
+    void resolve(interaction, {
       answers,
     }).catch(() => undefined)
   }
@@ -107,6 +118,9 @@ function InteractionFormCard({
         )}
       </CardHeader>
       <CardContent className="grid min-w-0 gap-4">
+        {subagentLabel != null && (
+          <p className="text-muted-foreground wrap-anywhere text-xs">{subagentLabel}</p>
+        )}
         {contextItems.length > 0 && (
           <dl className="bg-background grid min-w-0 gap-2 rounded-md border p-3 text-xs">
             {contextItems.map(({ item, key }) => (
@@ -239,8 +253,12 @@ export function AgentInteractions({
     interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
   const error = resolveInteraction.error
   const pending = resolveInteraction.isPending
-  const onResolve: Resolve = async (interactionID, body) => {
-    await resolveInteraction.mutateAsync({ interactionID, body })
+  const onResolve: Resolve = async (interaction, body) => {
+    await resolveInteraction.mutateAsync({
+      interactionID: interaction.id,
+      body,
+      targetAgentID: interaction.agent_id,
+    })
   }
   if (interactions.length === 0 && loadError == null) return null
   return (

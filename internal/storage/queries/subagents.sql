@@ -17,6 +17,13 @@ SELECT agent.id,
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
        ) AS has_open_question,
+       EXISTS (
+         SELECT 1
+         FROM agent_interactions interaction
+         WHERE interaction.agent_id = agent.id
+           AND interaction.interaction_kind = 'permission'
+           AND interaction.state = 'open'
+       ) AS has_open_permission,
        (
          EXISTS (
            SELECT 1
@@ -150,6 +157,36 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND interaction.state = 'open'
 ORDER BY interaction.created_at DESC, interaction.id DESC
 LIMIT 1;
+
+-- name: GetOpenPermissionInteractionForAgent :one
+SELECT interaction.id, interaction.tool_call_id, interaction.request
+FROM agent_interactions interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND interaction.agent_id = sqlc.arg(agent_id)
+  AND interaction.interaction_kind = 'permission'
+  AND interaction.state = 'open'
+ORDER BY interaction.created_at DESC, interaction.id DESC
+LIMIT 1;
+
+-- name: ListAgentInteractionsForAgents :many
+SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
+       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       agent.name AS agent_name, agent.subagent_handle
+FROM agent_interaction_read_projection interaction
+JOIN agents agent ON agent.project_id = interaction.project_id
+  AND agent.id = interaction.agent_id
+WHERE interaction.project_id = sqlc.arg(project_id)
+  AND interaction.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
+  AND (sqlc.arg(state)::text = '' OR interaction.state = sqlc.arg(state))
+  AND (
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL
+    OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+  )
+ORDER BY interaction.created_at ASC, interaction.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: InsertAgentWait :one
 INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at)

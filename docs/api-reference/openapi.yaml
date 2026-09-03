@@ -4004,6 +4004,12 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
+        - name: include_subagents
+          in: query
+          required: false
+          description: Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -10305,6 +10311,11 @@ components:
         tool_name:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        subagent_handle:
+          type: string
+          description: Present when the interaction belongs to a subagent of the listed agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

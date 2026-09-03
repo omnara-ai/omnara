@@ -91,7 +91,9 @@ CREATE TABLE agent_wait_targets (
     CHECK (state IN ('pending', 'done')),
     CHECK ((state = 'done') = (completed_at IS NOT NULL)),
     CHECK (state = 'pending' OR result_kind <> ''),
-    CHECK (result_kind IN ('', 'result', 'failed', 'waiting_on_parent', 'canceled', 'archived', 'timeout')),
+    CHECK (result_kind IN (
+        '', 'result', 'failed', 'waiting_on_parent', 'waiting_on_human', 'canceled', 'archived', 'timeout'
+    )),
     FOREIGN KEY (project_id, wait_id) REFERENCES agent_waits(project_id, id),
     FOREIGN KEY (project_id, target_agent_id) REFERENCES agents(project_id, id),
     PRIMARY KEY (wait_id, target_agent_id)
