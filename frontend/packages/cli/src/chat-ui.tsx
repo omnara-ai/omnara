@@ -5,6 +5,7 @@ import {
   useAgentInteractions,
   useResolveAgentInteraction,
 } from '@omnara/react'
+import * as schemas from '@omnara/sdk/zod'
 import { Box, Static, Text, useApp } from 'ink'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import * as z from 'zod'
@@ -30,8 +31,8 @@ function errorMessage(error: unknown): string | undefined {
   return typeof error === 'string' ? error : 'unknown error'
 }
 const zToolOutput = z.object({
-  outcome: z.string(),
-  contentBlocks: z.array(z.object({ type: z.string(), text: z.string().optional() })),
+  outcome: schemas.zToolCallOutcome,
+  contentBlocks: z.array(schemas.zToolResultContentBlock),
 })
 
 export function formatDuration(ms: number): string {
@@ -249,6 +250,8 @@ function StatusLine({
   )
 }
 
+type TranscriptItem = { kind: 'older' } | { kind: 'message'; message: OmnaraUIMessage }
+
 function splitLive(
   messages: OmnaraUIMessage[],
   isWorking: boolean,
@@ -273,26 +276,37 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
   const [draft, setDraft] = useState('')
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
 
+  const ready = chat.historyStatus === 'success'
   const [settled, live] = splitLive(chat.messages, chat.isWorking)
+  const transcript: TranscriptItem[] = [
+    ...(chat.hasOlderMessages && ready ? [{ kind: 'older' as const }] : []),
+    ...settled.map((message) => ({ kind: 'message' as const, message })),
+  ]
   const interaction = (interactions.data?.data ?? []).find((item) => !answered.has(item.id))
   const activity =
     interaction == null ? currentActivity(chat.status, chat.isWorking, live) : undefined
   const timer = useWorkTimer(chat.isWorking && interaction == null)
-  const ready = chat.historyStatus === 'success'
   const errors = [chat.error, interactions.error, resolveInteraction.error]
     .map(errorMessage)
     .filter((message) => message != null)
 
   return (
     <Box flexDirection="column">
-      <Static items={settled}>
-        {(message) => <MessageView key={message.id} message={message} live={false} />}
+      <Static items={transcript}>
+        {(item) =>
+          item.kind === 'older' ? (
+            <Text key="older" dimColor>
+              (older history omitted)
+            </Text>
+          ) : (
+            <MessageView key={item.message.id} message={item.message} live={false} />
+          )
+        }
       </Static>
       {live.map((message) => (
         <MessageView key={message.id} message={message} live />
       ))}
       {!ready && chat.historyStatus === 'pending' && <Text dimColor>loading history…</Text>}
-      {chat.hasOlderMessages && ready && <Text dimColor>(older history omitted)</Text>}
       {activity == null && timer.lastDuration != null && timer.lastDuration >= 1000 && (
         <Box marginTop={1}>
           <Text dimColor>✔ Worked for {formatDuration(timer.lastDuration)}</Text>
