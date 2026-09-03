@@ -17,10 +17,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -46,12 +48,23 @@ type integrationToolFixture struct {
 	Agent              executionstore.AgentRecord
 	AgentConfig        executionstore.AgentConfigRecord
 	Lock               executionstore.AgentRuntimeLockRecord
+	TurnID             storage.ID
 	ModelCallContextID storage.ID
 	ModelOutputEventID storage.ID
 	Install            integrationstore.IntegrationInstallRecord
 	Target             integrationstore.IntegrationTargetRecord
+	OriginChannel      connectorToolChannel
+	OriginChannels     []connectorToolChannel
 	Now                time.Time
 	WithMCP            bool
+}
+
+type connectorToolChannel struct {
+	App     integrationstore.IntegrationAppRecord
+	Install integrationstore.IntegrationInstallRecord
+	Route   integrationstore.IntegrationRouteRecord
+	Target  integrationstore.IntegrationTargetRecord
+	Binding integrationstore.IntegrationTargetBindingRecord
 }
 
 func toolsTestUserPrincipal(userID storage.ID) identitystore.PrincipalRecord {
@@ -153,6 +166,1082 @@ func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
 	}
 	if readbackCount != 0 {
 		t.Fatalf("readback count = %d, want 0 for successful sends", readbackCount)
+	}
+}
+
+func TestLegacySlackTargetAuthorizationUsesBindingRatherThanTargetCreator(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "legacy-binding-authority")
+	launch, err := fixture.Store.Execution().LaunchAgent(
+		ctx,
+		executionstore.LaunchAgentInput{
+			ProjectID: toolsTestProjectID, ProfileID: fixture.Profile.ID,
+			AgentConfigID:  fixture.Profile.CurrentConfigID,
+			LaunchedBy:     toolsTestUserPrincipal(fixture.User.ID),
+			IdempotencyKey: "legacy-binding-authority-second-agent",
+		},
+	)
+	if err != nil {
+		t.Fatalf("launch second integration agent: %v", err)
+	}
+	if _, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: launch.Agent.ID,
+			IntegrationInstallID: fixture.Install.ID, IntegrationTargetID: fixture.Target.ID,
+			SendAllowed: true, Source: "shared-native-target-test", Metadata: json.RawMessage(`{}`),
+		},
+	); err != nil {
+		t.Fatalf("bind second agent to native Slack target: %v", err)
+	}
+
+	target, err := (Executor{Store: fixture.Store}).integrationToolTargetByID(
+		ctx,
+		toolsTestProjectID,
+		launch.Agent.ID,
+		fixture.Target.ID,
+	)
+	if err != nil {
+		t.Fatalf("resolve native target through second agent binding: %v", err)
+	}
+	if target.ID != fixture.Target.ID || target.Provider != integrationstore.IntegrationProviderSlack {
+		t.Fatalf("resolved shared native target = %+v", target)
+	}
+
+	creatorBinding, err := fixture.Store.Integrations().GetActiveSendBindingForTarget(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		fixture.Target.ID,
+	)
+	if err != nil {
+		t.Fatalf("load native target creator binding: %v", err)
+	}
+	result, err := fixture.Pool.Exec(
+		ctx,
+		`UPDATE integration_target_bindings
+		 SET revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+		 WHERE project_id = $1 AND id = $2 AND revoked_at IS NULL`,
+		toolsTestProjectID,
+		creatorBinding.ID,
+	)
+	if err != nil {
+		t.Fatalf("revoke native target creator binding: %v", err)
+	}
+	if result.RowsAffected() != 1 {
+		t.Fatalf("revoked native target creator bindings = %d, want 1", result.RowsAffected())
+	}
+	if _, err := (Executor{Store: fixture.Store}).integrationToolTargetByID(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		fixture.Target.ID,
+	); !errors.Is(err, errMissingIntegrationTarget) {
+		t.Fatalf("resolve native target through revoked creator binding error = %v, want %v", err, errMissingIntegrationTarget)
+	}
+}
+
+func TestChannelToolsKeepConnectorRoutingSeparateFromLegacySlackTarget(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-tools-routing")
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-tools-routing")
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, connector.Target.ID)
+	if err != nil {
+		t.Fatalf("encode connector channel: %v", err)
+	}
+	calls := []model.ToolCall{
+		{
+			ID: "call_send_channel_explicit", Name: toolcatalog.ToolNameSendChannelMessage,
+			Input: json.RawMessage(`{"channel_id":"` + channelID + `","text":"hello connector"}`),
+		},
+		{
+			ID: "call_send_channel_ambiguous", Name: toolcatalog.ToolNameSendChannelMessage,
+			Input: json.RawMessage(`{"text":"do not use the sticky Slack target"}`),
+		},
+		{ID: "call_list_channels", Name: toolcatalog.ToolNameListChannels, Input: json.RawMessage(`{}`)},
+	}
+	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	turn.Tools[toolcatalog.ToolNameListChannels] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+
+	explicitResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, calls[0])
+	if err != nil {
+		t.Fatalf("dispatch explicit connector channel send: %v", err)
+	}
+	explicitBody := integrationToolResultFromTestParts(t, explicitResult.ContentParts)
+	if explicitBody.Code != "delivery_pending" || explicitBody.ChannelID != channelID || explicitBody.DeliveryID == "" {
+		t.Fatalf("explicit connector send result = %+v", explicitBody)
+	}
+	deliveryID, err := publicid.Decode(publicid.KindIntegrationDelivery, explicitBody.DeliveryID)
+	if err != nil {
+		t.Fatalf("decode connector delivery: %v", err)
+	}
+	delivery, err := fixture.Store.Integrations().GetIntegrationDelivery(ctx, toolsTestProjectID, deliveryID)
+	if err != nil {
+		t.Fatalf("get connector delivery: %v", err)
+	}
+	if delivery.IntegrationTargetBindingID != connector.Binding.ID ||
+		delivery.IntegrationTargetID != connector.Target.ID || delivery.Provider != "discord" ||
+		delivery.PayloadVersion != "channel-message.v1" || delivery.NotifyRef == storage.NilID {
+		t.Fatalf("connector delivery = %+v", delivery)
+	}
+	var payload channelOutboundPayloadV1
+	if err := json.Unmarshal(delivery.Payload, &payload); err != nil {
+		t.Fatalf("decode connector delivery payload: %v", err)
+	}
+	if payload.Destination.ChannelID != channelID || payload.Message.Text != "hello connector" ||
+		payload.Context.ProviderCallID != calls[0].ID {
+		t.Fatalf("connector delivery payload = %+v", payload)
+	}
+
+	implicitResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, calls[1])
+	if err != nil {
+		t.Fatalf("dispatch originless channel send: %v", err)
+	}
+	implicitBody := integrationToolResultFromTestParts(t, implicitResult.ContentParts)
+	if implicitBody.Code != "missing_channel" {
+		t.Fatalf("originless channel send result = %+v", implicitBody)
+	}
+
+	listResult, err := executor.Dispatch(ctx, turn, calls[2])
+	if err != nil {
+		t.Fatalf("dispatch list channels: %v", err)
+	}
+	listBody := toolResultMapFromTestParts(t, listResult.ContentParts)
+	channels, ok := listBody["channels"].([]any)
+	if !ok || len(channels) != 2 {
+		t.Fatalf("listed channels = %#v, want native Slack and connector", listBody["channels"])
+	}
+}
+
+func TestSendChannelMessageWakesWhenConnectorDeliveryCompletes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-delivery-wakeup")
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-delivery-wakeup")
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, connector.Target.ID)
+	if err != nil {
+		t.Fatalf("encode connector channel: %v", err)
+	}
+	call := model.ToolCall{
+		ID: "call_send_channel_wakeup", Name: toolcatalog.ToolNameSendChannelMessage,
+		Input: json.RawMessage(`{"channel_id":"` + channelID + `","text":"hello connector"}`),
+	}
+	fixture.recordToolCalls(t, ctx, []model.ToolCall{call}, fixture.Now.Add(20*time.Second))
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	subscriber := newIntegrationDeliveryTestSubscriber()
+	executor := Executor{
+		Store: fixture.Store, IntegrationDeliveries: subscriber,
+		Now: func() time.Time { return fixture.Now.Add(21 * time.Second) },
+	}
+	scope := NewAsyncExecutionScope(nil)
+	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), turn, call)
+	if err != nil {
+		t.Fatalf("dispatch connector send: %v", err)
+	}
+	if result.Disposition != DispatchDeferred {
+		t.Fatalf("connector send disposition = %d, want deferred", result.Disposition)
+	}
+	scope.Seal()
+
+	var notifyRef storage.ID
+	select {
+	case notifyRef = <-subscriber.subscribed:
+	case <-ctx.Done():
+		t.Fatalf("connector send did not subscribe for completion: %v", ctx.Err())
+	}
+	claimed, err := fixture.Store.Integrations().ClaimIntegrationDeliveries(
+		ctx,
+		integrationstore.ClaimIntegrationDeliveriesInput{
+			ClaimedBy: "test-gateway", LeaseDuration: time.Minute,
+			Capability: channelconnector.Capability{ConnectorKey: "chat_sdk_v1", Provider: "discord"},
+			Limit:      1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("claim connector delivery: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].NotifyRef != notifyRef {
+		t.Fatalf("claimed connector deliveries = %+v, want notify ref %s", claimed, notifyRef)
+	}
+	completed, err := fixture.Store.Integrations().CompleteIntegrationDelivery(
+		ctx,
+		integrationstore.CompleteIntegrationDeliveryInput{
+			ID: claimed[0].ID, ClaimToken: claimed[0].ClaimToken,
+			ClaimGeneration:    claimed[0].ClaimGeneration,
+			State:              integrationstore.IntegrationDeliveryStateDelivered,
+			ProviderMessageRef: "discord-message-1",
+			Capabilities: []channelconnector.Capability{{
+				ConnectorKey: "chat_sdk_v1", Provider: "discord",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("complete connector delivery: %v", err)
+	}
+	if completed.NotifyRef != notifyRef {
+		t.Fatalf("completed delivery notify ref = %s, want %s", completed.NotifyRef, notifyRef)
+	}
+	if !subscriber.publish(ctx, notifyRef) {
+		t.Fatal("connector completion subscriber was not registered")
+	}
+	select {
+	case <-scope.Done():
+	case <-ctx.Done():
+		t.Fatalf("connector send did not wake after completion: %v", ctx.Err())
+	}
+	if err := scope.Err(); err != nil {
+		t.Fatalf("connector send async completion: %v", err)
+	}
+	terminal, err := executor.Dispatch(ctx, turn, call)
+	if err != nil {
+		t.Fatalf("read connector send result: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, terminal.ContentParts)
+	if body.Code != "delivered" || body.ChannelID != channelID ||
+		body.ProviderMessageID != "discord-message-1" {
+		t.Fatalf("connector send result = %+v", body)
+	}
+}
+
+func TestChannelDeliveryWaitCancellationReturnsDurablePendingRecord(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-delivery-cancel")
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-delivery-cancel")
+	notifyRef := testID("00000000-0000-7000-8000-000000000001")
+	delivery, err := fixture.Store.Integrations().CreateIntegrationDelivery(
+		ctx,
+		integrationstore.CreateIntegrationDeliveryInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationTargetBindingID: connector.Binding.ID,
+			Transport:                  integrationstore.IntegrationDeliveryTransportConnector,
+			DeliveryKind:               "message", PayloadVersion: "channel-message.v1",
+			Payload:          json.RawMessage(`{"message":{"text":"hello"}}`),
+			IdempotencyScope: "channel-delivery-cancel", IdempotencyKey: "one",
+			NotifyRef: notifyRef,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create durable channel delivery: %v", err)
+	}
+
+	waitCtx, cancel := context.WithCancel(ctx)
+	subscriber := newIntegrationDeliveryTestSubscriber()
+	executor := Executor{Store: fixture.Store, IntegrationDeliveries: subscriber}
+	type waitResult struct {
+		delivery integrationstore.IntegrationDeliveryRecord
+		err      error
+	}
+	result := make(chan waitResult, 1)
+	go func() {
+		waited, waitErr := executor.waitForChannelDelivery(waitCtx, delivery)
+		result <- waitResult{delivery: waited, err: waitErr}
+	}()
+	select {
+	case gotNotifyRef := <-subscriber.subscribed:
+		if gotNotifyRef != notifyRef {
+			t.Fatalf("delivery subscription = %s, want %s", gotNotifyRef, notifyRef)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery wait did not subscribe")
+	}
+	cancel()
+	select {
+	case got := <-result:
+		if got.err != nil || got.delivery.ID != delivery.ID ||
+			got.delivery.State != integrationstore.IntegrationDeliveryStatePending {
+			t.Fatalf("canceled durable delivery wait = %+v, %v", got.delivery, got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery wait did not stop after cancellation")
+	}
+}
+
+func TestListChannelsPaginatesWithoutRepeatingTargets(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "list-channels-pagination")
+	createConnectorToolChannel(t, ctx, fixture, "list-channels-pagination")
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameListChannels] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+	page, err := fixture.Store.Integrations().ListAgentChannelTargets(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 1},
+	)
+	if err != nil || page.Next == nil {
+		t.Fatalf("prepare channel page cursor = %+v, %v", page, err)
+	}
+	wantCursor, err := encodeChannelListCursor(*page.Next)
+	if err != nil {
+		t.Fatalf("encode expected channel page cursor: %v", err)
+	}
+	secondInput, err := json.Marshal(map[string]any{"cursor": wantCursor, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := []model.ToolCall{
+		{
+			ID: "call_list_channels_page_one", Name: toolcatalog.ToolNameListChannels,
+			Input: json.RawMessage(`{"limit":1}`),
+		},
+		{
+			ID: "call_list_channels_page_two", Name: toolcatalog.ToolNameListChannels,
+			Input: secondInput,
+		},
+	}
+	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
+	firstCall := calls[0]
+	firstResult, err := executor.Dispatch(ctx, turn, firstCall)
+	if err != nil {
+		t.Fatalf("dispatch first channel page: %v", err)
+	}
+	firstBody := toolResultMapFromTestParts(t, firstResult.ContentParts)
+	firstChannels, ok := firstBody["channels"].([]any)
+	if !ok || len(firstChannels) != 1 {
+		t.Fatalf("first channel page = %#v", firstBody)
+	}
+	cursor, ok := firstBody["next_cursor"].(string)
+	if !ok || cursor == "" {
+		t.Fatalf("first channel page cursor = %#v", firstBody["next_cursor"])
+	}
+	if cursor != wantCursor {
+		t.Fatalf("first channel page cursor = %q, want %q", cursor, wantCursor)
+	}
+	firstChannel, ok := firstChannels[0].(map[string]any)
+	if !ok {
+		t.Fatalf("first channel = %#v", firstChannels[0])
+	}
+	assertListedChannelShape(t, firstChannel)
+
+	secondCall := calls[1]
+	secondResult, err := executor.Dispatch(ctx, turn, secondCall)
+	if err != nil {
+		t.Fatalf("dispatch second channel page: %v", err)
+	}
+	secondBody := toolResultMapFromTestParts(t, secondResult.ContentParts)
+	secondChannels, ok := secondBody["channels"].([]any)
+	if !ok || len(secondChannels) != 1 {
+		t.Fatalf("second channel page = %#v", secondBody)
+	}
+	secondChannel, ok := secondChannels[0].(map[string]any)
+	if !ok {
+		t.Fatalf("second channel = %#v", secondChannels[0])
+	}
+	assertListedChannelShape(t, secondChannel)
+	if firstChannel["channel_id"] == secondChannel["channel_id"] {
+		t.Fatalf("channel repeated across pages: %#v", firstChannel["channel_id"])
+	}
+	providers := map[any]bool{
+		firstChannel["provider"]:  true,
+		secondChannel["provider"]: true,
+	}
+	if !providers[integrationstore.IntegrationProviderSlack] || !providers["discord"] {
+		t.Fatalf("listed channel providers = %#v, want slack and discord", providers)
+	}
+	if _, ok := secondBody["next_cursor"]; ok {
+		t.Fatalf("unexpected cursor after final channel page: %#v", secondBody)
+	}
+}
+
+func TestListChannelsPermissionCanonicalizesDefaultLimitAcrossApproval(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "list-channels-permission")
+	postCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat.postMessage" {
+			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+		}
+		postCount++
+		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
+	}))
+	defer server.Close()
+
+	turn := fixture.turn()
+	turn.Tools = map[string]ToolSpec{
+		toolcatalog.ToolNameListChannels: {
+			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
+		},
+	}
+	call := fixture.recordPendingToolCall(
+		t,
+		ctx,
+		"call_list_channels_permission",
+		toolcatalog.ToolNameListChannels,
+		`{}`,
+		fixture.Now.Add(22*time.Second),
+	)
+	executor := Executor{
+		Store:                 fixture.Store,
+		IntegrationHTTPClient: integrationProviderTestClient(server),
+		BackgroundRunner:      immediateIntegrationBackgroundRunner(ctx),
+		Now:                   func() time.Time { return fixture.Now.Add(23 * time.Second) },
+	}
+	if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
+		t.Fatalf("prepare list channels permission: %v", err)
+	}
+	if postCount != 1 {
+		t.Fatalf("list channels permission post count = %d, want 1", postCount)
+	}
+	toolCallID := fixture.toolCallID(t, ctx, call.ID)
+	interaction := integrationToolInteraction(t, ctx, fixture, toolCallID, "permission")
+	permissionRequest, err := toolpermission.ParseRequest(interaction.Request)
+	if err != nil {
+		t.Fatalf("parse list channels permission request: %v", err)
+	}
+	if got, want := string(permissionRequest.Authorization.Input), `{"limit":50}`; got != want {
+		t.Fatalf("list channels authorization input = %s, want %s", got, want)
+	}
+	actor, err := executionstore.OmnaraActorParams(
+		toolsTestOrgID,
+		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: fixture.User.ID},
+	)
+	if err != nil {
+		t.Fatalf("build list channels permission actor: %v", err)
+	}
+	if _, err := fixture.Store.Execution().ResolveAgentInteraction(
+		ctx,
+		executionstore.ResolveAgentInteractionInput{
+			ProjectID: toolsTestProjectID,
+			AgentID:   fixture.Agent.ID,
+			ID:        interaction.ID,
+			Resolution: interactionform.Resolution{
+				Answers: []interactionform.Answer{{
+					OptionIndices: []int{toolpermission.AllowOptionIndex},
+				}},
+			},
+			Actor: actor,
+		},
+	); err != nil {
+		t.Fatalf("approve list channels permission: %v", err)
+	}
+
+	result, err := executor.Dispatch(ctx, turn, call)
+	if err != nil {
+		t.Fatalf("dispatch approved list channels call: %v", err)
+	}
+	body := toolResultMapFromTestParts(t, result.ContentParts)
+	channels, ok := body["channels"].([]any)
+	if !ok || len(channels) != 1 {
+		t.Fatalf("approved list channels result = %#v", body)
+	}
+}
+
+func assertListedChannelShape(t *testing.T, channel map[string]any) {
+	t.Helper()
+	for _, field := range []string{"channel_id", "provider", "address_kind", "name", "state"} {
+		if value, ok := channel[field].(string); !ok || value == "" {
+			t.Fatalf("listed channel %s = %#v, want a non-empty string", field, channel[field])
+		}
+	}
+	if channel["state"] != "active" {
+		t.Fatalf("listed channel state = %#v, want active", channel["state"])
+	}
+	for _, field := range []string{"can_receive", "can_send"} {
+		if value, ok := channel[field].(bool); !ok || !value {
+			t.Fatalf("listed channel %s = %#v, want true", field, channel[field])
+		}
+	}
+}
+
+func TestExplicitChannelSendSupportsSendOnlyBinding(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-send-only")
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-send-only")
+	target, err := fixture.Store.Integrations().GetOrCreateIntegrationTargetForBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID, ProviderRef: "outbound-channel",
+			ProviderRefKind: "channel", DisplayName: "Outbound-only channel",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create send-only target: %v", err)
+	}
+	binding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID, IntegrationTargetID: target.ID,
+			SendAllowed: true, Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create send-only binding: %v", err)
+	}
+	if binding.ReceiveAllowed || binding.IntegrationRouteID != storage.NilID {
+		t.Fatalf("send-only binding = %+v", binding)
+	}
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, target.ID)
+	if err != nil {
+		t.Fatalf("encode send-only channel: %v", err)
+	}
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_send_only",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"channel_id":"`+channelID+`","text":"outbound only"}`,
+		fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(
+		t,
+		ctx,
+		Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+		turn,
+		call,
+	)
+	if err != nil {
+		t.Fatalf("dispatch send-only channel message: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, result.ContentParts)
+	if body.Code != "delivery_pending" || body.ChannelID != channelID {
+		t.Fatalf("send-only channel result = %+v", body)
+	}
+	deliveryID, err := publicid.Decode(publicid.KindIntegrationDelivery, body.DeliveryID)
+	if err != nil {
+		t.Fatalf("decode send-only delivery: %v", err)
+	}
+	delivery, err := fixture.Store.Integrations().GetIntegrationDelivery(
+		ctx,
+		toolsTestProjectID,
+		deliveryID,
+	)
+	if err != nil {
+		t.Fatalf("load send-only delivery: %v", err)
+	}
+	if delivery.IntegrationTargetBindingID != binding.ID {
+		t.Fatalf("send-only delivery binding = %s, want %s", delivery.IntegrationTargetBindingID, binding.ID)
+	}
+}
+
+func TestImplicitChannelSendUsesExactOpeningOrigin(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithConnectorOrigin(t, ctx, "channel-origin")
+	connector := fixture.OriginChannel
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_origin",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"text":"reply to the originating channel"}`,
+		fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(
+		t,
+		ctx,
+		Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+		turn,
+		call,
+	)
+	if err != nil {
+		t.Fatalf("dispatch origin-routed channel send: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, result.ContentParts)
+	wantChannelID, err := publicid.Encode(publicid.KindIntegrationTarget, connector.Target.ID)
+	if err != nil {
+		t.Fatalf("encode originating channel: %v", err)
+	}
+	if body.Code != "delivery_pending" || body.ChannelID != wantChannelID {
+		t.Fatalf("origin-routed channel result = %+v", body)
+	}
+}
+
+func TestImplicitChannelSendWithoutChannelOriginFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-no-origin")
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_without_origin",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"text":"do not guess a destination"}`,
+		fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(
+		t,
+		ctx,
+		Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+		turn,
+		call,
+	)
+	if err != nil {
+		t.Fatalf("dispatch channel send without origin: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, result.ContentParts)
+	if body.Code != "missing_channel" {
+		t.Fatalf("implicit channel send without origin = %+v, want missing_channel", body)
+	}
+	var deliveryCount int
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM integration_deliveries WHERE project_id = $1 AND agent_id = $2`,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count guessed channel deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("guessed channel delivery count = %d, want 0", deliveryCount)
+	}
+}
+
+func TestImplicitChannelSendTreatsTwoRouteBindingsAsOneChannel(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithSameTargetConnectorOrigins(
+		t,
+		ctx,
+		"channel-same-target-origins",
+	)
+	if len(fixture.OriginChannels) != 2 ||
+		fixture.OriginChannels[0].Target.ID != fixture.OriginChannels[1].Target.ID ||
+		fixture.OriginChannels[0].Binding.ID == fixture.OriginChannels[1].Binding.ID {
+		t.Fatalf("same-target origins = %+v", fixture.OriginChannels)
+	}
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+	calls := []model.ToolCall{
+		{
+			ID:    "call_send_channel_same_target_latest_origin",
+			Name:  toolcatalog.ToolNameSendChannelMessage,
+			Input: json.RawMessage(`{"text":"reply through the latest route"}`),
+		},
+		{
+			ID:    "call_send_channel_same_target_replaced_origin",
+			Name:  toolcatalog.ToolNameSendChannelMessage,
+			Input: json.RawMessage(`{"text":"fall forward on the same channel"}`),
+		},
+	}
+	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
+	firstCall := calls[0]
+	firstResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, firstCall)
+	if err != nil {
+		t.Fatalf("dispatch same-target origin send: %v", err)
+	}
+	firstBody := integrationToolResultFromTestParts(t, firstResult.ContentParts)
+	if firstBody.Code != "delivery_pending" {
+		t.Fatalf("same-target origin send = %+v", firstBody)
+	}
+	firstDeliveryID, err := publicid.Decode(publicid.KindIntegrationDelivery, firstBody.DeliveryID)
+	if err != nil {
+		t.Fatalf("decode same-target delivery: %v", err)
+	}
+	firstDelivery, err := fixture.Store.Integrations().GetIntegrationDelivery(
+		ctx,
+		toolsTestProjectID,
+		firstDeliveryID,
+	)
+	if err != nil {
+		t.Fatalf("load same-target delivery: %v", err)
+	}
+	if firstDelivery.IntegrationTargetBindingID != fixture.OriginChannels[1].Binding.ID {
+		t.Fatalf(
+			"same-target delivery binding = %s, want latest origin %s",
+			firstDelivery.IntegrationTargetBindingID,
+			fixture.OriginChannels[1].Binding.ID,
+		)
+	}
+
+	latest := fixture.OriginChannels[1]
+	if _, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: latest.Install.ID, IntegrationTargetID: latest.Target.ID,
+			IntegrationRouteID: latest.Route.ID, ReceiveAllowed: true, SendAllowed: false,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	); err != nil {
+		t.Fatalf("replace latest origin with receive-only binding: %v", err)
+	}
+	fallback, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: latest.Install.ID, IntegrationTargetID: latest.Target.ID,
+			SendAllowed: true, Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create route-less fallback binding: %v", err)
+	}
+
+	secondCall := calls[1]
+	executor.Now = func() time.Time { return fixture.Now.Add(23 * time.Second) }
+	secondResult, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, secondCall)
+	if err != nil {
+		t.Fatalf("dispatch replaced-origin send: %v", err)
+	}
+	secondBody := integrationToolResultFromTestParts(t, secondResult.ContentParts)
+	if secondBody.Code != "delivery_pending" {
+		t.Fatalf("replaced-origin send = %+v", secondBody)
+	}
+	secondDeliveryID, err := publicid.Decode(publicid.KindIntegrationDelivery, secondBody.DeliveryID)
+	if err != nil {
+		t.Fatalf("decode replaced-origin delivery: %v", err)
+	}
+	secondDelivery, err := fixture.Store.Integrations().GetIntegrationDelivery(
+		ctx,
+		toolsTestProjectID,
+		secondDeliveryID,
+	)
+	if err != nil {
+		t.Fatalf("load replaced-origin delivery: %v", err)
+	}
+	if secondDelivery.IntegrationTargetBindingID != fallback.ID {
+		t.Fatalf(
+			"replaced-origin delivery binding = %s, want fallback %s",
+			secondDelivery.IntegrationTargetBindingID,
+			fallback.ID,
+		)
+	}
+}
+
+func TestChannelToolEligibilityUsesAllSendableBindingsInChannelMode(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "channel-tool-eligibility")
+	eligibility, err := fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("get native-only channel tool eligibility: %v", err)
+	}
+	if eligibility.List || eligibility.Send {
+		t.Fatalf("native-only channel tool eligibility = %+v, want disabled", eligibility)
+	}
+	connector := createConnectorToolChannel(t, ctx, fixture, "channel-tool-eligibility")
+	receiveOnlyBinding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID,
+			IntegrationTargetID:  connector.Target.ID,
+			IntegrationRouteID:   connector.Route.ID,
+			ReceiveAllowed:       true, SendAllowed: false,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("replace connector binding with receive-only binding: %v", err)
+	}
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("get channel tool eligibility: %v", err)
+	}
+	if !eligibility.List || !eligibility.Send {
+		t.Fatalf("mixed native/connector eligibility = %+v, want list and send", eligibility)
+	}
+	legacyBinding, err := fixture.Store.Integrations().GetActiveSendBindingForTarget(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		fixture.Target.ID,
+	)
+	if err != nil {
+		t.Fatalf("load legacy Slack binding: %v", err)
+	}
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
+		ctx,
+		toolsTestProjectID,
+		legacyBinding.ID,
+	); err != nil {
+		t.Fatalf("revoke legacy Slack binding: %v", err)
+	}
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("get receive-only channel tool eligibility: %v", err)
+	}
+	if !eligibility.List || eligibility.Send {
+		t.Fatalf("receive-only connector eligibility = %+v, want list-only", eligibility)
+	}
+	channelID, err := publicid.Encode(publicid.KindIntegrationTarget, connector.Target.ID)
+	if err != nil {
+		t.Fatalf("encode receive-only connector channel: %v", err)
+	}
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_receive_only",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"channel_id":"`+channelID+`","text":"must not send"}`,
+		fixture.Now.Add(20*time.Second),
+	)
+	turn := fixture.turn()
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(
+		t,
+		ctx,
+		Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }},
+		turn,
+		call,
+	)
+	if err != nil {
+		t.Fatalf("dispatch receive-only connector send: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, result.ContentParts)
+	if body.Code != "missing_channel" {
+		t.Fatalf("receive-only connector send = %+v, want missing_channel", body)
+	}
+	var deliveryCount int
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM integration_deliveries WHERE project_id = $1 AND agent_id = $2`,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count receive-only connector deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("receive-only connector delivery count = %d, want 0", deliveryCount)
+	}
+	sendBinding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: connector.Install.ID,
+			IntegrationTargetID:  connector.Target.ID,
+			IntegrationRouteID:   connector.Route.ID,
+			ReceiveAllowed:       true, SendAllowed: true,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil || sendBinding.ID == receiveOnlyBinding.ID {
+		t.Fatalf("replace receive-only binding with send binding = %+v, %v", sendBinding, err)
+	}
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil || !eligibility.List || !eligibility.Send {
+		t.Fatalf("sendable connector eligibility = %+v, %v", eligibility, err)
+	}
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
+		ctx,
+		toolsTestProjectID,
+		sendBinding.ID,
+	); err != nil {
+		t.Fatalf("detach connector channel: %v", err)
+	}
+	if err := fixture.Store.Integrations().RevokeIntegrationTargetBinding(
+		ctx,
+		toolsTestProjectID,
+		sendBinding.ID,
+	); err != nil {
+		t.Fatalf("replay connector channel detach: %v", err)
+	}
+	if _, err := fixture.Store.Integrations().GetActiveSendBinding(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		sendBinding.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("detached connector send binding error = %v, want not found", err)
+	}
+	eligibility, err = fixture.Store.Integrations().GetAgentChannelToolEligibility(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil || eligibility.List || eligibility.Send {
+		t.Fatalf("detached channel tool eligibility = %+v, %v", eligibility, err)
+	}
+	channels, err := fixture.Store.Integrations().ListAgentChannelTargets(
+		ctx,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+		integrationstore.ListAgentChannelTargetsInput{Limit: 10},
+	)
+	if err != nil || len(channels.Targets) != 0 {
+		t.Fatalf("channels after detaching all bindings = %+v, %v", channels, err)
+	}
+}
+
+func TestAutomaticChannelOutputUsesLatestOriginWhileImplicitToolSendStaysAmbiguous(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithConnectorOrigins(t, ctx, "channel-latest-origin", 2)
+	if len(fixture.OriginChannels) != 2 {
+		t.Fatalf("origin channels = %d, want 2", len(fixture.OriginChannels))
+	}
+	turn := fixture.turn()
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+
+	if err := executor.PostIntegrationRuntimeMessage(ctx, turn, "automatic notice"); err != nil {
+		t.Fatalf("enqueue automatic channel notice: %v", err)
+	}
+	var automaticBindingID storage.ID
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT integration_target_binding_id
+		 FROM integration_deliveries
+		 WHERE project_id = $1 AND agent_id = $2
+		   AND idempotency_scope = 'channel_runtime_message/runtime_lock'`,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	).Scan(&automaticBindingID); err != nil {
+		t.Fatalf("load automatic channel delivery: %v", err)
+	}
+	if automaticBindingID != fixture.OriginChannels[1].Binding.ID {
+		t.Fatalf(
+			"automatic channel binding = %s, want latest origin %s",
+			automaticBindingID,
+			fixture.OriginChannels[1].Binding.ID,
+		)
+	}
+
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_send_channel_multiple_origins",
+		toolcatalog.ToolNameSendChannelMessage,
+		`{"text":"model-selected send"}`,
+		fixture.Now.Add(22*time.Second),
+	)
+	turn.Tools[toolcatalog.ToolNameSendChannelMessage] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, call)
+	if err != nil {
+		t.Fatalf("dispatch channel send with multiple origins: %v", err)
+	}
+	body := integrationToolResultFromTestParts(t, result.ContentParts)
+	if body.Code != "ambiguous_channel" {
+		t.Fatalf("implicit channel send = %+v, want ambiguous_channel", body)
+	}
+}
+
+func TestConnectorOriginReceivesDurablePromptAndRuntimeNotice(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixtureWithConnectorOrigin(t, ctx, "channel-origin-prompts")
+	turn := fixture.turn()
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(21 * time.Second) }}
+	if err := executor.PostIntegrationRuntimeMessage(ctx, turn, "model unavailable"); err != nil {
+		t.Fatalf("enqueue connector runtime notice: %v", err)
+	}
+	if err := executor.PostIntegrationRuntimeMessage(ctx, turn, "model unavailable"); err != nil {
+		t.Fatalf("replay connector runtime notice: %v", err)
+	}
+
+	call := fixture.recordToolCall(
+		t,
+		ctx,
+		"call_connector_question",
+		toolcatalog.ToolNameAskQuestion,
+		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
+		fixture.Now.Add(22*time.Second),
+	)
+	turn = fixture.turn()
+	result, err := dispatchToolAndDrainAsync(t, ctx, executor, turn, call)
+	if err != nil {
+		t.Fatalf("dispatch connector question: %v", err)
+	}
+	if result.Disposition != DispatchDeferred {
+		t.Fatalf("connector question disposition = %d, want deferred", result.Disposition)
+	}
+
+	rows, err := fixture.Pool.Query(
+		ctx,
+		`SELECT id
+FROM integration_deliveries
+WHERE project_id = $1 AND agent_id = $2
+ORDER BY delivery_kind, id`,
+		toolsTestProjectID,
+		fixture.Agent.ID,
+	)
+	if err != nil {
+		t.Fatalf("list connector prompt deliveries: %v", err)
+	}
+	var deliveryIDs []storage.ID
+	for rows.Next() {
+		var id storage.ID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			t.Fatalf("scan connector prompt delivery: %v", err)
+		}
+		deliveryIDs = append(deliveryIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatalf("iterate connector prompt deliveries: %v", err)
+	}
+	rows.Close()
+	if len(deliveryIDs) != 2 {
+		t.Fatalf("connector prompt delivery count = %d, want one prompt and one deduplicated notice", len(deliveryIDs))
+	}
+
+	seen := make(map[string]integrationstore.IntegrationDeliveryRecord, len(deliveryIDs))
+	for _, id := range deliveryIDs {
+		delivery, err := fixture.Store.Integrations().GetIntegrationDelivery(
+			ctx,
+			toolsTestProjectID,
+			id,
+		)
+		if err != nil {
+			t.Fatalf("get connector prompt delivery: %v", err)
+		}
+		if delivery.IntegrationTargetBindingID != fixture.OriginChannel.Binding.ID ||
+			delivery.State != integrationstore.IntegrationDeliveryStatePending {
+			t.Fatalf("connector prompt delivery = %+v", delivery)
+		}
+		seen[delivery.DeliveryKind] = delivery
+	}
+	message := seen["message"]
+	if message.PayloadVersion != "channel-message.v1" ||
+		message.IdempotencyScope != "channel_runtime_message/runtime_lock" {
+		t.Fatalf("connector runtime notice delivery = %+v", message)
+	}
+	interaction := seen["interaction"]
+	if interaction.PayloadVersion != "channel-interaction.v1" ||
+		interaction.IdempotencyScope != "channel_interaction_prompt/interaction" {
+		t.Fatalf("connector interaction delivery = %+v", interaction)
+	}
+	var prompt channelInteractionPromptPayloadV1
+	if err := json.Unmarshal(interaction.Payload, &prompt); err != nil {
+		t.Fatalf("decode connector interaction payload: %v", err)
+	}
+	if prompt.Interaction.Kind != string(executionstore.AgentInteractionKindQuestion) ||
+		prompt.Interaction.ID == "" || prompt.Destination.ProviderRef != fixture.OriginChannel.Target.ProviderRef {
+		t.Fatalf("connector interaction payload = %+v", prompt)
 	}
 }
 
@@ -1406,11 +2495,48 @@ func newIntegrationToolFixture(t *testing.T, ctx context.Context, label string) 
 	return newIntegrationToolFixtureWithMCP(t, ctx, label, false)
 }
 
+func newIntegrationToolFixtureWithConnectorOrigin(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, false, 1, false)
+}
+
+func newIntegrationToolFixtureWithConnectorOrigins(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	count int,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, false, count, false)
+}
+
+func newIntegrationToolFixtureWithSameTargetConnectorOrigins(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, false, 2, true)
+}
+
 func newIntegrationToolFixtureWithMCP(
 	t *testing.T,
 	ctx context.Context,
 	label string,
 	withMCP bool,
+	storeOptions ...storage.Option,
+) integrationToolFixture {
+	return newIntegrationToolFixtureConfigured(t, ctx, label, withMCP, 0, false, storeOptions...)
+}
+
+func newIntegrationToolFixtureConfigured(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	withMCP bool,
+	connectorOriginCount int,
+	sameConnectorTarget bool,
 	storeOptions ...storage.Option,
 ) integrationToolFixture {
 	t.Helper()
@@ -1498,20 +2624,75 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	); err != nil {
 		t.Fatalf("set integration target: %v", err)
 	}
-	producer, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(user.ID))
-	if err != nil {
-		t.Fatalf("omnara actor params: %v", err)
+	var originChannel connectorToolChannel
+	var originChannels []connectorToolChannel
+	var inputIDs []storage.ID
+	if connectorOriginCount > 0 {
+		originChannels = make([]connectorToolChannel, 0, connectorOriginCount)
+		deliveryMode := executionstore.DeliveryModeQueued
+		if connectorOriginCount > 1 {
+			deliveryMode = executionstore.DeliveryModeSteering
+		}
+		for index := range connectorOriginCount {
+			suffix := label + "-origin-" + strconv.Itoa(index)
+			if index == 0 || !sameConnectorTarget {
+				originChannel = createConnectorToolChannel(t, ctx, integrationToolFixture{
+					Store: store, User: user, Agent: agent,
+				}, suffix)
+			} else {
+				originChannel = createAdditionalRouteForConnectorToolTarget(
+					t,
+					ctx,
+					integrationToolFixture{Store: store, User: user, Agent: agent},
+					originChannels[0],
+					suffix,
+				)
+			}
+			input, _, createErr := store.Execution().CreateIntegrationTargetContentInput(
+				ctx,
+				executionstore.CreateIntegrationTargetContentInput{
+					IntegrationInstallID:       originChannel.Install.ID,
+					IntegrationTargetID:        originChannel.Target.ID,
+					IntegrationTargetBindingID: originChannel.Binding.ID,
+					AgentID:                    agent.ID,
+					ProviderTenantID:           originChannel.Install.ProviderTenantID,
+					ProviderUserID:             "connector-user-" + suffix,
+					ActorDisplayName:           "Connector User",
+					ContentBlocks:              json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
+					Metadata:                   json.RawMessage(`{}`),
+					DeliveryMode:               deliveryMode,
+					IdempotencyKey:             "tools-integration-input-" + suffix,
+				},
+			)
+			if createErr != nil {
+				t.Fatalf("create connector agent input: %v", createErr)
+			}
+			originChannels = append(originChannels, originChannel)
+			inputIDs = append(inputIDs, input.ID)
+		}
+	} else {
+		var producer *executionstore.ActorParams
+		producer, err = executionstore.OmnaraActorParams(
+			toolsTestOrgID,
+			toolsTestUserPrincipal(user.ID),
+		)
+		if err == nil {
+			input, _, _, createErr := store.Execution().CreateAgentContentInput(
+				ctx,
+				executionstore.CreateAgentContentInputInput{
+					ProjectID:      toolsTestProjectID,
+					AgentID:        agent.ID,
+					Actor:          producer,
+					ContentBlocks:  json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
+					IdempotencyKey: "tools-integration-input-" + label,
+				},
+			)
+			err = createErr
+			if createErr == nil {
+				inputIDs = append(inputIDs, input.ID)
+			}
+		}
 	}
-	input, _, _, err := store.Execution().CreateAgentContentInput(
-		ctx,
-		executionstore.CreateAgentContentInputInput{
-			ProjectID:      toolsTestProjectID,
-			AgentID:        agent.ID,
-			Actor:          producer,
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"send an integration reply"}]`),
-			IdempotencyKey: "tools-integration-input-" + label,
-		},
-	)
 	if err != nil {
 		t.Fatalf("create agent input: %v", err)
 	}
@@ -1519,14 +2700,14 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if err != nil {
 		t.Fatalf("claim input work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || len(claim.Model.AdmittedInputTurn.Inputs) != 1 ||
-		claim.Model.AdmittedInputTurn.Inputs[0].ID != input.ID {
+	if !found || claim.Kind != executionstore.AgentWorkModel ||
+		len(claim.Model.AdmittedInputTurn.Inputs) != len(inputIDs) {
 		t.Fatalf(
-			"claim input found=%v executable=%v input=%+v want %s",
+			"claim input found=%v executable=%v input=%+v want %v",
 			found,
 			claim.Kind == executionstore.AgentWorkModel,
 			claim.Model.AdmittedInputTurn.Inputs,
-			input.ID,
+			inputIDs,
 		)
 	}
 	lock := claim.RuntimeLock
@@ -1538,9 +2719,9 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		toolsTestProjectID,
 		agent.ID,
 		lock,
-		[]storage.ID{input.ID},
+		inputIDs,
 		launch.AgentConfig.ID,
-		admitted.Events[0].Sequence,
+		admitted.Events[len(admitted.Events)-1].Sequence,
 		storage.NilID,
 	)
 	return integrationToolFixture{
@@ -1551,9 +2732,12 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		Agent:              agent,
 		AgentConfig:        launch.AgentConfig,
 		Lock:               lock,
+		TurnID:             admitted.Turn.ID,
 		ModelCallContextID: modelCall.Context.ID,
 		Install:            install,
 		Target:             target,
+		OriginChannel:      originChannel,
+		OriginChannels:     originChannels,
 		Now:                now,
 		WithMCP:            withMCP,
 	}
@@ -1563,6 +2747,7 @@ func (f integrationToolFixture) turn() Turn {
 	turn := Turn{
 		ProjectID:          toolsTestProjectID,
 		AgentID:            f.Agent.ID,
+		TurnID:             f.TurnID,
 		SourceEventID:      f.ModelOutputEventID,
 		RuntimeLockID:      f.Lock.ID,
 		ModelCallContextID: f.ModelCallContextID,
@@ -1967,6 +3152,116 @@ func createIntegrationToolInstall(
 	return install
 }
 
+func createConnectorToolChannel(
+	t *testing.T,
+	ctx context.Context,
+	fixture integrationToolFixture,
+	label string,
+) connectorToolChannel {
+	t.Helper()
+	app, err := fixture.Store.Integrations().CreateIntegrationApp(
+		ctx,
+		integrationstore.CreateIntegrationAppInput{
+			OrgID: toolsTestOrgID, OwnerProjectID: toolsTestProjectID,
+			Provider: "discord", ProviderAppRef: "discord-app-" + label,
+			DisplayName: "Discord " + label, ConnectorKey: "chat_sdk_v1",
+			ProviderConfig: json.RawMessage(`{}`), ProviderMetadata: json.RawMessage(`{}`),
+			State: integrationstore.IntegrationAppStateActive,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector app: %v", err)
+	}
+	install, err := fixture.Store.Integrations().UpsertIntegrationInstall(
+		ctx,
+		integrationstore.UpsertIntegrationInstallInput{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationAppID: app.ID,
+			InstalledByUserID: fixture.User.ID,
+			Provider:          "discord", IntegrationKind: "agent_channel", ConnectionMode: "webhook",
+			State:            integrationstore.IntegrationInstallStateActive,
+			ProviderTenantID: "guild-" + label, ProviderAccountRef: "bot-" + label,
+			ProviderConfig: json.RawMessage(`{}`), ProviderIdentity: json.RawMessage(`{}`),
+			ProviderMetadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector install: %v", err)
+	}
+	route, err := fixture.Store.Integrations().CreateIntegrationRoute(
+		ctx,
+		integrationstore.CreateIntegrationRouteInput{
+			ProjectID:            toolsTestProjectID,
+			IntegrationInstallID: install.ID, DeploymentKey: "single-agent-channel-" + label,
+			HandlerKey: "single_agent_channel", HandlerVersion: 1,
+			Configuration: json.RawMessage(`{}`), State: integrationstore.IntegrationRouteStateActive,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector route: %v", err)
+	}
+	target, err := fixture.Store.Integrations().GetOrCreateIntegrationTargetForBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: install.ID, ProviderRef: "channel-" + label,
+			ProviderRefKind: "channel", DisplayName: "Connector channel " + label,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector target: %v", err)
+	}
+	binding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: install.ID, IntegrationTargetID: target.ID,
+			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create connector binding: %v", err)
+	}
+	return connectorToolChannel{App: app, Install: install, Route: route, Target: target, Binding: binding}
+}
+
+func createAdditionalRouteForConnectorToolTarget(
+	t *testing.T,
+	ctx context.Context,
+	fixture integrationToolFixture,
+	channel connectorToolChannel,
+	label string,
+) connectorToolChannel {
+	t.Helper()
+	route, err := fixture.Store.Integrations().CreateIntegrationRoute(
+		ctx,
+		integrationstore.CreateIntegrationRouteInput{
+			ProjectID:            toolsTestProjectID,
+			IntegrationInstallID: channel.Install.ID, DeploymentKey: "additional-route-" + label,
+			HandlerKey: "single_agent_channel", HandlerVersion: 1,
+			Configuration: json.RawMessage(`{}`), State: integrationstore.IntegrationRouteStateActive,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create additional connector route: %v", err)
+	}
+	binding, err := fixture.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+			IntegrationInstallID: channel.Install.ID, IntegrationTargetID: channel.Target.ID,
+			IntegrationRouteID: route.ID, ReceiveAllowed: true, SendAllowed: true,
+			Source: "test", Metadata: json.RawMessage(`{}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("create additional connector binding: %v", err)
+	}
+	channel.Route = route
+	channel.Binding = binding
+	return channel
+}
+
 func createIntegrationToolSecrets(
 	t *testing.T,
 	ctx context.Context,
@@ -2094,6 +3389,56 @@ func integrationToolResultFromTestParts(t *testing.T, parts json.RawMessage) int
 	}
 	t.Fatalf("missing structured result in %s", parts)
 	return integrationToolResult{}
+}
+
+type integrationDeliveryTestSubscriber struct {
+	mu         sync.Mutex
+	handlers   map[storage.ID]func(context.Context)
+	subscribed chan storage.ID
+}
+
+func newIntegrationDeliveryTestSubscriber() *integrationDeliveryTestSubscriber {
+	return &integrationDeliveryTestSubscriber{
+		handlers:   make(map[storage.ID]func(context.Context)),
+		subscribed: make(chan storage.ID, 1),
+	}
+}
+
+func (s *integrationDeliveryTestSubscriber) SubscribeIntegrationDeliveryUpdates(
+	_ context.Context,
+	notifyRef storage.ID,
+	handler func(context.Context),
+) (notifications.Subscription, error) {
+	s.mu.Lock()
+	s.handlers[notifyRef] = handler
+	s.mu.Unlock()
+	s.subscribed <- notifyRef
+	return &integrationDeliveryTestSubscription{unsubscribe: func() {
+		s.mu.Lock()
+		delete(s.handlers, notifyRef)
+		s.mu.Unlock()
+	}}, nil
+}
+
+func (s *integrationDeliveryTestSubscriber) publish(ctx context.Context, notifyRef storage.ID) bool {
+	s.mu.Lock()
+	handler := s.handlers[notifyRef]
+	s.mu.Unlock()
+	if handler == nil {
+		return false
+	}
+	handler(ctx)
+	return true
+}
+
+type integrationDeliveryTestSubscription struct {
+	once        sync.Once
+	unsubscribe func()
+}
+
+func (s *integrationDeliveryTestSubscription) Unsubscribe() error {
+	s.once.Do(s.unsubscribe)
+	return nil
 }
 
 func toolResultMapFromTestParts(t *testing.T, parts json.RawMessage) map[string]any {

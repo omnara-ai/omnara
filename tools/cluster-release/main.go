@@ -19,13 +19,14 @@ import (
 )
 
 const (
-	manifestFilename = "cluster-release.json"
-	notesFilename    = "release-notes.md"
-	imageWeb         = "web"
-	imageAPI         = "api"
-	imageWorker      = "worker"
-	imageMaintenance = "maintenance"
-	imageMigrations  = "migrations"
+	manifestFilename    = "cluster-release.json"
+	notesFilename       = "release-notes.md"
+	imageWeb            = "web"
+	imageAPI            = "api"
+	imageWorker         = "worker"
+	imageMaintenance    = "maintenance"
+	imageChannelGateway = "channel-gateway"
+	imageMigrations     = "migrations"
 )
 
 var (
@@ -35,6 +36,7 @@ var (
 		{Name: imageAPI, Repository: "ghcr.io/omnara-ai/omnara-api"},
 		{Name: imageWorker, Repository: "ghcr.io/omnara-ai/omnara-worker"},
 		{Name: imageMaintenance, Repository: "ghcr.io/omnara-ai/omnara-maintenance"},
+		{Name: imageChannelGateway, Repository: "ghcr.io/omnara-ai/omnara-channel-gateway"},
 		{Name: imageMigrations, Repository: "ghcr.io/omnara-ai/omnara-migrations"},
 	}
 )
@@ -52,11 +54,12 @@ type digestRecord struct {
 }
 
 type manifestImages struct {
-	Web         string `json:"web"`
-	API         string `json:"api"`
-	Worker      string `json:"worker"`
-	Maintenance string `json:"maintenance"`
-	Migrations  string `json:"migrations"`
+	Web            string `json:"web"`
+	API            string `json:"api"`
+	Worker         string `json:"worker"`
+	Maintenance    string `json:"maintenance"`
+	ChannelGateway string `json:"channel_gateway"`
+	Migrations     string `json:"migrations"`
 }
 
 type clusterManifest struct {
@@ -306,11 +309,12 @@ func generate(
 		Version:      version,
 		SourceCommit: sourceCommit,
 		Images: manifestImages{
-			Web:         records[imageWeb].Reference,
-			API:         records[imageAPI].Reference,
-			Worker:      records[imageWorker].Reference,
-			Maintenance: records[imageMaintenance].Reference,
-			Migrations:  records[imageMigrations].Reference,
+			Web:            records[imageWeb].Reference,
+			API:            records[imageAPI].Reference,
+			Worker:         records[imageWorker].Reference,
+			Maintenance:    records[imageMaintenance].Reference,
+			ChannelGateway: records[imageChannelGateway].Reference,
+			Migrations:     records[imageMigrations].Reference,
 		},
 	}
 	if err := validateManifest(manifest); err != nil {
@@ -472,6 +476,8 @@ func manifestReference(manifest clusterManifest, name string) string {
 		return manifest.Images.Worker
 	case imageMaintenance:
 		return manifest.Images.Maintenance
+	case imageChannelGateway:
+		return manifest.Images.ChannelGateway
 	case imageMigrations:
 		return manifest.Images.Migrations
 	default:

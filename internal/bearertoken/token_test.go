@@ -36,8 +36,8 @@ func TestGoldenVectors(t *testing.T) {
 		fixture.ChecksumLength != checksumLength {
 		t.Fatalf("shared token parameters do not match implementation: %+v", fixture)
 	}
-	if len(fixture.Vectors) != 12 {
-		t.Fatalf("golden vector count = %d, want 12", len(fixture.Vectors))
+	if len(fixture.Vectors) != 16 {
+		t.Fatalf("golden vector count = %d, want 16", len(fixture.Vectors))
 	}
 	for _, test := range fixture.Vectors {
 		got, err := format(test.Kind, test.Secret)
@@ -60,7 +60,9 @@ func TestGoldenVectors(t *testing.T) {
 }
 
 func TestGenerateProducesCanonicalDistinctTokens(t *testing.T) {
-	for _, kind := range []Kind{KindPersonalAccess, KindOrganization, KindDaemon} {
+	for _, kind := range []Kind{
+		KindPersonalAccess, KindOrganization, KindDaemon, KindChannelConnector,
+	} {
 		t.Run(string(kind), func(t *testing.T) {
 			seen := make(map[string]struct{}, 128)
 			for range 128 {

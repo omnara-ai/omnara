@@ -8,6 +8,7 @@ icon: "sitemap"
 flowchart LR
   clients["Browsers & API clients"] -- "HTTPS + SSE" --> ingress["Public origin / ingress"]
   daemon["daemon<br/>(on your machines)"] -- "HTTPS + WebSocket<br/>(dials out)" --> ingress
+  channels["Slack, Discord, and other<br/>channel providers"] -- "webhooks" --> ingress
 
   subgraph cp["Control plane"]
     web["web"]
@@ -15,10 +16,14 @@ flowchart LR
     api["api"]
     worker["worker ×N"]
     maintenance["maintenance"]
+    channelGateway["channel-gateway ×N<br/>(optional)"]
   end
 
   ingress -- "default routes" --> web
   ingress -- "/api/*, /install/*,<br/>/.well-known/*" --> api
+  ingress -- "/hooks/*" --> channelGateway
+  channelGateway -- "private connector API<br/>+ scoped bearer token" --> api
+  channelGateway --> redis
   migrate --> pg[("Postgres")]
   api --> pg
   api --> redis[("Redis")]
@@ -42,6 +47,8 @@ flowchart LR
 
 **maintenance** (`cmd/maintenance`) reaps expired locks and runtimes, times out stuck work, and reconciles machine pools toward their targets
 
+**channel-gateway** (`frontend/apps/channel-gateway`) is an optional, independently scalable process for provider webhooks, outbound channel delivery, and provider runtimes such as polling or sockets. It calls the API over the private service network with a narrowly scoped connector token and uses Redis for Chat SDK state. It does not connect to Postgres. Provider adapters are compiled into this process separately; the foundation image does not enable a provider by itself.
+
 **migrate** (`cmd/migrate`) applies the release's schema migrations and exits. Run it successfully before starting or updating the long-running services.
 
 **omnarad** (`cmd/daemon`) runs on each machine agents execute tool calls on. It installs under `~/.omnarad` with a user systemd or launchd service when available, and self-updates from its installer-recorded release manifest.
@@ -50,14 +57,20 @@ flowchart LR
 
 **Postgres** stores all persistent data for the service, like organizations, projects, agents, events, machines, secrets.
 
-**Redis** carries notifications and rate limits, this is primarily for SSE streaming and notifications.
+Channel customer data follows the project tenancy boundary. Installs, routes, targets, agent bindings, inbound provenance, deliveries, and project-scoped runtime units all carry `project_id`, so they can move with that project's agents to the same database shard. Provider-app registrations and genuinely app-scoped runtime units are control-plane records because one company-owned app can serve several projects. The private connector API hides that placement from the gateway; the gateway never chooses a database or connects to one directly.
+
+**Redis** carries notifications and rate limits. The optional channel gateway also uses namespaced Redis state for Chat SDK runtimes. Redis is coordination and transient state; durable channel routes, inbound provenance, and outbound deliveries remain in Postgres through the API.
 
 **Blob storage** holds artifact content, like file attachments and tool outputs.
 
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Deployment" icon="cloud-arrow-up" href="/self-hosting/deployment">
+  <Card
+    title="Deployment"
+    icon="cloud-arrow-up"
+    href="/self-hosting/deployment"
+  >
     Public origin, reverse proxy rules, and health checks
   </Card>
   <Card title="Configuration" icon="sliders" href="/self-hosting/configuration">

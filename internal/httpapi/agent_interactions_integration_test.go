@@ -1799,21 +1799,21 @@ func copyHTTPInteractionForTest(
 	if err := pool.QueryRow(ctx, `
 	INSERT INTO agent_interactions(
 	  agent_id,
-  tool_call_id,
-  interaction_kind,
-  state,
-  request,
-  created_at
-)
+	  tool_call_id,
+	  interaction_kind,
+	  state,
+	  request,
+	  created_at
+	)
 	SELECT agent_id,
-       tool_call_id,
-       $4,
-       'open',
-       $5::jsonb,
+	       tool_call_id,
+	       $4,
+	       'open',
+	       $5::jsonb,
 	       interaction.created_at + INTERVAL '1 microsecond'
 	FROM agent_interaction_read_projection interaction
 	WHERE project_id = $1 AND agent_id = $2 AND id = $3
-RETURNING id`, projectID, agentID, sourceID, kind, string(request)).Scan(&id); err != nil {
+	RETURNING id`, projectID, agentID, sourceID, kind, string(request)).Scan(&id); err != nil {
 		t.Fatalf("copy interaction fixture: %v", err)
 	}
 	return id

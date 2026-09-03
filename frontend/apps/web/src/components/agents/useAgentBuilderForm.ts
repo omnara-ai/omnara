@@ -107,9 +107,12 @@ export interface BasicConfigSession {
   apply(config: BasicConfig): string
 }
 
+const legacyBindingManagedToolNames = new Set(['list_channels', 'send_channel_message'])
+
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc.toJS())
+  const initialDraft =
+    doc == null ? null : extractBasicConfig(withoutLegacyBindingManagedTools(doc.toJS()))
   return {
     initialDraft,
     apply(config) {
@@ -274,7 +277,20 @@ function applyToDocument(
     edits.count += 1
   }
   const del = (path: (string | number)[]) => {
-    if (doc.deleteIn(path)) edits.count += 1
+    const deleted = doc.deleteIn(path)
+    if (deleted) edits.count += 1
+    return deleted
+  }
+
+  const existingTools = doc.getIn(['tools'], true)
+  if (isMap(existingTools)) {
+    let removedLegacyTool = false
+    for (const name of legacyBindingManagedToolNames) {
+      removedLegacyTool = del(['tools', name]) || removedLegacyTool
+    }
+    const remainingTools = doc.getIn(['tools'], true)
+    if (removedLegacyTool && isMap(remainingTools) && remainingTools.items.length === 0)
+      del(['tools'])
   }
 
   const instruction = normalizeMultiline(config.instruction)
@@ -290,7 +306,9 @@ function applyToDocument(
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools.map((tool) => [tool.name, toolWire(tool)]),
+    config.tools
+      .filter((tool) => !legacyBindingManagedToolNames.has(tool.name))
+      .map((tool) => [tool.name, toolWire(tool)]),
     baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,
@@ -398,6 +416,14 @@ function deepEqual(a: unknown, b: unknown, depth = 0): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function withoutLegacyBindingManagedTools(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.tools)) return value
+  const tools = Object.fromEntries(
+    Object.entries(value.tools).filter(([name]) => !legacyBindingManagedToolNames.has(name)),
+  )
+  return { ...value, tools }
 }
 
 function machineSourceWire(source: BasicMachineSource): Record<string, unknown> {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -198,6 +199,31 @@ func TestValidatePayloadByKind(t *testing.T) {
 				KeyAWSSecretAccessKey: "secret",
 				KeyAWSExternalID:      "external",
 			},
+			wantErr: true,
+		},
+		{
+			name: "integration credentials",
+			kind: KindIntegrationCredentials,
+			payload: Payload{
+				"bot_token": "token", "webhook.signing-secret": "secret",
+			},
+		},
+		{
+			name:    "integration credentials invalid key",
+			kind:    KindIntegrationCredentials,
+			payload: Payload{"bad key": "secret"},
+			wantErr: true,
+		},
+		{
+			name: "integration credentials too many keys",
+			kind: KindIntegrationCredentials,
+			payload: func() Payload {
+				payload := make(Payload, MaxIntegrationCredentialKeys+1)
+				for index := range MaxIntegrationCredentialKeys + 1 {
+					payload[fmt.Sprintf("key_%d", index)] = "value"
+				}
+				return payload
+			}(),
 			wantErr: true,
 		},
 		{

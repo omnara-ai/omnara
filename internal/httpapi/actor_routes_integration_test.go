@@ -345,11 +345,25 @@ func TestPublicActorListPaginatesAndFilters(t *testing.T) {
 		t.Fatalf("tenant-filtered listing = %+v, want only cust-b", tenantFiltered)
 	}
 
-	requestJSONWithHeaders(
+	unknownProvider := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodGet,
 		project.ProjectPath+"/actors?provider=crm",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if unknownProviderData, ok := unknownProvider["data"].([]any); !ok || len(unknownProviderData) != 0 {
+		t.Fatalf("unknown provider listing = %+v, want empty", unknownProvider)
+	}
+
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/actors?provider=CRM",
 		"",
 		"",
 		http.StatusBadRequest,

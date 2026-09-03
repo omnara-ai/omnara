@@ -24,6 +24,11 @@
       "token": "omnara_daemon_v1_0000000000000000000000000000000000000000000_49kVrl"
     },
     {
+      "kind": "connector",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_connector_v1_0000000000000000000000000000000000000000000_0uc6H1"
+    },
+    {
       "kind": "pat",
       "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
       "token": "omnara_pat_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_02iP9r"
@@ -37,6 +42,11 @@
       "kind": "daemon",
       "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
       "token": "omnara_daemon_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_0uXuZW"
+    },
+    {
+      "kind": "connector",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_connector_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_49pFhs"
     },
     {
       "kind": "pat",
@@ -54,6 +64,11 @@
       "token": "omnara_daemon_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_2lsHvM"
     },
     {
+      "kind": "connector",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_connector_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_1HBlwk"
+    },
+    {
       "kind": "pat",
       "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "token": "omnara_pat_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_3IA9xN"
@@ -67,6 +82,11 @@
       "kind": "daemon",
       "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "token": "omnara_daemon_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_2Ls0H2"
+    },
+    {
+      "kind": "connector",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_connector_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_1VqNRG"
     }
   ]
 }

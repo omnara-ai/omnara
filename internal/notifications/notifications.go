@@ -59,6 +59,14 @@ type WorkerControlSubscriber interface {
 	) (Subscription, error)
 }
 
+type IntegrationDeliverySubscriber interface {
+	SubscribeIntegrationDeliveryUpdates(
+		ctx context.Context,
+		notifyRef uuid.UUID,
+		handler func(context.Context),
+	) (Subscription, error)
+}
+
 type DaemonWakeupPublisher interface {
 	PublishDaemonReplicaWakeup(ctx context.Context, replicaID uuid.UUID, msg WakeupMessage) error
 }
@@ -77,6 +85,10 @@ type WorkerControlPublisher interface {
 
 type AgentStreamDeltaPublisher interface {
 	PublishAgentStreamDelta(ctx context.Context, agentID uuid.UUID, payload json.RawMessage) error
+}
+
+type IntegrationDeliveryPublisher interface {
+	PublishIntegrationDeliveryUpdate(ctx context.Context, notifyRef uuid.UUID) error
 }
 
 type PostCommitIntent interface {

@@ -381,7 +381,7 @@ func (s strictOpenAPIServer) createAgentInput(
 		ProjectID:      project.ID,
 		AgentID:        agent.ID,
 		IdempotencyKey: idempotencyKey,
-	}, contentBlocks)
+	}, contentBlocks, inlineMediaAgentInput)
 	if err != nil {
 		return nil, mediaIngestAPIError(err)
 	}

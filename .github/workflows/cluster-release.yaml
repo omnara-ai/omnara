@@ -33,6 +33,8 @@ jobs:
             image: ghcr.io/omnara-ai/omnara-worker
           - name: maintenance
             image: ghcr.io/omnara-ai/omnara-maintenance
+          - name: channel-gateway
+            image: ghcr.io/omnara-ai/omnara-channel-gateway
           - name: migrations
             image: ghcr.io/omnara-ai/omnara-migrations
     steps:

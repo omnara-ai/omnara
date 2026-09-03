@@ -103,7 +103,11 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	contract, err = WithImplicitIntegrationMessageTool(contract, integrationTargets)
+	channelTools, err := b.Store.GetAgentChannelToolEligibility(ctx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return Bundle{}, err
+	}
+	contract, err = WithImplicitIntegrationTools(contract, integrationTargets, channelTools)
 	if err != nil {
 		return Bundle{}, err
 	}

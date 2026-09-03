@@ -466,6 +466,40 @@ describe('createBasicConfigSession apply', () => {
     expect(applyToSource(commentedYaml, config)).toBe(commentedYaml)
   })
 
+  it('removes legacy binding-managed tools from an otherwise unrelated edit', () => {
+    const source = `${minimalYaml}tools:
+  ask_question: {}
+  list_channels: {}
+  send_channel_message:
+    enabled: false
+`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the legacy config to deserialize')
+    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question'])
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(parse(updated)).toMatchObject({
+      instruction: 'Updated instruction.',
+      tools: { ask_question: {} },
+    })
+    expect(updated).not.toContain('list_channels')
+    expect(updated).not.toContain('send_channel_message')
+  })
+
+  it('preserves a user-authored empty tools map on an unrelated edit', () => {
+    const source = `${minimalYaml}# Keep this explicit empty map.
+tools: {}
+`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the empty tools config to deserialize')
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(updated).toContain('# Keep this explicit empty map.')
+    expect(parse(updated)).toMatchObject({ tools: {} })
+  })
+
   it('rewrites only the entries that changed, preserving everything else', () => {
     const config = mustDeserialize(commentedYaml)
     const updated = applyToSource(commentedYaml, {

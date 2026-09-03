@@ -41,6 +41,12 @@ type SlackAppCredentialsMaterial struct {
 
 func (SlackAppCredentialsMaterial) secretMaterial() {}
 
+type IntegrationCredentialsMaterial struct {
+	Values map[string]string
+}
+
+func (IntegrationCredentialsMaterial) secretMaterial() {}
+
 type AWSCredentialsMaterial struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -85,6 +91,12 @@ func CanonicalizeMaterial(material Material) (CanonicalMaterial, error) {
 			KeyClientID:      value.ClientID,
 			KeyClientSecret:  value.ClientSecret,
 			KeySigningSecret: value.SigningSecret,
+		}
+	case IntegrationCredentialsMaterial:
+		canonical.Kind = KindIntegrationCredentials
+		canonical.Payload = make(Payload, len(value.Values))
+		for key, credential := range value.Values {
+			canonical.Payload[key] = credential
 		}
 	case AWSCredentialsMaterial:
 		canonical.Kind = KindAWSCredentials

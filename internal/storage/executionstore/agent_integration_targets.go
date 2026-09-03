@@ -76,6 +76,20 @@ func (r *ToolCallReader) ListIntegrationTargets(
 	)
 }
 
+func (r *ToolCallReader) ListAgentChannelTargets(
+	ctx context.Context,
+	input integrationstore.ListAgentChannelTargetsInput,
+) (integrationstore.AgentChannelTargetPage, error) {
+	t := r.transaction
+	return t.store.integrations.ListAgentChannelTargetsTx(
+		ctx,
+		t.tx,
+		t.input.ProjectID,
+		t.input.AgentID,
+		input,
+	)
+}
+
 func (t *toolCallTransaction) setAgentIntegrationTarget(
 	ctx context.Context,
 	integrationTargetID ID,

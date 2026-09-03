@@ -4,7 +4,9 @@ package dbmigrate_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -189,7 +192,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission,org_memberships,org_resource_limit_overrides,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
+	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_apps,integration_installs,integration_runtime_units,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission,org_memberships,org_resource_limit_overrides,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
 	var actual string
 	if err := db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
@@ -214,7 +217,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,cron_triggers,integration_installs,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
+	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,cron_triggers,integration_deliveries,integration_installs,integration_routes,integration_runtime_units,integration_target_bindings,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
 	if err := db.QueryRowContext(ctx, `
 	SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
@@ -985,6 +988,204 @@ WHERE configured_model.org_id = $1
 	const expected = "cluster legacy model:cluster:cluster,tenant legacy model:tenant:tenant"
 	if backfilled != expected {
 		t.Fatalf("backfilled configured model authority = %q, want %q", backfilled, expected)
+	}
+}
+
+func TestPostgresPopulatedVersion24PreservesTerminalIntegrationOrigins(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+
+	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 24)); err != nil {
+		t.Fatalf("apply migrations through version 24: %v", err)
+	}
+	if got := currentPostgresMigrationVersion(t, ctx, db); got != 24 {
+		t.Fatalf("pre-upgrade schema version = %d, want 24", got)
+	}
+
+	userID := uuid.NewString()
+	orgID := uuid.NewString()
+	projectID := uuid.NewString()
+	providerConfigID := uuid.NewString()
+	configuredModelID := uuid.NewString()
+	configuredModelRevisionID := uuid.NewString()
+	agentConfigID := uuid.NewString()
+	agentID := uuid.NewString()
+	installID := uuid.NewString()
+	targetID := uuid.NewString()
+	inputID := uuid.NewString()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	execSeed := func(label, statement string, args ...any) {
+		t.Helper()
+		if _, execErr := tx.ExecContext(ctx, statement, args...); execErr != nil {
+			t.Fatalf("seed populated version 24 %s: %v", label, execErr)
+		}
+	}
+	execSeed("user", `
+INSERT INTO users(id, display_name, created_at, updated_at)
+VALUES ($1, 'version 24 user', statement_timestamp(), statement_timestamp())
+`, userID)
+	execSeed("organization", `
+INSERT INTO orgs(id, name, created_at, updated_at)
+VALUES ($1, 'version 24 org', statement_timestamp(), statement_timestamp())
+`, orgID)
+	execSeed("project", `
+INSERT INTO projects(id, org_id, name, created_at, updated_at)
+VALUES ($1, $2, 'version 24 project', statement_timestamp(), statement_timestamp())
+`, projectID, orgID)
+	execSeed("provider config", `
+INSERT INTO model_provider_configs(
+    id, org_id, management_kind, name, api_format, base_url, endpoint_path,
+    auth_kind, deleted_at, created_at, updated_at
+)
+VALUES (
+    $1, $2, 'cluster', 'version 24 deleted provider', 'openai-responses',
+    'https://provider.example.test/v1', '/responses', 'bearer_token',
+    statement_timestamp(), statement_timestamp(), statement_timestamp()
+)
+`, providerConfigID, orgID)
+	execSeed("configured model", `
+WITH configured_model AS (
+    INSERT INTO configured_models(
+        id, org_id, model_provider_config_id, management_kind, name,
+        current_revision_id, created_at, updated_at
+    )
+    VALUES (
+        $1, $2, $3, 'cluster', 'version 24 model', $4,
+        statement_timestamp(), statement_timestamp()
+    )
+    RETURNING id, org_id, model_provider_config_id, current_revision_id
+)
+INSERT INTO configured_model_revisions(
+    id, org_id, configured_model_id, model_provider_config_id,
+    provider_model_slug, context_window_tokens, max_output_tokens, created_at
+)
+SELECT current_revision_id, org_id, id, model_provider_config_id,
+       'version-24-model', 128000, 8192, statement_timestamp()
+FROM configured_model
+`, configuredModelID, orgID, providerConfigID, configuredModelRevisionID)
+	agentConfigSource := `instruction: Preserve the version 24 migration fixture.
+model:
+  provider_config: version 24 deleted provider
+  name: version 24 model
+`
+	compiledAgentConfig, err := agentconfig.Compile(
+		agentconfig.SourceFormatYAML,
+		[]byte(agentConfigSource),
+		agentconfig.CompileOptions{},
+	)
+	if err != nil {
+		t.Fatalf("compile populated version 24 agent config: %v", err)
+	}
+	agentConfigSourceDigest := sha256.Sum256([]byte(agentConfigSource))
+	execSeed("agent config", `
+INSERT INTO agent_configs(
+    id, org_id, project_id, configured_model_id, definition, source,
+    source_format, source_hash, compiled_definition, compiler_version,
+    effective_definition_hash, created_at
+)
+VALUES (
+    $1, $2, $3, $4, $5::jsonb, $6, 'yaml', $7,
+    $5::jsonb, '', $8, statement_timestamp()
+)
+`, agentConfigID, orgID, projectID, configuredModelID,
+		string(compiledAgentConfig.CanonicalJSON), agentConfigSource,
+		hex.EncodeToString(agentConfigSourceDigest[:]), compiledAgentConfig.Hash)
+	execSeed("agent", `
+INSERT INTO agents(
+    id, org_id, project_id, state, name, current_config_id,
+    created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, 'active', 'version 24 agent', $4,
+    statement_timestamp(), statement_timestamp()
+)
+`, agentID, orgID, projectID, agentConfigID)
+	execSeed("integration install", `
+INSERT INTO integration_installs(
+    id, org_id, project_id, agent_id, installed_by_user_id, provider,
+    integration_kind, connection_mode, state, provider_tenant_id,
+    provider_account_ref, provider_agent_display_name, created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, $4, $5, 'slack', 'agent', 'webhook', 'active',
+    'version-24-workspace', 'version-24-bot', 'Version 24 bot',
+    statement_timestamp(), statement_timestamp()
+)
+`, installID, orgID, projectID, agentID, userID)
+	execSeed("integration target", `
+INSERT INTO integration_targets(
+    id, project_id, agent_id, integration_install_id, target_ref,
+    provider_ref, provider_ref_kind, display_name, created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, $4, 'version-24-thread', 'version-24-thread',
+    'thread', 'Version 24 thread', statement_timestamp(), statement_timestamp()
+)
+`, targetID, projectID, agentID, installID)
+	execSeed("terminal input", `
+INSERT INTO agent_inputs(
+    id, project_id, agent_id, state, input_kind, delivery_mode,
+    integration_target_id, queued_at, canceled_at, metadata
+)
+VALUES (
+    $1, $2, $3, 'canceled', 'content', 'queued', $4,
+    statement_timestamp(), statement_timestamp(), '{"fixture":"version-24"}'::jsonb
+)
+`, inputID, projectID, agentID, targetID)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
+		t.Fatalf("upgrade populated version 24 database: %v", err)
+	}
+
+	var bindingID sql.NullString
+	var inputState string
+	if err := db.QueryRowContext(ctx, `
+SELECT input.integration_target_binding_id::text, input.state
+FROM agent_inputs input
+WHERE input.project_id = $1
+  AND input.id = $2
+`, projectID, inputID).Scan(
+		&bindingID,
+		&inputState,
+	); err != nil {
+		t.Fatalf("load preserved terminal integration origin: %v", err)
+	}
+	if bindingID.Valid || inputState != "canceled" {
+		t.Fatalf("preserved terminal origin = binding %v state %q", bindingID, inputState)
+	}
+	var compatibilityBindings int
+	if err := db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM integration_target_bindings
+WHERE project_id = $1
+  AND integration_target_id = $2
+  AND source = 'legacy_target'
+  AND receive_allowed
+  AND send_allowed
+`, projectID, targetID).Scan(&compatibilityBindings); err != nil {
+		t.Fatalf("load compatibility binding: %v", err)
+	}
+	if compatibilityBindings != 1 {
+		t.Fatalf("compatibility bindings = %d, want 1", compatibilityBindings)
+	}
+	if _, err := db.ExecContext(ctx, `
+UPDATE agent_inputs
+SET metadata = '{"fixture":"mutated"}'::jsonb
+WHERE project_id = $1 AND id = $2
+`, projectID, inputID); err == nil {
+		t.Fatal("terminal input became mutable after origin backfill")
 	}
 }
 

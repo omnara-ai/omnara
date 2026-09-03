@@ -19,6 +19,13 @@ SELECT id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, u
 FROM orgs
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 
+-- name: LockOrganizationLifecycleShared :one
+SELECT id
+FROM orgs
+WHERE id = sqlc.arg(org_id)
+  AND deleted_at IS NULL
+FOR SHARE;
+
 -- name: DeleteOrganization :execrows
 UPDATE orgs SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
@@ -97,6 +104,10 @@ WHERE secret.org_id = version.org_id
   AND NOT EXISTS (
     SELECT 1 FROM integration_installs install
     WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM integration_apps app
+    WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id
   );
 
 -- name: ListActiveProjectIDsForOrganization :many
@@ -190,6 +201,84 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
+-- name: DeleteProjectIntegrationRoutes :exec
+UPDATE integration_routes
+SET state = 'disabled', deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
+
+-- name: RevokeProjectIntegrationTargetBindings :exec
+UPDATE integration_target_bindings
+SET revoked_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteProjectIntegrationApps :exec
+-- Only registrations restricted to this project are project-owned. Shared
+-- organization registrations survive project deletion.
+UPDATE integration_apps
+SET credential_secret_id = NULL,
+    state = 'disabled',
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id)
+  AND owner_project_id = sqlc.arg(project_id)::uuid
+  AND deleted_at IS NULL;
+
+-- name: DeleteProjectIntegrationRuntimeUnits :exec
+UPDATE integration_runtime_units
+SET desired_state = 'stopped',
+    status = 'stopped',
+    lease_owner = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    renewed_at = NULL,
+    lease_expires_at = NULL,
+    lease_spec_revision = NULL,
+    lease_app_configuration_revision = NULL,
+    lease_install_configuration_revision = NULL,
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE integration_runtime_units.org_id = sqlc.arg(org_id)
+  AND (
+    integration_runtime_units.project_id = sqlc.arg(project_id)::uuid
+    OR (
+      integration_runtime_units.project_id IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM integration_apps app
+        WHERE app.id = integration_runtime_units.integration_app_id
+          AND app.org_id = sqlc.arg(org_id)
+          AND app.owner_project_id = sqlc.arg(project_id)::uuid
+      )
+    )
+  )
+  AND integration_runtime_units.deleted_at IS NULL;
+
+-- name: DeleteOrganizationIntegrationApps :exec
+UPDATE integration_apps
+SET credential_secret_id = NULL,
+    state = 'disabled',
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
+
+-- name: DeleteOrganizationIntegrationRuntimeUnits :exec
+UPDATE integration_runtime_units
+SET desired_state = 'stopped',
+    status = 'stopped',
+    lease_owner = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    renewed_at = NULL,
+    lease_expires_at = NULL,
+    lease_spec_revision = NULL,
+    lease_app_configuration_revision = NULL,
+    lease_install_configuration_revision = NULL,
+    deleted_at = transaction_timestamp(),
+    updated_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
+
 -- name: DeleteProjectIntegrationInstalls :exec
 -- Clearing the credential releases the secret for the deletion below.
 UPDATE integration_installs
@@ -263,6 +352,7 @@ SELECT EXISTS (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integration_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 

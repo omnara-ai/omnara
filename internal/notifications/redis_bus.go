@@ -156,6 +156,29 @@ func (b *RedisBus) PublishChannel(ctx context.Context, channel string, payload [
 	return b.client.Publish(ctx, channel, payload)
 }
 
+func (b *RedisBus) SubscribeIntegrationDeliveryUpdates(
+	ctx context.Context,
+	notifyRef uuid.UUID,
+	handler func(context.Context),
+) (Subscription, error) {
+	if notifyRef == uuid.Nil {
+		return nil, errors.New("integration delivery notification ref is required")
+	}
+	if handler == nil {
+		return nil, errors.New("integration delivery handler is required")
+	}
+	return b.SubscribeChannel(ctx, integrationDeliveryChannel(notifyRef), func(ctx context.Context, _ []byte) {
+		handler(ctx)
+	})
+}
+
+func (b *RedisBus) PublishIntegrationDeliveryUpdate(ctx context.Context, notifyRef uuid.UUID) error {
+	if notifyRef == uuid.Nil {
+		return errors.New("integration delivery notification ref is required")
+	}
+	return b.PublishChannel(ctx, integrationDeliveryChannel(notifyRef), []byte{1})
+}
+
 func (b *RedisBus) PublishAgentEventWakeup(ctx context.Context, agentID uuid.UUID) error {
 	if b == nil || b.client == nil {
 		return errors.New("redis bus is closed")
@@ -502,4 +525,8 @@ func agentToolCallUpdateChannel(agentID uuid.UUID) string {
 
 func workerControlChannel(workerProcessID uuid.UUID) string {
 	return "omnara:worker_control:" + workerProcessID.String()
+}
+
+func integrationDeliveryChannel(notifyRef uuid.UUID) string {
+	return "omnara:integration_delivery_updates:" + notifyRef.String()
 }

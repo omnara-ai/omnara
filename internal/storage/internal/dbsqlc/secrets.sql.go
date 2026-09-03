@@ -698,6 +698,43 @@ func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersi
 	return i, err
 }
 
+const integrationAppSecretAssociationExists = `-- name: IntegrationAppSecretAssociationExists :one
+SELECT EXISTS (
+  SELECT 1
+  FROM integration_apps app
+  JOIN secrets secret
+    ON secret.org_id = app.org_id
+   AND secret.id = app.credential_secret_id
+   AND secret.management_kind = 'tenant'
+   AND secret.deleted_at IS NULL
+  WHERE app.org_id = $1
+    AND app.id = $2
+    AND app.credential_secret_id = $3::uuid
+    AND app.state = 'active'
+    AND app.deleted_at IS NULL
+    AND (
+      (app.owner_project_id IS NULL AND secret.owner_kind = 'org')
+      OR
+      (app.owner_project_id IS NOT NULL
+        AND secret.owner_kind = 'project'
+        AND secret.owner_project_id = app.owner_project_id)
+    )
+) AS associated
+`
+
+type IntegrationAppSecretAssociationExistsParams struct {
+	OrgID            uuid.UUID
+	IntegrationAppID uuid.UUID
+	SecretID         uuid.UUID
+}
+
+func (q *Queries) IntegrationAppSecretAssociationExists(ctx context.Context, arg IntegrationAppSecretAssociationExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, integrationAppSecretAssociationExists, arg.OrgID, arg.IntegrationAppID, arg.SecretID)
+	var associated bool
+	err := row.Scan(&associated)
+	return associated, err
+}
+
 const listProjectAvailableSecrets = `-- name: ListProjectAvailableSecrets :many
 WITH project_owned AS (
   SELECT s.id, s.org_id, s.management_kind, s.owner_kind, s.owner_project_id, s.owner_user_id, s.name, s.kind, s.metadata, s.current_version_id, v.version_number AS current_version_number, v.payload_keys, NULL::uuid AS grant_id, 'direct'::text AS availability_source, s.created_at, s.updated_at
@@ -1306,6 +1343,9 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM integration_installs install
   WHERE install.org_id = $1 AND install.credential_secret_id = $2::uuid
+  UNION ALL
+  SELECT 1 FROM integration_apps app
+  WHERE app.org_id = $1 AND app.credential_secret_id = $2::uuid
 ) AS is_referenced
 `
 
@@ -1314,10 +1354,10 @@ type SecretIsReferencedParams struct {
 	SecretID uuid.UUID
 }
 
-// @sqlc-vet-disable model-provider-configs-deleted-at integration-installs-deleted-at machine-pools-deleted-at
+// @sqlc-vet-disable model-provider-configs-deleted-at integration-apps-deleted-at integration-installs-deleted-at machine-pools-deleted-at
 // Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 // checked explicitly. Deleted configs, pools, and installs clear their
-// credential references; any row still holding one blocks deletion.
+// credential references; any config, pool, install, or app still holding one blocks deletion.
 func (q *Queries) SecretIsReferenced(ctx context.Context, arg SecretIsReferencedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, secretIsReferenced, arg.OrgID, arg.SecretID)
 	var is_referenced bool

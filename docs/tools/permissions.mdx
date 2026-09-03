@@ -4,7 +4,9 @@ description: Control which tools an agent can use and which calls require approv
 icon: "shield-check"
 ---
 
-Tools let an agent search the web, run commands, call external services, and more. An agent can use only the tools listed in its current [config](/agents/configuration). Changing that set requires an explicit [config update](/events/sending-input#change-the-config-mid-conversation), so you can always see exactly what the agent has access to.
+Tools let an agent search the web, run commands, call external services, and more. Normally, an agent can use only the tools listed in its current [config](/agents/configuration). Changing that set requires an explicit [config update](/events/sending-input#change-the-config-mid-conversation), so you can always see exactly what the agent has access to.
+
+Channel messaging is the narrow exception. Omnara injects `list_channels` and `send_channel_message` from the agent's current channel-mode bindings. This keeps external routing outside the agent config and makes revoked bindings take effect without creating a new config. Agents still using only the native Slack compatibility path receive its legacy integration tools instead.
 
 Omnara has exactly three kinds of tools, distinguished by *who executes them*:
 
@@ -47,7 +49,7 @@ mcp:
 A permission mode applies to every call. Changing it requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
 
 <Note>
-`send_integration_message` supports only `always_allow`, so agents can deliver replies to integrations such as Slack without opening another approval prompt.
+`send_channel_message` and the native Slack compatibility tool `send_integration_message` support only `always_allow`, so an agent can deliver a reply without opening another approval prompt. This does not grant broad channel access: each send is still limited to an active, send-enabled binding for that agent.
 </Note>
 
 ## What an `always_ask` call looks like
@@ -62,7 +64,7 @@ When an agent calls a tool with `always_ask`, its turn pauses and a permission i
 curl "$OMNARA_API/tool-catalog" -H "Authorization: Bearer $OMNARA_TOKEN"
 ```
 
-The response also includes the supported modes and defaults for custom and MCP tools in `custom_tool_permissions` and `mcp_tool_permissions`. Use it to build or validate configs against your deployment's current tool catalog.
+The response also includes the supported modes and defaults for custom and MCP tools in `custom_tool_permissions` and `mcp_tool_permissions`. Use it to build or validate configs against your deployment's current tool catalog. Entries belong in an agent config unless they explicitly return `configurable: false`; Omnara supplies those non-configurable tools dynamically from runtime state such as channel bindings.
 
 ## Next
 

@@ -2,10 +2,13 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -136,6 +139,65 @@ func TestValidateAPIRejectsPublicAPIURLWithoutPublicURL(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_PUBLIC_URL") {
 		t.Fatalf("expected OMNARA_PUBLIC_URL dependency error, got %v", err)
+	}
+}
+
+func TestLoadChannelConnectorConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	token, err := bearertoken.Generate(bearertoken.KindChannelConnector)
+	if err != nil {
+		t.Fatalf("generate channel connector token: %v", err)
+	}
+	raw, err := json.Marshal([]channelconnector.Config{{
+		ID: "gateway-west", Token: token,
+		Capabilities: []channelconnector.Capability{{
+			ConnectorKey: "chat_sdk_v1", Provider: "discord",
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("marshal channel connector configuration: %v", err)
+	}
+	t.Setenv("OMNARA_CHANNEL_CONNECTORS_JSON", string(raw))
+	t.Setenv(
+		"OMNARA_INTERNAL_API_ORIGINS",
+		" http://api:8080, https://gateway.internal.example ",
+	)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load channel connector configuration: %v", err)
+	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatalf("validate channel connector configuration: %v", err)
+	}
+	if len(cfg.ChannelConnectors) != 1 || cfg.ChannelConnectors[0].ID != "gateway-west" ||
+		cfg.ChannelConnectors[0].Token != token ||
+		len(cfg.ChannelConnectors[0].Capabilities) != 1 ||
+		cfg.ChannelConnectors[0].Capabilities[0] != (channelconnector.Capability{
+			ConnectorKey: "chat_sdk_v1", Provider: "discord",
+		}) {
+		t.Fatalf("channel connector configuration = %+v", cfg.ChannelConnectors)
+	}
+	if len(cfg.InternalAPIOrigins) != 2 || cfg.InternalAPIOrigins[0] != "http://api:8080" ||
+		cfg.InternalAPIOrigins[1] != "https://gateway.internal.example" {
+		t.Fatalf("internal API origins = %v", cfg.InternalAPIOrigins)
+	}
+}
+
+func TestValidateAPIRejectsInvalidChannelConnectorConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv(
+		"OMNARA_CHANNEL_CONNECTORS_JSON",
+		`[{"id":"gateway-west","token":"not-a-connector-token","capabilities":[{"connector_key":"chat_sdk_v1","provider":"discord"}]}]`,
+	)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load invalid channel connector configuration: %v", err)
+	}
+	if err := cfg.ValidateAPI(); err == nil ||
+		!strings.Contains(err.Error(), "OMNARA_CHANNEL_CONNECTORS_JSON") {
+		t.Fatalf("invalid channel connector validation error = %v", err)
 	}
 }
 
@@ -1053,6 +1115,7 @@ func TestValidateWorkerRequiresPublicURLOutsideDev(t *testing.T) {
 func TestValidateMaintenanceDoesNotRequireProjectOrModel(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_MAINTENANCE_INTERVAL", "2s")
+	t.Setenv("OMNARA_INTEGRATION_DELIVERY_RETENTION", "168h")
 
 	cfg, err := Load()
 	if err != nil {
@@ -1063,6 +1126,9 @@ func TestValidateMaintenanceDoesNotRequireProjectOrModel(t *testing.T) {
 	}
 	if cfg.MaintenanceInterval != 2*time.Second {
 		t.Fatalf("expected maintenance interval from env, got %s", cfg.MaintenanceInterval)
+	}
+	if cfg.IntegrationDeliveryRetention != 7*24*time.Hour {
+		t.Fatalf("expected integration delivery retention from env, got %s", cfg.IntegrationDeliveryRetention)
 	}
 }
 

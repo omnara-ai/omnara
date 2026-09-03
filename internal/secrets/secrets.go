@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"time"
@@ -19,10 +20,11 @@ import (
 type Kind string
 
 const (
-	KindGeneric             Kind = "generic"
-	KindOAuthTokenSet       Kind = "oauth_token_set"
-	KindSlackAppCredentials Kind = "slack_app_credentials"
-	KindAWSCredentials      Kind = "aws_credentials"
+	KindGeneric                Kind = "generic"
+	KindOAuthTokenSet          Kind = "oauth_token_set"
+	KindSlackAppCredentials    Kind = "slack_app_credentials"
+	KindAWSCredentials         Kind = "aws_credentials"
+	KindIntegrationCredentials Kind = "integration_credentials"
 
 	KeyValue              = "value"
 	KeyAccessToken        = "access_token"
@@ -46,13 +48,18 @@ const (
 	DEKWrappedByLocal                   = "local"
 
 	// Bound accepted secret values before encryption so one payload cannot dominate memory or row size.
-	MaxPayloadValueBytes                = 64 * 1024
-	MaxOAuthAccessTokenTTLSeconds int64 = 9_223_372_036
+	MaxPayloadValueBytes                       = 64 * 1024
+	MaxIntegrationCredentialKeys               = 64
+	MaxIntegrationCredentialKeyBytes           = 128
+	MaxIntegrationCredentialPayloadBytes       = 256 * 1024
+	MaxOAuthAccessTokenTTLSeconds        int64 = 9_223_372_036
 
 	dataKeySize     = 32
 	localKeySize    = 32
 	aesGCMNonceSize = 12
 )
+
+var integrationCredentialKeyPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,127}$`)
 
 var ErrInvalidPayload = errors.New("invalid secret payload")
 
@@ -268,6 +275,8 @@ func ValidatePayload(kind Kind, payload Payload) ([]string, error) {
 		allowed[KeyAWSRoleARN] = true
 		allowed[KeyAWSExternalID] = true
 		required = []string{KeyAWSAccessKeyID, KeyAWSSecretAccessKey}
+	case KindIntegrationCredentials:
+		return validateIntegrationCredentialPayload(payload)
 	default:
 		return nil, fmt.Errorf("unsupported secret kind %q", kind)
 	}
@@ -309,6 +318,46 @@ func ValidatePayload(kind Kind, payload Payload) ([]string, error) {
 		}
 		if len(value) > MaxPayloadValueBytes {
 			return nil, fmt.Errorf("secret payload key %q exceeds %d bytes", key, MaxPayloadValueBytes)
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+func validateIntegrationCredentialPayload(payload Payload) ([]string, error) {
+	if len(payload) == 0 {
+		return nil, errors.New("secret payload is required")
+	}
+	if len(payload) > MaxIntegrationCredentialKeys {
+		return nil, fmt.Errorf(
+			"integration credential payload exceeds %d keys",
+			MaxIntegrationCredentialKeys,
+		)
+	}
+	keys := make([]string, 0, len(payload))
+	totalBytes := 0
+	for key, value := range payload {
+		if len(key) > MaxIntegrationCredentialKeyBytes ||
+			!integrationCredentialKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("integration credential key %q is invalid", key)
+		}
+		if value == "" {
+			return nil, fmt.Errorf("secret payload key %q cannot be empty", key)
+		}
+		if len(value) > MaxPayloadValueBytes {
+			return nil, fmt.Errorf(
+				"secret payload key %q exceeds %d bytes",
+				key,
+				MaxPayloadValueBytes,
+			)
+		}
+		totalBytes += len(key) + len(value)
+		if totalBytes > MaxIntegrationCredentialPayloadBytes {
+			return nil, fmt.Errorf(
+				"integration credential payload exceeds %d bytes",
+				MaxIntegrationCredentialPayloadBytes,
+			)
 		}
 		keys = append(keys, key)
 	}

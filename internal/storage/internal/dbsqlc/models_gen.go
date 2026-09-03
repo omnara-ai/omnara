@@ -236,6 +236,57 @@ type ExpiredIdlePoolMachineCandidate struct {
 	MachineID uuid.UUID
 }
 
+type IntegrationApp struct {
+	ID                         uuid.UUID
+	OrgID                      uuid.UUID
+	OwnerProjectID             *uuid.UUID
+	Provider                   string
+	ProviderAppRef             string
+	DisplayName                string
+	ConnectorKey               string
+	CredentialSecretID         *uuid.UUID
+	InstallationCredentialKind *string
+	ProviderConfig             json.RawMessage
+	ProviderMetadata           json.RawMessage
+	ConfigurationRevision      int64
+	State                      string
+	DeletedAt                  *time.Time
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+}
+
+type IntegrationDelivery struct {
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	IntegrationAppID           uuid.UUID
+	IntegrationInstallID       uuid.UUID
+	IntegrationTargetID        uuid.UUID
+	IntegrationTargetBindingID uuid.UUID
+	Provider                   string
+	ConnectorKey               string
+	Transport                  string
+	DeliveryKind               string
+	PayloadVersion             string
+	Payload                    json.RawMessage
+	IdempotencyScope           string
+	IdempotencyKey             string
+	State                      string
+	AttemptCount               int32
+	AvailableAt                time.Time
+	ClaimToken                 *uuid.UUID
+	ClaimGeneration            int64
+	ClaimedBy                  *string
+	ClaimedAt                  *time.Time
+	ClaimExpiresAt             *time.Time
+	NotifyRef                  *uuid.UUID
+	ProviderMessageRef         *string
+	LastError                  json.RawMessage
+	CompletedAt                *time.Time
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+}
+
 type IntegrationInstall struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
@@ -258,12 +309,62 @@ type IntegrationInstall struct {
 	DeletedAt                *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	IntegrationAppID         uuid.UUID
+	ConfigurationRevision    int64
+}
+
+type IntegrationRoute struct {
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+	DeploymentKey        string
+	HandlerKey           string
+	HandlerVersion       int32
+	Configuration        json.RawMessage
+	State                string
+	DeletedAt            *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type IntegrationRuntimeUnit struct {
+	ID                                uuid.UUID
+	OrgID                             uuid.UUID
+	IntegrationAppID                  uuid.UUID
+	ProjectID                         *uuid.UUID
+	IntegrationInstallID              *uuid.UUID
+	Provider                          string
+	ConnectorKey                      string
+	UnitKey                           string
+	RuntimeKind                       string
+	DesiredState                      string
+	SpecRevision                      int32
+	Configuration                     json.RawMessage
+	Status                            string
+	FailureCount                      int32
+	AvailableAt                       time.Time
+	LeaseOwner                        *string
+	LeaseToken                        *uuid.UUID
+	LeaseGeneration                   int64
+	LeasedAt                          *time.Time
+	RenewedAt                         *time.Time
+	LeaseExpiresAt                    *time.Time
+	LeaseSpecRevision                 *int32
+	LeaseAppConfigurationRevision     *int64
+	LeaseInstallConfigurationRevision *int64
+	CheckpointVersion                 int32
+	CheckpointRevision                int64
+	Checkpoint                        json.RawMessage
+	LastError                         json.RawMessage
+	DeletedAt                         *time.Time
+	CreatedAt                         time.Time
+	UpdatedAt                         time.Time
 }
 
 type IntegrationTarget struct {
 	ID                   uuid.UUID
 	ProjectID            uuid.UUID
-	AgentID              uuid.UUID
+	AgentID              *uuid.UUID
 	IntegrationInstallID uuid.UUID
 	TargetRef            string
 	ProviderRef          string
@@ -271,6 +372,23 @@ type IntegrationTarget struct {
 	DisplayName          string
 	ProviderMetadata     json.RawMessage
 	DeletedAt            *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type IntegrationTargetBinding struct {
+	ID                   uuid.UUID
+	ProjectID            uuid.UUID
+	AgentID              uuid.UUID
+	IntegrationInstallID uuid.UUID
+	IntegrationTargetID  uuid.UUID
+	TargetCreatedAt      time.Time
+	IntegrationRouteID   *uuid.UUID
+	ReceiveAllowed       bool
+	SendAllowed          bool
+	Source               string
+	Metadata             json.RawMessage
+	RevokedAt            *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }

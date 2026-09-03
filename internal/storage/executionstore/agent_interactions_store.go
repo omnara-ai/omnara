@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -45,12 +46,16 @@ type CreateQuestionInteractionInput struct {
 }
 
 type ResolveAgentInteractionInput struct {
-	ProjectID           ID
-	AgentID             ID
-	ID                  ID
-	Resolution          interactionform.Resolution
-	Actor               *ActorParams
-	IntegrationTargetID ID
+	ProjectID                  ID
+	AgentID                    ID
+	ID                         ID
+	Resolution                 interactionform.Resolution
+	Actor                      *ActorParams
+	IntegrationTargetID        ID
+	IntegrationTargetBindingID ID
+	IntegrationInstallID       ID
+	Metadata                   json.RawMessage
+	RuntimeLease               *IntegrationRuntimeLeaseProof
 }
 
 type AgentInteractionRecord struct {
@@ -68,6 +73,7 @@ type AgentInteractionRecord struct {
 	ResolvedByInputID  ID
 	CreatedAt          time.Time
 	ResolvedAt         time.Time
+	Replayed           bool `json:"-"`
 }
 
 func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
@@ -258,6 +264,19 @@ func (s *Store) ResolveAgentInteraction(
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) {
 		return AgentInteractionRecord{}, errors.New("project, agent, and interaction are required")
 	}
+	hasIntegrationOrigin := !isNilID(input.IntegrationInstallID) ||
+		!isNilID(input.IntegrationTargetID) || !isNilID(input.IntegrationTargetBindingID)
+	if hasIntegrationOrigin && (isNilID(input.IntegrationInstallID) ||
+		isNilID(input.IntegrationTargetID) || isNilID(input.IntegrationTargetBindingID)) {
+		return AgentInteractionRecord{}, errors.New(
+			"integration install, target, and binding must either all be set or all be omitted",
+		)
+	}
+	metadata, err := normalizedJSONObject(input.Metadata, "interaction response metadata")
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	input.Metadata = metadata
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -270,6 +289,28 @@ func (s *Store) ResolveAgentInteraction(
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("lock agent for interaction resolution: %w", err)
+	}
+	if hasIntegrationOrigin {
+		if _, err := s.integrations.GetActiveReceiveBindingTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			input.IntegrationInstallID,
+			input.IntegrationTargetID,
+			input.IntegrationTargetBindingID,
+		); err != nil {
+			return AgentInteractionRecord{}, err
+		}
+	}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.RuntimeLease,
+		input.ProjectID,
+		input.IntegrationInstallID,
+	); err != nil {
+		return AgentInteractionRecord{}, err
 	}
 	existing, err := qtx.GetAgentInteraction(
 		ctx,
@@ -407,12 +448,16 @@ func (s *Store) ResolveAgentInteraction(
 		}
 		if !actorFound || !responseFound ||
 			record.ResolvedByInputID != responseInput.ID ||
-			responseInput.ActorID != requestActorID {
+			responseInput.ActorID != requestActorID ||
+			responseInput.IntegrationTargetID != input.IntegrationTargetID ||
+			responseInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
+			!sameJSON(responseInput.Metadata, input.Metadata) {
 			return AgentInteractionRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		if err := completeQuestionToolCallTx(ctx, txNotifications, tx, qtx, record); err != nil {
 			return AgentInteractionRecord{}, err
 		}
+		record.Replayed = true
 	}
 	if err := qtx.MarkAgentWakeup(
 		ctx,
@@ -699,13 +744,15 @@ func insertInteractionResponseInputTx(
 	row, err := qtx.InsertInteractionResponseAgentInput(
 		ctx,
 		dbsqlc.InsertInteractionResponseAgentInputParams{
-			ProjectID:           input.ProjectID,
-			AgentID:             input.AgentID,
-			TargetInteractionID: input.ID,
-			ActorID:             sqlcIDFromNil(resolvedByActorID),
-			IdempotencyScope:    sqlcTextFromEmpty(scope),
-			InputIdempotencyKey: sqlcTextFromEmpty(key),
-			Metadata:            json.RawMessage(`{}`),
+			ProjectID:                  input.ProjectID,
+			AgentID:                    input.AgentID,
+			TargetInteractionID:        input.ID,
+			ActorID:                    sqlcIDFromNil(resolvedByActorID),
+			IntegrationTargetID:        sqlcIDFromNil(input.IntegrationTargetID),
+			IntegrationTargetBindingID: sqlcIDFromNil(input.IntegrationTargetBindingID),
+			IdempotencyScope:           sqlcTextFromEmpty(scope),
+			InputIdempotencyKey:        sqlcTextFromEmpty(key),
+			Metadata:                   input.Metadata,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -725,7 +772,10 @@ func insertInteractionResponseInputTx(
 			)
 		}
 		record := agentInputRecordFromIdempotencySQLC(existingInput)
-		if record.InputKind != "interaction_response" || record.TargetInteractionID != input.ID {
+		if record.InputKind != "interaction_response" || record.TargetInteractionID != input.ID ||
+			record.IntegrationTargetID != input.IntegrationTargetID ||
+			record.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
+			!sameJSON(record.Metadata, input.Metadata) {
 			return AgentInputRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		return record, nil
