@@ -1,6 +1,6 @@
 import type { AgentInteraction, InteractionAnswer } from '@omnara/sdk'
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 export function Label({ name, color }: { name: string; color: string }) {
   return (
@@ -8,6 +8,14 @@ export function Label({ name, color }: { name: string; color: string }) {
       {name}
     </Text>
   )
+}
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+function dropLastGrapheme(value: string): string {
+  let end = 0
+  for (const segment of graphemes.segment(value)) end = segment.index
+  return value.slice(0, end)
 }
 
 export function TextInput({
@@ -25,7 +33,7 @@ export function TextInput({
       return
     }
     if (key.backspace || key.delete) {
-      onChange(value.slice(0, -1))
+      onChange(dropLastGrapheme(value))
       return
     }
     if (key.ctrl || key.meta || key.escape || key.tab) return
@@ -105,14 +113,18 @@ export function InteractionPrompt({
   const [answers, setAnswers] = useState<InteractionAnswer[]>([])
   const [pendingText, setPendingText] = useState<number[]>()
   const [text, setText] = useState('')
+  const submitted = useRef(false)
   const question = form.questions[answers.length]
 
   const commit = (answer: InteractionAnswer) => {
+    if (submitted.current) return
     const next = [...answers, answer]
     setAnswers(next)
     setPendingText(undefined)
     setText('')
-    if (next.length === form.questions.length) onAnswer(next)
+    if (next.length < form.questions.length) return
+    submitted.current = true
+    onAnswer(next)
   }
 
   return (
