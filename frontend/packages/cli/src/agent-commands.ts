@@ -3,7 +3,7 @@ import * as schemas from '@omnara/sdk/zod'
 import type { Command } from 'commander'
 import * as z from 'zod'
 
-import { runChat } from './chat.ts'
+import { runChat } from './chat.tsx'
 import type { CliConfig } from './config.ts'
 import {
   type CustomSpec,
