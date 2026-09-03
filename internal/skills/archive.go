@@ -259,6 +259,9 @@ func ReplaceSkillMd(format ArchiveFormat, raw []byte, skillMd string) ([]byte, e
 			if err != nil {
 				return nil, err
 			}
+			if isMacOSMetadata(cleaned) {
+				continue
+			}
 			if err := budget.accountEntry(cleaned); err != nil {
 				return nil, err
 			}
@@ -296,6 +299,9 @@ func ReplaceSkillMd(format ArchiveFormat, raw []byte, skillMd string) ([]byte, e
 			cleaned, err := cleanEntryPath(header.Name)
 			if err != nil {
 				return nil, err
+			}
+			if isMacOSMetadata(cleaned) {
+				continue
 			}
 			if err := budget.accountEntry(cleaned); err != nil {
 				return nil, err
@@ -353,6 +359,9 @@ func readZipEntries(raw []byte) ([]archiveEntry, error) {
 		cleaned, err := cleanEntryPath(file.Name)
 		if err != nil {
 			return nil, err
+		}
+		if isMacOSMetadata(cleaned) {
+			continue
 		}
 		entry := archiveEntry{Path: cleaned}
 		switch {
@@ -438,6 +447,9 @@ func readTarGzEntries(raw []byte) ([]archiveEntry, error) {
 		default:
 			return nil, fmt.Errorf("unsupported tar entry type %q for %q", string(header.Typeflag), header.Name)
 		}
+		if isMacOSMetadata(cleaned) {
+			continue
+		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -461,6 +473,15 @@ func cleanEntryPath(raw string) (string, error) {
 		}
 	}
 	return cleaned, nil
+}
+
+func isMacOSMetadata(cleaned string) bool {
+	segments := strings.Split(cleaned, "/")
+	if segments[0] == "__MACOSX" {
+		return true
+	}
+	last := segments[len(segments)-1]
+	return last == ".DS_Store" || strings.HasPrefix(last, "._")
 }
 
 func validateAndExtract(format ArchiveFormat, entries []archiveEntry) (Metadata, error) {
@@ -657,6 +678,9 @@ func extractZip(raw []byte, absDst string) error {
 		if err != nil {
 			return err
 		}
+		if isMacOSMetadata(cleaned) {
+			continue
+		}
 		if err := budget.accountEntry(cleaned); err != nil {
 			return err
 		}
@@ -702,6 +726,9 @@ func extractTarGz(raw []byte, absDst string) error {
 		cleaned, err := cleanEntryPath(header.Name)
 		if err != nil {
 			return err
+		}
+		if isMacOSMetadata(cleaned) {
+			continue
 		}
 		if err := budget.accountEntry(cleaned); err != nil {
 			return err
