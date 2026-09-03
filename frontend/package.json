@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@11.22.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "pnpm --filter @omnara/web dev",
