@@ -205,13 +205,17 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 	); err != nil {
 		t.Fatalf("valid integration message rejected: %v", err)
 	}
-	for _, input := range []json.RawMessage{
-		json.RawMessage(`{"text":"hello","artifact_id":null}`),
+	if err := validateRegisteredToolInput(
+		"send_integration_message",
 		json.RawMessage(`{"text":"hello","artifact_id":""}`),
-	} {
-		if err := validateRegisteredToolInput("send_integration_message", input); err == nil {
-			t.Fatalf("invalid integration message accepted: %s", input)
-		}
+	); err != nil {
+		t.Fatalf("empty artifact_id rejected: %v", err)
+	}
+	if err := validateRegisteredToolInput(
+		"send_integration_message",
+		json.RawMessage(`{"text":"hello","artifact_id":null}`),
+	); err == nil {
+		t.Fatal("null artifact_id accepted")
 	}
 }
 

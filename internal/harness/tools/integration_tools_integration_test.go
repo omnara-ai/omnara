@@ -172,6 +172,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 	}{
 		{name: "success", wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
 		{name: "upload URL transient failure", uploadURLFailures: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{name: "upload retries do not consume completion retry budget", uploadURLFailures: 2, completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
 		{name: "completion rate limit", completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
 		{name: "completion failure", completionStatus: http.StatusInternalServerError, wantCode: "delivery_unknown", wantUploadRequests: 1, wantCompletionRequests: 1},
 		{name: "ownership lost before content upload", loseAfterPath: "/files.getUploadURLExternal"},

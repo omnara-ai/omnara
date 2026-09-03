@@ -294,6 +294,8 @@ func (e Executor) dispatchIntegrationArtifactSend(
 			return integrationSlackFailureResult(slackTarget.TargetRef, result)
 		}
 	}
+	attempt = 1
+	rateLimitSlept = 0
 	for {
 		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
 			return toolResultContent{}, err

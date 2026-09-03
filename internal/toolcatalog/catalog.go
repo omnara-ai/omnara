@@ -41,7 +41,7 @@ const (
 	sendIntegrationMessageToolDescription = "Send a user-visible message to the current integration target. " +
 		"When responding to a message received from an integration such as Slack, you must use this tool " +
 		"for every user-visible response, including progress updates, questions, and final answers. " +
-		"Optionally attach one artifact by its artifact_id. " +
+		"Attach one artifact by its artifact_id only when the response is intentionally sending that file. " +
 		"Normal assistant text is internal and is not delivered to the external user, so use this tool " +
 		"to communicate with them."
 	setIntegrationTargetToolDescription = "Set which integration target future integration messages " +
@@ -363,8 +363,7 @@ func integrationSendTool() (Entry, error) {
 			},
 			"artifact_id": map[string]any{
 				"type":        "string",
-				"minLength":   1,
-				"description": "Public artifact_id for one artifact owned by this agent to attach to the message.",
+				"description": "Use an exact artifact_id returned by Omnara; omit it or leave it empty for text-only messages.",
 			},
 		},
 	)
