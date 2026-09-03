@@ -6,9 +6,9 @@ delivers a short digest — at most five posts, each with why it matters and a
 suggested action. Reply in Slack (or the Omnara console) to ask for reply
 drafts or push back on the filtering. It never posts to X.
 
-The whole example is one notebook, [demo.ipynb](demo.ipynb). The agent itself
-is a single config object — there is no service to deploy. Run the cells top
-to bottom and you have your own.
+The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent itself
+is a single config object — there is no service to deploy. Run it top to
+bottom and you have your own.
 
 ## What you need
 
@@ -22,31 +22,34 @@ to bottom and you have your own.
 
 ```sh
 brew install deno
-deno jupyter --install    # register the Deno kernel with Jupyter
 
 cd examples/x-signal-agent
 cp .env.example .env      # set OMNARA_API_KEY and X_BEARER_TOKEN
 deno install              # fetch @omnara/sdk into node_modules
+deno run --allow-all demo.ts
 ```
 
-Deno is only needed to run the notebook (it provides the TypeScript Jupyter
-kernel; `deno install` fetches `@omnara/sdk` from `package.json`). The SDK itself works
-on Node and Bun too — you can copy the cells into a plain script if you
-prefer.
+Deno runs the TypeScript directly (`deno install` fetches `@omnara/sdk` from
+`package.json`). The SDK itself works on Node and Bun too — `demo.ts` is a
+plain script you can lift into any project.
 
-Open `demo.ipynb` (VS Code, Cursor, or `jupyter lab`), pick the **Deno**
-kernel, and run top to bottom. One cell holds the topic and the X search
+Prefer notebook cells? `demo.ts` is in
+[jupytext](https://jupytext.readthedocs.io/) percent format — open it in
+Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
+
+One section holds the topic and the X search
 query — edit those two lines to point the agent at whatever you want to
-track. Every cell is idempotent: rerun after editing and the agent updates
+track. Every section is idempotent: rerun after editing and the agent updates
 in place.
 
 ## Slack and scheduling (optional)
 
-The notebook can create a Slack app for you. Invite the bot to a channel and
+The demo can create a Slack app for you. Invite the bot to a channel and
 mention it — the agent delivers its digest in that thread, and thread replies
 become instructions to the agent. There is no default channel: it answers
 wherever it is mentioned or DM'd.
 
-The last cell schedules a weekday-morning scan. Scheduled runs launched from
+The last section schedules a weekday-morning scan — opt-in: set
+`SCHEDULE_DAILY=1` in `.env`. Scheduled runs launched from
 the profile deliver to the Omnara console; to get them in a Slack channel,
 mention the bot there once and point the trigger at that agent instead.
