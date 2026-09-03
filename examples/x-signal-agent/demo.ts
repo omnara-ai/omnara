@@ -14,26 +14,26 @@
 // %% [markdown]
 // # X Signal Agent — build your own
 //
-// A listening agent on Omnara: it searches X for the last 24 hours of
-// conversation about **whatever you care about** — a product category, a
-// competitor, your own project — filters hard, and delivers a ≤5-item digest
-// to Slack. The agent is one config object — no service to deploy. Run this
-// file top to bottom and you have your own: pick the topic in one section,
-// and the rest wires it up and launches a run using the Omnara TypeScript SDK
-// (`@omnara/sdk`), on [Deno](https://docs.deno.com/runtime/).
+// An agent that watches X (Twitter) for you. Each run it searches the last
+// 24 hours of posts about a topic you pick, filters out the noise, and
+// delivers a digest of at most five posts — each with why it matters and a
+// suggested action. The whole agent is one config object; there is no
+// service to deploy. Run this file top to bottom and you have your own.
 //
-// Prereqs:
+// Before you run it:
 //
-// - An Omnara account ([app.omnara.com](https://app.omnara.com)) with a personal
-//   access token, and an X API bearer token with pay-per-use billing
-//   ([console.x.com](https://console.x.com)).
-// - `cp .env.example .env` in this folder, with `OMNARA_API_KEY` and
-//   `X_BEARER_TOKEN` set.
-// - Deno: `brew install deno`, then `deno install` once in this folder to
-//   fetch [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk) (see
-//   `package.json`). Run the demo with `deno run --allow-all demo.ts` — or
-//   open it as a notebook: this file is jupytext percent format, and
-//   `deno jupyter --install` registers the Deno kernel.
+// 1. Get an Omnara personal access token ([app.omnara.com](https://app.omnara.com)).
+// 2. Get an X API bearer token with pay-per-use billing
+//    ([console.x.com](https://console.x.com)) — a daily scan costs on the
+//    order of cents.
+// 3. `cp .env.example .env` and fill in `OMNARA_API_KEY` and `X_BEARER_TOKEN`.
+// 4. Install [Deno](https://docs.deno.com/runtime/) (`brew install deno`),
+//    then run `deno install` once in this folder to fetch
+//    [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk).
+//
+// Then: `deno run --allow-all demo.ts`. Prefer notebook cells? This file is
+// jupytext percent format — open it in Jupyter with the Deno kernel
+// (`deno jupyter --install`).
 
 // %%
 import { load } from 'jsr:@std/dotenv'
@@ -42,15 +42,16 @@ import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omn
 const env = await load()
 
 const client = createOmnaraClient({
-  baseUrl: 'https://app.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken(env.OMNARA_API_KEY),
 })
 
 // %% [markdown]
 // ## 1. Where it deploys
 //
-// New accounts come with a default org, a default project, and a managed
-// machine pool already granted — take the first of each.
+// Every account has a default org, a default project, and a managed machine
+// pool already granted. The agent uses the first of each — the machine is
+// where it runs `curl` against the X API.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
@@ -68,10 +69,11 @@ console.log('pool:   ', pool.name)
 // %% [markdown]
 // ## 2. The X token becomes a secret
 //
-// The bearer token is stored as a project secret. The agent config will
-// reference only the `sec_…` ID — Omnara injects the value on the machine at
-// runtime as the `X_BEARER_TOKEN` environment variable, and it never appears
-// in the config or the event log.
+// The bearer token becomes a project secret, and the agent config references
+// only its `sec_…` ID. Omnara injects the value on the machine at runtime as
+// the `X_BEARER_TOKEN` environment variable; it never appears in the config
+// or the event log. Rerunning this section rotates the secret to the current
+// `.env` value.
 
 // %%
 if (!env.X_BEARER_TOKEN) throw new Error('set X_BEARER_TOKEN in .env')
@@ -106,17 +108,18 @@ console.log(existingSecret ? 'secret updated:' : 'secret created:', secretId)
 // %% [markdown]
 // ## 3. Pick what to listen for
 //
-// This is the only section to edit to make the agent yours. `topic` steers the
-// filtering rules; `xQuery` is
-// [X search syntax](https://docs.x.com/x-api/posts/search/integrate/build-a-query)
-// and controls what the search returns. The default listens for managed-agents
-// conversation — swap in whatever you want to track, then run the rest of the
-// file as usual.
+// This is the only section you need to edit. Two knobs:
+//
+// - `topic` — what the agent judges relevance against.
+// - `xQuery` — an [X search query](https://docs.x.com/x-api/posts/search/integrate/build-a-query)
+//   that controls what the search returns.
+//
+// The default listens for managed-agents conversation. Swap in your own,
+// then run the rest of the file as usual.
 
 // %%
-// What the agent listens for. topic steers the filtering; xQuery is what
-// the X API search returns. Keep single quotes out of xQuery — the agent
-// passes it inside a single-quoted shell argument.
+// Keep single quotes out of xQuery: the agent passes it inside a
+// single-quoted shell argument.
 const topic = 'managed-agent infrastructure'
 const xQuery =
   '("managed agents" OR "agent infrastructure" OR "durable agents") -is:retweet lang:en'
@@ -125,11 +128,12 @@ console.log('listening for:', topic)
 // %% [markdown]
 // ## 4. The agent — this object is the whole thing
 //
-// An instruction (templated with your topic and query from above), a model,
-// the tools, and where it runs (the machine pool and secret from the sections
-// above). Fetching is a `curl` the agent runs itself; the filter rules and
-// the 5-item cap live in the instruction. Set the `model` names from your
-// console's **Models** page.
+// One object holds everything: the instruction (templated with your topic
+// and query), the model, the tools, and where it runs (the machine pool and
+// secret from the sections above). The agent fetches X by running `curl`
+// itself, and the filter rules and the five-item cap are plain prompt text
+// in the instruction. Set `model` to names from your console's **Models**
+// page.
 
 // %%
 const agent = {
@@ -228,9 +232,9 @@ console.log(existingProfile ? 'profile updated:' : 'profile created:', profile.i
 // ## 5. Launch a scan and watch it work
 //
 // Create an agent from the profile with a kickoff message, then follow its
-// event stream and print what it does: the `curl` against X, the filtering,
-// the digest. The SDK's `openAgentEventStream` is a real-time server-sent
-// event stream — no polling.
+// event stream and print each step: the `curl` against X, the filtering,
+// the digest. `openAgentEventStream` is a real-time server-sent event
+// stream — nothing to poll on our side.
 
 // %%
 const { data: launch } = await sdk.createAgent({
@@ -247,9 +251,9 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Stream events until the agent's turn ends (a model output that stops for
-// anything other than a tool call). Reconnects from the last seen sequence
-// if the stream drops.
+// Print events until the agent's turn ends — a model output whose stop
+// reason is anything but a tool call. If the stream drops, reconnect from
+// the last seen sequence.
 let after = 0
 for (let done = false; !done; ) {
   const { stream } = await openAgentEventStream({
@@ -284,14 +288,18 @@ console.log('\nDone. The agent stays available — message it from the console o
 // %% [markdown]
 // ## 6. Connect Slack (one-time, optional)
 //
-// Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` to a Slack **app configuration
-// token** from [api.slack.com/apps](https://api.slack.com/apps) and rerun this
-// file — it creates the Slack app and prints an OAuth URL to approve. Then
-// **invite the bot to a channel** (`/invite @your-bot`) and mention it — that
-// launches an agent, and its digest lands in that thread. Messages route to
-// wherever the agent was mentioned or DM'd; there is no default channel.
-// Thread replies become agent inputs, so the team can ask for reply drafts
-// right in the thread.
+// One-time setup:
+//
+// 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
+//    [api.slack.com/apps](https://api.slack.com/apps).
+// 2. Rerun this file (or just this section) and open the printed OAuth URL
+//    to install the Slack app.
+// 3. Invite the bot to a channel (`/invite @your-bot`) and mention it.
+//
+// Mentioning the bot launches an agent, and its digest lands in that
+// thread. There is no default channel — the agent answers wherever it is
+// mentioned or DM'd, and thread replies become instructions to it (ask for
+// a reply draft right in the thread).
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
@@ -311,19 +319,16 @@ if (slackAppConfigurationToken) {
 // %% [markdown]
 // ## 7. Make it daily (optional)
 //
-// Opt-in for script runs: set `SCHEDULE_DAILY=1` in `.env`. One cron
-// trigger and this runs every weekday morning without any of the code
-// above — each firing launches a fresh agent from the profile, and runs scan
-// non-overlapping 24-hour windows so there is no dedupe state to keep.
+// Set `SCHEDULE_DAILY=1` in `.env` and rerun this section: it creates one
+// cron trigger that launches a fresh scan every weekday at 9am. Each run
+// searches its own 24-hour window, so there is no dedupe state to keep.
 //
-// Note: agents launched from the profile have no Slack thread, so their
-// digests appear in the Omnara console. For daily digests in a Slack channel,
-// mention the bot there once each
-// firing then delivers to that thread.
+// Scheduled runs have no Slack thread, so their digests land in the Omnara
+// console. For daily digests in a Slack channel, mention the bot there once
+// — each firing then delivers to that thread.
 
 // %%
-// Scheduling is opt-in for a straight top-to-bottom run: set
-// SCHEDULE_DAILY=1 in .env to create the weekday cron trigger.
+// Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.
 if (env.SCHEDULE_DAILY === '1') {
   const { data: triggers } = await sdk.listCronTriggers({
     client,
@@ -360,6 +365,7 @@ if (env.SCHEDULE_DAILY === '1') {
 // %% [markdown]
 // ---
 //
-// That's the whole system: one config object, a secret, and a cron trigger. The
-// agent fetches X itself with `curl`, the filter rules are prompt engineering
-// you can read, and Slack is the delivery surface and steering wheel.
+// That's the whole system: one config object, a secret, and a cron trigger.
+// The agent fetches X itself with `curl`, the filter rules are plain prompt
+// text you can read and edit, and Slack is both the delivery surface and
+// the steering wheel.

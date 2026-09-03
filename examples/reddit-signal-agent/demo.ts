@@ -14,35 +14,32 @@
 // %% [markdown]
 // # Reddit Signal Agent — build your own
 //
-// A listening agent on Omnara: it searches Reddit for the last 24 hours of
-// conversation about **whatever you care about** — a product category, a
-// competitor, your own project — filters hard, and delivers a ≤5-item digest
-// to Slack. The agent is one config object — no service to deploy. Run this
-// file top to bottom and you have your own: pick the topic in one section,
-// and the rest wires it up and launches a run using the Omnara TypeScript SDK
-// (`@omnara/sdk`), on [Deno](https://docs.deno.com/runtime/).
+// An agent that watches Reddit for you. Each run it gathers the last 24
+// hours of posts about a topic you pick, filters out the noise, and delivers
+// a digest of at most five threads — each with why it matters and a
+// suggested action. The whole agent is one config object; there is no
+// service to deploy. Run this file top to bottom and you have your own.
 //
-// **No Reddit API key.** Reddit gates its Data API behind manual approval, so
-// this agent fetches through the [Apify MCP server](https://mcp.apify.com)
-// backed by a maintained Reddit scraper
-// ([trudax/reddit-scraper-lite](https://apify.com/trudax/reddit-scraper-lite),
-// pay-per-result). It also needs **no machine pool** — where the X signal
-// agent runs `curl` on a machine, this agent's entire fetch layer is the MCP
-// server. An Apify account token is the only credential.
+// **No Reddit API key.** Reddit's Data API requires manual approval, so this
+// agent fetches through [Apify's hosted MCP server](https://mcp.apify.com)
+// running a maintained scraper,
+// [trudax/reddit-scraper-lite](https://apify.com/trudax/reddit-scraper-lite).
+// It also needs **no machine pool**: the MCP server is the entire fetch
+// layer. An Apify account token is the only credential.
 //
-// Prereqs:
+// Before you run it:
 //
-// - An Omnara account ([app.omnara.com](https://app.omnara.com)) with a personal
-//   access token, and a free Apify account
-//   ([console.apify.com](https://console.apify.com/sign-up), no credit card) —
-//   the API token is under **Settings → Integrations**.
-// - `cp .env.example .env` in this folder, with `OMNARA_API_KEY` and
-//   `APIFY_TOKEN` set.
-// - Deno: `brew install deno`, then `deno install` once in this folder to
-//   fetch [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk) (see
-//   `package.json`). Run the demo with `deno run --allow-all demo.ts` — or
-//   open it as a notebook: this file is jupytext percent format, and
-//   `deno jupyter --install` registers the Deno kernel.
+// 1. Get an Omnara personal access token ([app.omnara.com](https://app.omnara.com)).
+// 2. Get a free Apify token ([console.apify.com](https://console.apify.com/sign-up),
+//    no credit card) — it's under **Settings → Integrations**.
+// 3. `cp .env.example .env` and fill in `OMNARA_API_KEY` and `APIFY_TOKEN`.
+// 4. Install [Deno](https://docs.deno.com/runtime/) (`brew install deno`),
+//    then run `deno install` once in this folder to fetch
+//    [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk).
+//
+// Then: `deno run --allow-all demo.ts`. Prefer notebook cells? This file is
+// jupytext percent format — open it in Jupyter with the Deno kernel
+// (`deno jupyter --install`).
 
 // %%
 import { load } from 'jsr:@std/dotenv'
@@ -51,17 +48,17 @@ import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omn
 const env = await load()
 
 const client = createOmnaraClient({
-  baseUrl: 'https://app.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken(env.OMNARA_API_KEY),
 })
 
 // %% [markdown]
 // ## 1. Where it lives
 //
-// New accounts come with a default org and a default project — take the first
-// of each. That's all this agent needs: unlike the X signal agent there is no
-// machine pool here, because the agent never runs a shell command. Its only
-// tools are the Apify MCP server and Omnara's built-in web tools.
+// Every account has a default org and a default project; the agent lives in
+// the first of each. Nothing else to provision — this agent never runs shell
+// commands, so it needs no machine. Its only tools are the Apify MCP server
+// and Omnara's built-in web tools.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
@@ -76,10 +73,10 @@ console.log('project:', project.name, project.id)
 // %% [markdown]
 // ## 2. The Apify token becomes a secret
 //
-// The Apify API token is stored as a project secret. The agent config will
-// reference only the `sec_…` ID — Omnara sends the value as the bearer token
-// on every request to the MCP server, and it never appears in the config or
-// the event log.
+// The token becomes a project secret, and the agent config references only
+// its `sec_…` ID. Omnara sends the value as the bearer token on each MCP
+// request; it never appears in the config or the event log. Rerunning this
+// section rotates the secret to the current `.env` value.
 
 // %%
 if (!env.APIFY_TOKEN) throw new Error('set APIFY_TOKEN in .env')
@@ -114,19 +111,20 @@ console.log(existingSecret ? 'secret updated:' : 'secret created:', secretId)
 // %% [markdown]
 // ## 3. Pick what to listen for
 //
-// This is the only section to edit to make the agent yours. `topic` steers the
-// filtering rules; `searches` and `subreddits` control what the scrape
-// returns — keyword phrases swept across all of Reddit (no boolean syntax;
-// one phrase per entry), plus the new-post feeds of the communities where
-// the conversation lives. That last part is Reddit's edge over X: your
-// audience clusters in a few known places — use it. The default listens for
-// managed-agents conversation — swap in whatever you want to track, then run
-// the rest of the file as usual.
+// This is the only section you need to edit. Three knobs:
+//
+// - `topic` — what the agent judges relevance against.
+// - `searches` — keyword phrases searched across all of Reddit. Reddit
+//   search has no boolean syntax, so keep one plain phrase per entry.
+// - `subreddits` — communities whose newest posts are scanned even when
+//   keyword search would miss them. This is Reddit's edge over X: your
+//   audience gathers in a few known places.
+//
+// The default listens for managed-agents conversation. Swap in your own,
+// then run the rest of the file as usual.
 
 // %%
-// What the agent listens for. topic steers the filtering; searches are
-// swept across all of Reddit (no OR syntax — one phrase per entry); each
-// subreddit's new-post feed is scanned even when search would miss it.
+// Edit these three to make the agent yours.
 const topic = 'managed-agent infrastructure'
 const searches = [
   'managed agents',
@@ -144,19 +142,20 @@ console.log('listening for:', topic)
 // %% [markdown]
 // ## 4. The agent — this object is the whole thing
 //
-// An instruction (templated with your topic and searches from above), a model,
-// the tools, and the MCP server it fetches through. The `mcp.reddit` block
-// points at Apify's hosted MCP server with the URL pinned to exactly one
-// scraper — the server then also exposes the run helpers (`get-actor-run`,
-// `get-dataset-items`) the flow needs, and nothing else. Omnara authenticates
-// every MCP request with the Apify token from the secret above.
+// One object holds everything: the instruction (templated with your topic
+// and searches), the model, the tools, and the MCP server it fetches
+// through.
 //
-// A scan is a three-step tool flow (start the scraper run → poll until it
-// finishes → fetch the dataset), and the instruction walks the agent through
-// it. One run covers both the keyword searches and the subreddit feeds, with
-// hard caps (`maxItems`, one run per scan) so it can never overshoot the
-// budget: 120 results ≈ $0.40 against Apify's free $5/month. Set the `model`
-// names from your console's **Models** page.
+// The `mcp.reddit` URL pins Apify's MCP server to exactly one scraper. The
+// server also exposes the two run helpers the flow needs (`get-actor-run`
+// and `get-dataset-items`) and nothing else, and Omnara authenticates every
+// request with the secret from step 2.
+//
+// A scan is three tool calls: start the scraper run, poll until it
+// finishes, fetch the results. One run covers both the keyword searches and
+// the subreddit feeds, and `maxItems` caps the spend: 120 results ≈ $0.40
+// against Apify's free $5/month. Set `model` to names from your console's
+// **Models** page.
 
 // %%
 const agent = {
@@ -182,8 +181,11 @@ calling trudax--reddit-scraper-lite with exactly:
 The call returns run metadata, not posts. Runs take several minutes: poll
 get-actor-run with the returned runId and waitSecs 45 until status is
 SUCCEEDED, then fetch the posts with get-dataset-items using the dataset
-id. Each item's url field is the reddit.com thread permalink; its link
-field may be a media file — always cite url. Subreddit-feed items are not
+id and limit 200. Always pass that limit: the tool returns only a small
+first page by default, silently dropping the rest — compare the returned
+total against the number of items you received and fetch the remainder
+with offset if any are missing. Each item's url field is the reddit.com
+thread permalink; its link field may be a media file — always cite url. Subreddit-feed items are not
 limited to the past day: discard anything whose createdAt is more than 24
 hours older than the newest item in the dataset.
 
@@ -262,13 +264,13 @@ console.log(existingProfile ? 'profile updated:' : 'profile created:', profile.i
 // ## 5. Launch a scan and watch it work
 //
 // Create an agent from the profile with a kickoff message, then follow its
-// event stream and print what it does: the scraper run, the polling, the
-// filtering, the digest. The SDK's `openAgentEventStream` is a real-time
-// server-sent event stream — no polling on our side.
+// event stream and print each step: the scraper run, the polling, the
+// filtering, the digest. `openAgentEventStream` is a real-time server-sent
+// event stream — nothing to poll on our side.
 //
-// Reddit scraper runs take a few minutes (it's a real browser behind the MCP
-// server), so expect a quiet stretch of `get-actor-run` calls in the middle —
-// that's the agent waiting on the scrape, not a hang.
+// The scrape itself takes a few minutes (a real browser runs behind the MCP
+// server), so expect a quiet stretch of `get-actor-run` calls in the middle.
+// That's the agent waiting on the scrape, not a hang.
 
 // %%
 const { data: launch } = await sdk.createAgent({
@@ -285,9 +287,9 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Stream events until the agent's turn ends (a model output that stops for
-// anything other than a tool call). Reconnects from the last seen sequence
-// if the stream drops.
+// Print events until the agent's turn ends — a model output whose stop
+// reason is anything but a tool call. If the stream drops, reconnect from
+// the last seen sequence.
 let after = 0
 for (let done = false; !done; ) {
   const { stream } = await openAgentEventStream({
@@ -322,14 +324,18 @@ console.log('\nDone. The agent stays available — message it from the console o
 // %% [markdown]
 // ## 6. Connect Slack (one-time, optional)
 //
-// Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` to a Slack **app configuration
-// token** from [api.slack.com/apps](https://api.slack.com/apps) and rerun this
-// file — it creates the Slack app and prints an OAuth URL to approve. Then
-// **invite the bot to a channel** (`/invite @your-bot`) and mention it — that
-// launches an agent, and its digest lands in that thread. Messages route to
-// wherever the agent was mentioned or DM'd; there is no default channel.
-// Thread replies become agent inputs, so the team can ask for reply drafts
-// right in the thread.
+// One-time setup:
+//
+// 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
+//    [api.slack.com/apps](https://api.slack.com/apps).
+// 2. Rerun this file (or just this section) and open the printed OAuth URL
+//    to install the Slack app.
+// 3. Invite the bot to a channel (`/invite @your-bot`) and mention it.
+//
+// Mentioning the bot launches an agent, and its digest lands in that
+// thread. There is no default channel — the agent answers wherever it is
+// mentioned or DM'd, and thread replies become instructions to it (ask for
+// a reply draft right in the thread).
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
@@ -349,19 +355,17 @@ if (slackAppConfigurationToken) {
 // %% [markdown]
 // ## 7. Make it daily (optional)
 //
-// Opt-in for script runs: set `SCHEDULE_DAILY=1` in `.env`. One cron
-// trigger and this runs every weekday morning without any of the code
-// above — each firing launches a fresh agent from the profile, and runs scan
-// non-overlapping 24-hour windows (`"time": "day"` in the scraper input) so
+// Set `SCHEDULE_DAILY=1` in `.env` and rerun this section: it creates one
+// cron trigger that launches a fresh scan every weekday at 9am. Each run
+// scans its own 24-hour window (`"time": "day"` in the scraper input), so
 // there is no dedupe state to keep.
 //
-// Note: agents launched from the profile have no Slack thread, so their
-// digests appear in the Omnara console. For daily digests in a Slack channel,
-// mention the bot there once — each firing then delivers to that thread.
+// Scheduled runs have no Slack thread, so their digests land in the Omnara
+// console. For daily digests in a Slack channel, mention the bot there once
+// — each firing then delivers to that thread.
 
 // %%
-// Scheduling is opt-in for a straight top-to-bottom run: set
-// SCHEDULE_DAILY=1 in .env to create the weekday cron trigger.
+// Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.
 if (env.SCHEDULE_DAILY === '1') {
   const { data: triggers } = await sdk.listCronTriggers({
     client,
@@ -398,13 +402,13 @@ if (env.SCHEDULE_DAILY === '1') {
 // %% [markdown]
 // ---
 //
-// That's the whole system: one config object, one secret, and a cron trigger.
-// The agent fetches Reddit through a hosted MCP server — no Reddit API key, no
-// machine, no scraper to maintain — the filter rules are prompt engineering
-// you can read, and Slack is the delivery surface and steering wheel.
+// That's the whole system: one config object, one secret, and a cron
+// trigger. No Reddit API key, no machine, no scraper code to maintain. The
+// filter rules are plain prompt text you can read and edit, and Slack is
+// both the delivery surface and the steering wheel.
 //
-// If you outgrow the scraper (higher volume, stricter compliance needs), the
-// fetch layer is one `mcp` block: swap in a different provider — e.g. Bright
-// Data's Reddit Scraper API via a machine + `curl`, like the
-// [X signal agent](../x-signal-agent) does — without touching the profile,
-// Slack, or cron sections.
+// If you outgrow the scraper (more volume, stricter compliance), the fetch
+// layer is just the `mcp` block: swap in another provider — for example
+// Bright Data via a machine and `curl`, the way the
+// [X signal agent](../x-signal-agent) fetches — without touching the
+// profile, Slack, or cron sections.

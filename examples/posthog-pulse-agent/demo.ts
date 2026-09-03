@@ -14,30 +14,29 @@
 // %% [markdown]
 // # PostHog Pulse Agent — live demo
 //
-// A daily product-metrics agent on Omnara: every morning it talks to your
-// PostHog project through [PostHog's hosted MCP server](https://posthog.com/docs/model-context-protocol),
+// An agent that reads your PostHog for you. Every morning it queries your
+// project through [PostHog's hosted MCP server](https://posthog.com/docs/model-context-protocol),
 // compares yesterday against the recent trend, and delivers a short **usage
-// pulse** to Slack — active users, event volume, top events, and callouts for
-// anything that moved. The agent is one config object — no service to deploy,
-// and (since its only tools are MCP + Slack delivery) no machine either. This
-// script wires it up and launches a run using the Omnara TypeScript SDK
-// (`@omnara/sdk`), on
-// [Deno](https://docs.deno.com/runtime/).
+// pulse**: active users, event volume, top events, and callouts for anything
+// that moved. The whole agent is one config object; there is no service to
+// deploy — and no machine either, since its only tools are MCP calls and
+// Slack delivery.
 //
-// Prereqs:
+// Before you run it:
 //
-// - An Omnara account ([app.omnara.com](https://app.omnara.com)) with a
-//   personal access token, and a PostHog personal API key created with the
-//   [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server)
-//   — the preset scopes the key to one PostHog project, and PostHog routes it
-//   to the right region automatically.
-// - `cp .env.example .env` in this folder, with `OMNARA_API_KEY` and
-//   `POSTHOG_API_KEY` set.
-// - Deno: `brew install deno`, then `deno install` once in this folder to
-//   fetch [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk) (see
-//   `package.json`). Run the demo with `deno run --allow-all demo.ts` — or
-//   open it as a notebook: this file is jupytext percent format, and
-//   `deno jupyter --install` registers the Deno kernel.
+// 1. Get an Omnara personal access token ([app.omnara.com](https://app.omnara.com)).
+// 2. Create a PostHog personal API key with the
+//    [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server).
+//    The preset scopes the key to one PostHog project and routes it to the
+//    right region automatically.
+// 3. `cp .env.example .env` and fill in `OMNARA_API_KEY` and `POSTHOG_API_KEY`.
+// 4. Install [Deno](https://docs.deno.com/runtime/) (`brew install deno`),
+//    then run `deno install` once in this folder to fetch
+//    [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk).
+//
+// Then: `deno run --allow-all demo.ts`. Prefer notebook cells? This file is
+// jupytext percent format — open it in Jupyter with the Deno kernel
+// (`deno jupyter --install`).
 
 // %%
 import { load } from 'jsr:@std/dotenv'
@@ -46,17 +45,17 @@ import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omn
 const env = await load()
 
 const client = createOmnaraClient({
-  baseUrl: 'https://app.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken(env.OMNARA_API_KEY),
 })
 
 // %% [markdown]
 // ## 1. Where it lives
 //
-// New accounts come with a default org and a default project — take the first
-// of each. Unlike agents that run commands, this one needs **no machine**: its
-// only tools are the PostHog MCP server (hosted by PostHog) and Slack
-// delivery, so there is nothing to provision.
+// Every account has a default org and a default project; the agent lives in
+// the first of each. It needs no machine: its only tools are the PostHog MCP
+// server (hosted by PostHog) and Slack delivery, so there is nothing to
+// provision.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
@@ -71,10 +70,11 @@ console.log('project:', project.name, project.id)
 // %% [markdown]
 // ## 2. The PostHog key becomes a secret
 //
-// The personal API key is stored as a project secret. The agent config will
-// reference only the `sec_…` ID from the MCP server's `auth` block — Omnara
-// attaches it as the `Authorization: Bearer` header on every MCP call at
-// runtime, and it never appears in the config or the event log.
+// The API key becomes a project secret, and the agent config references only
+// its `sec_…` ID from the MCP server's `auth` block. Omnara attaches the
+// value as the `Authorization: Bearer` header on every MCP call; it never
+// appears in the config or the event log. Rerunning this section rotates the
+// secret to the current `.env` value.
 
 // %%
 if (!env.POSTHOG_API_KEY) throw new Error('set POSTHOG_API_KEY in .env')
@@ -109,14 +109,14 @@ console.log(existingSecret ? 'secret updated:' : 'secret created:', secretId)
 // %% [markdown]
 // ## 3. The agent — this object is the whole thing
 //
-// An instruction, a model, one MCP server (PostHog's, authenticated with the
-// secret from the section above), and two delivery tools. The agent queries
-// PostHog through the MCP's own analytics tools — trends queries, schema
-// discovery, SQL — instead of raw API calls, and the MCP URL's `features`
-// filter means *only* those read-only tools exist as far as this agent is
-// concerned. What to gather, the call budget, and the report format all live
-// in the instruction — edit them in plain English and rerun this section. Set
-// the `model` names from your console's **Models** page.
+// One object holds everything: the instruction, the model, one MCP server
+// (PostHog's, authenticated with the secret above), and two delivery tools.
+//
+// The MCP URL's `features` filter narrows PostHog's tool catalog to the
+// read-only query surface, so as far as this agent is concerned no write
+// tools exist. What to gather, the call budget, and the report format are
+// plain English in the instruction — edit them and rerun this section. Set
+// `model` to names from your console's **Models** page.
 
 // %%
 const agent = {
@@ -212,10 +212,10 @@ console.log(existingProfile ? 'profile updated:' : 'profile created:', profile.i
 // ## 4. Launch a pulse and watch it work
 //
 // Create an agent from the profile with a kickoff message, then follow its
-// event stream and print what it does: the PostHog MCP calls (they appear as
-// `mcp__posthog__…` tools), the comparison against the trend, the pulse. The
-// SDK's `openAgentEventStream` is a real-time server-sent event stream — no
-// polling.
+// event stream and print each step: the PostHog MCP calls (they appear as
+// `mcp__posthog__…` tools), the comparison against the trend, the pulse.
+// `openAgentEventStream` is a real-time server-sent event stream — nothing
+// to poll on our side.
 
 // %%
 const { data: launch } = await sdk.createAgent({
@@ -232,9 +232,9 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Stream events until the agent's turn ends (a model output that stops for
-// anything other than a tool call). Reconnects from the last seen sequence
-// if the stream drops.
+// Print events until the agent's turn ends — a model output whose stop
+// reason is anything but a tool call. If the stream drops, reconnect from
+// the last seen sequence.
 let after = 0
 for (let done = false; !done; ) {
   const { stream } = await openAgentEventStream({
@@ -269,12 +269,17 @@ console.log('\nDone. The agent stays available — message it from the console o
 // %% [markdown]
 // ## 5. Connect Slack (one-time, optional)
 //
-// Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` to a Slack **app configuration
-// token** from [api.slack.com/apps](https://api.slack.com/apps) and rerun this
-// file — it creates the Slack app and prints an OAuth URL to approve. After that, daily
-// pulses land in Slack via `send_integration_message`, and thread replies
-// become agent inputs — so "why did signups spike?" in the thread gets
-// answered with fresh PostHog queries.
+// One-time setup:
+//
+// 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
+//    [api.slack.com/apps](https://api.slack.com/apps).
+// 2. Rerun this file (or just this section) and open the printed OAuth URL
+//    to install the Slack app.
+// 3. Invite the bot to a channel and mention it.
+//
+// Daily pulses then land in Slack, and thread replies become instructions —
+// "why did signups spike?" in the thread gets answered with fresh PostHog
+// queries.
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
@@ -294,15 +299,13 @@ if (slackAppConfigurationToken) {
 // %% [markdown]
 // ## 6. Make it daily
 //
-// Opt-in for script runs: set `SCHEDULE_DAILY=1` in `.env`. One cron
-// trigger and this runs every morning without any of the code above —
-// each firing launches a fresh agent from the profile. Every run reports on
-// "yesterday" in your PostHog project's timezone and recomputes the 7-day
-// baseline from scratch, so there is no state to keep between runs.
+// Set `SCHEDULE_DAILY=1` in `.env` and rerun this section: it creates one
+// cron trigger that launches a fresh pulse every morning at 9am. Each run
+// reports on "yesterday" in your PostHog project's timezone and recomputes
+// the 7-day baseline from scratch, so there is no state between runs.
 
 // %%
-// Scheduling is opt-in for a straight top-to-bottom run: set
-// SCHEDULE_DAILY=1 in .env to create the weekday cron trigger.
+// Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.
 if (env.SCHEDULE_DAILY === '1') {
   const { data: triggers } = await sdk.listCronTriggers({
     client,
@@ -335,21 +338,19 @@ if (env.SCHEDULE_DAILY === '1') {
     console.log('cron trigger created:', trigger.id, '- next fire:', trigger.next_fire_at)
   }
 } else {
-  console.log('skipped — set SCHEDULE_DAILY=1 in .env to schedule the weekday scan')
+  console.log('skipped — set SCHEDULE_DAILY=1 in .env to schedule the daily pulse')
 }
 
 // %% [markdown]
 // ---
 //
 // That's the whole system: one config object, a secret, and a cron trigger.
-// The agent queries PostHog through PostHog's own MCP server — no machine, no
-// curl, no API plumbing — the metrics and the report format are prompt
-// engineering you can read, and Slack is the delivery surface and steering
-// wheel: reply in the thread to dig into any number.
+// The agent queries PostHog through PostHog's own MCP server — no machine,
+// no curl, no API plumbing. The metrics and the report format are plain
+// prompt text you can read and edit, and Slack is both the delivery surface
+// and the steering wheel: reply in the thread to dig into any number.
 //
-// What deliberately isn't here: a machine (MCP + Slack delivery need none),
-// write access to PostHog (the instruction forbids mutating tools, and you
-// can tighten the key's scopes to read-only), dedupe or baseline state (every
-// run recomputes the 7-day average from scratch), and an unbounded report (two
-// standing queries, a hard call budget, and "steady day" as a first-class
-// outcome — a pulse the team ignores is worse than no pulse).
+// Just as important is what isn't here: no write access to PostHog (the
+// tool surface is read-only by construction), no state between runs (each
+// recomputes the 7-day average), and no unbounded report — two standing
+// queries, a hard call budget, and "steady day" as a first-class outcome.

@@ -14,39 +14,37 @@
 // %% [markdown]
 // # LinkedIn Signal Agent — build your own
 //
-// A listening agent on Omnara: it searches LinkedIn for the last 24 hours of
-// posts about **whatever you care about** — a product category, a competitor,
-// your own project — filters hard, and delivers a ≤5-item digest to Slack. The
-// agent is one config object — no service to deploy. Run this file top to
-// bottom and you have your own: pick the topic in one section, and the rest wires
-// it up and launches a run using the Omnara TypeScript SDK (`@omnara/sdk`), on
-// [Deno](https://docs.deno.com/runtime/).
+// An agent that watches LinkedIn for you. Each run it gathers the last 24
+// hours of posts about a topic you pick, filters out the noise, and delivers
+// a digest of at most five posts — each with why it matters and a suggested
+// action. The whole agent is one config object; there is no service to
+// deploy. Run this file top to bottom and you have your own.
 //
-// **No LinkedIn API key, no LinkedIn account.** LinkedIn's official API has no
-// public post search, and cookie-based tools risk the account behind the
-// cookie. This agent fetches through the [Apify MCP server](https://mcp.apify.com)
-// backed by two no-cookie scrapers —
+// **No LinkedIn API key, no LinkedIn account.** LinkedIn's official API has
+// no public post search, and cookie-based tools put the account behind the
+// cookie at risk. This agent fetches through
+// [Apify's hosted MCP server](https://mcp.apify.com) running two no-cookie
+// scrapers:
 // [linkedin-post-search](https://apify.com/harvestapi/linkedin-post-search)
-// for keywords,
+// for keywords and
 // [linkedin-profile-posts](https://apify.com/harvestapi/linkedin-profile-posts)
-// for tracked feeds — and, like the
-// [Reddit signal agent](../reddit-signal-agent), needs **no machine pool**:
-// the entire fetch layer is the MCP server. An Apify account token is the
-// only credential.
+// for tracked feeds. Like the [Reddit signal agent](../reddit-signal-agent)
+// it needs no machine pool — the MCP server is the entire fetch layer — and
+// an Apify account token is the only credential.
 //
-// Prereqs:
+// Before you run it:
 //
-// - An Omnara account ([app.omnara.com](https://app.omnara.com)) with a personal
-//   access token, and a free Apify account
-//   ([console.apify.com](https://console.apify.com/sign-up), no credit card) —
-//   the API token is under **Settings → Integrations**.
-// - `cp .env.example .env` in this folder, with `OMNARA_API_KEY` and
-//   `APIFY_TOKEN` set.
-// - Deno: `brew install deno`, then `deno install` once in this folder to
-//   fetch [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk) (see
-//   `package.json`). Run the demo with `deno run --allow-all demo.ts` — or
-//   open it as a notebook: this file is jupytext percent format, and
-//   `deno jupyter --install` registers the Deno kernel.
+// 1. Get an Omnara personal access token ([app.omnara.com](https://app.omnara.com)).
+// 2. Get a free Apify token ([console.apify.com](https://console.apify.com/sign-up),
+//    no credit card) — it's under **Settings → Integrations**.
+// 3. `cp .env.example .env` and fill in `OMNARA_API_KEY` and `APIFY_TOKEN`.
+// 4. Install [Deno](https://docs.deno.com/runtime/) (`brew install deno`),
+//    then run `deno install` once in this folder to fetch
+//    [`@omnara/sdk`](https://www.npmjs.com/package/@omnara/sdk).
+//
+// Then: `deno run --allow-all demo.ts`. Prefer notebook cells? This file is
+// jupytext percent format — open it in Jupyter with the Deno kernel
+// (`deno jupyter --install`).
 
 // %%
 import { load } from 'jsr:@std/dotenv'
@@ -55,17 +53,17 @@ import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omn
 const env = await load()
 
 const client = createOmnaraClient({
-  baseUrl: 'https://app.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken(env.OMNARA_API_KEY),
 })
 
 // %% [markdown]
 // ## 1. Where it lives
 //
-// New accounts come with a default org and a default project — take the first
-// of each. That's all this agent needs: like the Reddit signal agent there is
-// no machine pool here, because the agent never runs a shell command. Its only
-// tools are the Apify MCP server and Omnara's built-in web tools.
+// Every account has a default org and a default project; the agent lives in
+// the first of each. Nothing else to provision — this agent never runs shell
+// commands, so it needs no machine. Its only tools are the Apify MCP server
+// and Omnara's built-in web tools.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
@@ -80,11 +78,11 @@ console.log('project:', project.name, project.id)
 // %% [markdown]
 // ## 2. The Apify token becomes a secret
 //
-// The Apify API token is stored as a project secret. The agent config will
-// reference only the `sec_…` ID — Omnara sends the value as the bearer token
-// on every request to the MCP server, and it never appears in the config or
-// the event log. (If you already ran the Reddit example, this is a second,
-// independently rotatable secret.)
+// The token becomes a project secret, and the agent config references only
+// its `sec_…` ID. Omnara sends the value as the bearer token on each MCP
+// request; it never appears in the config or the event log. Rerunning this
+// section rotates the secret to the current `.env` value. (If you already
+// ran the Reddit example, this is a second, independently rotatable secret.)
 
 // %%
 if (!env.APIFY_TOKEN) throw new Error('set APIFY_TOKEN in .env')
@@ -119,27 +117,25 @@ console.log(existingSecret ? 'secret updated:' : 'secret created:', secretId)
 // %% [markdown]
 // ## 3. Pick what to listen for
 //
-// This is the only section to edit to make the agent yours. Three knobs:
+// This is the only section you need to edit. Three knobs:
 //
 // - `context` — who you are and who your audience is. The agent judges
 //   relevance against this, and it matters more than the queries: LinkedIn
 //   keyword search returns plenty of adjacent hype, so precision comes from
 //   the filter.
 // - `searchQueries` — LinkedIn post searches. Boolean syntax works (up to 5
-//   operators and 500 characters per query), and **cost scales per query**,
-//   so prefer one boolean query over many single ones. Empty array skips
+//   operators and 500 characters per query), and cost scales per query, so
+//   prefer one boolean query over several single ones. An empty array skips
 //   keyword search.
-// - `targets` — profile and company-page URLs whose last-day posts get
-//   scanned even when keyword search would miss them — the analogue of the
-//   Reddit agent's subreddits. Empty skips.
+// - `targets` — profile and company-page URLs whose last-day posts are
+//   scanned even when keyword search would miss them (the analogue of the
+//   Reddit agent's subreddits). An empty array skips tracked feeds.
 //
 // The default listens for agent-infrastructure conversation on behalf of
-// Omnara — swap in your own, then run the rest of the file as usual.
+// Omnara. Swap in your own, then run the rest of the file as usual.
 
 // %%
-// What the agent listens for. context drives the filtering; searchQueries
-// is the keyword sweep (billed per query — keep it to one or two); targets
-// are company/profile feeds scanned alongside the search.
+// Edit these to make the agent yours.
 const topic = 'managed-agent infrastructure'
 const context = `
 Omnara (app.omnara.com, github.com/omnara-ai/omnara) is an open-source
@@ -176,21 +172,24 @@ console.log('listening for:', topic)
 // %% [markdown]
 // ## 4. The agent — this object is the whole thing
 //
-// An instruction (templated with your context, queries, and targets from
-// above), a model, the tools, and the MCP server it fetches through. The
-// `mcp.linkedin` block pins Apify's hosted MCP server to exactly the two
-// scrapers plus their run helpers (`get-actor-run`, `get-dataset-items`),
-// and nothing else. Omnara authenticates every MCP request with the Apify
-// token from the secret above.
+// One object holds everything: the instruction (templated with your
+// context, queries, and targets), the model, the tools, and the MCP server
+// it fetches through. The `mcp.linkedin` URL pins Apify's MCP server to
+// exactly the two scrapers plus their run helpers (`get-actor-run` and
+// `get-dataset-items`), and Omnara authenticates every request with the
+// secret from step 2.
 //
 // A scan starts each scraper once, polls both runs, then fetches and pools
-// the two datasets. `postedLimit: "24h"` scopes both server-side, and
-// `maxPosts` hard-caps the spend: 200 search posts + 10 per tracked feed
-// ≈ 260 posts ≈ $0.52 per scan (~$11/month on a weekday cron — past Apify's
-// free $5 credit). The generous sweep cap matters: broad phrases can match
-// 200+ posts a day, and with `sortBy: "date"` a tight cap silently drops the
-// day's oldest matches — for a morning scan, that's yesterday's US business
-// hours. Set the `model` names from your console's **Models** page.
+// the two result sets. `postedLimit: "24h"` scopes both scrapers
+// server-side, and `maxPosts` caps the spend: 200 search posts + 10 per
+// tracked feed ≈ 260 posts ≈ $0.52 per scan (about $11/month on a weekday
+// cron — past Apify's free $5 credit).
+//
+// Why the search cap is generous: broad phrases can match 200+ posts a day,
+// and results arrive newest-first (`sortBy: "date"`), so a tight cap would
+// silently drop the day's oldest matches — for a morning scan, that's
+// yesterday's US business hours. Set `model` to names from your console's
+// **Models** page.
 
 // %%
 const agent = {
@@ -229,9 +228,12 @@ once, then polls and fetches each:
    Scraper runs can take a few minutes: keep polling get-actor-run with
    each runId and waitSecs 45 until its status is SUCCEEDED. Never start
    a second copy of a scrape because the first seems slow.
-4. Fetch each run's posts with get-dataset-items using its dataset id,
-   then pool the two sets and drop duplicates by linkedinUrl (a post can
-   match both). Each item has content (the post text), linkedinUrl (the
+4. Fetch each run's posts with get-dataset-items using its dataset id
+   and limit 300. Always pass that limit: the tool returns only a small
+   first page by default, silently dropping the rest — compare the
+   returned total against the number of items you received and fetch the
+   remainder with offset if any are missing. Then pool the two sets and
+   drop duplicates by linkedinUrl (a post can match both). Each item has content (the post text), linkedinUrl (the
    post permalink), postedAt.date, engagement (likes, comments, shares),
    and author with name, publicIdentifier, info (their headline), and
    linkedinUrl.
@@ -343,12 +345,12 @@ console.log(existingProfile ? 'profile updated:' : 'profile created:', profile.i
 // ## 5. Launch a scan and watch it work
 //
 // Create an agent from the profile with a kickoff message, then follow its
-// event stream and print what it does: the scraper run, the polling, the
-// filtering, the digest. The SDK's `openAgentEventStream` is a real-time
-// server-sent event stream — no polling on our side.
+// event stream and print each step: the scraper runs, the polling, the
+// filtering, the digest. `openAgentEventStream` is a real-time server-sent
+// event stream — nothing to poll on our side.
 //
-// LinkedIn scraper runs take a few minutes, so expect a quiet stretch of
-// `get-actor-run` calls in the middle — that's the agent waiting on the
+// The scrapes take a few minutes, so expect a quiet stretch of
+// `get-actor-run` calls in the middle. That's the agent waiting on the
 // scrape, not a hang.
 
 // %%
@@ -366,9 +368,9 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Stream events until the agent's turn ends (a model output that stops for
-// anything other than a tool call). Reconnects from the last seen sequence
-// if the stream drops.
+// Print events until the agent's turn ends — a model output whose stop
+// reason is anything but a tool call. If the stream drops, reconnect from
+// the last seen sequence.
 let after = 0
 for (let done = false; !done; ) {
   const { stream } = await openAgentEventStream({
@@ -403,14 +405,18 @@ console.log('\nDone. The agent stays available — message it from the console o
 // %% [markdown]
 // ## 6. Connect Slack (one-time, optional)
 //
-// Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` to a Slack **app configuration
-// token** from [api.slack.com/apps](https://api.slack.com/apps) and rerun this
-// file — it creates the Slack app and prints an OAuth URL to approve. Then
-// **invite the bot to a channel** (`/invite @your-bot`) and mention it — that
-// launches an agent, and its digest lands in that thread. Messages route to
-// wherever the agent was mentioned or DM'd; there is no default channel.
-// Thread replies become agent inputs, so the team can ask for reply drafts
-// right in the thread.
+// One-time setup:
+//
+// 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
+//    [api.slack.com/apps](https://api.slack.com/apps).
+// 2. Rerun this file (or just this section) and open the printed OAuth URL
+//    to install the Slack app.
+// 3. Invite the bot to a channel (`/invite @your-bot`) and mention it.
+//
+// Mentioning the bot launches an agent, and its digest lands in that
+// thread. There is no default channel — the agent answers wherever it is
+// mentioned or DM'd, and thread replies become instructions to it (ask for
+// a reply draft right in the thread).
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
@@ -433,19 +439,17 @@ if (slackAppConfigurationToken) {
 // %% [markdown]
 // ## 7. Make it daily (optional)
 //
-// Opt-in for script runs: set `SCHEDULE_DAILY=1` in `.env`. One cron
-// trigger and this runs every weekday morning without any of the code
-// above — each firing launches a fresh agent from the profile, and runs scan
-// non-overlapping 24-hour windows (`postedLimit: "24h"` in the scraper input)
+// Set `SCHEDULE_DAILY=1` in `.env` and rerun this section: it creates one
+// cron trigger that launches a fresh scan every weekday at 9am. Each run
+// scans its own 24-hour window (`postedLimit: "24h"` in the scraper input),
 // so there is no dedupe state to keep.
 //
-// Note: agents launched from the profile have no Slack thread, so their
-// digests appear in the Omnara console. For daily digests in a Slack channel,
-// mention the bot there once — each firing then delivers to that thread.
+// Scheduled runs have no Slack thread, so their digests land in the Omnara
+// console. For daily digests in a Slack channel, mention the bot there once
+// — each firing then delivers to that thread.
 
 // %%
-// Scheduling is opt-in for a straight top-to-bottom run: set
-// SCHEDULE_DAILY=1 in .env to create the weekday cron trigger.
+// Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.
 if (env.SCHEDULE_DAILY === '1') {
   const { data: triggers } = await sdk.listCronTriggers({
     client,
@@ -484,15 +488,15 @@ if (env.SCHEDULE_DAILY === '1') {
 // %% [markdown]
 // ---
 //
-// That's the whole system: one config object, one secret, and a cron trigger.
-// The agent fetches LinkedIn through a hosted MCP server — no LinkedIn API
-// key, no LinkedIn account or cookie, no machine, no scraper to maintain —
-// the filter rules are prompt engineering you can read, and Slack is the
-// delivery surface and steering wheel.
+// That's the whole system: one config object, one secret, and a cron
+// trigger. No LinkedIn API key, no account or cookie, no machine, no
+// scraper code to maintain. The filter rules are plain prompt text you can
+// read and edit, and Slack is both the delivery surface and the steering
+// wheel.
 //
 // Together with the [X](../x-signal-agent) and
-// [Reddit](../reddit-signal-agent) signal agents this makes a family: same
-// profile/Slack/cron skeleton, different fetch layer per platform — one
-// `mcp` block to swap if this scraper breaks or you outgrow it. One standing
-// caveat, sharper on LinkedIn than anywhere: scraping avoids the API-key
+// [Reddit](../reddit-signal-agent) signal agents this is a family: the same
+// profile/Slack/cron skeleton with a different fetch layer per platform —
+// one `mcp` block to swap if a scraper breaks or you outgrow it. One
+// standing caveat, sharpest on LinkedIn: scraping avoids the API-key
 // blocker, not the platform's terms — keep this internal-facing.
