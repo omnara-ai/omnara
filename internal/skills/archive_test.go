@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -484,4 +485,108 @@ func (zeroReader) Read(p []byte) (int, error) {
 		p[i] = 0
 	}
 	return len(p), nil
+}
+
+func TestExtractMetadataIgnoresMacOSMetadata(t *testing.T) {
+	raw := buildZip(t, map[string]string{
+		"pdf-tools/SKILL.md":                      sampleSkillMd,
+		"pdf-tools/.DS_Store":                     "junk",
+		"pdf-tools/scripts/extract.py":            "print('hi')\n",
+		"__MACOSX/._pdf-tools":                    "junk",
+		"__MACOSX/pdf-tools/._SKILL.md":           "junk",
+		"__MACOSX/pdf-tools/scripts/._extract.py": "junk",
+	})
+	meta, err := ExtractMetadata(FormatZip, raw)
+	if err != nil {
+		t.Fatalf("ExtractMetadata: %v", err)
+	}
+	if meta.RootDir != "pdf-tools" {
+		t.Fatalf("RootDir = %q", meta.RootDir)
+	}
+	files, err := ListFiles(FormatZip, raw)
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	if want := []string{"SKILL.md", "scripts/extract.py"}; !slices.Equal(paths, want) {
+		t.Fatalf("ListFiles = %v, want %v", paths, want)
+	}
+	dst := filepath.Join(t.TempDir(), "skill")
+	if err := ExtractInto(FormatZip, raw, dst); err != nil {
+		t.Fatalf("ExtractInto: %v", err)
+	}
+	for _, rel := range []string{".DS_Store", "../__MACOSX"} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
+			t.Fatalf("%s should not be extracted: %v", rel, err)
+		}
+	}
+	rewritten, err := ReplaceSkillMd(FormatZip, raw, sampleSkillMd)
+	if err != nil {
+		t.Fatalf("ReplaceSkillMd: %v", err)
+	}
+	entries, err := readZipEntries(rewritten)
+	if err != nil {
+		t.Fatalf("readZipEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("rewritten archive has %d entries, want 2", len(entries))
+	}
+}
+
+func TestExtractMetadataTarGzIgnoresMacOSMetadata(t *testing.T) {
+	raw := buildTarGz(t, map[string]string{
+		"pdf-tools/SKILL.md":            sampleSkillMd,
+		"pdf-tools/._SKILL.md":          "junk",
+		"pdf-tools/.DS_Store":           "junk",
+		"__MACOSX/pdf-tools/._SKILL.md": "junk",
+	})
+	if _, err := ExtractMetadata(FormatTarGz, raw); err != nil {
+		t.Fatalf("ExtractMetadata: %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "skill")
+	if err := ExtractInto(FormatTarGz, raw, dst); err != nil {
+		t.Fatalf("ExtractInto: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "._SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("._SKILL.md should not be extracted: %v", err)
+	}
+}
+
+func buildTarGzBomb(t *testing.T, name string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	payloadSize := int64(MaxExtractedBytes) + 1024
+	hdr := &tar.Header{Name: name, Mode: 0o644, Size: payloadSize, Typeflag: tar.TypeReg}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("bomb tar header: %v", err)
+	}
+	if _, err := io.CopyN(tw, &zeroReader{}, payloadSize); err != nil {
+		t.Fatalf("bomb tar write: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("bomb tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("bomb gz close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestTarGzMacOSMetadataBombIsRejected(t *testing.T) {
+	raw := buildTarGzBomb(t, "__MACOSX/pdf-tools/._SKILL.md")
+	if _, err := ExtractMetadata(FormatTarGz, raw); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ExtractMetadata: expected extraction-limit error, got %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "skill")
+	if err := ExtractInto(FormatTarGz, raw, dst); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ExtractInto: expected extraction-limit error, got %v", err)
+	}
+	if _, err := ReplaceSkillMd(FormatTarGz, raw, sampleSkillMd); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ReplaceSkillMd: expected extraction-limit error, got %v", err)
+	}
 }
