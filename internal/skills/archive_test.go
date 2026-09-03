@@ -554,3 +554,39 @@ func TestExtractMetadataTarGzIgnoresMacOSMetadata(t *testing.T) {
 		t.Fatalf("._SKILL.md should not be extracted: %v", err)
 	}
 }
+
+func buildTarGzBomb(t *testing.T, name string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	payloadSize := int64(MaxExtractedBytes) + 1024
+	hdr := &tar.Header{Name: name, Mode: 0o644, Size: payloadSize, Typeflag: tar.TypeReg}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("bomb tar header: %v", err)
+	}
+	if _, err := io.CopyN(tw, &zeroReader{}, payloadSize); err != nil {
+		t.Fatalf("bomb tar write: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("bomb tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("bomb gz close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestTarGzMacOSMetadataBombIsRejected(t *testing.T) {
+	raw := buildTarGzBomb(t, "__MACOSX/pdf-tools/._SKILL.md")
+	if _, err := ExtractMetadata(FormatTarGz, raw); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ExtractMetadata: expected extraction-limit error, got %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "skill")
+	if err := ExtractInto(FormatTarGz, raw, dst); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ExtractInto: expected extraction-limit error, got %v", err)
+	}
+	if _, err := ReplaceSkillMd(FormatTarGz, raw, sampleSkillMd); !errors.Is(err, errExtractionLimitExceeded) {
+		t.Fatalf("ReplaceSkillMd: expected extraction-limit error, got %v", err)
+	}
+}

@@ -300,11 +300,14 @@ func ReplaceSkillMd(format ArchiveFormat, raw []byte, skillMd string) ([]byte, e
 			if err != nil {
 				return nil, err
 			}
-			if isMacOSMetadata(cleaned) {
-				continue
-			}
 			if err := budget.accountEntry(cleaned); err != nil {
 				return nil, err
+			}
+			if isMacOSMetadata(cleaned) {
+				if err := skipTarEntry(budget, cleaned, header); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			switch header.Typeflag {
 			case tar.TypeDir:
@@ -473,6 +476,13 @@ func cleanEntryPath(raw string) (string, error) {
 		}
 	}
 	return cleaned, nil
+}
+
+func skipTarEntry(budget *extractionBudget, cleaned string, header *tar.Header) error {
+	if header.Typeflag != tar.TypeReg {
+		return nil
+	}
+	return budget.accountFileSize(cleaned, header.Size)
 }
 
 func isMacOSMetadata(cleaned string) bool {
@@ -727,11 +737,14 @@ func extractTarGz(raw []byte, absDst string) error {
 		if err != nil {
 			return err
 		}
-		if isMacOSMetadata(cleaned) {
-			continue
-		}
 		if err := budget.accountEntry(cleaned); err != nil {
 			return err
+		}
+		if isMacOSMetadata(cleaned) {
+			if err := skipTarEntry(budget, cleaned, header); err != nil {
+				return err
+			}
+			continue
 		}
 		segments := strings.SplitN(cleaned, "/", 2)
 		if root == "" {
