@@ -115,7 +115,9 @@ export function Login() {
               loading={isSubmitting}
             >
               Sign in
-              {lastUsedMethod === 'password' && <LastUsedBadge className="absolute right-3" />}
+              {lastUsedMethod === 'password' && (
+                <LastUsedBadge className="absolute right-3 top-1/2 -translate-y-1/2" />
+              )}
             </Button>
           </FieldGroup>
         </form>
