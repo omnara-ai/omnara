@@ -758,8 +758,14 @@ func TestUsageFromResponseReadsProviderCacheSpellings(t *testing.T) {
 		name string
 		body string
 	}{
-		{name: "openai details", body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":256}}`},
-		{name: "deepseek", body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":27}`},
+		{
+			name: "openai details",
+			body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":256}}`,
+		},
+		{
+			name: "deepseek",
+			body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":27}`,
+		},
 		{name: "moonshot", body: `{"prompt_tokens":283,"completion_tokens":2,"cached_tokens":256}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
