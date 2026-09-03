@@ -245,6 +245,10 @@ export function mcpRuntimeToolName(serverName: string, toolName: string) {
   return `mcp__${serverName}__${toolName}`
 }
 
+export function mcpToolEnabled(server: BasicMcpServer, toolName: string) {
+  return server.tools.find((tool) => tool.name === toolName)?.enabled ?? server.defaultEnabled
+}
+
 export function mcpRuntimeToolNameError(serverName: string, toolName: string): string | undefined {
   const runtimeName = mcpRuntimeToolName(serverName, toolName)
   if (runtimeName.length <= mcpRuntimeToolNameMaxLength) return undefined

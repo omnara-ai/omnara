@@ -6,6 +6,8 @@ import (
 	"unicode/utf8"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
 func TestSanitizeInitializationError(t *testing.T) {
@@ -19,10 +21,15 @@ func TestSanitizeInitializationError(t *testing.T) {
 }
 
 func TestValidateDiscoveredTools(t *testing.T) {
+	disabledTool := map[string]agentconfig.RuntimeMCPTool{
+		strings.Repeat("a", 60): {RemoteName: strings.Repeat("a", 60), Enabled: boolPtr(false)},
+		"search docs":           {RemoteName: "search docs", Enabled: boolPtr(false)},
+	}
 	tests := []struct {
-		name  string
-		tools []*sdkmcp.Tool
-		want  string
+		name   string
+		tools  []*sdkmcp.Tool
+		server agentconfig.RuntimeMCPServer
+		want   string
 	}{
 		{
 			name: "valid",
@@ -61,10 +68,43 @@ func TestValidateDiscoveredTools(t *testing.T) {
 			},
 			want: `duplicate tool name "search"`,
 		},
+		{
+			name: "unexposable names skipped when disabled by override",
+			tools: []*sdkmcp.Tool{
+				{Name: "search"},
+				{Name: strings.Repeat("a", 60)},
+				{Name: "search docs"},
+			},
+			server: agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true, Tools: disabledTool},
+		},
+		{
+			name: "unexposable names skipped when server disables tools by default",
+			tools: []*sdkmcp.Tool{
+				{Name: "search"},
+				{Name: strings.Repeat("a", 60)},
+			},
+			server: agentconfig.RuntimeMCPServer{
+				ServerKey: "docs",
+				Tools:     map[string]agentconfig.RuntimeMCPTool{"search": {RemoteName: "search", Enabled: boolPtr(true)}},
+			},
+		},
+		{
+			name: "duplicate disabled names still rejected",
+			tools: []*sdkmcp.Tool{
+				{Name: "search docs"},
+				{Name: "search docs"},
+			},
+			server: agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true, Tools: disabledTool},
+			want:   `duplicate tool name "search docs"`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateDiscoveredTools("docs", test.tools)
+			server := test.server
+			if server.ServerKey == "" {
+				server = agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true}
+			}
+			err := validateDiscoveredTools(server, test.tools)
 			if test.want == "" {
 				if err != nil {
 					t.Fatalf("validate discovered tools: %v", err)
@@ -76,4 +116,8 @@ func TestValidateDiscoveredTools(t *testing.T) {
 			}
 		})
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

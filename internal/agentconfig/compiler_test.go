@@ -317,6 +317,56 @@ mcp:
 	}
 }
 
+func TestCompileYAMLAllowsTooLongRuntimeToolNameWhenDisabled(t *testing.T) {
+	serverKey := strings.Repeat("a", 32)
+	remoteName := strings.Repeat("b", 32)
+	for name, source := range map[string]string{
+		"disabled_by_override": `
+mcp:
+  ` + serverKey + `:
+    url: https://example.com/mcp
+    tools:
+      ` + remoteName + `:
+        enabled: false
+`,
+		"disabled_by_server_default": `
+mcp:
+  ` + serverKey + `:
+    url: https://example.com/mcp
+    default_enabled: false
+    tools:
+      ` + remoteName + `:
+        permission:
+          mode: always_ask
+          parameters: {}
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+			if err != nil {
+				t.Fatalf("compile mcp config: %v", err)
+			}
+			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+			if err != nil {
+				t.Fatalf("runtime contract: %v", err)
+			}
+			if _, ok := contract.MCPServers[0].ResolveTool(remoteName); ok {
+				t.Fatal("tool with too-long runtime name should stay disabled")
+			}
+		})
+	}
+	if _, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+mcp:
+  `+serverKey+`:
+    url: https://example.com/mcp
+    tools:
+      "bad name":
+        enabled: false
+`)), CompileOptions{}); err == nil {
+		t.Fatal("disabled tool with malformed name should still be rejected")
+	}
+}
+
 func TestCompileYAMLRejectsInvalidMCPConfig(t *testing.T) {
 	for name, source := range map[string]string{
 		"server_key_underscore": `
@@ -336,6 +386,16 @@ mcp:
     tools:
       ` + strings.Repeat("b", 32) + `:
         enabled: true
+        permission:
+          mode: always_ask
+          parameters: {}
+`,
+		"runtime_tool_name_too_long_by_server_default": `
+mcp:
+  ` + strings.Repeat("a", 32) + `:
+    url: https://example.com/mcp
+    tools:
+      ` + strings.Repeat("b", 32) + `:
         permission:
           mode: always_ask
           parameters: {}

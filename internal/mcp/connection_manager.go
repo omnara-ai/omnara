@@ -285,7 +285,7 @@ func (m Manager) initialize(
 	if err != nil {
 		return executionstore.MCPConnectionRecord{}, fmt.Errorf("list mcp tools for %q: %w", conn.ServerKey, err)
 	}
-	if err := validateDiscoveredTools(conn.ServerKey, tools); err != nil {
+	if err := validateDiscoveredTools(server, tools); err != nil {
 		return executionstore.MCPConnectionRecord{}, fmt.Errorf(
 			"validate mcp tools for %q: %w",
 			conn.ServerKey,
@@ -313,14 +313,16 @@ func (m Manager) initialize(
 	return ready, nil
 }
 
-func validateDiscoveredTools(serverKey string, tools []*sdkmcp.Tool) error {
+func validateDiscoveredTools(server agentconfig.RuntimeMCPServer, tools []*sdkmcp.Tool) error {
 	seen := make(map[string]struct{}, len(tools))
 	for index, tool := range tools {
 		if tool == nil {
 			return fmt.Errorf("tool at index %d is null", index)
 		}
-		if err := toolcatalog.ValidateMCPRuntimeToolName(serverKey, tool.Name); err != nil {
-			return fmt.Errorf("tool name %q cannot be exposed to the model: %w", tool.Name, err)
+		if _, enabled := server.ResolveTool(tool.Name); enabled {
+			if err := toolcatalog.ValidateMCPRuntimeToolName(server.ServerKey, tool.Name); err != nil {
+				return fmt.Errorf("tool name %q cannot be exposed to the model: %w", tool.Name, err)
+			}
 		}
 		if _, duplicate := seen[tool.Name]; duplicate {
 			return fmt.Errorf("duplicate tool name %q", tool.Name)

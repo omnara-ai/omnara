@@ -9,6 +9,7 @@ import {
   createBasicConfigSession,
   mcpRuntimeToolNameError,
   mcpServerNameError,
+  mcpToolEnabled,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
@@ -649,6 +650,26 @@ describe('basic agent config names', () => {
         'but the model only accepts tool names of 64 characters or fewer. ' +
         'The tool name itself is too long to expose under any server name.',
     )
+  })
+
+  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
+    const [enabledByDefault, disabledByDefault] = fullConfig.mcpServers
+    if (!enabledByDefault || !disabledByDefault) throw new Error('fixture needs two servers')
+    const overrides = [
+      { name: 'on', enabled: true, permission: null },
+      { name: 'off', enabled: false, permission: null },
+      { name: 'inherit', enabled: null, permission: null },
+    ]
+    const enabled = { ...enabledByDefault, tools: overrides }
+    const disabled = { ...disabledByDefault, tools: overrides }
+    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 
   it('rejects duplicate MCP server keys', () => {
