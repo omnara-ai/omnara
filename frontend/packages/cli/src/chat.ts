@@ -251,6 +251,10 @@ export async function runChat(target: ChatTarget): Promise<void> {
     agentState = text == null ? undefined : { text, detail }
     if (text != null && workStart == null) workStart = Date.now()
   }
+  const pauseTurn = (): void => {
+    agentState = undefined
+    workStart = undefined
+  }
   const finishTurn = (): void => {
     agentState = undefined
     if (workStart == null) return
@@ -264,6 +268,9 @@ export async function runChat(target: ChatTarget): Promise<void> {
     if (stopReason === 'tool_use') setAgentState('running tools…')
     else finishTurn()
   }
+  const initialSequence = await loadHistory(client, path, terminal, toolCalls)
+  renderRunningTools()
+
   const spinner = setInterval(() => {
     if (agentState == null) {
       terminal.setStatus(undefined)
@@ -283,9 +290,6 @@ export async function runChat(target: ChatTarget): Promise<void> {
     )
   }, 120)
 
-  const initialSequence = await loadHistory(client, path, terminal, toolCalls)
-  renderRunningTools()
-
   const streamTask = (async () => {
     try {
       const frames = openAgentEventStream({
@@ -300,11 +304,13 @@ export async function runChat(target: ChatTarget): Promise<void> {
       for await (const frame of frames) {
         if (startsWork(frame)) setAgentState('working…')
         if ('event_kind' in frame) {
-          if (frame.event_kind === 'model_output') endTurn(frame.stop_reason)
+          if (frame.event_kind === 'model_output') deltas.complete(frame.model_call_context_id)
           printEvent(terminal, frame, streamedTextByContext, toolCalls)
           renderRunningTools()
+          if (frame.event_kind === 'model_output') endTurn(frame.stop_reason)
         } else if ('event' in frame) {
           const delta = frame.event
+          deltas.handle(frame)
           if (delta.kind === 'block_start') {
             if (delta.block.kind === 'tool_use') {
               if (!toolCalls.has(delta.block.tool_call_id)) {
@@ -329,7 +335,6 @@ export async function runChat(target: ChatTarget): Promise<void> {
           } else if (delta.kind === 'error') {
             finishTurn()
           }
-          deltas.handle(frame)
         }
       }
     } catch (error) {
@@ -399,7 +404,7 @@ export async function runChat(target: ChatTarget): Promise<void> {
     while (!abort.signal.aborted) {
       const interaction = pendingInteractions.shift()
       if (interaction != null) {
-        setAgentState(undefined)
+        pauseTurn()
         terminal.setStatus(undefined)
         terminal.lock()
         let answers: InteractionAnswer[] | undefined

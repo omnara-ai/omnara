@@ -42,6 +42,11 @@ export class DeltaRenderer {
     }
   }
 
+  complete(contextId: string): void {
+    if (this.contextId !== contextId) return
+    this.reset()
+  }
+
   reset(): void {
     this.flush()
     this.contextId = ''
