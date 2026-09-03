@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -44,13 +45,14 @@ func spawnSubagentForTest(
 	configID ID,
 	name, idempotencyKey string,
 	maxConcurrent *int,
+	options ...func(*executionstore.LaunchAgentInput),
 ) (executionstore.LaunchAgentResult, error) {
 	t.Helper()
 	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
 	if err != nil {
 		t.Fatalf("subagent actor params: %v", err)
 	}
-	return store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+	input := executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		AgentConfigID:  configID,
 		LaunchedBy:     systemPrincipalForTest(parent.ID),
@@ -63,7 +65,15 @@ func spawnSubagentForTest(
 			Handle:        "fork",
 			MaxConcurrent: maxConcurrent,
 		},
-	})
+	}
+	for _, option := range options {
+		option(&input)
+	}
+	return store.Execution().LaunchAgent(ctx, input)
+}
+
+func withoutLaunchMessage(input *executionstore.LaunchAgentInput) {
+	input.Message = ""
 }
 
 func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
@@ -371,4 +381,99 @@ func agentIDsForTest(agents []executionstore.AgentRecord) []string {
 		out = append(out, agent.ID.String())
 	}
 	return out
+}
+
+func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-question@example.com", "Subagent Question")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-question", "Subagent Question", subagentParentYAML+"tools:\n  ask_question: {}\n", now,
+	)
+	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-question-parent",
+	})
+	if err != nil {
+		t.Fatalf("launch parent: %v", err)
+	}
+	parent := parentLaunch.Agent
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "asker", "subagent-question-child", nil, withoutLaunchMessage,
+	)
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	runtimeLock, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx, testProjectID, child.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
+	)
+	if err != nil {
+		t.Fatalf("acquire child runtime lock: %v", err)
+	}
+	toolCallIDs := createReadyToolCallsForTest(
+		t, ctx, store, child.Agent.ID, user.ID, child.AgentConfig.ID, runtimeLock, "subagent-question",
+		[]toolCallSpecForTest{{
+			Label: "question",
+			Name:  "ask_question",
+			Input: json.RawMessage(`{"questions":[{"prompt":"Continue?","options":[{"label":"Yes"}]}]}`),
+		}},
+	)
+	form, err := interactionform.New(
+		"Need a decision",
+		nil,
+		[]interactionform.Question{{Prompt: "Continue?", Options: []interactionform.Option{{Label: "Yes"}}}},
+	)
+	if err != nil {
+		t.Fatalf("create question form: %v", err)
+	}
+	if _, err := store.Execution().ExecuteToolCall(
+		ctx,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       child.Agent.ID,
+			ToolCallID:    toolCallIDs["question"],
+			RuntimeLockID: runtimeLock.ID,
+		},
+		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			return executionstore.CreateQuestionForToolCall(
+				executionstore.CreateQuestionInteractionInput{Form: form},
+			), nil
+		},
+	); err != nil {
+		t.Fatalf("create child question: %v", err)
+	}
+
+	tree, err := store.Execution().ListAgentInteractionsForAgentTree(ctx, executionstore.ListAgentInteractionsForAgentTreeInput{
+		ProjectID: testProjectID,
+		AgentID:   parent.ID,
+		State:     executionstore.AgentInteractionStateOpen,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list tree interactions: %v", err)
+	}
+	if len(tree.Interactions) != 1 || tree.Interactions[0].AgentID != child.Agent.ID ||
+		tree.Interactions[0].AgentName != "asker" || tree.Interactions[0].SubagentHandle != "fork" {
+		t.Fatalf("tree interactions = %+v", tree.Interactions)
+	}
+	var kind string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT metadata->'subagent_message'->>'kind' FROM agent_inputs
+		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
+		testProjectID,
+		parent.ID,
+	).Scan(&kind); err != nil {
+		t.Fatalf("load parent question notification: %v", err)
+	}
+	if kind != "question" {
+		t.Fatalf("parent notification kind = %q", kind)
+	}
 }

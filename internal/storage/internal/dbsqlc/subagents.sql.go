@@ -325,6 +325,36 @@ func (q *Queries) GetAgentWaitByToolCall(ctx context.Context, arg GetAgentWaitBy
 	return i, err
 }
 
+const getOpenPermissionInteractionForAgent = `-- name: GetOpenPermissionInteractionForAgent :one
+SELECT interaction.id, interaction.tool_call_id, interaction.request
+FROM agent_interactions interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+WHERE agent.project_id = $1
+  AND interaction.agent_id = $2
+  AND interaction.interaction_kind = 'permission'
+  AND interaction.state = 'open'
+ORDER BY interaction.created_at DESC, interaction.id DESC
+LIMIT 1
+`
+
+type GetOpenPermissionInteractionForAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type GetOpenPermissionInteractionForAgentRow struct {
+	ID         uuid.UUID
+	ToolCallID uuid.UUID
+	Request    json.RawMessage
+}
+
+func (q *Queries) GetOpenPermissionInteractionForAgent(ctx context.Context, arg GetOpenPermissionInteractionForAgentParams) (GetOpenPermissionInteractionForAgentRow, error) {
+	row := q.db.QueryRow(ctx, getOpenPermissionInteractionForAgent, arg.ProjectID, arg.AgentID)
+	var i GetOpenPermissionInteractionForAgentRow
+	err := row.Scan(&i.ID, &i.ToolCallID, &i.Request)
+	return i, err
+}
+
 const getOpenQuestionInteractionForAgent = `-- name: GetOpenQuestionInteractionForAgent :one
 SELECT interaction.id, interaction.tool_call_id, interaction.request
 FROM agent_interactions interaction
@@ -531,6 +561,98 @@ func (q *Queries) ListAgentDescendantIDs(ctx context.Context, arg ListAgentDesce
 	return items, nil
 }
 
+const listAgentInteractionsForAgents = `-- name: ListAgentInteractionsForAgents :many
+SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
+       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       agent.name AS agent_name, agent.subagent_handle
+FROM agent_interaction_read_projection interaction
+JOIN agents agent ON agent.project_id = interaction.project_id
+  AND agent.id = interaction.agent_id
+WHERE interaction.project_id = $1
+  AND interaction.agent_id = ANY($2::uuid[])
+  AND ($3::text = '' OR interaction.state = $3)
+  AND (
+    $4::timestamptz IS NULL
+    OR (interaction.created_at, interaction.id) > ($4::timestamptz, $5::uuid)
+  )
+ORDER BY interaction.created_at ASC, interaction.id ASC
+LIMIT $6::bigint
+`
+
+type ListAgentInteractionsForAgentsParams struct {
+	ProjectID       uuid.UUID
+	AgentIds        []uuid.UUID
+	State           string
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
+}
+
+type ListAgentInteractionsForAgentsRow struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	ModelCallContextID uuid.UUID
+	ToolCallID         uuid.UUID
+	ProviderCallID     string
+	InteractionKind    string
+	State              string
+	Request            json.RawMessage
+	Resolution         json.RawMessage
+	ResolvedByInputID  *uuid.UUID
+	CreatedAt          time.Time
+	ResolvedAt         *time.Time
+	AgentName          string
+	SubagentHandle     string
+}
+
+func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAgentInteractionsForAgentsParams) ([]ListAgentInteractionsForAgentsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentInteractionsForAgents,
+		arg.ProjectID,
+		arg.AgentIds,
+		arg.State,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentInteractionsForAgentsRow{}
+	for rows.Next() {
+		var i ListAgentInteractionsForAgentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.ModelCallContextID,
+			&i.ToolCallID,
+			&i.ProviderCallID,
+			&i.InteractionKind,
+			&i.State,
+			&i.Request,
+			&i.Resolution,
+			&i.ResolvedByInputID,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.AgentName,
+			&i.SubagentHandle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentWaitTargets = `-- name: ListAgentWaitTargets :many
 SELECT target.target_agent_id,
        target.state,
@@ -607,6 +729,13 @@ SELECT agent.id,
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
        ) AS has_open_question,
+       EXISTS (
+         SELECT 1
+         FROM agent_interactions interaction
+         WHERE interaction.agent_id = agent.id
+           AND interaction.interaction_kind = 'permission'
+           AND interaction.state = 'open'
+       ) AS has_open_permission,
        (
          EXISTS (
            SELECT 1
@@ -643,16 +772,17 @@ type ListChildAgentsParams struct {
 }
 
 type ListChildAgentsRow struct {
-	ID              uuid.UUID
-	Name            string
-	State           string
-	SubagentHandle  string
-	CreatedAt       time.Time
-	ArchivedAt      *time.Time
-	LastActivityAt  time.Time
-	HasOpenQuestion bool
-	IsRunning       bool
-	HasModelOutput  bool
+	ID                uuid.UUID
+	Name              string
+	State             string
+	SubagentHandle    string
+	CreatedAt         time.Time
+	ArchivedAt        *time.Time
+	LastActivityAt    time.Time
+	HasOpenQuestion   bool
+	HasOpenPermission bool
+	IsRunning         bool
+	HasModelOutput    bool
 }
 
 func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams) ([]ListChildAgentsRow, error) {
@@ -679,6 +809,7 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.ArchivedAt,
 			&i.LastActivityAt,
 			&i.HasOpenQuestion,
+			&i.HasOpenPermission,
 			&i.IsRunning,
 			&i.HasModelOutput,
 		); err != nil {

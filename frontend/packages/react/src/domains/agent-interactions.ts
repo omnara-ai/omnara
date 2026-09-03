@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useOmnaraClient } from '../omnara-client'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
-const openInteractionsQuery = { state: 'open', limit: 100 } as const
+const openInteractionsQuery = { state: 'open', limit: 100, include_subagents: true } as const
 const activeAgentRefetchIntervalMs = 1000
 
 /** The query key for an agent's open interactions, shared by everything that
@@ -53,13 +53,15 @@ export function useResolveAgentInteraction(orgID: string, projectID: string, age
     mutationFn: async ({
       interactionID,
       body,
+      targetAgentID = agentID,
     }: {
       interactionID: string
       body: Parameters<typeof sdk.resolveAgentInteraction>[0]['body']
+      targetAgentID?: string
     }) => {
       const { data } = await sdk.resolveAgentInteraction({
         client,
-        path: { orgID, projectID, agentID, interactionID },
+        path: { orgID, projectID, agentID: targetAgentID, interactionID },
         body,
       })
       return data

@@ -2125,6 +2125,11 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    agent_name?: AgentName;
+    /**
+     * Present when the interaction belongs to a subagent of the listed agent.
+     */
+    subagent_handle?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;
@@ -9474,6 +9479,10 @@ export type ListAgentInteractionsData = {
     };
     query?: {
         state?: AgentInteractionState;
+        /**
+         * Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */
