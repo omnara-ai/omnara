@@ -2,6 +2,7 @@ package model
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -78,7 +79,11 @@ type promptCacheCapability struct {
 func promptCacheCapabilityFor(route PromptCacheRoute) promptCacheCapability {
 	switch route.APIFormat {
 	case modelprotocol.APIFormatAnthropicMessages:
-		return promptCacheCapability{explicit: true, longRetention: true}
+		return promptCacheCapability{
+			explicit: true,
+			longRetention: route.APIVariant != modelprotocol.APIVariantBedrock ||
+				bedrockOneHourCacheModel.MatchString(normalizedProviderModelSlug(route.ProviderModelSlug)),
+		}
 	case modelprotocol.APIFormatOpenAIResponses:
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
@@ -123,6 +128,10 @@ var openRouterExplicitCacheSlugs = map[string]bool{
 	"qwen/qwen3-coder-plus":  true,
 	"qwen/qwen3-coder-flash": true,
 }
+
+// Bedrock offers the one-hour cache on Claude 4.5 and newer:
+// https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+var bedrockOneHourCacheModel = regexp.MustCompile(`claude-(?:[a-z]+-)?(?:4-[5-9]|[5-9])(?:[-:]|$)`)
 
 func openRouterUsesExplicitCacheControl(slug string) bool {
 	return strings.HasPrefix(slug, "anthropic/claude-") || openRouterExplicitCacheSlugs[slug]

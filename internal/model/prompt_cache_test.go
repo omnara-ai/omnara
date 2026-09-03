@@ -34,6 +34,7 @@ func TestPlanPromptCache(t *testing.T) {
 	}
 	bedrock := anthropic
 	bedrock.APIVariant = modelprotocol.APIVariantBedrock
+	bedrock.ProviderModelSlug = "anthropic.claude-sonnet-5"
 	openRouterClaude := PromptCacheRoute{
 		APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
@@ -120,6 +121,31 @@ func TestPlanPromptCache(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := PlanPromptCache(tc.route, tc.bundle, tc.retention); got != tc.want {
 				t.Fatalf("PlanPromptCache = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBedrockOneHourCacheRequiresClaude45OrNewer(t *testing.T) {
+	bundle := modelcontext.Bundle{AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")}
+	for slug, want := range map[string]bool{
+		"anthropic.claude-sonnet-4-5-20250929-v1:0":   true,
+		"us.anthropic.claude-haiku-4-5-20251001-v1:0": true,
+		"anthropic.claude-opus-4-8":                   true,
+		"anthropic.claude-fable-5-1":                  true,
+		"anthropic.claude-sonnet-4-20250514-v1:0":     false,
+		"anthropic.claude-opus-4-1-20250805-v1:0":     false,
+		"anthropic.claude-3-7-sonnet-20250219-v1:0":   false,
+		"anthropic.claude-3-5-sonnet-20241022-v2:0":   false,
+	} {
+		t.Run(slug, func(t *testing.T) {
+			plan := PlanPromptCache(PromptCacheRoute{
+				APIFormat:         modelprotocol.APIFormatAnthropicMessages,
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				ProviderModelSlug: slug,
+			}, bundle, CacheRetentionLong)
+			if plan.LongRetention != want {
+				t.Fatalf("bedrock long retention for %s = %v, want %v", slug, plan.LongRetention, want)
 			}
 		})
 	}

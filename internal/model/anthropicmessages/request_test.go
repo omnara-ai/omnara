@@ -731,26 +731,36 @@ func TestPrepareDefaultsCacheBreakpointsToShortRetention(t *testing.T) {
 	}
 }
 
-func TestPrepareLongRetentionOnBedrockUsesOneHourTTL(t *testing.T) {
-	client := Client{
-		EndpointPath:      testEndpointPath,
-		ProviderModelSlug: "anthropic.claude-sonnet-5",
-		APIVariant:        modelprotocol.APIVariantBedrock,
-	}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			Messages:     []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
-			ToolSpecs:    []modelcontext.ToolSpec{{Name: "tool_1"}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionLong},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	body := string(prepared.Body)
-	if strings.Count(body, "cache_control") != 3 || strings.Count(body, `"ttl":"1h"`) != 3 {
-		t.Fatalf("want three one-hour cache breakpoints on bedrock: %s", body)
+func TestPrepareLongRetentionOnBedrockFollowsModelSupport(t *testing.T) {
+	for _, tc := range []struct {
+		slug        string
+		wantOneHour int
+	}{
+		{slug: "anthropic.claude-sonnet-5", wantOneHour: 3},
+		{slug: "anthropic.claude-3-7-sonnet-20250219-v1:0", wantOneHour: 0},
+	} {
+		t.Run(tc.slug, func(t *testing.T) {
+			client := Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: tc.slug,
+				APIVariant:        modelprotocol.APIVariantBedrock,
+			}
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					SystemPrompt: "sys",
+					Messages:     []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+					ToolSpecs:    []modelcontext.ToolSpec{{Name: "tool_1"}},
+				},
+				Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionLong},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			body := string(prepared.Body)
+			if strings.Count(body, "cache_control") != 3 || strings.Count(body, `"ttl":"1h"`) != tc.wantOneHour {
+				t.Fatalf("want three breakpoints with %d one-hour ttls: %s", tc.wantOneHour, body)
+			}
+		})
 	}
 }
 

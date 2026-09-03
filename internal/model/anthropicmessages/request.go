@@ -44,7 +44,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		return nil, err
 	}
 	control := cacheControl(model.PlanPromptCache(
-		model.PromptCacheRoute{APIFormat: modelprotocol.APIFormatAnthropicMessages, APIVariant: c.APIVariant},
+		model.PromptCacheRoute{
+			APIFormat:         modelprotocol.APIFormatAnthropicMessages,
+			APIVariant:        c.APIVariant,
+			ProviderModelSlug: providerModelSlug,
+		},
 		input.Context,
 		input.Policy.CacheRetention,
 	))
