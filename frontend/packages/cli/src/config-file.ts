@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { zJsonText } from '@omnara/sdk'
 import { zOrganizationId, zProjectId } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -29,15 +30,6 @@ function warnConfigIgnored(message: string): void {
   warnedAboutConfig = true
   console.error(message)
 }
-
-const zJsonText = z.string().transform((raw, ctx) => {
-  try {
-    return z.json().parse(JSON.parse(raw))
-  } catch (error) {
-    ctx.addIssue(error instanceof Error ? error.message : String(error))
-    return z.NEVER
-  }
-})
 
 type ConfigLoad = { readable: true; file: ConfigFile } | { readable: false; reason: string }
 

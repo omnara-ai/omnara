@@ -5,9 +5,8 @@ const zRenderValue = z.json()
 export type RenderValue = z.output<typeof zRenderValue>
 export const zOptionalRenderValue = zRenderValue.optional()
 
-const zScalar = z.union([z.string(), z.number(), z.boolean(), z.null()])
-const zRow = z.record(z.string(), zRenderValue)
-type Row = z.output<typeof zRow>
+type Scalar = string | number | boolean | null
+type Row = Record<string, RenderValue>
 const zListEnvelope = z.strictObject({
   data: z.array(zRenderValue),
   next_cursor: z.string().nullable(),
@@ -30,22 +29,22 @@ function dim(text: string): string {
   return styled('2', text)
 }
 
-function isScalar(value: RenderValue | undefined): boolean {
-  return value === undefined || zScalar.safeParse(value).success
+function isScalar(value: RenderValue | undefined): value is Scalar | undefined {
+  return typeof value !== 'object' || value === null
+}
+
+function isRow(value: RenderValue): value is Row {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function objectRows(values: RenderValue[]): Row[] | undefined {
-  const rows = values.flatMap((value) => {
-    const row = zRow.safeParse(value)
-    return row.success ? [row.data] : []
-  })
+  const rows = values.flatMap((value) => (isRow(value) ? [value] : []))
   return rows.length === values.length ? rows : undefined
 }
 
 function cell(value: RenderValue | undefined): string {
   if (value === null || value === undefined || value === '') return '–'
-  const scalar = zScalar.safeParse(value)
-  return scalar.success ? formatTimestamp(String(scalar.data)) : JSON.stringify(value)
+  return isScalar(value) ? formatTimestamp(String(value)) : JSON.stringify(value)
 }
 
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -182,9 +181,8 @@ function printValue(value: RenderValue, indent: number, columns?: readonly strin
     for (const item of value) console.log(indented(indent, cell(item)))
     return
   }
-  const row = zRow.safeParse(value)
-  if (row.success) {
-    printObject(row.data, indent)
+  if (isRow(value)) {
+    printObject(value, indent)
     return
   }
   console.log(indented(indent, cell(value)))

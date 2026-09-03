@@ -1,4 +1,5 @@
-import type { AgentConfigModel, InlineMediaContentBlock } from '@omnara/sdk'
+import type { AgentConfigModel } from '@omnara/sdk'
+import { zInlineMediaContentBlock } from '@omnara/sdk/zod'
 import { describe, expect, it, vi } from 'vitest'
 
 import { agentConfigModel } from '@/test/fixtures'
@@ -9,33 +10,9 @@ function model(overrides: Partial<AgentConfigModel> = {}): AgentConfigModel {
   return agentConfigModel(overrides)
 }
 
-const canonicalMediaTypes = {
-  'image/png': true,
-  'image/jpeg': true,
-  'image/gif': true,
-  'image/webp': true,
-  'application/pdf': true,
-  'text/plain': true,
-  'text/markdown': true,
-  'text/csv': true,
-  'text/tab-separated-values': true,
-  'text/x-iif': true,
-  'application/msword': true,
-  'application/rtf': true,
-  'application/vnd.oasis.opendocument.text': true,
-  'application/vnd.apple.pages': true,
-  'application/vnd.apple.keynote': true,
-  'application/vnd.apple.iwork': true,
-  'application/vnd.ms-powerpoint': true,
-  'application/vnd.ms-excel': true,
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
-} satisfies Record<InlineMediaContentBlock['media_type'], true>
-
 describe('selectAgentAttachment', () => {
   it('accepts every canonical attachment media type', async () => {
-    for (const mediaType of Object.keys(canonicalMediaTypes)) {
+    for (const mediaType of zInlineMediaContentBlock.shape.media_type.options) {
       const content = mediaType.startsWith('text/') ? 'text' : new Uint8Array([0xff])
       const selected = await selectAgentAttachment(
         new File([content], 'attachment', { type: mediaType }),

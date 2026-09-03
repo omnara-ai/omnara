@@ -18,8 +18,11 @@ const zScalarKind = z.union([
   z.number().transform((): FlagValueKind => 'number'),
   z.boolean().transform((): FlagValueKind => 'boolean'),
 ])
-const zChoice = z.union([z.string(), z.number()])
-type Choice = z.output<typeof zChoice>
+type Choice = string | number
+
+function isChoice(value: JsonSchema['const']): value is Choice {
+  return typeof value === 'string' || typeof value === 'number'
+}
 
 export function kebabCase(name: string): string {
   return name
@@ -94,13 +97,9 @@ function flagKind(property: JsonSchema): FlagValueKind {
 }
 
 function enumChoices(property: JsonSchema): Choice[] | undefined {
-  const constant = zChoice.safeParse(property.const)
-  if (constant.success) return [constant.data]
+  if (isChoice(property.const)) return [property.const]
   if (property.enum !== undefined) {
-    const choices = property.enum.flatMap((value) => {
-      const choice = zChoice.safeParse(value)
-      return choice.success ? [choice.data] : []
-    })
+    const choices = property.enum.filter(isChoice)
     return choices.length > 0 ? choices : undefined
   }
   const variants = nonNullVariants(property)

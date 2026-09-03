@@ -1,5 +1,6 @@
 import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
 
+import { permissionSelection } from '@/components/agents/agentConfigBasicExtract'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { type BasicConfig, newMachineSource } from '@/components/agents/useAgentBuilderForm'
 
@@ -121,7 +122,7 @@ function catalogTools(catalog: ToolCatalog | undefined, names: readonly string[]
   for (const name of names) {
     const entry = entries.get(name)
     if (entry == null) continue
-    tools.push({ name, permission: structuredClone(entry.default_permission) })
+    tools.push({ name, permission: permissionSelection(entry.default_permission) })
   }
   return tools
 }

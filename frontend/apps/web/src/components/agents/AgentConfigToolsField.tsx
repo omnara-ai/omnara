@@ -1,6 +1,10 @@
-import type { ToolCatalog, ToolCatalogEntry, ToolPermissionSelection } from '@omnara/sdk'
+import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
 import { useState } from 'react'
 
+import {
+  type PermissionSelection,
+  permissionSelection,
+} from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -21,28 +25,26 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 export interface BasicTool {
   name: string
-  permission: ToolPermissionSelection | null
+  permission: PermissionSelection | null
 }
 
 const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
-const toolDescriptions = new Map(
-  Object.entries({
-    run_command: 'Run shell commands on an attached machine.',
-    write_process: 'Send input to a command that is still running.',
-    stop_process: 'Stop a command that is still running.',
-    read_process: 'Read output from a command, including after it finishes.',
-    list_processes: 'List commands and processes that are currently running.',
-    create_machine: 'Create another machine for the agent to use.',
-    delete_machine: 'Delete a machine created for the agent.',
-    list_machines: 'List the machines available to the agent.',
-    inspect_machine: 'View details about a machine available to the agent.',
-    upload_artifact: 'Create an artifact from a regular file on an attached machine.',
-    download_artifact: 'Copy an artifact to an attached machine.',
-    ask_question: 'Ask the user a question and wait for their response.',
-    web_search: 'Search the public web for current information.',
-    web_fetch: 'Read the contents of a public webpage.',
-  }),
-)
+const toolDescriptions = new Map([
+  ['run_command', 'Run shell commands on an attached machine.'],
+  ['write_process', 'Send input to a command that is still running.'],
+  ['stop_process', 'Stop a command that is still running.'],
+  ['read_process', 'Read output from a command, including after it finishes.'],
+  ['list_processes', 'List commands and processes that are currently running.'],
+  ['create_machine', 'Create another machine for the agent to use.'],
+  ['delete_machine', 'Delete a machine created for the agent.'],
+  ['list_machines', 'List the machines available to the agent.'],
+  ['inspect_machine', 'View details about a machine available to the agent.'],
+  ['upload_artifact', 'Create an artifact from a regular file on an attached machine.'],
+  ['download_artifact', 'Copy an artifact to an attached machine.'],
+  ['ask_question', 'Ask the user a question and wait for their response.'],
+  ['web_search', 'Search the public web for current information.'],
+  ['web_fetch', 'Read the contents of a public webpage.'],
+])
 
 export function AgentConfigToolsField({
   catalog,
@@ -89,7 +91,7 @@ export function AgentConfigToolsField({
                     ...tools,
                     {
                       name: entry.name,
-                      permission: structuredClone(entry.default_permission),
+                      permission: permissionSelection(entry.default_permission),
                     },
                   ])
                 }}

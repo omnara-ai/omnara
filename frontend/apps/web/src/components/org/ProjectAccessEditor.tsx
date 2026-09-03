@@ -100,7 +100,9 @@ function LoadError({
         className="mt-3"
         disabled={retrying}
         loading={retrying}
-        onClick={onRetry}
+        onClick={() => {
+          onRetry()
+        }}
       >
         Retry
       </Button>
@@ -241,7 +243,9 @@ export function ProjectAccessEditor({
       <LoadError
         message={errorMessage(accessQuery.error, 'Could not load project access.')}
         retrying={accessQuery.isFetching}
-        onRetry={accessQuery.refetch}
+        onRetry={() => {
+          accessQuery.refetch()
+        }}
       />
     )
   }

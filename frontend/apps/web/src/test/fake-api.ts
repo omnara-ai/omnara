@@ -1,7 +1,7 @@
+import { zJsonText } from '@omnara/sdk'
 import { z } from 'zod'
 
 const jsonValue = z.json()
-const textBody = z.string()
 
 export type JsonValue = z.infer<typeof jsonValue>
 
@@ -38,24 +38,21 @@ export function neverResponds(): Promise<Response> {
   return new Promise(() => undefined)
 }
 
-function requestUrl(input: RequestInfo | URL): URL {
-  const href = input instanceof Request ? input.url : String(input)
-  return new URL(href, window.location.href)
-}
+const jsonBody = zJsonText.pipe(jsonValue)
 
-function requestBody(init: RequestInit | undefined): JsonValue | undefined {
-  const text = textBody.safeParse(init?.body)
-  return text.success && text.data !== '' ? jsonValue.parse(JSON.parse(text.data)) : undefined
+async function requestBody(request: Request): Promise<JsonValue | undefined> {
+  const text = await request.text()
+  return text === '' ? undefined : jsonBody.parse(text)
 }
 
 export function fakeApi(routes: FakeRoute[]): FakeApi {
   const requests: RecordedRequest[] = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
-    const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
+    const incoming = new Request(input, init)
     const request = {
-      method: method.toUpperCase(),
-      url: requestUrl(input),
-      body: requestBody(init),
+      method: incoming.method.toUpperCase(),
+      url: new URL(incoming.url, window.location.href),
+      body: await requestBody(incoming),
     }
     requests.push(request)
     const route = routes.find(

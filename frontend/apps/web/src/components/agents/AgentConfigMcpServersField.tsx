@@ -2,6 +2,7 @@ import { useServerInfo } from '@omnara/react'
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
+import { permissionSelection } from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
 import { AgentConfigMcpServerTools } from '@/components/agents/AgentConfigMcpServerTools'
@@ -60,7 +61,7 @@ function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer 
     id: crypto.randomUUID(),
     name: '',
     url: '',
-    permission: structuredClone(permissionProfile.default_permission),
+    permission: permissionSelection(permissionProfile.default_permission),
     defaultEnabled: true,
     authType: 'none',
     secretId: '',

@@ -22,6 +22,13 @@ async function validatorOutcome(
 }
 
 describe('relaxedSchema', () => {
+  it('reports the inner issues when the data does not match', () => {
+    const result = relaxedSchema(z.object({ a: z.string() })).safeParse({ a: 1 })
+    expect(result.success ? [] : result.error.issues).toMatchObject([
+      { code: 'invalid_type', path: ['a'], expected: 'string' },
+    ])
+  })
+
   it('accepts data that matches the schema', () => {
     expect(outcome(z.object({ a: z.string() }), { a: 'x' })).toBe('accepted')
   })

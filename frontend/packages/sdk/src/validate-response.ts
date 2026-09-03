@@ -46,9 +46,10 @@ export function isUnknownEnumError(error: z.ZodError): boolean {
 }
 
 export function relaxedSchema<S extends z.ZodType>(schema: S): z.ZodType<z.output<S>> {
-  return z.custom<z.output<S>>((value) => {
+  return z.custom<z.output<S>>().superRefine((value, ctx) => {
     const result = schema.safeParse(value, { reportInput: true })
-    return result.success || isUnknownEnumError(result.error)
+    if (result.success || isUnknownEnumError(result.error)) return
+    for (const issue of result.error.issues) ctx.addIssue({ ...issue })
   })
 }
 

@@ -351,7 +351,7 @@ interface PathPlan {
 }
 
 function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
-  const pathParams = path ? path.keyof().options : []
+  const pathParams = path ? Object.keys(path.shape) : []
   const configParams = CONFIG_PARAMS.filter(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
   )

@@ -1,7 +1,5 @@
-import type { ToolPermissionSelection } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
-import { z } from 'zod'
 
 import {
   extractBasicConfig,
@@ -10,6 +8,7 @@ import {
   type McpToolEntry,
   normalizeMultiline,
   type PermissionEntry,
+  type PermissionSelection,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -38,14 +37,14 @@ export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
 export interface BasicMcpTool {
   name: string
   enabled: boolean | null
-  permission: ToolPermissionSelection | null
+  permission: PermissionSelection | null
 }
 
 export interface BasicMcpServer {
   id: string
   name: string
   url: string
-  permission: ToolPermissionSelection | null
+  permission: PermissionSelection | null
   defaultEnabled: boolean
   authType: McpAuthType
   secretId: string
@@ -277,8 +276,6 @@ type YamlInput = WireValue | Node | YamlInput[]
 type Setter = (path: string[], value: YamlInput) => void
 type Deleter = (path: (string | number)[]) => void
 
-const jsonParameters = z.record(z.string(), z.json())
-
 function applyToDocument(
   doc: Document,
   baselineSource: string,
@@ -403,7 +400,7 @@ function machineSourceComparable(source: BasicMachineSource) {
 }
 
 function isWireObject(value: WireValue): value is WireObject {
-  return value !== null && value !== undefined && !Array.isArray(value) && value instanceof Object
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function deepEqual(a: WireValue, b: WireValue, depth = 0): boolean {
@@ -488,9 +485,8 @@ function mcpToolWire(tool: BasicMcpTool): McpToolEntry {
   return wire
 }
 
-function permissionWire(permission: ToolPermissionSelection): PermissionEntry {
-  const parameters = jsonParameters.parse(permission.parameters)
-  return Object.keys(parameters).length > 0
-    ? { mode: permission.mode, parameters }
+function permissionWire(permission: PermissionSelection): PermissionEntry {
+  return Object.keys(permission.parameters).length > 0
+    ? { mode: permission.mode, parameters: permission.parameters }
     : { mode: permission.mode }
 }

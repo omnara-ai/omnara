@@ -190,7 +190,7 @@ export function poolGrantUpdateRequest(
           ([key]) => !editableKeys.has(key),
         ),
       ),
-      ...(providerOptionsOverlay(provider, draft.providerOptions, clusterManaged) ?? {}),
+      ...providerOptionsOverlay(provider, draft.providerOptions, clusterManaged),
     }
   }
   return {

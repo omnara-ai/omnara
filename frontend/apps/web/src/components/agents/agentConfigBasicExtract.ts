@@ -18,12 +18,23 @@ import {
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
 
+const permissionParameters = z.record(z.string(), z.json())
+
 const permission = z.strictObject({
   mode: z.string(),
-  parameters: z.record(z.string(), z.json()).optional(),
+  parameters: permissionParameters.optional(),
 })
 
 export type PermissionEntry = z.infer<typeof permission>
+
+export interface PermissionSelection {
+  mode: PermissionEntry['mode']
+  parameters: z.output<typeof permissionParameters>
+}
+
+export function permissionSelection(selection: ToolPermissionSelection): PermissionSelection {
+  return { mode: selection.mode, parameters: permissionParameters.parse(selection.parameters) }
+}
 
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
@@ -135,7 +146,7 @@ export function normalizeMultiline(value: string) {
 
 function permissionDraft(
   value: z.infer<typeof permission> | undefined,
-): ToolPermissionSelection | null {
+): PermissionSelection | null {
   if (value == null) return null
   return { mode: value.mode, parameters: value.parameters ?? {} }
 }

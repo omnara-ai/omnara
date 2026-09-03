@@ -4,10 +4,12 @@ export const zJsonBody = z.json()
 
 export type JsonBody = z.infer<typeof zJsonBody>
 
-export async function jsonBody(response: Response): Promise<JsonBody | undefined> {
+export const zJsonText = z.string().transform((text, ctx) => {
   try {
-    return zJsonBody.parse(await response.clone().json())
-  } catch {
-    return undefined
+    const value: unknown = JSON.parse(text)
+    return value
+  } catch (error) {
+    ctx.addIssue({ code: 'custom', message: String(error), input: text, params: { cause: error } })
+    return z.NEVER
   }
-}
+})

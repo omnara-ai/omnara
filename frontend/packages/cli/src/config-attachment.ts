@@ -6,22 +6,20 @@ import * as z from 'zod'
 
 import { CliInputError } from './output.ts'
 
-const configSourceFields = {
+export const zConfigSourceAttachment = z.object({
   file: z
     .string()
     .min(1)
     .optional()
     .describe('path to an agent config file (.yaml, .yml, or .json)'),
   source: z.string().min(1).optional().describe('inline agent config source (YAML or JSON)'),
-}
-
-export const zConfigSourceAttachment = z.object(configSourceFields)
+})
 
 export type ConfigSourceAttachment = z.output<typeof zConfigSourceAttachment>
 
 export const zConfigAttachment = z.object({
   config: zAgentConfigId.optional().describe('existing agent config ID'),
-  ...configSourceFields,
+  ...zConfigSourceAttachment.shape,
 })
 
 export type ConfigAttachment = z.output<typeof zConfigAttachment>
