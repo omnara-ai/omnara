@@ -1,6 +1,6 @@
 {
   "imports": {
-    "@omnara/sdk": "npm:@omnara/sdk@^0.1.2",
+    "@omnara/sdk": "npm:@omnara/sdk@^0.1.7",
     "zod": "npm:zod@^4.4.3"
   },
   "unstable": ["sloppy-imports"]
