@@ -5,9 +5,8 @@ import * as z from 'zod'
 import {
   agentChatOp,
   agentEventsStreamOp,
-  agentInputOp,
   formatAgentEventList,
-  zListEventsCliQuery,
+  zAgentInputCliBody,
 } from './agent-commands.ts'
 import {
   currentProfileConfigId,
@@ -110,7 +109,14 @@ export const commandGroups: CommandGroup[] = [
         run: runAgentMcpAdd,
       }),
       agentChatOp,
-      agentInputOp,
+      op({
+        verb: 'input',
+        summary: 'Send input to an agent',
+        fn: sdk.createAgentInput,
+        format: (response) => formatRecord()(response.agent_input),
+        path: schemas.zCreateAgentInputPath,
+        body: zAgentInputCliBody,
+      }),
     ],
     groups: [
       {
@@ -124,7 +130,10 @@ export const commandGroups: CommandGroup[] = [
             fn: sdk.listEvents,
             format: formatAgentEventList,
             path: schemas.zListEventsPath,
-            query: zListEventsCliQuery,
+            query: schemas.zListEventsQuery.extend({
+              before_sequence: z.int().gte(0).optional(),
+              after_sequence: z.int().gte(0).optional(),
+            }),
           }),
           agentEventsStreamOp,
         ],

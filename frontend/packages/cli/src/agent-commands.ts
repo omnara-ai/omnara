@@ -1,5 +1,5 @@
 import type { AgentEvent, ListAgentEventsResponse } from '@omnara/sdk'
-import { openAgentEventStream, sdk } from '@omnara/sdk'
+import { openAgentEventStream } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import type { Command } from 'commander'
 import * as z from 'zod'
@@ -9,24 +9,17 @@ import type { CliConfig } from './config.ts'
 import { blockText } from './content-blocks.ts'
 import {
   type CustomSpec,
-  op,
   parseNumberFlag,
   parseWithSchema,
   planPathParams,
   registerPathParams,
   resolvePathValues,
 } from './factory.ts'
-import { formatRecord, type OutputFormat } from './format.ts'
+import type { OutputFormat } from './format.ts'
 import { canPromptInteractively, promptAgentSelection } from './interactive.ts'
 import { abbreviate, CliInputError, runCliAction } from './output.ts'
 
 const zProjectScopePath = schemas.zListAgentsPath
-
-export const zListEventsCliQuery = z.object({
-  before_sequence: z.int().gte(0).optional(),
-  after_sequence: z.int().gte(0).optional(),
-  limit: z.int().gte(1).lte(500).optional(),
-})
 
 const previewWidth = 80
 
@@ -106,7 +99,7 @@ export const agentChatOp: CustomSpec = {
   },
 }
 
-const zAgentInputCliBody = schemas.zCreateAgentInputBody
+export const zAgentInputCliBody = schemas.zCreateAgentInputBody
   .extend({
     content_blocks: z
       .array(schemas.zCreateAgentInputContentBlock)
@@ -126,15 +119,6 @@ const zAgentInputCliBody = schemas.zCreateAgentInputBody
     ctx.addIssue('pass --message or --content-blocks')
     return z.NEVER
   })
-
-export const agentInputOp = op({
-  verb: 'input',
-  summary: 'Send input to an agent',
-  fn: sdk.createAgentInput,
-  format: (response) => formatRecord()(response.agent_input),
-  path: schemas.zCreateAgentInputPath,
-  body: zAgentInputCliBody,
-})
 
 export const agentEventsStreamOp: CustomSpec = {
   type: 'custom',
