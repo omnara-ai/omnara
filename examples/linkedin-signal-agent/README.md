@@ -37,10 +37,11 @@ deno jupyter --install    # register the Deno kernel with Jupyter
 
 cd examples/linkedin-signal-agent
 cp .env.example .env      # set OMNARA_API_KEY and APIFY_TOKEN
+deno install              # fetch @omnara/sdk into node_modules
 ```
 
 Deno is only needed to run the notebook (it provides the TypeScript Jupyter
-kernel and fetches `@omnara/sdk` with no install step). The SDK itself works
+kernel; `deno install` fetches `@omnara/sdk` from `package.json`). The SDK itself works
 on Node and Bun too — you can copy the cells into a plain script if you
 prefer.
 
