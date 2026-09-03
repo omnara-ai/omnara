@@ -74,6 +74,12 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 			want:   maxAttachmentRequestBodyBytes,
 		},
 		{
+			name:   "channel webhook gets the attachment cap",
+			method: http.MethodPost,
+			path:   "/api/v1/channel-connector/apps/iapp_abc/events",
+			want:   maxAttachmentRequestBodyBytes,
+		},
+		{
 			name:   "unrelated POST still capped to default",
 			method: http.MethodPost,
 			path:   "/api/v1/orgs",
@@ -98,5 +104,23 @@ func TestRequestBodyLimitDaemonArtifactUpload(t *testing.T) {
 	)
 	if got := requestBodyLimit(req); got != daemonprotocol.MaxArtifactUploadBytes {
 		t.Fatalf("artifact upload body limit = %d, want %d", got, daemonprotocol.MaxArtifactUploadBytes)
+	}
+}
+
+func TestChannelConnectorResponsesAreNeverCacheable(t *testing.T) {
+	handler := channelConnectorNoStore(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, path := range []string{
+		"/api/v1/channel-connector/apps/iapp_test/configuration",
+		"/api/v1/channel-connector/deliveries/claim",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if got := response.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", path, got)
+		}
 	}
 }

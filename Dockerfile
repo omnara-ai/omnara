@@ -1,19 +1,36 @@
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS web-build
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS frontend-deps
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/apps/channel-gateway/package.json apps/channel-gateway/package.json
 COPY frontend/apps/web/package.json apps/web/package.json
 COPY frontend/packages/react/package.json packages/react/package.json
 COPY frontend/packages/sdk/package.json packages/sdk/package.json
 RUN corepack enable && pnpm install --frozen-lockfile
+
+FROM frontend-deps AS web-build
 COPY frontend ./
 COPY api/openapi/openapi.yaml /src/api/openapi/openapi.yaml
 COPY internal/agentconfig/generated/agent_config.schema.json /src/internal/agentconfig/generated/agent_config.schema.json
 RUN pnpm run generate:api && pnpm run typecheck && pnpm run build \
     && rm apps/web/dist/.gitkeep
 
+FROM frontend-deps AS channel-gateway-build
+COPY frontend ./
+COPY api/openapi/openapi.yaml /src/api/openapi/openapi.yaml
+RUN pnpm run generate:api \
+    && pnpm --filter @omnara/channel-gateway typecheck \
+    && pnpm --filter @omnara/channel-gateway build \
+    && pnpm --filter @omnara/channel-gateway deploy --legacy --prod /out/channel-gateway
+
 FROM nginxinc/nginx-unprivileged:1.29.5-alpine@sha256:42a7d7f2ee23e9f5a1dcdf3647ba5c585bbd18f79e79cd817e70e8cd61c55779 AS web
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
+
+FROM gcr.io/distroless/nodejs24-debian12:nonroot@sha256:14d42e2511532589a7c7e01a753667a74fcc96266e137e8125006b87b0c32d0a AS channel-gateway
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --chown=nonroot:nonroot --from=channel-gateway-build /out/channel-gateway /app
+CMD ["/app/dist/index.js"]
 
 FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS go-base
 WORKDIR /src

@@ -17,6 +17,102 @@ export const zAgentName = z.string().refine(value => Array.from(value).length <=
  */
 export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
+export const zIntegrationAppId = z.string().regex(/^iapp_[a-z2-7]{26}$/);
+
+export const zIntegrationRouteId = z.string().regex(/^iroute_[a-z2-7]{26}$/);
+
+export const zIntegrationBindingId = z.string().regex(/^ibnd_[a-z2-7]{26}$/);
+
+export const zIntegrationDeliveryId = z.string().regex(/^idel_[a-z2-7]{26}$/);
+
+export const zIntegrationRuntimeUnitId = z.string().regex(/^irun_[a-z2-7]{26}$/);
+
+export const zChannelOpaqueObject = z.record(z.string(), z.unknown());
+
+export const zChannelConversation = z.object({
+    ref: z.string().min(1).max(2048),
+    kind: z.string().min(1).max(128),
+    display_name: z.string().max(512).optional(),
+    parent_ref: z.string().max(2048).optional(),
+    reply_to_ref: z.string().max(2048).optional(),
+    mentioned: z.boolean(),
+    direct: z.boolean(),
+    metadata: zChannelOpaqueObject
+});
+
+export const zChannelActor = z.object({
+    ref: z.string().min(1).max(512),
+    display_name: z.string().max(256),
+    metadata: zChannelOpaqueObject
+});
+
+export const zResolveChannelConnectorInteractionResponse = z.object({
+    status: z.enum(['resolved', 'already_resolved']),
+    text: z.string()
+});
+
+export const zChannelConnectorCapability = z.object({
+    connector_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
+    provider: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/)
+});
+
+export const zChannelConnectorClaimRequest = z.object({
+    owner: z.string().min(1).max(127).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,126}$/),
+    lease_ms: z.int().gte(1000).lte(300000),
+    limit: z.int().gte(1).lte(1000),
+    capability: zChannelConnectorCapability
+});
+
+export const zChannelDeliveryState = z.enum([
+    'pending',
+    'claimed',
+    'retry_wait',
+    'delivered',
+    'failed',
+    'unknown',
+    'canceled'
+]);
+
+export const zCompleteChannelConnectorDeliveryRequest = z.object({
+    claim_token: z.uuid(),
+    claim_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    outcome: z.enum([
+        'retry_wait',
+        'delivered',
+        'failed',
+        'unknown',
+        'canceled'
+    ]),
+    retry_after_ms: z.int().gte(1).lte(3600000).optional(),
+    provider_message_ref: z.string().max(2048),
+    last_error: zChannelOpaqueObject
+});
+
+export const zChannelRuntimeDesiredState = z.enum(['running', 'stopped']);
+
+export const zChannelRuntimeStatus = z.enum([
+    'idle',
+    'running',
+    'error',
+    'stopped'
+]);
+
+export const zHeartbeatChannelConnectorRuntimeUnitRequest = z.object({
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    lease_ms: z.int().gte(1000).lte(300000),
+    checkpoint_version: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }).optional(),
+    checkpoint: zChannelOpaqueObject.optional()
+});
+
+export const zReleaseChannelConnectorRuntimeUnitRequest = z.object({
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    checkpoint_version: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }).optional(),
+    checkpoint: zChannelOpaqueObject.optional(),
+    last_error: zChannelOpaqueObject
+});
+
 /**
  * Sort order for named resources that expose created and modified timestamps.
  */
@@ -149,6 +245,19 @@ export const zAgentEventId = z.string().regex(/^evt_[a-z2-7]{26}$/);
 export const zModelCallContextId = z.string().regex(/^mcc_[a-z2-7]{26}$/);
 
 export const zAgentInputId = z.string().regex(/^ain_[a-z2-7]{26}$/);
+
+export const zChannelInboundAcceptance = z.object({
+    route_id: zIntegrationRouteId,
+    agent_id: zAgentId,
+    target_id: z.string().regex(/^itgt_[a-z2-7]{26}$/),
+    binding_id: zIntegrationBindingId,
+    agent_input_id: zAgentInputId
+});
+
+export const zChannelInboundEventResponse = z.object({
+    accepted: z.array(zChannelInboundAcceptance),
+    ignored_routes: z.int().gte(0).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
+});
 
 export const zAgentMachineBindingId = z.string().regex(/^amb_[a-z2-7]{26}$/);
 
@@ -351,6 +460,80 @@ export const zInstallationId = z.string().regex(/^inst_[a-z2-7]{26}$/);
 export const zUserId = z.string().regex(/^usr_[a-z2-7]{26}$/);
 
 export const zTimestamp = z.iso.datetime({ offset: true });
+
+export const zChannelConnectorInstall = z.object({
+    id: z.string().regex(/^iin_[a-z2-7]{26}$/),
+    provider_tenant_id: z.string(),
+    provider_account_ref: z.string(),
+    provider_agent_display_name: z.string(),
+    provider_config: zChannelOpaqueObject,
+    provider_identity: zChannelOpaqueObject,
+    provider_metadata: zChannelOpaqueObject,
+    configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    updated_at: zTimestamp
+});
+
+export const zChannelConnectorDelivery = z.object({
+    id: zIntegrationDeliveryId,
+    integration_app_id: zIntegrationAppId,
+    integration_install_id: z.string().regex(/^iin_[a-z2-7]{26}$/),
+    integration_target_id: z.string().regex(/^itgt_[a-z2-7]{26}$/),
+    integration_target_binding_id: zIntegrationBindingId,
+    provider: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
+    connector_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
+    delivery_kind: z.string(),
+    payload_version: z.string(),
+    payload: zChannelOpaqueObject,
+    state: zChannelDeliveryState,
+    attempt_count: z.int().gte(0).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    available_at: zTimestamp,
+    claim_token: z.uuid().optional(),
+    claim_generation: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    install_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    claim_expires_at: zTimestamp.optional(),
+    notify_ref: z.uuid().optional(),
+    provider_message_ref: z.string().max(2048).optional(),
+    last_error: zChannelOpaqueObject.optional(),
+    completed_at: zTimestamp.optional(),
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zChannelConnectorDeliveriesResponse = z.object({
+    deliveries: z.array(zChannelConnectorDelivery)
+});
+
+export const zChannelConnectorRuntimeUnit = z.object({
+    id: zIntegrationRuntimeUnitId,
+    integration_app_id: zIntegrationAppId,
+    integration_install_id: z.string().regex(/^iin_[a-z2-7]{26}$/).optional(),
+    unit_key: z.string(),
+    runtime_kind: z.string(),
+    desired_state: zChannelRuntimeDesiredState,
+    spec_revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    configuration: zChannelOpaqueObject,
+    status: zChannelRuntimeStatus,
+    lease_owner: z.string().optional(),
+    lease_token: z.uuid().optional(),
+    lease_generation: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    leased_at: zTimestamp.optional(),
+    renewed_at: zTimestamp.optional(),
+    lease_expires_at: zTimestamp.optional(),
+    lease_spec_revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }).optional(),
+    lease_app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    lease_install_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    checkpoint_version: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    checkpoint_revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    checkpoint: zChannelOpaqueObject,
+    last_error: zChannelOpaqueObject,
+    created_at: zTimestamp,
+    updated_at: zTimestamp
+});
+
+export const zChannelConnectorRuntimeUnitsResponse = z.object({
+    runtime_units: z.array(zChannelConnectorRuntimeUnit)
+});
 
 export const zModelProviderConfig = z.object({
     id: zModelProviderConfigId,
@@ -590,7 +773,7 @@ export const zCreateIntegrationOAuthSetupRequest = z.object({
 });
 
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * A project-owned installation of a provider app in an external tenant or account. Native compatibility installations connect exactly one agent profile or agent; connector installations leave both agent_profile_id and agent_id unset and use routes and target bindings instead. Provider credentials are never returned.
  */
 export const zIntegrationInstall = z.object({
     id: zIntegrationInstallId,
@@ -681,6 +864,7 @@ export const zToolPermissionProfile = z.object({
 export const zToolCatalogEntry = z.object({
     name: z.string(),
     description: z.string(),
+    configurable: z.boolean().optional().default(true),
     default_permission: zToolPermissionSelection,
     permission_modes: z.array(zToolPermissionMode)
 });
@@ -1195,6 +1379,25 @@ export const zCreateAgentInputContentBlock = z.discriminatedUnion('type', [
     zInlineMediaContentBlock.extend({ type: z.literal('media') })
 ]);
 
+export const zChannelInboundEventRequest = z.object({
+    version: z.enum(['v1']),
+    provider_event_id: z.string().min(1).max(512),
+    external_tenant_id: z.string().max(512),
+    external_account_ref: z.string().min(1).max(512),
+    event_type: z.string().max(256),
+    conversation: zChannelConversation,
+    actor: zChannelActor,
+    content_blocks: z.array(zCreateAgentInputContentBlock).min(1).max(100),
+    occurred_at: zTimestamp,
+    metadata: zChannelOpaqueObject
+});
+
+export const zChannelRuntimeInboundEventRequest = z.object({
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    event: zChannelInboundEventRequest
+});
+
 export const zAgentInputContentBlock = z.discriminatedUnion('type', [
     zTextContentBlock.extend({ type: z.literal('text') }),
     zMediaRefContentBlock.extend({ type: z.literal('media_ref') })
@@ -1610,6 +1813,23 @@ export const zInteractionAnswer = z.object({
     text: z.string().optional()
 });
 
+export const zResolveChannelConnectorInteractionRequest = z.object({
+    version: z.enum(['v1']),
+    external_tenant_id: z.string().max(512),
+    external_account_ref: z.string().min(1).max(512),
+    integration_target_id: z.string().regex(/^itgt_[a-z2-7]{26}$/),
+    integration_target_binding_id: zIntegrationBindingId,
+    actor: zChannelActor,
+    answers: z.array(zInteractionAnswer).min(1),
+    metadata: zChannelOpaqueObject
+});
+
+export const zChannelRuntimeInteractionRequest = z.object({
+    lease_token: z.uuid(),
+    lease_generation: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    interaction: zResolveChannelConnectorInteractionRequest
+});
+
 export const zInteractionResolution = z.object({
     answers: z.array(zInteractionAnswer).min(1)
 });
@@ -1639,13 +1859,9 @@ export const zAgentInteraction = z.object({
 });
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for project members, external for API-managed actors, or the integration provider that supplied the actor.
  */
-export const zActorProvider = z.enum([
-    'omnara',
-    'slack',
-    'external'
-]);
+export const zActorProvider = z.string();
 
 export const zActor = z.object({
     id: zActorId,
@@ -1779,10 +1995,16 @@ export const zAwsCredentialsSecretMaterial = z.object({
     external_id: z.string().min(1).optional()
 });
 
+export const zIntegrationCredentialsSecretMaterial = z.object({
+    kind: z.enum(['integration_credentials']),
+    values: z.record(z.string(), z.string().min(1).max(65536))
+});
+
 export const zSecretMaterial = z.discriminatedUnion('kind', [
     zGenericSecretMaterial.extend({ kind: z.literal('generic') }),
     zOAuthTokenSetSecretMaterial.extend({ kind: z.literal('oauth_token_set') }),
-    zAwsCredentialsSecretMaterial.extend({ kind: z.literal('aws_credentials') })
+    zAwsCredentialsSecretMaterial.extend({ kind: z.literal('aws_credentials') }),
+    zIntegrationCredentialsSecretMaterial.extend({ kind: z.literal('integration_credentials') })
 ]);
 
 export const zCreateSecretRequest = z.object({
@@ -1809,8 +2031,41 @@ export const zSecretKind = z.enum([
     'generic',
     'oauth_token_set',
     'slack_app_credentials',
-    'aws_credentials'
+    'aws_credentials',
+    'integration_credentials'
 ]);
+
+export const zSecretKindResponse = z.string();
+
+export const zChannelConnectorApp = z.object({
+    id: zIntegrationAppId,
+    provider: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
+    provider_app_ref: z.string(),
+    display_name: z.string(),
+    connector_key: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,127}$/),
+    installation_credential_kind: zSecretKindResponse.optional(),
+    provider_config: zChannelOpaqueObject,
+    provider_metadata: zChannelOpaqueObject,
+    configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    updated_at: zTimestamp
+});
+
+export const zChannelCredentialPayload = z.object({
+    kind: zSecretKindResponse,
+    payload: zChannelOpaqueObject
+});
+
+export const zChannelConnectorAppConfiguration = z.object({
+    app: zChannelConnectorApp,
+    credential: zChannelCredentialPayload.optional()
+});
+
+export const zChannelConnectorInstallationConfiguration = z.object({
+    integration_app_id: zIntegrationAppId,
+    app_configuration_revision: z.coerce.bigint().gte(BigInt(1)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    install: zChannelConnectorInstall,
+    credential: zChannelCredentialPayload.optional()
+});
 
 export const zSecret = z.object({
     id: zSecretId,
@@ -1818,7 +2073,7 @@ export const zSecret = z.object({
     management_kind: zManagementKind,
     owner: zSecretOwner,
     name: zResourceName,
-    kind: zSecretKind,
+    kind: zSecretKindResponse,
     metadata: zMetadata,
     current_version_number: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     payload_keys: z.array(z.string()),
@@ -4500,3 +4755,131 @@ export const zDownloadDaemonArtifactPath = z.object({
  * Artifact bytes, served with the artifact's stored content type.
  */
 export const zDownloadDaemonArtifactResponse = z.string();
+
+export const zGetChannelConnectorAppConfigurationPath = z.object({
+    integrationAppID: zIntegrationAppId
+});
+
+/**
+ * Provider app configuration and its optional app-level credential.
+ */
+export const zGetChannelConnectorAppConfigurationResponse = zChannelConnectorAppConfiguration;
+
+export const zGetChannelConnectorInstallationConfigurationPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    integrationInstallID: zIntegrationInstallId
+});
+
+/**
+ * Exact installation configuration and its optional credential.
+ */
+export const zGetChannelConnectorInstallationConfigurationResponse = zChannelConnectorInstallationConfiguration;
+
+export const zResolveChannelConnectorInstallationConfigurationPath = z.object({
+    integrationAppID: zIntegrationAppId
+});
+
+export const zResolveChannelConnectorInstallationConfigurationQuery = z.object({
+    external_tenant_id: z.string().max(512),
+    external_account_ref: z.string().min(1).max(512)
+});
+
+/**
+ * Exact installation configuration and its optional credential.
+ */
+export const zResolveChannelConnectorInstallationConfigurationResponse = zChannelConnectorInstallationConfiguration;
+
+export const zAcceptChannelConnectorEventBody = zChannelInboundEventRequest;
+
+export const zAcceptChannelConnectorEventPath = z.object({
+    integrationAppID: zIntegrationAppId
+});
+
+/**
+ * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+ */
+export const zAcceptChannelConnectorEventResponse = zChannelInboundEventResponse;
+
+export const zResolveChannelConnectorInteractionBody = zResolveChannelConnectorInteractionRequest;
+
+export const zResolveChannelConnectorInteractionPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    interactionID: zAgentInteractionId
+});
+
+/**
+ * The interaction was resolved or had already been resolved identically.
+ */
+export const zResolveChannelConnectorInteractionResponse2 = zResolveChannelConnectorInteractionResponse;
+
+export const zAcceptChannelConnectorRuntimeEventBody = zChannelRuntimeInboundEventRequest;
+
+export const zAcceptChannelConnectorRuntimeEventPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    runtimeUnitID: zIntegrationRuntimeUnitId
+});
+
+/**
+ * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+ */
+export const zAcceptChannelConnectorRuntimeEventResponse = zChannelInboundEventResponse;
+
+export const zResolveChannelConnectorRuntimeInteractionBody = zChannelRuntimeInteractionRequest;
+
+export const zResolveChannelConnectorRuntimeInteractionPath = z.object({
+    integrationAppID: zIntegrationAppId,
+    runtimeUnitID: zIntegrationRuntimeUnitId,
+    interactionID: zAgentInteractionId
+});
+
+/**
+ * The interaction was resolved or had already been resolved identically.
+ */
+export const zResolveChannelConnectorRuntimeInteractionResponse = zResolveChannelConnectorInteractionResponse;
+
+export const zClaimChannelConnectorDeliveriesBody = zChannelConnectorClaimRequest;
+
+/**
+ * Claimed deliveries fenced to this claimant.
+ */
+export const zClaimChannelConnectorDeliveriesResponse = zChannelConnectorDeliveriesResponse;
+
+export const zCompleteChannelConnectorDeliveryBody = zCompleteChannelConnectorDeliveryRequest;
+
+export const zCompleteChannelConnectorDeliveryPath = z.object({
+    deliveryID: zIntegrationDeliveryId
+});
+
+/**
+ * Current delivery state.
+ */
+export const zCompleteChannelConnectorDeliveryResponse = zChannelConnectorDelivery;
+
+export const zClaimChannelConnectorRuntimeUnitsBody = zChannelConnectorClaimRequest;
+
+/**
+ * Claimed runtime units fenced to this gateway.
+ */
+export const zClaimChannelConnectorRuntimeUnitsResponse = zChannelConnectorRuntimeUnitsResponse;
+
+export const zHeartbeatChannelConnectorRuntimeUnitBody = zHeartbeatChannelConnectorRuntimeUnitRequest;
+
+export const zHeartbeatChannelConnectorRuntimeUnitPath = z.object({
+    runtimeUnitID: zIntegrationRuntimeUnitId
+});
+
+/**
+ * Renewed runtime unit.
+ */
+export const zHeartbeatChannelConnectorRuntimeUnitResponse = zChannelConnectorRuntimeUnit;
+
+export const zReleaseChannelConnectorRuntimeUnitBody = zReleaseChannelConnectorRuntimeUnitRequest;
+
+export const zReleaseChannelConnectorRuntimeUnitPath = z.object({
+    runtimeUnitID: zIntegrationRuntimeUnitId
+});
+
+/**
+ * Released runtime unit.
+ */
+export const zReleaseChannelConnectorRuntimeUnitResponse = zChannelConnectorRuntimeUnit;

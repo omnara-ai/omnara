@@ -44,7 +44,9 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxSlackSetupRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/inputs"),
 		strings.Contains(r.URL.Path, "/tool-calls/") &&
-			strings.HasSuffix(r.URL.Path, "/result"):
+			strings.HasSuffix(r.URL.Path, "/result"),
+		strings.HasPrefix(r.URL.Path, "/api/v1/channel-connector/apps/") &&
+			strings.HasSuffix(r.URL.Path, "/events"):
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"), isSkillUpdatePath(r.URL.Path):
 		return maxSkillUploadRequestBodyBytes
@@ -64,6 +66,15 @@ func isSkillUpdatePath(path string) bool {
 }
 
 type middleware func(http.Handler) http.Handler
+
+func channelConnectorNoStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/channel-connector/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func chain(handler http.Handler, middlewares ...middleware) http.Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
@@ -226,6 +237,15 @@ func (s *Server) authenticateBearerToken(
 	case bearertoken.KindDaemon:
 		principal, err := s.store.Execution().AuthenticateMachineDaemonToken(ctx, token)
 		return principal, logent.TokenKindMachineDaemon, err
+	case bearertoken.KindChannelConnector:
+		identity, err := s.channelConnectorAuth.Authenticate(token)
+		if err != nil {
+			return identitystore.PrincipalRecord{}, logent.TokenKindChannelConnector, storeerr.ErrUnauthorized
+		}
+		return identitystore.NewChannelConnectorPrincipal(
+			identity.ID,
+			identity.Capabilities,
+		), logent.TokenKindChannelConnector, nil
 	default:
 		return identitystore.PrincipalRecord{}, logent.TokenKindUnknown, storeerr.ErrUnauthorized
 	}

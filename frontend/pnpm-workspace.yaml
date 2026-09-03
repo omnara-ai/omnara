@@ -6,6 +6,10 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAge: 14400
+# Reviewed early adoption for distributed handler-lock renewal. This exact
+# release exits the ten-day quarantine after 2026-09-07T10:46:04Z.
+minimumReleaseAgeExclude:
+  - chat@4.39.0
 
 overrides:
   react: 19.3.0-canary-eb8feb71-20260814

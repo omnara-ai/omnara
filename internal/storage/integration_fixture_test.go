@@ -284,35 +284,34 @@ VALUES ($1, $2, 'Test Project', 'idem-test-project', $3, $3)
 	); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	if _, err := store.pool.Exec(
-		ctx,
-		`
-WITH seeded_user AS (
-  INSERT INTO users(id, display_name, created_at, updated_at)
-  VALUES ($2, 'Default Provider Admin', $6, $6)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret AS (
-  INSERT INTO secrets(id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at)
-  VALUES ($3, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $4, $6, $6)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret_version AS (
-  INSERT INTO secret_versions(id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at)
-  VALUES ($4, $1, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'), decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $6)
-  ON CONFLICT (id) DO NOTHING
-)
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed default model provider config: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `
+INSERT INTO secrets(id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at)
+VALUES ($1, $2, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $3, $4, $4)
+ON CONFLICT (id) DO NOTHING`, testDefaultProviderCredentialSecretID, testOrgID,
+		testDefaultProviderCredentialSecretVersion, now); err != nil {
+		t.Fatalf("seed default provider secret: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO secret_versions(id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at)
+VALUES ($1, $2, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'), decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $4)
+ON CONFLICT (id) DO NOTHING`, testDefaultProviderCredentialSecretVersion, testOrgID,
+		testDefaultProviderCredentialSecretID, now); err != nil {
+		t.Fatalf("seed default provider secret version: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
 INSERT INTO model_provider_configs(id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, auth_kind, credential_secret_id, created_at, updated_at)
-VALUES ($5, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1', '/responses', 'bearer_token', $3, $6, $6)
-ON CONFLICT (id) DO NOTHING`,
-		testOrgID,
-		testDefaultProviderAdminUserID,
-		testDefaultProviderCredentialSecretID,
-		testDefaultProviderCredentialSecretVersion,
-		testDefaultProviderConfigID(),
-		now,
-	); err != nil {
+VALUES ($1, $2, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1', '/responses', 'bearer_token', $3, $4, $4)
+ON CONFLICT (id) DO NOTHING`, testDefaultProviderConfigID(), testOrgID,
+		testDefaultProviderCredentialSecretID, now); err != nil {
 		t.Fatalf("seed default model provider config: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit default model provider config seed: %v", err)
 	}
 }
 

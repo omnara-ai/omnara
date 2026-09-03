@@ -18,6 +18,9 @@ const (
 	ToolTypeCustom        = "custom"
 	ToolTypeMCP           = "mcp"
 	ToolInputSchemaObject = "object"
+
+	MaxChannelMessageTextLength = 64 * 1024
+	MaxListChannelsPageSize     = 100
 )
 
 func IsPlatformManagedToolType(toolType string) bool {
@@ -45,6 +48,13 @@ const (
 		"to communicate with them."
 	setIntegrationTargetToolDescription = "Set which integration target future integration messages " +
 		"and prompts use by default."
+	sendChannelMessageToolDescription = "Send a user-visible message through an attached external channel. " +
+		"Omit channel_id when replying to the one unambiguous channel that opened this model call; " +
+		"otherwise pass an exact channel_id returned by list_channels. Normal assistant text is not sent " +
+		"to external channel users."
+	listChannelsToolDescription = "List the external channels currently attached to this agent, including " +
+		"stable channel_id values and whether each channel can send or receive messages. Results are " +
+		"newest first; pass next_cursor to continue when the result is paginated."
 	webSearchToolDescription = "Search the public web for up-to-date information beyond your training data. " +
 		"Returns results with URLs, titles, and snippets; use web_fetch to read a result in full. " +
 		"Prefer a few focused queries with varied phrasing over one broad query, and keep it to at most ~5 searches per task."
@@ -254,6 +264,30 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameSetIntegrationTarget], err = integrationSetTargetTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameSendChannelMessage], err = channelSendTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameListChannels], err = toolEntry(
+		ToolNameListChannels,
+		listChannelsToolDescription,
+		nil,
+		map[string]any{
+			"cursor": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   1024,
+				"description": "Opaque next_cursor from a previous list_channels result.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     MaxListChannelsPageSize,
+				"description": "Maximum channels to return. Defaults to 50.",
+			},
+		},
+	); err != nil {
+		return Catalog{}, err
+	}
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
 		return Catalog{}, err
 	}
@@ -358,6 +392,7 @@ func integrationSendTool() (Entry, error) {
 			"text": map[string]any{
 				"type":        "string",
 				"minLength":   1,
+				"maxLength":   MaxChannelMessageTextLength,
 				"description": "User-visible message text to send to the current integration target.",
 			},
 		},
@@ -386,6 +421,32 @@ func integrationSetTargetTool() (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	return entry, nil
+}
+
+func channelSendTool() (Entry, error) {
+	entry, err := toolEntry(
+		ToolNameSendChannelMessage,
+		sendChannelMessageToolDescription,
+		[]string{"text"},
+		map[string]any{
+			"text": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   MaxChannelMessageTextLength,
+				"description": "User-visible message text to send.",
+			},
+			"channel_id": map[string]any{
+				"type":        "string",
+				"pattern":     `^itgt_[a-z2-7]{26}$`,
+				"description": "Exact channel_id returned by list_channels. Omit only when the destination is unambiguous.",
+			},
+		},
+	)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
 	return entry, nil
 }
 

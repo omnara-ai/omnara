@@ -3260,6 +3260,28 @@ func TestSlackActionsResolveQuestionAsSlackActor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get integration target: %v", err)
 	}
+	if _, err := fixture.Project.Store.Integrations().CreateIntegrationTargetBinding(
+		ctx,
+		integrationstore.CreateIntegrationTargetBindingInput{
+			ProjectID: fixture.Project.ProjectUUID, AgentID: integrationTarget.AgentID,
+			IntegrationInstallID: fixture.Install.ID, IntegrationTargetID: integrationTarget.ID,
+			ReceiveAllowed: false, SendAllowed: true, Source: "action-send-only-regression",
+		},
+	); err != nil {
+		t.Fatalf("create route-less send-only binding: %v", err)
+	}
+	receiveBinding, err := fixture.Project.Store.Integrations().GetActiveReceiveBindingForTarget(
+		ctx,
+		fixture.Project.ProjectUUID,
+		integrationTarget.AgentID,
+		integrationTarget.ID,
+	)
+	if err != nil {
+		t.Fatalf("load native receive binding alongside send-only binding: %v", err)
+	}
+	if receiveBinding.Source != "legacy_target" || !receiveBinding.ReceiveAllowed {
+		t.Fatalf("native receive binding = %+v", receiveBinding)
+	}
 	interaction := createQuestionInteractionForAgent(
 		t,
 		ctx,

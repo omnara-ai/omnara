@@ -28,6 +28,12 @@ services:
       context: .
       target: maintenance
 
+  channel-gateway:
+    image: omnara-channel-gateway:local
+    build:
+      context: .
+      target: channel-gateway
+
   web:
     image: omnara-web:local
     build:

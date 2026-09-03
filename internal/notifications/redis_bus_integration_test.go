@@ -86,6 +86,55 @@ func TestAgentEventWakeupBusPublishSubscribeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIntegrationDeliveryUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := integrationredis.OpenClient(t)
+	bus, err := NewRedisBus(client, nil)
+	if err != nil {
+		t.Fatalf("create redis bus: %v", err)
+	}
+
+	notifyRef := uuid.New()
+	otherNotifyRef := uuid.New()
+	received := make(chan struct{}, 1)
+	sub, err := bus.SubscribeIntegrationDeliveryUpdates(
+		ctx,
+		notifyRef,
+		func(context.Context) { received <- struct{}{} },
+	)
+	if err != nil {
+		t.Fatalf("subscribe integration delivery update: %v", err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+
+	wrong := make(chan struct{}, 1)
+	wrongSub, err := bus.SubscribeIntegrationDeliveryUpdates(
+		ctx,
+		otherNotifyRef,
+		func(context.Context) { wrong <- struct{}{} },
+	)
+	if err != nil {
+		t.Fatalf("subscribe other integration delivery update: %v", err)
+	}
+	t.Cleanup(func() { _ = wrongSub.Unsubscribe() })
+
+	if err := bus.PublishIntegrationDeliveryUpdate(ctx, notifyRef); err != nil {
+		t.Fatalf("publish integration delivery update: %v", err)
+	}
+	select {
+	case <-received:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for integration delivery update: %v", ctx.Err())
+	}
+	select {
+	case <-wrong:
+		t.Fatal("other integration delivery subscriber received update")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

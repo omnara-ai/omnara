@@ -269,6 +269,24 @@ func builtInToolRegistrations() []toolRegistration {
 			),
 		},
 		{
+			name: toolcatalog.ToolNameSendChannelMessage,
+			semanticInputValidator: func(input json.RawMessage) error {
+				_, err := resolveChannelMessageRequest(input)
+				return err
+			},
+			handler:         toolHandler{Async: runChannelMessageAsync},
+			permissionModes: alwaysAllowPermissionModeHandlers(),
+		},
+		{
+			name: toolcatalog.ToolNameListChannels,
+			semanticInputValidator: func(input json.RawMessage) error {
+				_, _, err := resolveChannelListRequest(input)
+				return err
+			},
+			handler:         toolHandler{Transactional: listChannels},
+			permissionModes: commonPermissionModeHandlers(listChannelsPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameWebSearch,
 			semanticInputValidator: validateWebSearchInput,
 			handler:                toolHandler{Async: runWebSearch},

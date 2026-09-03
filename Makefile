@@ -64,7 +64,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
-	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
+	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down channel-connector-token fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
@@ -335,6 +335,9 @@ stack-up: ## Start the local development stack
 
 stack-down: ## Stop the local development stack
 	docker compose --profile app down
+
+channel-connector-token: ## Generate a bearer token for a self-hosted channel gateway
+	$(GO) run ./tools/channel-connector-token
 
 fmt:
 	$(GO) fmt ./...

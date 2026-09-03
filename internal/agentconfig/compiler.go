@@ -351,6 +351,13 @@ func compileBuiltInTool(
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "tool %q is not registered", name)
 	}
+	if toolcatalog.IsBindingManagedTool(name) {
+		return ToolCompiled{}, issuef(
+			jsonPointer("tools", name),
+			"tool %q is managed by live channel bindings and cannot be configured",
+			name,
+		)
+	}
 	permission := entry.DefaultPermission
 	if source.Permission != nil {
 		var err error

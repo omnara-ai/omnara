@@ -74,6 +74,8 @@ tags:
       url: https://docs.omnara.com/api/authentication
   - name: Machine Daemon
     description: Routes the Omnara machine daemon uses to connect a machine.
+  - name: Channel Connector
+    description: Internal routes used by self-hosted channel gateway processes.
 paths:
   /personal-access-tokens:
     get:
@@ -668,12 +670,12 @@ paths:
       tags: [Organizations and Projects]
       summary: Delete project
       description: >-
-        Deletes the project, its memberships, profiles and profile versions, integration installs
-        and targets, project-owned skills and revisions, and grants owned by or targeting the
-        project. Project-owned secrets are permanently deleted with their versions and
-        grants. The project's agents are archived and their runtimes and queued work are stopped.
-        Machine, machine-pool, and model grants are removed without deleting the shared machine, pool,
-        or model. Deletion fails if agent teardown cannot complete.
+        Deletes the project, its memberships, profiles and profile versions, project-owned skills
+        and revisions, and grants owned by or targeting the project. Its channel integration
+        configuration is retired. Project-owned secrets are permanently deleted with their versions
+        and grants. The project's agents are archived and their runtimes and queued work are stopped.
+        Machine, machine-pool, and model grants are removed without deleting the shared machine,
+        pool, or model. Deletion fails if agent teardown cannot complete.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1966,7 +1968,7 @@ paths:
       description: >-
         Deletes the secret and permanently destroys all of its versions and project grants; the
         ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a
-        model provider config, machine pool, or integration install.
+        model provider config, machine pool, integration app registration, or integration install.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2228,9 +2230,9 @@ paths:
       tags: [Configs and Profiles]
       summary: Delete integration install
       description: >-
-        Deletes the install and all of its integration targets and clears those target associations from
-        agents. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials
-        already issued by the provider are not revoked and provider-side webhooks are not removed.
+        Retires the install, its routes, targets, agent-channel bindings, and persistent runtimes.
+        Agents and profiles are retained. This uninstalls on the Omnara side only: credentials already
+        issued by the provider are not revoked and provider-side webhooks are not removed.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6532,6 +6534,520 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/configuration:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+    get:
+      operationId: getChannelConnectorAppConfiguration
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Get one connector-scoped provider app configuration
+      security:
+        - channelConnectorAuth: []
+      responses:
+        '200':
+          description: Provider app configuration and its optional app-level credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorAppConfiguration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: integrationInstallID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationInstallID'
+    get:
+      operationId: getChannelConnectorInstallationConfiguration
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Get one installation configuration by internal identity
+      security:
+        - channelConnectorAuth: []
+      responses:
+        '200':
+          description: Exact installation configuration and its optional credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorInstallationConfiguration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/installations/resolve:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: external_tenant_id
+        in: query
+        required: true
+        schema:
+          type: string
+          maxLength: 512
+      - name: external_account_ref
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+    get:
+      operationId: resolveChannelConnectorInstallationConfiguration
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Resolve one installation configuration by provider identity
+      security:
+        - channelConnectorAuth: []
+      responses:
+        '200':
+          description: Exact installation configuration and its optional credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorInstallationConfiguration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/events:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+    post:
+      operationId: acceptChannelConnectorEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Accept one normalized provider event
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelInboundEventRequest'
+      responses:
+        '200':
+          description: >-
+            The event was processed across all active routes. Accepted entries are durable; ignored
+            routes and routes with permanent configuration errors are not retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInboundEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: interactionID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentInteractionID'
+    post:
+      operationId: resolveChannelConnectorInteraction
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Resolve an agent interaction from a provider channel
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveChannelConnectorInteractionRequest'
+      responses:
+        '200':
+          description: The interaction was resolved or had already been resolved identically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveChannelConnectorInteractionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: runtimeUnitID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationRuntimeUnitID'
+    post:
+      operationId: acceptChannelConnectorRuntimeEvent
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Accept one normalized event from a fenced persistent runtime
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelRuntimeInboundEventRequest'
+      responses:
+        '200':
+          description: >-
+            The event was processed across all active routes. Accepted entries are durable; ignored
+            routes and routes with permanent configuration errors are not retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInboundEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve:
+    parameters:
+      - name: integrationAppID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationAppID'
+      - name: runtimeUnitID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationRuntimeUnitID'
+      - name: interactionID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AgentInteractionID'
+    post:
+      operationId: resolveChannelConnectorRuntimeInteraction
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Resolve an agent interaction from a fenced persistent runtime
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelRuntimeInteractionRequest'
+      responses:
+        '200':
+          description: The interaction was resolved or had already been resolved identically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveChannelConnectorInteractionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/deliveries/claim:
+    post:
+      operationId: claimChannelConnectorDeliveries
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Claim due outbound deliveries
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelConnectorClaimRequest'
+      responses:
+        '200':
+          description: Claimed deliveries fenced to this claimant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorDeliveriesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/deliveries/{deliveryID}/complete:
+    parameters:
+      - name: deliveryID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationDeliveryID'
+    post:
+      operationId: completeChannelConnectorDelivery
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Complete or reschedule a fenced outbound delivery
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteChannelConnectorDeliveryRequest'
+      responses:
+        '200':
+          description: Current delivery state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorDelivery'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/runtime-units/claim:
+    post:
+      operationId: claimChannelConnectorRuntimeUnits
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Claim persistent provider runtime units
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelConnectorClaimRequest'
+      responses:
+        '200':
+          description: Claimed runtime units fenced to this gateway.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorRuntimeUnitsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/runtime-units/{runtimeUnitID}/heartbeat:
+    parameters:
+      - name: runtimeUnitID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationRuntimeUnitID'
+    post:
+      operationId: heartbeatChannelConnectorRuntimeUnit
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Renew a runtime lease and optionally checkpoint it
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatChannelConnectorRuntimeUnitRequest'
+      responses:
+        '200':
+          description: Renewed runtime unit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorRuntimeUnit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /channel-connector/runtime-units/{runtimeUnitID}/release:
+    parameters:
+      - name: runtimeUnitID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IntegrationRuntimeUnitID'
+    post:
+      operationId: releaseChannelConnectorRuntimeUnit
+      x-hidden: true
+      tags: [Channel Connector]
+      summary: Release a fenced provider runtime unit
+      security:
+        - channelConnectorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseChannelConnectorRuntimeUnitRequest'
+      responses:
+        '200':
+          description: Released runtime unit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConnectorRuntimeUnit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -6554,6 +7070,11 @@ components:
       scheme: bearer
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
+    channelConnectorAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Omnara channel connector token
+      description: An opaque token scoped to configured provider and connector implementation names.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -6791,6 +7312,556 @@ components:
       maxLength: 64
       pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
       description: Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+    IntegrationAppID:
+      type: string
+      pattern: '^iapp_[a-z2-7]{26}$'
+    IntegrationRouteID:
+      type: string
+      pattern: '^iroute_[a-z2-7]{26}$'
+    IntegrationBindingID:
+      type: string
+      pattern: '^ibnd_[a-z2-7]{26}$'
+    IntegrationDeliveryID:
+      type: string
+      pattern: '^idel_[a-z2-7]{26}$'
+    IntegrationRuntimeUnitID:
+      type: string
+      pattern: '^irun_[a-z2-7]{26}$'
+    ChannelOpaqueObject:
+      type: object
+      additionalProperties: true
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+    ChannelConnectorApp:
+      type: object
+      additionalProperties: false
+      required: [id, provider, provider_app_ref, display_name, connector_key, provider_config, provider_metadata, configuration_revision, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        provider:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        provider_app_ref:
+          type: string
+        display_name:
+          type: string
+        connector_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        installation_credential_kind:
+          $ref: '#/components/schemas/SecretKindResponse'
+        provider_config:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ChannelConnectorInstall:
+      type: object
+      additionalProperties: false
+      required: [id, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, provider_identity, provider_metadata, configuration_revision, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: '^iin_[a-z2-7]{26}$'
+        provider_tenant_id:
+          type: string
+        provider_account_ref:
+          type: string
+        provider_agent_display_name:
+          type: string
+        provider_config:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        provider_identity:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        provider_metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ChannelCredentialPayload:
+      type: object
+      additionalProperties: false
+      required: [kind, payload]
+      properties:
+        kind:
+          $ref: '#/components/schemas/SecretKindResponse'
+        payload:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelConnectorAppConfiguration:
+      type: object
+      additionalProperties: false
+      required: [app]
+      properties:
+        app:
+          $ref: '#/components/schemas/ChannelConnectorApp'
+        credential:
+          $ref: '#/components/schemas/ChannelCredentialPayload'
+    ChannelConnectorInstallationConfiguration:
+      type: object
+      additionalProperties: false
+      required: [integration_app_id, app_configuration_revision, install]
+      properties:
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        app_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        install:
+          $ref: '#/components/schemas/ChannelConnectorInstall'
+        credential:
+          $ref: '#/components/schemas/ChannelCredentialPayload'
+    ChannelConversation:
+      type: object
+      additionalProperties: false
+      required: [ref, kind, mentioned, direct, metadata]
+      properties:
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+        display_name:
+          type: string
+          maxLength: 512
+        parent_ref:
+          type: string
+          maxLength: 2048
+        reply_to_ref:
+          type: string
+          maxLength: 2048
+        mentioned:
+          type: boolean
+        direct:
+          type: boolean
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelActor:
+      type: object
+      additionalProperties: false
+      required: [ref, display_name, metadata]
+      properties:
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        display_name:
+          type: string
+          maxLength: 256
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelInboundEventRequest:
+      type: object
+      additionalProperties: false
+      required: [version, provider_event_id, external_tenant_id, external_account_ref, event_type, conversation, actor, content_blocks, occurred_at, metadata]
+      properties:
+        version:
+          type: string
+          enum: [v1]
+        provider_event_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        external_tenant_id:
+          type: string
+          maxLength: 512
+        external_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        event_type:
+          type: string
+          maxLength: 256
+        conversation:
+          $ref: '#/components/schemas/ChannelConversation'
+        actor:
+          $ref: '#/components/schemas/ChannelActor'
+        content_blocks:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/CreateAgentInputContentBlock'
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelRuntimeInboundEventRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, event]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        event:
+          $ref: '#/components/schemas/ChannelInboundEventRequest'
+    ChannelInboundAcceptance:
+      type: object
+      additionalProperties: false
+      required: [route_id, agent_id, target_id, binding_id, agent_input_id]
+      properties:
+        route_id:
+          $ref: '#/components/schemas/IntegrationRouteID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        target_id:
+          type: string
+          pattern: '^itgt_[a-z2-7]{26}$'
+        binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        agent_input_id:
+          $ref: '#/components/schemas/AgentInputID'
+    ChannelInboundEventResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted, ignored_routes]
+      properties:
+        accepted:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelInboundAcceptance'
+        ignored_routes:
+          type: integer
+          format: int32
+          minimum: 0
+    ResolveChannelConnectorInteractionRequest:
+      type: object
+      additionalProperties: false
+      required: [version, external_tenant_id, external_account_ref, integration_target_id, integration_target_binding_id, actor, answers, metadata]
+      properties:
+        version:
+          type: string
+          enum: [v1]
+        external_tenant_id:
+          type: string
+          maxLength: 512
+        external_account_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+        integration_target_id:
+          type: string
+          pattern: '^itgt_[a-z2-7]{26}$'
+        integration_target_binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        actor:
+          $ref: '#/components/schemas/ChannelActor'
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/InteractionAnswer'
+        metadata:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelRuntimeInteractionRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, interaction]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        interaction:
+          $ref: '#/components/schemas/ResolveChannelConnectorInteractionRequest'
+    ResolveChannelConnectorInteractionResponse:
+      type: object
+      additionalProperties: false
+      required: [status, text]
+      properties:
+        status:
+          type: string
+          enum: [resolved, already_resolved]
+        text:
+          type: string
+    ChannelConnectorCapability:
+      type: object
+      additionalProperties: false
+      required: [connector_key, provider]
+      properties:
+        connector_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        provider:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+    ChannelConnectorClaimRequest:
+      type: object
+      additionalProperties: false
+      required: [owner, lease_ms, limit, capability]
+      properties:
+        owner:
+          type: string
+          minLength: 1
+          maxLength: 127
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,126}$'
+        lease_ms:
+          type: integer
+          format: int32
+          minimum: 1000
+          maximum: 300000
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1000
+        capability:
+          $ref: '#/components/schemas/ChannelConnectorCapability'
+    ChannelDeliveryState:
+      type: string
+      enum: [pending, claimed, retry_wait, delivered, failed, unknown, canceled]
+    ChannelConnectorDelivery:
+      type: object
+      additionalProperties: false
+      required: [id, integration_app_id, integration_install_id, integration_target_id, integration_target_binding_id, provider, connector_key, delivery_kind, payload_version, payload, state, attempt_count, available_at, claim_generation, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationDeliveryID'
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        integration_install_id:
+          type: string
+          pattern: '^iin_[a-z2-7]{26}$'
+        integration_target_id:
+          type: string
+          pattern: '^itgt_[a-z2-7]{26}$'
+        integration_target_binding_id:
+          $ref: '#/components/schemas/IntegrationBindingID'
+        provider:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        connector_key:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_.-]{0,127}$'
+        delivery_kind:
+          type: string
+        payload_version:
+          type: string
+        payload:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        state:
+          $ref: '#/components/schemas/ChannelDeliveryState'
+        attempt_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Number of times core has leased this delivery. A connector must separately avoid retrying provider I/O after its own bounded attempt policy is exhausted; core fails a delivery that asks for another safe retry after 64 claims.
+        available_at:
+          $ref: '#/components/schemas/Timestamp'
+        claim_token:
+          type: string
+          format: uuid
+        claim_generation:
+          type: integer
+          format: int64
+          minimum: 0
+        app_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        install_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        claim_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        notify_ref:
+          type: string
+          format: uuid
+        provider_message_ref:
+          type: string
+          maxLength: 2048
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        completed_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ChannelConnectorDeliveriesResponse:
+      type: object
+      additionalProperties: false
+      required: [deliveries]
+      properties:
+        deliveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelConnectorDelivery'
+    CompleteChannelConnectorDeliveryRequest:
+      type: object
+      additionalProperties: false
+      required: [claim_token, claim_generation, outcome, provider_message_ref, last_error]
+      properties:
+        claim_token:
+          type: string
+          format: uuid
+        claim_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        outcome:
+          type: string
+          enum: [retry_wait, delivered, failed, unknown, canceled]
+          description: Return retry_wait only when another bounded attempt is safe. Use unknown after provider I/O begins if success cannot be confirmed, so core does not risk a duplicate send. Core converts retry_wait to failed when the delivery has reached 64 claims.
+        retry_after_ms:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 3600000
+        provider_message_ref:
+          type: string
+          maxLength: 2048
+          description: Provider message identifier, limited to 2048 UTF-8 bytes by the server.
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ChannelRuntimeDesiredState:
+      type: string
+      enum: [running, stopped]
+    ChannelRuntimeStatus:
+      type: string
+      enum: [idle, running, error, stopped]
+    ChannelConnectorRuntimeUnit:
+      type: object
+      additionalProperties: false
+      required: [id, integration_app_id, unit_key, runtime_kind, desired_state, spec_revision, configuration, status, lease_generation, checkpoint_version, checkpoint_revision, checkpoint, last_error, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/IntegrationRuntimeUnitID'
+        integration_app_id:
+          $ref: '#/components/schemas/IntegrationAppID'
+        integration_install_id:
+          type: string
+          pattern: '^iin_[a-z2-7]{26}$'
+        unit_key:
+          type: string
+        runtime_kind:
+          type: string
+        desired_state:
+          $ref: '#/components/schemas/ChannelRuntimeDesiredState'
+        spec_revision:
+          type: integer
+          format: int32
+          minimum: 1
+        configuration:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        status:
+          $ref: '#/components/schemas/ChannelRuntimeStatus'
+        lease_owner:
+          type: string
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 0
+        leased_at:
+          $ref: '#/components/schemas/Timestamp'
+        renewed_at:
+          $ref: '#/components/schemas/Timestamp'
+        lease_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        lease_spec_revision:
+          type: integer
+          format: int32
+          minimum: 1
+        lease_app_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        lease_install_configuration_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        checkpoint_version:
+          type: integer
+          format: int32
+          minimum: 1
+        checkpoint_revision:
+          type: integer
+          format: int64
+          minimum: 0
+        checkpoint:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ChannelConnectorRuntimeUnitsResponse:
+      type: object
+      additionalProperties: false
+      required: [runtime_units]
+      properties:
+        runtime_units:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelConnectorRuntimeUnit'
+    HeartbeatChannelConnectorRuntimeUnitRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, lease_ms]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        lease_ms:
+          type: integer
+          format: int32
+          minimum: 1000
+          maximum: 300000
+        checkpoint_version:
+          type: integer
+          format: int32
+          minimum: 1
+        checkpoint:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+    ReleaseChannelConnectorRuntimeUnitRequest:
+      type: object
+      additionalProperties: false
+      required: [lease_token, lease_generation, last_error]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
+        lease_generation:
+          type: integer
+          format: int64
+          minimum: 1
+        checkpoint_version:
+          type: integer
+          format: int32
+          minimum: 1
+        checkpoint:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
+        last_error:
+          $ref: '#/components/schemas/ChannelOpaqueObject'
     ResourceListSort:
       type: string
       description: Sort order for named resources that expose created and modified timestamps.
@@ -7975,9 +9046,10 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        A provider app installation that connects an agent profile or a single agent to an external
-        app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never
-        returned.
+        A project-owned installation of a provider app in an external tenant or account. Native
+        compatibility installations connect exactly one agent profile or agent; connector
+        installations leave both agent_profile_id and agent_id unset and use routes and target
+        bindings instead. Provider credentials are never returned.
       required: [id, org_id, project_id, provider, integration_kind, connection_mode, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, created_at, updated_at]
       properties:
         id:
@@ -8168,6 +9240,10 @@ components:
           type: string
         description:
           type: string
+        configurable:
+          type: boolean
+          default: true
+          description: Whether this tool may be stored in agent configuration. False means runtime state injects it when applicable.
         default_permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:
@@ -10104,12 +11180,8 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ActorProvider:
       type: string
-      description: omnara for project members, an integration provider such as slack, or external for API-managed actors.
-      enum: [omnara, slack, external]
-      x-enum-varnames:
-        - ActorProviderOmnara
-        - ActorProviderSlack
-        - ActorProviderExternal
+      description: omnara for project members, external for API-managed actors, or the integration provider that supplied the actor.
+      x-extensible-enum: [omnara, slack, external]
     Actor:
       type: object
       additionalProperties: false
@@ -10339,17 +11411,37 @@ components:
           type: string
           minLength: 1
           description: Requires role_arn.
+    IntegrationCredentialsSecretMaterial:
+      type: object
+      additionalProperties: false
+      required: [kind, values]
+      properties:
+        kind:
+          type: string
+          enum: [integration_credentials]
+        values:
+          type: object
+          minProperties: 1
+          maxProperties: 64
+          propertyNames:
+            pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,127}$'
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 65536
     SecretMaterial:
       oneOf:
         - $ref: '#/components/schemas/GenericSecretMaterial'
         - $ref: '#/components/schemas/OAuthTokenSetSecretMaterial'
         - $ref: '#/components/schemas/AWSCredentialsSecretMaterial'
+        - $ref: '#/components/schemas/IntegrationCredentialsSecretMaterial'
       discriminator:
         propertyName: kind
         mapping:
           generic: '#/components/schemas/GenericSecretMaterial'
           oauth_token_set: '#/components/schemas/OAuthTokenSetSecretMaterial'
           aws_credentials: '#/components/schemas/AWSCredentialsSecretMaterial'
+          integration_credentials: '#/components/schemas/IntegrationCredentialsSecretMaterial'
     CreateSecretRequest:
       type: object
       additionalProperties: false
@@ -10388,12 +11480,16 @@ components:
           $ref: '#/components/schemas/ProjectID'
     SecretKind:
       type: string
-      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials]
+      enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials, integration_credentials]
       x-enum-varnames:
         - SecretKindGeneric
         - SecretKindOAuthTokenSet
         - SecretKindSlackAppCredentials
         - SecretKindAWSCredentials
+        - SecretKindIntegrationCredentials
+    SecretKindResponse:
+      type: string
+      x-extensible-enum: [generic, oauth_token_set, slack_app_credentials, aws_credentials, integration_credentials]
     Secret:
       type: object
       additionalProperties: false
@@ -10410,7 +11506,7 @@ components:
         name:
           $ref: '#/components/schemas/ResourceName'
         kind:
-          $ref: '#/components/schemas/SecretKind'
+          $ref: '#/components/schemas/SecretKindResponse'
         metadata:
           $ref: '#/components/schemas/Metadata'
         current_version_number:

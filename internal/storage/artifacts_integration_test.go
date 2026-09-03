@@ -16,9 +16,11 @@ import (
 )
 
 type recordingBlobStore struct {
-	putKeys    []string
-	deleteKeys []string
-	content    map[string][]byte
+	cancelAfterPut       context.CancelFunc
+	putKeys              []string
+	deleteKeys           []string
+	content              map[string][]byte
+	rejectCanceledDelete bool
 }
 
 func newRecordingBlobStore() *recordingBlobStore {
@@ -29,6 +31,9 @@ func (s *recordingBlobStore) PutBlob(ctx context.Context, key string, content []
 	_ = ctx
 	s.putKeys = append(s.putKeys, key)
 	s.content[key] = append([]byte(nil), content...)
+	if s.cancelAfterPut != nil {
+		s.cancelAfterPut()
+	}
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
 
@@ -47,7 +52,9 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 }
 
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
-	_ = ctx
+	if s.rejectCanceledDelete && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	s.deleteKeys = append(s.deleteKeys, key)
 	delete(s.content, key)
 	return nil
@@ -58,7 +65,8 @@ func TestCreateArtifactContentRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	agentID := mustCreateAgent(t, ctx, store, now)
 
@@ -210,12 +218,45 @@ func TestCreateArtifactCleansUploadedBlobWhenDBInsertFails(t *testing.T) {
 	}
 }
 
+func TestCreateArtifactCleanupSurvivesRequestCancellation(t *testing.T) {
+	t.Parallel()
+	setupCtx := context.Background()
+	pool := openIntegrationDB(t, setupCtx)
+	seedMigratedDB(t, setupCtx, pool)
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	agentID := mustCreateAgent(t, setupCtx, store, now)
+	requestCtx, cancel := context.WithCancel(setupCtx)
+	blobs.cancelAfterPut = cancel
+	blobs.rejectCanceledDelete = true
+
+	_, err := store.Artifacts().CreateArtifact(requestCtx, artifactstore.CreateArtifactInput{
+		ProjectID:   testProjectID,
+		AgentID:     agentID,
+		ContentType: "image/png",
+		Content:     []byte("png bytes"),
+	})
+	if err == nil {
+		t.Fatal("expected canceled artifact creation to fail")
+	}
+	if len(blobs.putKeys) != 1 || len(blobs.deleteKeys) != 1 || len(blobs.content) != 0 {
+		t.Fatalf(
+			"canceled artifact cleanup put=%v delete=%v retained=%v",
+			blobs.putKeys,
+			blobs.deleteKeys,
+			blobs.content,
+		)
+	}
+}
+
 func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	blobs := newRecordingBlobStore()
+	store := newIntegrationStore(pool, WithBlobStore(blobs))
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	agentID := mustCreateAgent(t, ctx, store, now)
 
@@ -241,10 +282,28 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	if replayed.Created {
 		t.Fatal("replay should not report created")
 	}
+	if len(blobs.putKeys) != 2 || len(blobs.deleteKeys) != 1 ||
+		blobs.deleteKeys[0] != blobs.putKeys[1] || len(blobs.content) != 1 {
+		t.Fatalf(
+			"replay blob lifecycle put=%v delete=%v retained=%v",
+			blobs.putKeys,
+			blobs.deleteKeys,
+			blobs.content,
+		)
+	}
 
 	input.Content = []byte("different bytes")
 	if _, err := store.Artifacts().CreateArtifact(ctx, input); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting replay error = %v, want ErrIdempotencyConflict", err)
+	}
+	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
+		blobs.deleteKeys[1] != blobs.putKeys[2] || len(blobs.content) != 1 {
+		t.Fatalf(
+			"conflicting replay blob lifecycle put=%v delete=%v retained=%v",
+			blobs.putKeys,
+			blobs.deleteKeys,
+			blobs.content,
+		)
 	}
 }
 

@@ -53,16 +53,22 @@ func (s *Server) publicHostGuard(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowed := false
 		for _, origin := range s.publicOrigins {
 			if origin.matchesHost(r.Host) {
-				next.ServeHTTP(w, r)
-				return
+				allowed = true
+				break
 			}
 		}
-		if s.allowInsecureLocalHostBypass && isLocalOnlyHost(r.Host) {
-			next.ServeHTTP(w, r)
+		if strings.HasPrefix(r.URL.Path, "/api/v1/channel-connector/") {
+			for _, origin := range s.internalOrigins {
+				allowed = allowed || origin.matchesHost(r.Host)
+			}
+		}
+		if !allowed && !(s.allowInsecureLocalHostBypass && isLocalOnlyHost(r.Host)) {
+			s.notFound(w, r)
 			return
 		}
-		s.notFound(w, r)
+		next.ServeHTTP(w, r)
 	})
 }

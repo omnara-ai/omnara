@@ -106,6 +106,63 @@ func (s *Store) GetProjectOwnedSecretPayload(
 	return payload, nil
 }
 
+// GetIntegrationAssociatedSecretPayload decrypts a secret only after the caller
+// has resolved an exact integration-app association. Shared apps use an
+// organization-owned secret; restricted apps use an exact-project secret.
+func (s *Store) GetIntegrationAssociatedSecretPayload(
+	ctx context.Context,
+	orgID, integrationAppID, secretID ID,
+) (AssociatedSecretPayload, error) {
+	if s.secretKeyWrapper == nil {
+		return AssociatedSecretPayload{}, errors.New("secret key wrapper is required")
+	}
+	if isNilID(orgID) || isNilID(integrationAppID) || isNilID(secretID) {
+		return AssociatedSecretPayload{}, invalidSecretRequest("org, integration app, and secret are required")
+	}
+	associated, err := s.q.IntegrationAppSecretAssociationExists(
+		ctx,
+		dbsqlc.IntegrationAppSecretAssociationExistsParams{
+			OrgID: orgID, IntegrationAppID: integrationAppID, SecretID: secretID,
+		},
+	)
+	if err != nil {
+		return AssociatedSecretPayload{}, fmt.Errorf("check integration app secret association: %w", err)
+	}
+	if !associated {
+		return AssociatedSecretPayload{}, storeerr.ErrNotFound
+	}
+	secret, err := s.GetSecret(ctx, orgID, secretID)
+	if err != nil {
+		return AssociatedSecretPayload{}, err
+	}
+	row, err := s.q.GetSecretVersion(
+		ctx,
+		dbsqlc.GetSecretVersionParams{
+			OrgID: orgID, SecretID: secret.ID, ID: secret.CurrentVersionID,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AssociatedSecretPayload{}, storeerr.ErrNotFound
+		}
+		return AssociatedSecretPayload{}, fmt.Errorf("get current integration secret version: %w", err)
+	}
+	version := secretVersionFromGetSQLC(row)
+	payload, err := secrets.DecryptPayload(
+		ctx,
+		s.secretKeyWrapper,
+		encryptedPayloadFromSecretVersion(version),
+		secrets.AssociatedData{
+			OrgID: orgID.String(), SecretID: secret.ID.String(), VersionID: version.ID.String(),
+			VersionNumber: version.VersionNumber, Kind: secret.Kind,
+		},
+	)
+	if err != nil {
+		return AssociatedSecretPayload{}, fmt.Errorf("decrypt integration secret payload: %w", err)
+	}
+	return AssociatedSecretPayload{Kind: secret.Kind, Payload: payload}, nil
+}
+
 func (s *Store) GetSecretByOwnerName(
 	ctx context.Context,
 	orgID ID,

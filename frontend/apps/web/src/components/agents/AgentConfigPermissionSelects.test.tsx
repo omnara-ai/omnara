@@ -50,6 +50,7 @@ const catalog: ToolCatalog = {
     {
       name: 'download_artifact',
       description: 'Download an artifact.',
+      configurable: true,
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
@@ -117,6 +118,58 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
+})
+
+it('keeps runtime-injected channel tools out of agent config', async () => {
+  const channelTools = ['list_channels', 'send_channel_message'].map((name) => ({
+    name,
+    description: `${name} is derived from active channel bindings.`,
+    configurable: false,
+    default_permission: alwaysAllowProfile.default_permission,
+    permission_modes: alwaysAllowProfile.permission_modes,
+  }))
+  const onToolsChange = vi.fn()
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField
+        catalog={{ ...catalog, built_in_tools: channelTools }}
+        tools={channelTools.map(({ name }) => ({ name, permission: null }))}
+        onToolsChange={onToolsChange}
+      />
+    </form>,
+  )
+
+  expect(container.textContent).not.toContain('list_channels')
+  expect(container.textContent).not.toContain('send_channel_message')
+  expect(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Add tools"]')?.disabled,
+  ).toBe(true)
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
+it('treats an old catalog entry without configurable as configurable', async () => {
+  const oldCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [
+      {
+        name: 'download_artifact',
+        description: 'Download an artifact.',
+        default_permission: alwaysAllowProfile.default_permission,
+        permission_modes: alwaysAllowProfile.permission_modes,
+      },
+    ],
+  }
+
+  await renderAndFlush(
+    <form>
+      <AgentConfigToolsField catalog={oldCatalog} tools={[]} onToolsChange={vi.fn()} />
+    </form>,
+  )
+
+  expect(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Add tools"]')?.disabled,
+  ).toBe(false)
 })
 
 it('preserves an inherited MCP permission when its profile loads', async () => {

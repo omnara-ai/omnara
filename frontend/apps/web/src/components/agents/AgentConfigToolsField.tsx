@@ -51,10 +51,16 @@ export function AgentConfigToolsField({
   tools: BasicTool[]
   onToolsChange: (tools: BasicTool[]) => void
 }) {
-  const catalogTools = (catalog?.built_in_tools ?? []).filter(
-    (entry) => !hiddenToolNames.has(entry.name),
+  const allCatalogTools = catalog?.built_in_tools ?? []
+  const nonConfigurableToolNames = new Set(
+    allCatalogTools.filter((entry) => entry.configurable === false).map((entry) => entry.name),
   )
-  const visibleTools = tools.filter((tool) => !hiddenToolNames.has(tool.name))
+  const catalogTools = allCatalogTools.filter(
+    (entry) => entry.configurable !== false && !hiddenToolNames.has(entry.name),
+  )
+  const visibleTools = tools.filter(
+    (tool) => !hiddenToolNames.has(tool.name) && !nonConfigurableToolNames.has(tool.name),
+  )
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
   const availableTools = catalogTools.filter((entry) =>
     tools.every((tool) => tool.name !== entry.name),

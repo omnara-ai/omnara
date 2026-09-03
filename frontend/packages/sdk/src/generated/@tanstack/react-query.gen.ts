@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { acceptInvitation, archiveAgent, bootstrapDaemon, cancelAgent, cancelQueuedBacklogInput, connectByoMachine, createAgent, createAgentConfig, createAgentInput, createAgentProfile, createByoMachineDaemonToken, createConfiguredModel, createCronTrigger, createIntegrationOAuthSetup, createMachine, createMachinePool, createModelProviderConfig, createOrganization, createOrgApiKey, createOrgInvitation, createPersonalAccessToken, createProject, createProjectMachineGrant, createProjectMachinePoolGrant, createProjectModelGrant, createSecret, createSecretGrant, createSecretVersion, createSkill, createSkillGrant, createSlackSetup, declineInvitation, deleteAgentProfile, deleteConfiguredModel, deleteCronTrigger, deleteCurrentUser, deleteIntegrationInstall, deleteMachine, deleteMachinePool, deleteModelProviderConfig, deleteOrganization, deleteOrgInvitation, deleteProject, deleteProjectMachineGrant, deleteProjectMachinePoolGrant, deleteProjectModelGrant, deleteSecret, deleteSecretGrant, deleteSkill, deleteSkillGrant, demoteSteeringInputToQueued, downloadDaemonArtifact, endMachineDaemonRuntime, getActor, getAgent, getAgentConfig, getAgentProfile, getArtifact, getArtifactContent, getCronTrigger, getCurrentUser, getDaemonSkillArchive, getMachine, getMachinePool, getModelCatalog, getModelProviderConfig, getOrgApiKey, getOrgOverview, getProjectAvailableSecret, getProjectMachinePoolGrant, getSecret, getSkill, getToolCatalog, listActors, listAgentInteractions, listAgentProfiles, listAgents, listByoMachineDaemonTokens, listConfiguredModels, listCronTriggers, listEvents, listIntegrationInstalls, listMachinePools, listMcpServers, listMcpServerTools, listMemberProjectAccess, listModelProviderConfigs, listOrgApiKeyProjectAccess, listOrgApiKeys, listOrgInvitations, listOrgMembers, listPendingInvitations, listPersonalAccessTokens, listProjectAvailableSecrets, listProjectAvailableSkills, listProjectMachineGrants, listProjectMachinePoolGrants, listProjectModelGrants, listQueuedBacklogInputs, listSecretGrants, listSecrets, listSkillGrants, listSkills, listToolCalls, listTurnEvents, listTurns, listVisibleMachines, listVisibleProjectMachines, listVisibleProjects, moveQueuedBacklogInput, type Options, promoteQueuedInputToSteering, putActor, recordMachineFailure, registerMachineDaemonRuntime, removeMemberProjectAccess, removeOrgApiKeyProjectRole, removeOrgMember, renameAgentProfile, resolveAgentInteraction, revokeMachineDaemonToken, revokeOrgApiKey, revokePersonalAccessToken, setMemberProjectAccess, setOrgApiKeyProjectRole, sleepMachineDaemonRuntime, socketMachineDaemonRuntime, startSecretMcpoAuth, submitToolCallResult, updateAgentConfig, updateAgentProfile, updateConfiguredModel, updateCronTrigger, updateMachine, updateMachinePool, updateModelProviderConfig, updateOrgApiKey, updateOrgMember, updateProjectMachinePoolGrant, updateProjectModelGrant, updateSecret, updateSkill, uploadDaemonArtifact } from '../sdk.gen';
-import type { AcceptInvitationData, AcceptInvitationError, AcceptInvitationResponse, ArchiveAgentData, ArchiveAgentError, ArchiveAgentResponse, BootstrapDaemonData, BootstrapDaemonError, BootstrapDaemonResponse2, CancelAgentData, CancelAgentError, CancelAgentResponse2, CancelQueuedBacklogInputData, CancelQueuedBacklogInputError, CancelQueuedBacklogInputResponse, ConnectByoMachineData, ConnectByoMachineError, ConnectByoMachineResponse2, CreateAgentConfigData, CreateAgentConfigError, CreateAgentConfigResponse, CreateAgentData, CreateAgentError, CreateAgentInputData, CreateAgentInputError, CreateAgentInputResponse, CreateAgentProfileData, CreateAgentProfileError, CreateAgentProfileResponse, CreateAgentResponse, CreateByoMachineDaemonTokenData, CreateByoMachineDaemonTokenError, CreateByoMachineDaemonTokenResponse, CreateConfiguredModelData, CreateConfiguredModelError, CreateConfiguredModelResponse, CreateCronTriggerData, CreateCronTriggerError, CreateCronTriggerResponse, CreateIntegrationOAuthSetupData, CreateIntegrationOAuthSetupError, CreateIntegrationOAuthSetupResponse, CreateMachineData, CreateMachineError, CreateMachinePoolData, CreateMachinePoolError, CreateMachinePoolResponse, CreateMachineResponse, CreateModelProviderConfigData, CreateModelProviderConfigError, CreateModelProviderConfigResponse2, CreateOrganizationData, CreateOrganizationError, CreateOrganizationResponse2, CreateOrgApiKeyData, CreateOrgApiKeyError, CreateOrgApiKeyResponse2, CreateOrgInvitationData, CreateOrgInvitationError, CreateOrgInvitationResponse, CreatePersonalAccessTokenData, CreatePersonalAccessTokenError, CreatePersonalAccessTokenResponse2, CreateProjectData, CreateProjectError, CreateProjectMachineGrantData, CreateProjectMachineGrantError, CreateProjectMachineGrantResponse2, CreateProjectMachinePoolGrantData, CreateProjectMachinePoolGrantError, CreateProjectMachinePoolGrantResponse, CreateProjectModelGrantData, CreateProjectModelGrantError, CreateProjectModelGrantResponse, CreateProjectResponse, CreateSecretData, CreateSecretError, CreateSecretGrantData, CreateSecretGrantError, CreateSecretGrantResponse, CreateSecretResponse, CreateSecretVersionData, CreateSecretVersionError, CreateSecretVersionResponse, CreateSkillData, CreateSkillError, CreateSkillGrantData, CreateSkillGrantError, CreateSkillGrantResponse, CreateSkillResponse, CreateSlackSetupData, CreateSlackSetupError, CreateSlackSetupResponse, DeclineInvitationData, DeclineInvitationError, DeclineInvitationResponse, DeleteAgentProfileData, DeleteAgentProfileError, DeleteAgentProfileResponse, DeleteConfiguredModelData, DeleteConfiguredModelError, DeleteConfiguredModelResponse, DeleteCronTriggerData, DeleteCronTriggerError, DeleteCronTriggerResponse, DeleteCurrentUserData, DeleteCurrentUserError, DeleteCurrentUserResponse, DeleteIntegrationInstallData, DeleteIntegrationInstallError, DeleteIntegrationInstallResponse, DeleteMachineData, DeleteMachineError, DeleteMachinePoolData, DeleteMachinePoolError, DeleteMachinePoolResponse, DeleteMachineResponse, DeleteModelProviderConfigData, DeleteModelProviderConfigError, DeleteModelProviderConfigResponse, DeleteOrganizationData, DeleteOrganizationError, DeleteOrganizationResponse, DeleteOrgInvitationData, DeleteOrgInvitationError, DeleteOrgInvitationResponse, DeleteProjectData, DeleteProjectError, DeleteProjectMachineGrantData, DeleteProjectMachineGrantError, DeleteProjectMachineGrantResponse, DeleteProjectMachinePoolGrantData, DeleteProjectMachinePoolGrantError, DeleteProjectMachinePoolGrantResponse, DeleteProjectModelGrantData, DeleteProjectModelGrantError, DeleteProjectModelGrantResponse, DeleteProjectResponse, DeleteSecretData, DeleteSecretError, DeleteSecretGrantData, DeleteSecretGrantError, DeleteSecretGrantResponse, DeleteSecretResponse, DeleteSkillData, DeleteSkillError, DeleteSkillGrantData, DeleteSkillGrantError, DeleteSkillGrantResponse, DeleteSkillResponse, DemoteSteeringInputToQueuedData, DemoteSteeringInputToQueuedError, DemoteSteeringInputToQueuedResponse, DownloadDaemonArtifactData, DownloadDaemonArtifactError, DownloadDaemonArtifactResponse, EndMachineDaemonRuntimeData, EndMachineDaemonRuntimeError, EndMachineDaemonRuntimeResponse, GetActorData, GetActorError, GetActorResponse, GetAgentConfigData, GetAgentConfigError, GetAgentConfigResponse, GetAgentData, GetAgentError, GetAgentProfileData, GetAgentProfileError, GetAgentProfileResponse, GetAgentResponse2, GetArtifactContentData, GetArtifactContentError, GetArtifactContentResponse, GetArtifactData, GetArtifactError, GetArtifactResponse, GetCronTriggerData, GetCronTriggerError, GetCronTriggerResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetDaemonSkillArchiveData, GetDaemonSkillArchiveError, GetDaemonSkillArchiveResponse, GetMachineData, GetMachineError, GetMachinePoolData, GetMachinePoolError, GetMachinePoolResponse, GetMachineResponse, GetModelCatalogData, GetModelCatalogError, GetModelCatalogResponse, GetModelProviderConfigData, GetModelProviderConfigError, GetModelProviderConfigResponse, GetOrgApiKeyData, GetOrgApiKeyError, GetOrgApiKeyResponse, GetOrgOverviewData, GetOrgOverviewError, GetOrgOverviewResponse, GetProjectAvailableSecretData, GetProjectAvailableSecretError, GetProjectAvailableSecretResponse, GetProjectMachinePoolGrantData, GetProjectMachinePoolGrantError, GetProjectMachinePoolGrantResponse, GetSecretData, GetSecretError, GetSecretResponse, GetSkillData, GetSkillError, GetSkillResponse, GetToolCatalogData, GetToolCatalogError, GetToolCatalogResponse, ListActorsData, ListActorsError, ListActorsResponse2, ListAgentInteractionsData, ListAgentInteractionsError, ListAgentInteractionsResponse2, ListAgentProfilesData, ListAgentProfilesError, ListAgentProfilesResponse2, ListAgentsData, ListAgentsError, ListAgentsResponse2, ListByoMachineDaemonTokensData, ListByoMachineDaemonTokensError, ListByoMachineDaemonTokensResponse, ListConfiguredModelsData, ListConfiguredModelsError, ListConfiguredModelsResponse, ListCronTriggersData, ListCronTriggersError, ListCronTriggersResponse2, ListEventsData, ListEventsError, ListEventsResponse, ListIntegrationInstallsData, ListIntegrationInstallsError, ListIntegrationInstallsResponse2, ListMachinePoolsData, ListMachinePoolsError, ListMachinePoolsResponse2, ListMcpServersData, ListMcpServersError, ListMcpServersResponse2, ListMcpServerToolsData, ListMcpServerToolsError, ListMcpServerToolsResponse, ListMemberProjectAccessData, ListMemberProjectAccessError, ListMemberProjectAccessResponse, ListModelProviderConfigsData, ListModelProviderConfigsError, ListModelProviderConfigsResponse, ListOrgApiKeyProjectAccessData, ListOrgApiKeyProjectAccessError, ListOrgApiKeyProjectAccessResponse, ListOrgApiKeysData, ListOrgApiKeysError, ListOrgApiKeysResponse2, ListOrgInvitationsData, ListOrgInvitationsError, ListOrgInvitationsResponse2, ListOrgMembersData, ListOrgMembersError, ListOrgMembersResponse2, ListPendingInvitationsData, ListPendingInvitationsError, ListPendingInvitationsResponse, ListPersonalAccessTokensData, ListPersonalAccessTokensError, ListPersonalAccessTokensResponse2, ListProjectAvailableSecretsData, ListProjectAvailableSecretsError, ListProjectAvailableSecretsResponse, ListProjectAvailableSkillsData, ListProjectAvailableSkillsError, ListProjectAvailableSkillsResponse, ListProjectMachineGrantsData, ListProjectMachineGrantsError, ListProjectMachineGrantsResponse2, ListProjectMachinePoolGrantsData, ListProjectMachinePoolGrantsError, ListProjectMachinePoolGrantsResponse2, ListProjectModelGrantsData, ListProjectModelGrantsError, ListProjectModelGrantsResponse2, ListQueuedBacklogInputsData, ListQueuedBacklogInputsError, ListQueuedBacklogInputsResponse, ListSecretGrantsData, ListSecretGrantsError, ListSecretGrantsResponse2, ListSecretsData, ListSecretsError, ListSecretsResponse2, ListSkillGrantsData, ListSkillGrantsError, ListSkillGrantsResponse2, ListSkillsData, ListSkillsError, ListSkillsResponse2, ListToolCallsData, ListToolCallsError, ListToolCallsResponse2, ListTurnEventsData, ListTurnEventsError, ListTurnEventsResponse2, ListTurnsData, ListTurnsError, ListTurnsResponse, ListVisibleMachinesData, ListVisibleMachinesError, ListVisibleMachinesResponse2, ListVisibleProjectMachinesData, ListVisibleProjectMachinesError, ListVisibleProjectMachinesResponse, ListVisibleProjectsData, ListVisibleProjectsError, ListVisibleProjectsResponse, MoveQueuedBacklogInputData, MoveQueuedBacklogInputError, MoveQueuedBacklogInputResponse, PromoteQueuedInputToSteeringData, PromoteQueuedInputToSteeringError, PromoteQueuedInputToSteeringResponse, PutActorData, PutActorError, PutActorResponse, RecordMachineFailureData, RecordMachineFailureError, RecordMachineFailureResponse, RegisterMachineDaemonRuntimeData, RegisterMachineDaemonRuntimeError, RegisterMachineDaemonRuntimeResponse, RemoveMemberProjectAccessData, RemoveMemberProjectAccessError, RemoveMemberProjectAccessResponse, RemoveOrgApiKeyProjectRoleData, RemoveOrgApiKeyProjectRoleError, RemoveOrgApiKeyProjectRoleResponse, RemoveOrgMemberData, RemoveOrgMemberError, RemoveOrgMemberResponse, RenameAgentProfileData, RenameAgentProfileError, RenameAgentProfileResponse, ResolveAgentInteractionData, ResolveAgentInteractionError, ResolveAgentInteractionResponse, RevokeMachineDaemonTokenData, RevokeMachineDaemonTokenError, RevokeMachineDaemonTokenResponse, RevokeOrgApiKeyData, RevokeOrgApiKeyError, RevokeOrgApiKeyResponse, RevokePersonalAccessTokenData, RevokePersonalAccessTokenError, RevokePersonalAccessTokenResponse, SetMemberProjectAccessData, SetMemberProjectAccessError, SetMemberProjectAccessResponse, SetOrgApiKeyProjectRoleData, SetOrgApiKeyProjectRoleError, SetOrgApiKeyProjectRoleResponse, SleepMachineDaemonRuntimeData, SleepMachineDaemonRuntimeError, SleepMachineDaemonRuntimeResponse, SocketMachineDaemonRuntimeData, SocketMachineDaemonRuntimeError, StartSecretMcpoAuthData, StartSecretMcpoAuthError, StartSecretMcpoAuthResponse, SubmitToolCallResultData, SubmitToolCallResultError, SubmitToolCallResultResponse2, UpdateAgentConfigData, UpdateAgentConfigError, UpdateAgentConfigResponse2, UpdateAgentProfileData, UpdateAgentProfileError, UpdateAgentProfileResponse, UpdateConfiguredModelData, UpdateConfiguredModelError, UpdateConfiguredModelResponse, UpdateCronTriggerData, UpdateCronTriggerError, UpdateCronTriggerResponse, UpdateMachineData, UpdateMachineError, UpdateMachinePoolData, UpdateMachinePoolError, UpdateMachinePoolResponse, UpdateMachineResponse, UpdateModelProviderConfigData, UpdateModelProviderConfigError, UpdateModelProviderConfigResponse, UpdateOrgApiKeyData, UpdateOrgApiKeyError, UpdateOrgApiKeyResponse, UpdateOrgMemberData, UpdateOrgMemberError, UpdateOrgMemberResponse, UpdateProjectMachinePoolGrantData, UpdateProjectMachinePoolGrantError, UpdateProjectMachinePoolGrantResponse, UpdateProjectModelGrantData, UpdateProjectModelGrantError, UpdateProjectModelGrantResponse, UpdateSecretData, UpdateSecretError, UpdateSecretResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, UploadDaemonArtifactData, UploadDaemonArtifactError, UploadDaemonArtifactResponse } from '../types.gen';
+import { acceptChannelConnectorEvent, acceptChannelConnectorRuntimeEvent, acceptInvitation, archiveAgent, bootstrapDaemon, cancelAgent, cancelQueuedBacklogInput, claimChannelConnectorDeliveries, claimChannelConnectorRuntimeUnits, completeChannelConnectorDelivery, connectByoMachine, createAgent, createAgentConfig, createAgentInput, createAgentProfile, createByoMachineDaemonToken, createConfiguredModel, createCronTrigger, createIntegrationOAuthSetup, createMachine, createMachinePool, createModelProviderConfig, createOrganization, createOrgApiKey, createOrgInvitation, createPersonalAccessToken, createProject, createProjectMachineGrant, createProjectMachinePoolGrant, createProjectModelGrant, createSecret, createSecretGrant, createSecretVersion, createSkill, createSkillGrant, createSlackSetup, declineInvitation, deleteAgentProfile, deleteConfiguredModel, deleteCronTrigger, deleteCurrentUser, deleteIntegrationInstall, deleteMachine, deleteMachinePool, deleteModelProviderConfig, deleteOrganization, deleteOrgInvitation, deleteProject, deleteProjectMachineGrant, deleteProjectMachinePoolGrant, deleteProjectModelGrant, deleteSecret, deleteSecretGrant, deleteSkill, deleteSkillGrant, demoteSteeringInputToQueued, downloadDaemonArtifact, endMachineDaemonRuntime, getActor, getAgent, getAgentConfig, getAgentProfile, getArtifact, getArtifactContent, getChannelConnectorAppConfiguration, getChannelConnectorInstallationConfiguration, getCronTrigger, getCurrentUser, getDaemonSkillArchive, getMachine, getMachinePool, getModelCatalog, getModelProviderConfig, getOrgApiKey, getOrgOverview, getProjectAvailableSecret, getProjectMachinePoolGrant, getSecret, getSkill, getToolCatalog, heartbeatChannelConnectorRuntimeUnit, listActors, listAgentInteractions, listAgentProfiles, listAgents, listByoMachineDaemonTokens, listConfiguredModels, listCronTriggers, listEvents, listIntegrationInstalls, listMachinePools, listMcpServers, listMcpServerTools, listMemberProjectAccess, listModelProviderConfigs, listOrgApiKeyProjectAccess, listOrgApiKeys, listOrgInvitations, listOrgMembers, listPendingInvitations, listPersonalAccessTokens, listProjectAvailableSecrets, listProjectAvailableSkills, listProjectMachineGrants, listProjectMachinePoolGrants, listProjectModelGrants, listQueuedBacklogInputs, listSecretGrants, listSecrets, listSkillGrants, listSkills, listToolCalls, listTurnEvents, listTurns, listVisibleMachines, listVisibleProjectMachines, listVisibleProjects, moveQueuedBacklogInput, type Options, promoteQueuedInputToSteering, putActor, recordMachineFailure, registerMachineDaemonRuntime, releaseChannelConnectorRuntimeUnit, removeMemberProjectAccess, removeOrgApiKeyProjectRole, removeOrgMember, renameAgentProfile, resolveAgentInteraction, resolveChannelConnectorInstallationConfiguration, resolveChannelConnectorInteraction, resolveChannelConnectorRuntimeInteraction, revokeMachineDaemonToken, revokeOrgApiKey, revokePersonalAccessToken, setMemberProjectAccess, setOrgApiKeyProjectRole, sleepMachineDaemonRuntime, socketMachineDaemonRuntime, startSecretMcpoAuth, submitToolCallResult, updateAgentConfig, updateAgentProfile, updateConfiguredModel, updateCronTrigger, updateMachine, updateMachinePool, updateModelProviderConfig, updateOrgApiKey, updateOrgMember, updateProjectMachinePoolGrant, updateProjectModelGrant, updateSecret, updateSkill, uploadDaemonArtifact } from '../sdk.gen';
+import type { AcceptChannelConnectorEventData, AcceptChannelConnectorEventError, AcceptChannelConnectorEventResponse, AcceptChannelConnectorRuntimeEventData, AcceptChannelConnectorRuntimeEventError, AcceptChannelConnectorRuntimeEventResponse, AcceptInvitationData, AcceptInvitationError, AcceptInvitationResponse, ArchiveAgentData, ArchiveAgentError, ArchiveAgentResponse, BootstrapDaemonData, BootstrapDaemonError, BootstrapDaemonResponse2, CancelAgentData, CancelAgentError, CancelAgentResponse2, CancelQueuedBacklogInputData, CancelQueuedBacklogInputError, CancelQueuedBacklogInputResponse, ClaimChannelConnectorDeliveriesData, ClaimChannelConnectorDeliveriesError, ClaimChannelConnectorDeliveriesResponse, ClaimChannelConnectorRuntimeUnitsData, ClaimChannelConnectorRuntimeUnitsError, ClaimChannelConnectorRuntimeUnitsResponse, CompleteChannelConnectorDeliveryData, CompleteChannelConnectorDeliveryError, CompleteChannelConnectorDeliveryResponse, ConnectByoMachineData, ConnectByoMachineError, ConnectByoMachineResponse2, CreateAgentConfigData, CreateAgentConfigError, CreateAgentConfigResponse, CreateAgentData, CreateAgentError, CreateAgentInputData, CreateAgentInputError, CreateAgentInputResponse, CreateAgentProfileData, CreateAgentProfileError, CreateAgentProfileResponse, CreateAgentResponse, CreateByoMachineDaemonTokenData, CreateByoMachineDaemonTokenError, CreateByoMachineDaemonTokenResponse, CreateConfiguredModelData, CreateConfiguredModelError, CreateConfiguredModelResponse, CreateCronTriggerData, CreateCronTriggerError, CreateCronTriggerResponse, CreateIntegrationOAuthSetupData, CreateIntegrationOAuthSetupError, CreateIntegrationOAuthSetupResponse, CreateMachineData, CreateMachineError, CreateMachinePoolData, CreateMachinePoolError, CreateMachinePoolResponse, CreateMachineResponse, CreateModelProviderConfigData, CreateModelProviderConfigError, CreateModelProviderConfigResponse2, CreateOrganizationData, CreateOrganizationError, CreateOrganizationResponse2, CreateOrgApiKeyData, CreateOrgApiKeyError, CreateOrgApiKeyResponse2, CreateOrgInvitationData, CreateOrgInvitationError, CreateOrgInvitationResponse, CreatePersonalAccessTokenData, CreatePersonalAccessTokenError, CreatePersonalAccessTokenResponse2, CreateProjectData, CreateProjectError, CreateProjectMachineGrantData, CreateProjectMachineGrantError, CreateProjectMachineGrantResponse2, CreateProjectMachinePoolGrantData, CreateProjectMachinePoolGrantError, CreateProjectMachinePoolGrantResponse, CreateProjectModelGrantData, CreateProjectModelGrantError, CreateProjectModelGrantResponse, CreateProjectResponse, CreateSecretData, CreateSecretError, CreateSecretGrantData, CreateSecretGrantError, CreateSecretGrantResponse, CreateSecretResponse, CreateSecretVersionData, CreateSecretVersionError, CreateSecretVersionResponse, CreateSkillData, CreateSkillError, CreateSkillGrantData, CreateSkillGrantError, CreateSkillGrantResponse, CreateSkillResponse, CreateSlackSetupData, CreateSlackSetupError, CreateSlackSetupResponse, DeclineInvitationData, DeclineInvitationError, DeclineInvitationResponse, DeleteAgentProfileData, DeleteAgentProfileError, DeleteAgentProfileResponse, DeleteConfiguredModelData, DeleteConfiguredModelError, DeleteConfiguredModelResponse, DeleteCronTriggerData, DeleteCronTriggerError, DeleteCronTriggerResponse, DeleteCurrentUserData, DeleteCurrentUserError, DeleteCurrentUserResponse, DeleteIntegrationInstallData, DeleteIntegrationInstallError, DeleteIntegrationInstallResponse, DeleteMachineData, DeleteMachineError, DeleteMachinePoolData, DeleteMachinePoolError, DeleteMachinePoolResponse, DeleteMachineResponse, DeleteModelProviderConfigData, DeleteModelProviderConfigError, DeleteModelProviderConfigResponse, DeleteOrganizationData, DeleteOrganizationError, DeleteOrganizationResponse, DeleteOrgInvitationData, DeleteOrgInvitationError, DeleteOrgInvitationResponse, DeleteProjectData, DeleteProjectError, DeleteProjectMachineGrantData, DeleteProjectMachineGrantError, DeleteProjectMachineGrantResponse, DeleteProjectMachinePoolGrantData, DeleteProjectMachinePoolGrantError, DeleteProjectMachinePoolGrantResponse, DeleteProjectModelGrantData, DeleteProjectModelGrantError, DeleteProjectModelGrantResponse, DeleteProjectResponse, DeleteSecretData, DeleteSecretError, DeleteSecretGrantData, DeleteSecretGrantError, DeleteSecretGrantResponse, DeleteSecretResponse, DeleteSkillData, DeleteSkillError, DeleteSkillGrantData, DeleteSkillGrantError, DeleteSkillGrantResponse, DeleteSkillResponse, DemoteSteeringInputToQueuedData, DemoteSteeringInputToQueuedError, DemoteSteeringInputToQueuedResponse, DownloadDaemonArtifactData, DownloadDaemonArtifactError, DownloadDaemonArtifactResponse, EndMachineDaemonRuntimeData, EndMachineDaemonRuntimeError, EndMachineDaemonRuntimeResponse, GetActorData, GetActorError, GetActorResponse, GetAgentConfigData, GetAgentConfigError, GetAgentConfigResponse, GetAgentData, GetAgentError, GetAgentProfileData, GetAgentProfileError, GetAgentProfileResponse, GetAgentResponse2, GetArtifactContentData, GetArtifactContentError, GetArtifactContentResponse, GetArtifactData, GetArtifactError, GetArtifactResponse, GetChannelConnectorAppConfigurationData, GetChannelConnectorAppConfigurationError, GetChannelConnectorAppConfigurationResponse, GetChannelConnectorInstallationConfigurationData, GetChannelConnectorInstallationConfigurationError, GetChannelConnectorInstallationConfigurationResponse, GetCronTriggerData, GetCronTriggerError, GetCronTriggerResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetDaemonSkillArchiveData, GetDaemonSkillArchiveError, GetDaemonSkillArchiveResponse, GetMachineData, GetMachineError, GetMachinePoolData, GetMachinePoolError, GetMachinePoolResponse, GetMachineResponse, GetModelCatalogData, GetModelCatalogError, GetModelCatalogResponse, GetModelProviderConfigData, GetModelProviderConfigError, GetModelProviderConfigResponse, GetOrgApiKeyData, GetOrgApiKeyError, GetOrgApiKeyResponse, GetOrgOverviewData, GetOrgOverviewError, GetOrgOverviewResponse, GetProjectAvailableSecretData, GetProjectAvailableSecretError, GetProjectAvailableSecretResponse, GetProjectMachinePoolGrantData, GetProjectMachinePoolGrantError, GetProjectMachinePoolGrantResponse, GetSecretData, GetSecretError, GetSecretResponse, GetSkillData, GetSkillError, GetSkillResponse, GetToolCatalogData, GetToolCatalogError, GetToolCatalogResponse, HeartbeatChannelConnectorRuntimeUnitData, HeartbeatChannelConnectorRuntimeUnitError, HeartbeatChannelConnectorRuntimeUnitResponse, ListActorsData, ListActorsError, ListActorsResponse2, ListAgentInteractionsData, ListAgentInteractionsError, ListAgentInteractionsResponse2, ListAgentProfilesData, ListAgentProfilesError, ListAgentProfilesResponse2, ListAgentsData, ListAgentsError, ListAgentsResponse2, ListByoMachineDaemonTokensData, ListByoMachineDaemonTokensError, ListByoMachineDaemonTokensResponse, ListConfiguredModelsData, ListConfiguredModelsError, ListConfiguredModelsResponse, ListCronTriggersData, ListCronTriggersError, ListCronTriggersResponse2, ListEventsData, ListEventsError, ListEventsResponse, ListIntegrationInstallsData, ListIntegrationInstallsError, ListIntegrationInstallsResponse2, ListMachinePoolsData, ListMachinePoolsError, ListMachinePoolsResponse2, ListMcpServersData, ListMcpServersError, ListMcpServersResponse2, ListMcpServerToolsData, ListMcpServerToolsError, ListMcpServerToolsResponse, ListMemberProjectAccessData, ListMemberProjectAccessError, ListMemberProjectAccessResponse, ListModelProviderConfigsData, ListModelProviderConfigsError, ListModelProviderConfigsResponse, ListOrgApiKeyProjectAccessData, ListOrgApiKeyProjectAccessError, ListOrgApiKeyProjectAccessResponse, ListOrgApiKeysData, ListOrgApiKeysError, ListOrgApiKeysResponse2, ListOrgInvitationsData, ListOrgInvitationsError, ListOrgInvitationsResponse2, ListOrgMembersData, ListOrgMembersError, ListOrgMembersResponse2, ListPendingInvitationsData, ListPendingInvitationsError, ListPendingInvitationsResponse, ListPersonalAccessTokensData, ListPersonalAccessTokensError, ListPersonalAccessTokensResponse2, ListProjectAvailableSecretsData, ListProjectAvailableSecretsError, ListProjectAvailableSecretsResponse, ListProjectAvailableSkillsData, ListProjectAvailableSkillsError, ListProjectAvailableSkillsResponse, ListProjectMachineGrantsData, ListProjectMachineGrantsError, ListProjectMachineGrantsResponse2, ListProjectMachinePoolGrantsData, ListProjectMachinePoolGrantsError, ListProjectMachinePoolGrantsResponse2, ListProjectModelGrantsData, ListProjectModelGrantsError, ListProjectModelGrantsResponse2, ListQueuedBacklogInputsData, ListQueuedBacklogInputsError, ListQueuedBacklogInputsResponse, ListSecretGrantsData, ListSecretGrantsError, ListSecretGrantsResponse2, ListSecretsData, ListSecretsError, ListSecretsResponse2, ListSkillGrantsData, ListSkillGrantsError, ListSkillGrantsResponse2, ListSkillsData, ListSkillsError, ListSkillsResponse2, ListToolCallsData, ListToolCallsError, ListToolCallsResponse2, ListTurnEventsData, ListTurnEventsError, ListTurnEventsResponse2, ListTurnsData, ListTurnsError, ListTurnsResponse, ListVisibleMachinesData, ListVisibleMachinesError, ListVisibleMachinesResponse2, ListVisibleProjectMachinesData, ListVisibleProjectMachinesError, ListVisibleProjectMachinesResponse, ListVisibleProjectsData, ListVisibleProjectsError, ListVisibleProjectsResponse, MoveQueuedBacklogInputData, MoveQueuedBacklogInputError, MoveQueuedBacklogInputResponse, PromoteQueuedInputToSteeringData, PromoteQueuedInputToSteeringError, PromoteQueuedInputToSteeringResponse, PutActorData, PutActorError, PutActorResponse, RecordMachineFailureData, RecordMachineFailureError, RecordMachineFailureResponse, RegisterMachineDaemonRuntimeData, RegisterMachineDaemonRuntimeError, RegisterMachineDaemonRuntimeResponse, ReleaseChannelConnectorRuntimeUnitData, ReleaseChannelConnectorRuntimeUnitError, ReleaseChannelConnectorRuntimeUnitResponse, RemoveMemberProjectAccessData, RemoveMemberProjectAccessError, RemoveMemberProjectAccessResponse, RemoveOrgApiKeyProjectRoleData, RemoveOrgApiKeyProjectRoleError, RemoveOrgApiKeyProjectRoleResponse, RemoveOrgMemberData, RemoveOrgMemberError, RemoveOrgMemberResponse, RenameAgentProfileData, RenameAgentProfileError, RenameAgentProfileResponse, ResolveAgentInteractionData, ResolveAgentInteractionError, ResolveAgentInteractionResponse, ResolveChannelConnectorInstallationConfigurationData, ResolveChannelConnectorInstallationConfigurationError, ResolveChannelConnectorInstallationConfigurationResponse, ResolveChannelConnectorInteractionData, ResolveChannelConnectorInteractionError, ResolveChannelConnectorInteractionResponse2, ResolveChannelConnectorRuntimeInteractionData, ResolveChannelConnectorRuntimeInteractionError, ResolveChannelConnectorRuntimeInteractionResponse, RevokeMachineDaemonTokenData, RevokeMachineDaemonTokenError, RevokeMachineDaemonTokenResponse, RevokeOrgApiKeyData, RevokeOrgApiKeyError, RevokeOrgApiKeyResponse, RevokePersonalAccessTokenData, RevokePersonalAccessTokenError, RevokePersonalAccessTokenResponse, SetMemberProjectAccessData, SetMemberProjectAccessError, SetMemberProjectAccessResponse, SetOrgApiKeyProjectRoleData, SetOrgApiKeyProjectRoleError, SetOrgApiKeyProjectRoleResponse, SleepMachineDaemonRuntimeData, SleepMachineDaemonRuntimeError, SleepMachineDaemonRuntimeResponse, SocketMachineDaemonRuntimeData, SocketMachineDaemonRuntimeError, StartSecretMcpoAuthData, StartSecretMcpoAuthError, StartSecretMcpoAuthResponse, SubmitToolCallResultData, SubmitToolCallResultError, SubmitToolCallResultResponse2, UpdateAgentConfigData, UpdateAgentConfigError, UpdateAgentConfigResponse2, UpdateAgentProfileData, UpdateAgentProfileError, UpdateAgentProfileResponse, UpdateConfiguredModelData, UpdateConfiguredModelError, UpdateConfiguredModelResponse, UpdateCronTriggerData, UpdateCronTriggerError, UpdateCronTriggerResponse, UpdateMachineData, UpdateMachineError, UpdateMachinePoolData, UpdateMachinePoolError, UpdateMachinePoolResponse, UpdateMachineResponse, UpdateModelProviderConfigData, UpdateModelProviderConfigError, UpdateModelProviderConfigResponse, UpdateOrgApiKeyData, UpdateOrgApiKeyError, UpdateOrgApiKeyResponse, UpdateOrgMemberData, UpdateOrgMemberError, UpdateOrgMemberResponse, UpdateProjectMachinePoolGrantData, UpdateProjectMachinePoolGrantError, UpdateProjectMachinePoolGrantResponse, UpdateProjectModelGrantData, UpdateProjectModelGrantError, UpdateProjectModelGrantResponse, UpdateSecretData, UpdateSecretError, UpdateSecretResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, UploadDaemonArtifactData, UploadDaemonArtifactError, UploadDaemonArtifactResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -446,7 +446,7 @@ export const createProjectMutation = (options?: Partial<Options<CreateProjectDat
 /**
  * Delete project
  *
- * Deletes the project, its memberships, profiles and profile versions, integration installs and targets, project-owned skills and revisions, and grants owned by or targeting the project. Project-owned secrets are permanently deleted with their versions and grants. The project's agents are archived and their runtimes and queued work are stopped. Machine, machine-pool, and model grants are removed without deleting the shared machine, pool, or model. Deletion fails if agent teardown cannot complete.
+ * Deletes the project, its memberships, profiles and profile versions, project-owned skills and revisions, and grants owned by or targeting the project. Its channel integration configuration is retired. Project-owned secrets are permanently deleted with their versions and grants. The project's agents are archived and their runtimes and queued work are stopped. Machine, machine-pool, and model grants are removed without deleting the shared machine, pool, or model. Deletion fails if agent teardown cannot complete.
  */
 export const deleteProjectMutation = (options?: Partial<Options<DeleteProjectData>>): UseMutationOptions<DeleteProjectResponse, DeleteProjectError, Options<DeleteProjectData>> => {
     const mutationOptions: UseMutationOptions<DeleteProjectResponse, DeleteProjectError, Options<DeleteProjectData>> = {
@@ -1235,7 +1235,7 @@ export const startSecretMcpoAuthMutation = (options?: Partial<Options<StartSecre
 /**
  * Delete secret
  *
- * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, or integration install.
+ * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, integration app registration, or integration install.
  */
 export const deleteSecretMutation = (options?: Partial<Options<DeleteSecretData>>): UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> => {
     const mutationOptions: UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> = {
@@ -1446,7 +1446,7 @@ export const listIntegrationInstallsInfiniteOptions = (options: Options<ListInte
 /**
  * Delete integration install
  *
- * Deletes the install and all of its integration targets and clears those target associations from agents. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials already issued by the provider are not revoked and provider-side webhooks are not removed.
+ * Retires the install, its routes, targets, agent-channel bindings, and persistent runtimes. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials already issued by the provider are not revoked and provider-side webhooks are not removed.
  */
 export const deleteIntegrationInstallMutation = (options?: Partial<Options<DeleteIntegrationInstallData>>): UseMutationOptions<DeleteIntegrationInstallResponse, DeleteIntegrationInstallError, Options<DeleteIntegrationInstallData>> => {
     const mutationOptions: UseMutationOptions<DeleteIntegrationInstallResponse, DeleteIntegrationInstallError, Options<DeleteIntegrationInstallData>> = {
@@ -3657,3 +3657,210 @@ export const downloadDaemonArtifactOptions = (options: Options<DownloadDaemonArt
     },
     queryKey: downloadDaemonArtifactQueryKey(options)
 });
+
+export const getChannelConnectorAppConfigurationQueryKey = (options: Options<GetChannelConnectorAppConfigurationData>) => createQueryKey('getChannelConnectorAppConfiguration', options);
+
+/**
+ * Get one connector-scoped provider app configuration
+ */
+export const getChannelConnectorAppConfigurationOptions = (options: Options<GetChannelConnectorAppConfigurationData>) => queryOptions<GetChannelConnectorAppConfigurationResponse, GetChannelConnectorAppConfigurationError, GetChannelConnectorAppConfigurationResponse, ReturnType<typeof getChannelConnectorAppConfigurationQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getChannelConnectorAppConfiguration({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getChannelConnectorAppConfigurationQueryKey(options)
+});
+
+export const getChannelConnectorInstallationConfigurationQueryKey = (options: Options<GetChannelConnectorInstallationConfigurationData>) => createQueryKey('getChannelConnectorInstallationConfiguration', options);
+
+/**
+ * Get one installation configuration by internal identity
+ */
+export const getChannelConnectorInstallationConfigurationOptions = (options: Options<GetChannelConnectorInstallationConfigurationData>) => queryOptions<GetChannelConnectorInstallationConfigurationResponse, GetChannelConnectorInstallationConfigurationError, GetChannelConnectorInstallationConfigurationResponse, ReturnType<typeof getChannelConnectorInstallationConfigurationQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getChannelConnectorInstallationConfiguration({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getChannelConnectorInstallationConfigurationQueryKey(options)
+});
+
+export const resolveChannelConnectorInstallationConfigurationQueryKey = (options: Options<ResolveChannelConnectorInstallationConfigurationData>) => createQueryKey('resolveChannelConnectorInstallationConfiguration', options);
+
+/**
+ * Resolve one installation configuration by provider identity
+ */
+export const resolveChannelConnectorInstallationConfigurationOptions = (options: Options<ResolveChannelConnectorInstallationConfigurationData>) => queryOptions<ResolveChannelConnectorInstallationConfigurationResponse, ResolveChannelConnectorInstallationConfigurationError, ResolveChannelConnectorInstallationConfigurationResponse, ReturnType<typeof resolveChannelConnectorInstallationConfigurationQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await resolveChannelConnectorInstallationConfiguration({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: resolveChannelConnectorInstallationConfigurationQueryKey(options)
+});
+
+/**
+ * Accept one normalized provider event
+ */
+export const acceptChannelConnectorEventMutation = (options?: Partial<Options<AcceptChannelConnectorEventData>>): UseMutationOptions<AcceptChannelConnectorEventResponse, AcceptChannelConnectorEventError, Options<AcceptChannelConnectorEventData>> => {
+    const mutationOptions: UseMutationOptions<AcceptChannelConnectorEventResponse, AcceptChannelConnectorEventError, Options<AcceptChannelConnectorEventData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await acceptChannelConnectorEvent({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Resolve an agent interaction from a provider channel
+ */
+export const resolveChannelConnectorInteractionMutation = (options?: Partial<Options<ResolveChannelConnectorInteractionData>>): UseMutationOptions<ResolveChannelConnectorInteractionResponse2, ResolveChannelConnectorInteractionError, Options<ResolveChannelConnectorInteractionData>> => {
+    const mutationOptions: UseMutationOptions<ResolveChannelConnectorInteractionResponse2, ResolveChannelConnectorInteractionError, Options<ResolveChannelConnectorInteractionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await resolveChannelConnectorInteraction({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Accept one normalized event from a fenced persistent runtime
+ */
+export const acceptChannelConnectorRuntimeEventMutation = (options?: Partial<Options<AcceptChannelConnectorRuntimeEventData>>): UseMutationOptions<AcceptChannelConnectorRuntimeEventResponse, AcceptChannelConnectorRuntimeEventError, Options<AcceptChannelConnectorRuntimeEventData>> => {
+    const mutationOptions: UseMutationOptions<AcceptChannelConnectorRuntimeEventResponse, AcceptChannelConnectorRuntimeEventError, Options<AcceptChannelConnectorRuntimeEventData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await acceptChannelConnectorRuntimeEvent({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Resolve an agent interaction from a fenced persistent runtime
+ */
+export const resolveChannelConnectorRuntimeInteractionMutation = (options?: Partial<Options<ResolveChannelConnectorRuntimeInteractionData>>): UseMutationOptions<ResolveChannelConnectorRuntimeInteractionResponse, ResolveChannelConnectorRuntimeInteractionError, Options<ResolveChannelConnectorRuntimeInteractionData>> => {
+    const mutationOptions: UseMutationOptions<ResolveChannelConnectorRuntimeInteractionResponse, ResolveChannelConnectorRuntimeInteractionError, Options<ResolveChannelConnectorRuntimeInteractionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await resolveChannelConnectorRuntimeInteraction({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Claim due outbound deliveries
+ */
+export const claimChannelConnectorDeliveriesMutation = (options?: Partial<Options<ClaimChannelConnectorDeliveriesData>>): UseMutationOptions<ClaimChannelConnectorDeliveriesResponse, ClaimChannelConnectorDeliveriesError, Options<ClaimChannelConnectorDeliveriesData>> => {
+    const mutationOptions: UseMutationOptions<ClaimChannelConnectorDeliveriesResponse, ClaimChannelConnectorDeliveriesError, Options<ClaimChannelConnectorDeliveriesData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await claimChannelConnectorDeliveries({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Complete or reschedule a fenced outbound delivery
+ */
+export const completeChannelConnectorDeliveryMutation = (options?: Partial<Options<CompleteChannelConnectorDeliveryData>>): UseMutationOptions<CompleteChannelConnectorDeliveryResponse, CompleteChannelConnectorDeliveryError, Options<CompleteChannelConnectorDeliveryData>> => {
+    const mutationOptions: UseMutationOptions<CompleteChannelConnectorDeliveryResponse, CompleteChannelConnectorDeliveryError, Options<CompleteChannelConnectorDeliveryData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await completeChannelConnectorDelivery({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Claim persistent provider runtime units
+ */
+export const claimChannelConnectorRuntimeUnitsMutation = (options?: Partial<Options<ClaimChannelConnectorRuntimeUnitsData>>): UseMutationOptions<ClaimChannelConnectorRuntimeUnitsResponse, ClaimChannelConnectorRuntimeUnitsError, Options<ClaimChannelConnectorRuntimeUnitsData>> => {
+    const mutationOptions: UseMutationOptions<ClaimChannelConnectorRuntimeUnitsResponse, ClaimChannelConnectorRuntimeUnitsError, Options<ClaimChannelConnectorRuntimeUnitsData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await claimChannelConnectorRuntimeUnits({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Renew a runtime lease and optionally checkpoint it
+ */
+export const heartbeatChannelConnectorRuntimeUnitMutation = (options?: Partial<Options<HeartbeatChannelConnectorRuntimeUnitData>>): UseMutationOptions<HeartbeatChannelConnectorRuntimeUnitResponse, HeartbeatChannelConnectorRuntimeUnitError, Options<HeartbeatChannelConnectorRuntimeUnitData>> => {
+    const mutationOptions: UseMutationOptions<HeartbeatChannelConnectorRuntimeUnitResponse, HeartbeatChannelConnectorRuntimeUnitError, Options<HeartbeatChannelConnectorRuntimeUnitData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await heartbeatChannelConnectorRuntimeUnit({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Release a fenced provider runtime unit
+ */
+export const releaseChannelConnectorRuntimeUnitMutation = (options?: Partial<Options<ReleaseChannelConnectorRuntimeUnitData>>): UseMutationOptions<ReleaseChannelConnectorRuntimeUnitResponse, ReleaseChannelConnectorRuntimeUnitError, Options<ReleaseChannelConnectorRuntimeUnitData>> => {
+    const mutationOptions: UseMutationOptions<ReleaseChannelConnectorRuntimeUnitResponse, ReleaseChannelConnectorRuntimeUnitError, Options<ReleaseChannelConnectorRuntimeUnitData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await releaseChannelConnectorRuntimeUnit({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};

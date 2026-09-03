@@ -14,11 +14,25 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func WithImplicitIntegrationMessageTool(
+func WithImplicitIntegrationTools(
 	contract agentconfig.RuntimeContract,
 	targets []integrationstore.IntegrationTargetSummary,
+	channelTools integrationstore.AgentChannelToolEligibility,
 ) (agentconfig.RuntimeContract, error) {
-	if len(targets) == 0 {
+	var err error
+	if channelTools.List {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameListChannels)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+	}
+	if channelTools.Send {
+		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendChannelMessage)
+		if err != nil {
+			return agentconfig.RuntimeContract{}, err
+		}
+	}
+	if channelTools.List || channelTools.Send || len(targets) == 0 {
 		return contract, nil
 	}
 	return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)

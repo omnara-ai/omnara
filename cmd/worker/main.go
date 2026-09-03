@@ -201,6 +201,7 @@ func main() {
 			Store:                 store,
 			Skills:                store.Skills(),
 			IntegrationHTTPClient: integrationHTTPClient,
+			IntegrationDeliveries: redisBus,
 			WebSearch:             searchProvider,
 			WebFetcher:            webFetcher,
 			MachinePoolManager:    machinePoolManager,

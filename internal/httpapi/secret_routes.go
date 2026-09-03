@@ -79,7 +79,7 @@ func newSecretResponse(record secretstore.SecretRecord) (openapi.Secret, error) 
 	}
 	response := openapi.Secret{
 		Id: id, OrgId: orgID, ManagementKind: openapi.ManagementKind(record.ManagementKind),
-		Owner: owner, Name: record.Name, Kind: openapi.SecretKind(record.Kind),
+		Owner: owner, Name: record.Name, Kind: openapi.SecretKindResponse(record.Kind),
 		Metadata: metadata, CurrentVersionNumber: record.CurrentVersionNumber,
 		PayloadKeys: append([]string(nil), record.PayloadKeys...),
 		CreatedAt:   record.CreatedAt, UpdatedAt: record.UpdatedAt,
@@ -273,6 +273,16 @@ func parseSecretMaterial(
 			RoleARN:         valueOrEmpty(material.RoleArn),
 			ExternalID:      valueOrEmpty(material.ExternalId),
 		}, nil
+	case secrets.KindIntegrationCredentials:
+		material, err := input.AsIntegrationCredentialsSecretMaterial()
+		if err != nil {
+			apiErr := apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid integration credentials material",
+			)
+			return nil, &apiErr
+		}
+		return secrets.IntegrationCredentialsMaterial{Values: material.Values}, nil
 	default:
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported secret material kind")
 		return nil, &apiErr

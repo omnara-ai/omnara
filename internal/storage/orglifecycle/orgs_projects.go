@@ -136,11 +136,23 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectCronTriggers(ctx, dbsqlc.DeleteProjectCronTriggersParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project cron triggers: %w", err)
 	}
-	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
-		return fmt.Errorf("delete project integration targets: %w", err)
+	if err := q.RevokeProjectIntegrationTargetBindings(ctx, dbsqlc.RevokeProjectIntegrationTargetBindingsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("revoke project integration target bindings: %w", err)
 	}
 	if err := q.DeleteProjectIntegrationInstalls(ctx, dbsqlc.DeleteProjectIntegrationInstallsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration installs: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationApps(ctx, dbsqlc.DeleteProjectIntegrationAppsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration apps: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationRuntimeUnits(ctx, dbsqlc.DeleteProjectIntegrationRuntimeUnitsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration runtime units: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationRoutes(ctx, dbsqlc.DeleteProjectIntegrationRoutesParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration routes: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration targets: %w", err)
 	}
 	return nil
 }
@@ -209,18 +221,18 @@ func (s *Service) teardownProjectAgentsTx(
 	return machines, nil
 }
 
-func lockProjectAgentLifecyclesTx(ctx context.Context, q *dbsqlc.Queries, projectIDs []ID) error {
+func lockProjectLifecyclesTx(ctx context.Context, q *dbsqlc.Queries, projectIDs []ID) error {
 	sorted := make([]ID, len(projectIDs))
 	copy(sorted, projectIDs)
 	sort.Slice(sorted, func(i, j int) bool {
 		return bytes.Compare(sorted[i][:], sorted[j][:]) < 0
 	})
 	for _, projectID := range sorted {
-		if err := q.LockProjectAgentLifecycleExclusive(
+		if err := q.LockProjectLifecycleExclusive(
 			ctx,
-			dbsqlc.LockProjectAgentLifecycleExclusiveParams{ProjectID: projectID.String()},
+			dbsqlc.LockProjectLifecycleExclusiveParams{ProjectID: projectID.String()},
 		); err != nil {
-			return fmt.Errorf("lock project agent lifecycle: %w", err)
+			return fmt.Errorf("lock project lifecycle: %w", err)
 		}
 	}
 	return nil
@@ -247,7 +259,7 @@ func (s *Service) DeleteProject(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	if err := lockProjectAgentLifecyclesTx(ctx, q, []ID{projectID}); err != nil {
+	if err := lockProjectLifecyclesTx(ctx, q, []ID{projectID}); err != nil {
 		return nil, err
 	}
 	txNotifications := s.newTxNotifications()
@@ -341,7 +353,7 @@ func (s *Service) deleteOrganizationAttempt(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	if err := lockProjectAgentLifecyclesTx(ctx, q, lockProjectIDs); err != nil {
+	if err := lockProjectLifecyclesTx(ctx, q, lockProjectIDs); err != nil {
 		return nil, nil, err
 	}
 	txNotifications := s.newTxNotifications()
@@ -410,6 +422,12 @@ func (s *Service) deleteOrganizationAttempt(
 		if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
 			return nil, nil, err
 		}
+	}
+	if err := q.DeleteOrganizationIntegrationApps(ctx, dbsqlc.DeleteOrganizationIntegrationAppsParams{OrgID: orgID}); err != nil {
+		return nil, nil, fmt.Errorf("delete organization integration apps: %w", err)
+	}
+	if err := q.DeleteOrganizationIntegrationRuntimeUnits(ctx, dbsqlc.DeleteOrganizationIntegrationRuntimeUnitsParams{OrgID: orgID}); err != nil {
+		return nil, nil, fmt.Errorf("delete organization integration runtime units: %w", err)
 	}
 	if err := q.DeleteOrganizationConfiguredModels(ctx, dbsqlc.DeleteOrganizationConfiguredModelsParams{OrgID: orgID}); err != nil {
 		return nil, nil, fmt.Errorf("delete organization configured models: %w", err)

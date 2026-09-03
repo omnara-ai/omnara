@@ -1511,6 +1511,76 @@ tools:
 	}
 }
 
+func TestCompileYAMLRejectsBindingManagedTools(t *testing.T) {
+	for _, name := range []string{
+		toolcatalog.ToolNameListChannels,
+		toolcatalog.ToolNameSendChannelMessage,
+	} {
+		for _, enabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s_enabled_%t", name, enabled), func(t *testing.T) {
+				source := fmt.Sprintf("\ntools:\n  %s:\n    enabled: %t\n", name, enabled)
+				_, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+				if err == nil || !strings.Contains(err.Error(), "managed by live channel bindings") {
+					t.Fatalf("compile error = %v, want binding-managed tool rejection", err)
+				}
+			})
+		}
+	}
+}
+
+func TestRuntimeContractIgnoresLegacyConfiguredBindingManagedTools(t *testing.T) {
+	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+tools:
+  run_command: {}
+`)), CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile built-in tool: %v", err)
+	}
+
+	for _, name := range []string{
+		toolcatalog.ToolNameListChannels,
+		toolcatalog.ToolNameSendChannelMessage,
+	} {
+		for _, enabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s_enabled_%t", name, enabled), func(t *testing.T) {
+				var body map[string]any
+				if err := json.Unmarshal(compiled.CanonicalJSON, &body); err != nil {
+					t.Fatalf("unmarshal compiled: %v", err)
+				}
+				tools, ok := body["tools"].(map[string]any)
+				if !ok {
+					t.Fatalf("compiled tools shape = %#v", body["tools"])
+				}
+				legacyTool, ok := tools[toolcatalog.ToolNameRunCommand].(map[string]any)
+				if !ok {
+					t.Fatalf("compiled tool shape = %#v", tools[toolcatalog.ToolNameRunCommand])
+				}
+				legacyTool["enabled"] = enabled
+				tools[name] = legacyTool
+				delete(tools, toolcatalog.ToolNameRunCommand)
+				raw, err := json.Marshal(body)
+				if err != nil {
+					t.Fatalf("marshal mutated compiled config: %v", err)
+				}
+				contract, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw))
+				if err != nil {
+					t.Fatalf("runtime contract: %v", err)
+				}
+				if len(contract.Tools) != 0 {
+					t.Fatalf("legacy binding-managed tools = %+v, want ignored", contract.Tools)
+				}
+				contract, err = contract.WithImplicitBuiltInTool(name)
+				if err != nil {
+					t.Fatalf("inject binding-managed tool: %v", err)
+				}
+				if len(contract.Tools) != 1 || contract.Tools[0].Name != name {
+					t.Fatalf("implicit binding-managed tools = %+v", contract.Tools)
+				}
+			})
+		}
+	}
+}
+
 func TestCompileYAMLRejectsBuiltInToolWithCustomFields(t *testing.T) {
 	for name, source := range map[string]string{
 		"description_on_builtin": `

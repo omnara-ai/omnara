@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/frontend/apps/web"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/email"
 	"github.com/omnara-ai/omnara/internal/httpapi"
@@ -361,6 +362,10 @@ func apiOptions(
 	replicaID uuid.UUID,
 	secretKeyWrapper secrets.KeyWrapper,
 ) ([]httpapi.Option, error) {
+	channelConnectorAuth, err := channelconnector.NewAuthenticator(cfg.ChannelConnectors)
+	if err != nil {
+		return nil, fmt.Errorf("configure channel connector authentication: %w", err)
+	}
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	operatorHTTPClient := metrics.NewObservedHTTPClient(
 		&http.Client{Timeout: outboundHTTPClientTimeout},
@@ -382,9 +387,11 @@ func apiOptions(
 		httpapi.WithAgentEventWakeupSubscriber(redisBus),
 		httpapi.WithAgentToolCallUpdateSubscriber(redisBus),
 		httpapi.WithAgentStreamDeltaSubscriber(redisBus),
+		httpapi.WithIntegrationDeliveryPublisher(redisBus),
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
+		httpapi.WithChannelConnectorAuthenticator(channelConnectorAuth),
 		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,
@@ -443,6 +450,7 @@ func apiOptions(
 		opts = append(opts, httpapi.WithPublicURL(cfg.PublicURL))
 		opts = append(opts, httpapi.WithPublicAPIURL(cfg.PublicAPIURL))
 	}
+	opts = append(opts, httpapi.WithInternalAPIOrigins(cfg.InternalAPIOrigins))
 	if cfg.BillingURL != "" {
 		opts = append(opts, httpapi.WithBillingURL(cfg.BillingURL))
 	}

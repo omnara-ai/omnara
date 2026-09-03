@@ -19,6 +19,247 @@ export type AgentName = string;
  */
 export type SkillName = string;
 
+export type IntegrationAppId = string;
+
+export type IntegrationRouteId = string;
+
+export type IntegrationBindingId = string;
+
+export type IntegrationDeliveryId = string;
+
+export type IntegrationRuntimeUnitId = string;
+
+export type ChannelOpaqueObject = {
+    [key: string]: unknown;
+};
+
+export type ChannelConnectorApp = {
+    id: IntegrationAppId;
+    provider: string;
+    provider_app_ref: string;
+    display_name: string;
+    connector_key: string;
+    installation_credential_kind?: SecretKindResponse;
+    provider_config: ChannelOpaqueObject;
+    provider_metadata: ChannelOpaqueObject;
+    configuration_revision: number;
+    updated_at: Timestamp;
+};
+
+export type ChannelConnectorInstall = {
+    id: string;
+    provider_tenant_id: string;
+    provider_account_ref: string;
+    provider_agent_display_name: string;
+    provider_config: ChannelOpaqueObject;
+    provider_identity: ChannelOpaqueObject;
+    provider_metadata: ChannelOpaqueObject;
+    configuration_revision: number;
+    updated_at: Timestamp;
+};
+
+export type ChannelCredentialPayload = {
+    kind: SecretKindResponse;
+    payload: ChannelOpaqueObject;
+};
+
+export type ChannelConnectorAppConfiguration = {
+    app: ChannelConnectorApp;
+    credential?: ChannelCredentialPayload;
+};
+
+export type ChannelConnectorInstallationConfiguration = {
+    integration_app_id: IntegrationAppId;
+    app_configuration_revision: number;
+    install: ChannelConnectorInstall;
+    credential?: ChannelCredentialPayload;
+};
+
+export type ChannelConversation = {
+    ref: string;
+    kind: string;
+    display_name?: string;
+    parent_ref?: string;
+    reply_to_ref?: string;
+    mentioned: boolean;
+    direct: boolean;
+    metadata: ChannelOpaqueObject;
+};
+
+export type ChannelActor = {
+    ref: string;
+    display_name: string;
+    metadata: ChannelOpaqueObject;
+};
+
+export type ChannelInboundEventRequest = {
+    version: 'v1';
+    provider_event_id: string;
+    external_tenant_id: string;
+    external_account_ref: string;
+    event_type: string;
+    conversation: ChannelConversation;
+    actor: ChannelActor;
+    content_blocks: Array<CreateAgentInputContentBlock>;
+    occurred_at: Timestamp;
+    metadata: ChannelOpaqueObject;
+};
+
+export type ChannelRuntimeInboundEventRequest = {
+    lease_token: string;
+    lease_generation: number;
+    event: ChannelInboundEventRequest;
+};
+
+export type ChannelInboundAcceptance = {
+    route_id: IntegrationRouteId;
+    agent_id: AgentId;
+    target_id: string;
+    binding_id: IntegrationBindingId;
+    agent_input_id: AgentInputId;
+};
+
+export type ChannelInboundEventResponse = {
+    accepted: Array<ChannelInboundAcceptance>;
+    ignored_routes: number;
+};
+
+export type ResolveChannelConnectorInteractionRequest = {
+    version: 'v1';
+    external_tenant_id: string;
+    external_account_ref: string;
+    integration_target_id: string;
+    integration_target_binding_id: IntegrationBindingId;
+    actor: ChannelActor;
+    answers: Array<InteractionAnswer>;
+    metadata: ChannelOpaqueObject;
+};
+
+export type ChannelRuntimeInteractionRequest = {
+    lease_token: string;
+    lease_generation: number;
+    interaction: ResolveChannelConnectorInteractionRequest;
+};
+
+export type ResolveChannelConnectorInteractionResponse = {
+    status: 'resolved' | 'already_resolved';
+    text: string;
+};
+
+export type ChannelConnectorCapability = {
+    connector_key: string;
+    provider: string;
+};
+
+export type ChannelConnectorClaimRequest = {
+    owner: string;
+    lease_ms: number;
+    limit: number;
+    capability: ChannelConnectorCapability;
+};
+
+export type ChannelDeliveryState = 'pending' | 'claimed' | 'retry_wait' | 'delivered' | 'failed' | 'unknown' | 'canceled';
+
+export type ChannelConnectorDelivery = {
+    id: IntegrationDeliveryId;
+    integration_app_id: IntegrationAppId;
+    integration_install_id: string;
+    integration_target_id: string;
+    integration_target_binding_id: IntegrationBindingId;
+    provider: string;
+    connector_key: string;
+    delivery_kind: string;
+    payload_version: string;
+    payload: ChannelOpaqueObject;
+    state: ChannelDeliveryState;
+    /**
+     * Number of times core has leased this delivery. A connector must separately avoid retrying provider I/O after its own bounded attempt policy is exhausted; core fails a delivery that asks for another safe retry after 64 claims.
+     */
+    attempt_count: number;
+    available_at: Timestamp;
+    claim_token?: string;
+    claim_generation: number;
+    app_configuration_revision?: number;
+    install_configuration_revision?: number;
+    claim_expires_at?: Timestamp;
+    notify_ref?: string;
+    provider_message_ref?: string;
+    last_error?: ChannelOpaqueObject;
+    completed_at?: Timestamp;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type ChannelConnectorDeliveriesResponse = {
+    deliveries: Array<ChannelConnectorDelivery>;
+};
+
+export type CompleteChannelConnectorDeliveryRequest = {
+    claim_token: string;
+    claim_generation: number;
+    /**
+     * Return retry_wait only when another bounded attempt is safe. Use unknown after provider I/O begins if success cannot be confirmed, so core does not risk a duplicate send. Core converts retry_wait to failed when the delivery has reached 64 claims.
+     */
+    outcome: 'retry_wait' | 'delivered' | 'failed' | 'unknown' | 'canceled';
+    retry_after_ms?: number;
+    /**
+     * Provider message identifier, limited to 2048 UTF-8 bytes by the server.
+     */
+    provider_message_ref: string;
+    last_error: ChannelOpaqueObject;
+};
+
+export type ChannelRuntimeDesiredState = 'running' | 'stopped';
+
+export type ChannelRuntimeStatus = 'idle' | 'running' | 'error' | 'stopped';
+
+export type ChannelConnectorRuntimeUnit = {
+    id: IntegrationRuntimeUnitId;
+    integration_app_id: IntegrationAppId;
+    integration_install_id?: string;
+    unit_key: string;
+    runtime_kind: string;
+    desired_state: ChannelRuntimeDesiredState;
+    spec_revision: number;
+    configuration: ChannelOpaqueObject;
+    status: ChannelRuntimeStatus;
+    lease_owner?: string;
+    lease_token?: string;
+    lease_generation: number;
+    leased_at?: Timestamp;
+    renewed_at?: Timestamp;
+    lease_expires_at?: Timestamp;
+    lease_spec_revision?: number;
+    lease_app_configuration_revision?: number;
+    lease_install_configuration_revision?: number;
+    checkpoint_version: number;
+    checkpoint_revision: number;
+    checkpoint: ChannelOpaqueObject;
+    last_error: ChannelOpaqueObject;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+export type ChannelConnectorRuntimeUnitsResponse = {
+    runtime_units: Array<ChannelConnectorRuntimeUnit>;
+};
+
+export type HeartbeatChannelConnectorRuntimeUnitRequest = {
+    lease_token: string;
+    lease_generation: number;
+    lease_ms: number;
+    checkpoint_version?: number;
+    checkpoint?: ChannelOpaqueObject;
+};
+
+export type ReleaseChannelConnectorRuntimeUnitRequest = {
+    lease_token: string;
+    lease_generation: number;
+    checkpoint_version?: number;
+    checkpoint?: ChannelOpaqueObject;
+    last_error: ChannelOpaqueObject;
+};
+
 /**
  * Sort order for named resources that expose created and modified timestamps.
  */
@@ -812,7 +1053,7 @@ export type CreateIntegrationOAuthSetupRequest = {
 };
 
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * A project-owned installation of a provider app in an external tenant or account. Native compatibility installations connect exactly one agent profile or agent; connector installations leave both agent_profile_id and agent_id unset and use routes and target bindings instead. Provider credentials are never returned.
  */
 export type IntegrationInstall = {
     id: IntegrationInstallId;
@@ -910,6 +1151,10 @@ export type ToolPermissionProfile = {
 export type ToolCatalogEntry = {
     name: string;
     description: string;
+    /**
+     * Whether this tool may be stored in agent configuration. False means runtime state injects it when applicable.
+     */
+    configurable?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };
@@ -2063,9 +2308,9 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for project members, external for API-managed actors, or the integration provider that supplied the actor.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'external';
+export type ActorProvider = string;
 
 export type Actor = {
     id: ActorId;
@@ -2182,13 +2427,22 @@ export type AwsCredentialsSecretMaterial = {
     external_id?: string;
 };
 
+export type IntegrationCredentialsSecretMaterial = {
+    kind: 'integration_credentials';
+    values: {
+        [key: string]: string;
+    };
+};
+
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
 } & OAuthTokenSetSecretMaterial) | ({
     kind: 'aws_credentials';
-} & AwsCredentialsSecretMaterial);
+} & AwsCredentialsSecretMaterial) | ({
+    kind: 'integration_credentials';
+} & IntegrationCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -2210,7 +2464,9 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials' | 'integration_credentials';
+
+export type SecretKindResponse = string;
 
 export type Secret = {
     id: SecretId;
@@ -2218,7 +2474,7 @@ export type Secret = {
     management_kind: ManagementKind;
     owner: SecretOwner;
     name: ResourceName;
-    kind: SecretKind;
+    kind: SecretKindResponse;
     metadata: Metadata;
     current_version_number: number;
     payload_keys: Array<string>;
@@ -13471,3 +13727,783 @@ export type DownloadDaemonArtifactResponses = {
 };
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
+
+export type GetChannelConnectorAppConfigurationData = {
+    body?: never;
+    path: {
+        integrationAppID: IntegrationAppId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/configuration';
+};
+
+export type GetChannelConnectorAppConfigurationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetChannelConnectorAppConfigurationError = GetChannelConnectorAppConfigurationErrors[keyof GetChannelConnectorAppConfigurationErrors];
+
+export type GetChannelConnectorAppConfigurationResponses = {
+    /**
+     * Provider app configuration and its optional app-level credential.
+     */
+    200: ChannelConnectorAppConfiguration;
+};
+
+export type GetChannelConnectorAppConfigurationResponse = GetChannelConnectorAppConfigurationResponses[keyof GetChannelConnectorAppConfigurationResponses];
+
+export type GetChannelConnectorInstallationConfigurationData = {
+    body?: never;
+    path: {
+        integrationAppID: IntegrationAppId;
+        integrationInstallID: IntegrationInstallId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/installations/{integrationInstallID}/configuration';
+};
+
+export type GetChannelConnectorInstallationConfigurationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetChannelConnectorInstallationConfigurationError = GetChannelConnectorInstallationConfigurationErrors[keyof GetChannelConnectorInstallationConfigurationErrors];
+
+export type GetChannelConnectorInstallationConfigurationResponses = {
+    /**
+     * Exact installation configuration and its optional credential.
+     */
+    200: ChannelConnectorInstallationConfiguration;
+};
+
+export type GetChannelConnectorInstallationConfigurationResponse = GetChannelConnectorInstallationConfigurationResponses[keyof GetChannelConnectorInstallationConfigurationResponses];
+
+export type ResolveChannelConnectorInstallationConfigurationData = {
+    body?: never;
+    path: {
+        integrationAppID: IntegrationAppId;
+    };
+    query: {
+        external_tenant_id: string;
+        external_account_ref: string;
+    };
+    url: '/channel-connector/apps/{integrationAppID}/installations/resolve';
+};
+
+export type ResolveChannelConnectorInstallationConfigurationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ResolveChannelConnectorInstallationConfigurationError = ResolveChannelConnectorInstallationConfigurationErrors[keyof ResolveChannelConnectorInstallationConfigurationErrors];
+
+export type ResolveChannelConnectorInstallationConfigurationResponses = {
+    /**
+     * Exact installation configuration and its optional credential.
+     */
+    200: ChannelConnectorInstallationConfiguration;
+};
+
+export type ResolveChannelConnectorInstallationConfigurationResponse = ResolveChannelConnectorInstallationConfigurationResponses[keyof ResolveChannelConnectorInstallationConfigurationResponses];
+
+export type AcceptChannelConnectorEventData = {
+    body: ChannelInboundEventRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/events';
+};
+
+export type AcceptChannelConnectorEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type AcceptChannelConnectorEventError = AcceptChannelConnectorEventErrors[keyof AcceptChannelConnectorEventErrors];
+
+export type AcceptChannelConnectorEventResponses = {
+    /**
+     * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+     */
+    200: ChannelInboundEventResponse;
+};
+
+export type AcceptChannelConnectorEventResponse = AcceptChannelConnectorEventResponses[keyof AcceptChannelConnectorEventResponses];
+
+export type ResolveChannelConnectorInteractionData = {
+    body: ResolveChannelConnectorInteractionRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        interactionID: AgentInteractionId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/interactions/{interactionID}/resolve';
+};
+
+export type ResolveChannelConnectorInteractionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ResolveChannelConnectorInteractionError = ResolveChannelConnectorInteractionErrors[keyof ResolveChannelConnectorInteractionErrors];
+
+export type ResolveChannelConnectorInteractionResponses = {
+    /**
+     * The interaction was resolved or had already been resolved identically.
+     */
+    200: ResolveChannelConnectorInteractionResponse;
+};
+
+export type ResolveChannelConnectorInteractionResponse2 = ResolveChannelConnectorInteractionResponses[keyof ResolveChannelConnectorInteractionResponses];
+
+export type AcceptChannelConnectorRuntimeEventData = {
+    body: ChannelRuntimeInboundEventRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        runtimeUnitID: IntegrationRuntimeUnitId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/events';
+};
+
+export type AcceptChannelConnectorRuntimeEventErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type AcceptChannelConnectorRuntimeEventError = AcceptChannelConnectorRuntimeEventErrors[keyof AcceptChannelConnectorRuntimeEventErrors];
+
+export type AcceptChannelConnectorRuntimeEventResponses = {
+    /**
+     * The event was processed across all active routes. Accepted entries are durable; ignored routes and routes with permanent configuration errors are not retried.
+     */
+    200: ChannelInboundEventResponse;
+};
+
+export type AcceptChannelConnectorRuntimeEventResponse = AcceptChannelConnectorRuntimeEventResponses[keyof AcceptChannelConnectorRuntimeEventResponses];
+
+export type ResolveChannelConnectorRuntimeInteractionData = {
+    body: ChannelRuntimeInteractionRequest;
+    path: {
+        integrationAppID: IntegrationAppId;
+        runtimeUnitID: IntegrationRuntimeUnitId;
+        interactionID: AgentInteractionId;
+    };
+    query?: never;
+    url: '/channel-connector/apps/{integrationAppID}/runtime-units/{runtimeUnitID}/interactions/{interactionID}/resolve';
+};
+
+export type ResolveChannelConnectorRuntimeInteractionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ResolveChannelConnectorRuntimeInteractionError = ResolveChannelConnectorRuntimeInteractionErrors[keyof ResolveChannelConnectorRuntimeInteractionErrors];
+
+export type ResolveChannelConnectorRuntimeInteractionResponses = {
+    /**
+     * The interaction was resolved or had already been resolved identically.
+     */
+    200: ResolveChannelConnectorInteractionResponse;
+};
+
+export type ResolveChannelConnectorRuntimeInteractionResponse = ResolveChannelConnectorRuntimeInteractionResponses[keyof ResolveChannelConnectorRuntimeInteractionResponses];
+
+export type ClaimChannelConnectorDeliveriesData = {
+    body: ChannelConnectorClaimRequest;
+    path?: never;
+    query?: never;
+    url: '/channel-connector/deliveries/claim';
+};
+
+export type ClaimChannelConnectorDeliveriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ClaimChannelConnectorDeliveriesError = ClaimChannelConnectorDeliveriesErrors[keyof ClaimChannelConnectorDeliveriesErrors];
+
+export type ClaimChannelConnectorDeliveriesResponses = {
+    /**
+     * Claimed deliveries fenced to this claimant.
+     */
+    200: ChannelConnectorDeliveriesResponse;
+};
+
+export type ClaimChannelConnectorDeliveriesResponse = ClaimChannelConnectorDeliveriesResponses[keyof ClaimChannelConnectorDeliveriesResponses];
+
+export type CompleteChannelConnectorDeliveryData = {
+    body: CompleteChannelConnectorDeliveryRequest;
+    path: {
+        deliveryID: IntegrationDeliveryId;
+    };
+    query?: never;
+    url: '/channel-connector/deliveries/{deliveryID}/complete';
+};
+
+export type CompleteChannelConnectorDeliveryErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CompleteChannelConnectorDeliveryError = CompleteChannelConnectorDeliveryErrors[keyof CompleteChannelConnectorDeliveryErrors];
+
+export type CompleteChannelConnectorDeliveryResponses = {
+    /**
+     * Current delivery state.
+     */
+    200: ChannelConnectorDelivery;
+};
+
+export type CompleteChannelConnectorDeliveryResponse = CompleteChannelConnectorDeliveryResponses[keyof CompleteChannelConnectorDeliveryResponses];
+
+export type ClaimChannelConnectorRuntimeUnitsData = {
+    body: ChannelConnectorClaimRequest;
+    path?: never;
+    query?: never;
+    url: '/channel-connector/runtime-units/claim';
+};
+
+export type ClaimChannelConnectorRuntimeUnitsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ClaimChannelConnectorRuntimeUnitsError = ClaimChannelConnectorRuntimeUnitsErrors[keyof ClaimChannelConnectorRuntimeUnitsErrors];
+
+export type ClaimChannelConnectorRuntimeUnitsResponses = {
+    /**
+     * Claimed runtime units fenced to this gateway.
+     */
+    200: ChannelConnectorRuntimeUnitsResponse;
+};
+
+export type ClaimChannelConnectorRuntimeUnitsResponse = ClaimChannelConnectorRuntimeUnitsResponses[keyof ClaimChannelConnectorRuntimeUnitsResponses];
+
+export type HeartbeatChannelConnectorRuntimeUnitData = {
+    body: HeartbeatChannelConnectorRuntimeUnitRequest;
+    path: {
+        runtimeUnitID: IntegrationRuntimeUnitId;
+    };
+    query?: never;
+    url: '/channel-connector/runtime-units/{runtimeUnitID}/heartbeat';
+};
+
+export type HeartbeatChannelConnectorRuntimeUnitErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type HeartbeatChannelConnectorRuntimeUnitError = HeartbeatChannelConnectorRuntimeUnitErrors[keyof HeartbeatChannelConnectorRuntimeUnitErrors];
+
+export type HeartbeatChannelConnectorRuntimeUnitResponses = {
+    /**
+     * Renewed runtime unit.
+     */
+    200: ChannelConnectorRuntimeUnit;
+};
+
+export type HeartbeatChannelConnectorRuntimeUnitResponse = HeartbeatChannelConnectorRuntimeUnitResponses[keyof HeartbeatChannelConnectorRuntimeUnitResponses];
+
+export type ReleaseChannelConnectorRuntimeUnitData = {
+    body: ReleaseChannelConnectorRuntimeUnitRequest;
+    path: {
+        runtimeUnitID: IntegrationRuntimeUnitId;
+    };
+    query?: never;
+    url: '/channel-connector/runtime-units/{runtimeUnitID}/release';
+};
+
+export type ReleaseChannelConnectorRuntimeUnitErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ReleaseChannelConnectorRuntimeUnitError = ReleaseChannelConnectorRuntimeUnitErrors[keyof ReleaseChannelConnectorRuntimeUnitErrors];
+
+export type ReleaseChannelConnectorRuntimeUnitResponses = {
+    /**
+     * Released runtime unit.
+     */
+    200: ChannelConnectorRuntimeUnit;
+};
+
+export type ReleaseChannelConnectorRuntimeUnitResponse = ReleaseChannelConnectorRuntimeUnitResponses[keyof ReleaseChannelConnectorRuntimeUnitResponses];

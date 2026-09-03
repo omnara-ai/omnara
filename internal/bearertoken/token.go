@@ -12,9 +12,10 @@ import (
 type Kind string
 
 const (
-	KindPersonalAccess Kind = "pat"
-	KindOrganization   Kind = "org"
-	KindDaemon         Kind = "daemon"
+	KindPersonalAccess   Kind = "pat"
+	KindOrganization     Kind = "org"
+	KindDaemon           Kind = "daemon"
+	KindChannelConnector Kind = "connector"
 )
 
 const (
@@ -22,9 +23,10 @@ const (
 	secretLength   = 43
 	checksumLength = 6
 
-	personalAccessPrefix = "omnara_" + string(KindPersonalAccess) + "_v1_"
-	organizationPrefix   = "omnara_" + string(KindOrganization) + "_v1_"
-	daemonPrefix         = "omnara_" + string(KindDaemon) + "_v1_"
+	personalAccessPrefix   = "omnara_" + string(KindPersonalAccess) + "_v1_"
+	organizationPrefix     = "omnara_" + string(KindOrganization) + "_v1_"
+	daemonPrefix           = "omnara_" + string(KindDaemon) + "_v1_"
+	channelConnectorPrefix = "omnara_" + string(KindChannelConnector) + "_v1_"
 
 	checksumSeparator = '_'
 	base62Radix       = uint32(len(alphabet))
@@ -101,6 +103,8 @@ func prefixForKind(kind Kind) (string, bool) {
 		return organizationPrefix, true
 	case KindDaemon:
 		return daemonPrefix, true
+	case KindChannelConnector:
+		return channelConnectorPrefix, true
 	default:
 		return "", false
 	}
@@ -114,6 +118,8 @@ func kindAndPrefix(token string) (Kind, string, bool) {
 		return KindOrganization, organizationPrefix, true
 	case strings.HasPrefix(token, daemonPrefix):
 		return KindDaemon, daemonPrefix, true
+	case strings.HasPrefix(token, channelConnectorPrefix):
+		return KindChannelConnector, channelConnectorPrefix, true
 	default:
 		return "", "", false
 	}
