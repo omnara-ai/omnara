@@ -4,3 +4,4 @@ pnpm-lock.yaml
 packages/sdk/src/generated
 apps/web/playwright-report
 apps/web/test-results
+tools/oxlint/anti-slop

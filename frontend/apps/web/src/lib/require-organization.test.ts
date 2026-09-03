@@ -3,21 +3,21 @@ import { isRedirect } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
 
 import { requireOrganization } from '@/lib/require-organization'
+import { currentUser, currentUserOrg } from '@/test/fixtures'
 
 function user(orgCount: number): CurrentUser {
-  return {
-    orgs: Array.from({ length: orgCount }, (_, index) => ({
-      id: `org_${index}`,
-      name: `Org ${index}`,
-    })),
-  } as unknown as CurrentUser
+  return currentUser(
+    Array.from({ length: orgCount }, (_, index) =>
+      currentUserOrg({ id: `org_${index}`, name: `Org ${index}` }),
+    ),
+  )
 }
 
 function redirectHref(run: () => void): string {
   try {
     run()
   } catch (error) {
-    if (isRedirect(error)) return (error as { options: { href: string } }).options.href
+    if (isRedirect(error) && error.options.href !== undefined) return error.options.href
     throw error
   }
   throw new Error('expected a redirect')

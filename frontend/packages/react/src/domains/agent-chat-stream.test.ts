@@ -3,7 +3,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  chatSdkMocks,
+  chatTransport,
   client,
   connection,
   controlEvent,
@@ -19,7 +19,7 @@ import {
   waitForSnapshot,
 } from './agent-chat-test-support'
 
-const sdkMocks = chatSdkMocks()
+const transport = chatTransport()
 
 describe('AgentChatSession streaming', () => {
   beforeEach(resetChatTestHarness)
@@ -476,14 +476,14 @@ describe('AgentChatSession streaming', () => {
     })
     const finished = await waitForSnapshot(session, (s) => s.status === 'ready')
     expect(messageText(finished.messages.at(-1))).toEqual(['Done'])
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
+    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })
 
   it('opens the continuous follower from the initial durable cursor', async () => {
     const session = startSession()
     await connection(0)
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledWith(
+    expect(transport.openAgentEventStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: { after_sequence: 0, stream_deltas: true } }),
     )
     session.disconnect()
@@ -502,7 +502,7 @@ describe('AgentChatSession streaming', () => {
     const snapshot = await waitForSnapshot(session, (s) => s.status === 'error')
 
     expect(snapshot.error?.message).toBe('Agent event stream request failed with HTTP 401')
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
+    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })
 
@@ -519,7 +519,7 @@ describe('AgentChatSession streaming', () => {
 
     const snapshot = await waitForSnapshot(session, (state) => state.status === 'error')
     expect(snapshot.error?.message).toBe('event projection failed')
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
+    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })
 
@@ -537,7 +537,7 @@ describe('AgentChatSession streaming', () => {
     expect(snapshot.error?.message).toBe(
       'Agent event stream received data that does not match the API contract',
     )
-    expect(sdkMocks.openAgentEventStream).toHaveBeenCalledTimes(1)
+    expect(transport.openAgentEventStream).toHaveBeenCalledTimes(1)
     session.disconnect()
   })
 })

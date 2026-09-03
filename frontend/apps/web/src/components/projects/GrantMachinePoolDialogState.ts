@@ -39,6 +39,7 @@ import {
   memoryGbToMb,
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
+import { type ProviderOptions, providerOptionStrings } from '@/lib/provider-options'
 
 export interface PoolGrantOverrideDraft {
   description: string
@@ -122,18 +123,15 @@ function editableProviderOptionKeys(provider: MachinePoolProvider, clusterManage
 
 function providerOptionsDraftFromOverlay(
   provider: MachinePoolProvider,
-  overlay: Record<string, unknown>,
+  overlay: ProviderOptions,
   clusterManaged: boolean,
 ): ProviderOptionsDraft {
   const definition = machinePoolProviderDefinitions[provider]
-  const stringValue = (key: string) => {
-    const value = overlay[key]
-    return typeof value === 'string' ? value : ''
-  }
+  const options = providerOptionStrings(overlay)
   return {
-    resource: clusterManaged ? '' : stringValue(definition.resource.key),
-    location: clusterManaged ? '' : stringValue(definition.location.key),
-    startupScript: stringValue('startup_script'),
+    resource: clusterManaged ? '' : (options[definition.resource.key] ?? ''),
+    location: clusterManaged ? '' : (options[definition.location.key] ?? ''),
+    startupScript: options.startup_script ?? '',
   }
 }
 
@@ -183,7 +181,7 @@ export function poolGrantUpdateRequest(
 ): UpdateProjectMachinePoolGrantRequest {
   const provider = isMachinePoolProvider(pool.provider) ? pool.provider : null
   const clusterManaged = pool.management_kind === 'cluster'
-  let providerOptionsOverlayPatch: Record<string, unknown> | undefined
+  let providerOptionsOverlayPatch: UpdateProjectMachinePoolGrantRequest['default_machine_provider_options_overlay']
   if (provider) {
     const editableKeys = editableProviderOptionKeys(provider, clusterManaged)
     providerOptionsOverlayPatch = {
@@ -192,7 +190,7 @@ export function poolGrantUpdateRequest(
           ([key]) => !editableKeys.has(key),
         ),
       ),
-      ...(providerOptionsOverlay(provider, draft.providerOptions, clusterManaged) ?? {}),
+      ...providerOptionsOverlay(provider, draft.providerOptions, clusterManaged),
     }
   }
   return {

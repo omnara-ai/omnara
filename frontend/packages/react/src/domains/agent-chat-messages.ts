@@ -3,6 +3,7 @@ import type {
   AgentEventStreamFrame,
   AgentInput,
   AgentInputEvent,
+  ContentBlockMetadata,
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
@@ -10,6 +11,7 @@ import type {
   ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
+import { z } from 'zod'
 
 import type {
   AgentChatData,
@@ -87,22 +89,17 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   }
 }
 
-function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
+function isHiddenContentBlock(block: { metadata?: ContentBlockMetadata }): boolean {
   return block.metadata?.omnara_hidden === 'true'
 }
 
+const structuredToolError = z.object({ error_code: z.string() })
+
 function structuredToolErrorCode(blocks: ToolResultContentBlock[]): string | undefined {
   for (const block of blocks) {
-    if (
-      block.type !== 'structured_data' ||
-      block.value == null ||
-      typeof block.value !== 'object'
-    ) {
-      continue
-    }
-    if (!('error_code' in block.value)) continue
-    const errorCode = block.value.error_code
-    if (typeof errorCode === 'string') return errorCode
+    if (block.type !== 'structured_data') continue
+    const parsed = structuredToolError.safeParse(block.value)
+    if (parsed.success) return parsed.data.error_code
   }
   return undefined
 }
@@ -113,11 +110,10 @@ function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
     const id = `${event.id}:block:${String(blockIndex)}`
     if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      const displayText = block.metadata?.omnara_display_text
       parts.push({
         type: 'text',
         id,
-        text: typeof displayText === 'string' ? displayText : block.text,
+        text: block.metadata?.omnara_display_text ?? block.text,
         state: 'done',
       })
     }
@@ -247,7 +243,6 @@ export function agentEventsToMessages(
       toolCallId: part.toolCallId,
       toolName: part.toolName,
       toolType: part.toolType,
-      ...(toolErrorCode == null ? {} : { toolErrorCode }),
       state: 'output-available',
       input: part.input,
       output: {
@@ -255,6 +250,7 @@ export function agentEventsToMessages(
         contentBlocks,
       },
     }
+    if (toolErrorCode != null) toolPart.toolErrorCode = toolErrorCode
     const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
       block.type === 'media_ref'
         ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
@@ -333,12 +329,14 @@ function optimisticBacklogText(input: LocalAgentInput): string {
  * does not stop the agent — so controls like cancel and interaction polling
  * must key off it rather than off `status`, which errors mask.
  */
-export function projectAgentChat(data: AgentChatData): {
+export interface AgentChatProjection {
   messages: OmnaraUIMessage[]
   backlogInputs: AgentInputBacklogItem[]
   status: AgentChatStatus
   isWorking: boolean
-} {
+}
+
+export function projectAgentChat(data: AgentChatData): AgentChatProjection {
   const messages = agentEventsToMessages(data.events, { hasOlderEvents: data.hasOlderEvents })
   const deltaPreviews = deltaPreviewsByTurn(data.deltas)
   const lastEvent = lastStatusEvent(data.events)
@@ -554,7 +552,8 @@ function modelCallPreviewParts(
       const part = parts[tool.partIndex]
       if (part?.type === 'dynamic-tool' && part.state === 'input-streaming') {
         try {
-          parts[tool.partIndex] = { ...part, input: JSON.parse(tool.inputText) as unknown }
+          const input: unknown = JSON.parse(tool.inputText)
+          parts[tool.partIndex] = { ...part, input }
         } catch {
           // Partial JSON; the part updates once the input parses or the
           // durable event provides it.

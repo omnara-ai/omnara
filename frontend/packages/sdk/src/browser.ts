@@ -1,3 +1,5 @@
+import * as z from 'zod'
+
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
 
@@ -21,6 +23,31 @@ export interface WebConfig {
   billingURL?: string
   apiURL?: string
 }
+
+type AuthRequestBody = Record<string, string | undefined>
+
+const zAuthConnectorsResponse = z.object({
+  connectors: z.array(
+    z.object({
+      slug: z.string(),
+      kind: z.string(),
+      display_name: z.string(),
+      login_url: z.string(),
+    }),
+  ),
+})
+
+const zWebConfigResponse = z.object({
+  billing_url: z.string().optional(),
+  api_url: z.string().optional(),
+})
+
+const zDeviceAuthPendingResponse = z.object({
+  client_name: z.string(),
+  token_name: z.string(),
+  created_at: z.string(),
+  expires_at: z.string(),
+})
 
 function cookieValue(name: string): string | undefined {
   const prefix = `${name}=`
@@ -56,7 +83,7 @@ export function cookieCsrf(): AuthStrategy {
   }
 }
 
-async function authJSON(path: string, body?: unknown): Promise<void> {
+async function authJSON(path: string, body?: AuthRequestBody): Promise<void> {
   const headers: Record<string, string> = {}
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
@@ -75,14 +102,7 @@ async function authJSON(path: string, body?: unknown): Promise<void> {
 export async function listAuthConnectors(): Promise<AuthConnector[]> {
   const response = await fetch('/api/auth/connectors', { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = (await response.json()) as {
-    connectors: {
-      slug: string
-      kind: string
-      display_name: string
-      login_url: string
-    }[]
-  }
+  const data = zAuthConnectorsResponse.parse(await response.json())
   return data.connectors.map((connector) => ({
     slug: connector.slug,
     kind: connector.kind,
@@ -94,7 +114,7 @@ export async function listAuthConnectors(): Promise<AuthConnector[]> {
 export async function fetchWebConfig(): Promise<WebConfig> {
   const response = await fetch('/api/web-config', { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = (await response.json()) as { billing_url?: string; api_url?: string }
+  const data = zWebConfigResponse.parse(await response.json())
   return { billingURL: data.billing_url, apiURL: data.api_url }
 }
 
@@ -102,12 +122,7 @@ export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPen
   const params = new URLSearchParams({ user_code: userCode })
   const response = await fetch(`/api/auth/device/pending?${params}`, { credentials: 'include' })
   if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = (await response.json()) as {
-    client_name: string
-    token_name: string
-    created_at: string
-    expires_at: string
-  }
+  const data = zDeviceAuthPendingResponse.parse(await response.json())
   return {
     clientName: data.client_name,
     tokenName: data.token_name,

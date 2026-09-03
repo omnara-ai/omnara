@@ -13,7 +13,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 
 export type IntegrationInstallListFilters = ListFilters<ListIntegrationInstallsData>
 export type IntegrationInstallListSort = ListSort<ListIntegrationInstallsData>
@@ -27,12 +27,13 @@ export function useIntegrationInstalls(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListIntegrationInstallsData>(options)
   return useInfiniteQuery({
-    ...listIntegrationInstallsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listIntegrationInstallsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

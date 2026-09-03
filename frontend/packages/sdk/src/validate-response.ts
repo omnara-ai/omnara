@@ -1,59 +1,62 @@
-import type * as z from 'zod'
+import * as z from 'zod'
+
+import type { Config } from './generated/client'
 
 type Issue = z.core.$ZodIssue
 
-function valueAt(data: unknown, path: readonly PropertyKey[]): unknown {
-  let current: unknown = data
-  for (const segment of path) {
-    if (current === null || typeof current !== 'object') return undefined
-    current = (current as Record<PropertyKey, unknown>)[segment]
-  }
-  return current
+type ResponseValidator = NonNullable<Config['responseValidator']>
+
+const zStringInput = z.string()
+
+function isStringInput(issue: Issue): boolean {
+  return zStringInput.safeParse(issue.input).success
+}
+
+function hasStringDiscriminator(issue: z.core.$ZodIssueInvalidUnion): boolean {
+  if (issue.discriminator === undefined) return isStringInput(issue)
+  return z.object({ [issue.discriminator]: zStringInput }).safeParse(issue.input).success
 }
 
 function samePath(a: readonly PropertyKey[], b: readonly PropertyKey[]): boolean {
   return a.length === b.length && a.every((segment, index) => segment === b[index])
 }
 
-function isUnknownEnumIssue(issue: Issue, root: unknown): boolean {
+function isUnknownEnumIssue(issue: Issue): boolean {
   if (issue.code === 'invalid_value') {
-    return issue.values.length > 1 && typeof valueAt(root, issue.path) === 'string'
+    return issue.values.length > 1 && isStringInput(issue)
   }
   if (issue.code !== 'invalid_union') return false
-  const input = valueAt(root, issue.path)
-  if (issue.errors.length === 0) return typeof input === 'string'
-  if (issue.errors.some((arm) => arm.every((member) => isUnknownEnumIssue(member, input)))) {
+  if (issue.errors.length === 0) return hasStringDiscriminator(issue)
+  if (issue.errors.some((arm) => arm.every(isUnknownEnumIssue))) {
     return true
   }
   const [first, ...rest] = issue.errors
   return (first ?? []).some(
     (candidate) =>
       candidate.code === 'invalid_value' &&
-      typeof valueAt(input, candidate.path) === 'string' &&
+      isStringInput(candidate) &&
       rest.every((arm) =>
         arm.some((other) => other.code === 'invalid_value' && samePath(other.path, candidate.path)),
       ),
   )
 }
 
-export function isUnknownEnumError(error: z.ZodError, data: unknown): boolean {
-  return error.issues.every((issue) => isUnknownEnumIssue(issue, data))
+export function isUnknownEnumError(error: z.ZodError): boolean {
+  return error.issues.every(isUnknownEnumIssue)
 }
 
-// Accepts unknown enum members and keeps unknown fields so newer servers keep
-// working; anything else must match. Returns the original value, typed.
-export function safeParseResponse<T extends z.ZodType>(
-  schema: T,
-  data: unknown,
-): z.ZodSafeParseResult<z.output<T>> {
-  const result = schema.safeParse(data)
-  if (result.success || isUnknownEnumError(result.error, data)) {
-    return { success: true, data: data as z.output<T> }
+export function relaxedSchema<S extends z.ZodType>(schema: S): z.ZodType<z.output<S>> {
+  return z.custom<z.output<S>>().superRefine((value, ctx) => {
+    const result = schema.safeParse(value, { reportInput: true })
+    if (result.success || isUnknownEnumError(result.error)) return
+    for (const issue of result.error.issues) ctx.addIssue({ ...issue })
+  })
+}
+
+export function relaxedResponseValidator(schema: z.ZodType): ResponseValidator {
+  return async (data) => {
+    const result = await schema.safeParseAsync(data, { reportInput: true })
+    if (result.success || isUnknownEnumError(result.error)) return
+    throw result.error
   }
-  return { success: false, error: result.error }
-}
-
-export function validateResponse(schema: z.ZodType, data: unknown): void {
-  const result = safeParseResponse(schema, data)
-  if (!result.success) throw result.error
 }

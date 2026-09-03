@@ -32,7 +32,8 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
+import { generatedQueryKey } from './query-keys'
 
 export type ModelProviderListFilters = ListFilters<ListModelProviderConfigsData>
 export type ModelProviderListSort = ListSort<ListModelProviderConfigsData>
@@ -42,12 +43,13 @@ export function useModelProviders(orgID: string, options?: ModelProviderListOpti
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListModelProviderConfigsData>(options)
   return useInfiniteQuery({
-    ...listModelProviderConfigsInfiniteOptions({
-      path: { orgID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listModelProviderConfigsInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -75,12 +77,13 @@ export function useConfiguredModels(
 ) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
-    ...listConfiguredModelsInfiniteOptions({
-      path: { orgID, modelProviderConfigID },
-      query: { limit: DEFAULT_LIST_PAGE_SIZE },
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listConfiguredModelsInfiniteOptions({
+        path: { orgID, modelProviderConfigID },
+        query: { limit: DEFAULT_LIST_PAGE_SIZE },
+        client,
+      }),
+    ),
     enabled: (options?.enabled ?? true) && modelProviderConfigID !== '',
   })
 }
@@ -150,7 +153,7 @@ export function useConfiguredModelOptions(orgID: string, providers: ModelProvide
 function invalidateConfiguredModels(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
+      const entry = generatedQueryKey(query)
       return entry?._id === 'listConfiguredModels' && entry.path?.orgID === orgID
     },
   })

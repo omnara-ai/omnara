@@ -8,6 +8,7 @@ export {
   AgentChatSession,
   type AgentChatSessionOptions,
   type AgentChatStatus,
+  type AgentChatTransport,
   type OmnaraMessageMetadata,
   type OmnaraUIMessage,
   useAgentChat,
@@ -160,7 +161,7 @@ export {
   useOrgMembers,
   useOrgOverview,
 } from './domains/orgs'
-export { cursorPagination } from './domains/pagination'
+export { cursorPaginated } from './domains/pagination'
 export {
   useCreatePersonalAccessToken,
   usePersonalAccessTokens,

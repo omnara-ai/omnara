@@ -3,7 +3,7 @@ import { type Command, InvalidArgumentError } from 'commander'
 import * as z from 'zod'
 
 import type { CliConfig } from './config.ts'
-import { updateConfigFile } from './config-file.ts'
+import type { ConfigStore } from './config-file.ts'
 import { deriveFlags, type FlagSpec, kebabCase } from './flags.ts'
 import type { OutputFormat } from './format.ts'
 import {
@@ -11,33 +11,64 @@ import {
   promptOrgSelection,
   promptProjectSelection,
 } from './interactive.ts'
-import { CliInputError, renderResult, runCliAction } from './output.ts'
+import { CliInputError, renderResult, runCliAction, zOptionalRenderValue } from './output.ts'
 import { createFlowReporter, type FlowReporter } from './reporter.ts'
 
-type SdkOperation = (options: never) => Promise<{ data?: unknown }>
+const zFlagValue = z.json()
+type FlagValue = z.output<typeof zFlagValue>
+const zFlagObject = z.record(z.string(), zFlagValue)
+type FlagObject = z.output<typeof zFlagObject>
+type CommandOptions = Record<string, FlagValue | undefined>
+type PathValues = Record<string, string>
 
-type ResponseOf<F extends SdkOperation> = F extends (options: never) => PromiseLike<infer R>
+const zNoParams = z.object({})
+
+interface CallInput<Path, Query, Body> {
+  client?: OmnaraClient
+  path?: Path
+  query?: Partial<Query>
+  body?: Body
+}
+
+type SdkOperation<Response, Path, Query, Body> = {
+  call(options?: CallInput<Path, Query, Body>): Promise<{ data: Response }>
+}['call']
+
+type BodyOf<F> = F extends (options: infer O) => PromiseLike<{ data: unknown }>
+  ? NonNullable<O> extends { body?: infer B }
+    ? B
+    : never
+  : never
+
+type ResponseOf<F> = F extends (options: never) => PromiseLike<infer R>
   ? R extends { data?: infer D }
     ? Exclude<D, undefined>
     : never
   : never
 
-export interface TransformBodyContext {
+export interface TransformBodyContext<Path> {
   client: OmnaraClient
-  path: Record<string, unknown>
+  path: Path
 }
 
-export interface OperationSpec<Response = never, ParsedBody = never> {
+interface OperationRunContext {
+  client: OmnaraClient
+  apiUrl: string
+  path: PathValues
+  query: FlagObject
+  body: FlagObject
+  asJson: boolean
+}
+
+export interface OperationSpec {
   type: 'op'
   verb: string
   summary: string
-  fn: SdkOperation
-  path?: z.ZodObject<z.ZodRawShape>
-  query?: z.ZodObject<z.ZodRawShape>
+  path?: z.ZodObject
+  query?: z.ZodObject
   body?: z.ZodType
-  transformBody?: (body: ParsedBody, context: TransformBodyContext) => unknown
   positional?: string[]
-  format: OutputFormat<Response>
+  run: (context: OperationRunContext) => Promise<void>
 }
 
 export interface FlowContext<Path, Body> {
@@ -51,8 +82,8 @@ export interface FlowContext<Path, Body> {
 interface FlowInput {
   client: OmnaraClient
   apiUrl: string
-  path: Record<string, unknown>
-  body: unknown
+  path: PathValues
+  body: FlagObject
 }
 
 export interface FlowSpec {
@@ -60,7 +91,7 @@ export interface FlowSpec {
   verb: string
   summary: string
   aliases?: string[]
-  path: z.ZodObject<z.ZodRawShape>
+  path: z.ZodObject
   body: z.ZodType
   execute: (input: FlowInput) => Promise<void>
 }
@@ -75,16 +106,75 @@ export interface CommandGroup {
   groups?: CommandGroup[]
 }
 
-export function op<F extends SdkOperation, B extends z.ZodType = z.ZodNever>(
-  spec: Omit<OperationSpec<ResponseOf<F>, z.output<B>>, 'type' | 'fn' | 'body'> & {
-    fn: F
-    body?: B
-  },
-): OperationSpec {
-  return { ...spec, type: 'op' }
+interface OperationBase<F, P extends z.ZodObject, Q extends z.ZodObject> {
+  verb: string
+  summary: string
+  fn: F
+  path?: P
+  query?: Q
+  positional?: string[]
+  format: OutputFormat<ResponseOf<F>>
 }
 
-export function flowOp<P extends z.ZodObject<z.ZodRawShape>, B extends z.ZodType>(spec: {
+type OperationBody<F, P extends z.ZodObject, B extends z.ZodType> =
+  | { body?: z.ZodType<BodyOf<F>>; transformBody?: undefined }
+  | {
+      path: P
+      body: B
+      transformBody: (
+        body: z.output<B>,
+        context: TransformBodyContext<z.output<P>>,
+      ) => BodyOf<F> | Promise<BodyOf<F>>
+    }
+
+export function op<
+  F extends SdkOperation<ResponseOf<F>, z.output<P>, z.output<Q>, BodyOf<F>>,
+  P extends z.ZodObject = typeof zNoParams,
+  Q extends z.ZodObject = typeof zNoParams,
+  B extends z.ZodType = z.ZodType<BodyOf<F>>,
+>(spec: OperationBase<F, P, Q> & OperationBody<F, P, B>): OperationSpec {
+  return {
+    type: 'op',
+    verb: spec.verb,
+    summary: spec.summary,
+    path: spec.path,
+    query: spec.query,
+    body: spec.body,
+    positional: spec.positional,
+    run: async (context) => {
+      const input: CallInput<z.output<P>, z.output<Q>, BodyOf<F>> = { client: context.client }
+      if (spec.transformBody !== undefined) {
+        const path = parseWithSchema(spec.path, context.path, 'arguments')
+        input.path = path
+        input.body = await spec.transformBody(
+          parseWithSchema(spec.body, context.body, 'request body'),
+          { client: context.client, path },
+        )
+      } else {
+        if (spec.path !== undefined) {
+          input.path = parseWithSchema(spec.path, context.path, 'arguments')
+        }
+        if (spec.body !== undefined) {
+          input.body = parseWithSchema(spec.body, context.body, 'request body')
+        }
+      }
+      if (spec.query !== undefined) {
+        input.query = parseWithSchema(spec.query, context.query, 'query flags')
+      }
+      const { data } = await spec.fn(input)
+      if (context.asJson) {
+        renderResult(zOptionalRenderValue.parse(data), true)
+        return
+      }
+      const formatted = spec.format(data, { apiUrl: context.apiUrl })
+      renderResult(zOptionalRenderValue.parse(formatted.value), false, {
+        columns: formatted.columns,
+      })
+    },
+  }
+}
+
+export function flowOp<P extends z.ZodObject, B extends z.ZodType>(spec: {
   verb: string
   summary: string
   aliases?: string[]
@@ -113,8 +203,8 @@ interface ConfigParam {
   optionKey: string
   configKey: 'org_id' | 'project_id'
   describe: string
-  resolve: (config: CliConfig, path: Record<string, unknown>) => string | undefined
-  prompt: (config: CliConfig, path: Record<string, unknown>) => Promise<string>
+  resolve: (config: CliConfig, path: PathValues) => string | undefined
+  prompt: (config: CliConfig, path: PathValues) => Promise<string>
 }
 
 const CONFIG_PARAMS: ConfigParam[] = [
@@ -139,7 +229,7 @@ const CONFIG_PARAMS: ConfigParam[] = [
         : undefined,
     prompt: (config, path) => {
       const orgId = path.orgID
-      if (typeof orgId !== 'string') {
+      if (orgId === undefined) {
         throw new CliInputError('cannot select a project before an organization is set')
       }
       return promptProjectSelection(config.client, orgId)
@@ -147,10 +237,9 @@ const CONFIG_PARAMS: ConfigParam[] = [
   },
 ]
 
-function parseJsonFlag(raw: string): unknown {
+function parseJsonFlag(raw: string): FlagValue {
   try {
-    const parsed: unknown = JSON.parse(raw)
-    return parsed
+    return zFlagValue.parse(JSON.parse(raw))
   } catch {
     throw new InvalidArgumentError('expects valid JSON')
   }
@@ -191,13 +280,10 @@ function registerFlag(command: Command, spec: FlagSpec): void {
   }
 }
 
-function collectFlagValues(
-  specs: FlagSpec[],
-  options: Record<string, unknown>,
-): Record<string, unknown> {
-  const root: Record<string, unknown> = {}
-  const containers = new Map<string, Record<string, unknown>>()
-  const containerFor = (path: readonly string[]): Record<string, unknown> => {
+function collectFlagValues(specs: FlagSpec[], options: CommandOptions) {
+  const root: FlagObject = {}
+  const containers = new Map<string, FlagObject>()
+  const containerFor = (path: readonly string[]) => {
     const name = path[path.length - 1]
     if (name === undefined) return root
     const pathKey = path.join('.')
@@ -220,7 +306,7 @@ function collectFlagValues(
 
 function parseWithSchema<S extends z.ZodType>(
   schema: S,
-  value: unknown,
+  value: FlagValue | PathValues,
   label: string,
 ): z.output<S> {
   const result = schema.safeParse(value)
@@ -230,37 +316,26 @@ function parseWithSchema<S extends z.ZodType>(
   return result.data
 }
 
-interface CallInput {
-  client: OmnaraClient
-  path?: Record<string, unknown>
-  query?: Record<string, unknown>
-  body?: unknown
-}
-
-async function callOperation(spec: OperationSpec, input: CallInput): Promise<unknown> {
-  const result = await spec.fn(input as never)
-  return result.data
-}
-
-const zBodyObject = z.looseObject({})
-
-function deepMerge(
-  base: Record<string, unknown>,
-  patch: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged = { ...base }
+function deepMerge(base: FlagObject, patch: FlagObject): FlagObject {
+  const merged = new Map(Object.entries(base))
   for (const [key, value] of Object.entries(patch)) {
-    const existing = zBodyObject.safeParse(merged[key])
-    const incoming = zBodyObject.safeParse(value)
-    merged[key] =
-      existing.success && incoming.success ? deepMerge(existing.data, incoming.data) : value
+    const existing = zFlagObject.safeParse(merged.get(key))
+    const incoming = zFlagObject.safeParse(value)
+    merged.set(
+      key,
+      existing.success && incoming.success ? deepMerge(existing.data, incoming.data) : value,
+    )
   }
-  return merged
+  return Object.fromEntries(merged)
 }
 
-function saveConfigDefault(configKey: 'org_id' | 'project_id', value: string): void {
+function saveConfigDefault(
+  store: ConfigStore,
+  configKey: 'org_id' | 'project_id',
+  value: string,
+): void {
   try {
-    updateConfigFile(
+    store.update(
       configKey === 'org_id' ? { org_id: value, project_id: undefined } : { [configKey]: value },
     )
     console.error(`saved ${configKey}=${value} as your default (change with omnara config)`)
@@ -275,10 +350,7 @@ interface PathPlan {
   configParams: ConfigParam[]
 }
 
-function planPathParams(
-  path: z.ZodObject<z.ZodRawShape> | undefined,
-  positional: string[],
-): PathPlan {
+function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
   const pathParams = path ? Object.keys(path.shape) : []
   const configParams = CONFIG_PARAMS.filter(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
@@ -298,25 +370,27 @@ function registerPathParams(command: Command, plan: PathPlan): void {
   }
 }
 
+const zExplicitOption = z.string().optional()
+
 async function resolvePathValues(
   plan: PathPlan,
   args: string[],
-  options: Record<string, unknown>,
+  options: CommandOptions,
   config: CliConfig,
-): Promise<Record<string, unknown>> {
-  const path: Record<string, unknown> = {}
+): Promise<PathValues> {
+  const path: PathValues = {}
   plan.positionalParams.forEach((param, index) => {
-    path[param] = args[index]
+    const arg = args[index]
+    if (arg !== undefined) path[param] = arg
   })
   let usedExplicitOverride = false
   for (const param of plan.configParams) {
-    const explicitOption = options[param.optionKey]
-    const explicit = typeof explicitOption === 'string' ? explicitOption : undefined
+    const explicit = zExplicitOption.parse(options[param.optionKey])
     usedExplicitOverride = usedExplicitOverride || explicit !== undefined
     let value = explicit ?? param.resolve(config, path)
     if (value === undefined && canPromptInteractively()) {
       value = await param.prompt(config, path)
-      if (!usedExplicitOverride) saveConfigDefault(param.configKey, value)
+      if (!usedExplicitOverride) saveConfigDefault(config.store, param.configKey, value)
     }
     if (value === undefined) {
       throw new CliInputError(`missing ${param.optionKey}: ${param.describe}`)
@@ -344,37 +418,17 @@ export function registerOperation(parent: Command, config: CliConfig, spec: Oper
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
       await config.ensureLoggedIn()
-      const options = command.opts<Record<string, unknown>>()
-      const input: CallInput = { client: config.client }
-      if (spec.path) {
-        const path = await resolvePathValues(plan, args, options, config)
-        input.path = parseWithSchema(spec.path, path, 'arguments')
-      }
-      if (spec.query) {
-        const query = collectFlagValues(queryFlags, options)
-        input.query = parseWithSchema(spec.query, query, 'query flags')
-      }
-      if (spec.body) {
-        const base =
-          options.body === undefined ? {} : parseWithSchema(zBodyObject, options.body, '--body')
-        const body = deepMerge(base, collectFlagValues(bodyFlags, options))
-        const parsed = parseWithSchema(spec.body, body, 'request body')
-        input.body = spec.transformBody
-          ? await spec.transformBody(parsed as never, {
-              client: config.client,
-              path: input.path ?? {},
-            })
-          : parsed
-      }
-      const data = await callOperation(spec, input)
-      if (options.json === true) {
-        renderResult(data, true)
-        return
-      }
-      const formatted = spec.format(data as never, {
+      const options = command.opts<CommandOptions>()
+      const base =
+        options.body === undefined ? {} : parseWithSchema(zFlagObject, options.body, '--body')
+      await spec.run({
+        client: config.client,
         apiUrl: config.apiUrl,
+        path: await resolvePathValues(plan, args, options, config),
+        query: collectFlagValues(queryFlags, options),
+        body: deepMerge(base, collectFlagValues(bodyFlags, options)),
+        asJson: options.json === true,
       })
-      renderResult(formatted.value, false, { columns: formatted.columns })
     })
   })
 }
@@ -391,7 +445,7 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
       await config.ensureLoggedIn()
-      const options = command.opts<Record<string, unknown>>()
+      const options = command.opts<CommandOptions>()
       await spec.execute({
         client: config.client,
         apiUrl: config.apiUrl,

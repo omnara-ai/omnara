@@ -50,7 +50,8 @@ function ThemeMenuItems() {
         className="bg-muted ml-auto flex rounded-md p-0.5"
         aria-label="Theme preference"
         onValueChange={(value) => {
-          const preference = value as ThemePreference
+          const preference = themeOptions.find((option) => option.value === value)?.value
+          if (preference === undefined) return
           setThemePreference(preference)
           setTheme(preference)
         }}

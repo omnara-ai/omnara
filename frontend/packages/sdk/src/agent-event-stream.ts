@@ -1,15 +1,16 @@
 import * as z from 'zod'
 
 import type { OmnaraClient } from './client'
-import { ApiError, type ApiErrorCode } from './errors'
+import { ApiError, type ApiErrorCode, zErrorResponse } from './errors'
 import type {
   AgentEventStreamData,
   Error as ApiErrorBody,
   StreamEventsData,
 } from './generated/types.gen'
-import { zAgentSequence, zError, zStreamEventsResponse } from './generated/zod.gen'
+import { zAgentSequence, zStreamEventsResponse } from './generated/zod.gen'
+import { zJsonText } from './json-body'
 import { createServerSentEventParser } from './server-sent-events'
-import { safeParseResponse } from './validate-response'
+import { relaxedSchema } from './validate-response'
 
 export type AgentEventStreamFrame = Exclude<AgentEventStreamData, ApiErrorBody>
 export type AgentEventStreamErrorKind = 'api' | 'client' | 'contract' | 'http' | 'transport'
@@ -77,6 +78,8 @@ const zDurableCursor = z.object({
   event_kind: z.string(),
   sequence: zAgentSequence,
 })
+const relaxedStreamEvent = relaxedSchema(zStreamEventsResponse)
+const zStreamFrame = zJsonText.pipe(relaxedStreamEvent)
 
 function streamError(
   kind: AgentEventStreamErrorKind,
@@ -189,7 +192,7 @@ async function* openConnection(
           })
     }
     if (response.status !== 200) {
-      const apiError = error instanceof ApiError ? error : ApiError.fromBody(response.status, error)
+      const apiError = await ApiError.fromResponse(response)
       await response.body?.cancel().catch(() => undefined)
       throw streamError('http', apiError.message, {
         status: response.status,
@@ -232,15 +235,7 @@ async function* openConnection(
 }
 
 function decodeFrame(text: string): AgentEventStreamData {
-  let data: unknown
-  try {
-    data = JSON.parse(text)
-  } catch (error) {
-    throw streamError('contract', 'Agent event stream received data that is not JSON', {
-      cause: error,
-    })
-  }
-  const frame = safeParseResponse(zStreamEventsResponse, data)
+  const frame = zStreamFrame.safeParse(text)
   if (!frame.success) {
     throw streamError('contract', 'Agent event stream received data outside its API contract', {
       cause: frame.error,
@@ -250,7 +245,7 @@ function decodeFrame(text: string): AgentEventStreamData {
 }
 
 function isErrorFrame(data: AgentEventStreamData): data is ApiErrorBody {
-  return safeParseResponse(zError, data).success
+  return zErrorResponse.safeParse(data).success
 }
 
 function durableSequence(data: AgentEventStreamData): number | undefined {

@@ -2,9 +2,41 @@ import type {
   AgentEvent,
   AgentInput,
   AgentInputKind,
+  CreateAgentInputResponse,
   InlineMediaContentBlock,
   ModelOutputDelta,
+  OmnaraClient,
+  openAgentEventStream,
+  OpenAgentEventStreamOptions,
+  sdk,
 } from '@omnara/sdk'
+import type { QueryClient } from '@tanstack/react-query'
+
+export interface AgentChatScope {
+  orgID: string
+  projectID: string
+  agentID: string
+}
+
+export type CreateAgentInputOptions = Parameters<typeof sdk.createAgentInput<true>>[0]
+
+export type AgentEventStream = ReturnType<typeof openAgentEventStream>
+
+export interface CreateAgentInputResult {
+  data: CreateAgentInputResponse
+}
+
+export interface AgentChatTransport {
+  openAgentEventStream: (options: OpenAgentEventStreamOptions) => AgentEventStream
+  createAgentInput: (options: CreateAgentInputOptions) => Promise<CreateAgentInputResult>
+}
+
+export interface AgentChatSessionOptions extends AgentChatScope {
+  client: OmnaraClient
+  queryClient: QueryClient
+  inputReconciliationDelayMs?: number
+  transport?: AgentChatTransport
+}
 
 export interface AgentChatAttachmentInput {
   data: string

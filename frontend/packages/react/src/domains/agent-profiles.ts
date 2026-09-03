@@ -23,7 +23,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 export type AgentProfileListFilters = ListFilters<ListAgentProfilesData>
@@ -38,12 +38,13 @@ export function useAgentProfiles(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListAgentProfilesData>(options)
   return useInfiniteQuery({
-    ...listAgentProfilesInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listAgentProfilesInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

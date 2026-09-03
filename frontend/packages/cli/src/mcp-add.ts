@@ -4,6 +4,7 @@ import {
   type OmnaraClient,
   sdk,
   type Secret,
+  zJsonText,
 } from '@omnara/sdk'
 import { zMcpoAuthStartRequest, zResourceName } from '@omnara/sdk/zod'
 import { isMap, isScalar, parseDocument } from 'yaml'
@@ -59,13 +60,9 @@ function prepareJsonConfig(
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  let parsedJson: unknown
-  try {
-    parsedJson = JSON.parse(config.source ?? '')
-  } catch {
-    throw new CliInputError('the current agent config contains invalid JSON')
-  }
-  const parsed = zJsonRecord.safeParse(parsedJson)
+  const json = zJsonText.safeParse(config.source ?? '')
+  if (!json.success) throw new CliInputError('the current agent config contains invalid JSON')
+  const parsed = zJsonRecord.safeParse(json.data)
   if (!parsed.success) throw new CliInputError('the current agent config must be an object')
   const mcp = zJsonRecord.optional().safeParse(parsed.data.mcp)
   if (!mcp.success) {

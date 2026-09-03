@@ -1,24 +1,30 @@
 import * as z from 'zod'
 
 import type { AgentConfigErrorIssue, Error as ApiErrorBody } from './generated/types.gen'
-import { zAgentConfigErrorIssue } from './generated/zod.gen'
+import { zError } from './generated/zod.gen'
+import { type JsonBody, zJsonBody, zJsonText } from './json-body'
+import { relaxedSchema } from './validate-response'
 
 export type ApiErrorCode = ApiErrorBody['code']
 
-const errorIssuesSchema = z.object({ issues: z.array(zAgentConfigErrorIssue).optional() })
+const zErrorBody = zJsonText.pipe(zJsonBody)
 
-function issuesFromBody(body: unknown): AgentConfigErrorIssue[] {
-  const parsed = errorIssuesSchema.safeParse(body)
+export const zErrorResponse = relaxedSchema(
+  zError.partial({ code: true }).extend({ error_description: z.string().optional() }),
+)
+
+function issuesFromBody(body: JsonBody | undefined): AgentConfigErrorIssue[] {
+  const parsed = zErrorResponse.safeParse(body)
   return parsed.success ? (parsed.data.issues ?? []) : []
 }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code: ApiErrorCode | undefined
-  readonly body: unknown
+  readonly body: JsonBody | undefined
   readonly issues: AgentConfigErrorIssue[]
 
-  constructor(status: number, message: string, code?: ApiErrorCode, body?: unknown) {
+  constructor(status: number, message: string, code?: ApiErrorCode, body?: JsonBody) {
     super(message)
     this.name = 'ApiError'
     this.status = status
@@ -28,28 +34,14 @@ export class ApiError extends Error {
   }
 
   static async fromResponse(response: Response): Promise<ApiError> {
-    let body: unknown
-    try {
-      body = await response.clone().json()
-    } catch {
-      body = undefined
-    }
-    return ApiError.fromBody(response.status, body)
+    const body = zErrorBody.safeParse(await response.clone().text())
+    return ApiError.fromBody(response.status, body.success ? body.data : undefined)
   }
 
-  static fromBody(status: number, body: unknown): ApiError {
-    let message = `request failed with status ${status}`
-    let code: ApiErrorCode | undefined
-    if (body && typeof body === 'object') {
-      if ('error_description' in body && typeof body.error_description === 'string') {
-        message = body.error_description
-      } else if ('error' in body && typeof body.error === 'string') {
-        message = body.error
-      }
-      if ('code' in body && typeof body.code === 'string') {
-        code = body.code as ApiErrorCode
-      }
-    }
-    return new ApiError(status, message, code, body)
+  static fromBody(status: number, body: JsonBody | undefined): ApiError {
+    const parsed = zErrorResponse.safeParse(body)
+    const message =
+      parsed.data?.error_description ?? parsed.data?.error ?? `request failed with status ${status}`
+    return new ApiError(status, message, parsed.data?.code, body)
   }
 }

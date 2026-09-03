@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
-export type CodeSegment = string | { json: string }
+export type CodeSegment = { text: string } | { json: string }
 
 export interface CodeContent {
   copy: string
@@ -17,15 +17,9 @@ export interface CodeContent {
 export interface CodeTab {
   value: string
   label: string
-  content: string | CodeContent
+  content: CodeContent
   emphasis?: boolean
   footer?: boolean
-}
-
-function toContent(content: string | CodeContent): CodeContent {
-  return typeof content === 'string'
-    ? { copy: content, segments: [content], language: 'shell' }
-    : content
 }
 
 function prettyJson(json: string) {
@@ -68,11 +62,11 @@ function JsonSegment({ json }: { json: string }) {
 
 type CopyState = 'idle' | 'copied' | 'failed'
 
-const copyLabels: Record<CopyState, (label: string) => string> = {
-  idle: (label) => `Copy ${label}`,
-  copied: (label) => `Copied ${label}`,
-  failed: (label) => `Could not copy ${label}`,
-}
+const copyLabels = {
+  idle: (label: string) => `Copy ${label}`,
+  copied: (label: string) => `Copied ${label}`,
+  failed: (label: string) => `Could not copy ${label}`,
+} satisfies Record<CopyState, (label: string) => string>
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [state, setState] = useState<CopyState>('idle')
@@ -117,11 +111,11 @@ function Code({
   emphasis = false,
   className,
 }: {
-  content: string | CodeContent
+  content: CodeContent
   emphasis?: boolean
   className?: string
 }) {
-  const { segments, language } = toContent(content)
+  const { segments, language } = content
   return (
     <pre
       className={cn(
@@ -131,14 +125,14 @@ function Code({
       )}
     >
       {segments.map((segment) =>
-        typeof segment === 'string' ? (
-          <span key={`text:${segment}`}>
-            <Suspense fallback={segment}>
-              <Highlighted code={segment} language={language} />
+        'json' in segment ? (
+          <JsonSegment key={`json:${segment.json}`} json={segment.json} />
+        ) : (
+          <span key={`text:${segment.text}`}>
+            <Suspense fallback={segment.text}>
+              <Highlighted code={segment.text} language={language} />
             </Suspense>
           </span>
-        ) : (
-          <JsonSegment key={`json:${segment.json}`} json={segment.json} />
         ),
       )}
     </pre>
@@ -150,14 +144,14 @@ export function CodeBlock({
   label,
   className,
 }: {
-  content: string | CodeContent
+  content: CodeContent
   label: string
   className?: string
 }) {
   return (
     <div className={cn('bg-card relative rounded-xl border', className)}>
       <div className="absolute right-3 top-3 sm:right-4 sm:top-4">
-        <CopyButton text={toContent(content).copy} label={label} />
+        <CopyButton text={content.copy} label={label} />
       </div>
       <div className="pr-12 sm:pr-14">
         <Code content={content} />
@@ -199,12 +193,7 @@ export function CodeTabsBlock({
             ))}
           </TabsList>
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            {active && (
-              <CopyButton
-                text={toContent(active.content).copy}
-                label={active.label.toLowerCase()}
-              />
-            )}
+            {active && <CopyButton text={active.content.copy} label={active.label.toLowerCase()} />}
             {footer && active?.footer !== false && footer}
           </div>
         </div>

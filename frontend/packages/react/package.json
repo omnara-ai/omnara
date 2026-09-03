@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@omnara/sdk": "workspace:*"
+    "@omnara/sdk": "workspace:*",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.59.0",

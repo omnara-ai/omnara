@@ -1,49 +1,64 @@
 /** @vitest-environment happy-dom */
 
-import { act, type ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SignUp } from '@/routes/SignUp'
-
-const sdk = vi.hoisted(() => ({ requestSignup: vi.fn() }))
-
-vi.mock('@omnara/sdk/browser', () => sdk)
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, search }: { children: ReactNode; search?: { return_to?: string } }) => (
-    <a href="/" data-return-to={search?.return_to}>
-      {children}
-    </a>
-  ),
-}))
-vi.mock('@/components/auth/SocialButtons', () => ({
-  SocialButtons: ({ returnTo }: { returnTo: string }) => (
-    <div data-testid="social-return-to" data-return-to={returnTo} />
-  ),
-}))
+import { emptyResponse, fakeApi, jsonResponse } from '@/test/fake-api'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 let container: HTMLDivElement
 let root: Root
-let previousActEnvironment: boolean | undefined
+let restoreActEnvironment: () => void
+
+function signupRouter(search: string) {
+  const rootRoute = createRootRoute()
+  const signupRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/signup',
+    component: SignUp,
+  })
+  const loginRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/login',
+    component: () => null,
+  })
+  return createRouter({
+    routeTree: rootRoute.addChildren([signupRoute, loginRoute]),
+    history: createMemoryHistory({ initialEntries: [`/signup${search}`] }),
+  })
+}
+
+function linkHref(label: string) {
+  return Array.from(container.querySelectorAll('a'))
+    .find((link) => link.textContent === label)
+    ?.getAttribute('href')
+}
+
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
 
 beforeAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+  restoreActEnvironment = enableReactActEnvironment()
 })
 
 afterAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+  restoreActEnvironment()
 })
 
 beforeEach(() => {
-  sdk.requestSignup.mockReset()
-  sdk.requestSignup.mockResolvedValue(undefined)
   window.history.replaceState(null, '', '/signup?return_to=%2Fdevice%3Fuser_code%3DABCDE-F1234')
   container = document.createElement('div')
   document.body.append(container)
@@ -55,29 +70,53 @@ afterEach(() => {
     root.unmount()
   })
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 describe('signup continuation', () => {
   it('preserves the device approval destination for social and email signup', async () => {
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: '/api/auth/connectors',
+        respond: () =>
+          jsonResponse({
+            connectors: [
+              {
+                slug: 'google',
+                kind: 'oidc',
+                display_name: 'Google',
+                login_url: '/api/auth/google/login',
+              },
+            ],
+          }),
+      },
+      { method: 'POST', path: '/api/auth/signup', respond: () => emptyResponse() },
+    ])
+    vi.stubGlobal('fetch', api.fetch)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const router = signupRouter(window.location.search)
+
     act(() => {
-      root.render(<SignUp />)
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>,
+      )
     })
+    await flush()
+    await flush()
 
     const returnTo = '/device?user_code=ABCDE-F1234'
+    const encodedReturnTo = 'return_to=%2Fdevice%3Fuser_code%3DABCDE-F1234'
     expect(container.querySelector('h1 + p')?.textContent).toContain(
       'Create an account to approve the CLI login',
     )
-    expect(
-      container.querySelector('[data-testid="social-return-to"]')?.getAttribute('data-return-to'),
-    ).toBe(returnTo)
-    expect(
-      Array.from(container.querySelectorAll('a'))
-        .find((link) => link.textContent === 'Sign in')
-        ?.getAttribute('data-return-to'),
-    ).toBe(returnTo)
+    expect(linkHref('Continue with Google')).toBe(`/api/auth/google/login?${encodedReturnTo}`)
+    expect(linkHref('Sign in')).toBe(`/login?${encodedReturnTo}`)
 
-    const input = container.querySelector<HTMLInputElement>('#email')
-    if (!input) throw new Error('Missing email input')
+    const input = container.querySelector('#email')
+    if (!(input instanceof HTMLInputElement)) throw new Error('Missing email input')
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       'value',
@@ -93,13 +132,12 @@ describe('signup continuation', () => {
         ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await Promise.resolve()
     })
+    await flush()
 
-    expect(sdk.requestSignup).toHaveBeenCalledWith('new@example.com', returnTo)
+    expect(api.requestsTo('POST', '/api/auth/signup').map((request) => request.body)).toEqual([
+      { email: 'new@example.com', return_to: returnTo },
+    ])
     expect(container.querySelector('h1 + p')?.textContent).toContain('within 15 minutes')
-    expect(
-      Array.from(container.querySelectorAll('a'))
-        .find((link) => link.textContent === 'Back to sign in')
-        ?.getAttribute('data-return-to'),
-    ).toBe(returnTo)
+    expect(linkHref('Back to sign in')).toBe(`/login?${encodedReturnTo}`)
   })
 })

@@ -1,74 +1,150 @@
-import type * as sdkModule from '@omnara/sdk'
+import { createOmnaraClient, OAUTH_DEVICE_GRANT_TYPE } from '@omnara/sdk'
+import type { zCurrentUserOrg } from '@omnara/sdk/zod'
 import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as z from 'zod'
 
 import type { CliConfig } from './config.ts'
-import { loginTokenName, loginWithDevice } from './device-login.ts'
+import type { ConfigFile, ConfigStore } from './config-file.ts'
+import { type LoginReporter, loginTokenName, loginWithDevice } from './device-login.ts'
 import { registerLoginCommand } from './login.ts'
 
-const mocks = vi.hoisted(() => ({
-  bearerToken: vi.fn(() => ({ authenticate: vi.fn() })),
-  createOmnaraClient: vi.fn(() => ({ authenticated: true })),
-  getCurrentUser: vi.fn(() =>
-    Promise.resolve({
-      data: {
-        user: { email: 'person@example.com', display_name: 'Person' },
-        orgs: [] as { id: string; name: string }[],
-      },
-    }),
-  ),
-  pollDeviceAuthToken: vi.fn(() => Promise.resolve('omnara_pat_v1_test')),
-  readConfigFile: vi.fn(() => ({})),
-  startDeviceAuth: vi.fn(() =>
-    Promise.resolve({
-      deviceCode: 'device-code',
-      userCode: 'ABCDE-FGHIJ',
-      verificationUri: 'https://self-hosted.example/device',
-      verificationUriComplete: 'https://self-hosted.example/device?user_code=ABCDE-FGHIJ',
-      expiresInSeconds: 900,
-      intervalSeconds: 5,
-      tokenEndpoint: 'https://self-hosted.example/api/auth/device/token',
-      clientId: 'omnara-cli',
-    }),
-  ),
-  updateConfigFile: vi.fn((patch: Record<string, unknown>) => patch),
-}))
+const apiUrl = 'https://self-hosted.example/api/v1'
+const issuerUrl = 'https://self-hosted.example'
+const tokenEndpoint = 'https://self-hosted.example/api/auth/device/token'
+const token = 'omnara_pat_v1_test'
+const orgId = `org_${'a'.repeat(26)}`
+const projectId = `proj_${'a'.repeat(26)}`
 
-vi.mock('@omnara/sdk', async (importOriginal) => ({
-  cliLoginTokenName: (await importOriginal<typeof sdkModule>()).cliLoginTokenName,
-  OMNARA_CLI_OAUTH_CLIENT_ID: 'omnara-cli',
-  bearerToken: mocks.bearerToken,
-  createOmnaraClient: mocks.createOmnaraClient,
-  pollDeviceAuthToken: mocks.pollDeviceAuthToken,
-  sdk: {
-    getCurrentUser: mocks.getCurrentUser,
-    listVisibleProjects: vi.fn(),
-  },
-  startDeviceAuth: mocks.startDeviceAuth,
-}))
+class MemoryConfigStore implements ConfigStore {
+  readonly path = '/tmp/omnara-config.json'
+  readonly updates: Partial<ConfigFile>[] = []
+  file: ConfigFile
 
-vi.mock('./config-file.ts', () => ({
-  configFilePath: () => '/tmp/omnara-config.json',
-  readConfigFile: mocks.readConfigFile,
-  updateConfigFile: mocks.updateConfigFile,
-}))
+  constructor(initial: ConfigFile = {}) {
+    this.file = initial
+  }
 
-vi.mock('./interactive.ts', () => ({
-  canPromptInteractively: () => false,
-}))
+  read(): ConfigFile {
+    return this.file
+  }
 
-vi.mock('./output.ts', () => ({
-  CliInputError: class CliInputError extends Error {},
-  runCliAction: (action: () => void | Promise<void>) => Promise.resolve(action()),
-}))
+  update(patch: Partial<ConfigFile>): ConfigFile {
+    this.updates.push(patch)
+    this.file = Object.fromEntries(
+      Object.entries({ ...this.file, ...patch }).filter(([, value]) => value !== undefined),
+    )
+    return this.file
+  }
+}
 
-function testConfig(apiUrl: string, issuerUrl: string): CliConfig {
+class UnwritableConfigStore extends MemoryConfigStore {
+  override update(): ConfigFile {
+    throw new Error('config is not writable')
+  }
+}
+
+interface RecordedRequest {
+  method: string
+  url: string
+  body: string
+  authorization: string | null
+}
+
+type CurrentUserOrg = z.output<typeof zCurrentUserOrg>
+
+const zJsonBody = z.json()
+
+function jsonResponse(status: number, body: z.output<typeof zJsonBody>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function currentUser(orgs: CurrentUserOrg[]): Response {
+  return jsonResponse(200, {
+    user: {
+      id: `usr_${'a'.repeat(26)}`,
+      email: 'person@example.com',
+      display_name: 'Person',
+    },
+    orgs,
+  })
+}
+
+interface FakeServer {
+  fetch: typeof fetch
+  requests: RecordedRequest[]
+}
+
+function fakeServer(
+  me: () => Promise<Response> = () => Promise.resolve(currentUser([])),
+): FakeServer {
+  const requests: RecordedRequest[] = []
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const request = input instanceof Request ? input.clone() : new Request(input, init)
+    requests.push({
+      method: request.method,
+      url: request.url,
+      body: await request.text(),
+      authorization: request.headers.get('authorization'),
+    })
+    const { pathname } = new URL(request.url)
+    if (pathname === '/.well-known/oauth-authorization-server') {
+      return jsonResponse(200, {
+        issuer: issuerUrl,
+        device_authorization_endpoint: `${issuerUrl}/api/auth/device/code`,
+        token_endpoint: tokenEndpoint,
+        grant_types_supported: [OAUTH_DEVICE_GRANT_TYPE],
+        token_endpoint_auth_methods_supported: ['none'],
+      })
+    }
+    if (pathname === '/api/auth/device/code') {
+      return jsonResponse(200, {
+        device_code: 'device-code',
+        user_code: 'ABCDE-FGHIJ',
+        verification_uri: '/device',
+        verification_uri_complete: '/device?user_code=ABCDE-FGHIJ',
+        expires_in: 900,
+        interval: 5,
+      })
+    }
+    if (pathname === '/api/auth/device/token') {
+      return jsonResponse(200, { access_token: token, token_type: 'bearer' })
+    }
+    if (pathname === '/api/v1/me') return me()
+    return jsonResponse(404, { error: 'not_found' })
+  }
+  return { fetch: fetchImpl, requests }
+}
+
+const silentReporter: LoginReporter = {
+  showCode: () => undefined,
+  startWaiting: () => undefined,
+  stopWaiting: () => undefined,
+  success: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  finish: () => undefined,
+}
+
+function testConfig(store: ConfigStore, server: FakeServer): CliConfig {
   return {
-    client: {} as CliConfig['client'],
+    client: createOmnaraClient({ baseUrl: apiUrl, fetch: server.fetch }),
     apiUrl,
     issuerUrl,
+    store,
+    fetch: server.fetch,
+    sleep: () => Promise.resolve(),
     ensureLoggedIn: () => Promise.resolve(),
   }
+}
+
+async function runLogin(cli: CliConfig): Promise<void> {
+  const program = new Command()
+  registerLoginCommand(program, cli)
+  await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
 }
 
 describe('loginTokenName', () => {
@@ -88,113 +164,79 @@ describe('loginTokenName', () => {
 })
 
 describe('loginWithDevice', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
-  })
-
-  afterEach(() => {
-    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => patch)
-    vi.restoreAllMocks()
-  })
-
   it('drops saved defaults the new account cannot access', async () => {
-    mocks.updateConfigFile.mockImplementation((patch: Record<string, unknown>) => ({
-      org_id: 'org_00000000000000000000000001',
-      project_id: 'proj_0000000000000000000000001',
-      ...patch,
-    }))
+    const store = new MemoryConfigStore({ org_id: orgId, project_id: projectId })
+    const server = fakeServer()
+    const warnings: string[] = []
 
     const result = await loginWithDevice({
-      apiUrl: 'https://self-hosted.example/api/v1',
-      issuerUrl: 'https://self-hosted.example',
+      apiUrl,
+      issuerUrl,
       browser: false,
       report: {
-        showCode: () => undefined,
-        startWaiting: () => undefined,
-        stopWaiting: () => undefined,
-        success: () => undefined,
-        info: () => undefined,
-        warn: () => undefined,
-        finish: () => undefined,
+        ...silentReporter,
+        warn: (message) => {
+          warnings.push(message)
+        },
       },
+      store,
+      fetch: server.fetch,
+      sleep: () => Promise.resolve(),
     })
 
+    expect(warnings).toEqual([
+      'Cleared the saved default organization and project: this account cannot access them.',
+    ])
     expect(result).toEqual({
-      token: 'omnara_pat_v1_test',
+      token,
       orgId: undefined,
       projectId: undefined,
       hasOrganizations: false,
     })
-    expect(mocks.updateConfigFile).toHaveBeenCalledWith({
-      org_id: undefined,
-      project_id: undefined,
-    })
+    expect(store.updates).toContainEqual({ org_id: undefined, project_id: undefined })
+    expect(store.file).toEqual({ token, api_url: apiUrl, issuer_url: issuerUrl })
   })
 })
 
 describe('login', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
     vi.spyOn(console, 'log').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
+    process.exitCode = undefined
   })
 
   it('uses the issuer URL for the device flow, the API URL for requests, and persists both', async () => {
-    const apiUrl = 'https://self-hosted.example/api/v1'
-    const issuerUrl = 'https://self-hosted.example'
-    const program = new Command()
-    const cli = testConfig(apiUrl, issuerUrl)
-    registerLoginCommand(program, cli)
+    const store = new MemoryConfigStore()
+    const server = fakeServer()
 
-    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+    await runLogin(testConfig(store, server))
 
-    expect(mocks.startDeviceAuth).toHaveBeenCalledWith(
-      expect.objectContaining({ issuerUrl, clientId: 'omnara-cli' }),
-    )
-    expect(mocks.pollDeviceAuthToken).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tokenEndpoint: 'https://self-hosted.example/api/auth/device/token',
-        clientId: 'omnara-cli',
-      }),
-    )
-    expect(mocks.createOmnaraClient).toHaveBeenCalledWith(
-      expect.objectContaining({ baseUrl: apiUrl }),
-    )
-    expect(mocks.updateConfigFile).toHaveBeenCalledWith({
-      token: 'omnara_pat_v1_test',
-      api_url: apiUrl,
-      issuer_url: issuerUrl,
-    })
+    const urls = server.requests.map((request) => request.url)
+    expect(urls).toContain(`${issuerUrl}/.well-known/oauth-authorization-server`)
+    expect(urls).toContain(`${issuerUrl}/api/auth/device/code`)
+    const tokenRequest = server.requests.find((request) => request.url === tokenEndpoint)
+    expect(tokenRequest?.body).toContain('client_id=omnara-cli')
+    const meRequest = server.requests.find((request) => request.url === `${apiUrl}/me`)
+    expect(meRequest?.authorization).toBe(`Bearer ${token}`)
+    expect(store.file).toEqual({ token, api_url: apiUrl, issuer_url: issuerUrl })
   })
 
   it('verifies the config can be written before starting the device flow', async () => {
-    const program = new Command()
-    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
-    mocks.updateConfigFile.mockImplementationOnce(() => {
-      throw new Error('config is not writable')
-    })
-    registerLoginCommand(program, cli)
+    const server = fakeServer()
 
-    await expect(program.parseAsync(['node', 'omnara', 'login', '--no-browser'])).rejects.toThrow(
-      'config is not writable',
-    )
+    await runLogin(testConfig(new UnwritableConfigStore(), server))
 
-    expect(mocks.startDeviceAuth).not.toHaveBeenCalled()
-    expect(mocks.pollDeviceAuthToken).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('error: config is not writable')
+    expect(process.exitCode).toBe(1)
+    expect(server.requests).toEqual([])
   })
 
   it('points an account without organizations to browser onboarding', async () => {
-    const program = new Command()
-    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
-    registerLoginCommand(program, cli)
-
-    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+    await runLogin(testConfig(new MemoryConfigStore(), fakeServer()))
 
     expect(console.log).toHaveBeenCalledWith(
       "This account has no organization yet. Create one at https://self-hosted.example/onboarding, then run 'omnara config select'.",
@@ -202,17 +244,15 @@ describe('login', () => {
   })
 
   it('asks an account with organizations but no default to run config select', async () => {
-    const program = new Command()
-    const cli = testConfig('https://self-hosted.example/api/v1', 'https://self-hosted.example')
-    mocks.getCurrentUser.mockResolvedValueOnce({
-      data: {
-        user: { email: 'person@example.com', display_name: 'Person' },
-        orgs: [{ id: 'org_00000000000000000000000001', name: 'Acme' }],
-      },
-    })
-    registerLoginCommand(program, cli)
+    const server = fakeServer(() =>
+      Promise.resolve(
+        currentUser([
+          { id: orgId, name: 'Acme', role: 'owner', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+    )
 
-    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+    await runLogin(testConfig(new MemoryConfigStore(), server))
 
     expect(console.log).toHaveBeenCalledWith(
       "Run 'omnara config select' to choose a default organization and project.",
@@ -220,20 +260,12 @@ describe('login', () => {
   })
 
   it('keeps the login successful when account validation fails', async () => {
-    const apiUrl = 'https://self-hosted.example/api/v1'
-    const issuerUrl = 'https://self-hosted.example'
-    const program = new Command()
-    const cli = testConfig(apiUrl, issuerUrl)
-    mocks.getCurrentUser.mockRejectedValueOnce(new Error('temporary network failure'))
-    registerLoginCommand(program, cli)
+    const store = new MemoryConfigStore()
+    const server = fakeServer(() => Promise.reject(new Error('temporary network failure')))
 
-    await program.parseAsync(['node', 'omnara', 'login', '--no-browser'])
+    await runLogin(testConfig(store, server))
 
-    expect(mocks.updateConfigFile).toHaveBeenCalledWith({
-      token: 'omnara_pat_v1_test',
-      api_url: apiUrl,
-      issuer_url: issuerUrl,
-    })
+    expect(store.file).toEqual({ token, api_url: apiUrl, issuer_url: issuerUrl })
     expect(console.log).toHaveBeenCalledWith('Logged in')
     expect(console.error).toHaveBeenCalledWith(
       'warning: could not verify the account or saved organization and project defaults: temporary network failure',

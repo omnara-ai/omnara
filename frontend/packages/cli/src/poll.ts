@@ -3,7 +3,7 @@ import { CliInputError } from './output.ts'
 const POLL_INTERVAL_SECONDS = 2
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
-function sleep(seconds: number): Promise<void> {
+export function sleepSeconds(seconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
 }
 
@@ -25,7 +25,7 @@ export async function pollUntilDeadline<T>(options: {
     }
     const remainingSeconds = (deadline - Date.now()) / 1000
     if (remainingSeconds <= 0) break
-    await sleep(Math.min(POLL_INTERVAL_SECONDS, remainingSeconds))
+    await sleepSeconds(Math.min(POLL_INTERVAL_SECONDS, remainingSeconds))
   }
   throw new CliInputError(options.expiredMessage)
 }

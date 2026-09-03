@@ -4,7 +4,8 @@ import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-q
 
 import { useOmnaraClient } from '../omnara-client'
 import { DEFAULT_LIST_PAGE_SIZE } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
+import { generatedQueryKey } from './query-keys'
 
 export function usePersonalAccessTokens(
   pageSize = DEFAULT_LIST_PAGE_SIZE,
@@ -12,8 +13,9 @@ export function usePersonalAccessTokens(
 ) {
   const client = useOmnaraClient()
   return useInfiniteQuery({
-    ...listPersonalAccessTokensInfiniteOptions({ query: { limit: pageSize }, client }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listPersonalAccessTokensInfiniteOptions({ query: { limit: pageSize }, client }),
+    ),
     refetchInterval: options?.refetchInterval,
   })
 }
@@ -21,8 +23,7 @@ export function usePersonalAccessTokens(
 function invalidatePersonalAccessTokens(queryClient: ReturnType<typeof useQueryClient>) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const entry = query.queryKey[0] as { _id?: string } | undefined
-      return entry?._id === 'listPersonalAccessTokens'
+      return generatedQueryKey(query)?._id === 'listPersonalAccessTokens'
     },
   })
 }

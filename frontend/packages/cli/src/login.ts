@@ -1,7 +1,6 @@
 import type { Command } from 'commander'
 
 import type { CliConfig } from './config.ts'
-import { configFilePath, readConfigFile, updateConfigFile } from './config-file.ts'
 import { createLoginReporter, loginWithDevice } from './device-login.ts'
 import { runCliAction } from './output.ts'
 
@@ -25,6 +24,9 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
           browser: options.browser,
           tokenName: options.tokenName,
           report,
+          store: cli.store,
+          fetch: cli.fetch,
+          sleep: cli.sleep,
         })
         if (hasOrganizations === false) {
           report.finish(
@@ -42,13 +44,13 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
     .description('Remove the saved API token')
     .action(async () => {
       await runCliAction(() => {
-        if (readConfigFile().token === undefined) {
+        if (cli.store.read().token === undefined) {
           console.log('No saved token.')
           return
         }
-        updateConfigFile({ token: undefined })
+        cli.store.update({ token: undefined })
         console.log(
-          `Removed the saved token from ${configFilePath()}. It stays valid until revoked on the API Tokens page.`,
+          `Removed the saved token from ${cli.store.path}. It stays valid until revoked on the API Tokens page.`,
         )
       })
     })

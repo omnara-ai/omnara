@@ -28,7 +28,8 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
+import { generatedQueryKey } from './query-keys'
 
 export type SkillOwnerScope = SkillOwnerInput
 /** Owner scope travels through the dedicated `owner` argument, not filters. */
@@ -56,12 +57,13 @@ export function useSkills(orgID: string, owner?: SkillOwnerScope, options?: Skil
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListSkillsData>(options)
   return useInfiniteQuery({
-    ...listSkillsInfiniteOptions({
-      path: { orgID },
-      query: { ...ownerFilterQuery(owner), ...list.query },
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listSkillsInfiniteOptions({
+        path: { orgID },
+        query: { ...ownerFilterQuery(owner), ...list.query },
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -82,12 +84,13 @@ export function useProjectAvailableSkills(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListProjectAvailableSkillsData>(options)
   return useInfiniteQuery({
-    ...listProjectAvailableSkillsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listProjectAvailableSkillsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -96,12 +99,13 @@ export function useSkillGrants(orgID: string, skillID: string, options?: SkillGr
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListSkillGrantsData>(options)
   return useInfiniteQuery({
-    ...listSkillGrantsInfiniteOptions({
-      path: { orgID, skillID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listSkillGrantsInfiniteOptions({
+        path: { orgID, skillID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -115,11 +119,9 @@ const SKILL_LIST_OPERATIONS = new Set([
 function invalidateSkillLists(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
+      const entry = generatedQueryKey(query)
       return (
-        entry?._id !== undefined &&
-        SKILL_LIST_OPERATIONS.has(entry._id) &&
-        entry.path?.orgID === orgID
+        entry !== undefined && SKILL_LIST_OPERATIONS.has(entry._id) && entry.path?.orgID === orgID
       )
     },
   })
@@ -134,17 +136,13 @@ export function useCreateSkill(orgID: string) {
         path: { orgID },
         body,
         client,
-        bodySerializer: (rawBody) => {
-          const upload = rawBody as CreateSkillRequest
+        bodySerializer: () => {
           const form = new FormData()
-          form.append(
-            'owner',
-            new Blob([JSON.stringify(upload.owner)], { type: 'application/json' }),
-          )
+          form.append('owner', new Blob([JSON.stringify(body.owner)], { type: 'application/json' }))
           form.append(
             'archive',
-            upload.archive,
-            upload.archive instanceof File ? upload.archive.name : 'skill.zip',
+            body.archive,
+            body.archive instanceof File ? body.archive.name : 'skill.zip',
           )
           return form
         },

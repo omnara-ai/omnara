@@ -3,16 +3,14 @@ import { useMutation, type UseMutationOptions } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
 
-type AnySdkFn = (options: {
+type AnySdkFn<Data> = (options: {
   path: never
   body: never
   client?: OmnaraClient
-}) => Promise<{ data: unknown }>
+}) => Promise<{ data: Data }>
 
-type PathOf<TFn extends AnySdkFn> = Parameters<TFn>[0]['path']
-type BodyOf<TFn extends AnySdkFn> = Parameters<TFn>[0]['body']
-// The client is configured with throwOnError, so data is always present.
-type DataOf<TFn extends AnySdkFn> = NonNullable<Awaited<ReturnType<TFn>>['data']>
+type PathOf<TFn extends AnySdkFn<unknown>> = Parameters<TFn>[0]['path']
+type BodyOf<TFn extends AnySdkFn<unknown>> = Parameters<TFn>[0]['body']
 
 /**
  * Wrap a generated SDK mutation so path params bind once at hook scope and
@@ -21,16 +19,17 @@ type DataOf<TFn extends AnySdkFn> = NonNullable<Awaited<ReturnType<TFn>>['data']
  * the full path+body envelope. Path, body, and response types are inferred
  * from the SDK function, so spec changes still surface at call sites.
  */
-export function useScopedMutation<TFn extends AnySdkFn>(
-  fn: TFn,
+export function useScopedMutation<TFn extends AnySdkFn<Data>, Data>(
+  fn: TFn & ((options: never) => Promise<{ data: Data }>),
   path: PathOf<TFn>,
-  options?: Omit<UseMutationOptions<DataOf<TFn>, Error, BodyOf<TFn>>, 'mutationFn'>,
+  options?: Omit<UseMutationOptions<NonNullable<Data>, Error, BodyOf<TFn>>, 'mutationFn'>,
 ) {
   const client = useOmnaraClient()
   return useMutation({
     mutationFn: async (body: BodyOf<TFn>) => {
       const { data } = await fn({ path, body, client })
-      return data as DataOf<TFn>
+      if (data == null) throw new Error('The API returned an empty mutation response')
+      return data
     },
     ...options,
   })

@@ -5,23 +5,50 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DeviceAuth } from '@/routes/DeviceAuth'
-
-const sdk = vi.hoisted(() => ({
-  approveDeviceAuth: vi.fn(),
-  denyDeviceAuth: vi.fn(),
-  pendingDeviceAuth: vi.fn(),
-}))
-
-vi.mock('@omnara/sdk/browser', () => sdk)
+import {
+  emptyResponse,
+  type FakeApi,
+  fakeApi,
+  type FakeRoute,
+  jsonResponse,
+  neverResponds,
+} from '@/test/fake-api'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 let container: HTMLDivElement
 let root: Root
-let previousActEnvironment: boolean | undefined
+let restoreActEnvironment: () => void
+
+function deviceAuthApi({
+  approve = () => emptyResponse(),
+  deny = neverResponds,
+}: {
+  approve?: FakeRoute['respond']
+  deny?: FakeRoute['respond']
+} = {}): FakeApi {
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: '/api/auth/device/pending',
+      respond: () =>
+        jsonResponse({
+          client_name: 'Omnara CLI',
+          token_name: 'CLI token',
+          created_at: '2026-01-01T00:00:00Z',
+          expires_at: '2026-01-01T00:10:00Z',
+        }),
+    },
+    { method: 'POST', path: '/api/auth/device/approve', respond: approve },
+    { method: 'POST', path: '/api/auth/device/deny', respond: deny },
+  ])
+  vi.stubGlobal('fetch', api.fetch)
+  return api
+}
 
 async function renderDeviceAuth() {
   await act(async () => {
     root.render(<DeviceAuth />)
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
@@ -34,28 +61,15 @@ function button(label: string): HTMLButtonElement {
 }
 
 beforeAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+  restoreActEnvironment = enableReactActEnvironment()
 })
 
 afterAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+  restoreActEnvironment()
 })
 
 beforeEach(() => {
-  sdk.approveDeviceAuth.mockReset()
-  sdk.denyDeviceAuth.mockReset()
-  sdk.pendingDeviceAuth.mockReset()
-  sdk.pendingDeviceAuth.mockResolvedValue({ clientName: 'Omnara CLI', tokenName: 'CLI token' })
-  sdk.denyDeviceAuth.mockImplementation(() => new Promise(() => undefined))
   window.history.replaceState(null, '', '/device?user_code=ABCD-EFGH')
-
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -66,10 +80,12 @@ afterEach(() => {
     root.unmount()
   })
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 describe('Device authorization decisions', () => {
   it('asks the user to match the code shown by the CLI', async () => {
+    deviceAuthApi()
     await renderDeviceAuth()
 
     expect(container.textContent).toContain(
@@ -78,20 +94,23 @@ describe('Device authorization decisions', () => {
   })
 
   it('confirms approval and sends the user back to the CLI', async () => {
-    sdk.approveDeviceAuth.mockResolvedValue(undefined)
+    const api = deviceAuthApi()
     await renderDeviceAuth()
 
     await act(async () => {
       button('Approve').click()
-      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    expect(sdk.approveDeviceAuth).toHaveBeenCalledWith('ABCD-EFGH')
+    expect(
+      api.requestsTo('POST', '/api/auth/device/approve').map((request) => request.body),
+    ).toEqual([{ user_code: 'ABCD-EFGH' }])
     expect(container.textContent).toContain('Device approved')
     expect(container.textContent).toContain('Return to the CLI to continue.')
   })
 
   it('marks Deny, rather than Approve, as busy while denial is pending', async () => {
+    const api = deviceAuthApi()
     await renderDeviceAuth()
 
     const approve = button('Approve')
@@ -102,7 +121,9 @@ describe('Device authorization decisions', () => {
       await Promise.resolve()
     })
 
-    expect(sdk.denyDeviceAuth).toHaveBeenCalledWith('ABCD-EFGH')
+    expect(api.requestsTo('POST', '/api/auth/device/deny').map((request) => request.body)).toEqual([
+      { user_code: 'ABCD-EFGH' },
+    ])
     expect(approve.disabled).toBe(true)
     expect(deny.disabled).toBe(true)
     expect(approve.getAttribute('aria-busy')).toBeNull()

@@ -13,6 +13,17 @@ export interface FlagSpec {
 
 type JsonSchema = z.core.JSONSchema.BaseSchema
 
+const zScalarKind = z.union([
+  z.string().transform((): FlagValueKind => 'string'),
+  z.number().transform((): FlagValueKind => 'number'),
+  z.boolean().transform((): FlagValueKind => 'boolean'),
+])
+type Choice = string | number
+
+function isChoice(value: JsonSchema['const']): value is Choice {
+  return typeof value === 'string' || typeof value === 'number'
+}
+
 export function kebabCase(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -51,8 +62,8 @@ function nonNullVariants(property: JsonSchema): JsonSchema[] | undefined {
 
 function flagKind(property: JsonSchema): FlagValueKind {
   if (property.const !== undefined) {
-    const kind = typeof property.const
-    return kind === 'string' || kind === 'number' || kind === 'boolean' ? kind : 'json'
+    const kind = zScalarKind.safeParse(property.const)
+    return kind.success ? kind.data : 'json'
   }
   if (property.enum !== undefined) return 'string'
   const variants = nonNullVariants(property)
@@ -71,7 +82,9 @@ function flagKind(property: JsonSchema): FlagValueKind {
       return 'boolean'
     case 'array': {
       const items = property.items
-      return typeof items === 'object' &&
+      return items !== undefined &&
+        items !== true &&
+        items !== false &&
         !Array.isArray(items) &&
         items.type === 'string' &&
         items.enum === undefined
@@ -83,14 +96,10 @@ function flagKind(property: JsonSchema): FlagValueKind {
   }
 }
 
-function enumChoices(property: JsonSchema): (string | number)[] | undefined {
-  if (typeof property.const === 'string' || typeof property.const === 'number') {
-    return [property.const]
-  }
+function enumChoices(property: JsonSchema): Choice[] | undefined {
+  if (isChoice(property.const)) return [property.const]
   if (property.enum !== undefined) {
-    const choices = property.enum.filter(
-      (value) => typeof value === 'string' || typeof value === 'number',
-    )
+    const choices = property.enum.filter(isChoice)
     return choices.length > 0 ? choices : undefined
   }
   const variants = nonNullVariants(property)
@@ -103,7 +112,7 @@ interface FlagDraft {
   kind: FlagValueKind
   required: boolean
   description: string | undefined
-  choices: (string | number)[] | undefined
+  choices: Choice[] | undefined
 }
 
 function expandsToFlags(property: JsonSchema): boolean {
@@ -119,7 +128,7 @@ function collectDrafts(
   for (const member of objectMembers(schema, conditional)) {
     const required = new Set(member.schema.required ?? [])
     for (const [key, property] of Object.entries(member.schema.properties ?? {})) {
-      if (typeof property === 'boolean') continue
+      if (property === true || property === false) continue
       const path = [...prefix, key]
       const propertyRequired = !member.conditional && required.has(key)
       if (expandsToFlags(property)) {

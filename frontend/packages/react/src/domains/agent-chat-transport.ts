@@ -1,8 +1,19 @@
-import { type AgentInput, ApiError, type OmnaraClient, sdk } from '@omnara/sdk'
+import {
+  type AgentInput,
+  ApiError,
+  type OmnaraClient,
+  openAgentEventStream,
+  sdk,
+} from '@omnara/sdk'
 
-import type { AgentChatMessageInput, LocalAgentInput } from './agent-chat-types'
+import type { AgentChatMessageInput, AgentChatTransport, LocalAgentInput } from './agent-chat-types'
 
-export function isDefiniteSendFailure(error: unknown): boolean {
+export const sdkAgentChatTransport: AgentChatTransport = {
+  openAgentEventStream,
+  createAgentInput: sdk.createAgentInput,
+}
+
+export function isDefiniteSendFailure(error: Error): boolean {
   if (!(error instanceof ApiError)) return false
   return error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
 }
@@ -26,13 +37,14 @@ export function sameMessage(
 }
 
 export async function createAgentChatInput(
+  transport: AgentChatTransport,
   client: OmnaraClient,
   path: { orgID: string; projectID: string; agentID: string },
   id: string,
   message: Required<AgentChatMessageInput>,
   signal?: AbortSignal,
 ): Promise<AgentInput> {
-  const { data } = await sdk.createAgentInput({
+  const { data } = await transport.createAgentInput({
     client,
     path,
     headers: { 'Idempotency-Key': id },
@@ -52,7 +64,7 @@ export async function createAgentChatInput(
         })),
       ],
     },
-    ...(signal == null ? {} : { signal }),
+    signal,
   })
   return data.agent_input
 }

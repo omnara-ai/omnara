@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from 'class-variance-authority'
 import { Slot as SlotPrimitive } from 'radix-ui'
-import type { ComponentProps, CSSProperties } from 'react'
+import type { ComponentProps } from 'react'
 
 import { PanelLeftIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -16,9 +16,12 @@ import {
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar-context'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { CssVariables } from '@/lib/css'
 import { cn } from '@/lib/utils'
 
 const SIDEBAR_WIDTH_MOBILE = '18rem'
+const mobileSidebarStyle: CssVariables = { '--sidebar-width': SIDEBAR_WIDTH_MOBILE }
+const menuSkeletonStyle: CssVariables = { '--skeleton-width': '70%' }
 
 function Sidebar({
   side = 'left',
@@ -57,7 +60,7 @@ function Sidebar({
           data-slot="sidebar"
           data-mobile="true"
           className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
-          style={{ '--sidebar-width': SIDEBAR_WIDTH_MOBILE } as CSSProperties}
+          style={mobileSidebarStyle}
           side={side}
           {...props}
         >
@@ -350,7 +353,7 @@ function SidebarMenuButton({
 }: ComponentProps<'button'> & {
   asChild?: boolean
   isActive?: boolean
-  tooltip?: string | ComponentProps<typeof TooltipContent>
+  tooltip?: string
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? SlotPrimitive.Root : 'button'
   const { isMobile, state } = useSidebar()
@@ -370,17 +373,12 @@ function SidebarMenuButton({
     return button
   }
 
-  const tooltipProps = typeof tooltip === 'string' ? { children: tooltip } : tooltip
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        align="center"
-        hidden={state !== 'collapsed' || isMobile}
-        {...tooltipProps}
-      />
+      <TooltipContent side="right" align="center" hidden={state !== 'collapsed' || isMobile}>
+        {tooltip}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -440,7 +438,7 @@ function SidebarMenuSkeleton({
       <Skeleton
         className="max-w-(--skeleton-width) h-4 flex-1"
         data-sidebar="menu-skeleton-text"
-        style={{ '--skeleton-width': '70%' } as CSSProperties}
+        style={menuSkeletonStyle}
       />
     </div>
   )

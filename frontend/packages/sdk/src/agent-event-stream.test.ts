@@ -12,7 +12,10 @@ const path = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 const idSuffix = 'a'.repeat(26)
 const toolUpdate = { tool_call_id: `tcl_${idSuffix}`, state: 'running' as const }
 
-function durableEvent(sequence: number, eventKind = 'model_output'): ModelOutputEvent {
+function durableEvent(
+  sequence: number,
+  eventKind = 'model_output',
+): Omit<ModelOutputEvent, 'event_kind'> & { event_kind: string } {
   return {
     id: `evt_${idSuffix}`,
     org_id: `org_${idSuffix}`,
@@ -22,7 +25,7 @@ function durableEvent(sequence: number, eventKind = 'model_output'): ModelOutput
     turn_sequence: 1,
     is_opening_event: false,
     sequence,
-    event_kind: eventKind as 'model_output',
+    event_kind: eventKind,
     model_call_context_id: `mcc_${idSuffix}`,
     stop_reason: 'end_turn',
     content_blocks: [],
@@ -55,7 +58,7 @@ function controlledSse(initial: string) {
   // Like fetch: an aborted request errors the body, an already-aborted one never responds.
   const fetch: typeof globalThis.fetch = (input) => {
     const signal = input instanceof Request ? input.signal : undefined
-    if (signal?.aborted === true) return Promise.reject(signal.reason as Error)
+    if (signal?.aborted === true) return Promise.reject(abortError(signal))
     signal?.addEventListener(
       'abort',
       () => {
@@ -75,6 +78,16 @@ function controlledSse(initial: string) {
     close: () => streamController?.close(),
     enqueue: (chunk: string) => streamController?.enqueue(new TextEncoder().encode(chunk)),
   }
+}
+
+function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason
+  return reason instanceof Error ? reason : new Error('aborted')
+}
+
+function requestOf(input: Parameters<typeof globalThis.fetch>[0] | undefined): Request {
+  if (!(input instanceof Request)) throw new Error('fetch was not called with a Request')
+  return input
 }
 
 function clientWithFetch(fetch: typeof globalThis.fetch) {
@@ -154,7 +167,7 @@ describe('openAgentEventStream', () => {
     )
 
     expect(result.frames).toEqual([toolUpdate])
-    const requests = fetch.mock.calls.map(([request]) => request as Request)
+    const requests = fetch.mock.calls.map(([request]) => requestOf(request))
     expect(requests).toHaveLength(3)
     expect(requests.map((request) => request.headers.get('Last-Event-ID'))).toEqual([
       '10',
@@ -181,7 +194,7 @@ describe('openAgentEventStream', () => {
     expect(
       result.frames.map((frame) => ('sequence' in frame ? frame.sequence : undefined)),
     ).toEqual([11, 12])
-    const requests = fetch.mock.calls.map(([request]) => request as Request)
+    const requests = fetch.mock.calls.map(([request]) => requestOf(request))
     expect(requests.map((request) => request.headers.get('Last-Event-ID'))).toEqual([
       null,
       '11',
@@ -203,7 +216,7 @@ describe('openAgentEventStream', () => {
 
     await expect(stream.next()).rejects.toMatchObject({ kind: 'http', status: 401 })
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect((fetch.mock.calls[1]?.[0] as Request).headers.get('Last-Event-ID')).toBe('11')
+    expect(requestOf(fetch.mock.calls[1]?.[0]).headers.get('Last-Event-ID')).toBe('11')
   })
 
   it('uses an unknown durable event kind as a forward-compatible cursor', async () => {
@@ -216,7 +229,7 @@ describe('openAgentEventStream', () => {
     const result = await collectUntilError(openAgentEventStream({ client, path }))
 
     expect(result.frames).toHaveLength(1)
-    expect((fetch.mock.calls[1]?.[0] as Request).headers.get('Last-Event-ID')).toBe('7')
+    expect(requestOf(fetch.mock.calls[1]?.[0]).headers.get('Last-Event-ID')).toBe('7')
   })
 
   it('does not trust an SSE id attached to an ephemeral frame', async () => {
@@ -236,7 +249,7 @@ describe('openAgentEventStream', () => {
       }),
     )
 
-    expect((fetch.mock.calls[1]?.[0] as Request).headers.get('Last-Event-ID')).toBe('3')
+    expect(requestOf(fetch.mock.calls[1]?.[0]).headers.get('Last-Event-ID')).toBe('3')
   })
 
   it('retries service_unavailable envelopes but throws other API errors', async () => {
@@ -497,7 +510,7 @@ describe('openAgentEventStream', () => {
 
     expect(interceptor).toHaveBeenCalledTimes(2)
     expect(
-      fetch.mock.calls.map(([request]) => (request as Request).headers.get('X-Test-Auth')),
+      fetch.mock.calls.map(([request]) => requestOf(request).headers.get('X-Test-Auth')),
     ).toEqual(['present', 'present'])
   })
 
@@ -674,9 +687,9 @@ describe('openAgentEventStream', () => {
       .mockImplementationOnce(
         (input) =>
           new Promise<Response>((_, reject) => {
-            const { signal } = input as Request
+            const { signal } = requestOf(input)
             signal.addEventListener('abort', () => {
-              reject(signal.reason as Error)
+              reject(abortError(signal))
             })
           }),
       )
@@ -771,7 +784,7 @@ describe('openAgentEventStream', () => {
 
     await collectUntilError(openAgentEventStream({ client, path, headers: { 'Last-Event-ID': 5 } }))
 
-    const request = fetch.mock.calls[0]?.[0] as Request
+    const request = requestOf(fetch.mock.calls[0]?.[0])
     expect(request.url).toBe(
       'https://api.example.test/orgs/org/projects/project/agents/agent/events/stream',
     )

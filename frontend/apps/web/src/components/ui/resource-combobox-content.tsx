@@ -46,7 +46,7 @@ export function ResourceComboboxContent<TItem>({
             className="text-foreground underline disabled:opacity-50"
             disabled={query.isFetching}
             onClick={() => {
-              void query.refetch()
+              query.refetch()
             }}
           >
             {query.isFetching ? 'Retrying…' : 'Retry'}
@@ -60,7 +60,7 @@ export function ResourceComboboxContent<TItem>({
             className="text-foreground hover:underline disabled:opacity-50"
             disabled={query.isFetchingNextPage}
             onClick={() => {
-              void query.fetchNextPage()
+              query.fetchNextPage()
             }}
           >
             {query.isFetchingNextPage ? 'Loading more…' : 'Load more results'}

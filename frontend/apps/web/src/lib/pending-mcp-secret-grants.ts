@@ -1,4 +1,7 @@
+import { z } from 'zod'
+
 const KEY_PREFIX = 'omnara:pending-mcp-secret-grants:'
+const storedProjectIds = z.array(z.string())
 
 export function savePendingMcpSecretGrants(orgId: string, projectIds: string[]) {
   if (projectIds.length === 0) {
@@ -14,10 +17,8 @@ export function takePendingMcpSecretGrants(orgId: string): string[] {
   window.sessionStorage.removeItem(key)
   if (!stored) return []
   try {
-    const parsed: unknown = JSON.parse(stored)
-    return Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === 'string')
-      : []
+    const parsed = storedProjectIds.safeParse(JSON.parse(stored))
+    return parsed.success ? parsed.data : []
   } catch {
     return []
   }

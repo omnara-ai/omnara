@@ -14,51 +14,51 @@ export interface SelectedAgentAttachment {
   data: string
 }
 
-const mediaByExtension: Partial<Record<string, AttachmentMediaType>> = {
-  csv: 'text/csv',
-  doc: 'application/msword',
-  dot: 'application/msword',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  gif: 'image/gif',
-  iif: 'text/x-iif',
-  iwork: 'application/vnd.apple.iwork',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  key: 'application/vnd.apple.keynote',
-  markdown: 'text/markdown',
-  md: 'text/markdown',
-  odt: 'application/vnd.oasis.opendocument.text',
-  pages: 'application/vnd.apple.pages',
-  pdf: 'application/pdf',
-  png: 'image/png',
-  pot: 'application/vnd.ms-powerpoint',
-  ppa: 'application/vnd.ms-powerpoint',
-  pps: 'application/vnd.ms-powerpoint',
-  ppt: 'application/vnd.ms-powerpoint',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  pwz: 'application/vnd.ms-powerpoint',
-  rtf: 'application/rtf',
-  tsv: 'text/tab-separated-values',
-  txt: 'text/plain',
-  webp: 'image/webp',
-  wiz: 'application/vnd.ms-powerpoint',
-  xla: 'application/vnd.ms-excel',
-  xlb: 'application/vnd.ms-excel',
-  xlc: 'application/vnd.ms-excel',
-  xlm: 'application/vnd.ms-excel',
-  xls: 'application/vnd.ms-excel',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  xlt: 'application/vnd.ms-excel',
-  xlw: 'application/vnd.ms-excel',
-}
+const mediaByExtension = new Map<string, AttachmentMediaType>([
+  ['csv', 'text/csv'],
+  ['doc', 'application/msword'],
+  ['dot', 'application/msword'],
+  ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['gif', 'image/gif'],
+  ['iif', 'text/x-iif'],
+  ['iwork', 'application/vnd.apple.iwork'],
+  ['jpeg', 'image/jpeg'],
+  ['jpg', 'image/jpeg'],
+  ['key', 'application/vnd.apple.keynote'],
+  ['markdown', 'text/markdown'],
+  ['md', 'text/markdown'],
+  ['odt', 'application/vnd.oasis.opendocument.text'],
+  ['pages', 'application/vnd.apple.pages'],
+  ['pdf', 'application/pdf'],
+  ['png', 'image/png'],
+  ['pot', 'application/vnd.ms-powerpoint'],
+  ['ppa', 'application/vnd.ms-powerpoint'],
+  ['pps', 'application/vnd.ms-powerpoint'],
+  ['ppt', 'application/vnd.ms-powerpoint'],
+  ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['pwz', 'application/vnd.ms-powerpoint'],
+  ['rtf', 'application/rtf'],
+  ['tsv', 'text/tab-separated-values'],
+  ['txt', 'text/plain'],
+  ['webp', 'image/webp'],
+  ['wiz', 'application/vnd.ms-powerpoint'],
+  ['xla', 'application/vnd.ms-excel'],
+  ['xlb', 'application/vnd.ms-excel'],
+  ['xlc', 'application/vnd.ms-excel'],
+  ['xlm', 'application/vnd.ms-excel'],
+  ['xls', 'application/vnd.ms-excel'],
+  ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['xlt', 'application/vnd.ms-excel'],
+  ['xlw', 'application/vnd.ms-excel'],
+])
 
-const mediaTypeAliases: Partial<Record<string, AttachmentMediaType>> = {
-  'application/x-iif': 'text/x-iif',
-  'image/jpg': 'image/jpeg',
-  'text/rtf': 'application/rtf',
-  'text/tsv': 'text/tab-separated-values',
-  'text/x-markdown': 'text/markdown',
-}
+const mediaTypeAliases = new Map<string, AttachmentMediaType>([
+  ['application/x-iif', 'text/x-iif'],
+  ['image/jpg', 'image/jpeg'],
+  ['text/rtf', 'application/rtf'],
+  ['text/tsv', 'text/tab-separated-values'],
+  ['text/x-markdown', 'text/markdown'],
+])
 
 function extension(filename: string): string {
   const index = filename.lastIndexOf('.')
@@ -114,14 +114,10 @@ export async function selectAgentAttachment(
   }
 
   const declaredType = file.type.toLowerCase().split(';', 1)[0]?.trim() ?? ''
-  const normalizedType = mediaTypeAliases[declaredType] ?? declaredType
-  const fileExtension = extension(file.name)
-  const extensionMediaType = Object.hasOwn(mediaByExtension, fileExtension)
-    ? mediaByExtension[fileExtension]
-    : undefined
+  const normalizedType = mediaTypeAliases.get(declaredType) ?? declaredType
   let mediaType =
-    extensionMediaType ??
-    Object.values(mediaByExtension).find((candidate) => candidate === normalizedType)
+    mediaByExtension.get(extension(file.name)) ??
+    [...mediaByExtension.values()].find((candidate) => candidate === normalizedType)
   if (mediaType == null) {
     if (!isUTF8Text(await readBytes())) {
       throw new Error(`${file.name} is not a supported image, document, or UTF-8 text file.`)

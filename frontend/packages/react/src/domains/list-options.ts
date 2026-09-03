@@ -42,12 +42,6 @@ export function paginatedListOptions<TData extends { query?: unknown }>(
   options: PaginatedListOptions<TData> | undefined,
 ) {
   const { filters, sort, pageSize = DEFAULT_LIST_PAGE_SIZE, enabled = true } = options ?? {}
-  return {
-    query: {
-      ...filters,
-      ...(sort === undefined ? undefined : { sort }),
-      limit: pageSize,
-    } as ListQuery<TData>,
-    enabled,
-  }
+  const query = { ...filters, limit: pageSize, sort }
+  return { query, enabled }
 }
