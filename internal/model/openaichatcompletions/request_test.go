@@ -69,14 +69,13 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	var payload struct {
-		Model                string `json:"model"`
-		Store                *bool  `json:"store"`
-		MaxCompletionTokens  int    `json:"max_completion_tokens"`
-		PromptCacheRetention string `json:"prompt_cache_retention"`
-		ReasoningEffort      string `json:"reasoning_effort"`
-		ToolChoice           string `json:"tool_choice"`
-		ParallelToolCalls    *bool  `json:"parallel_tool_calls"`
-		Messages             []struct {
+		Model               string `json:"model"`
+		Store               *bool  `json:"store"`
+		MaxCompletionTokens int    `json:"max_completion_tokens"`
+		ReasoningEffort     string `json:"reasoning_effort"`
+		ToolChoice          string `json:"tool_choice"`
+		ParallelToolCalls   *bool  `json:"parallel_tool_calls"`
+		Messages            []struct {
 			Role      string `json:"role"`
 			Content   any    `json:"content"`
 			ToolCalls []struct {
@@ -103,7 +102,6 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 		payload.Store == nil ||
 		*payload.Store ||
 		payload.MaxCompletionTokens != 1234 ||
-		payload.PromptCacheRetention != "24h" ||
 		payload.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected payload header: %+v", payload)
 	}
@@ -1196,7 +1194,6 @@ func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
 		retention          model.CacheRetention
 		wantSessionID      bool
 		wantPromptCacheKey bool
-		wantRetention      string
 	}{
 		{
 			name: "openrouter automatic model",
@@ -1236,7 +1233,6 @@ func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
 			client:             Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
 			retention:          model.CacheRetentionLong,
 			wantPromptCacheKey: true,
-			wantRetention:      "24h",
 		},
 		{
 			name: "openai-compatible host",
@@ -1262,9 +1258,8 @@ func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
 				t.Fatalf("prepare: %v", err)
 			}
 			var payload struct {
-				SessionID            string `json:"session_id"`
-				PromptCacheKey       string `json:"prompt_cache_key"`
-				PromptCacheRetention string `json:"prompt_cache_retention"`
+				SessionID      string `json:"session_id"`
+				PromptCacheKey string `json:"prompt_cache_key"`
 			}
 			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
 				t.Fatalf("decode payload: %v", err)
@@ -1282,8 +1277,8 @@ func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
 			if payload.PromptCacheKey != wantPromptCacheKey {
 				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, wantPromptCacheKey, prepared.Body)
 			}
-			if payload.PromptCacheRetention != tc.wantRetention {
-				t.Fatalf("prompt_cache_retention = %q, want %q: %s", payload.PromptCacheRetention, tc.wantRetention, prepared.Body)
+			if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
+				t.Fatalf("prompt_cache_retention must never be sent: %s", prepared.Body)
 			}
 		})
 	}
@@ -1329,9 +1324,6 @@ func TestPrepareOpenRouterLongRetentionUsesOneHourTTL(t *testing.T) {
 	marks := cacheControlMarks(t, prepared.Body)
 	if len(marks) != 2 || marks[0].control.TTL != "1h" || marks[1].control.TTL != "1h" {
 		t.Fatalf("cache_control marks = %+v, want two 1h breakpoints: %s", marks, prepared.Body)
-	}
-	if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
-		t.Fatalf("openrouter must not receive prompt_cache_retention: %s", prepared.Body)
 	}
 }
 

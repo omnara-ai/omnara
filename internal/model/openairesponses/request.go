@@ -72,9 +72,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if plan.Affinity == model.PromptCacheAffinityPromptCacheKey {
 		payload.PromptCacheKey = plan.ConversationKey
 	}
-	if plan.LongRetention {
-		payload.PromptCacheRetention = model.OpenAIExtendedPromptCacheRetention
-	}
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
@@ -112,19 +109,18 @@ func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) err
 }
 
 type responsesRequest struct {
-	Model                string              `json:"model"`
-	Stream               bool                `json:"stream"`
-	Instructions         string              `json:"instructions,omitempty"`
-	Input                []any               `json:"input"`
-	Tools                []responsesTool     `json:"tools,omitempty"`
-	ToolChoice           string              `json:"tool_choice,omitempty"`
-	ParallelToolCalls    bool                `json:"parallel_tool_calls,omitempty"`
-	MaxOutputTokens      int                 `json:"max_output_tokens,omitempty"`
-	PromptCacheKey       string              `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention string              `json:"prompt_cache_retention,omitempty"`
-	Include              []string            `json:"include,omitempty"`
-	Reasoning            *responsesReasoning `json:"reasoning,omitempty"`
-	Store                bool                `json:"store"`
+	Model             string              `json:"model"`
+	Stream            bool                `json:"stream"`
+	Instructions      string              `json:"instructions,omitempty"`
+	Input             []any               `json:"input"`
+	Tools             []responsesTool     `json:"tools,omitempty"`
+	ToolChoice        string              `json:"tool_choice,omitempty"`
+	ParallelToolCalls bool                `json:"parallel_tool_calls,omitempty"`
+	MaxOutputTokens   int                 `json:"max_output_tokens,omitempty"`
+	PromptCacheKey    string              `json:"prompt_cache_key,omitempty"`
+	Include           []string            `json:"include,omitempty"`
+	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
+	Store             bool                `json:"store"`
 }
 
 type responsesReasoning struct {

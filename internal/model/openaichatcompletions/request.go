@@ -121,19 +121,18 @@ func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) err
 }
 
 type chatCompletionsRequest struct {
-	Model                string               `json:"model"`
-	Stream               bool                 `json:"stream"`
-	Messages             []chatMessage        `json:"messages"`
-	Tools                []chatToolDefinition `json:"tools,omitempty"`
-	ToolChoice           string               `json:"tool_choice,omitempty"`
-	MaxCompletionTokens  int                  `json:"max_completion_tokens,omitempty"`
-	N                    int                  `json:"n"`
-	PromptCacheKey       string               `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention string               `json:"prompt_cache_retention,omitempty"`
-	SessionID            string               `json:"session_id,omitempty"`
-	ReasoningEffort      string               `json:"reasoning_effort,omitempty"`
-	Reasoning            *chatReasoning       `json:"reasoning,omitempty"`
-	Store                *bool                `json:"store,omitempty"`
+	Model               string               `json:"model"`
+	Stream              bool                 `json:"stream"`
+	Messages            []chatMessage        `json:"messages"`
+	Tools               []chatToolDefinition `json:"tools,omitempty"`
+	ToolChoice          string               `json:"tool_choice,omitempty"`
+	MaxCompletionTokens int                  `json:"max_completion_tokens,omitempty"`
+	N                   int                  `json:"n"`
+	PromptCacheKey      string               `json:"prompt_cache_key,omitempty"`
+	SessionID           string               `json:"session_id,omitempty"`
+	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`
+	Reasoning           *chatReasoning       `json:"reasoning,omitempty"`
+	Store               *bool                `json:"store,omitempty"`
 }
 
 type chatReasoning struct {

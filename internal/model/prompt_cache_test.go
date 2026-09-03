@@ -108,8 +108,9 @@ func TestPlanPromptCache(t *testing.T) {
 			want: withKey(PromptCachePlan{}, PromptCacheAffinityPromptCacheKey),
 		},
 		{
-			name: "openai responses long", route: openAIResponses, bundle: bundle, retention: CacheRetentionLong,
-			want: withKey(PromptCachePlan{LongRetention: true}, PromptCacheAffinityPromptCacheKey),
+			name: "openai responses long keeps only the key", route: openAIResponses, bundle: bundle,
+			retention: CacheRetentionLong,
+			want:      withKey(PromptCachePlan{}, PromptCacheAffinityPromptCacheKey),
 		},
 		{name: "openai-compatible host long", route: deepSeekChat, bundle: bundle, retention: CacheRetentionLong},
 		{name: "openai lookalike host", route: lookalikeResponses, bundle: bundle},

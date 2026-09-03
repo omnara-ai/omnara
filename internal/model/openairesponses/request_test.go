@@ -310,53 +310,6 @@ func TestPrepareRequestsEncryptedReasoningForReasoningModel(t *testing.T) {
 	}
 }
 
-func TestPrepareLowersCacheRetentionToPromptCacheRetention(t *testing.T) {
-	tests := []struct {
-		name        string
-		retention   model.CacheRetention
-		wantValue   string
-		wantPresent bool
-	}{
-		{name: "none", retention: model.CacheRetentionNone},
-		{name: "short", retention: model.CacheRetentionShort},
-		{name: "long", retention: model.CacheRetentionLong, wantValue: "24h", wantPresent: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-				Context: modelcontext.Bundle{
-					Messages: []modelcontext.Message{
-						{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-					},
-				},
-				Policy: model.RequestPolicy{CacheRetention: tt.retention},
-			})
-			if err != nil {
-				t.Fatalf("prepare: %v", err)
-			}
-			var payload map[string]json.RawMessage
-			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-				t.Fatalf("decode prepared payload: %v", err)
-			}
-			raw, ok := payload["prompt_cache_retention"]
-			if ok != tt.wantPresent {
-				t.Fatalf("prompt_cache_retention present = %v, want %v; body=%s", ok, tt.wantPresent, prepared.Body)
-			}
-			if !ok {
-				return
-			}
-			var got string
-			if err := json.Unmarshal(raw, &got); err != nil {
-				t.Fatalf("decode prompt_cache_retention: %v", err)
-			}
-			if got != tt.wantValue {
-				t.Fatalf("prompt_cache_retention = %q, want %q", got, tt.wantValue)
-			}
-		})
-	}
-}
-
 func TestPrepareMergesAPIVariantOptions(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath,
 		ProviderModelSlug: "gpt-test",
@@ -458,6 +411,12 @@ func TestPrepareSendsPromptCacheKeyOnlyToOpenAI(t *testing.T) {
 			client:    Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
 			retention: model.CacheRetentionNone,
 		},
+		{
+			name:      "long keeps only the key",
+			client:    Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			retention: model.CacheRetentionLong,
+			wantKey:   true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{
@@ -485,29 +444,10 @@ func TestPrepareSendsPromptCacheKeyOnlyToOpenAI(t *testing.T) {
 			if payload.PromptCacheKey != want {
 				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, want, prepared.Body)
 			}
+			if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
+				t.Fatalf("prompt_cache_retention must never be sent: %s", prepared.Body)
+			}
 		})
-	}
-}
-
-func TestPrepareOmitsLongRetentionOffOpenAI(t *testing.T) {
-	client := Client{
-		EndpointPath:      testEndpointPath,
-		BaseURL:           "https://proxy.example.test/v1",
-		ProviderModelSlug: "gpt-test",
-	}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			Messages: []modelcontext.Message{
-				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			},
-		},
-		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
-		t.Fatalf("prompt_cache_retention must only target api.openai.com: %s", prepared.Body)
 	}
 }
 

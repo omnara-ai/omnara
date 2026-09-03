@@ -20,17 +20,14 @@ func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCach
 		payload.PromptCacheKey = plan.ConversationKey
 	case model.PromptCacheAffinityNone:
 	}
-	if plan.Explicit {
-		control := &chatCacheControl{Type: "ephemeral"}
-		if plan.LongRetention {
-			control.TTL = "1h"
-		}
-		payload.Messages = markCacheBreakpoints(payload.Messages, control)
+	if !plan.Explicit {
 		return
 	}
+	control := &chatCacheControl{Type: "ephemeral"}
 	if plan.LongRetention {
-		payload.PromptCacheRetention = model.OpenAIExtendedPromptCacheRetention
+		control.TTL = "1h"
 	}
+	payload.Messages = markCacheBreakpoints(payload.Messages, control)
 }
 
 func markCacheBreakpoints(messages []chatMessage, control *chatCacheControl) []chatMessage {

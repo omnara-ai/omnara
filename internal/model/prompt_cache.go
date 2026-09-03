@@ -26,11 +26,6 @@ func EffectiveCacheRetention(retention CacheRetention) CacheRetention {
 	return retention
 }
 
-// OpenAIExtendedPromptCacheRetention is sent as prompt_cache_retention, which current OpenAI
-// models still accept (newer ones take only this value) and which outlives prompt_cache_options.ttl.
-// https://developers.openai.com/api/docs/guides/prompt-caching
-const OpenAIExtendedPromptCacheRetention = "24h"
-
 type PromptCacheAffinity string
 
 const (
@@ -104,7 +99,7 @@ func openAIPromptCacheCapability(baseURL string) promptCacheCapability {
 	if !isOpenAIHost(baseURL) {
 		return promptCacheCapability{}
 	}
-	return promptCacheCapability{longRetention: true, affinity: PromptCacheAffinityPromptCacheKey}
+	return promptCacheCapability{affinity: PromptCacheAffinityPromptCacheKey}
 }
 
 func isOpenAIHost(baseURL string) bool {
