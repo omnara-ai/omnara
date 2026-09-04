@@ -192,7 +192,7 @@ export const zModelProviderApiVariantResponse = z.string();
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export const zModelCacheRetention = z.enum([
     'none',
