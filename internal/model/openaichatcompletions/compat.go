@@ -50,7 +50,7 @@ func compatFor(route model.ProviderRoute) compat {
 			usageViaStreamOptions:     true,
 			usageChunkCompletesStream: true,
 		}
-	default:
+	case modelprotocol.APIVariantDefault:
 		return compat{
 			sendsStoreFalse:       true,
 			reasoningFormat:       reasoningFormatOpenAI,
@@ -58,6 +58,7 @@ func compatFor(route model.ProviderRoute) compat {
 			usageViaStreamOptions: true,
 		}
 	}
+	return compat{}
 }
 
 func (c Client) providerRoute() model.ProviderRoute {

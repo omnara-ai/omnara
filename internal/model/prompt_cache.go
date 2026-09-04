@@ -65,7 +65,8 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 	case modelprotocol.APIFormatOpenAIResponses:
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
-		if route.APIVariant == modelprotocol.APIVariantOpenRouter {
+		switch route.APIVariant {
+		case modelprotocol.APIVariantOpenRouter:
 			model, _, _ := strings.Cut(normalizedProviderModelSlug(route.ProviderModelSlug), ":")
 			anthropic := strings.HasPrefix(model, "anthropic/")
 			return promptCacheCapability{
@@ -73,8 +74,9 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 				longRetention:   anthropic,
 				conversationKey: true,
 			}
+		case modelprotocol.APIVariantDefault, modelprotocol.APIVariantBedrock:
+			return openAIPromptCacheCapability(route.BaseURL)
 		}
-		return openAIPromptCacheCapability(route.BaseURL)
 	}
 	return promptCacheCapability{}
 }
