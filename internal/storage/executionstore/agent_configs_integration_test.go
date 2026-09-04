@@ -123,8 +123,12 @@ model:
 		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
-	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-		t.Fatalf("create agent config with model runtime options error = %v, want ErrInvalidModelProviderConfig", err)
+	if !errors.Is(err, storeerr.ErrInvalidRequest) ||
+		!errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf(
+			"create agent config with model runtime options error = %v, want invalid model request",
+			err,
+		)
 	}
 }
 
