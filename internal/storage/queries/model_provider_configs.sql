@@ -15,7 +15,6 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.deleted_at IS NULL
   AND credential.management_kind = sqlc.arg(management_kind)
   AND credential.owner_kind = 'org'
-  AND credential.kind = 'generic'
 WHERE org.id = sqlc.arg(org_id)
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
@@ -120,7 +119,6 @@ WHERE config.org_id = sqlc.arg(org_id)
   AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
-  AND credential.kind = 'generic'
 RETURNING config.id, config.org_id, config.management_kind,
           config.name, config.api_format,
           config.api_variant, config.base_url, config.endpoint_path,

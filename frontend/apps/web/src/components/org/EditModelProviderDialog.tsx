@@ -15,11 +15,14 @@ import { Input } from '@/components/ui/input'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
+import { awsRegionPattern } from './CreateModelProviderDialogState'
+
 interface EditModelProviderState {
   baseUrl: string
   endpointPath: string
   timeout: string
   idleTimeout: string
+  region: string
   status: SubmitStatus
 }
 
@@ -40,6 +43,7 @@ export function EditModelProviderDialog({
     endpointPath: provider.endpoint_path,
     timeout: String(provider.request_timeout_ms),
     idleTimeout: String(provider.idle_timeout_ms),
+    region: provider.auth_options.region ?? '',
     status: idle,
   })
   const errorMessage = statusError(state.status)
@@ -54,6 +58,13 @@ export function EditModelProviderDialog({
         endpoint_path: state.endpointPath.trim(),
         request_timeout_ms: Number(state.timeout),
         idle_timeout_ms: Number(state.idleTimeout),
+        auth_options:
+          provider.auth_kind === 'sigv4'
+            ? {
+                service: provider.auth_options.service,
+                region: state.region.trim(),
+              }
+            : undefined,
       })
       onOpenChange(false)
     } catch (err) {
@@ -125,11 +136,31 @@ export function EditModelProviderDialog({
                 activity.
               </FieldDescription>
             </Field>
+            {provider.auth_kind === 'sigv4' && (
+              <Field>
+                <FieldLabel>AWS signing region</FieldLabel>
+                <Input
+                  required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  pattern={awsRegionPattern.source}
+                  value={state.region}
+                  onChange={(event) => {
+                    setState((prev) => ({ ...prev, region: event.target.value }))
+                  }}
+                />
+              </Field>
+            )}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={mutation.isPending || state.baseUrl.trim() === ''}
+                disabled={
+                  mutation.isPending ||
+                  state.baseUrl.trim() === '' ||
+                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim()))
+                }
                 loading={mutation.isPending}
               >
                 Save changes

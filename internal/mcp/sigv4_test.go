@@ -6,19 +6,14 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/aws/aws-sdk-go-v2/service/sts/types"
-	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 )
 
 func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 	ctx := context.Background()
-	prepareRequest, err := newSigV4RequestPreparer(
+	signer, err := sigv4.NewSigner(
 		"execute-api",
 		"us-west-2",
 		credentials.NewStaticCredentialsProvider("AKIAEXAMPLE", "secret", "session-token"),
@@ -31,7 +26,7 @@ func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 		EndpointURL:     "https://example.execute-api.us-west-2.amazonaws.com/mcp",
 		MCPSessionID:    "session",
 		ProtocolVersion: ProtocolVersion,
-		prepareRequest:  prepareRequest,
+		prepareRequest:  signer.Sign,
 	}, body)
 	if err != nil {
 		t.Fatalf("build signed request: %v", err)
@@ -60,169 +55,4 @@ func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 	if !bytes.Equal(gotBody, body) {
 		t.Fatalf("signed body = %s, want %s", gotBody, body)
 	}
-}
-
-func TestAssumeRoleCredentialProvider(t *testing.T) {
-	expires := time.Now().Add(time.Hour)
-	client := assumeRoleClientFunc(func(
-		_ context.Context,
-		input *sts.AssumeRoleInput,
-		_ ...func(*sts.Options),
-	) (*sts.AssumeRoleOutput, error) {
-		if got := aws.ToString(input.RoleArn); got != "arn:aws:iam::123456789012:role/ReadOnly" {
-			t.Fatalf("role ARN = %q", got)
-		}
-		if got := aws.ToString(input.RoleSessionName); got != "omnara" {
-			t.Fatalf("role session name = %q", got)
-		}
-		if got := aws.ToString(input.ExternalId); got != "external" {
-			t.Fatalf("external ID = %q", got)
-		}
-		return &sts.AssumeRoleOutput{Credentials: &types.Credentials{
-			AccessKeyId:     aws.String("ASIAASSUMED"),
-			SecretAccessKey: aws.String("assumed-secret"),
-			SessionToken:    aws.String("assumed-session"),
-			Expiration:      &expires,
-		}}, nil
-	})
-	provider := newAssumeRoleCredentialProvider(
-		client,
-		"arn:aws:iam::123456789012:role/ReadOnly",
-		"external",
-	)
-	resolved, err := provider.Retrieve(context.Background())
-	if err != nil {
-		t.Fatalf("assume role: %v", err)
-	}
-	if resolved.AccessKeyID != "ASIAASSUMED" ||
-		resolved.SecretAccessKey != "assumed-secret" ||
-		resolved.SessionToken != "assumed-session" ||
-		!resolved.CanExpire ||
-		!resolved.Expires.Equal(expires) {
-		t.Fatalf("resolved credentials = %+v", resolved)
-	}
-}
-
-func TestResolveAWSCredentialProviderScopesSecretVersionByRegion(t *testing.T) {
-	cache := newTestSigV4CredentialCache(t)
-	secretID := uuid.New()
-	versionID := uuid.New()
-	payload := testAssumeRolePayload()
-	first, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-west-2", payload)
-	if err != nil {
-		t.Fatalf("get first provider: %v", err)
-	}
-	sameRegion, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-west-2", payload)
-	if err != nil {
-		t.Fatalf("get same-region provider: %v", err)
-	}
-	if first != sameRegion {
-		t.Fatal("same secret version and region returned different providers")
-	}
-	differentRegion, err := resolveAWSCredentialProvider(cache, secretID, versionID, "us-east-1", payload)
-	if err != nil {
-		t.Fatalf("get different-region provider: %v", err)
-	}
-	if first == differentRegion {
-		t.Fatal("same secret version in different regions returned the same provider")
-	}
-}
-
-func TestResolveAWSCredentialProviderRequiresCacheForAssumeRole(t *testing.T) {
-	_, err := resolveAWSCredentialProvider(
-		nil,
-		uuid.New(),
-		uuid.New(),
-		"us-west-2",
-		testAssumeRolePayload(),
-	)
-	if err == nil || !strings.Contains(err.Error(), "credential cache is required") {
-		t.Fatalf("resolve role provider error = %v, want missing credential cache", err)
-	}
-}
-
-func TestResolveAWSCredentialProviderReplacesRotatedSecret(t *testing.T) {
-	cache := newTestSigV4CredentialCache(t)
-	secretID := uuid.New()
-	payload := testAssumeRolePayload()
-	first, err := resolveAWSCredentialProvider(cache, secretID, uuid.New(), "us-west-2", payload)
-	if err != nil {
-		t.Fatalf("get first provider: %v", err)
-	}
-	second, err := resolveAWSCredentialProvider(cache, secretID, uuid.New(), "us-west-2", payload)
-	if err != nil {
-		t.Fatalf("get rotated provider: %v", err)
-	}
-	if first == second {
-		t.Fatal("rotated secret version reused the previous provider")
-	}
-}
-
-func TestResolveAWSCredentialProviderEvictsLeastRecentlyUsed(t *testing.T) {
-	cache := newTestSigV4CredentialCache(t)
-	payload := testAssumeRolePayload()
-	resolve := func(secretID, versionID uuid.UUID) aws.CredentialsProvider {
-		t.Helper()
-		provider, err := resolveAWSCredentialProvider(
-			cache,
-			secretID,
-			versionID,
-			"us-west-2",
-			payload,
-		)
-		if err != nil {
-			t.Fatalf("resolve provider: %v", err)
-		}
-		return provider
-	}
-	firstSecretID, firstVersionID := uuid.New(), uuid.New()
-	first := resolve(firstSecretID, firstVersionID)
-	secondSecretID, secondVersionID := uuid.New(), uuid.New()
-	second := resolve(secondSecretID, secondVersionID)
-	for range maxSigV4CredentialCacheEntries - 2 {
-		resolve(uuid.New(), uuid.New())
-	}
-	resolve(firstSecretID, firstVersionID)
-	resolve(uuid.New(), uuid.New())
-	if got := resolve(firstSecretID, firstVersionID); got != first {
-		t.Fatal("recently used provider was evicted")
-	}
-	if got := resolve(secondSecretID, secondVersionID); got == second {
-		t.Fatal("least recently used provider was not evicted")
-	}
-	if got := cache.entries.Len(); got != maxSigV4CredentialCacheEntries {
-		t.Fatalf("cache entries = %d, want %d", got, maxSigV4CredentialCacheEntries)
-	}
-}
-
-func newTestSigV4CredentialCache(t *testing.T) *SigV4CredentialCache {
-	t.Helper()
-	cache, err := NewSigV4CredentialCache()
-	if err != nil {
-		t.Fatalf("create SigV4 credential cache: %v", err)
-	}
-	return cache
-}
-
-func testAssumeRolePayload() secrets.Payload {
-	return secrets.Payload{
-		secrets.KeyAWSAccessKeyID:     "AKIAEXAMPLE",
-		secrets.KeyAWSSecretAccessKey: "secret",
-		secrets.KeyAWSRoleARN:         "arn:aws:iam::123456789012:role/ReadOnly",
-		secrets.KeyAWSExternalID:      "external",
-	}
-}
-
-type assumeRoleClientFunc func(
-	context.Context,
-	*sts.AssumeRoleInput,
-	...func(*sts.Options),
-) (*sts.AssumeRoleOutput, error)
-
-func (f assumeRoleClientFunc) AssumeRole(
-	ctx context.Context,
-	input *sts.AssumeRoleInput,
-	options ...func(*sts.Options),
-) (*sts.AssumeRoleOutput, error) {
-	return f(ctx, input, options...)
 }
