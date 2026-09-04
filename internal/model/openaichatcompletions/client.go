@@ -55,19 +55,12 @@ func (c Client) endpoint() route.StaticEndpoint {
 	}
 }
 
-func (c Client) requestAuth() route.Auth {
-	if c.ModelAPIVariant() != modelprotocol.APIVariantOpenRouter {
-		return c.Auth
-	}
-	return route.Chain{c.Auth, route.Headers{"X-OpenRouter-Metadata": "enabled"}}
-}
-
 func (c Client) routeClient() route.Client {
 	return route.Client{
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
 		Endpoint:          c.endpoint(),
-		Auth:              c.requestAuth(),
+		Auth:              c.Auth,
 		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost},
 		Protocol:          protocol{client: c},
 	}
