@@ -72,7 +72,7 @@ type RenderedMedia struct {
 	Occurrence     MediaOccurrenceRef
 	Media          ResolvedMedia
 	Representation string
-	InputModality  string
+	RouteParsed    bool
 	TokenEstimate  int
 }
 
@@ -81,11 +81,14 @@ const (
 	MediaRepresentationInlineText = "inline_text"
 )
 
-func InputModalityFor(kind string, representation string) string {
-	switch {
-	case kind == AttachmentKindImage:
+func (m RenderedMedia) InputModality() string {
+	switch m.Media.Kind {
+	case AttachmentKindImage:
 		return "image"
-	case kind == AttachmentKindDocument && representation != MediaRepresentationInlineText:
+	case AttachmentKindDocument:
+		if m.RouteParsed || m.Representation == MediaRepresentationInlineText {
+			return ""
+		}
 		return "file"
 	}
 	return ""

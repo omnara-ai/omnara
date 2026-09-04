@@ -140,7 +140,7 @@ func TestProviderMediaProjectionMatchesSerializedRepresentations(t *testing.T) {
 			projected := model.MediaProjectorForClient(test.client).ProjectRenderedMedia(bundle)
 			got := make(map[string]string, len(projected))
 			for _, item := range projected {
-				got[item.Media.ArtifactID] = item.Representation + "/" + item.InputModality
+				got[item.Media.ArtifactID] = item.Representation + "/" + item.InputModality()
 			}
 			if !maps.Equal(got, test.want) {
 				t.Fatalf("projected media = %+v, want %+v", got, test.want)

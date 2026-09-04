@@ -50,15 +50,11 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		default:
 			continue
 		}
-		inputModality := modelcontext.InputModalityFor(item.Kind, representation)
-		if routeParsed {
-			inputModality = ""
-		}
 		rendered = append(rendered, modelcontext.RenderedMedia{
 			Occurrence:     occurrence.Ref,
 			Media:          item,
 			Representation: representation,
-			InputModality:  inputModality,
+			RouteParsed:    routeParsed,
 			TokenEstimate:  tokenEstimate,
 		})
 	}

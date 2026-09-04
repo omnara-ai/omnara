@@ -264,12 +264,13 @@ func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorS
 			}
 		}
 		for _, media := range bundle.RenderedMedia {
-			if media.InputModality != "" && !containsModality(capabilities.InputModalities, media.InputModality) {
+			modality := media.InputModality()
+			if modality != "" && !containsModality(capabilities.InputModalities, modality) {
 				return ProviderError{
 					Kind:   ErrorKindInvalidRequest,
 					Source: errorSource,
 					Code:   "unsupported_input_modality",
-					Message: "The live model grant does not allow " + media.InputModality +
+					Message: "The live model grant does not allow " + modality +
 						" input required by this agent request.",
 				}
 			}

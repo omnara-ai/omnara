@@ -223,7 +223,6 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	bundle := modelcontext.Bundle{
 		RenderedMedia: []modelcontext.RenderedMedia{{
 			Media:         modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
-			InputModality: "image",
 		}},
 	}
 	client := prepareForSendClient{
@@ -243,7 +242,6 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 
 	client.capabilities.InputModalities = []string{"text", "image"}
 	bundle.RenderedMedia[0].Media.Kind = modelcontext.AttachmentKindDocument
-	bundle.RenderedMedia[0].InputModality = "file"
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" ||
@@ -251,13 +249,20 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 		t.Fatalf("file modality error = %v, want unsupported file input modality", err)
 	}
 
-	bundle.RenderedMedia[0].InputModality = ""
+	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInlineText
 	prepareInput.Context = bundle
 	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
-		t.Fatalf("document consumed without a model modality: %v", err)
+		t.Fatalf("inline text document: %v", err)
 	}
 
-	bundle.RenderedMedia[0].InputModality = "file"
+	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInline
+	bundle.RenderedMedia[0].RouteParsed = true
+	prepareInput.Context = bundle
+	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
+		t.Fatalf("route-parsed document: %v", err)
+	}
+
+	bundle.RenderedMedia[0].RouteParsed = false
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
