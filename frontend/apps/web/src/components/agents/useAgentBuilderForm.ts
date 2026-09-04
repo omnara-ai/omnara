@@ -239,6 +239,26 @@ export function mcpServerNameError(name: string): string | undefined {
   return undefined
 }
 
+export const mcpRuntimeToolNameMaxLength = 64
+
+export function mcpRuntimeToolName(serverName: string, toolName: string) {
+  return `mcp__${serverName}__${toolName}`
+}
+
+export function mcpToolEnabled(server: BasicMcpServer, toolName: string) {
+  return server.tools.find((tool) => tool.name === toolName)?.enabled ?? server.defaultEnabled
+}
+
+export function mcpRuntimeToolNameError(serverName: string, toolName: string): string | undefined {
+  const runtimeName = mcpRuntimeToolName(serverName, toolName)
+  if (runtimeName.length <= mcpRuntimeToolNameMaxLength) return undefined
+  const maxServerNameLength = mcpRuntimeToolNameMaxLength - mcpRuntimeToolName('', toolName).length
+  const prefixed = `"${toolName}" becomes "${runtimeName}" (${runtimeName.length} characters) once the server name is prefixed, but the model only accepts tool names of ${mcpRuntimeToolNameMaxLength} characters or fewer.`
+  return maxServerNameLength >= 1
+    ? `${prefixed} Shorten the server name to ${maxServerNameLength} characters or fewer.`
+    : `${prefixed} The tool name itself is too long to expose under any server name.`
+}
+
 function mcpServerValid(server: BasicMcpServer) {
   return (
     mcpServerNameError(server.name) === undefined &&

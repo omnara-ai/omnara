@@ -76,9 +76,10 @@ func compileMCPServers(
 		if err != nil {
 			return nil, issueAt(jsonPointer("mcp", serverKey, "url"), err)
 		}
+		defaultEnabled := server.DefaultEnabled == nil || *server.DefaultEnabled
 		var tools map[string]MCPToolCompiled
 		if len(server.Tools) > 0 {
-			tools, err = compileMCPTools(serverKey, server.Tools)
+			tools, err = compileMCPTools(serverKey, defaultEnabled, server.Tools)
 			if err != nil {
 				return nil, issueAt(jsonPointer("mcp", serverKey, "tools"), err)
 			}
@@ -103,7 +104,7 @@ func compileMCPServers(
 		compiled[serverKey] = MCPServerCompiled{
 			URL:            endpoint,
 			Auth:           auth,
-			DefaultEnabled: server.DefaultEnabled == nil || *server.DefaultEnabled,
+			DefaultEnabled: defaultEnabled,
 			Permission:     permission,
 			Tools:          tools,
 		}
@@ -212,10 +213,18 @@ func classifyMCPURLHost(host string) mcpURLHost {
 	}
 }
 
-func compileMCPTools(serverKey string, source map[string]AgentConfigMCPToolSource) (map[string]MCPToolCompiled, error) {
+func compileMCPTools(
+	serverKey string,
+	defaultEnabled bool,
+	source map[string]AgentConfigMCPToolSource,
+) (map[string]MCPToolCompiled, error) {
 	compiled := make(map[string]MCPToolCompiled, len(source))
 	for remoteName, tool := range source {
-		if err := toolcatalog.ValidateMCPRuntimeToolName(serverKey, remoteName); err != nil {
+		enabled := defaultEnabled
+		if tool.Enabled != nil {
+			enabled = *tool.Enabled
+		}
+		if err := validateMCPToolName(serverKey, remoteName, enabled); err != nil {
 			return nil, issueAt(jsonPointer(remoteName), err)
 		}
 		var permission *toolpermission.Selection
@@ -235,6 +244,15 @@ func compileMCPTools(serverKey string, source map[string]AgentConfigMCPToolSourc
 		}
 	}
 	return compiled, nil
+}
+
+func validateMCPToolName(serverKey, remoteName string, enabled bool) error {
+	err := toolcatalog.ValidateMCPRuntimeToolName(serverKey, remoteName)
+	var tooLong *toolcatalog.MCPRuntimeToolNameTooLongError
+	if !enabled && errors.As(err, &tooLong) {
+		return nil
+	}
+	return err
 }
 
 func runtimeMCPServers(compiled map[string]MCPServerCompiled) ([]RuntimeMCPServer, error) {

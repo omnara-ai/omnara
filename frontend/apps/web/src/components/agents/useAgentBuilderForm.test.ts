@@ -7,7 +7,9 @@ import {
   type BasicConfig,
   basicConfigValid,
   createBasicConfigSession,
+  mcpRuntimeToolNameError,
   mcpServerNameError,
+  mcpToolEnabled,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
@@ -633,6 +635,41 @@ describe('basic agent config names', () => {
     ['GitHub-2', undefined],
   ])('reports the MCP server key rule for %j', (name, expected) => {
     expect(mcpServerNameError(name)).toBe(expected)
+  })
+
+  it('explains when the prefixed MCP tool name exceeds the model limit', () => {
+    const tool = 'provider__search-call-recordings-by-metadata'
+    expect(mcpRuntimeToolNameError('cust-read', tool)).toBeUndefined()
+    expect(mcpRuntimeToolNameError('customer-user-read', tool)).toBe(
+      `"${tool}" becomes "mcp__customer-user-read__${tool}" (69 characters) once the server name is prefixed, ` +
+        'but the model only accepts tool names of 64 characters or fewer. ' +
+        'Shorten the server name to 13 characters or fewer.',
+    )
+    expect(mcpRuntimeToolNameError('a', 'b'.repeat(64))).toBe(
+      `"${'b'.repeat(64)}" becomes "mcp__a__${'b'.repeat(64)}" (72 characters) once the server name is prefixed, ` +
+        'but the model only accepts tool names of 64 characters or fewer. ' +
+        'The tool name itself is too long to expose under any server name.',
+    )
+  })
+
+  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
+    const [enabledByDefault, disabledByDefault] = fullConfig.mcpServers
+    if (!enabledByDefault || !disabledByDefault) throw new Error('fixture needs two servers')
+    const overrides = [
+      { name: 'on', enabled: true, permission: null },
+      { name: 'off', enabled: false, permission: null },
+      { name: 'inherit', enabled: null, permission: null },
+    ]
+    const enabled = { ...enabledByDefault, tools: overrides }
+    const disabled = { ...disabledByDefault, tools: overrides }
+    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
+    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
+    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
+    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 
   it('rejects duplicate MCP server keys', () => {
