@@ -170,7 +170,9 @@ describe('AgentChatSession input lifecycle', () => {
     const session = startSession()
     await connection(0)
 
-    await session.sendMessage({ text: 'Hello' }, 'conversation', sourceHint('cli'))
+    await session.sendMessage({ text: 'Hello' }, 'conversation', () =>
+      Promise.resolve(sourceHint('cli')),
+    )
 
     expect(transport.createAgentInput).toHaveBeenCalledWith(
       expect.objectContaining({

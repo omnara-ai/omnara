@@ -9,10 +9,9 @@ import {
   type InfiniteData,
   type QueryClient,
   type QueryStatus,
-  useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
@@ -148,7 +147,7 @@ export class AgentChatSession {
   sendMessage = async (
     message: AgentChatMessageInput,
     placement: LocalAgentInput['placement'] = 'conversation',
-    hint?: string,
+    resolveHint?: () => Promise<string | undefined>,
   ): Promise<void> => {
     const text = message.text.trim()
     const attachments = message.attachments ?? []
@@ -166,6 +165,7 @@ export class AgentChatSession {
     this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
+      const hint = resolveHint == null ? undefined : await resolveHint()
       const input = await createAgentChatInput(
         this.transport,
         this.client,
@@ -424,8 +424,13 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
-  const agent = useQuery(getAgentOptions({ path: scope, client }))
-  const hint = agent.data?.agent.integration_target == null ? undefined : sourceHint(options.source)
+  const { source } = options
+  const resolveHint = useCallback(async () => {
+    const { agent } = await queryClient.ensureQueryData(
+      getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+    )
+    return agent.integration_target == null ? undefined : sourceHint(source)
+  }, [agentID, client, orgID, projectID, queryClient, source])
 
   const history = useAgentChatHistory(client, scope)
 
@@ -477,7 +482,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
-    sendMessage: (message) => session.sendMessage(message, inputPlacement, hint),
+    sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
     inputBacklog: {
       inputs: projected.backlogInputs,
       actionPending:
