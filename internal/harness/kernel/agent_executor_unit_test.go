@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -41,7 +42,7 @@ func (*kernelSkillStoreStub) GetSkillForDispatch(
 func TestAgentExecutorDependencyComposition(t *testing.T) {
 	aggregate := storage.NewStore(nil)
 	explicit := &kernelSkillStoreStub{}
-	sigV4CredentialCache, err := mcp.NewSigV4CredentialCache()
+	sigV4CredentialCache, err := sigv4.NewCredentialCache()
 	if err != nil {
 		t.Fatalf("create SigV4 credential cache: %v", err)
 	}

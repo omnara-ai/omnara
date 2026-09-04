@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -25,7 +26,7 @@ type AgentExecutor struct {
 	ModelResolver        model.Resolver
 	MCP                  mcp.Client
 	MCPAuthHTTPClient    *http.Client
-	SigV4CredentialCache *mcp.SigV4CredentialCache
+	SigV4CredentialCache *sigv4.CredentialCache
 	ToolExecutor         tools.Executor
 	Now                  func() time.Time
 

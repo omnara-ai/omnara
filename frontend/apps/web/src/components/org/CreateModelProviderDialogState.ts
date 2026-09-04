@@ -36,6 +36,13 @@ export const bedrockAPIOptions = [
 
 export type BedrockAPI = (typeof bedrockAPIOptions)[number]['value']
 
+export const bedrockAuthOptions = [
+  { value: 'api-key', label: 'API key' },
+  { value: 'sigv4', label: 'AWS credentials (SigV4)' },
+] as const
+
+export type BedrockAuth = (typeof bedrockAuthOptions)[number]['value']
+
 export const awsRegionPattern = /^[a-z0-9]+(?:-[a-z0-9]+)+-\d+$/
 
 export function modelProviderOption(value: ModelProviderOption) {
@@ -46,10 +53,15 @@ export function bedrockAPIOption(value: BedrockAPI) {
   return bedrockAPIOptions.find((option) => option.value === value) ?? bedrockAPIOptions[0]
 }
 
+export function bedrockAuthOption(value: BedrockAuth) {
+  return bedrockAuthOptions.find((option) => option.value === value) ?? bedrockAuthOptions[0]
+}
+
 export interface CreateModelProviderFormValues {
   name: string
   provider: ModelProviderOption
   bedrockAPI: BedrockAPI
+  bedrockAuth: BedrockAuth
   region: string
   secretId: string
 }
@@ -58,6 +70,7 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
   name: '',
   provider: 'openai',
   bedrockAPI: 'chat-completions-v1',
+  bedrockAuth: 'api-key',
   region: 'us-west-2',
   secretId: '',
 }

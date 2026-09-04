@@ -130,6 +130,9 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	if err := validateModelProviderEndpointPath(template.EndpointPath); err != nil {
 		return err
 	}
+	if template.AuthKind == ModelProviderAuthKindSigV4 {
+		return errors.New("default model providers do not support sigv4 authentication")
+	}
 	if err := ValidateModelProviderAuth(template.AuthKind, template.AuthOptions); err != nil {
 		return err
 	}

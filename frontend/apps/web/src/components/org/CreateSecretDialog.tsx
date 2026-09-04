@@ -29,6 +29,7 @@ import { resourceNameValid } from '@/lib/resource-name'
 
 import { AWSCredentialsSecretFields } from './AWSCredentialsSecretFields'
 import {
+  awsCredentialsMaterial,
   isSecretKind,
   newSecretDialogState,
   type SecretDialogAction,
@@ -47,11 +48,7 @@ function secretDraftValid(secret: SecretDraft): boolean {
     case 'generic':
       return secret.value !== ''
     case 'aws_credentials':
-      return (
-        secret.accessKeyId.trim() !== '' &&
-        secret.secretAccessKey.trim() !== '' &&
-        (secret.externalId.trim() === '' || secret.roleArn.trim() !== '')
-      )
+      return awsCredentialsMaterial(secret) !== undefined
     case 'mcp_oauth':
       return isMcpOAuthLoginUrl(secret.serverUrl.trim())
     case 'oauth_token_set':

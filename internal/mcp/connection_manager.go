@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -33,7 +34,7 @@ type Manager struct {
 	Secrets              *secretstore.Store
 	Client               Client
 	Backoff              func(attempt int) time.Duration
-	SigV4CredentialCache *SigV4CredentialCache
+	SigV4CredentialCache *sigv4.CredentialCache
 
 	OAuthHTTPClient *http.Client
 
@@ -390,24 +391,21 @@ func (m Manager) connection(
 		}
 		wireConn.BearerToken = token
 	case agentconfig.MCPAuthTypeSigV4:
-		provider, providerErr := resolveAWSCredentialProvider(
+		provider, err := sigv4.ResolveCredentialProvider(
 			m.SigV4CredentialCache,
 			secretID,
 			secretPayload.CurrentVersionID,
 			auth.Region,
 			payload,
 		)
-		if providerErr != nil {
-			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, providerErr)
-		}
-		wireConn.prepareRequest, err = newSigV4RequestPreparer(
-			auth.Service,
-			auth.Region,
-			provider,
-		)
 		if err != nil {
 			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
 		}
+		signer, err := sigv4.NewSigner(auth.Service, auth.Region, provider)
+		if err != nil {
+			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
+		}
+		wireConn.prepareRequest = signer.Sign
 		return wireConn, nil
 	default:
 		return Conn{}, fmt.Errorf("unsupported mcp auth type %q", auth.Type)

@@ -176,7 +176,13 @@ export const zModelApiFormat = z.enum([
     'anthropic-messages'
 ]);
 
-export const zModelProviderAuthKind = z.enum(['bearer_token', 'api_key_header']);
+export const zModelProviderAuthKind = z.enum([
+    'bearer_token',
+    'api_key_header',
+    'sigv4'
+]);
+
+export const zModelProviderAuthKindResponse = z.string();
 
 export const zModelProviderApiVariant = z.enum([
     'default',
@@ -319,7 +325,9 @@ export const zCreateModelProviderConfigRequest = z.object({
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }).optional(),
     credential_secret_id: zSecretId
 });
@@ -333,7 +341,9 @@ export const zUpdateModelProviderConfigRequest = z.object({
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }).optional(),
     credential_secret_id: zSecretId.optional()
 });
@@ -362,9 +372,11 @@ export const zModelProviderConfig = z.object({
     base_url: z.string(),
     endpoint_path: z.string(),
     request_timeout_ms: z.int(),
-    auth_kind: zModelProviderAuthKind,
+    auth_kind: zModelProviderAuthKindResponse,
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }),
     credential_secret_id: zSecretId,
     created_at: zTimestamp,

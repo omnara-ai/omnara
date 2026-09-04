@@ -7000,7 +7000,14 @@ components:
         - ModelAPIFormatAnthropicMessages
     ModelProviderAuthKind:
       type: string
-      enum: [bearer_token, api_key_header]
+      enum: [bearer_token, api_key_header, sigv4]
+      x-enum-varnames:
+        - BearerToken
+        - ApiKeyHeader
+        - ModelProviderSigV4
+    ModelProviderAuthKindResponse:
+      type: string
+      x-extensible-enum: [bearer_token, api_key_header, sigv4]
     ModelProviderAPIVariant:
       type: string
       enum: [default, openrouter, bedrock]
@@ -7068,12 +7075,20 @@ components:
           type: object
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
-          description: Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}.
+          description: Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}. With sigv4, set the AWS signing service and region.
           additionalProperties: false
           properties:
             header_name:
               type: string
               minLength: 1
+            service:
+              type: string
+              minLength: 1
+              maxLength: 64
+            region:
+              type: string
+              minLength: 1
+              maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
     UpdateModelProviderConfigRequest:
@@ -7101,12 +7116,20 @@ components:
           type: object
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
-          description: Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}.
+          description: Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}. With sigv4, set the AWS signing service and region.
           additionalProperties: false
           properties:
             header_name:
               type: string
               minLength: 1
+            service:
+              type: string
+              minLength: 1
+              maxLength: 64
+            region:
+              type: string
+              minLength: 1
+              maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
     ModelProviderConfig:
@@ -7134,17 +7157,25 @@ components:
         request_timeout_ms:
           type: integer
         auth_kind:
-          $ref: '#/components/schemas/ModelProviderAuthKind'
+          $ref: '#/components/schemas/ModelProviderAuthKindResponse'
         auth_options:
           type: object
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
-          description: Non-secret API-key placement settings for this provider config.
+          description: Non-secret authentication settings for this provider config.
           additionalProperties: false
           properties:
             header_name:
               type: string
               minLength: 1
+            service:
+              type: string
+              minLength: 1
+              maxLength: 64
+            region:
+              type: string
+              minLength: 1
+              maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
         created_at:

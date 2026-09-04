@@ -106,6 +106,12 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
+	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
 	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
 		return ModelProviderConfigRecord{}, err
@@ -119,6 +125,7 @@ func (s *Store) createModelProviderConfigTx(
 		input.OrgID,
 		input.CredentialSecretID,
 		input.managementKind,
+		input.AuthKind,
 	); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -256,6 +263,7 @@ func validateModelProviderCredentialTx(
 	qtx *dbsqlc.Queries,
 	orgID, credentialSecretID ID,
 	managementKind management.Kind,
+	authKind string,
 ) error {
 	credential, err := secretops.GetFacts(ctx, qtx, orgID, credentialSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -264,18 +272,26 @@ func validateModelProviderCredentialTx(
 	if err != nil {
 		return err
 	}
-	return validateModelProviderCredentialRecord(credential, managementKind)
+	return validateModelProviderCredentialRecord(credential, managementKind, authKind)
 }
 
-func validateModelProviderCredentialRecord(credential secretops.Facts, managementKind management.Kind) error {
+func validateModelProviderCredentialRecord(
+	credential secretops.Facts,
+	managementKind management.Kind,
+	authKind string,
+) error {
 	if credential.OwnerKind != secretstore.SecretOwnerOrg {
 		return fmt.Errorf("model provider credential secret must be org-owned: %w", storeerr.ErrNotFound)
 	}
-	if credential.Kind != secretstore.SecretKindGeneric {
+	expectedKind, err := ModelProviderCredentialSecretKind(authKind)
+	if err != nil {
+		return err
+	}
+	if credential.Kind != expectedKind {
 		return fmt.Errorf(
 			"model provider credential secret kind %q does not match required kind %q: %w",
 			credential.Kind,
-			secretstore.SecretKindGeneric,
+			expectedKind,
 			storeerr.ErrInvalidSecretRequest,
 		)
 	}
@@ -339,8 +355,15 @@ func updateModelProviderConfigTx(
 	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
 		input,
-		func(ctx context.Context, orgID, credentialSecretID ID) error {
-			return validateModelProviderCredentialTx(ctx, qtx, orgID, credentialSecretID, managementKind)
+		func(ctx context.Context, orgID, credentialSecretID ID, authKind string) error {
+			return validateModelProviderCredentialTx(
+				ctx,
+				qtx,
+				orgID,
+				credentialSecretID,
+				managementKind,
+				authKind,
+			)
 		},
 	)
 	if err != nil {
@@ -375,7 +398,7 @@ func updateModelProviderConfigTx(
 func normalizeModelProviderConfigUpdate(
 	ctx context.Context,
 	input modelProviderConfigUpdate,
-	validateCredential func(context.Context, ID, ID) error,
+	validateCredential func(context.Context, ID, ID, string) error,
 ) (modelProviderConfigUpdate, error) {
 	if isNilID(input.OrgID) || isNilID(input.ID) || input.BaseURL == "" || input.EndpointPath == "" ||
 		input.AuthKind == "" ||
@@ -405,7 +428,13 @@ func normalizeModelProviderConfigUpdate(
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
-	if err := validateCredential(ctx, input.OrgID, input.CredentialSecretID); err != nil {
+	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateCredential(ctx, input.OrgID, input.CredentialSecretID, input.AuthKind); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
 	return input, nil

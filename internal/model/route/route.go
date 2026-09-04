@@ -85,7 +85,7 @@ func (e StaticEndpoint) URL() (string, error) {
 	return endpoint, nil
 }
 
-// Auth must be deterministic and side-effect free because it runs before and during send.
+// Auth implementations must tolerate Apply running during validation and again before sending.
 type Auth interface {
 	Apply(*http.Request) error
 }
