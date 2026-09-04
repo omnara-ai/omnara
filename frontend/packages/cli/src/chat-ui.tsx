@@ -358,7 +358,7 @@ function Transcript({ items, live }: { items: TranscriptItem[]; live: OmnaraUIMe
 }
 
 export function Chat({ scope }: { scope: AgentChatScope }) {
-  const chat = useAgentChat(scope)
+  const chat = useAgentChat(scope, { source: 'cli' })
   const interactions = useAgentInteractions(
     scope.orgID,
     scope.projectID,

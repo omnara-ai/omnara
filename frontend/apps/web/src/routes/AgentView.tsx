@@ -41,7 +41,10 @@ export function AgentView() {
   const params = useParams({ strict: false })
   const projectId = params.projectId ?? ''
   const agentId = params.agentId ?? ''
-  const chat = useAgentChat({ orgID: activeOrg.id, projectID: projectId, agentID: agentId })
+  const chat = useAgentChat(
+    { orgID: activeOrg.id, projectID: projectId, agentID: agentId },
+    { source: 'web' },
+  )
   const { data } = useAgent(activeOrg.id, projectId, agentId, {
     refetchInterval: (detail) =>
       chat.isWorking ||

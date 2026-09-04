@@ -4,10 +4,12 @@ import {
   type AgentInput,
   type OmnaraClient,
 } from '@omnara/sdk'
+import { getAgentOptions } from '@omnara/sdk/tanstack'
 import {
   type InfiniteData,
   type QueryClient,
   type QueryStatus,
+  useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
@@ -30,10 +32,12 @@ import {
   isDefiniteSendFailure,
   sameMessage,
   sdkAgentChatTransport,
+  sourceHint,
 } from './agent-chat-transport'
 import type {
   AgentChatData,
   AgentChatMessageInput,
+  AgentChatOptions,
   AgentChatScope,
   AgentChatSessionOptions,
   AgentChatStatus,
@@ -53,8 +57,10 @@ export type {
   AgentChatAttachmentInput,
   AgentChatData,
   AgentChatMessageInput,
+  AgentChatOptions,
   AgentChatScope,
   AgentChatSessionOptions,
+  AgentChatSource,
   AgentChatStatus,
   AgentChatTransport,
   OmnaraMessageMetadata,
@@ -142,6 +148,7 @@ export class AgentChatSession {
   sendMessage = async (
     message: AgentChatMessageInput,
     placement: LocalAgentInput['placement'] = 'conversation',
+    hint?: string,
   ): Promise<void> => {
     const text = message.text.trim()
     const attachments = message.attachments ?? []
@@ -165,6 +172,7 @@ export class AgentChatSession {
         this.scope,
         id,
         normalized,
+        hint,
       )
       this.acceptAgentInput(id, input)
     } catch (error) {
@@ -411,11 +419,13 @@ export class AgentChatSession {
   }
 }
 
-export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
+export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): UseAgentChatResult {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
+  const agent = useQuery(getAgentOptions({ path: scope, client }))
+  const hint = agent.data?.agent.integration_target == null ? undefined : sourceHint(options.source)
 
   const history = useAgentChatHistory(client, scope)
 
@@ -467,7 +477,7 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
-    sendMessage: (message) => session.sendMessage(message, inputPlacement),
+    sendMessage: (message) => session.sendMessage(message, inputPlacement, hint),
     inputBacklog: {
       inputs: projected.backlogInputs,
       actionPending:
