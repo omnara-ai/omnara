@@ -2,7 +2,6 @@ package openaichatcompletions
 
 import (
 	"maps"
-	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
 )
@@ -35,6 +34,11 @@ func markCacheBreakpoints(messages []chatMessage, control *chatCacheControl) []c
 	if len(messages) == 0 {
 		return messages
 	}
+	for i, message := range messages {
+		if text, ok := message.Content.(string); ok && message.Role != chatRoleAssistant && text != "" {
+			messages[i].Content = []any{map[string]any{"type": "text", "text": text}}
+		}
+	}
 	tail := len(messages) - 1
 	for tail > 0 && (messages[tail].Role == chatRoleAssistant ||
 		messages[tail].Role == chatRoleSystem ||
@@ -54,33 +58,20 @@ func acceptsCacheBreakpoint(message chatMessage) bool {
 	if len(message.ProviderReplay) != 0 {
 		return false
 	}
-	switch content := message.Content.(type) {
-	case string:
-		return strings.TrimSpace(content) != ""
-	case []any:
-		if len(content) == 0 {
-			return false
-		}
-		_, ok := content[len(content)-1].(map[string]any)
-		return ok
+	content, ok := message.Content.([]any)
+	if !ok || len(content) == 0 {
+		return false
 	}
-	return false
+	_, ok = content[len(content)-1].(map[string]any)
+	return ok
 }
 
 func withCacheBreakpoint(message chatMessage, control *chatCacheControl) chatMessage {
-	switch content := message.Content.(type) {
-	case string:
-		message.Content = []any{map[string]any{
-			"type":          "text",
-			"text":          content,
-			"cache_control": control,
-		}}
-	case []any:
-		if block, ok := content[len(content)-1].(map[string]any); ok {
-			marked := maps.Clone(block)
-			marked["cache_control"] = control
-			content[len(content)-1] = marked
-		}
+	content, _ := message.Content.([]any)
+	if block, ok := content[len(content)-1].(map[string]any); ok {
+		marked := maps.Clone(block)
+		marked["cache_control"] = control
+		content[len(content)-1] = marked
 	}
 	return message
 }

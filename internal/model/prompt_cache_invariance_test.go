@@ -142,9 +142,6 @@ func canonicalize(value any) {
 	switch value := value.(type) {
 	case map[string]any:
 		delete(value, "cache_control")
-		if text, ok := value["content"].(string); ok {
-			value["content"] = []any{map[string]any{"type": "text", "text": text}}
-		}
 		for _, child := range value {
 			canonicalize(child)
 		}
