@@ -72,6 +72,7 @@ type RenderedMedia struct {
 	Occurrence     MediaOccurrenceRef
 	Media          ResolvedMedia
 	Representation string
+	InputModality  string
 	TokenEstimate  int
 }
 
@@ -79,6 +80,16 @@ const (
 	MediaRepresentationInline     = "inline"
 	MediaRepresentationInlineText = "inline_text"
 )
+
+func InputModalityFor(kind string, representation string) string {
+	switch {
+	case kind == AttachmentKindImage:
+		return "image"
+	case kind == AttachmentKindDocument && representation != MediaRepresentationInlineText:
+		return "file"
+	}
+	return ""
+}
 
 type Message struct {
 	ID                   string                               `json:"-"`

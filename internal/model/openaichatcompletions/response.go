@@ -17,7 +17,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return model.Response{}, classifyHTTPError(
-			p.errorSource(), p.ModelAPIVariant(), resp.StatusCode, resp.Header, body,
+			p.errorSource(), p.client.compat(), resp.StatusCode, resp.Header, body,
 		)
 	}
 	if err := model.ValidateProviderJSON(body); err != nil {
@@ -30,7 +30,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	if decoded.Error.present() {
 		return p.chatResponseEvidence(ctx, decoded), classifyProviderError(
 			p.errorSource(),
-			p.ModelAPIVariant(),
+			p.client.compat(),
 			resp.StatusCode,
 			resp.Header,
 			decoded.Error,
@@ -76,7 +76,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		if choice.hasError() {
 			return out, classifyChoiceError(
 				p.errorSource(),
-				p.ModelAPIVariant(),
+				p.client.compat(),
 				resp.StatusCode,
 				resp.Header,
 				choice,

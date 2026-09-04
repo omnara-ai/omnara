@@ -47,15 +47,6 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
-type RouteDocumentParser interface {
-	RouteParsesDocument(mediaType string) bool
-}
-
-func routeParsesDocument(client Client, mediaType string) bool {
-	parser, ok := client.(RouteDocumentParser)
-	return ok && parser.RouteParsesDocument(mediaType)
-}
-
 type OutputTokenLimits struct {
 	Minimum int
 }
@@ -273,26 +264,12 @@ func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorS
 			}
 		}
 		for _, media := range bundle.RenderedMedia {
-			requiredModality := ""
-			requiredDescription := ""
-			switch media.Media.Kind {
-			case modelcontext.AttachmentKindImage:
-				requiredModality = "image"
-				requiredDescription = "image"
-			case modelcontext.AttachmentKindDocument:
-				if media.Representation == modelcontext.MediaRepresentationInlineText ||
-					routeParsesDocument(client, media.Media.MediaType) {
-					continue
-				}
-				requiredModality = "file"
-				requiredDescription = "file"
-			}
-			if requiredModality != "" && !containsModality(capabilities.InputModalities, requiredModality) {
+			if media.InputModality != "" && !containsModality(capabilities.InputModalities, media.InputModality) {
 				return ProviderError{
 					Kind:   ErrorKindInvalidRequest,
 					Source: errorSource,
 					Code:   "unsupported_input_modality",
-					Message: "The live model grant does not allow " + requiredDescription +
+					Message: "The live model grant does not allow " + media.InputModality +
 						" input required by this agent request.",
 				}
 			}

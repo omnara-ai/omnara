@@ -222,7 +222,8 @@ func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *te
 func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	bundle := modelcontext.Bundle{
 		RenderedMedia: []modelcontext.RenderedMedia{{
-			Media: modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
+			Media:         modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
+			InputModality: "image",
 		}},
 	}
 	client := prepareForSendClient{
@@ -242,6 +243,7 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 
 	client.capabilities.InputModalities = []string{"text", "image"}
 	bundle.RenderedMedia[0].Media.Kind = modelcontext.AttachmentKindDocument
+	bundle.RenderedMedia[0].InputModality = "file"
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" ||
@@ -249,25 +251,17 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 		t.Fatalf("file modality error = %v, want unsupported file input modality", err)
 	}
 
-	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInlineText
+	bundle.RenderedMedia[0].InputModality = ""
 	prepareInput.Context = bundle
 	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
-		t.Fatalf("inline text document: %v", err)
+		t.Fatalf("document consumed without a model modality: %v", err)
 	}
 
-	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInline
-	bundle.RenderedMedia[0].Media.MediaType = "application/pdf"
-	prepareInput.Context = bundle
-	client.parsesPDF = true
-	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
-		t.Fatalf("route-parsed PDF: %v", err)
-	}
-
-	bundle.RenderedMedia[0].Media.MediaType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	bundle.RenderedMedia[0].InputModality = "file"
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
-		t.Fatalf("unparsed Office file modality error = %v, want unsupported input modality", err)
+		t.Fatalf("file modality error = %v, want unsupported input modality", err)
 	}
 
 	client.capabilities.InputModalities = []string{"text", "image", "file"}
@@ -374,14 +368,10 @@ type prepareForSendClient struct {
 	err          error
 	capabilities Capabilities
 	apiVariant   modelprotocol.APIVariant
-	parsesPDF    bool
 }
 
 func (c prepareForSendClient) RequestedProviderModelSlug() string { return "prepare-test" }
 func (prepareForSendClient) APIFormat() modelprotocol.APIFormat   { return "test" }
-func (c prepareForSendClient) RouteParsesDocument(mediaType string) bool {
-	return c.parsesPDF && mediaType == "application/pdf"
-}
 
 func (c prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
 	return c.apiVariant

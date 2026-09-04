@@ -38,6 +38,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 				Occurrence:     occurrence.Ref,
 				Media:          item,
 				Representation: representation,
+				InputModality:  modelcontext.InputModalityFor(item.Kind, representation),
 				TokenEstimate:  tokenEstimate,
 			})
 		}

@@ -49,7 +49,3 @@ func compatFor(variant modelprotocol.APIVariant) compat {
 func (c Client) compat() compat {
 	return compatFor(c.ModelAPIVariant())
 }
-
-func (c Client) RouteParsesDocument(mediaType string) bool {
-	return c.compat().parsesPDFDocuments && mediaType == "application/pdf"
-}

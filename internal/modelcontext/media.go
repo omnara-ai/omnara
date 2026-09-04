@@ -73,6 +73,7 @@ func (b Builder) resolveMedia(ctx context.Context, bundle *Bundle, projector Med
 				Occurrence:     occurrence.ref(),
 				Media:          media,
 				Representation: MediaRepresentationInline,
+				InputModality:  InputModalityFor(media.Kind, MediaRepresentationInline),
 			}
 		}
 	} else {
