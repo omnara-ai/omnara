@@ -47,6 +47,15 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
+type RouteDocumentParser interface {
+	RouteParsesDocument(mediaType string) bool
+}
+
+func routeParsesDocument(client Client, mediaType string) bool {
+	parser, ok := client.(RouteDocumentParser)
+	return ok && parser.RouteParsesDocument(mediaType)
+}
+
 type OutputTokenLimits struct {
 	Minimum int
 }
@@ -272,8 +281,7 @@ func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorS
 				requiredDescription = "image"
 			case modelcontext.AttachmentKindDocument:
 				if media.Representation == modelcontext.MediaRepresentationInlineText ||
-					(APIVariantForClient(client) == modelprotocol.APIVariantOpenRouter &&
-						media.Media.MediaType == "application/pdf") {
+					routeParsesDocument(client, media.Media.MediaType) {
 					continue
 				}
 				requiredModality = "file"

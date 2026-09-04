@@ -97,7 +97,7 @@ func classifyProviderError(
 	providerStatus := providererrors.StatusCode(providerErr.Code)
 	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
 	classificationValues := providerErr.classificationValues()
-	refineFromRaw := apiVariant == modelprotocol.APIVariantOpenRouter &&
+	refineFromRaw := compatFor(apiVariant).refinesErrorsFromRawDetails &&
 		genericProviderErrorMessage(message) &&
 		rawErrorCanRefine(effectiveStatus, classificationValues)
 	if refineFromRaw {

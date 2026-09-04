@@ -47,7 +47,8 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		Tools:    buildTools(input.Context.ToolSpecs),
 		N:        1,
 	}
-	if apiVariant != modelprotocol.APIVariantOpenRouter {
+	compat := c.compat()
+	if compat.sendsStoreFalse {
 		store := false
 		payload.Store = &store
 	}
@@ -56,7 +57,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	reasoningOwned := chatCompletionsOwnsReasoning(c.ModelCapabilities, input.Policy)
 	if reasoningOwned {
-		if apiVariant == modelprotocol.APIVariantOpenRouter {
+		if compat.reasoningFormat == reasoningFormatOpenRouter {
 			payload.Reasoning = &chatReasoning{Effort: input.Policy.ReasoningEffort}
 		} else {
 			payload.ReasoningEffort = input.Policy.ReasoningEffort

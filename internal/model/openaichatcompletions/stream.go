@@ -13,7 +13,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 var errChatStreamTerminal = errors.New("chat completions stream reached a terminal event")
@@ -32,7 +31,7 @@ func (p protocol) BuildStreamRequest(body json.RawMessage) (json.RawMessage, err
 		return nil, fmt.Errorf("decode openai chat completions request for streaming: %w", err)
 	}
 	decoded["stream"] = json.RawMessage(`true`)
-	if p.client.ModelAPIVariant() != modelprotocol.APIVariantOpenRouter {
+	if p.client.compat().usageViaStreamOptions {
 		decoded["stream_options"] = streamOptionsWithUsage(decoded["stream_options"])
 	}
 	return json.Marshal(decoded)
@@ -97,7 +96,7 @@ func (p protocol) ConsumeStream(
 		return acc.partialResponse(ctx), acc.streamErr
 	}
 	if !acc.hasCompleteTerminalOutcome() ||
-		(!acc.completed && (p.ModelAPIVariant() != modelprotocol.APIVariantBedrock || !acc.usageReceived)) {
+		(!acc.completed && !(p.client.compat().usageChunkCompletesStream && acc.usageReceived)) {
 		err := model.AmbiguousProviderOutcome(model.ProviderError{
 			Kind:       model.ErrorKindTransient,
 			Source:     p.errorSource(),

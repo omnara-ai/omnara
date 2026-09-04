@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
@@ -147,7 +146,7 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+	if p.client.compat().reportsServedProviderAndCost {
 		out.ProviderMetadata.OpenRouter.Provider = response.Provider
 		out.ProviderMetadata = model.SanitizeProviderMetadata(out.ProviderMetadata)
 		cost, issue := openRouterReportedCost(response.Usage)

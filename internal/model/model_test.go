@@ -258,16 +258,16 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInline
 	bundle.RenderedMedia[0].Media.MediaType = "application/pdf"
 	prepareInput.Context = bundle
-	client.apiVariant = modelprotocol.APIVariantOpenRouter
+	client.parsesPDF = true
 	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
-		t.Fatalf("OpenRouter PDF: %v", err)
+		t.Fatalf("route-parsed PDF: %v", err)
 	}
 
 	bundle.RenderedMedia[0].Media.MediaType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
-		t.Fatalf("OpenRouter Office file modality error = %v, want unsupported input modality", err)
+		t.Fatalf("unparsed Office file modality error = %v, want unsupported input modality", err)
 	}
 
 	client.capabilities.InputModalities = []string{"text", "image", "file"}
@@ -374,10 +374,15 @@ type prepareForSendClient struct {
 	err          error
 	capabilities Capabilities
 	apiVariant   modelprotocol.APIVariant
+	parsesPDF    bool
 }
 
 func (c prepareForSendClient) RequestedProviderModelSlug() string { return "prepare-test" }
 func (prepareForSendClient) APIFormat() modelprotocol.APIFormat   { return "test" }
+func (c prepareForSendClient) RouteParsesDocument(mediaType string) bool {
+	return c.parsesPDF && mediaType == "application/pdf"
+}
+
 func (c prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
 	return c.apiVariant
 }
