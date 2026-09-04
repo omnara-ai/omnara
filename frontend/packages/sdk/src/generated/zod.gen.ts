@@ -1447,6 +1447,9 @@ export const zModelOutputBlockStopDelta = z.object({
     block_index: z.int().gte(0)
 });
 
+/**
+ * Token counts the provider reported for one model call. Cache and reasoning counts are omitted when the provider reported none.
+ */
 export const zModelUsage = z.object({
     input_tokens_total: z.int().gte(0).optional(),
     uncached_input_tokens: z.int().gte(0).optional(),

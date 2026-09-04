@@ -13,6 +13,16 @@ type OpenRouterMetadata struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+func (m *ProviderMetadata) UnmarshalJSON(data []byte) error {
+	type plain ProviderMetadata
+	var decoded plain
+	if json.Unmarshal(data, &decoded) != nil {
+		decoded = plain{}
+	}
+	*m = ProviderMetadata(decoded)
+	return nil
+}
+
 const maxProviderNameBytes = 2_000
 
 func (m ProviderMetadata) MarshalJSON() ([]byte, error) {

@@ -1834,6 +1834,9 @@ export type ModelOutputBlockStopDelta = {
     block_index: number;
 };
 
+/**
+ * Token counts the provider reported for one model call. Cache and reasoning counts are omitted when the provider reported none.
+ */
 export type ModelUsage = {
     input_tokens_total?: number;
     uncached_input_tokens?: number;

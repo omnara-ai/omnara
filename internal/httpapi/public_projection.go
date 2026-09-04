@@ -585,9 +585,16 @@ func publicModelUsage(usage modelenvelope.Usage) *openapi.ModelUsage {
 	return &openapi.ModelUsage{
 		InputTokensTotal:      &usage.InputTokens,
 		UncachedInputTokens:   &usage.UncachedInputTokens,
-		CacheReadInputTokens:  &usage.CacheReadTokens,
-		CacheWriteInputTokens: &usage.CacheWriteTokens,
+		CacheReadInputTokens:  reportedCount(usage.CacheReadTokens),
+		CacheWriteInputTokens: reportedCount(usage.CacheWriteTokens),
 		OutputTokensTotal:     &usage.OutputTokens,
-		ReasoningOutputTokens: &usage.ReasoningTokens,
+		ReasoningOutputTokens: reportedCount(usage.ReasoningTokens),
 	}
+}
+
+func reportedCount(value int) *int {
+	if value <= 0 {
+		return nil
+	}
+	return &value
 }

@@ -9734,6 +9734,9 @@ components:
     ModelUsage:
       type: object
       additionalProperties: false
+      description: >-
+        Token counts the provider reported for one model call. Cache and
+        reasoning counts are omitted when the provider reported none.
       properties:
         input_tokens_total:
           type: integer
