@@ -549,31 +549,60 @@ func revisionWithToolSupport(revision ConfiguredModelRevisionRecord, supportsToo
 }
 
 func TestValidateTenantModelOnClusterProvider(t *testing.T) {
+	chat, responses := modelprotocol.APIFormatOpenAIChatCompletions, modelprotocol.APIFormatOpenAIResponses
+	anthropic := modelprotocol.APIFormatAnthropicMessages
+	openRouter, direct, bedrock := modelprotocol.APIVariantOpenRouter, modelprotocol.APIVariantDefault,
+		modelprotocol.APIVariantBedrock
 	for name, tc := range map[string]struct {
 		modelKind, providerKind management.Kind
+		format                  modelprotocol.APIFormat
 		variant                 modelprotocol.APIVariant
 		slug                    string
 		options                 string
 		wantErr                 bool
 	}{
-		"routing suffix on shared provider": {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:free", `{}`, true},
-		"routing key on shared provider": {
-			management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter,
-			"qwen/qwen3-coder-plus", `{"prompt_cache_key":"someone-else"}`, true,
+		"routing suffix on shared openrouter": {
+			management.Tenant, management.Cluster, chat, openRouter, "qwen/qwen3-coder-plus:free", `{}`, true,
 		},
-		"routing option on shared provider":  {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus", `{"provider":{"sort":"price"}}`, true},
-		"sampling option on shared provider": {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus", `{"temperature":0.2,"reasoning":{"effort":"high"}}`, false},
-		"alias on shared provider":           {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "~anthropic/claude-sonnet-latest", `{}`, false},
-		"suffix on the tenant's own provider": {
-			management.Tenant, management.Tenant, modelprotocol.APIVariantOpenRouter,
-			"qwen/qwen3-coder-plus:free", `{"provider":{"sort":"price"}}`, false,
+		"routing option on shared openrouter": {
+			management.Tenant, management.Cluster, chat, openRouter, "qwen/qwen3-coder-plus",
+			`{"provider":{"sort":"price"}}`, true,
 		},
-		"bedrock version suffix":           {management.Tenant, management.Cluster, modelprotocol.APIVariantBedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0", `{}`, false},
-		"cluster model on shared provider": {management.Cluster, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:nitro", `{"provider":{"sort":"price"}}`, false},
+		"routing key on shared openrouter": {
+			management.Tenant, management.Cluster, chat, openRouter, "qwen/qwen3-coder-plus",
+			`{"prompt_cache_key":"someone-else"}`, true,
+		},
+		"sampling on shared openrouter": {
+			management.Tenant, management.Cluster, chat, openRouter, "qwen/qwen3-coder-plus",
+			`{"temperature":0.2,"reasoning":{"effort":"high"}}`, false,
+		},
+		"alias on shared openrouter": {
+			management.Tenant, management.Cluster, chat, openRouter, "~anthropic/claude-sonnet-latest", `{}`, false,
+		},
+		"service tier on shared anthropic": {
+			management.Tenant, management.Cluster, anthropic, direct, "claude-sonnet-5", `{"service_tier":"priority"}`, true,
+		},
+		"sampling on shared anthropic": {
+			management.Tenant, management.Cluster, anthropic, direct, "claude-sonnet-5", `{"top_k":40}`, false,
+		},
+		"store on shared responses": {
+			management.Tenant, management.Cluster, responses, direct, "gpt-5.6", `{"store":true}`, true,
+		},
+		"bedrock version suffix": {
+			management.Tenant, management.Cluster, anthropic, bedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0", `{}`, false,
+		},
+		"anything on the tenant's own provider": {
+			management.Tenant, management.Tenant, chat, openRouter, "qwen/qwen3-coder-plus:free",
+			`{"provider":{"sort":"price"}}`, false,
+		},
+		"cluster model on shared provider": {
+			management.Cluster, management.Cluster, chat, openRouter, "qwen/qwen3-coder-plus:nitro",
+			`{"provider":{"sort":"price"}}`, false,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := validateTenantModelOnClusterProvider(
-				tc.modelKind, tc.providerKind, tc.variant, tc.slug, json.RawMessage(tc.options),
+				tc.modelKind, tc.providerKind, tc.format, tc.variant, tc.slug, json.RawMessage(tc.options),
 			)
 			if tc.wantErr != (err != nil) || (err != nil && !errors.Is(err, storeerr.ErrInvalidModelProviderConfig)) {
 				t.Fatalf("err = %v, want error %v", err, tc.wantErr)

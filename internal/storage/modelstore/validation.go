@@ -453,28 +453,38 @@ func isHTTPTokenChar(value byte) bool {
 	}
 }
 
-// Options a tenant may set on a cluster-managed OpenRouter provider: per-request sampling and
-// reasoning controls per https://openrouter.ai/docs/api-reference/parameters. Anything that
-// selects providers or models, adds plugins, or carries an identity or routing key is refused.
-var clusterOpenRouterTenantOptionKeys = map[string]bool{
-	"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
-	"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
-	"seed": true, "stop": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
-	"response_format": true, "parallel_tool_calls": true, "verbosity": true,
-	"reasoning": true, "reasoning_effort": true, "usage": true,
+// Options a tenant may set on a cluster-managed provider: per-request sampling and reasoning
+// controls only. Anything that selects providers or models, adds plugins, changes service tier
+// or data retention, or carries an identity or routing key is refused. Names follow
+// https://docs.anthropic.com/en/api/messages, https://platform.openai.com/docs/api-reference,
+// and https://openrouter.ai/docs/api-reference/parameters.
+var sharedProviderTenantOptionKeys = map[modelprotocol.APIFormat]map[string]bool{
+	modelprotocol.APIFormatAnthropicMessages: {
+		"temperature": true, "top_p": true, "top_k": true, "stop_sequences": true,
+	},
+	modelprotocol.APIFormatOpenAIChatCompletions: {
+		"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
+		"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
+		"seed": true, "stop": true, "logit_bias": true, "response_format": true,
+		"parallel_tool_calls": true, "verbosity": true,
+		"reasoning": true, "reasoning_effort": true, "usage": true,
+	},
+	modelprotocol.APIFormatOpenAIResponses: {
+		"temperature": true, "top_p": true, "text": true, "reasoning": true,
+	},
 }
 
 func validateTenantModelOnClusterProvider(
 	modelKind, providerKind management.Kind,
+	apiFormat modelprotocol.APIFormat,
 	apiVariant modelprotocol.APIVariant,
 	providerModelSlug string,
 	apiVariantOptions json.RawMessage,
 ) error {
-	if modelKind != management.Tenant || providerKind != management.Cluster ||
-		apiVariant != modelprotocol.APIVariantOpenRouter {
+	if modelKind != management.Tenant || providerKind != management.Cluster {
 		return nil
 	}
-	if strings.Contains(providerModelSlug, ":") {
+	if apiVariant == modelprotocol.APIVariantOpenRouter && strings.Contains(providerModelSlug, ":") {
 		return fmt.Errorf(
 			"provider_model_slug cannot carry a routing variant suffix on a cluster-managed provider: %w",
 			storeerr.ErrInvalidModelProviderConfig,
@@ -487,8 +497,9 @@ func validateTenantModelOnClusterProvider(
 			apiVariantOptionsPath, errors.Join(err, storeerr.ErrInvalidModelProviderConfig),
 		)
 	}
+	allowed := sharedProviderTenantOptionKeys[apiFormat]
 	for key := range options {
-		if !clusterOpenRouterTenantOptionKeys[key] {
+		if !allowed[key] {
 			return fmt.Errorf(
 				"api_variant_options.%s is not allowed on a cluster-managed provider: %w",
 				key, storeerr.ErrInvalidModelProviderConfig,
