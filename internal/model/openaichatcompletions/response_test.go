@@ -711,8 +711,8 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 			CachedTokens:     2,
 			CacheWriteTokens: 9,
 		},
-	}); got != (model.Usage{}) {
-		t.Fatalf("impossible cache-write distribution produced usage: %+v", got)
+	}); got != (model.Usage{InputTokens: 10, UncachedInputTokens: 10}) {
+		t.Fatalf("impossible cache-write distribution = %+v, want totals kept and the breakdown dropped", got)
 	}
 }
 

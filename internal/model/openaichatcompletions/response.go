@@ -355,26 +355,26 @@ func textFromChatContent(raw json.RawMessage) (string, error) {
 }
 
 func usageFromResponse(usage chatUsage) model.Usage {
-	if usage.PromptTokens < 0 ||
-		usage.PromptTokensDetails.CachedTokens < 0 ||
-		usage.PromptTokensDetails.CacheWriteTokens < 0 ||
-		usage.CompletionTokens < 0 ||
-		usage.CompletionTokensDetails.ReasoningTokens < 0 ||
-		usage.PromptTokensDetails.CachedTokens > usage.PromptTokens ||
-		usage.PromptTokensDetails.CacheWriteTokens > usage.PromptTokens-usage.PromptTokensDetails.CachedTokens ||
-		usage.CompletionTokensDetails.ReasoningTokens > usage.CompletionTokens {
+	if usage.PromptTokens < 0 || usage.CompletionTokens < 0 {
 		return model.Usage{}
 	}
-	uncachedInputTokens := usage.PromptTokens -
-		usage.PromptTokensDetails.CachedTokens -
-		usage.PromptTokensDetails.CacheWriteTokens
+	cache := usage.PromptTokensDetails
+	if cache.CachedTokens < 0 || cache.CacheWriteTokens < 0 ||
+		cache.CachedTokens > usage.PromptTokens ||
+		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens {
+		cache = chatTokenDetails{}
+	}
+	reasoning := usage.CompletionTokensDetails.ReasoningTokens
+	if reasoning < 0 || reasoning > usage.CompletionTokens {
+		reasoning = 0
+	}
 	return model.Usage{
 		InputTokens:         usage.PromptTokens,
-		UncachedInputTokens: uncachedInputTokens,
+		UncachedInputTokens: usage.PromptTokens - cache.CachedTokens - cache.CacheWriteTokens,
 		OutputTokens:        usage.CompletionTokens,
-		ReasoningTokens:     usage.CompletionTokensDetails.ReasoningTokens,
-		CacheReadTokens:     usage.PromptTokensDetails.CachedTokens,
-		CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
+		ReasoningTokens:     reasoning,
+		CacheReadTokens:     cache.CachedTokens,
+		CacheWriteTokens:    cache.CacheWriteTokens,
 	}
 }
 
