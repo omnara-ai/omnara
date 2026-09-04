@@ -26,13 +26,6 @@ func EffectiveCacheRetention(retention CacheRetention) CacheRetention {
 	return retention
 }
 
-type ProviderRoute struct {
-	APIFormat         modelprotocol.APIFormat
-	APIVariant        modelprotocol.APIVariant
-	BaseURL           string
-	ProviderModelSlug string
-}
-
 type PromptCachePlan struct {
 	ConversationKey string
 	Explicit        bool
