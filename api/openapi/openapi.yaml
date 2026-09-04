@@ -7021,10 +7021,8 @@ components:
         options, see
         https://openrouter.ai/docs/guides/routing/provider-selection and general
         request parameters at https://openrouter.ai/docs/api/reference/parameters.
-        On a cluster-managed OpenRouter provider, tenant-created models may set
-        only sampling and reasoning parameters; provider routing, model
-        fallbacks, plugins, and transforms are rejected because they spend the
-        shared account.
+        Omnara-managed OpenRouter providers accept only sampling and reasoning
+        parameters here.
       additionalProperties: true
     ModelCacheRetention:
       type: string
@@ -7227,9 +7225,9 @@ components:
           type: string
           minLength: 1
           description: >-
-            Exact provider model slug sent to the provider endpoint. On a
-            cluster-managed OpenRouter provider, routing variant suffixes such
-            as `:free` or `:nitro` are rejected.
+            Exact provider model slug sent to the provider endpoint. Routing
+            variant suffixes such as `:free` are not accepted on Omnara-managed
+            OpenRouter providers.
         context_window_tokens:
           type: integer
           minimum: 2
@@ -7287,9 +7285,9 @@ components:
           type: string
           minLength: 1
           description: >-
-            Exact provider model slug sent to the provider endpoint. On a
-            cluster-managed OpenRouter provider, routing variant suffixes such
-            as `:free` or `:nitro` are rejected.
+            Exact provider model slug sent to the provider endpoint. Routing
+            variant suffixes such as `:free` are not accepted on Omnara-managed
+            OpenRouter providers.
         context_window_tokens:
           type: integer
           minimum: 2
