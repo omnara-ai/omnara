@@ -81,15 +81,21 @@ const (
 	MediaRepresentationInlineText = "inline_text"
 )
 
+const (
+	InputModalityText  = "text"
+	InputModalityImage = "image"
+	InputModalityFile  = "file"
+)
+
 func (m RenderedMedia) InputModality() string {
 	switch m.Media.Kind {
 	case AttachmentKindImage:
-		return "image"
+		return InputModalityImage
 	case AttachmentKindDocument:
 		if m.RouteParsed || m.Representation == MediaRepresentationInlineText {
 			return ""
 		}
-		return "file"
+		return InputModalityFile
 	}
 	return ""
 }

@@ -255,7 +255,7 @@ func OutputTokenLimitsForClient(
 func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorSource string) error {
 	capabilities := CapabilitiesForClient(client)
 	if len(capabilities.InputModalities) > 0 {
-		if !containsModality(capabilities.InputModalities, "text") {
+		if !containsModality(capabilities.InputModalities, modelcontext.InputModalityText) {
 			return ProviderError{
 				Kind:    ErrorKindInvalidRequest,
 				Source:  errorSource,
@@ -277,7 +277,7 @@ func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorS
 		}
 	}
 	if len(capabilities.OutputModalities) > 0 &&
-		!containsModality(capabilities.OutputModalities, "text") {
+		!containsModality(capabilities.OutputModalities, modelcontext.InputModalityText) {
 		return ProviderError{
 			Kind:    ErrorKindInvalidRequest,
 			Source:  errorSource,

@@ -38,7 +38,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 			tokenEstimate = model.OpenAIImageTokenEstimateForModels(modelCandidates, item)
 		case modelcontext.AttachmentKindDocument:
 			if !occurrence.Opening && item.MediaType == "application/pdf" && !routeParsed &&
-				!p.client.ModelCapabilities.AllowsInputModality("file") {
+				!p.client.ModelCapabilities.AllowsInputModality(modelcontext.InputModalityFile) {
 				continue
 			}
 			if !rendersAsChatDocument(item) {
