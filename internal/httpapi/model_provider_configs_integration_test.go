@@ -1064,7 +1064,17 @@ func TestGetModelCatalog(t *testing.T) {
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"catalog-sigv4-wrong-kind","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+genericSecret["id"].(string)+`"}`,
+		`{"name":"catalog-sigv4-wrong-kind","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"catalog-sigv4-region-mismatch","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-east-1"},"credential_secret_id":"`+testutil.RequireType[string](t, awsSecret["id"])+`"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -1074,22 +1084,32 @@ func TestGetModelCatalog(t *testing.T) {
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"catalog-bedrock-sigv4","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+awsSecret["id"].(string)+`"}`,
+		`{"name":"catalog-bedrock-sigv4","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+testutil.RequireType[string](t, awsSecret["id"])+`"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	sigV4Catalog := createdSigV4["model_catalog"].(map[string]any)
-	if sigV4Catalog["status"] != "ok" || len(sigV4Catalog["models"].([]any)) != 0 {
+	sigV4Catalog := testutil.RequireType[map[string]any](t, createdSigV4["model_catalog"])
+	if sigV4Catalog["status"] != "ok" || len(testutil.RequireType[[]any](t, sigV4Catalog["models"])) != 0 {
 		t.Fatalf("SigV4 Bedrock catalog should succeed without probing: %+v", sigV4Catalog)
 	}
-	sigV4ConfigID := createdModelProviderConfig(t, createdSigV4)["id"].(string)
+	sigV4ConfigID := testutil.RequireType[string](t, createdModelProviderConfig(t, createdSigV4)["id"])
 	requestJSONWithHeaders(
 		t,
 		devHandler,
 		http.MethodPut,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
-		`{"credential_secret_id":"`+genericSecret["id"].(string)+`"}`,
+		`{"auth_options":{"service":"bedrock-mantle","region":"us-east-1"}}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
+		`{"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -1099,7 +1119,7 @@ func TestGetModelCatalog(t *testing.T) {
 		devHandler,
 		http.MethodPut,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
-		`{"auth_kind":"bearer_token","auth_options":{},"credential_secret_id":"`+genericSecret["id"].(string)+`"}`,
+		`{"auth_kind":"bearer_token","auth_options":{},"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),

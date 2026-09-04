@@ -278,7 +278,7 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 		Name:                  "gpt-oss",
 		ProviderModelSlug:     "openai.gpt-oss-20b",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create SigV4 configured model: %v", err)
@@ -314,7 +314,9 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 	if err := sigV4Client.Auth.Apply(request); err != nil {
 		t.Fatalf("sign model request: %v", err)
 	}
-	if authorization := request.Header.Get("Authorization"); !strings.Contains(authorization, "/us-west-2/bedrock-mantle/aws4_request") {
+	if authorization := request.Header.Get("Authorization"); !strings.Contains(
+		authorization, "/us-west-2/bedrock-mantle/aws4_request",
+	) {
 		t.Fatalf("SigV4 authorization = %q", authorization)
 	}
 	if request.Header.Get("X-Amz-Security-Token") != "session-token" {
