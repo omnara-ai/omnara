@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -370,6 +371,9 @@ func (s *Store) AddProjectMembership(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMembershipRecord{}, err
+	}
 	membership, err := qtx.GetOrgMembershipForUser(
 		ctx,
 		dbsqlc.GetOrgMembershipForUserParams{OrgID: input.OrgID, UserID: input.UserID},
@@ -392,6 +396,9 @@ func (s *Store) AddProjectMembership(
 		},
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || storeutil.IsForeignKeyViolation(err) {
+			return ProjectMembershipRecord{}, storeerr.ErrNotFound
+		}
 		return ProjectMembershipRecord{}, fmt.Errorf("add project membership: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -419,6 +426,9 @@ func (s *Store) AddOrgMembership(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgMembershipRecord{}, err
+	}
 	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return OrgMembershipRecord{}, storeerr.ErrNotFound
@@ -504,6 +514,9 @@ func (s *Store) UpdateOrgMemberRole(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return OrgMembershipRecord{}, err
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return OrgMembershipRecord{}, storeerr.ErrNotFound
@@ -553,6 +566,15 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return err
+	}
+	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock organization member: %w", err)
+	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
@@ -572,33 +594,11 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	if err := guardLastOwnerChange(ctx, qtx, input.OrgID, existing.Role, ""); err != nil {
 		return err
 	}
-	secretsReferenced, err := qtx.OrgMemberOwnedSecretsReferenced(
+	if _, err := qtx.RemoveUserOrgMembership(
 		ctx,
-		dbsqlc.OrgMemberOwnedSecretsReferencedParams{OrgID: input.OrgID, UserID: input.UserID},
-	)
-	if err != nil {
-		return fmt.Errorf("check member-owned secret references: %w", err)
-	}
-	if secretsReferenced {
-		return fmt.Errorf("a member-owned secret is still referenced by another resource: %w", storeerr.ErrConflict)
-	}
-	if err := qtx.DeleteUserOwnedSecretVersionsForOrgMember(
-		ctx,
-		dbsqlc.DeleteUserOwnedSecretVersionsForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
+		dbsqlc.RemoveUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.UserID},
 	); err != nil {
-		return fmt.Errorf("destroy member-owned secret versions: %w", err)
-	}
-	if err := qtx.DeleteUserOwnedSecretChildrenForOrgMember(
-		ctx,
-		dbsqlc.DeleteUserOwnedSecretChildrenForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
-	); err != nil {
-		return fmt.Errorf("delete member-owned secret grants: %w", err)
-	}
-	if err := qtx.DeleteUserOwnedSecretsForOrgMember(
-		ctx,
-		dbsqlc.DeleteUserOwnedSecretsForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
-	); err != nil {
-		return fmt.Errorf("delete user-owned secrets for member: %w", err)
+		return fmt.Errorf("remove org membership: %w", err)
 	}
 	skillIDs, err := qtx.ListUserOwnedSkillIDsForOrg(
 		ctx,
@@ -615,11 +615,33 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 		}
 		skillArchives = append(skillArchives, archives...)
 	}
-	if _, err := qtx.RemoveUserOrgMembership(
+	secretsReferenced, err := qtx.OrgMemberOwnedSecretsReferenced(
 		ctx,
-		dbsqlc.RemoveUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.UserID},
+		dbsqlc.OrgMemberOwnedSecretsReferencedParams{OrgID: input.OrgID, UserID: input.UserID},
+	)
+	if err != nil {
+		return fmt.Errorf("check member-owned secret references: %w", err)
+	}
+	if secretsReferenced {
+		return fmt.Errorf("a member-owned secret is still referenced by another resource: %w", storeerr.ErrConflict)
+	}
+	if err := qtx.DeleteUserOwnedSecretsForOrgMember(
+		ctx,
+		dbsqlc.DeleteUserOwnedSecretsForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
 	); err != nil {
-		return fmt.Errorf("remove org membership: %w", err)
+		return fmt.Errorf("delete user-owned secrets for member: %w", err)
+	}
+	if err := qtx.DeleteUserOwnedSecretChildrenForOrgMember(
+		ctx,
+		dbsqlc.DeleteUserOwnedSecretChildrenForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
+	); err != nil {
+		return fmt.Errorf("delete member-owned secret grants: %w", err)
+	}
+	if err := qtx.DeleteUserOwnedSecretVersionsForOrgMember(
+		ctx,
+		dbsqlc.DeleteUserOwnedSecretVersionsForOrgMemberParams{OrgID: input.OrgID, UserID: input.UserID},
+	); err != nil {
+		return fmt.Errorf("destroy member-owned secret versions: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit remove org member: %w", err)
@@ -833,12 +855,21 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 		}
 		return fmt.Errorf("lock user for account deletion: %w", err)
 	}
+	if _, err := q.LockActiveOwnedOrganizationsForUser(
+		ctx,
+		dbsqlc.LockActiveOwnedOrganizationsForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("lock user-owned organizations: %w", err)
+	}
 	isLastOwner, err := q.UserIsLastOwnerOfAnyOrg(ctx, dbsqlc.UserIsLastOwnerOfAnyOrgParams{UserID: userID})
 	if err != nil {
 		return fmt.Errorf("check user ownership: %w", err)
 	}
 	if isLastOwner {
 		return fmt.Errorf("account is the last owner of an organization: %w", storeerr.ErrConflict)
+	}
+	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {
+		return fmt.Errorf("delete user memberships: %w", err)
 	}
 	skillArchives, err := deleteUserOwnedSkillsTx(ctx, q, userID)
 	if err != nil {
@@ -869,17 +900,14 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID ID) error {
 	if secretsReferenced {
 		return fmt.Errorf("a personal secret is still referenced by another resource: %w", storeerr.ErrConflict)
 	}
-	if err := q.DeleteUserOwnedSecretVersionsForUser(ctx, dbsqlc.DeleteUserOwnedSecretVersionsForUserParams{UserID: userID}); err != nil {
-		return fmt.Errorf("destroy user-owned secret versions: %w", err)
+	if err := q.DeleteUserOwnedSecretsForUser(ctx, dbsqlc.DeleteUserOwnedSecretsForUserParams{UserID: userID}); err != nil {
+		return fmt.Errorf("delete user-owned secrets: %w", err)
 	}
 	if err := q.DeleteUserOwnedSecretChildrenForUser(ctx, dbsqlc.DeleteUserOwnedSecretChildrenForUserParams{UserID: userID}); err != nil {
 		return fmt.Errorf("delete user-owned secret grants: %w", err)
 	}
-	if err := q.DeleteUserOwnedSecretsForUser(ctx, dbsqlc.DeleteUserOwnedSecretsForUserParams{UserID: userID}); err != nil {
-		return fmt.Errorf("delete user-owned secrets: %w", err)
-	}
-	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {
-		return fmt.Errorf("delete user memberships: %w", err)
+	if err := q.DeleteUserOwnedSecretVersionsForUser(ctx, dbsqlc.DeleteUserOwnedSecretVersionsForUserParams{UserID: userID}); err != nil {
+		return fmt.Errorf("destroy user-owned secret versions: %w", err)
 	}
 	rows, err := q.DeleteUser(ctx, dbsqlc.DeleteUserParams{ID: userID})
 	if err != nil {

@@ -116,9 +116,23 @@ func dbQueryResult(err error) (result string, errorKind string, errorSeverity st
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return "error", "postgres", dbPostgresErrorSeverity(pgErr)
+		return "error", dbPostgresErrorKind(pgErr), dbPostgresErrorSeverity(pgErr)
 	}
 	return "error", "other", "unknown"
+}
+
+func dbPostgresErrorKind(pgErr *pgconn.PgError) string {
+	if pgErr == nil {
+		return "postgres"
+	}
+	switch pgErr.Code {
+	case "40P01":
+		return "postgres_deadlock"
+	case "40001":
+		return "postgres_serialization_failure"
+	default:
+		return "postgres"
+	}
 }
 
 func dbPostgresErrorSeverity(pgErr *pgconn.PgError) string {

@@ -21,6 +21,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	qtx *dbsqlc.Queries,
 	orgID, projectID, agentID ID,
 	currentContract, nextContract agentconfig.RuntimeContract,
+	nextSources []launchMachineSource,
 ) ([]MachineRecord, error) {
 	if reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
 		return nil, nil
@@ -28,13 +29,6 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 
 	currentSources, err := decodeLaunchMachineSources(currentContract)
 	if err != nil {
-		return nil, err
-	}
-	nextSources, err := decodeLaunchMachineSources(nextContract)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.resolveLaunchMachineSourcesTx(ctx, qtx, orgID, projectID, nextSources); err != nil {
 		return nil, err
 	}
 	currentMachines := make(map[ID]launchMachineSource, len(currentSources))

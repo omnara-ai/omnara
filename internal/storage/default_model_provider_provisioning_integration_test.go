@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func mustCompleteDefaultModelProviderProvisioning(
@@ -214,6 +216,97 @@ func TestDeleteOrganizationDeletesDefaultModelProviderProvisioning(t *testing.T)
 	}
 	if jobCount != 0 {
 		t.Fatalf("provisioning jobs after organization deletion = %d, want 0", jobCount)
+	}
+}
+
+func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNothing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newSecretIntegrationStore(pool)
+	user := mustCreateIdentityUser(t, ctx, store, "provider-project-delete@example.com", "Provider Project Owner")
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID: user.ID, Name: "Provider Project Delete", IdempotencyKey: "provider-project-delete",
+		ProvisionDefaultModelProvider: true,
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	claim, found, err := store.Organizations().ClaimDefaultModelProviderProvisioningForOrganization(
+		ctx,
+		created.Org.ID,
+	)
+	if err != nil || !found {
+		t.Fatalf("claim provisioning: found=%t err=%v", found, err)
+	}
+	actor, err := executionstore.OmnaraActorParams(created.Org.ID, userPrincipal(user.ID))
+	if err != nil {
+		t.Fatalf("build project deletion actor: %v", err)
+	}
+	controlTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin project deletion control transaction: %v", err)
+	}
+	defer func() { _ = controlTx.Rollback(ctx) }()
+	var membershipProjectID ID
+	if err := controlTx.QueryRow(ctx, `
+		SELECT project_id
+		FROM project_memberships
+		WHERE org_id = $1 AND project_id = $2
+		LIMIT 1
+		FOR UPDATE
+	`, created.Org.ID, created.Project.ID).Scan(&membershipProjectID); err != nil {
+		t.Fatalf("lock default project membership: %v", err)
+	}
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+			ctx,
+			created.Org.ID,
+			created.Project.ID,
+			actor,
+		)
+		deleteDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
+	completeDone := make(chan error, 1)
+	go func() {
+		completeDone <- store.Organizations().CompleteDefaultModelProviderProvisioning(
+			ctx,
+			orglifecycle.CompleteDefaultModelProviderProvisioningInput{
+				Claim:           claim,
+				Template:        testProvisioningTemplate(),
+				CredentialValue: "must-not-be-stored",
+			},
+		)
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release project deletion control transaction: %v", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	if err := <-completeDone; !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+		t.Fatalf("complete provisioning after project deletion error = %v, want superseded", err)
+	}
+	var providerCount, secretCount, jobCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*)::integer FROM model_provider_configs WHERE org_id = $1),
+			(SELECT count(*)::integer FROM secrets WHERE org_id = $1),
+			(SELECT count(*)::integer FROM default_model_provider_provisioning_jobs WHERE organization_id = $1)
+	`, created.Org.ID).Scan(&providerCount, &secretCount, &jobCount); err != nil {
+		t.Fatalf("load provisioning state after project deletion: %v", err)
+	}
+	if providerCount != 0 || secretCount != 0 || jobCount != 0 {
+		t.Fatalf(
+			"provisioning state after project deletion: providers=%d secrets=%d jobs=%d",
+			providerCount,
+			secretCount,
+			jobCount,
+		)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -54,7 +55,29 @@ func (s *Store) CreateSecretGrant(
 	if err != nil {
 		return SecretGrantRecord{}, err
 	}
-	row, err := s.q.InsertSecretGrant(
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("begin create secret grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	projectIDs := []ID{input.TargetProjectID}
+	if secret.OwnerKind == SecretOwnerProject {
+		projectIDs = append(projectIDs, secret.OwnerProjectID)
+	}
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, projectIDs); err != nil {
+		return SecretGrantRecord{}, err
+	}
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretGrantRecord{}, storeerr.ErrNotFound
+		}
+		return SecretGrantRecord{}, fmt.Errorf("lock secret for grant: %w", err)
+	}
+	row, err := qtx.InsertSecretGrant(
 		ctx,
 		dbsqlc.InsertSecretGrantParams{
 			ID:              grantID,
@@ -73,6 +96,9 @@ func (s *Store) CreateSecretGrant(
 		return SecretGrantRecord{}, fmt.Errorf("insert secret grant: %w", err)
 	}
 	grant := secretGrantFromInsert(row)
+	if err := tx.Commit(ctx); err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("commit create secret grant: %w", err)
+	}
 	return grant, nil
 }
 
@@ -206,7 +232,44 @@ func (s *Store) DeleteSecretGrant(
 	); err != nil {
 		return SecretGrantRecord{}, err
 	}
-	row, err := s.q.DeleteSecretGrant(
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("begin delete secret grant: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := dbsqlc.New(tx)
+	projectIDs := []ID{grant.TargetProjectID}
+	if secret.OwnerKind == SecretOwnerProject {
+		projectIDs = append(projectIDs, secret.OwnerProjectID)
+	}
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, projectIDs); err != nil {
+		return SecretGrantRecord{}, err
+	}
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SecretGrantRecord{}, storeerr.ErrNotFound
+		}
+		return SecretGrantRecord{}, fmt.Errorf("lock secret for grant deletion: %w", err)
+	}
+	if _, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID); err != nil {
+		return SecretGrantRecord{}, err
+	}
+	_, err = qtx.GetSecretGrantForSourceSecret(
+		ctx,
+		dbsqlc.GetSecretGrantForSourceSecretParams{
+			OrgID: input.OrgID, SecretID: input.SecretID, ID: input.GrantID,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SecretGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("revalidate secret grant for deletion: %w", err)
+	}
+	row, err := qtx.DeleteSecretGrant(
 		ctx,
 		dbsqlc.DeleteSecretGrantParams{OrgID: input.OrgID, ID: input.GrantID},
 	)
@@ -216,5 +279,9 @@ func (s *Store) DeleteSecretGrant(
 		}
 		return SecretGrantRecord{}, fmt.Errorf("delete secret grant: %w", err)
 	}
-	return secretGrantFromDelete(row), nil
+	deleted := secretGrantFromDelete(row)
+	if err := tx.Commit(ctx); err != nil {
+		return SecretGrantRecord{}, fmt.Errorf("commit delete secret grant: %w", err)
+	}
+	return deleted, nil
 }

@@ -20,6 +20,7 @@ func TestCreateModelProviderConfigTxRejectsInvalidNameBeforeDatabaseAccess(t *te
 	_, err := store.createModelProviderConfigTx(
 		context.Background(),
 		nil,
+		nil,
 		CreateModelProviderConfigInput{
 			OrgID:              uuid.New(),
 			Name:               "unsafe\u200dname",

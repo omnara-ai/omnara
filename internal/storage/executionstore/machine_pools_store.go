@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -318,9 +319,6 @@ func (s *Store) CreateMachinePool(
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
-	if err := validateMachinePoolProviderAuth(ctx, s.q, input.OrgID, input.ProviderAuthSecretID); err != nil {
-		return MachinePoolRecord{}, err
-	}
 	if err := s.validatePoolDefaultsTx(ctx, s.q, input, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
 	}
@@ -330,6 +328,12 @@ func (s *Store) CreateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	if err := validateMachinePoolProviderAuth(ctx, tx, input.OrgID, input.ProviderAuthSecretID); err != nil {
+		return MachinePoolRecord{}, err
+	}
 	record, err := insertMachinePool(ctx, qtx, input)
 	if err == nil {
 		if err := lockResourceCreation(ctx, qtx, resourceMachinePools, input.OrgID.String()); err != nil {
@@ -562,8 +566,8 @@ func prepareMachinePoolConfigInput(
 	return machinePoolDefaults{Provisioning: poolProvisioning, Environment: poolEnvironment}, nil
 }
 
-func validateMachinePoolProviderAuth(ctx context.Context, qtx *dbsqlc.Queries, orgID, providerAuthSecretID ID) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, providerAuthSecretID)
+func validateMachinePoolProviderAuth(ctx context.Context, tx pgx.Tx, orgID, providerAuthSecretID ID) error {
+	credential, err := secretops.LockReference(ctx, tx, orgID, providerAuthSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
@@ -646,9 +650,19 @@ func (s *Store) UpdateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	locked, err := qtx.LockMachinePoolForUpdate(
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	if err := lifecyclelock.Pools(
 		ctx,
-		dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: input.ID},
+		tx,
+		[]lifecyclelock.PoolRef{{OrgID: input.OrgID, PoolID: input.ID}},
+	); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	locked, err := qtx.GetMachinePool(
+		ctx,
+		dbsqlc.GetMachinePoolParams{OrgID: input.OrgID, ID: input.ID},
 	)
 	if err != nil {
 		return MachinePoolRecord{}, fmt.Errorf("lock machine pool for update: %w", err)
@@ -758,12 +772,34 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
 	if merged.ManagementKind == management.Tenant {
-		if err := validateMachinePoolProviderAuth(ctx, qtx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
+		if err := validateMachinePoolProviderAuth(ctx, tx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
 			return MachinePoolRecord{}, err
 		}
 	}
 	if err := s.validatePoolDefaultsTx(ctx, qtx, merged, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
+	}
+	if locked.RuntimeProtectionEnabled != merged.RuntimeProtectionEnabled {
+		machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
+			ctx,
+			dbsqlc.ListMachinePoolMachineIDsForLifecycleParams{
+				OrgID:         input.OrgID,
+				MachinePoolID: input.ID,
+			},
+		)
+		if err != nil {
+			return MachinePoolRecord{}, fmt.Errorf("list machine pool machines for runtime protection update: %w", err)
+		}
+		machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+		for _, machineID := range machineIDs {
+			machineRefs = append(machineRefs, lifecyclelock.MachineRef{
+				OrgID:     input.OrgID,
+				MachineID: machineID,
+			})
+		}
+		if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+			return MachinePoolRecord{}, err
+		}
 	}
 	row, err := updateMachinePoolRow(ctx, qtx, input.ID, merged)
 	if err != nil {
@@ -945,12 +981,21 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
+	return storeutil.RetryTransaction(ctx, func() ([]MachineRecord, error) {
+		return s.deleteMachinePoolOnce(ctx, orgID, id)
+	})
+}
+
+func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id ID) ([]MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete machine pool: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	txNotifications := s.newTxNotifications()
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
 	machines, err := s.DeleteMachinePoolTx(ctx, tx, txNotifications, orgID, id)
 	if err != nil {
 		return nil, err
@@ -974,11 +1019,53 @@ func (s *Store) DeleteMachinePoolTx(
 	); err != nil {
 		return nil, fmt.Errorf("lock machine pool for delete: %w", err)
 	}
-	if _, err := qtx.LockMachinePoolMachinesForUpdate(
+	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
 		ctx,
-		dbsqlc.LockMachinePoolMachinesForUpdateParams{OrgID: orgID, MachinePoolID: &id},
-	); err != nil {
-		return nil, fmt.Errorf("lock machine pool machines for archive: %w", err)
+		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
+			OrgID:         orgID,
+			MachinePoolID: id,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
+	}
+	grantIDs := make([]ID, 0, len(poolGrantRefs))
+	for _, grantRef := range poolGrantRefs {
+		grantIDs = append(grantIDs, grantRef.ID)
+	}
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
+		return nil, err
+	}
+	machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolMachineIDsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool machines for lifecycle: %w", err)
+	}
+	machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return nil, err
+	}
+	agentRows, err := qtx.ListMachinePoolAgentRefsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolAgentRefsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool agents for lifecycle: %w", err)
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentRows))
+	for _, agentRow := range agentRows {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
+			ProjectID: agentRow.ProjectID,
+			AgentID:   agentRow.AgentID,
+		})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return nil, err
 	}
 	if _, err := qtx.DeleteMachinePool(
 		ctx,
@@ -994,16 +1081,6 @@ func (s *Store) DeleteMachinePoolTx(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mark machine pool machines deleting: %w", err)
-	}
-	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
-		ctx,
-		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
-			OrgID:         orgID,
-			MachinePoolID: id,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
 	}
 	// Process completion joins the grant rows, so it runs before the deletes.
 	for _, poolGrantRef := range poolGrantRefs {

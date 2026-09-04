@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -15,6 +16,52 @@ type recordingCommitter struct {
 	err      error
 	order    *[]string
 	afterRun func()
+}
+
+func TestRetryTransactionRetriesPostgresTransactionConflicts(t *testing.T) {
+	for _, code := range []string{"40P01", "40001"} {
+		t.Run(code, func(t *testing.T) {
+			attempts := 0
+			result, err := storeutil.RetryTransaction(context.Background(), func() (string, error) {
+				attempts++
+				if attempts < 3 {
+					return "", &pgconn.PgError{Code: code}
+				}
+				return "committed", nil
+			})
+			if err != nil {
+				t.Fatalf("RetryTransaction() error = %v", err)
+			}
+			if result != "committed" || attempts != 3 {
+				t.Fatalf("result=%q attempts=%d", result, attempts)
+			}
+		})
+	}
+}
+
+func TestRetryTransactionStopsOnNonRetryableError(t *testing.T) {
+	wantErr := errors.New("invalid input")
+	attempts := 0
+	_, err := storeutil.RetryTransaction(context.Background(), func() (struct{}, error) {
+		attempts++
+		return struct{}{}, wantErr
+	})
+	if !errors.Is(err, wantErr) || attempts != 1 {
+		t.Fatalf("error=%v attempts=%d", err, attempts)
+	}
+}
+
+func TestRetryTransactionHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	attempts := 0
+	_, err := storeutil.RetryTransaction(ctx, func() (struct{}, error) {
+		attempts++
+		return struct{}{}, &pgconn.PgError{Code: "40P01"}
+	})
+	if !errors.Is(err, context.Canceled) || attempts != 1 {
+		t.Fatalf("error=%v attempts=%d", err, attempts)
+	}
 }
 
 func (c recordingCommitter) Commit(context.Context) error {

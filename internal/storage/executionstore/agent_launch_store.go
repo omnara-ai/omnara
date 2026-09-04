@@ -12,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -58,6 +60,19 @@ func (s *Store) LaunchAgent(
 		}
 		input.Name = &name
 	}
+	return storeutil.RetryTransaction(ctx, func() (LaunchAgentResult, error) {
+		return s.launchAgentOnce(ctx, input)
+	})
+}
+
+func (s *Store) launchAgentOnce(
+	ctx context.Context,
+	input LaunchAgentInput,
+) (LaunchAgentResult, error) {
+	project, err := loadProjectTx(ctx, s.q, input.ProjectID)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -65,8 +80,7 @@ func (s *Store) LaunchAgent(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-
-	if err := lockProjectAgentLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	if input.IdempotencyKey != "" {
@@ -77,6 +91,7 @@ func (s *Store) LaunchAgent(
 			return LaunchAgentResult{}, fmt.Errorf("lock agent launch idempotency key: %w", err)
 		}
 	}
+
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		if err != nil {
 			return LaunchAgentResult{}, err
@@ -88,10 +103,6 @@ func (s *Store) LaunchAgent(
 	}
 	if err := dbsafe.Text(input.Message); err != nil {
 		return LaunchAgentResult{}, storeerr.InvalidRequest(fmt.Errorf("message %w", err))
-	}
-	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
-	if err != nil {
-		return LaunchAgentResult{}, err
 	}
 	var profile *AgentProfileRecord
 	if input.ProfileID != NilID {
@@ -106,11 +117,14 @@ func (s *Store) LaunchAgent(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
+	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+		return LaunchAgentResult{}, err
+	}
 	machineSources, err := decodeLaunchMachineSources(contract)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	agent, inserted, err := insertAgentWithProjectLifecycleLockTx(ctx, tx, qtx, insertAgentInput{
+	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertAgentInput{
 		OrgID:           project.OrgID,
 		ProjectID:       input.ProjectID,
 		AgentProfileID:  input.ProfileID,
@@ -133,32 +147,9 @@ func (s *Store) LaunchAgent(
 		MCPServers:  contract.MCPServers,
 		Created:     true,
 	}
-	configChange, err := activateInitialAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
-		ProjectID:      input.ProjectID,
-		AgentID:        agent.ID,
-		AgentConfigID:  config.ID,
-		ActorType:      input.LaunchedBy.Type,
-		ActorID:        input.LaunchedBy.ID,
-		Reason:         "launch",
-		IdempotencyKey: "launch:" + agent.ID.String(),
-	})
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	result.Agent = agent
-	result.ConfigChange = configChange
-	result.MCPConnections, err = createAgentMCPConnectionsTx(
-		ctx,
-		qtx,
-		input.ProjectID,
-		agent.ID,
-		contract.MCPServers,
-	)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
+		tx,
 		qtx,
 		project.OrgID,
 		input.ProjectID,
@@ -181,6 +172,30 @@ func (s *Store) LaunchAgent(
 		); err != nil {
 			return LaunchAgentResult{}, err
 		}
+	}
+	configChange, err := activateNewAgentConfigTx(ctx, txNotifications, tx, qtx, ActivateAgentConfigInput{
+		ProjectID:      input.ProjectID,
+		AgentID:        agent.ID,
+		AgentConfigID:  config.ID,
+		ActorType:      input.LaunchedBy.Type,
+		ActorID:        input.LaunchedBy.ID,
+		Reason:         "launch",
+		IdempotencyKey: "launch:" + agent.ID.String(),
+	})
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	result.Agent = agent
+	result.ConfigChange = configChange
+	result.MCPConnections, err = createAgentMCPConnectionsTx(
+		ctx,
+		qtx,
+		input.ProjectID,
+		agent.ID,
+		contract.MCPServers,
+	)
+	if err != nil {
+		return LaunchAgentResult{}, err
 	}
 
 	bindingRequests, err := expandLaunchMachineBindingRequests(machineSources)

@@ -365,6 +365,73 @@ WHERE org_id = $1 AND id = $2
 	}
 }
 
+func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "wake-org-delete", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "wake-org-delete")
+
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before organization deletion: %v", err)
+	}
+
+	actor := mustOmnaraActorParams(t, fixture.adminID)
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
+			ctx,
+			testOrgID,
+			actor,
+		)
+		return deleteErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	wakeDone := integrationdb.RunAsync(func() (executionstore.MachineWakeDisposition, error) {
+		return fixture.store.Execution().BeginMachineWake(
+			ctx,
+			testOrgID,
+			machine.machineID,
+			fixture.machinePool.ID,
+			time.Minute,
+		)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockOrganizationLifecycleShared", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release machine wake control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+		t.Fatalf("delete organization: %v", err)
+	}
+	wakeResult := integrationdb.Await(t, wakeDone, "machine wake")
+	if wakeResult.Err != nil || wakeResult.Value != executionstore.MachineWakeUnavailable {
+		t.Fatalf(
+			"machine wake after organization deletion = (%v, %v), want unavailable/nil",
+			wakeResult.Value,
+			wakeResult.Err,
+		)
+	}
+
+	var wakeAttemptCount int
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int
+		 FROM machines
+		 WHERE org_id = $1 AND id = $2 AND wake_attempt_expires_at IS NOT NULL`,
+		testOrgID,
+		machine.machineID,
+	).Scan(&wakeAttemptCount); err != nil {
+		t.Fatalf("count wake attempts after organization deletion: %v", err)
+	}
+	if wakeAttemptCount != 0 {
+		t.Fatalf("wake attempts beneath deleted organization = %d, want 0", wakeAttemptCount)
+	}
+}
+
 func TestMachineWakeIntentFencesRuntimeProtectionDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -753,6 +820,65 @@ func TestEnablingRuntimeProtectionPreservesInflightWake(t *testing.T) {
 	}
 }
 
+func TestRuntimeProtectionUpdateAndPoolDeletionSerializePoolBeforeMachine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "update-delete-order", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "update-delete-order")
+
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before runtime protection update: %v", err)
+	}
+
+	updateDone := integrationdb.RunAsyncError(func() error {
+		_, updateErr := fixture.store.Execution().UpdateMachinePool(
+			ctx,
+			executionstore.UpdateMachinePoolInput{
+				OrgID:                    testOrgID,
+				ID:                       fixture.machinePool.ID,
+				RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+			},
+		)
+		return updateErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
+			ctx,
+			testOrgID,
+			fixture.machinePool.ID,
+		)
+		return deleteErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release runtime protection update control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, updateDone, "runtime protection update"); err != nil {
+		t.Fatalf("update runtime protection: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "machine pool deletion"); err != nil {
+		t.Fatalf("delete machine pool after runtime protection update: %v", err)
+	}
+
+	machineRecord, err := fixture.store.Execution().GetMachine(ctx, testOrgID, machine.machineID)
+	if err != nil {
+		t.Fatalf("load machine after pool deletion: %v", err)
+	}
+	if machineRecord.LifecycleState != executionstore.MachineLifecycleStateDeleting {
+		t.Fatalf(
+			"machine lifecycle after serialized pool deletion = %s, want deleting",
+			machineRecord.LifecycleState,
+		)
+	}
+}
+
 func TestOrdinaryStaleBootstrapDeletionClearsProviderRuntimeMismatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -893,6 +1019,52 @@ func TestProviderRuntimeDeletionRejectsSupersededMismatch(t *testing.T) {
 		providerRuntimeClaimInput(stale),
 	); err != nil || claimed {
 		t.Fatalf("superseded mismatch claim = (%t, %v), want false/nil", claimed, err)
+	}
+}
+
+func TestProviderRuntimeClaimAndPoolDeletionSerializePoolBeforeMachine(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProviderRuntimeStorageFixture(t, ctx, "claim-delete-order", true)
+	machine := fixture.insertInactiveMachine(t, ctx, "claim-delete-order")
+	candidate := fixture.dueCandidate(t, ctx, machine.machineID)
+
+	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+	); err != nil {
+		t.Fatalf("lock machine before provider runtime claim: %v", err)
+	}
+
+	claimDone := integrationdb.RunAsync(func() (bool, error) {
+		_, claimed, claimErr := fixture.store.Execution().ClaimProviderRuntimeMismatchDeletion(
+			ctx,
+			providerRuntimeClaimInput(candidate),
+		)
+		return claimed, claimErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, deleteErr := fixture.store.Execution().IntegrationDeleteMachinePoolOnce(
+			ctx,
+			testOrgID,
+			fixture.machinePool.ID,
+		)
+		return deleteErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachinePoolForUpdate", 1)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release provider runtime claim control transaction: %v", err)
+	}
+	claimResult := integrationdb.Await(t, claimDone, "provider runtime deletion claim")
+	if claimResult.Err != nil || !claimResult.Value {
+		t.Fatalf("provider runtime deletion claim = (%t, %v), want true/nil", claimResult.Value, claimResult.Err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "machine pool deletion"); err != nil {
+		t.Fatalf("delete machine pool after provider runtime claim: %v", err)
 	}
 }
 

@@ -50,25 +50,30 @@ func (q *Queries) AddOrgAPIKeyOrgMembership(ctx context.Context, arg AddOrgAPIKe
 
 const addProjectMembership = `-- name: AddProjectMembership :one
 INSERT INTO project_memberships(org_id, project_id, org_membership_id, role, created_at)
-VALUES ($1, $2, $3, $4, transaction_timestamp())
+SELECT project.org_id, project.id, $1, $2, transaction_timestamp()
+FROM projects project
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+WHERE project.org_id = $3
+  AND project.id = $4
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, org_membership_id)
 DO UPDATE SET role = excluded.role
 RETURNING org_id, project_id, org_membership_id, role, created_at
 `
 
 type AddProjectMembershipParams struct {
-	OrgID           uuid.UUID
-	ProjectID       uuid.UUID
 	OrgMembershipID uuid.UUID
 	Role            string
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
 }
 
 func (q *Queries) AddProjectMembership(ctx context.Context, arg AddProjectMembershipParams) (ProjectMembership, error) {
 	row := q.db.QueryRow(ctx, addProjectMembership,
-		arg.OrgID,
-		arg.ProjectID,
 		arg.OrgMembershipID,
 		arg.Role,
+		arg.OrgID,
+		arg.ProjectID,
 	)
 	var i ProjectMembership
 	err := row.Scan(
@@ -698,15 +703,18 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects(org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, $3, transaction_timestamp(), transaction_timestamp())
+SELECT org.id, $1, $2, transaction_timestamp(), transaction_timestamp()
+FROM orgs org
+WHERE org.id = $3
+  AND org.deleted_at IS NULL
 ON CONFLICT (org_id, idempotency_key) DO NOTHING
 RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 `
 
 type CreateProjectParams struct {
-	OrgID          uuid.UUID
 	Name           string
 	IdempotencyKey *string
+	OrgID          uuid.UUID
 }
 
 type CreateProjectRow struct {
@@ -719,7 +727,7 @@ type CreateProjectRow struct {
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error) {
-	row := q.db.QueryRow(ctx, createProject, arg.OrgID, arg.Name, arg.IdempotencyKey)
+	row := q.db.QueryRow(ctx, createProject, arg.Name, arg.IdempotencyKey, arg.OrgID)
 	var i CreateProjectRow
 	err := row.Scan(
 		&i.ID,
@@ -2394,6 +2402,28 @@ func (q *Queries) GetOrgCreationReplayForUser(ctx context.Context, arg GetOrgCre
 	return i, err
 }
 
+const getOrgInvitationForLifecycle = `-- name: GetOrgInvitationForLifecycle :one
+SELECT id, org_id
+FROM org_invitations
+WHERE id = $1
+`
+
+type GetOrgInvitationForLifecycleParams struct {
+	ID uuid.UUID
+}
+
+type GetOrgInvitationForLifecycleRow struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+func (q *Queries) GetOrgInvitationForLifecycle(ctx context.Context, arg GetOrgInvitationForLifecycleParams) (GetOrgInvitationForLifecycleRow, error) {
+	row := q.db.QueryRow(ctx, getOrgInvitationForLifecycle, arg.ID)
+	var i GetOrgInvitationForLifecycleRow
+	err := row.Scan(&i.ID, &i.OrgID)
+	return i, err
+}
+
 const getOrgMembershipForOrgAPIKey = `-- name: GetOrgMembershipForOrgAPIKey :one
 SELECT id, org_id, org_api_key_id, role, created_at
 FROM org_memberships
@@ -2801,6 +2831,43 @@ func (q *Queries) ListActiveAgentIDsForProjectDeletion(ctx context.Context, arg 
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveAgentRefsForOrganizationDeletion = `-- name: ListActiveAgentRefsForOrganizationDeletion :many
+SELECT project_id, id AS agent_id
+FROM agents
+WHERE org_id = $1
+  AND state = 'active'
+ORDER BY project_id, id
+`
+
+type ListActiveAgentRefsForOrganizationDeletionParams struct {
+	OrgID uuid.UUID
+}
+
+type ListActiveAgentRefsForOrganizationDeletionRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListActiveAgentRefsForOrganizationDeletion(ctx context.Context, arg ListActiveAgentRefsForOrganizationDeletionParams) ([]ListActiveAgentRefsForOrganizationDeletionRow, error) {
+	rows, err := q.db.Query(ctx, listActiveAgentRefsForOrganizationDeletion, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveAgentRefsForOrganizationDeletionRow{}
+	for rows.Next() {
+		var i ListActiveAgentRefsForOrganizationDeletionRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -3584,6 +3651,41 @@ func (q *Queries) ListVisibleProjectRolesForPrincipal(ctx context.Context, arg L
 	return items, nil
 }
 
+const lockActiveOwnedOrganizationsForUser = `-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = $1::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org
+`
+
+type LockActiveOwnedOrganizationsForUserParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockActiveOwnedOrganizationsForUser(ctx context.Context, arg LockActiveOwnedOrganizationsForUserParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveOwnedOrganizationsForUser, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockNormalizedEmailKey = `-- name: LockNormalizedEmailKey :exec
 SELECT pg_advisory_xact_lock(hashtext($1::text))
 `
@@ -3762,23 +3864,6 @@ func (q *Queries) MarkAuthDeviceFlowPolled(ctx context.Context, arg MarkAuthDevi
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const orgExistsActive = `-- name: OrgExistsActive :one
-SELECT EXISTS (
-  SELECT 1 FROM orgs WHERE id = $1 AND deleted_at IS NULL
-) AS org_exists
-`
-
-type OrgExistsActiveParams struct {
-	ID uuid.UUID
-}
-
-func (q *Queries) OrgExistsActive(ctx context.Context, arg OrgExistsActiveParams) (bool, error) {
-	row := q.db.QueryRow(ctx, orgExistsActive, arg.ID)
-	var org_exists bool
-	err := row.Scan(&org_exists)
-	return org_exists, err
 }
 
 const orgMemberOwnedSecretsReferenced = `-- name: OrgMemberOwnedSecretsReferenced :one

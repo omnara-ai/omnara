@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -33,7 +34,18 @@ func (s *Store) CreateBYOMachineDaemonToken(
 		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	record, err := createBYOMachineDaemonTokenTx(ctx, dbsqlc.New(tx), prepared)
+	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
+	); err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
 	if err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
@@ -93,6 +105,9 @@ func createBYOMachineDaemonTokenTx(
 			Metadata:  prepared.metadata,
 		},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MachineDaemonTokenRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}

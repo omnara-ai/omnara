@@ -6592,6 +6592,447 @@ type tokenCreationRaceResult struct {
 	err   error
 }
 
+func TestOrgAPIKeyCreationAndMembershipUsePrincipalBeforeOrganizationOrder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedDefaultProject(t, ctx, NewStore(pool))
+	store := NewStore(pool)
+	user := mustCreateIdentityUser(t, ctx, store, "org-key-lock-order@example.com", "Org Key Lock Order")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: user.ID},
+	); err != nil {
+		t.Fatalf("lock principal for contention: %v", err)
+	}
+
+	keyDone := integrationdb.RunAsyncError(func() error {
+		_, createErr := store.Identity().CreateOrgAPIKeyWithPlaintext(
+			context.Background(),
+			identitystore.CreateOrgAPIKeyInput{
+				OrgID:           testOrgID,
+				CreatedByUserID: user.ID,
+				Name:            "lock-order-key",
+				OrgRole:         "member",
+			},
+		)
+		return createErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
+
+	membershipDone := integrationdb.RunAsyncError(func() error {
+		_, addErr := store.Identity().AddOrgMembership(
+			context.Background(),
+			identitystore.AddOrgMembershipInput{
+				OrgID:  testOrgID,
+				UserID: user.ID,
+				Role:   "member",
+			},
+		)
+		return addErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release principal lock: %v", err)
+	}
+	for operation, done := range map[string]<-chan error{
+		"create organization API key": keyDone,
+		"add organization membership": membershipDone,
+	} {
+		if err := integrationdb.Await(t, done, operation); err != nil {
+			t.Fatalf("%s: %v", operation, err)
+		}
+	}
+}
+
+func TestRemoveOrgMemberLocksPrincipalBeforeMembership(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedDefaultProject(t, ctx, NewStore(pool))
+	store := NewStore(pool)
+	member := mustCreateIdentityUser(t, ctx, store, "remove-member-lock-order@example.com", "Remove Member Lock Order")
+	if _, err := store.Identity().AddOrgMembership(
+		ctx,
+		identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: member.ID, Role: "member"},
+	); err != nil {
+		t.Fatalf("add organization member: %v", err)
+	}
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	controlQ := dbsqlc.New(controlTx)
+	if _, err := controlQ.LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: member.ID},
+	); err != nil {
+		t.Fatalf("lock member principal: %v", err)
+	}
+
+	removeDone := integrationdb.RunAsyncError(func() error {
+		return store.Identity().RemoveOrgMember(
+			context.Background(),
+			identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
+		)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
+
+	probeCtx, cancelProbe := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelProbe()
+	if _, err := controlQ.LockUserOrgMembership(
+		probeCtx,
+		dbsqlc.LockUserOrgMembershipParams{OrgID: testOrgID, UserID: member.ID},
+	); err != nil {
+		t.Fatalf("lock membership while removal waits for principal: %v", err)
+	}
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release member lock control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, removeDone, "member removal"); err != nil {
+		t.Fatalf("remove organization member: %v", err)
+	}
+}
+
+func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	member := createSecretTestUser(t, ctx, store, "Admission Race Member", "member")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockUserOrgMembership(
+		ctx,
+		dbsqlc.LockUserOrgMembershipParams{OrgID: testOrgID, UserID: member.ID},
+	); err != nil {
+		t.Fatalf("lock membership: %v", err)
+	}
+
+	removeDone := integrationdb.RunAsyncError(func() error {
+		return store.Identity().RemoveOrgMember(
+			context.Background(),
+			identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
+		)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserOrgMembership", 1)
+
+	secretDone := integrationdb.RunAsyncError(func() error {
+		_, _, createErr := store.Secrets().CreateSecret(
+			context.Background(),
+			secretstore.CreateSecretInput{
+				OrgID:       testOrgID,
+				OwnerKind:   secretstore.SecretOwnerUser,
+				OwnerUserID: member.ID,
+				Name:        "concurrent-member-secret",
+				Material:    secrets.GenericMaterial{Value: "secret"},
+				Actor:       userPrincipal(member.ID),
+			},
+		)
+		return createErr
+	})
+	skillDone := integrationdb.RunAsyncError(func() error {
+		_, createErr := store.Skills().CreateSkillRevision(
+			context.Background(),
+			skillstore.CreateSkillInput{
+				OrgID:       testOrgID,
+				OwnerKind:   skillstore.SkillOwnerUser,
+				OwnerUserID: member.ID,
+				Name:        "concurrent-member-skill",
+				Description: "concurrent member skill",
+				SkillMd:     "# Concurrent member skill",
+				ArchiveBytes: []byte(
+					"concurrent member skill archive",
+				),
+				Actor: userPrincipal(member.ID),
+			},
+		)
+		return createErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 2)
+
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release membership control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, removeDone, "member removal"); err != nil {
+		t.Fatalf("remove organization member: %v", err)
+	}
+	for operation, done := range map[string]<-chan error{
+		"create user-owned secret": secretDone,
+		"create user-owned skill":  skillDone,
+	} {
+		if err := integrationdb.Await(t, done, operation); !errors.Is(err, storeerr.ErrUnauthorized) {
+			t.Fatalf("%s error = %v, want unauthorized", operation, err)
+		}
+	}
+	var activeSecrets, activeSkills int
+	if err := pool.QueryRow(ctx, `
+		SELECT
+		  (SELECT count(*) FROM secrets WHERE owner_user_id = $1 AND deleted_at IS NULL),
+		  (SELECT count(*) FROM skills WHERE owner_user_id = $1 AND deleted_at IS NULL)
+	`, member.ID).Scan(&activeSecrets, &activeSkills); err != nil {
+		t.Fatalf("count user-owned resources: %v", err)
+	}
+	if activeSecrets != 0 || activeSkills != 0 {
+		t.Fatalf("active resources after member removal = secrets %d, skills %d", activeSecrets, activeSkills)
+	}
+}
+
+func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
+	t.Parallel()
+	for _, deleteAccount := range []bool{false, true} {
+		name := "remove member"
+		if deleteAccount {
+			name = "delete account"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+			admin := createSecretTestUser(t, ctx, store, "Teardown Order Admin "+name, "admin")
+			member := createSecretTestUser(t, ctx, store, "Teardown Order Member "+name, "member")
+			if _, err := store.Identity().AddProjectMembership(
+				ctx,
+				identitystore.AddProjectMembershipInput{
+					OrgID: testOrgID, ProjectID: testProjectID, UserID: member.ID, Role: "developer",
+				},
+			); err != nil {
+				t.Fatalf("add project membership: %v", err)
+			}
+			secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+				OrgID:       testOrgID,
+				OwnerKind:   secretstore.SecretOwnerUser,
+				OwnerUserID: member.ID,
+				Name:        "teardown-order-secret",
+				Material:    secrets.GenericMaterial{Value: "secret"},
+				Actor:       userPrincipal(member.ID),
+			})
+			if err != nil {
+				t.Fatalf("create user-owned secret: %v", err)
+			}
+			if _, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+				OrgID:           testOrgID,
+				SecretID:        secret.ID,
+				TargetProjectID: testProjectID,
+				Actor:           userPrincipal(member.ID),
+			}); err != nil {
+				t.Fatalf("grant user-owned secret: %v", err)
+			}
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockSecret(
+				ctx,
+				dbsqlc.LockSecretParams{OrgID: testOrgID, ID: secret.ID},
+			); err != nil {
+				t.Fatalf("lock user-owned secret: %v", err)
+			}
+
+			var teardownDone <-chan error
+			waitQuery := "DeleteUserOwnedSecretsForOrgMember"
+			if deleteAccount {
+				waitQuery = "DeleteUserOwnedSecretsForUser"
+				teardownDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
+				})
+			} else {
+				teardownDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().RemoveOrgMember(
+						context.Background(),
+						identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
+					)
+				})
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, waitQuery, 1)
+
+			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
+			if err != nil {
+				t.Fatalf("build project deletion actor: %v", err)
+			}
+			projectDone := integrationdb.RunAsyncError(func() error {
+				_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+					context.Background(),
+					testOrgID,
+					testProjectID,
+					actor,
+				)
+				return deleteErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release teardown order control transaction: %v", err)
+			}
+			for operation, done := range map[string]<-chan error{
+				name:             teardownDone,
+				"delete project": projectDone,
+			} {
+				if err := integrationdb.Await(t, done, operation); err != nil {
+					t.Fatalf("%s: %v", operation, err)
+				}
+			}
+		})
+	}
+}
+
+func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
+	t.Parallel()
+	for _, accountWins := range []bool{true, false} {
+		name := "role update wins"
+		if accountWins {
+			name = "account deletion wins"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := NewStore(pool)
+			first := mustCreateIdentityUser(t, ctx, store, "owner-exit-first-"+fmt.Sprint(accountWins)+"@example.com", "First Owner")
+			second := mustCreateIdentityUser(t, ctx, store, "owner-exit-second-"+fmt.Sprint(accountWins)+"@example.com", "Second Owner")
+			for _, userID := range []ID{first.ID, second.ID} {
+				if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+					OrgID: testOrgID, UserID: userID, Role: "owner",
+				}); err != nil {
+					t.Fatalf("add organization owner: %v", err)
+				}
+			}
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockOrg(
+				ctx,
+				dbsqlc.LockOrgParams{ID: testOrgID},
+			); err != nil {
+				t.Fatalf("lock organization: %v", err)
+			}
+
+			var accountDone, roleDone <-chan error
+			startAccountDelete := func() {
+				accountDone = integrationdb.RunAsyncError(func() error {
+					return store.Identity().DeleteUserAccount(context.Background(), first.ID)
+				})
+			}
+			startRoleUpdate := func() {
+				roleDone = integrationdb.RunAsyncError(func() error {
+					_, updateErr := store.Identity().UpdateOrgMemberRole(
+						context.Background(),
+						identitystore.UpdateOrgMemberRoleInput{
+							OrgID: testOrgID, UserID: second.ID, Role: "member",
+						},
+					)
+					return updateErr
+				})
+			}
+			if accountWins {
+				startAccountDelete()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockActiveOwnedOrganizationsForUser", 1)
+				startRoleUpdate()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+			} else {
+				startRoleUpdate()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+				startAccountDelete()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockActiveOwnedOrganizationsForUser", 1)
+			}
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release owner exit control transaction: %v", err)
+			}
+			accountErr := integrationdb.Await(t, accountDone, "account deletion")
+			roleErr := integrationdb.Await(t, roleDone, "organization role update")
+			if accountWins {
+				if accountErr != nil || !errors.Is(roleErr, storeerr.ErrUnauthorized) {
+					t.Fatalf("account-first outcome account=%v role=%v", accountErr, roleErr)
+				}
+			} else if roleErr != nil || !errors.Is(accountErr, storeerr.ErrConflict) {
+				t.Fatalf("role-first outcome account=%v role=%v", accountErr, roleErr)
+			}
+			var owners int
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT count(*)::integer FROM org_memberships WHERE org_id = $1 AND role = 'owner'`,
+				testOrgID,
+			).Scan(&owners); err != nil {
+				t.Fatalf("count organization owners: %v", err)
+			}
+			if owners != 1 {
+				t.Fatalf("organization owners = %d, want 1", owners)
+			}
+		})
+	}
+}
+
+func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"update", "revoke"} {
+		t.Run(operation, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := NewStore(pool)
+			admin := mustCreateIdentityUser(t, ctx, store, operation+"-key-delete@example.com", "Key Deletion Admin")
+			if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+				OrgID: testOrgID, UserID: admin.ID, Role: "admin",
+			}); err != nil {
+				t.Fatalf("add key administrator: %v", err)
+			}
+			key, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
+				OrgID: testOrgID, CreatedByUserID: admin.ID, Name: "Deletion key", OrgRole: "member",
+			})
+			if err != nil {
+				t.Fatalf("create organization API key: %v", err)
+			}
+			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
+			if err != nil {
+				t.Fatalf("build organization deletion actor: %v", err)
+			}
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+				t.Fatalf("lock organization: %v", err)
+			}
+			deleteDone := integrationdb.RunAsyncError(func() error {
+				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+					context.Background(),
+					testOrgID,
+					actor,
+				)
+				return deleteErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
+
+			mutationDone := integrationdb.RunAsyncError(func() error {
+				if operation == "update" {
+					_, updateErr := store.Identity().UpdateOrgAPIKey(
+						context.Background(),
+						identitystore.UpdateOrgAPIKeyInput{
+							OrgID: testOrgID, KeyID: key.Record.ID,
+							ActorPrincipal: userPrincipal(admin.ID), Name: "Too late",
+						},
+					)
+					return updateErr
+				}
+				_, revokeErr := store.Identity().RevokeOrgAPIKey(
+					context.Background(),
+					testOrgID,
+					key.Record.ID,
+					userPrincipal(admin.ID),
+				)
+				return revokeErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release organization deletion control transaction: %v", err)
+			}
+			if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+				t.Fatalf("delete organization: %v", err)
+			}
+			if err := integrationdb.Await(t, mutationDone, operation+" organization API key"); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("%s key after organization deletion error = %v, want not found", operation, err)
+			}
+		})
+	}
+}
+
 func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

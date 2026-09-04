@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -234,6 +235,9 @@ func (s *Store) CreateDaemonMachine(ctx context.Context, input CreateDaemonMachi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachineRecord{}, err
+	}
 	record, err := createDaemonMachineTx(ctx, qtx, input, environment, metadata)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
@@ -344,6 +348,12 @@ func (s *Store) UpdateMachine(ctx context.Context, input UpdateMachineInput) (Ma
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
+	return storeutil.RetryTransaction(ctx, func() (MachineRecord, error) {
+		return s.updateMachineOnce(ctx, input)
+	})
+}
+
+func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput) (MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin update machine: %w", err)
@@ -526,6 +536,15 @@ func (s *Store) DeleteMachine(
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
+	return storeutil.RetryTransaction(ctx, func() (MachineRecord, error) {
+		return s.deleteMachineOnce(ctx, input)
+	})
+}
+
+func (s *Store) deleteMachineOnce(
+	ctx context.Context,
+	input DeleteMachineInput,
+) (MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineRecord{}, fmt.Errorf("begin delete machine: %w", err)
@@ -657,6 +676,16 @@ func (s *Store) CreateProjectMachineGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return ProjectMachineGrantRecord{}, MachineRecord{}, err
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
+	); err != nil {
+		return ProjectMachineGrantRecord{}, MachineRecord{}, err
+	}
 	machineRow, err := qtx.GetMachine(
 		ctx,
 		dbsqlc.GetMachineParams{OrgID: input.OrgID, ID: input.MachineID},
@@ -954,6 +983,15 @@ func (s *Store) DeleteProjectMachineGrant(
 	ctx context.Context,
 	orgID, projectID, id ID,
 ) (ProjectMachineGrantRecord, error) {
+	return storeutil.RetryTransaction(ctx, func() (ProjectMachineGrantRecord, error) {
+		return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, id)
+	})
+}
+
+func (s *Store) deleteProjectMachineGrantOnce(
+	ctx context.Context,
+	orgID, projectID, id ID,
+) (ProjectMachineGrantRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -964,6 +1002,9 @@ func (s *Store) DeleteProjectMachineGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, orgID, projectID); err != nil {
+		return ProjectMachineGrantRecord{}, err
+	}
 	existing, err := qtx.GetProjectMachineGrant(
 		ctx,
 		dbsqlc.GetProjectMachineGrantParams{OrgID: orgID, ProjectID: projectID, ID: id},
@@ -976,6 +1017,13 @@ func (s *Store) DeleteProjectMachineGrant(
 	}
 	if ProjectMachineGrantSourceKind(existing.SourceKind) == ProjectMachineGrantSourceKindPool {
 		return ProjectMachineGrantRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: orgID, MachineID: existing.MachineID}},
+	); err != nil {
+		return ProjectMachineGrantRecord{}, err
 	}
 	// Process completion joins the grant rows, so it runs before the delete.
 	if err := completeExecutionRevokedProcessesTx(

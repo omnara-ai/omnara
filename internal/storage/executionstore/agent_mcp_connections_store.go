@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -87,15 +88,32 @@ func (s *Store) ReconcileAgentMCPConnections(
 		return nil, fmt.Errorf("begin reconcile agent mcp connections: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, storeerr.ErrNotFound
-		}
-		return nil, fmt.Errorf("lock agent for mcp reconciliation: %w", err)
+	qtx := s.q.WithTx(tx)
+	project, err := loadProjectTx(ctx, qtx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID); err != nil {
+		return nil, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: projectID,
+		AgentID:   agentID,
+	}}); err != nil {
+		return nil, err
+	}
+	agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+		ProjectID: projectID,
+		ID:        agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("revalidate mcp connection agent: %w", err)
+	}
+	if AgentState(agent.State) != AgentStateActive {
+		return nil, storeerr.ErrStateTransitionConflict
 	}
 	connections, err = createAgentMCPConnectionsTx(ctx, qtx, projectID, agentID, servers)
 	if err != nil {

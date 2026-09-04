@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -801,5 +804,579 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 	}
 	if len(result.Changes) != 0 {
 		t.Fatalf("idempotent apply changes = %v, want none", result.Changes)
+	}
+}
+
+func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrganization(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateIdentityUser(t, ctx, store, "reconcile-org-delete@example.com", "Defaults Owner")
+	poolTemplate := defaultReconciliationPoolTemplate("reconcile-org-delete-pool")
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:              user.ID,
+		Name:                "Reconcile Organization Deletion",
+		IdempotencyKey:      "reconcile-org-delete",
+		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{poolTemplate},
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	poolRow, err := testQueries(store).GetMachinePoolByName(
+		ctx,
+		dbsqlc.GetMachinePoolByNameParams{OrgID: created.Org.ID, Name: poolTemplate.Name},
+	)
+	if err != nil {
+		t.Fatalf("get default machine pool: %v", err)
+	}
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockMachinePoolForLifecycle(
+		ctx,
+		dbsqlc.LockMachinePoolForLifecycleParams{OrgID: created.Org.ID, ID: poolRow.ID},
+	); err != nil {
+		t.Fatalf("lock machine pool: %v", err)
+	}
+	actor, err := executionstore.OmnaraActorParams(created.Org.ID, userPrincipal(user.ID))
+	if err != nil {
+		t.Fatalf("build deletion actor: %v", err)
+	}
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+			ctx,
+			created.Org.ID,
+			actor,
+		)
+		return deleteErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	desiredPool := poolTemplate
+	desiredPool.Description = "must not be applied"
+	reconcileDone := integrationdb.RunAsyncError(func() error {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{
+				Apply: true, DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{desiredPool},
+			},
+		)
+		return reconcileErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleShared", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
+		t.Fatalf("delete organization: %v", err)
+	}
+	if err := integrationdb.Await(t, reconcileDone, "reconciliation"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("reconciliation error = %v, want not found", err)
+	}
+	var description string
+	var deleted bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT description, deleted_at IS NOT NULL FROM machine_pools WHERE org_id = $1 AND id = $2`,
+		created.Org.ID,
+		poolRow.ID,
+	).Scan(&description, &deleted); err != nil {
+		t.Fatalf("load deleted machine pool: %v", err)
+	}
+	if description != poolTemplate.Description || !deleted {
+		t.Fatalf("machine pool after deletion = description %q, deleted %t", description, deleted)
+	}
+}
+
+func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateIdentityUser(t, ctx, store, "reconcile-project-delete@example.com", "Defaults Owner")
+	providerTemplate := defaultReconciliationModelProviderTemplate()
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:                        user.ID,
+		Name:                          "Reconcile Project Deletion",
+		IdempotencyKey:                "reconcile-project-delete",
+		ProvisionDefaultModelProvider: true,
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, providerTemplate, "provider-token",
+	)
+	provider, err := store.Models().GetModelProviderConfigByName(
+		ctx,
+		created.Org.ID,
+		providerTemplate.Name,
+	)
+	if err != nil {
+		t.Fatalf("get default model provider: %v", err)
+	}
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	var grantID ID
+	if err := controlTx.QueryRow(
+		ctx,
+		`SELECT id FROM project_model_grants WHERE org_id = $1 AND project_id = $2 LIMIT 1 FOR UPDATE`,
+		created.Org.ID,
+		created.Project.ID,
+	).Scan(&grantID); err != nil {
+		t.Fatalf("lock default project model grant: %v", err)
+	}
+	actor, err := executionstore.OmnaraActorParams(created.Org.ID, userPrincipal(user.ID))
+	if err != nil {
+		t.Fatalf("build deletion actor: %v", err)
+	}
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
+			ctx,
+			created.Org.ID,
+			created.Project.ID,
+			actor,
+		)
+		return deleteErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectModelGrantsForProjectDeletion", 1)
+	desiredProvider := providerTemplate
+	desiredProvider.Models = append(
+		append([]modelstore.DefaultConfiguredModelTemplate(nil), providerTemplate.Models...),
+		modelstore.DefaultConfiguredModelTemplate{
+			Name: "must-not-be-created", ProviderModelSlug: "example/rejected",
+			ContextWindowTokens: 8192, MaxOutputTokens: 1024,
+		},
+	)
+	reconcileDone := integrationdb.RunAsyncError(func() error {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{Apply: true, DefaultModelProvider: &desiredProvider},
+		)
+		return reconcileErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	if err := integrationdb.Await(t, reconcileDone, "reconciliation"); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("reconciliation error = %v, want not found", err)
+	}
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx,
+		created.Org.ID,
+		provider.ID,
+		"must-not-be-created",
+	); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("get rejected configured model error = %v, want no rows", err)
+	}
+}
+
+func TestReconcileDefaultsLocksAllPoolsBeforeAffectedMachines(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateIdentityUser(t, ctx, store, "reconcile-pool-order@example.com", "Defaults Owner")
+	poolA := defaultReconciliationPoolTemplate("reconcile-pool-order-a")
+	poolB := defaultReconciliationPoolTemplate("reconcile-pool-order-b")
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:              user.ID,
+		Name:                "Reconcile Pool Order",
+		IdempotencyKey:      "reconcile-pool-order",
+		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{poolA, poolB},
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	queries := testQueries(store)
+	poolARow, err := queries.GetMachinePoolByName(
+		ctx,
+		dbsqlc.GetMachinePoolByNameParams{OrgID: created.Org.ID, Name: poolA.Name},
+	)
+	if err != nil {
+		t.Fatalf("get first default machine pool: %v", err)
+	}
+	poolBRow, err := queries.GetMachinePoolByName(
+		ctx,
+		dbsqlc.GetMachinePoolByNameParams{OrgID: created.Org.ID, Name: poolB.Name},
+	)
+	if err != nil {
+		t.Fatalf("get second default machine pool: %v", err)
+	}
+	machineID := testID("reconcile-pool-order-machine")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO machines(
+    id, org_id, machine_pool_id, source_kind, display_name, provider,
+    lifecycle_state, lifecycle_changed_at, provider_resource_id,
+    provider_provision_attempted_at, cpu, memory_mb, cwd, env, secret_env,
+    provider_options, provider_runtime_mismatch_since, metadata, created_at, updated_at
+) VALUES (
+    $1, $2, $3, 'pool', 'runtime mismatch', 'blaxel',
+    'active', statement_timestamp(), 'reconcile-pool-order-resource',
+    statement_timestamp(), 1, 512, '', '{}'::jsonb, '{}'::jsonb,
+    '{}'::jsonb, statement_timestamp(), '{}'::jsonb, statement_timestamp(), statement_timestamp()
+)
+`, machineID, created.Org.ID, poolARow.ID); err != nil {
+		t.Fatalf("seed pool machine: %v", err)
+	}
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+		ctx,
+		dbsqlc.LockMachineForLifecycleParams{OrgID: created.Org.ID, ID: machineID},
+	); err != nil {
+		t.Fatalf("lock pool machine: %v", err)
+	}
+	desiredA := poolA
+	desiredA.RuntimeProtectionEnabled = true
+	desiredB := poolB
+	desiredB.Description = "updated before deletion"
+	reconcileDone := integrationdb.RunAsyncError(func() error {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{
+				Apply: true,
+				DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{
+					desiredB,
+					desiredA,
+				},
+			},
+		)
+		return reconcileErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteTx, deleteErr := pool.Begin(ctx)
+		if deleteErr != nil {
+			deleteDone <- deleteErr
+			return
+		}
+		defer func() { _ = deleteTx.Rollback(ctx) }()
+		_, deleteErr = store.Execution().DeleteMachinePoolTx(
+			ctx,
+			deleteTx,
+			notifications.NewTxNotifications(),
+			created.Org.ID,
+			poolBRow.ID,
+		)
+		if deleteErr == nil {
+			deleteErr = deleteTx.Commit(ctx)
+		}
+		deleteDone <- deleteErr
+	}()
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, reconcileDone, "reconciliation"); err != nil {
+		t.Fatalf("reconcile defaults: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "machine pool deletion"); err != nil {
+		t.Fatalf("delete machine pool: %v", err)
+	}
+	var runtimeProtectionEnabled bool
+	var mismatchCleared bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT pool.runtime_protection_enabled, machine.provider_runtime_mismatch_since IS NULL
+FROM machine_pools pool
+JOIN machines machine ON machine.org_id = pool.org_id AND machine.machine_pool_id = pool.id
+WHERE pool.org_id = $1 AND pool.id = $2 AND machine.id = $3`,
+		created.Org.ID,
+		poolARow.ID,
+		machineID,
+	).Scan(&runtimeProtectionEnabled, &mismatchCleared); err != nil {
+		t.Fatalf("load reconciled runtime protection: %v", err)
+	}
+	if !runtimeProtectionEnabled || !mismatchCleared {
+		t.Fatalf(
+			"runtime protection after reconciliation = enabled %t, mismatch cleared %t",
+			runtimeProtectionEnabled,
+			mismatchCleared,
+		)
+	}
+	var deleted bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT deleted_at IS NOT NULL FROM machine_pools WHERE org_id = $1 AND id = $2`,
+		created.Org.ID,
+		poolBRow.ID,
+	).Scan(&deleted); err != nil {
+		t.Fatalf("load deleted machine pool: %v", err)
+	}
+	if !deleted {
+		t.Fatal("second machine pool remained active")
+	}
+}
+
+func TestReconcileDefaultsSerializesModelBeforePoolForAgentWorkflows(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	defer pool.Close()
+	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateIdentityUser(t, ctx, store, "reconcile-launch-order@example.com", "Defaults Owner")
+	poolTemplate := defaultReconciliationPoolTemplate("reconcile-launch-order-pool")
+	providerTemplate := defaultReconciliationModelProviderTemplate()
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:                        user.ID,
+		Name:                          "Reconcile Launch Order",
+		IdempotencyKey:                "reconcile-launch-order",
+		DefaultMachinePools:           []executionstore.DefaultMachinePoolTemplate{poolTemplate},
+		ProvisionDefaultModelProvider: true,
+	})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	mustCompleteDefaultModelProviderProvisioning(
+		t, ctx, store, created.Org.ID, providerTemplate, "provider-token",
+	)
+	poolRow, err := testQueries(store).GetMachinePoolByName(
+		ctx,
+		dbsqlc.GetMachinePoolByNameParams{OrgID: created.Org.ID, Name: poolTemplate.Name},
+	)
+	if err != nil {
+		t.Fatalf("get default machine pool: %v", err)
+	}
+	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, providerTemplate.Name)
+	if err != nil {
+		t.Fatalf("get default model provider: %v", err)
+	}
+	configuredModel, err := store.Models().GetConfiguredModelByName(
+		ctx,
+		created.Org.ID,
+		provider.ID,
+		providerTemplate.Models[0].Name,
+	)
+	if err != nil {
+		t.Fatalf("get default configured model: %v", err)
+	}
+	compileConfig := func(source string) agentconfig.Result {
+		t.Helper()
+		compiled, compileErr := agentconfig.Compile(
+			agentconfig.SourceFormatYAML,
+			[]byte(source),
+			agentconfig.CompileOptions{
+				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+					return resolvedTestModelSelection(configuredModel), nil
+				},
+				ResolveMachinePoolName: func(string) (string, error) {
+					return publicid.Encode(publicid.KindMachinePool, poolRow.ID)
+				},
+			},
+		)
+		if compileErr != nil {
+			t.Fatalf("compile agent config: %v", compileErr)
+		}
+		return compiled
+	}
+	initialSource := `
+instruction: Exercise model and pool lock ordering.
+model:
+  provider_config: reconcile-openrouter
+  name: existing-model
+`
+	initialCompiled := compileConfig(initialSource)
+	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID:               created.Project.ID,
+		Definition:              json.RawMessage(initialCompiled.CanonicalJSON),
+		Source:                  initialSource,
+		ConfiguredModelID:       configuredModel.ID,
+		CompiledDefinition:      json.RawMessage(initialCompiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: initialCompiled.Hash,
+	})
+	if err != nil {
+		t.Fatalf("create launch config: %v", err)
+	}
+	configOrderAgentName := "Reconcile Config Order Agent"
+	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:     created.Project.ID,
+		AgentConfigID: config.ID,
+		LaunchedBy:    userPrincipal(user.ID),
+		Name:          &configOrderAgentName,
+	})
+	if err != nil {
+		t.Fatalf("launch agent: %v", err)
+	}
+	nextSource := `
+instruction: Exercise model and pool lock ordering.
+model:
+  provider_config: reconcile-openrouter
+  name: existing-model
+machine_sources:
+  - machine_pool_name: reconcile-launch-order-pool
+`
+	nextCompiled := compileConfig(nextSource)
+	nextConfigInput := executionstore.CreateAgentConfigInput{
+		ProjectID:               created.Project.ID,
+		Definition:              json.RawMessage(nextCompiled.CanonicalJSON),
+		Source:                  nextSource,
+		ConfiguredModelID:       configuredModel.ID,
+		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),
+		CompilerVersion:         agentconfig.CompilerVersion,
+		EffectiveDefinitionHash: nextCompiled.Hash,
+	}
+	nextConfig, err := store.Execution().CreateAgentConfig(ctx, nextConfigInput)
+	if err != nil {
+		t.Fatalf("create pool-backed config: %v", err)
+	}
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockMachinePoolForLifecycle(
+		ctx,
+		dbsqlc.LockMachinePoolForLifecycleParams{OrgID: created.Org.ID, ID: poolRow.ID},
+	); err != nil {
+		t.Fatalf("lock machine pool: %v", err)
+	}
+	desiredPool := poolTemplate
+	desiredPool.Description = "reconciled"
+	desiredProvider := providerTemplate
+	desiredProvider.BaseURL = "https://reconciled.example.com/v1"
+	reconcileDone := integrationdb.RunAsyncError(func() error {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{
+				Apply:                true,
+				DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
+				DefaultModelProvider: &desiredProvider,
+			},
+		)
+		return reconcileErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	changeDone := integrationdb.RunAsyncError(func() error {
+		_, changeErr := store.Execution().IntegrationChangeAgentConfigOnce(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: nextConfigInput,
+			AgentID:                launched.Agent.ID,
+			ActorType:              identitystore.PrincipalTypeUser,
+			ActorID:                user.ID,
+			IdempotencyKey:         "reconcile-config-order",
+		})
+		return changeErr
+	})
+	waitForDefaultReconciliationLockWaiter(
+		t,
+		ctx,
+		pool,
+		"LockConfiguredModelForUse",
+		"agent config change",
+		changeDone,
+	)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, reconcileDone, "reconciliation"); err != nil {
+		t.Fatalf("reconcile defaults: %v", err)
+	}
+	if err := integrationdb.Await(t, changeDone, "agent config change"); err != nil {
+		t.Fatalf("change agent config: %v", err)
+	}
+
+	launchControlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(launchControlTx).LockMachinePoolForLifecycle(
+		ctx,
+		dbsqlc.LockMachinePoolForLifecycleParams{OrgID: created.Org.ID, ID: poolRow.ID},
+	); err != nil {
+		t.Fatalf("lock machine pool for launch: %v", err)
+	}
+	desiredPool.Description = "reconciled for launch"
+	desiredProvider.BaseURL = "https://launch-reconciled.example.com/v1"
+	reconcileDone = integrationdb.RunAsyncError(func() error {
+		_, reconcileErr := store.Organizations().ReconcileDefaults(
+			ctx,
+			orglifecycle.ReconcileDefaultsInput{
+				Apply:                true,
+				DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
+				DefaultModelProvider: &desiredProvider,
+			},
+		)
+		return reconcileErr
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
+	launchOrderAgentName := "Reconcile Launch Order Agent"
+	launchDone := integrationdb.RunAsyncError(func() error {
+		_, launchErr := store.Execution().IntegrationLaunchAgentOnce(ctx, executionstore.LaunchAgentInput{
+			ProjectID:      created.Project.ID,
+			AgentConfigID:  nextConfig.ID,
+			LaunchedBy:     userPrincipal(user.ID),
+			Name:           &launchOrderAgentName,
+			IdempotencyKey: "reconcile-launch-order-agent",
+		})
+		return launchErr
+	})
+	waitForDefaultReconciliationLockWaiter(
+		t,
+		ctx,
+		pool,
+		"LockConfiguredModelForUse",
+		"agent launch",
+		launchDone,
+	)
+	if err := launchControlTx.Commit(ctx); err != nil {
+		t.Fatalf("release launch control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, reconcileDone, "launch reconciliation"); err != nil {
+		t.Fatalf("reconcile defaults for launch: %v", err)
+	}
+	if err := integrationdb.Await(t, launchDone, "agent launch"); err != nil {
+		t.Fatalf("launch agent: %v", err)
+	}
+}
+
+func defaultReconciliationPoolTemplate(name string) executionstore.DefaultMachinePoolTemplate {
+	return defaultMachinePoolTemplateWithDefaultMachineForTest(
+		executionstore.DefaultMachinePoolTemplate{
+			Name:               name,
+			Description:        "initial",
+			Provider:           "blaxel",
+			ProviderAuthEnvVar: "RECONCILE_POOL_TOKEN",
+			MaxTotalMachines:   2,
+			MaxTotalMemoryMB:   intPtrForMachinePoolTest(4096),
+		},
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU:             1,
+			DefaultMachineMemoryMB:        512,
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"default"}`),
+		},
+	)
+}
+
+func defaultReconciliationModelProviderTemplate() modelstore.DefaultModelProviderTemplate {
+	return modelstore.DefaultModelProviderTemplate{
+		Provisioner:          "openrouter",
+		Name:                 "reconcile-openrouter",
+		CredentialSecretName: "reconcile-openrouter-key",
+		APIFormat:            modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:           modelprotocol.APIVariantOpenRouter,
+		BaseURL:              "https://example.com/v1",
+		EndpointPath:         "/chat/completions",
+		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
+		Models: []modelstore.DefaultConfiguredModelTemplate{
+			{
+				Name: "existing-model", ProviderModelSlug: "example/existing",
+				ContextWindowTokens: 8192, MaxOutputTokens: 1024,
+			},
+		},
+	}
+}
+
+func waitForDefaultReconciliationLockWaiter(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	queryName, operation string,
+	done <-chan error,
+) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("%s completed before waiting on %s: %v", operation, queryName, err)
+	default:
+	}
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, queryName, 1)
+	select {
+	case err := <-done:
+		t.Fatalf("%s completed while waiting on %s: %v", operation, queryName, err)
+	default:
 	}
 }

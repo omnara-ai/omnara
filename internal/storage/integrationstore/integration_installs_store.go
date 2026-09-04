@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -31,6 +33,9 @@ func (s *Store) UpsertIntegrationInstall(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return IntegrationInstallRecord{}, err
+	}
 	if err := s.access.ValidateInstallBinding(
 		ctx,
 		tx,
@@ -52,7 +57,7 @@ func (s *Store) UpsertIntegrationInstall(
 	); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
-	if err := validateIntegrationInstallCredential(ctx, qtx, input); err != nil {
+	if err := validateIntegrationInstallCredential(ctx, tx, input); err != nil {
 		return IntegrationInstallRecord{}, err
 	}
 
@@ -140,7 +145,15 @@ func (s *Store) GetIntegrationInstall(
 	ctx context.Context,
 	projectID, id ID,
 ) (IntegrationInstallRecord, error) {
-	row, err := s.q.GetIntegrationInstall(
+	return getIntegrationInstall(ctx, s.q, projectID, id)
+}
+
+func getIntegrationInstall(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, id ID,
+) (IntegrationInstallRecord, error) {
+	row, err := q.GetIntegrationInstall(
 		ctx,
 		dbsqlc.GetIntegrationInstallParams{ProjectID: projectID, ID: id},
 	)
@@ -324,12 +337,55 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and integration install are required")
 	}
+	_, err := storeutil.RetryTransaction(ctx, func() (struct{}, error) {
+		return struct{}{}, s.deleteIntegrationInstallOnce(ctx, projectID, id)
+	})
+	return err
+}
+
+func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id ID) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin delete integration install: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
+	install, err := getIntegrationInstall(ctx, q, projectID, id)
+	if err != nil {
+		return err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, projectID); err != nil {
+		return err
+	}
+	agentIDs, err := q.ListIntegrationInstallAgentIDsForLifecycle(
+		ctx,
+		dbsqlc.ListIntegrationInstallAgentIDsForLifecycleParams{
+			ProjectID:            projectID,
+			IntegrationInstallID: id,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("list integration install agents for lifecycle: %w", err)
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
+	for _, agentID := range agentIDs {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return err
+	}
+	if _, err := q.LockIntegrationInstallForMutation(
+		ctx,
+		dbsqlc.LockIntegrationInstallForMutationParams{ProjectID: projectID, ID: id},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock integration install for deletion: %w", err)
+	}
+	if _, err := getIntegrationInstall(ctx, q, projectID, id); err != nil {
+		return err
+	}
 	if err := s.access.ClearInstallTargetsFromAgents(ctx, tx, projectID, id); err != nil {
 		return err
 	}
@@ -407,26 +463,23 @@ func normalizeUpsertIntegrationInstallInput(
 
 func validateIntegrationInstallCredential(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	tx pgx.Tx,
 	input UpsertIntegrationInstallInput,
 ) error {
 	if isNilID(input.CredentialSecretID) {
 		return nil
 	}
-	row, err := qtx.GetSecret(
-		ctx,
-		dbsqlc.GetSecretParams{OrgID: input.OrgID, ID: input.CredentialSecretID},
-	)
+	credential, err := secretops.LockReference(ctx, tx, input.OrgID, input.CredentialSecretID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
 		}
 		return fmt.Errorf("validate integration install credential: %w", err)
 	}
-	if management.Kind(row.ManagementKind) != management.Tenant ||
-		row.OwnerKind != secretstore.SecretOwnerProject || row.OwnerProjectID == nil ||
-		*row.OwnerProjectID != input.ProjectID ||
-		row.Kind != string(secretstore.SecretKindSlackAppCredentials) {
+	if credential.ManagementKind != management.Tenant ||
+		credential.OwnerKind != secretstore.SecretOwnerProject ||
+		credential.OwnerProjectID != input.ProjectID ||
+		credential.Kind != secretstore.SecretKindSlackAppCredentials {
 		return storeerr.ErrNotFound
 	}
 	return nil

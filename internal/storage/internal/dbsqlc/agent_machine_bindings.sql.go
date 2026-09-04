@@ -357,6 +357,46 @@ func (q *Queries) ListAgentMachineBindings(ctx context.Context, arg ListAgentMac
 	return items, nil
 }
 
+const listAttachedAgentPoolMachineIDsForLifecycle = `-- name: ListAttachedAgentPoolMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN agent_machine_bindings binding ON binding.org_id = machine.org_id
+  AND binding.machine_id = machine.id
+WHERE binding.project_id = $1
+  AND binding.agent_id = $2
+  AND binding.binding_kind = 'pool'
+  AND binding.state = 'attached'
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+  AND machine.lifecycle_state NOT IN ('deleting', 'delete_failed', 'deleted')
+ORDER BY machine.id
+`
+
+type ListAttachedAgentPoolMachineIDsForLifecycleParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListAttachedAgentPoolMachineIDsForLifecycle(ctx context.Context, arg ListAttachedAgentPoolMachineIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listAttachedAgentPoolMachineIDsForLifecycle, arg.ProjectID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAttachedMachineBindingOverlays = `-- name: ListAttachedMachineBindingOverlays :many
 SELECT id, env_overlay, secret_env_overlay
 FROM agent_machine_bindings

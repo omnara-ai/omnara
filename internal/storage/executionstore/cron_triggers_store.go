@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -122,6 +123,9 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	input.OrgID = project.OrgID
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
+		return CronTriggerRecord{}, err
+	}
 	switch input.Target.Kind {
 	case CronTriggerTargetAgentProfile:
 		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
@@ -275,6 +279,13 @@ func (s *Store) UpdateCronTrigger(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
+	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
+	if err != nil {
+		return CronTriggerRecord{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return CronTriggerRecord{}, err
+	}
 	record, err := lockCronTriggerTx(ctx, qtx, input.ProjectID, input.TriggerID)
 	if err != nil {
 		return CronTriggerRecord{}, err

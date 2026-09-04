@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -37,6 +38,9 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 		return AgentConfigRecord{}, err
 	}
 	input.OrgID = project.OrgID
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return AgentConfigRecord{}, err
+	}
 	record, err := insertAgentConfigTx(ctx, qtx, input)
 	if err != nil {
 		return AgentConfigRecord{}, err
@@ -206,7 +210,7 @@ func insertAgentConfigTx(
 	if isNilID(input.ConfiguredModelID) {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
 	}
-	if err := validateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
+	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
 	row, err := qtx.UpsertAgentConfigByHash(
@@ -285,7 +289,11 @@ func insertAgentConfigTx(
 	return record, nil
 }
 
-func validateAgentConfigModelContractTx(ctx context.Context, qtx *dbsqlc.Queries, input CreateAgentConfigInput) error {
+func lockAndValidateAgentConfigModelContractTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+) error {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		input.CompiledDefinition,
 		input.CompilerVersion,

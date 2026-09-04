@@ -1,11 +1,9 @@
 package orglifecycle
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -55,6 +54,9 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, fmt.Errorf("begin create org for user: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lifecyclelock.OrganizationShared(ctx, tx, input.OrgID); err != nil {
+		return identitystore.CreateOrgForUserRecord{}, err
+	}
 	record, err := s.identity.ProvisionOrganizationTx(ctx, tx, identitystore.ProvisionOrganizationInput{
 		OrgID:          input.OrgID,
 		UserID:         input.UserID,
@@ -136,11 +138,11 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectCronTriggers(ctx, dbsqlc.DeleteProjectCronTriggersParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project cron triggers: %w", err)
 	}
-	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
-		return fmt.Errorf("delete project integration targets: %w", err)
-	}
 	if err := q.DeleteProjectIntegrationInstalls(ctx, dbsqlc.DeleteProjectIntegrationInstallsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration installs: %w", err)
+	}
+	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project integration targets: %w", err)
 	}
 	return nil
 }
@@ -171,14 +173,14 @@ func deleteProjectOwnedContentTx(
 	if referenced {
 		return nil, fmt.Errorf("a project-owned secret is still referenced outside the project: %w", storeerr.ErrConflict)
 	}
+	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
+		return nil, fmt.Errorf("delete project secrets: %w", err)
+	}
 	if err := q.DeleteProjectSecretGrants(ctx, dbsqlc.DeleteProjectSecretGrantsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return nil, fmt.Errorf("delete project secret grants: %w", err)
 	}
 	if err := q.DeleteProjectSecretVersions(ctx, dbsqlc.DeleteProjectSecretVersionsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("destroy project secret versions: %w", err)
-	}
-	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
-		return nil, fmt.Errorf("delete project secrets: %w", err)
 	}
 	return skillArchives, nil
 }
@@ -186,18 +188,11 @@ func deleteProjectOwnedContentTx(
 func (s *Service) teardownProjectAgentsTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	q *dbsqlc.Queries,
 	txNotifications *notifications.TxNotifications,
 	projectID ID,
+	agentIDs []ID,
 	actor *executionstore.ActorParams,
 ) ([]executionstore.MachineRecord, error) {
-	agentIDs, err := q.ListActiveAgentIDsForProjectDeletion(
-		ctx,
-		dbsqlc.ListActiveAgentIDsForProjectDeletionParams{ProjectID: projectID},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list project agents for deletion: %w", err)
-	}
 	machines := make([]executionstore.MachineRecord, 0)
 	for _, agentID := range agentIDs {
 		agentMachines, err := s.execution.ArchiveAgentTx(ctx, tx, txNotifications, projectID, agentID, actor)
@@ -209,21 +204,202 @@ func (s *Service) teardownProjectAgentsTx(
 	return machines, nil
 }
 
-func lockProjectAgentLifecyclesTx(ctx context.Context, q *dbsqlc.Queries, projectIDs []ID) error {
-	sorted := make([]ID, len(projectIDs))
-	copy(sorted, projectIDs)
-	sort.Slice(sorted, func(i, j int) bool {
-		return bytes.Compare(sorted[i][:], sorted[j][:]) < 0
-	})
-	for _, projectID := range sorted {
-		if err := q.LockProjectAgentLifecycleExclusive(
-			ctx,
-			dbsqlc.LockProjectAgentLifecycleExclusiveParams{ProjectID: projectID.String()},
-		); err != nil {
-			return fmt.Errorf("lock project agent lifecycle: %w", err)
-		}
+type organizationMachineLifecyclePlan struct {
+	agentIDsByProject map[ID][]ID
+	poolIDs           []ID
+	byoMachineIDs     []ID
+}
+
+func prelockProjectMachineLifecycleTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	q *dbsqlc.Queries,
+	orgID, projectID ID,
+) ([]ID, error) {
+	agentIDs, err := q.ListActiveAgentIDsForProjectDeletion(
+		ctx,
+		dbsqlc.ListActiveAgentIDsForProjectDeletionParams{ProjectID: projectID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project agents for lifecycle: %w", err)
 	}
-	return nil
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentIDs))
+	for _, agentID := range agentIDs {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: agentID})
+	}
+	grantRows, err := q.ListProjectMachinePoolGrantRefsForProjectLifecycle(
+		ctx,
+		dbsqlc.ListProjectMachinePoolGrantRefsForProjectLifecycleParams{
+			OrgID: orgID, ProjectID: projectID,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project pool grants for lifecycle: %w", err)
+	}
+	poolRefs := make([]lifecyclelock.PoolRef, 0, len(grantRows))
+	for _, grantRow := range grantRows {
+		poolRefs = append(poolRefs, lifecyclelock.PoolRef{OrgID: orgID, PoolID: grantRow.MachinePoolID})
+	}
+	if err := lifecyclelock.Pools(ctx, tx, poolRefs); err != nil {
+		return nil, err
+	}
+	grantRows, err = q.ListProjectMachinePoolGrantRefsForProjectLifecycle(
+		ctx,
+		dbsqlc.ListProjectMachinePoolGrantRefsForProjectLifecycleParams{
+			OrgID: orgID, ProjectID: projectID,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reload project pool grants for lifecycle: %w", err)
+	}
+	grantIDs := make([]ID, 0, len(grantRows))
+	for _, grantRow := range grantRows {
+		grantIDs = append(grantIDs, grantRow.ID)
+	}
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
+		return nil, err
+	}
+	machineIDs, err := q.ListProjectMachineIDsForLifecycle(
+		ctx,
+		dbsqlc.ListProjectMachineIDsForLifecycleParams{OrgID: orgID, ProjectID: projectID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project machines for lifecycle: %w", err)
+	}
+	machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return nil, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return nil, err
+	}
+	return agentIDs, nil
+}
+
+func prelockOrganizationMachineLifecycleTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	q *dbsqlc.Queries,
+	orgID ID,
+) (organizationMachineLifecyclePlan, error) {
+	agentRows, err := q.ListActiveAgentRefsForOrganizationDeletion(
+		ctx,
+		dbsqlc.ListActiveAgentRefsForOrganizationDeletionParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"list organization agents for lifecycle: %w",
+			err,
+		)
+	}
+	agentRefs, agentIDsByProject := organizationAgentLifecycleRefs(agentRows)
+	poolIDs, err := q.ListActiveMachinePoolIDsForOrganizationDeletion(
+		ctx,
+		dbsqlc.ListActiveMachinePoolIDsForOrganizationDeletionParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"list organization machine pools for lifecycle: %w",
+			err,
+		)
+	}
+	grantRows, err := q.ListProjectMachinePoolGrantRefsForOrganizationLifecycle(
+		ctx,
+		dbsqlc.ListProjectMachinePoolGrantRefsForOrganizationLifecycleParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"list organization pool grants for lifecycle: %w",
+			err,
+		)
+	}
+	poolRefs := make([]lifecyclelock.PoolRef, 0, len(poolIDs)+len(grantRows))
+	for _, poolID := range poolIDs {
+		poolRefs = append(poolRefs, lifecyclelock.PoolRef{OrgID: orgID, PoolID: poolID})
+	}
+	for _, grantRow := range grantRows {
+		poolRefs = append(poolRefs, lifecyclelock.PoolRef{OrgID: orgID, PoolID: grantRow.MachinePoolID})
+	}
+	if err := lifecyclelock.Pools(ctx, tx, poolRefs); err != nil {
+		return organizationMachineLifecyclePlan{}, err
+	}
+	poolIDs, err = q.ListActiveMachinePoolIDsForOrganizationDeletion(
+		ctx,
+		dbsqlc.ListActiveMachinePoolIDsForOrganizationDeletionParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"reload organization machine pools for lifecycle: %w",
+			err,
+		)
+	}
+	grantRows, err = q.ListProjectMachinePoolGrantRefsForOrganizationLifecycle(
+		ctx,
+		dbsqlc.ListProjectMachinePoolGrantRefsForOrganizationLifecycleParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"reload organization pool grants for lifecycle: %w",
+			err,
+		)
+	}
+	grantIDs := make([]ID, 0, len(grantRows))
+	for _, grantRow := range grantRows {
+		grantIDs = append(grantIDs, grantRow.ID)
+	}
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
+		return organizationMachineLifecyclePlan{}, err
+	}
+	machineIDs, err := q.ListOrganizationMachineIDsForLifecycle(
+		ctx,
+		dbsqlc.ListOrganizationMachineIDsForLifecycleParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"list organization machines for lifecycle: %w",
+			err,
+		)
+	}
+	machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return organizationMachineLifecyclePlan{}, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return organizationMachineLifecyclePlan{}, err
+	}
+	byoMachineIDs, err := q.ListActiveBYOMachineIDsForOrganizationDeletion(
+		ctx,
+		dbsqlc.ListActiveBYOMachineIDsForOrganizationDeletionParams{OrgID: orgID},
+	)
+	if err != nil {
+		return organizationMachineLifecyclePlan{}, fmt.Errorf(
+			"list organization BYO machines: %w",
+			err,
+		)
+	}
+	return organizationMachineLifecyclePlan{
+		agentIDsByProject: agentIDsByProject,
+		poolIDs:           poolIDs,
+		byoMachineIDs:     byoMachineIDs,
+	}, nil
+}
+
+func organizationAgentLifecycleRefs(
+	rows []dbsqlc.ListActiveAgentRefsForOrganizationDeletionRow,
+) ([]lifecyclelock.AgentRef, map[ID][]ID) {
+	refs := make([]lifecyclelock.AgentRef, 0, len(rows))
+	idsByProject := make(map[ID][]ID)
+	for _, row := range rows {
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
+		idsByProject[row.ProjectID] = append(idsByProject[row.ProjectID], row.AgentID)
+	}
+	return refs, idsByProject
 }
 
 func (s *Service) DeleteProject(
@@ -241,17 +417,47 @@ func (s *Service) DeleteProject(
 	if err != nil {
 		return nil, err
 	}
+	return storeutil.RetryTransaction(ctx, func() ([]executionstore.MachineRecord, error) {
+		return s.deleteProjectOnce(ctx, orgID, projectID, actor)
+	})
+}
+
+func (s *Service) deleteProjectOnce(
+	ctx context.Context,
+	orgID, projectID ID,
+	actor *executionstore.ActorParams,
+) ([]executionstore.MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete project: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	if err := lockProjectAgentLifecyclesTx(ctx, q, []ID{projectID}); err != nil {
+	if err := lifecyclelock.OrganizationShared(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
+	if err := lifecyclelock.ProjectsExclusive(ctx, tx, []ID{projectID}); err != nil {
+		return nil, err
+	}
+	if _, err := q.GetProject(ctx, dbsqlc.GetProjectParams{OrgID: orgID, ID: projectID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, storeerr.ErrNotFound
+		}
+		return nil, fmt.Errorf("load project for deletion: %w", err)
+	}
+	agentIDs, err := prelockProjectMachineLifecycleTx(ctx, tx, q, orgID, projectID)
+	if err != nil {
 		return nil, err
 	}
 	txNotifications := s.newTxNotifications()
-	machines, err := s.teardownProjectAgentsTx(ctx, tx, q, txNotifications, projectID, actor)
+	machines, err := s.teardownProjectAgentsTx(
+		ctx,
+		tx,
+		txNotifications,
+		projectID,
+		agentIDs,
+		actor,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -282,8 +488,6 @@ func (s *Service) DeleteProject(
 	return machines, nil
 }
 
-const deleteOrganizationLockAttempts = 5
-
 func (s *Service) DeleteOrganization(
 	ctx context.Context,
 	orgID ID,
@@ -299,168 +503,137 @@ func (s *Service) DeleteOrganization(
 	if err != nil {
 		return nil, err
 	}
-	lockProjectIDs, err := s.q.ListActiveProjectIDsForOrganization(
+	return storeutil.RetryTransaction(ctx, func() ([]executionstore.MachineRecord, error) {
+		return s.deleteOrganizationOnce(ctx, orgID, actor)
+	})
+}
+
+//nolint:lll // Keeping generated query parameters inline makes the transaction's cascade order auditable.
+func (s *Service) deleteOrganizationOnce(
+	ctx context.Context,
+	orgID ID,
+	actor *executionstore.ActorParams,
+) ([]executionstore.MachineRecord, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin delete organization: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := dbsqlc.New(tx)
+	if err := lifecyclelock.OrganizationExclusive(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
+	active, err := q.OrgExistsActive(ctx, dbsqlc.OrgExistsActiveParams{ID: orgID})
+	if err != nil {
+		return nil, fmt.Errorf("load organization for deletion: %w", err)
+	}
+	if !active {
+		return nil, storeerr.ErrNotFound
+	}
+	orgProjectIDs, err := q.ListActiveProjectIDsForOrganization(
 		ctx,
 		dbsqlc.ListActiveProjectIDsForOrganizationParams{OrgID: orgID},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list organization projects for lifecycle locks: %w", err)
+		return nil, fmt.Errorf("list organization projects: %w", err)
 	}
-	for range deleteOrganizationLockAttempts {
-		machines, unlockedProjectIDs, err := s.deleteOrganizationAttempt(
-			ctx,
-			orgID,
-			actor,
-			lockProjectIDs,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if len(unlockedProjectIDs) == 0 {
-			return machines, nil
-		}
-		lockProjectIDs = append(lockProjectIDs, unlockedProjectIDs...)
-	}
-	return nil, fmt.Errorf("organization projects kept changing during deletion: %w", storeerr.ErrConflict)
-}
-
-// deleteOrganizationAttempt aborts and returns the unlocked project IDs when
-// the in-transaction project list contains projects outside the locked set,
-// so DeleteOrganization can extend the lock set and retry.
-//
-//nolint:lll // Keeping generated query parameters inline makes the transaction's cascade order auditable.
-func (s *Service) deleteOrganizationAttempt(
-	ctx context.Context,
-	orgID ID,
-	actor *executionstore.ActorParams,
-	lockProjectIDs []ID,
-) ([]executionstore.MachineRecord, []ID, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	plan, err := prelockOrganizationMachineLifecycleTx(ctx, tx, q, orgID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("begin delete organization: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	if err := lockProjectAgentLifecyclesTx(ctx, q, lockProjectIDs); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	txNotifications := s.newTxNotifications()
 	rows, err := q.DeleteOrganization(ctx, dbsqlc.DeleteOrganizationParams{ID: orgID})
 	if err != nil {
-		return nil, nil, fmt.Errorf("delete organization: %w", err)
+		return nil, fmt.Errorf("delete organization: %w", err)
 	}
 	if rows == 0 {
-		return nil, nil, storeerr.ErrNotFound
-	}
-	orgProjectIDs, err := q.ListActiveProjectIDsForOrganization(ctx, dbsqlc.ListActiveProjectIDsForOrganizationParams{OrgID: orgID})
-	if err != nil {
-		return nil, nil, fmt.Errorf("list organization projects: %w", err)
-	}
-	locked := make(map[ID]bool, len(lockProjectIDs))
-	for _, projectID := range lockProjectIDs {
-		locked[projectID] = true
-	}
-	unlockedProjectIDs := make([]ID, 0)
-	for _, projectID := range orgProjectIDs {
-		if !locked[projectID] {
-			unlockedProjectIDs = append(unlockedProjectIDs, projectID)
-		}
-	}
-	if len(unlockedProjectIDs) > 0 {
-		return nil, unlockedProjectIDs, nil
+		return nil, storeerr.ErrNotFound
 	}
 	machines := make([]executionstore.MachineRecord, 0)
 	for _, projectID := range orgProjectIDs {
-		projectMachines, err := s.teardownProjectAgentsTx(ctx, tx, q, txNotifications, projectID, actor)
+		projectMachines, err := s.teardownProjectAgentsTx(
+			ctx,
+			tx,
+			txNotifications,
+			projectID,
+			plan.agentIDsByProject[projectID],
+			actor,
+		)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		machines = append(machines, projectMachines...)
 	}
-	poolIDs, err := q.ListActiveMachinePoolIDsForOrganizationDeletion(
-		ctx,
-		dbsqlc.ListActiveMachinePoolIDsForOrganizationDeletionParams{OrgID: orgID},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list organization machine pools: %w", err)
-	}
-	for _, poolID := range poolIDs {
+	for _, poolID := range plan.poolIDs {
 		poolMachines, err := s.execution.DeleteMachinePoolTx(ctx, tx, txNotifications, orgID, poolID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("delete organization machine pool %s: %w", poolID, err)
+			return nil, fmt.Errorf("delete organization machine pool %s: %w", poolID, err)
 		}
 		machines = append(machines, poolMachines...)
 	}
-	byoMachineIDs, err := q.ListActiveBYOMachineIDsForOrganizationDeletion(
-		ctx,
-		dbsqlc.ListActiveBYOMachineIDsForOrganizationDeletionParams{OrgID: orgID},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list organization BYO machines: %w", err)
-	}
-	for _, machineID := range byoMachineIDs {
+	for _, machineID := range plan.byoMachineIDs {
 		_, err := s.execution.DeleteMachineTx(ctx, tx, txNotifications, executionstore.DeleteMachineInput{
 			OrgID: orgID, MachineID: machineID,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("delete organization BYO machine %s: %w", machineID, err)
+			return nil, fmt.Errorf("delete organization BYO machine %s: %w", machineID, err)
 		}
 	}
 	for _, projectID := range orgProjectIDs {
 		if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	if err := q.DeleteOrganizationConfiguredModels(ctx, dbsqlc.DeleteOrganizationConfiguredModelsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization configured models: %w", err)
+		return nil, fmt.Errorf("delete organization configured models: %w", err)
 	}
 	if err := q.DeleteOrganizationModelProviderConfigs(ctx, dbsqlc.DeleteOrganizationModelProviderConfigsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization model provider configs: %w", err)
+		return nil, fmt.Errorf("delete organization model provider configs: %w", err)
 	}
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := q.DeleteSkillsForOwner(ctx, dbsqlc.DeleteSkillsForOwnerParams{OrgID: orgID, OwnerProjectID: nil}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization skills: %w", err)
+		return nil, fmt.Errorf("delete organization skills: %w", err)
 	}
 	if err := q.DeleteSkillRevisionsForOwner(ctx, dbsqlc.DeleteSkillRevisionsForOwnerParams{OrgID: orgID, OwnerProjectID: nil}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization skill revisions: %w", err)
+		return nil, fmt.Errorf("delete organization skill revisions: %w", err)
 	}
 	if err := q.DeleteOrganizationSkillGrants(ctx, dbsqlc.DeleteOrganizationSkillGrantsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization skill grants: %w", err)
-	}
-	if err := q.DeleteOrganizationSecretGrants(ctx, dbsqlc.DeleteOrganizationSecretGrantsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization secret grants: %w", err)
-	}
-	if err := q.DeleteOrganizationSecretOAuthLeases(ctx, dbsqlc.DeleteOrganizationSecretOAuthLeasesParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization secret oauth leases: %w", err)
+		return nil, fmt.Errorf("delete organization skill grants: %w", err)
 	}
 	if err := q.DeleteDefaultModelProviderProvisioningForOrganization(
 		ctx,
 		dbsqlc.DeleteDefaultModelProviderProvisioningForOrganizationParams{OrganizationID: orgID},
 	); err != nil {
-		return nil, nil, fmt.Errorf("delete default model provider provisioning: %w", err)
+		return nil, fmt.Errorf("delete default model provider provisioning: %w", err)
 	}
 	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization secrets: %w", err)
+		return nil, fmt.Errorf("delete organization secrets: %w", err)
+	}
+	if err := q.DeleteOrganizationSecretGrants(ctx, dbsqlc.DeleteOrganizationSecretGrantsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization secret grants: %w", err)
+	}
+	if err := q.DeleteOrganizationSecretOAuthLeases(ctx, dbsqlc.DeleteOrganizationSecretOAuthLeasesParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization secret oauth leases: %w", err)
 	}
 	// Ciphertext of secrets still referenced by pool rows awaiting machine
 	// teardown survives until teardown completion re-runs this inline.
 	if _, err := q.DestroyUnreferencedSecretVersionsForDeletedOrg(ctx, dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("destroy organization secret versions: %w", err)
+		return nil, fmt.Errorf("destroy organization secret versions: %w", err)
 	}
 	if err := q.DeleteOrgInvitationsForOrgDeletion(ctx, dbsqlc.DeleteOrgInvitationsForOrgDeletionParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization invitations: %w", err)
+		return nil, fmt.Errorf("delete organization invitations: %w", err)
 	}
 	if err := q.DeleteOrganizationProjects(ctx, dbsqlc.DeleteOrganizationProjectsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization projects: %w", err)
+		return nil, fmt.Errorf("delete organization projects: %w", err)
 	}
 	if err := q.DeleteOrganizationMemberships(ctx, dbsqlc.DeleteOrganizationMembershipsParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization memberships: %w", err)
+		return nil, fmt.Errorf("delete organization memberships: %w", err)
 	}
 	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
-		return nil, nil, fmt.Errorf("delete organization api keys: %w", err)
+		return nil, fmt.Errorf("delete organization api keys: %w", err)
 	}
 	if err := storeutil.CommitTxWithNotifications(
 		ctx,
@@ -469,8 +642,8 @@ func (s *Service) deleteOrganizationAttempt(
 		s.postCommitPublisher,
 		"delete organization",
 	); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
-	return machines, nil, nil
+	return machines, nil
 }
