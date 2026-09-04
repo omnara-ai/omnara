@@ -88,7 +88,7 @@ Most agents can use the configured model's defaults. Override these fields only 
 | --- | --- |
 | `context_window_tokens` | Cap the effective context window below the model's maximum. |
 | `default_max_output_tokens` | Per-request output-token cap sent to the provider. |
-| `cache_retention` | Prompt-cache preference: `short` (default) applies the route's default caching and, where the route accepts one, a stable conversation key for cache-aware routing; `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache); `none` sends no Omnara-managed cache controls, though providers may still cache on their own. |
+| `cache_retention` | Prompt-cache preference: `short` (default) applies the route's default caching and, where the route accepts one, a stable conversation key for cache-aware routing; `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache; on Bedrock that requires Claude 4.5 or newer); `none` sends no Omnara-managed cache controls, though providers may still cache on their own. |
 | `reasoning.effort` | Reasoning effort for models that support it (for example `low`, `medium`, `high`). |
 
 ## Tools
