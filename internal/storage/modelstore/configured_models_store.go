@@ -113,6 +113,15 @@ func (s *Store) createConfiguredModelTx(
 	if _, err := ValidateAPIVariantOptions(input.APIVariantOptions); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
+	if err := validateTenantModelOnClusterProvider(
+		managementKind,
+		management.Kind(providerConfigRow.ManagementKind),
+		modelprotocol.APIVariant(providerConfigRow.ApiVariant),
+		input.ProviderModelSlug,
+		input.APIVariantOptions,
+	); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
 	if err := validateConfiguredModelOptions(
 		modelprotocol.APIFormat(providerConfigRow.ApiFormat),
 		configuredModelOptionsFromCreate(input),
@@ -331,6 +340,15 @@ func updateConfiguredModelTx(
 		return ConfiguredModelRecord{}, err
 	}
 	if _, err := ValidateAPIVariantOptions(input.APIVariantOptions); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
+	if err := validateTenantModelOnClusterProvider(
+		managementKind,
+		management.Kind(providerConfig.ManagementKind),
+		modelprotocol.APIVariant(providerConfig.ApiVariant),
+		input.ProviderModelSlug,
+		input.APIVariantOptions,
+	); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
 	if err := validateConfiguredModelOptions(

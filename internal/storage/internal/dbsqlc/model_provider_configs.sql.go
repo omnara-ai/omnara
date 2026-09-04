@@ -1579,7 +1579,7 @@ func (q *Queries) LockConfiguredModelForUse(ctx context.Context, arg LockConfigu
 }
 
 const lockModelProviderConfigForConfiguredModelCreate = `-- name: LockModelProviderConfigForConfiguredModelCreate :one
-SELECT id, management_kind, api_format
+SELECT id, management_kind, api_format, api_variant
 FROM model_provider_configs
 WHERE org_id = $1
   AND id = $2
@@ -1596,12 +1596,18 @@ type LockModelProviderConfigForConfiguredModelCreateRow struct {
 	ID             uuid.UUID
 	ManagementKind string
 	ApiFormat      string
+	ApiVariant     string
 }
 
 func (q *Queries) LockModelProviderConfigForConfiguredModelCreate(ctx context.Context, arg LockModelProviderConfigForConfiguredModelCreateParams) (LockModelProviderConfigForConfiguredModelCreateRow, error) {
 	row := q.db.QueryRow(ctx, lockModelProviderConfigForConfiguredModelCreate, arg.OrgID, arg.ID)
 	var i LockModelProviderConfigForConfiguredModelCreateRow
-	err := row.Scan(&i.ID, &i.ManagementKind, &i.ApiFormat)
+	err := row.Scan(
+		&i.ID,
+		&i.ManagementKind,
+		&i.ApiFormat,
+		&i.ApiVariant,
+	)
 	return i, err
 }
 

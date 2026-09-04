@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"math"
 	"net"
 	"net/url"
@@ -450,6 +451,52 @@ func isHTTPTokenChar(value byte) bool {
 	default:
 		return false
 	}
+}
+
+// Options a tenant may set on a cluster-managed OpenRouter provider: sampling and reasoning
+// controls per https://openrouter.ai/docs/api-reference/parameters. Provider routing, model
+// fallbacks, plugins, and transforms spend the shared account and are refused.
+var clusterOpenRouterTenantOptionKeys = map[string]bool{
+	"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
+	"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
+	"seed": true, "stop": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
+	"response_format": true, "parallel_tool_calls": true, "verbosity": true,
+	"reasoning": true, "reasoning_effort": true,
+	"usage": true, "user": true, "session_id": true, "prompt_cache_key": true,
+}
+
+func validateTenantModelOnClusterProvider(
+	modelKind, providerKind management.Kind,
+	apiVariant modelprotocol.APIVariant,
+	providerModelSlug string,
+	apiVariantOptions json.RawMessage,
+) error {
+	if modelKind != management.Tenant || providerKind != management.Cluster ||
+		apiVariant != modelprotocol.APIVariantOpenRouter {
+		return nil
+	}
+	if strings.Contains(providerModelSlug, ":") {
+		return fmt.Errorf(
+			"provider_model_slug cannot carry a routing variant suffix on a cluster-managed provider: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	var options map[string]json.RawMessage
+	if err := json.Unmarshal(storeutil.NormalizeJSON(apiVariantOptions), &options); err != nil {
+		return fmt.Errorf(
+			"%s must be a JSON object: %w",
+			apiVariantOptionsPath, errors.Join(err, storeerr.ErrInvalidModelProviderConfig),
+		)
+	}
+	for key := range options {
+		if !clusterOpenRouterTenantOptionKeys[key] {
+			return fmt.Errorf(
+				"api_variant_options.%s is not allowed on a cluster-managed provider: %w",
+				key, storeerr.ErrInvalidModelProviderConfig,
+			)
+		}
+	}
+	return nil
 }
 
 func validateModelProviderAPIVariant(
