@@ -556,7 +556,11 @@ func TestValidateTenantModelOnClusterProvider(t *testing.T) {
 		options                 string
 		wantErr                 bool
 	}{
-		"routing suffix on shared provider":  {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:free", `{}`, true},
+		"routing suffix on shared provider": {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:free", `{}`, true},
+		"routing key on shared provider": {
+			management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter,
+			"qwen/qwen3-coder-plus", `{"prompt_cache_key":"someone-else"}`, true,
+		},
 		"routing option on shared provider":  {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus", `{"provider":{"sort":"price"}}`, true},
 		"sampling option on shared provider": {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus", `{"temperature":0.2,"reasoning":{"effort":"high"}}`, false},
 		"alias on shared provider":           {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "~anthropic/claude-sonnet-latest", `{}`, false},
