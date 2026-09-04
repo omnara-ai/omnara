@@ -68,6 +68,7 @@ export interface UseAgentChatResult {
   isWorking: boolean
   error: Error | undefined
   historyStatus: AgentChatHistoryStatus
+  historyError: Error | null
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
@@ -462,6 +463,7 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
     isWorking: projected.isWorking,
     error: data.error,
     historyStatus: history.status,
+    historyError: history.error,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),

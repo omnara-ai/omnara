@@ -23,7 +23,7 @@ type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const streamingTailLines = 8
 const streamingTailChars = 1500
-const zToolInput = z.record(z.string(), z.unknown())
+const zToolInput = z.record(z.string(), z.json())
 const zToolOutput = z.object({
   outcome: schemas.zToolCallOutcome,
   contentBlocks: z.array(schemas.zToolResultContentBlock),
@@ -391,7 +391,9 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           <Text dimColor>✔ Worked for {formatDuration(lastDuration)}</Text>
         </Box>
       )}
-      <ErrorLines errors={[chat.error, interactions.error, resolveInteraction.error]} />
+      <ErrorLines
+        errors={[chat.historyError, chat.error, interactions.error, resolveInteraction.error]}
+      />
       <Box marginTop={1}>
         <StatusLine activity={activity} timer={timer} />
       </Box>
