@@ -453,16 +453,15 @@ func isHTTPTokenChar(value byte) bool {
 	}
 }
 
-// Options a tenant may set on a cluster-managed OpenRouter provider: sampling and reasoning
-// controls per https://openrouter.ai/docs/api-reference/parameters. Provider routing, model
-// fallbacks, plugins, and transforms spend the shared account and are refused.
+// Options a tenant may set on a cluster-managed OpenRouter provider: per-request sampling and
+// reasoning controls per https://openrouter.ai/docs/api-reference/parameters. Anything that
+// selects providers or models, adds plugins, or carries an identity or routing key is refused.
 var clusterOpenRouterTenantOptionKeys = map[string]bool{
 	"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
 	"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
 	"seed": true, "stop": true, "logit_bias": true, "logprobs": true, "top_logprobs": true,
 	"response_format": true, "parallel_tool_calls": true, "verbosity": true,
-	"reasoning": true, "reasoning_effort": true,
-	"usage": true, "user": true, "session_id": true, "prompt_cache_key": true,
+	"reasoning": true, "reasoning_effort": true, "usage": true,
 }
 
 func validateTenantModelOnClusterProvider(
