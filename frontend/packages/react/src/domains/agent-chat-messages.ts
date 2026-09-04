@@ -89,7 +89,7 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   }
 }
 
-function isHiddenContentBlock(block: { metadata?: ContentBlockMetadata }): boolean {
+export function isHiddenContentBlock(block: { metadata?: ContentBlockMetadata }): boolean {
   return block.metadata?.omnara_hidden === 'true'
 }
 

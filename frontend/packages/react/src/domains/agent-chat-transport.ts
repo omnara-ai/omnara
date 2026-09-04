@@ -6,7 +6,18 @@ import {
   sdk,
 } from '@omnara/sdk'
 
-import type { AgentChatMessageInput, AgentChatTransport, LocalAgentInput } from './agent-chat-types'
+import type {
+  AgentChatMessageInput,
+  AgentChatSource,
+  AgentChatTransport,
+  LocalAgentInput,
+} from './agent-chat-types'
+
+const sourceLabels: Record<AgentChatSource, string> = { web: 'web app', cli: 'CLI' }
+
+export function sourceHint(source: AgentChatSource): string {
+  return `This message came from the Omnara ${sourceLabels[source]}. Reply with normal assistant text unless explicitly asked to message an integration.`
+}
 
 export const sdkAgentChatTransport: AgentChatTransport = {
   openAgentEventStream,
@@ -42,6 +53,7 @@ export async function createAgentChatInput(
   path: { orgID: string; projectID: string; agentID: string },
   id: string,
   message: Required<AgentChatMessageInput>,
+  hint: string | undefined,
   signal?: AbortSignal,
 ): Promise<AgentInput> {
   const { data } = await transport.createAgentInput({
@@ -50,11 +62,9 @@ export async function createAgentChatInput(
     headers: { 'Idempotency-Key': id },
     body: {
       content_blocks: [
-        {
-          type: 'text',
-          text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-          metadata: { omnara_hidden: 'true' },
-        },
+        ...(hint == null
+          ? []
+          : [{ type: 'text' as const, text: hint, metadata: { omnara_hidden: 'true' } }]),
         ...(message.text === '' ? [] : [{ type: 'text' as const, text: message.text }]),
         ...message.attachments.map((attachment) => ({
           type: 'media' as const,

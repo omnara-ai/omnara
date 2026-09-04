@@ -96,7 +96,24 @@ export interface FlowSpec {
   execute: (input: FlowInput) => Promise<void>
 }
 
-export type CommandSpec = OperationSpec | FlowSpec
+export interface CustomContext<Path> {
+  client: OmnaraClient
+  apiUrl: string
+  path: Path
+  args: string[]
+  options: CommandOptions
+}
+
+export interface CustomSpec {
+  type: 'custom'
+  verb: string
+  summary: string
+  path: z.ZodObject
+  configure?: (command: Command) => void
+  execute: (context: CustomContext<PathValues>) => Promise<void>
+}
+
+export type CommandSpec = OperationSpec | FlowSpec | CustomSpec
 
 export interface CommandGroup {
   name: string
@@ -197,6 +214,22 @@ export function flowOp<P extends z.ZodObject, B extends z.ZodType>(spec: {
   }
 }
 
+export function customOp<P extends z.ZodObject>(spec: {
+  verb: string
+  summary: string
+  path: P
+  configure?: (command: Command) => void
+  run: (context: CustomContext<z.output<P>>) => Promise<void>
+}): CustomSpec {
+  const { run, ...base } = spec
+  return {
+    ...base,
+    type: 'custom',
+    execute: (context) =>
+      run({ ...context, path: parseWithSchema(spec.path, context.path, 'arguments') }),
+  }
+}
+
 interface ConfigParam {
   key: string
   option: string
@@ -237,7 +270,7 @@ const CONFIG_PARAMS: ConfigParam[] = [
   },
 ]
 
-function parseJsonFlag(raw: string): FlagValue {
+export function parseJsonFlag(raw: string): FlagValue {
   try {
     return zFlagValue.parse(JSON.parse(raw))
   } catch {
@@ -247,7 +280,7 @@ function parseJsonFlag(raw: string): FlagValue {
 
 const NUMBER_PATTERN = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
 
-function parseNumberFlag(raw: string): number {
+export function parseNumberFlag(raw: string): number {
   if (!NUMBER_PATTERN.test(raw.trim())) {
     throw new InvalidArgumentError('expects a number')
   }
@@ -304,9 +337,9 @@ function collectFlagValues(specs: FlagSpec[], options: CommandOptions) {
   return root
 }
 
-function parseWithSchema<S extends z.ZodType>(
+export function parseWithSchema<S extends z.ZodType>(
   schema: S,
-  value: FlagValue | PathValues,
+  value: FlagValue | PathValues | undefined,
   label: string,
 ): z.output<S> {
   const result = schema.safeParse(value)
@@ -350,7 +383,7 @@ interface PathPlan {
   configParams: ConfigParam[]
 }
 
-function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
+export function planPathParams(path: z.ZodObject | undefined, positional: string[]): PathPlan {
   const pathParams = path ? Object.keys(path.shape) : []
   const configParams = CONFIG_PARAMS.filter(
     (param) => pathParams.includes(param.key) && !positional.includes(param.key),
@@ -372,7 +405,7 @@ function registerPathParams(command: Command, plan: PathPlan): void {
 
 const zExplicitOption = z.string().optional()
 
-async function resolvePathValues(
+export async function resolvePathValues(
   plan: PathPlan,
   args: string[],
   options: CommandOptions,
@@ -456,6 +489,26 @@ function registerFlow(parent: Command, config: CliConfig, spec: FlowSpec): void 
   })
 }
 
+function registerCustom(parent: Command, config: CliConfig, spec: CustomSpec): void {
+  const command = parent.command(spec.verb).description(spec.summary)
+  const plan = planPathParams(spec.path, [])
+  registerPathParams(command, plan)
+  spec.configure?.(command)
+  command.action(async (...args: string[]) => {
+    await runCliAction(async () => {
+      await config.ensureLoggedIn()
+      const options = command.opts<CommandOptions>()
+      await spec.execute({
+        client: config.client,
+        apiUrl: config.apiUrl,
+        path: await resolvePathValues(plan, args, options, config),
+        args: args.slice(plan.positionalParams.length),
+        options,
+      })
+    })
+  })
+}
+
 export function registerGroup(program: Command, config: CliConfig, group: CommandGroup): void {
   const groupCommand = program
     .command(group.name)
@@ -463,7 +516,8 @@ export function registerGroup(program: Command, config: CliConfig, group: Comman
     .description(group.summary)
   for (const spec of group.operations ?? []) {
     if (spec.type === 'op') registerOperation(groupCommand, config, spec)
-    else registerFlow(groupCommand, config, spec)
+    else if (spec.type === 'flow') registerFlow(groupCommand, config, spec)
+    else registerCustom(groupCommand, config, spec)
   }
   for (const subgroup of group.groups ?? []) registerGroup(groupCommand, config, subgroup)
 }

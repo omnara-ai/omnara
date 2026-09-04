@@ -115,6 +115,10 @@ function truncate(value: string, width: number): string {
   return `${value.slice(0, end)}…`
 }
 
+export function abbreviate(text: string, max: number): string {
+  return truncate(text.replaceAll(/\s+/g, ' ').trim(), max)
+}
+
 function printTable(rows: Row[], indent: number, explicitColumns?: readonly string[]): void {
   if (rows.length === 0) {
     console.log(indented(indent, dim('(no results)')))

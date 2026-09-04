@@ -4,9 +4,11 @@ export {
   type AgentChatData,
   type AgentChatHistoryStatus,
   type AgentChatMessageInput,
+  type AgentChatOptions,
   type AgentChatScope,
   AgentChatSession,
   type AgentChatSessionOptions,
+  type AgentChatSource,
   type AgentChatStatus,
   type AgentChatTransport,
   type OmnaraMessageMetadata,
@@ -17,6 +19,8 @@ export {
 export {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
+  type AgentInputBacklogPreview,
+  backlogInputPreview,
   reorderAgentInputBacklog,
   useAgentInputBacklog,
 } from './domains/agent-input-backlog'

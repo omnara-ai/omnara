@@ -19,6 +19,7 @@ import {
   userInputEvent,
   waitForSnapshot,
 } from './agent-chat-test-support'
+import { sourceHint } from './agent-chat-transport'
 import type { CreateAgentInputResult } from './agent-chat-types'
 import { agentInputBacklogQueryKey } from './agent-input-backlog'
 
@@ -143,14 +144,7 @@ describe('AgentChatSession input lifecycle', () => {
         path: scope,
         headers: { 'Idempotency-Key': sentIdempotencyKey() },
         body: {
-          content_blocks: [
-            {
-              type: 'text',
-              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-              metadata: { omnara_hidden: 'true' },
-            },
-            { type: 'text', text: 'Hello' },
-          ],
+          content_blocks: [{ type: 'text', text: 'Hello' }],
         },
       }),
     )
@@ -169,6 +163,31 @@ describe('AgentChatSession input lifecycle', () => {
     const userMessages = streaming.messages.filter((message) => message.role === 'user')
     expect(userMessages).toHaveLength(1)
     expect(userMessages[0]?.id).toBe('input-event')
+    session.disconnect()
+  })
+
+  it('prepends the hidden source hint when one is given', async () => {
+    const session = startSession()
+    await connection(0)
+
+    await session.sendMessage({ text: 'Hello' }, 'conversation', () =>
+      Promise.resolve(sourceHint('cli')),
+    )
+
+    expect(transport.createAgentInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          content_blocks: [
+            {
+              type: 'text',
+              text: 'This message came from the Omnara CLI. Reply with normal assistant text unless explicitly asked to message an integration.',
+              metadata: { omnara_hidden: 'true' },
+            },
+            { type: 'text', text: 'Hello' },
+          ],
+        },
+      }),
+    )
     session.disconnect()
   })
 
@@ -192,11 +211,6 @@ describe('AgentChatSession input lifecycle', () => {
       expect.objectContaining({
         body: {
           content_blocks: [
-            {
-              type: 'text',
-              text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-              metadata: { omnara_hidden: 'true' },
-            },
             {
               type: 'media',
               media_type: 'text/plain',

@@ -18,6 +18,12 @@ export interface AgentChatScope {
   agentID: string
 }
 
+export type AgentChatSource = 'web' | 'cli'
+
+export interface AgentChatOptions {
+  source: AgentChatSource
+}
+
 export type CreateAgentInputOptions = Parameters<typeof sdk.createAgentInput<true>>[0]
 
 export type AgentEventStream = ReturnType<typeof openAgentEventStream>
