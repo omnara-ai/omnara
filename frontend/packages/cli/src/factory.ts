@@ -101,16 +101,16 @@ export interface CustomContext<Path> {
   apiUrl: string
   path: Path
   args: string[]
-  options: Record<string, unknown>
+  options: CommandOptions
 }
 
 export interface CustomSpec {
   type: 'custom'
   verb: string
   summary: string
-  path: z.ZodObject<z.ZodRawShape>
+  path: z.ZodObject
   configure?: (command: Command) => void
-  execute: (context: CustomContext<Record<string, unknown>>) => Promise<void>
+  execute: (context: CustomContext<PathValues>) => Promise<void>
 }
 
 export type CommandSpec = OperationSpec | FlowSpec | CustomSpec
@@ -214,7 +214,7 @@ export function flowOp<P extends z.ZodObject, B extends z.ZodType>(spec: {
   }
 }
 
-export function customOp<P extends z.ZodObject<z.ZodRawShape>>(spec: {
+export function customOp<P extends z.ZodObject>(spec: {
   verb: string
   summary: string
   path: P
@@ -339,7 +339,7 @@ function collectFlagValues(specs: FlagSpec[], options: CommandOptions) {
 
 export function parseWithSchema<S extends z.ZodType>(
   schema: S,
-  value: FlagValue | PathValues,
+  value: FlagValue | PathValues | undefined,
   label: string,
 ): z.output<S> {
   const result = schema.safeParse(value)
@@ -497,7 +497,7 @@ function registerCustom(parent: Command, config: CliConfig, spec: CustomSpec): v
   command.action(async (...args: string[]) => {
     await runCliAction(async () => {
       await config.ensureLoggedIn()
-      const options = command.opts<Record<string, unknown>>()
+      const options = command.opts<CommandOptions>()
       await spec.execute({
         client: config.client,
         apiUrl: config.apiUrl,

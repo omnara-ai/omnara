@@ -1,4 +1,5 @@
 import type { AgentEvent, ListAgentEventsResponse } from '@omnara/sdk'
+import * as z from 'zod'
 
 import type { OutputFormat } from './format.ts'
 import { abbreviate } from './output.ts'
@@ -40,8 +41,8 @@ function eventPreview(event: AgentEvent): string {
   }
 }
 
-export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (response) => ({
-  value: {
+export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (response) => {
+  const page = {
     data: response.data.map((event) => ({
       sequence: event.sequence,
       event_kind: event.event_kind,
@@ -51,24 +52,32 @@ export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (resp
     })),
     has_more: response.has_more,
     next_after_sequence: response.next_after_sequence,
-    ...(response.next_before_sequence == null
-      ? {}
-      : { next_before_sequence: response.next_before_sequence }),
-  },
-})
+  }
+  const { next_before_sequence } = response
+  return { value: next_before_sequence == null ? page : { ...page, next_before_sequence } }
+}
 
 export const summaryWidth = 100
 
-export function toolCallSummary(name: string, input: Record<string, unknown>): string | undefined {
-  if (name === 'run_command' && typeof input.command === 'string') {
-    return `command: ${abbreviate(input.command, summaryWidth)}`
-  }
+const zJsonValue = z.json()
+type JsonValue = z.output<typeof zJsonValue>
+const zRunCommandInput = z.object({ command: z.string() })
+
+function summaryValue(value: JsonValue): string {
+  const text = z.string().safeParse(value)
+  return text.success ? text.data : JSON.stringify(value)
+}
+
+export function toolCallSummary(
+  name: string,
+  input: Record<string, JsonValue>,
+): string | undefined {
+  const runCommand = name === 'run_command' ? zRunCommandInput.safeParse(input) : undefined
+  if (runCommand?.success) return `command: ${abbreviate(runCommand.data.command, summaryWidth)}`
   const entries = Object.entries(input)
   if (entries.length === 0) return undefined
   return abbreviate(
-    entries
-      .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
-      .join(', '),
+    entries.map(([key, value]) => `${key}: ${summaryValue(value)}`).join(', '),
     summaryWidth,
   )
 }
