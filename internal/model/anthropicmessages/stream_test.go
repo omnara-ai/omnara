@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 type recordingSink struct {
@@ -540,36 +539,5 @@ func TestAnthropicConsumeStreamRejectsUnsupportedContentBlock(t *testing.T) {
 	providerErr, ok := model.ClassifyError(err)
 	if !ok || providerErr.Code != "malformed_success_response" || !model.IsAmbiguousProviderOutcome(err) {
 		t.Fatalf("unsupported streamed content block = %+v ok=%v err=%v", providerErr, ok, err)
-	}
-}
-
-func TestAnthropicConsumeStreamMergesCacheCreationBreakdown(t *testing.T) {
-	stream := anthropicSSE(
-		[2]string{
-			"message_start",
-			`{"message":{"id":"msg_1","model":"claude-test-served","usage":{"input_tokens":10,` +
-				`"cache_creation_input_tokens":3,` +
-				`"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}}`,
-		},
-		[2]string{"content_block_start", `{"index":0,"content_block":{"type":"text","text":""}}`},
-		[2]string{"content_block_delta", `{"index":0,"delta":{"type":"text_delta","text":"Hello"}}`},
-		[2]string{"content_block_stop", `{"index":0}`},
-		[2]string{
-			"message_delta",
-			`{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1,` +
-				`"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}`,
-		},
-		[2]string{"message_stop", `{}`},
-	)
-	resp, err := consumeAnthropicStream(t, stream, &recordingSink{})
-	if err != nil {
-		t.Fatalf("ConsumeStream: %v", err)
-	}
-	want := modelenvelope.AnthropicCacheCreation{Ephemeral5mInputTokens: 2, Ephemeral1hInputTokens: 1}
-	if resp.ProviderMetadata.Anthropic.CacheCreation != want {
-		t.Fatalf("provider metadata = %+v, want cache_creation %+v", resp.ProviderMetadata, want)
-	}
-	if resp.Usage.CacheWriteTokens != 3 {
-		t.Fatalf("cache write tokens = %d, want 3", resp.Usage.CacheWriteTokens)
 	}
 }

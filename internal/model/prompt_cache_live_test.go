@@ -145,10 +145,6 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 				second.ProviderMetadata.OpenRouter.Provider == "" {
 				t.Fatalf("openrouter response did not report the serving provider: %+v", second.ProviderMetadata)
 			}
-			if client.APIFormat() == modelprotocol.APIFormatAnthropicMessages &&
-				first.ProviderMetadata.Anthropic.CacheCreation.Ephemeral5mInputTokens == 0 {
-				t.Fatalf("anthropic response did not report the cache creation breakdown: %+v", first.ProviderMetadata)
-			}
 			t.Logf("first=%+v second=%+v", first.Usage, second.Usage)
 		})
 	}

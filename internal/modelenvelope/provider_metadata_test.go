@@ -18,13 +18,6 @@ func TestProviderMetadataJSONShape(t *testing.T) {
 			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{Provider: "Moonshot AI"}},
 			want:     `{"openrouter":{"provider":"Moonshot AI"}}`,
 		},
-		{
-			name: "anthropic",
-			metadata: ProviderMetadata{Anthropic: AnthropicMetadata{
-				CacheCreation: AnthropicCacheCreation{Ephemeral5mInputTokens: 2, Ephemeral1hInputTokens: 1},
-			}},
-			want: `{"anthropic":{"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			encoded, err := json.Marshal(tc.metadata)

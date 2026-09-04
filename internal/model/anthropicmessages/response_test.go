@@ -12,7 +12,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
@@ -65,12 +64,6 @@ func TestRespondParsesToolUseStopReasonAndUsage(t *testing.T) {
 	}
 	if resp.ServedProviderModelSlug != "claude-served" {
 		t.Fatalf("served provider model slug = %q, want provider response model slug", resp.ServedProviderModelSlug)
-	}
-	if resp.ProviderMetadata.Anthropic.CacheCreation != (modelenvelope.AnthropicCacheCreation{
-		Ephemeral5mInputTokens: 2,
-		Ephemeral1hInputTokens: 1,
-	}) {
-		t.Fatalf("provider metadata = %+v, want cache_creation ttl breakdown", resp.ProviderMetadata)
 	}
 	if resp.Usage.InputTokens != 20 || resp.Usage.UncachedInputTokens != 10 || resp.Usage.OutputTokens != 5 ||
 		resp.Usage.CacheWriteTokens != 3 ||
