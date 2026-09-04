@@ -987,7 +987,7 @@ func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
 type cacheControlMark struct {
 	role    string
 	index   int
-	control chatCacheControl
+	control model.CacheControl
 }
 
 func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
@@ -1005,7 +1005,7 @@ func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
 	for index, message := range payload.Messages {
 		var blocks []struct {
 			Type         string            `json:"type"`
-			CacheControl *chatCacheControl `json:"cache_control"`
+			CacheControl *model.CacheControl `json:"cache_control"`
 		}
 		if json.Unmarshal(message.Content, &blocks) != nil {
 			continue

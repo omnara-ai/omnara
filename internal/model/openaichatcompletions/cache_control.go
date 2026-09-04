@@ -6,11 +6,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 )
 
-type chatCacheControl struct {
-	Type string `json:"type"`
-	TTL  string `json:"ttl,omitempty"`
-}
-
 func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCachePlan, compat compat) {
 	if plan.ConversationKey != "" {
 		switch compat.conversationKeyField {
@@ -20,17 +15,14 @@ func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCach
 			payload.PromptCacheKey = plan.ConversationKey
 		}
 	}
-	if !plan.Explicit {
+	control := plan.CacheControl()
+	if control == nil {
 		return
-	}
-	control := &chatCacheControl{Type: "ephemeral"}
-	if plan.LongRetention {
-		control.TTL = "1h"
 	}
 	payload.Messages = markCacheBreakpoints(payload.Messages, control)
 }
 
-func markCacheBreakpoints(messages []chatMessage, control *chatCacheControl) []chatMessage {
+func markCacheBreakpoints(messages []chatMessage, control *model.CacheControl) []chatMessage {
 	if len(messages) == 0 {
 		return messages
 	}
@@ -66,7 +58,7 @@ func acceptsCacheBreakpoint(message chatMessage) bool {
 	return ok
 }
 
-func withCacheBreakpoint(message chatMessage, control *chatCacheControl) chatMessage {
+func withCacheBreakpoint(message chatMessage, control *model.CacheControl) chatMessage {
 	content, _ := message.Content.([]any)
 	if block, ok := content[len(content)-1].(map[string]any); ok {
 		marked := maps.Clone(block)
