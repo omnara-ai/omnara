@@ -115,16 +115,23 @@ function PartView({ part, live }: { part: MessagePart; live: boolean }) {
   }
 }
 
+function attachmentLabel(count: number): string {
+  return count === 1 ? '[1 attachment]' : `[${String(count)} attachments]`
+}
+
 function MessageView({ message, live }: { message: OmnaraUIMessage; live: boolean }) {
   if (message.role === 'user') {
     const lines = message.parts.flatMap((part) =>
       part.type === 'text' && part.text.trim() !== '' ? [part.text] : [],
     )
-    if (lines.length === 0) return null
+    const attachmentCount = message.parts.filter((part) => part.type === 'data-media').length
+    if (lines.length === 0 && attachmentCount === 0) return null
     return (
       <Box marginTop={1}>
         <Text>
-          <Label name="you" color="cyan" /> {lines.join('\n')}
+          <Label name="you" color="cyan" />
+          {lines.length > 0 && ` ${lines.join('\n')}`}
+          {attachmentCount > 0 && <Text dimColor> {attachmentLabel(attachmentCount)}</Text>}
         </Text>
       </Box>
     )
