@@ -26,6 +26,13 @@ func idFromSQLCPtr(value *ID) ID {
 	return *value
 }
 
+func int64FromSQLCPtr(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 func nullableTimeToZero(value *time.Time) time.Time {
 	if value == nil {
 		return time.Time{}

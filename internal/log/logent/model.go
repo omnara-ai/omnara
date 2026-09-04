@@ -4,8 +4,36 @@ import (
 	"context"
 
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 )
+
+type ModelInputTokenEstimateRecord struct {
+	RequestedProviderModelSlug string
+	ServedProviderModelSlug    string
+	APIFormat                  modelprotocol.APIFormat
+	APIVariant                 modelprotocol.APIVariant
+	EstimatedTokens            int
+	LocalEstimatedTokens       int
+	EstimatedMediaTokens       int
+	ProviderReportedTokens     int
+}
+
+func ModelInputTokenEstimate(ctx context.Context, record ModelInputTokenEstimateRecord) {
+	if record.EstimatedTokens <= 0 || record.ProviderReportedTokens <= 0 {
+		return
+	}
+	log.Attach(ctx, log.Fields{
+		"model_request.requested_provider_model_slug": record.RequestedProviderModelSlug,
+		"model_request.api_format":                    record.APIFormat,
+		"model_request.api_variant":                   record.APIVariant,
+		"model_request.input_tokens.estimated":        record.EstimatedTokens,
+		"model_request.input_tokens.local_estimated":  record.LocalEstimatedTokens,
+		"model_request.input_tokens.media_estimated":  record.EstimatedMediaTokens,
+		"model_response.served_provider_model_slug":   record.ServedProviderModelSlug,
+		"model_response.input_tokens.reported":        record.ProviderReportedTokens,
+	})
+}
 
 func ModelCatalogProbeFailed(ctx context.Context, modelProviderConfigID storage.ID, message string) {
 	log.Attach(ctx, log.Fields{

@@ -122,6 +122,53 @@ func TestPrepareForSendAssessesSerializedRequestEstimate(t *testing.T) {
 	}
 }
 
+func TestPrepareForSendUsesProviderUsageEstimate(t *testing.T) {
+	identity := modelcontext.ModelRequestIdentity{
+		AgentConfigID:             "config",
+		ConfiguredModelRevisionID: "revision",
+		ProviderRequestIdentity: modelenvelope.ProviderReplayIdentity{
+			ModelProviderConfigID:      "provider-config",
+			RequestedProviderModelSlug: "prepare-test",
+			APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
+			APIVariant:                 modelprotocol.APIVariantDefault,
+		},
+	}
+	bundle := modelcontext.Bundle{
+		InputEventSequence: 3,
+		Messages: []modelcontext.Message{{
+			Role:     modelprotocol.RoleAssistant,
+			Sequence: 2,
+			ProviderUsageAnchor: &modelcontext.ProviderUsageAnchor{
+				Identity:           identity,
+				InputEventSequence: 1,
+				InputTokens:        1_000,
+				OutputTokens:       100,
+			},
+		}},
+	}
+	client := prepareForSendClient{
+		prepared: PreparedRequest{
+			Body:               json.RawMessage(`{"request":true}`),
+			InputTokenEstimate: 2_000,
+		},
+		capabilities: Capabilities{ContextWindowTokens: 10_000},
+	}
+	prepared, err := PrepareForSend(context.Background(), client, PrepareForSendInput{
+		Context:               bundle,
+		Policy:                RequestPolicy{MaxOutputTokens: 100},
+		ErrorSource:           "test_api",
+		ProviderUsageIdentity: &identity,
+	})
+	if err != nil {
+		t.Fatalf("prepare provider-anchored request: %v", err)
+	}
+	if prepared.InputBudget.ProviderUsageEstimate == nil ||
+		prepared.InputBudget.EstimatedInputTokens != 1_100 ||
+		prepared.InputBudget.LocalInputTokenEstimate != 2_000 {
+		t.Fatalf("provider-anchored assessment = %+v", prepared.InputBudget)
+	}
+}
+
 func TestPrepareForSendRejectsEmptyProviderRequest(t *testing.T) {
 	bundle := modelcontext.Bundle{}
 	_, err := PrepareForSend(

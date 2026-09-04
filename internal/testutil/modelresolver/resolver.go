@@ -56,6 +56,10 @@ func (r LiveGrant) Resolve(
 	return model.ResolvedClient{
 		Client:                    r.Client,
 		ConfiguredModelRevisionID: revision.ID.String(),
+		ProviderRequestIdentity: model.ProviderReplayIdentityForClient(
+			revision.ModelProviderConfigID.String(),
+			r.Client,
+		),
 	}, nil
 }
 

@@ -2492,7 +2492,17 @@ func writeOpenAIFunctionCall(
 	responseID, callID, name string,
 	args map[string]any,
 ) {
-	writeOpenAIFunctionCalls(w, fail, responseID, fakeOpenAIFunctionCall{
+	writeOpenAIFunctionCallWithUsage(w, fail, responseID, callID, name, args, 10, 5)
+}
+
+func writeOpenAIFunctionCallWithUsage(
+	w http.ResponseWriter,
+	fail fakeModelFailureFunc,
+	responseID, callID, name string,
+	args map[string]any,
+	inputTokens, outputTokens int,
+) {
+	writeOpenAIFunctionCallsWithUsage(w, fail, responseID, inputTokens, outputTokens, fakeOpenAIFunctionCall{
 		CallID: callID,
 		Name:   name,
 		Args:   args,
@@ -2509,6 +2519,16 @@ func writeOpenAIFunctionCalls(
 	w http.ResponseWriter,
 	fail fakeModelFailureFunc,
 	responseID string,
+	calls ...fakeOpenAIFunctionCall,
+) {
+	writeOpenAIFunctionCallsWithUsage(w, fail, responseID, 10, 5, calls...)
+}
+
+func writeOpenAIFunctionCallsWithUsage(
+	w http.ResponseWriter,
+	fail fakeModelFailureFunc,
+	responseID string,
+	inputTokens, outputTokens int,
 	calls ...fakeOpenAIFunctionCall,
 ) {
 	output := make([]map[string]any, 0, len(calls))
@@ -2529,7 +2549,7 @@ func writeOpenAIFunctionCalls(
 		"id":     responseID,
 		"status": "completed",
 		"output": output,
-		"usage":  map[string]any{"input_tokens": 10, "output_tokens": 5},
+		"usage":  map[string]any{"input_tokens": inputTokens, "output_tokens": outputTokens},
 	})
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "marshal OpenAI response: %v", err)

@@ -20,7 +20,8 @@ const (
 	anthropicStandardMaxImageTokens = 1_568
 	anthropicHighMaxImageEdge       = 2_576
 	anthropicHighMaxImageTokens     = 4_784
-	openAIUnknownImageTokens        = 25_501
+	openAIMaxImagePatches           = 30_000
+	openAIUnknownImageTokens        = 48_169
 )
 
 type imageResolutionLimits struct {
@@ -157,26 +158,30 @@ func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, heig
 
 	switch {
 	case strings.HasPrefix(name, "gpt-5.6"):
-		return patches
+		return scaledPatchTokens(
+			min(openAIPatchCountWithinDimension(width, height, 65_535), openAIMaxImagePatches),
+			1.2,
+		)
 	case strings.HasPrefix(name, "gpt-5.5"):
-		return boundedOpenAIPatchCount(width, height, 10_000, 6_000)
-	case strings.HasPrefix(name, "gpt-5.4-mini"), strings.HasPrefix(name, "gpt-5-mini"):
-		return multipliedPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.62)
-	case strings.HasPrefix(name, "gpt-5.4-nano"), strings.HasPrefix(name, "gpt-5-nano"):
-		return multipliedPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 2.46)
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 10_000, 6_000), 1.2)
 	case strings.HasPrefix(name, "gpt-5.4"):
-		return boundedOpenAIPatchCount(width, height, 2_500, 2_048)
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 2_500, 2_048), 1.2)
+	case strings.HasPrefix(name, "gpt-5-mini"):
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.2)
+	case strings.HasPrefix(name, "gpt-5-nano"):
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.5)
 	case strings.HasPrefix(name, "gpt-4.1-mini"):
-		return multipliedPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.62)
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 6_144, 2_048), 1.62)
 	case strings.HasPrefix(name, "gpt-4.1-nano"):
-		return multipliedPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 2.46)
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 2.46)
 	case strings.HasPrefix(name, "o4-mini"):
-		return multipliedPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.72)
-	case strings.HasPrefix(name, "gpt-5.2"),
-		strings.HasPrefix(name, "gpt-5.3-codex"),
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.72)
+	case strings.HasPrefix(name, "gpt-5.2"):
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 6_144, 2_048), 1.2)
+	case strings.HasPrefix(name, "gpt-5.3-codex"),
 		strings.HasPrefix(name, "gpt-5-codex-mini"),
 		strings.HasPrefix(name, "gpt-5.1-codex-mini"):
-		return boundedOpenAIPatchCount(width, height, 1_536, 2_048)
+		return scaledPatchTokens(boundedOpenAIPatchCount(width, height, 1_536, 2_048), 1.2)
 	case isGPT5TileModel(name):
 		return tileImageTokens(width, height, 70, 140)
 	case strings.HasPrefix(name, "gpt-4o-mini"):
@@ -191,10 +196,7 @@ func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, heig
 		return tileImageTokens(width, height, 65, 129)
 	default:
 		return max(
-			max(
-				max(patches, multipliedPatchTokens(patches, 2.46)),
-				openAIUnknownImageTokens,
-			),
+			max(scaledPatchTokens(min(patches, openAIMaxImagePatches), 1.2), openAIUnknownImageTokens),
 			tileImageTokens(width, height, 2_833, 5_667),
 		)
 	}
@@ -221,14 +223,7 @@ func isClaudeFamilyModelSlug(providerModelSlug string) bool {
 }
 
 func boundedOpenAIPatchCount(width, height, patchBudget, maxDimension int) int {
-	scale := min(
-		1.0,
-		min(float64(maxDimension)/float64(width), float64(maxDimension)/float64(height)),
-	)
-	scaledWidth := float64(width) * scale
-	scaledHeight := float64(height) * scale
-	patches := ceilDiv(max(int(math.Ceil(scaledWidth)), 1), 32) *
-		ceilDiv(max(int(math.Ceil(scaledHeight)), 1), 32)
+	patches, scaledWidth, scaledHeight := openAIPatchDimensions(width, height, maxDimension)
 	if patches <= patchBudget {
 		return patches
 	}
@@ -240,14 +235,32 @@ func boundedOpenAIPatchCount(width, height, patchBudget, maxDimension int) int {
 		patchesWide/(scaledWidth*shrink/32),
 		patchesHigh/(scaledHeight*shrink/32),
 	)
-	resizedWidth := max(int(math.Round(scaledWidth*shrink*adjustment)), 1)
-	resizedHeight := max(int(math.Round(scaledHeight*shrink*adjustment)), 1)
+	resizedWidth := max(int(math.Floor(scaledWidth*shrink*adjustment)), 1)
+	resizedHeight := max(int(math.Floor(scaledHeight*shrink*adjustment)), 1)
 	return min(ceilDiv(resizedWidth, 32)*ceilDiv(resizedHeight, 32), patchBudget)
+}
+
+func openAIPatchCountWithinDimension(width, height, maxDimension int) int {
+	patches, _, _ := openAIPatchDimensions(width, height, maxDimension)
+	return patches
+}
+
+func openAIPatchDimensions(width, height, maxDimension int) (int, float64, float64) {
+	scale := min(
+		1.0,
+		min(float64(maxDimension)/float64(width), float64(maxDimension)/float64(height)),
+	)
+	scaledWidth := float64(width) * scale
+	scaledHeight := float64(height) * scale
+	patches := ceilDiv(max(int(math.Ceil(scaledWidth)), 1), 32) *
+		ceilDiv(max(int(math.Ceil(scaledHeight)), 1), 32)
+	return patches, scaledWidth, scaledHeight
 }
 
 func isGPT5TileModel(name string) bool {
 	return name == "gpt-5" || strings.HasPrefix(name, "gpt-5-20") ||
-		strings.HasPrefix(name, "gpt-5-chat-latest")
+		name == "gpt-5-chat-latest" || name == "gpt-5.1" ||
+		strings.HasPrefix(name, "gpt-5.1-20") || name == "gpt-5.1-chat-latest"
 }
 
 func imageDimensions(data []byte) (int, int, bool) {
@@ -266,11 +279,16 @@ func normalizedProviderModelName(slug string) string {
 	if variant := strings.IndexByte(name, ':'); variant >= 0 {
 		name = name[:variant]
 	}
+	for _, prefix := range []string{"anthropic.", "openai."} {
+		if index := strings.LastIndex(name, prefix); index >= 0 {
+			name = name[index+len(prefix):]
+		}
+	}
 	return name
 }
 
-func multipliedPatchTokens(patches int, multiplier float64) int {
-	return int(math.Ceil(float64(min(patches, 1_536)) * multiplier))
+func scaledPatchTokens(patches int, multiplier float64) int {
+	return int(math.Ceil(float64(patches) * multiplier))
 }
 
 func tileImageTokens(width, height, base, perTile int) int {
@@ -279,10 +297,10 @@ func tileImageTokens(width, height, base, perTile int) int {
 	w *= fit
 	h *= fit
 	shortest := min(w, h)
-	if shortest > 0 {
+	if shortest > 768 {
 		scale := 768 / shortest
-		w *= scale
-		h *= scale
+		w = math.Floor(w * scale)
+		h = math.Floor(h * scale)
 	}
 	tiles := int(math.Ceil(w/512) * math.Ceil(h/512))
 	return base + tiles*perTile

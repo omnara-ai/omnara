@@ -22,11 +22,13 @@ func TestProviderImageTokenEstimates(t *testing.T) {
 			got:  AnthropicImageTokenEstimate("claude-sonnet-4-6", media),
 			want: 1_369,
 		},
-		{name: "openai original patches", got: OpenAIImageTokenEstimate("gpt-5.6", media), want: 1_024},
-		{name: "openai bounded patches", got: OpenAIImageTokenEstimate("gpt-5-mini", media), want: 1_659},
-		{name: "openai unmultiplied GPT-5.2 patches", got: OpenAIImageTokenEstimate("gpt-5.2", media), want: 1_024},
-		{name: "openai unmultiplied Codex patches", got: OpenAIImageTokenEstimate("gpt-5.3-codex", media), want: 1_024},
+		{name: "openai original patches", got: OpenAIImageTokenEstimate("gpt-5.6", media), want: 1_229},
+		{name: "openai bounded patches", got: OpenAIImageTokenEstimate("gpt-5-mini", media), want: 1_229},
+		{name: "openai GPT-5.2 patches", got: OpenAIImageTokenEstimate("gpt-5.2", media), want: 1_229},
+		{name: "openai Codex patches", got: OpenAIImageTokenEstimate("gpt-5.3-codex", media), want: 1_229},
+		{name: "bedrock openai slug", got: OpenAIImageTokenEstimate("openai.gpt-5.6-sol", media), want: 1_229},
 		{name: "openai GPT-5 snapshot tiles", got: OpenAIImageTokenEstimate("gpt-5-2025-08-07", media), want: 630},
+		{name: "openai GPT-5.1 tiles", got: OpenAIImageTokenEstimate("gpt-5.1", media), want: 630},
 		{name: "openai expensive tiles", got: OpenAIImageTokenEstimate("gpt-4o-mini", media), want: 25_501},
 	}
 	for _, test := range tests {
@@ -73,6 +75,13 @@ func TestAnthropicImageTokenEstimateMatchesDocumentedResolutionTiers(t *testing.
 			width:             100,
 			height:            3_000,
 			want:              112,
+		},
+		{
+			name:              "bedrock provider slug",
+			providerModelSlug: "anthropic.claude-haiku-4-5",
+			width:             1_920,
+			height:            1_080,
+			want:              1_560,
 		},
 		{
 			name:              "high resolution 1080p",
@@ -130,42 +139,49 @@ func TestOpenAIImageTokenEstimateMatchesDocumentedPatchExamples(t *testing.T) {
 			providerModelSlug: "gpt-5.6",
 			width:             1_800,
 			height:            2_400,
-			want:              4_275,
+			want:              5_130,
 		},
 		{
 			name:              "finite patch model resizes within budget",
 			providerModelSlug: "gpt-5.2",
 			width:             1_800,
 			height:            2_400,
-			want:              1_452,
+			want:              3_687,
 		},
 		{
 			name:              "finite patch model long edge",
 			providerModelSlug: "gpt-5.2",
 			width:             100,
 			height:            3_000,
-			want:              192,
+			want:              231,
 		},
 		{
 			name:              "original detail model long edge",
 			providerModelSlug: "gpt-5.5",
 			width:             100,
 			height:            7_000,
-			want:              564,
+			want:              677,
 		},
 		{
 			name:              "GPT-5.4 patch budget",
 			providerModelSlug: "gpt-5.4",
 			width:             2_048,
 			height:            2_048,
-			want:              2_500,
+			want:              3_000,
 		},
 		{
 			name:              "GPT-5.5 original patch budget",
 			providerModelSlug: "gpt-5.5",
 			width:             4_096,
 			height:            4_096,
-			want:              10_000,
+			want:              12_000,
+		},
+		{
+			name:              "tile model keeps a narrow image at native scale",
+			providerModelSlug: "gpt-4o",
+			width:             100,
+			height:            3_000,
+			want:              765,
 		},
 	}
 	for _, test := range tests {
@@ -235,8 +251,8 @@ func TestOpenAICompatibleFallbacksUseLargestImageEstimate(t *testing.T) {
 		[]string{"anthropic/claude-sonnet-4.6", "openai/gpt-5.6"},
 		media,
 	)
-	if got != 8_160 {
-		t.Fatalf("fallback estimate = %d, want 8160", got)
+	if got != 9_792 {
+		t.Fatalf("fallback estimate = %d, want 9792", got)
 	}
 }
 

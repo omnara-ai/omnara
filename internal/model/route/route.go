@@ -344,7 +344,11 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	}
 	renderedMedia := c.Protocol.ProjectRenderedMedia(input.Context)
 	inputTokenEstimate := modelcontext.EstimatePreparedRequest(body, renderedMedia)
-	return model.PreparedRequest{Body: body, InputTokenEstimate: inputTokenEstimate}, nil
+	return model.PreparedRequest{
+		Body:                    body,
+		InputTokenEstimate:      inputTokenEstimate,
+		InputMediaTokenEstimate: modelcontext.EstimateRenderedMediaTokens(renderedMedia),
+	}, nil
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {

@@ -124,6 +124,7 @@ type Resolver interface {
 type ResolvedClient struct {
 	Client                    Client
 	ConfiguredModelRevisionID string
+	ProviderRequestIdentity   modelenvelope.ProviderReplayIdentity
 }
 
 type PrepareInput struct {
@@ -134,20 +135,24 @@ type PrepareInput struct {
 type PreparedRequest struct {
 	// Body is the exact JSON byte sequence authorized by Prepare and passed to
 	// the provider transport. Respond must not rebuild or mutate it.
-	Body               json.RawMessage
-	InputTokenEstimate int
-	InputBudget        InputBudgetAssessment
+	Body                    json.RawMessage
+	InputTokenEstimate      int
+	InputMediaTokenEstimate int
+	InputBudget             InputBudgetAssessment
 }
 
 type PrepareForSendInput struct {
-	Context     modelcontext.Bundle
-	Policy      RequestPolicy
-	ErrorSource string
+	Context               modelcontext.Bundle
+	Policy                RequestPolicy
+	ErrorSource           string
+	ProviderUsageIdentity *modelcontext.ModelRequestIdentity
 }
 
 type InputBudgetAssessment struct {
-	EstimatedInputTokens int `json:"estimated_input_tokens"`
-	UsableInputTokens    int `json:"usable_input_tokens"`
+	LocalInputTokenEstimate int                                      `json:"local_input_token_estimate"`
+	EstimatedInputTokens    int                                      `json:"estimated_input_tokens"`
+	UsableInputTokens       int                                      `json:"usable_input_tokens"`
+	ProviderUsageEstimate   *modelcontext.ProviderUsageInputEstimate `json:"provider_usage_estimate,omitempty"`
 }
 
 func (a InputBudgetAssessment) Fits() bool {
@@ -198,10 +203,28 @@ func PrepareForSend(
 		estimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)
 	}
 	prepared.InputTokenEstimate = estimate
+	if prepared.InputMediaTokenEstimate <= 0 {
+		prepared.InputMediaTokenEstimate = modelcontext.EstimateRenderedMediaTokens(input.Context.RenderedMedia)
+	}
+	effectiveEstimate := estimate
+	var providerUsageEstimate *modelcontext.ProviderUsageInputEstimate
+	if input.ProviderUsageIdentity != nil {
+		providerEstimate, ok := modelcontext.EstimateInputFromProviderUsage(
+			input.Context,
+			*input.ProviderUsageIdentity,
+			input.Policy.ProviderReplayCutoffEventSequence,
+		)
+		if ok {
+			providerUsageEstimate = &providerEstimate
+			effectiveEstimate = providerEstimate.EstimatedInputTokens
+		}
+	}
 	window := modelWindowForRequest(CapabilitiesForClient(client), input.Policy)
 	prepared.InputBudget = InputBudgetAssessment{
-		EstimatedInputTokens: estimate,
-		UsableInputTokens:    window.UsableInputTokens(),
+		LocalInputTokenEstimate: estimate,
+		EstimatedInputTokens:    effectiveEstimate,
+		UsableInputTokens:       window.UsableInputTokens(),
+		ProviderUsageEstimate:   providerUsageEstimate,
 	}
 	return prepared, nil
 }

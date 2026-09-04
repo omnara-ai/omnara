@@ -201,9 +201,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	resolved := model.ResolvedClient{
-		ConfiguredModelRevisionID: revision.ID.String(),
-	}
+	resolved := model.ResolvedClient{ConfiguredModelRevisionID: revision.ID.String()}
 	switch providerConfig.APIFormat {
 	case modelprotocol.APIFormatOpenAIResponses:
 		resolved.Client = openairesponses.Client{
@@ -217,7 +215,6 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
 		}
-		return resolved, nil
 	case modelprotocol.APIFormatOpenAIChatCompletions:
 		resolved.Client = openaichatcompletions.Client{
 			ModelProviderConfigID: providerConfig.ID.String(),
@@ -230,7 +227,6 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
 		}
-		return resolved, nil
 	case modelprotocol.APIFormatAnthropicMessages:
 		resolved.Client = anthropicmessages.Client{
 			ModelProviderConfigID: providerConfig.ID.String(),
@@ -243,7 +239,6 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
 		}
-		return resolved, nil
 	default:
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -252,6 +247,11 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			fmt.Errorf("unsupported api_format %q", providerConfig.APIFormat),
 		)
 	}
+	resolved.ProviderRequestIdentity = model.ProviderReplayIdentityForClient(
+		providerConfig.ID.String(),
+		resolved.Client,
+	)
+	return resolved, nil
 }
 
 func resolverError(kind model.ErrorKind, code, message string, cause error) error {

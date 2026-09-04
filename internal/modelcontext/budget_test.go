@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func budgetFixtureJSON(t testing.TB, value any) json.RawMessage {
@@ -111,8 +114,115 @@ func TestPreparedRequestBudgetRemovesChatFileData(t *testing.T) {
 func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 	body := budgetFixtureJSON(t, map[string]any{"input": "small textual fallback"})
 	withNoRenderedMedia := EstimatePreparedRequest(body, nil)
-	if want := len(body)/4 + 1; withNoRenderedMedia != want {
+	if want := ceilDiv(len(body), 4); withNoRenderedMedia != want {
 		t.Fatalf("estimate = %d, want body-only estimate %d", withNoRenderedMedia, want)
+	}
+}
+
+func TestEstimateSerializedTextTokensAccountsForDenseScripts(t *testing.T) {
+	if got := estimateSerializedTextTokens([]byte("abcd你好世界")); got != 5 {
+		t.Fatalf("mixed text estimate = %d, want 5", got)
+	}
+}
+
+func TestEstimateInputFromProviderUsageAddsOnlyTheNewTail(t *testing.T) {
+	identity := testModelRequestIdentity()
+	bundle := Bundle{
+		InputEventSequence: 7,
+		Messages: []Message{
+			{
+				Role:     modelprotocol.RoleAssistant,
+				Sequence: 4,
+				ProviderUsageAnchor: &ProviderUsageAnchor{
+					Identity:           identity,
+					InputEventSequence: 3,
+					InputTokens:        1_000,
+					OutputTokens:       200,
+				},
+			},
+			{
+				Role:     modelprotocol.RoleUser,
+				Sequence: 5,
+				Content:  json.RawMessage(`[{"type":"text","text":"continue with new work"}]`),
+			},
+		},
+	}
+
+	estimate, ok := EstimateInputFromProviderUsage(bundle, identity, 0)
+	if !ok || estimate.ProviderInputTokens != 1_000 || estimate.ProviderOutputTokens != 200 ||
+		estimate.NewTailTokens <= 0 ||
+		estimate.EstimatedInputTokens != 1_200+estimate.NewTailTokens {
+		t.Fatalf("provider usage estimate = %+v, available=%t", estimate, ok)
+	}
+}
+
+func TestEstimateInputFromProviderUsageRejectsIncompatibleHistory(t *testing.T) {
+	identity := testModelRequestIdentity()
+	newBundle := func() Bundle {
+		return Bundle{
+			InputEventSequence: 7,
+			Messages: []Message{{
+				Role:     modelprotocol.RoleAssistant,
+				Sequence: 5,
+				ProviderUsageAnchor: &ProviderUsageAnchor{
+					Identity:           identity,
+					InputEventSequence: 4,
+					InputTokens:        1_000,
+					OutputTokens:       100,
+				},
+			}},
+		}
+	}
+
+	tests := map[string]func(*Bundle, *ModelRequestIdentity, *int64){
+		"config changed": func(_ *Bundle, target *ModelRequestIdentity, _ *int64) {
+			target.AgentConfigID = "other-config"
+		},
+		"model revision changed": func(_ *Bundle, target *ModelRequestIdentity, _ *int64) {
+			target.ConfiguredModelRevisionID = "other-revision"
+		},
+		"provider config changed": func(_ *Bundle, target *ModelRequestIdentity, _ *int64) {
+			target.ProviderRequestIdentity.ModelProviderConfigID = "other-provider-config"
+		},
+		"checkpoint replaced anchor": func(bundle *Bundle, _ *ModelRequestIdentity, _ *int64) {
+			bundle.ContextCheckpoint = &CheckpointRef{EventSequence: 6}
+		},
+		"replay rejected after anchor": func(_ *Bundle, _ *ModelRequestIdentity, cutoff *int64) {
+			*cutoff = 5
+		},
+		"newer output has no usage": func(bundle *Bundle, _ *ModelRequestIdentity, _ *int64) {
+			bundle.Messages = append(bundle.Messages, Message{Role: modelprotocol.RoleAssistant, Sequence: 6})
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			bundle := newBundle()
+			target := identity
+			var cutoff int64
+			mutate(&bundle, &target, &cutoff)
+			if _, ok := EstimateInputFromProviderUsage(bundle, target, cutoff); ok {
+				t.Fatal("incompatible provider measurement was used")
+			}
+		})
+	}
+
+	bundle := newBundle()
+	bundle.ContextCheckpoint = &CheckpointRef{EventSequence: 4}
+	if _, ok := EstimateInputFromProviderUsage(bundle, identity, 4); !ok {
+		t.Fatal("measurement made at the checkpoint and replay frontier was rejected")
+	}
+}
+
+func testModelRequestIdentity() ModelRequestIdentity {
+	return ModelRequestIdentity{
+		AgentConfigID:             "config",
+		ConfiguredModelRevisionID: "revision",
+		ProviderRequestIdentity: modelenvelope.ProviderReplayIdentity{
+			ModelProviderConfigID:      "provider-config",
+			RequestedProviderModelSlug: "model",
+			APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
+			APIVariant:                 modelprotocol.APIVariantDefault,
+		},
 	}
 }
 
