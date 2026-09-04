@@ -166,7 +166,7 @@ type chatStreamAccumulator struct {
 	choices        map[int]*chatStreamChoiceState
 	id             string
 	servedModel    string
-	provider       json.RawMessage
+	provider       lenientString
 	usage          chatUsage
 	usageReceived  bool
 	completed      bool
@@ -220,7 +220,7 @@ type chatStreamReasoningDetailState struct {
 type chatStreamChunk struct {
 	ID       string             `json:"id"`
 	Model    string             `json:"model"`
-	Provider json.RawMessage    `json:"provider,omitempty"`
+	Provider lenientString      `json:"provider,omitempty"`
 	Choices  []chatStreamChoice `json:"choices"`
 	Usage    *chatUsage         `json:"usage"`
 	Error    chatProviderError  `json:"error"`
@@ -279,7 +279,7 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	if chunk.Model != "" {
 		a.servedModel = chunk.Model
 	}
-	if len(chunk.Provider) > 0 {
+	if chunk.Provider != "" {
 		a.provider = chunk.Provider
 	}
 	if chunk.Usage != nil {
