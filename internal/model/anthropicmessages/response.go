@@ -169,9 +169,9 @@ type usage struct {
 }
 
 func providerMetadataFromUsage(usage usage) modelenvelope.ProviderMetadata {
-	return modelenvelope.ProviderMetadata{
+	return model.SanitizeProviderMetadata(modelenvelope.ProviderMetadata{
 		Anthropic: modelenvelope.AnthropicMetadata{CacheCreation: usage.CacheCreation},
-	}
+	})
 }
 
 func mapStopReason(reason string) modelenvelope.StopReason {

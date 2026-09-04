@@ -149,6 +149,7 @@ func (p protocol) chatResponseEvidence(
 	}
 	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
 		out.ProviderMetadata.OpenRouter.Provider = response.Provider
+		out.ProviderMetadata = model.SanitizeProviderMetadata(out.ProviderMetadata)
 		cost, issue := openRouterReportedCost(response.Usage)
 		out.ProviderReportedCostUSD = cost
 		switch issue {

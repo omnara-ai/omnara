@@ -609,8 +609,7 @@ func sameSuccessfulModelCallCompletionEvidence(
 	envelope modelenvelope.ResponseEnvelope,
 ) bool {
 	return contextRow.ProviderRequestID == providerRequestID &&
-		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD &&
-		contextRow.ProviderMetadata == envelope.ProviderMetadata
+		contextRow.ProviderReportedCostUSD == envelope.ProviderReportedCostUSD
 }
 
 func completeSuccessfulNormalModelCallTx(

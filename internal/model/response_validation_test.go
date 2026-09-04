@@ -80,21 +80,22 @@ func TestValidateProviderResponseRejectsOversizedIdentities(t *testing.T) {
 	}
 }
 
-func TestResponseEvidenceForStorageDiscardsUnsafeProviderMetadata(t *testing.T) {
-	response := Response{
-		ID:                      "resp_1",
-		ServedProviderModelSlug: "served-model",
-		ProviderMetadata: modelenvelope.ProviderMetadata{
-			OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moon\x00shot"},
+func TestSanitizeProviderMetadataDropsUnsafeValuesOnly(t *testing.T) {
+	unsafe := modelenvelope.ProviderMetadata{
+		OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moon\x00shot"},
+		Anthropic: modelenvelope.AnthropicMetadata{
+			CacheCreation: modelenvelope.AnthropicCacheCreation{Ephemeral5mInputTokens: -1},
 		},
-		Usage: Usage{InputTokens: 12, OutputTokens: 4},
 	}
-	if evidence := ResponseEvidenceForStorage(response); evidence.ID != "" ||
-		evidence.ProviderMetadata != (modelenvelope.ProviderMetadata{}) || evidence.Usage != (Usage{}) {
-		t.Fatalf("unsafe provider metadata evidence = %+v, want discarded", evidence)
+	if got := SanitizeProviderMetadata(unsafe); got != (modelenvelope.ProviderMetadata{}) {
+		t.Fatalf("unsafe metadata = %+v, want dropped", got)
 	}
-	response.ProviderMetadata.OpenRouter.Provider = "Moonshot AI"
-	if evidence := ResponseEvidenceForStorage(response); evidence.ProviderMetadata != response.ProviderMetadata {
-		t.Fatalf("safe provider metadata evidence = %+v, want retained", evidence.ProviderMetadata)
+	safe := modelenvelope.ProviderMetadata{OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moonshot AI"}}
+	if got := SanitizeProviderMetadata(safe); got != safe {
+		t.Fatalf("safe metadata = %+v, want unchanged", got)
+	}
+	evidence := ResponseEvidenceForStorage(Response{ID: "resp_1", ProviderMetadata: unsafe, Usage: Usage{InputTokens: 12}})
+	if evidence.ID != "resp_1" || evidence.Usage != (Usage{InputTokens: 12}) {
+		t.Fatalf("evidence = %+v, want kept regardless of metadata", evidence)
 	}
 }

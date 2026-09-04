@@ -202,9 +202,6 @@ func finishModelCallContextWithAuthorityTx(
 	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("provider-reported cost: %w", err)
 	}
-	if input.APIFormat == "" && input.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
-		return ModelCallContextRecord{}, errors.New("provider metadata requires a model call API identity")
-	}
 	providerMetadata, err := json.Marshal(input.ProviderMetadata)
 	if err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("encode provider metadata: %w", err)

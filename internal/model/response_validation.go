@@ -42,15 +42,10 @@ func ValidateProviderResponse(response Response) error {
 		{name: "response id", value: response.ID},
 		{name: "request id", value: response.ProviderRequestID},
 		{name: "served model slug", value: response.ServedProviderModelSlug},
-		{name: "served provider", value: response.ProviderMetadata.OpenRouter.Provider},
 	} {
 		if err := validateProviderIdentity(field.value); err != nil {
 			return fmt.Errorf("%s: %w", field.name, err)
 		}
-	}
-	if creation := response.ProviderMetadata.Anthropic.CacheCreation; creation.Ephemeral5mInputTokens < 0 ||
-		creation.Ephemeral1hInputTokens < 0 {
-		return errors.New("anthropic cache creation token counts cannot be negative")
 	}
 	if err := validateProviderString(string(response.StopReason)); err != nil {
 		return fmt.Errorf("response stop reason: %w", err)
@@ -88,6 +83,17 @@ func ValidateProviderResponse(response Response) error {
 		}
 	}
 	return nil
+}
+
+func SanitizeProviderMetadata(metadata modelenvelope.ProviderMetadata) modelenvelope.ProviderMetadata {
+	if validateProviderIdentity(metadata.OpenRouter.Provider) != nil {
+		metadata.OpenRouter.Provider = ""
+	}
+	if creation := metadata.Anthropic.CacheCreation; creation.Ephemeral5mInputTokens < 0 ||
+		creation.Ephemeral1hInputTokens < 0 {
+		metadata.Anthropic.CacheCreation = modelenvelope.AnthropicCacheCreation{}
+	}
+	return metadata
 }
 
 func ResponseEvidenceForStorage(response Response) Response {

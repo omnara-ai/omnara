@@ -2,18 +2,14 @@ package executionstore
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) (ModelCallContextRecord, error) {
-	providerMetadata, err := providerMetadataFromSQLC(row.ProviderMetadata)
-	if err != nil {
-		return ModelCallContextRecord{}, err
-	}
+func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
+	providerMetadata := providerMetadataFromSQLC(row.ProviderMetadata)
 	return ModelCallContextRecord{
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
@@ -49,15 +45,15 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) (ModelCal
 		ProviderMetadata:        providerMetadata,
 		CreatedAt:               row.CreatedAt,
 		CompletedAt:             row.CompletedAt,
-	}, nil
+	}
 }
 
-func providerMetadataFromSQLC(raw json.RawMessage) (modelenvelope.ProviderMetadata, error) {
+func providerMetadataFromSQLC(raw json.RawMessage) modelenvelope.ProviderMetadata {
 	var metadata modelenvelope.ProviderMetadata
 	if err := json.Unmarshal(raw, &metadata); err != nil {
-		return modelenvelope.ProviderMetadata{}, fmt.Errorf("decode provider metadata: %w", err)
+		return modelenvelope.ProviderMetadata{}
 	}
-	return metadata, nil
+	return metadata
 }
 
 func int64PtrFromSQLC(value *int64) *int64 {

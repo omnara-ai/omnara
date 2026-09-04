@@ -198,8 +198,7 @@ func sameTerminalModelCallErrorContextIntent(
 		sameJSON(contextRecord.ErrorDetails, input.ErrorDetails) &&
 		contextRecord.RetryAt == nil &&
 		contextRecord.Usage == usage &&
-		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD &&
-		contextRecord.ProviderMetadata == input.ProviderMetadata
+		contextRecord.ProviderReportedCostUSD == input.ProviderReportedCostUSD
 }
 
 type modelCallErrorOutputInput struct {

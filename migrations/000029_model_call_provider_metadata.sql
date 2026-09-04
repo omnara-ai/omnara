@@ -7,10 +7,6 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_provider_metadata_object
     CHECK (jsonb_typeof(provider_metadata) = 'object');
 
-ALTER TABLE model_call_contexts
-    ADD CONSTRAINT model_call_contexts_provider_metadata_has_api
-    CHECK (api_format <> '' OR provider_metadata = '{}'::jsonb);
-
 CREATE OR REPLACE VIEW agent_event_read_projection AS
 SELECT event.id,
        agent.org_id,

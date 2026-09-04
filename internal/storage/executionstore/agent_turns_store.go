@@ -257,11 +257,7 @@ func (s *Store) ListAgentEventsForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		record, err := agentEventReadRecordFromSQLC(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, record)
+		out = append(out, agentEventReadRecordFromSQLC(row))
 	}
 	return out, nil
 }
@@ -325,11 +321,7 @@ func (s *Store) ListAgentEventsBeforeForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		record, err := agentEventReadRecordFromSQLC(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, record)
+		out = append(out, agentEventReadRecordFromSQLC(row))
 	}
 	slices.Reverse(out)
 	return out, nil
@@ -368,11 +360,7 @@ func (s *Store) ListTurnEventsForRead(
 	}
 	out := make([]AgentEventReadRecord, 0, len(rows))
 	for _, row := range rows {
-		record, err := agentEventReadRecordFromSQLC(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, record)
+		out = append(out, agentEventReadRecordFromSQLC(row))
 	}
 	slices.Reverse(out)
 	return out, nil
@@ -444,10 +432,7 @@ func (s *Store) ListAgentTurnsForRead(
 		turnIndex[out[i].ID] = i
 	}
 	for _, row := range boundaryRows {
-		event, err := agentEventReadRecordFromSQLC(row)
-		if err != nil {
-			return nil, err
-		}
+		event := agentEventReadRecordFromSQLC(row)
 		i, ok := turnIndex[event.TurnID]
 		if !ok {
 			continue
@@ -497,7 +482,7 @@ func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentI
 	return nil
 }
 
-func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) (AgentEventReadRecord, error) {
+func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEventReadRecord {
 	record := AgentEventReadRecord{
 		ID:                  row.ID,
 		OrgID:               row.OrgID,
@@ -528,11 +513,7 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) (AgentEve
 		CreatedAt: row.CreatedAt,
 	}
 	if row.ProviderMetadata != nil {
-		providerMetadata, err := providerMetadataFromSQLC(*row.ProviderMetadata)
-		if err != nil {
-			return AgentEventReadRecord{}, err
-		}
-		record.ProviderMetadata = providerMetadata
+		record.ProviderMetadata = providerMetadataFromSQLC(*row.ProviderMetadata)
 	}
 	record.ActorID = idFromSQLCPtr(row.ActorID)
 	record.AgentInputID = idFromSQLCPtr(row.AgentInputID)
@@ -544,5 +525,5 @@ func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) (AgentEve
 	if row.SummarizedThroughEventSequence != nil {
 		record.SummarizedThroughEventSequence = *row.SummarizedThroughEventSequence
 	}
-	return record, nil
+	return record
 }
