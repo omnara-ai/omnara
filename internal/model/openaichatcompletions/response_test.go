@@ -783,3 +783,14 @@ func TestUsageFromResponseReadsProviderCacheSpellings(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageFromResponseIgnoresMalformedCacheTelemetry(t *testing.T) {
+	var usage chatUsage
+	body := `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":"unknown","cached_tokens":{"n":1}}`
+	if err := json.Unmarshal([]byte(body), &usage); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if got := usageFromResponse(usage); got.InputTokens != 283 || got.CacheReadTokens != 0 {
+		t.Fatalf("usage = %+v, want 283 input with no cache read", got)
+	}
+}
