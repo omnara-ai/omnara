@@ -88,10 +88,10 @@ func promptCacheCapabilityFor(route PromptCacheRoute) promptCacheCapability {
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
 		if route.APIVariant == modelprotocol.APIVariantOpenRouter {
-			claude := strings.HasPrefix(normalizedProviderModelSlug(route.ProviderModelSlug), "anthropic/claude-")
+			anthropic := strings.HasPrefix(normalizedProviderModelSlug(route.ProviderModelSlug), "anthropic/")
 			return promptCacheCapability{
-				explicit:      claude,
-				longRetention: claude,
+				explicit:      anthropic,
+				longRetention: anthropic,
 				affinity:      PromptCacheAffinitySessionID,
 			}
 		}
