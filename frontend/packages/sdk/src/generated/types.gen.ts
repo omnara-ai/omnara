@@ -143,7 +143,9 @@ export type ProjectModelGrantId = string;
 
 export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'anthropic-messages';
 
-export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header';
+export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
+
+export type ModelProviderAuthKindResponse = string;
 
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
@@ -183,10 +185,12 @@ export type CreateModelProviderConfigRequest = {
     request_timeout_ms?: number;
     auth_kind?: ModelProviderAuthKind;
     /**
-     * Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}.
+     * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id: SecretId;
 };
@@ -209,10 +213,12 @@ export type UpdateModelProviderConfigRequest = {
     request_timeout_ms?: number;
     auth_kind?: ModelProviderAuthKind;
     /**
-     * Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}.
+     * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id?: SecretId;
 };
@@ -230,12 +236,14 @@ export type ModelProviderConfig = {
     base_url: string;
     endpoint_path: string;
     request_timeout_ms: number;
-    auth_kind: ModelProviderAuthKind;
+    auth_kind: ModelProviderAuthKindResponse;
     /**
-     * Non-secret API-key placement settings for this provider config.
+     * Non-secret authentication settings for this provider config.
      */
     auth_options: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id: SecretId;
     created_at: Timestamp;

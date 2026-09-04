@@ -1,5 +1,4 @@
 import type {
-  AwsCredentialsSecretMaterial,
   CreateSecretRequest,
   McpoAuthStartRequest,
   McpoAuthStartResponse,
@@ -7,7 +6,10 @@ import type {
   SecretOwnerInput,
 } from '@omnara/sdk'
 
-import type { SecretDialogState } from '@/components/org/CreateSecretDialogState'
+import {
+  awsCredentialsMaterial,
+  type SecretDialogState,
+} from '@/components/org/CreateSecretDialogState'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import { oauthTokenSetMaterial } from '@/lib/oauthEntries'
 import { errorMessage } from '@/lib/submit-status'
@@ -29,27 +31,6 @@ export type SecretSubmissionResult =
     }
   | { kind: 'redirect'; authorizationUrl: string }
   | { kind: 'failed'; secret: Secret | null; message: string }
-
-function awsCredentialsMaterial(secret: {
-  accessKeyId: string
-  secretAccessKey: string
-  sessionToken: string
-  roleArn: string
-  externalId: string
-}): AwsCredentialsSecretMaterial {
-  const material: AwsCredentialsSecretMaterial = {
-    kind: 'aws_credentials',
-    access_key_id: secret.accessKeyId.trim(),
-    secret_access_key: secret.secretAccessKey.trim(),
-  }
-  const sessionToken = secret.sessionToken.trim()
-  const roleArn = secret.roleArn.trim()
-  const externalId = secret.externalId.trim()
-  if (sessionToken !== '') material.session_token = sessionToken
-  if (roleArn !== '') material.role_arn = roleArn
-  if (externalId !== '') material.external_id = externalId
-  return material
-}
 
 export async function submitSecretTransaction({
   state,

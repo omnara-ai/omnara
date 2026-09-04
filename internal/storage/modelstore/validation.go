@@ -7,14 +7,18 @@ import (
 	"math"
 	"net"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+var sigV4ScopeComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 func sameModelProviderConfigIntent(record ModelProviderConfigRecord, input CreateModelProviderConfigInput) bool {
 	return record.ManagementKind == input.managementKind &&
@@ -360,9 +364,69 @@ func ValidateModelProviderAuth(authKind string, authOptions json.RawMessage) err
 	case ModelProviderAuthKindAPIKeyHeader:
 		_, err := ModelProviderAPIKeyHeaderName(authOptions)
 		return err
+	case ModelProviderAuthKindSigV4:
+		_, _, err := ModelProviderSigV4ServiceRegion(authOptions)
+		return err
 	default:
 		return fmt.Errorf("unsupported model provider auth_kind %q: %w", authKind, storeerr.ErrInvalidModelProviderConfig)
 	}
+}
+
+func ModelProviderCredentialSecretKind(authKind string) (secrets.Kind, error) {
+	switch authKind {
+	case ModelProviderAuthKindBearerToken, ModelProviderAuthKindAPIKeyHeader:
+		return secrets.KindGeneric, nil
+	case ModelProviderAuthKindSigV4:
+		return secrets.KindAWSCredentials, nil
+	default:
+		return "", fmt.Errorf("unsupported model provider auth_kind %q: %w", authKind, storeerr.ErrInvalidModelProviderConfig)
+	}
+}
+
+func ModelProviderSigV4ServiceRegion(authOptions json.RawMessage) (string, string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(authOptions, &fields); err != nil {
+		return "", "", fmt.Errorf("auth_options must be a JSON object: %w", err)
+	}
+	if fields == nil {
+		return "", "", fmt.Errorf("auth_options must be a JSON object: %w", storeerr.ErrInvalidModelProviderConfig)
+	}
+	for key := range fields {
+		if key != "service" && key != "region" {
+			return "", "", fmt.Errorf("auth_options.%s is not supported for sigv4: %w", key, storeerr.ErrInvalidModelProviderConfig)
+		}
+	}
+	service, err := modelProviderAuthOptionString(fields, "service", ModelProviderAuthKindSigV4)
+	if err != nil {
+		return "", "", err
+	}
+	region, err := modelProviderAuthOptionString(fields, "region", ModelProviderAuthKindSigV4)
+	if err != nil {
+		return "", "", err
+	}
+	return service, region, nil
+}
+
+func modelProviderAuthOptionString(fields map[string]json.RawMessage, name, authKind string) (string, error) {
+	rawValue, ok := fields[name]
+	if !ok {
+		return "", fmt.Errorf("auth_options.%s is required for %s: %w", name, authKind, storeerr.ErrInvalidModelProviderConfig)
+	}
+	var value string
+	if err := json.Unmarshal(rawValue, &value); err != nil {
+		return "", fmt.Errorf("auth_options.%s must be a string: %w", name, err)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("auth_options.%s is required for %s: %w", name, authKind, storeerr.ErrInvalidModelProviderConfig)
+	}
+	if len(value) > 64 {
+		return "", fmt.Errorf("auth_options.%s is too long: %w", name, storeerr.ErrInvalidModelProviderConfig)
+	}
+	if !sigV4ScopeComponentPattern.MatchString(value) {
+		return "", fmt.Errorf("auth_options.%s must be lowercase alphanumeric segments separated by hyphens: %w", name, storeerr.ErrInvalidModelProviderConfig)
+	}
+	return value, nil
 }
 
 // ModelProviderAPIKeyHeaderName returns the configured API-key header after validating it is safe for auth placement.
@@ -469,6 +533,18 @@ func validateModelProviderAPIVariant(
 	default:
 		return fmt.Errorf("unsupported api_variant %q", value)
 	}
+}
+
+func validateModelProviderAuthAPIVariant(authKind string, apiVariant modelprotocol.APIVariant) error {
+	if authKind == ModelProviderAuthKindSigV4 && apiVariant != modelprotocol.APIVariantBedrock {
+		return fmt.Errorf(
+			"auth_kind %q requires api_variant %q: %w",
+			authKind,
+			modelprotocol.APIVariantBedrock,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	return nil
 }
 
 func validateModelDefaultCacheRetention(value string) error {

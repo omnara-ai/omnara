@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -257,6 +258,58 @@ func TestBedrockProviderVariantSupportsAllAPIFormats(t *testing.T) {
 		if err := validateModelProviderAPIVariant(apiFormat, modelprotocol.APIVariantBedrock); err != nil {
 			t.Fatalf("Bedrock variant rejected for %q: %v", apiFormat, err)
 		}
+	}
+}
+
+func TestModelProviderSigV4Validation(t *testing.T) {
+	service, region, err := ModelProviderSigV4ServiceRegion(
+		json.RawMessage(`{"service":" bedrock-mantle ","region":" us-west-2 "}`),
+	)
+	if err != nil {
+		t.Fatalf("validate SigV4 auth options: %v", err)
+	}
+	if service != "bedrock-mantle" || region != "us-west-2" {
+		t.Fatalf("SigV4 service and region = %q, %q", service, region)
+	}
+	for _, options := range []json.RawMessage{
+		json.RawMessage(`{}`),
+		json.RawMessage(`{"service":"bedrock-mantle","region":""}`),
+		json.RawMessage(`{"service":"bedrock-mantle","region":"US-WEST-2"}`),
+		json.RawMessage(`{"service":"bedrock/mantle","region":"us-west-2"}`),
+		json.RawMessage(`{"service":"bedrock-mantle","region":"us-west-2","extra":true}`),
+	} {
+		if err := ValidateModelProviderAuth(ModelProviderAuthKindSigV4, options); err == nil {
+			t.Fatalf("invalid SigV4 auth options accepted: %s", options)
+		}
+	}
+	if err := validateModelProviderAuthAPIVariant(
+		ModelProviderAuthKindSigV4,
+		modelprotocol.APIVariantDefault,
+	); err == nil {
+		t.Fatal("SigV4 auth accepted for a non-Bedrock provider")
+	}
+	if got, err := ModelProviderCredentialSecretKind(ModelProviderAuthKindSigV4); err != nil ||
+		got != secrets.KindAWSCredentials {
+		t.Fatalf("SigV4 credential kind = %q, %v", got, err)
+	}
+}
+
+func TestDefaultModelProviderTemplateRejectsSigV4(t *testing.T) {
+	_, err := PrepareDefaultModelProviderTemplate(DefaultModelProviderTemplate{
+		Provisioner:          "test",
+		Name:                 "default-provider",
+		CredentialSecretName: "default-provider-credentials",
+		APIFormat:            modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:           modelprotocol.APIVariantBedrock,
+		BaseURL:              "https://bedrock-mantle.us-west-2.api.aws/v1",
+		AuthKind:             ModelProviderAuthKindSigV4,
+		AuthOptions:          json.RawMessage(`{"service":"bedrock-mantle","region":"us-west-2"}`),
+		Models: []DefaultConfiguredModelTemplate{{
+			Name: "model", ProviderModelSlug: "model", ContextWindowTokens: 8192,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "do not support sigv4 authentication") {
+		t.Fatalf("PrepareDefaultModelProviderTemplate error = %v", err)
 	}
 }
 

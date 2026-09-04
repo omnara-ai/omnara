@@ -34,6 +34,8 @@ import {
   awsRegionPattern,
   bedrockAPIOption,
   bedrockAPIOptions,
+  bedrockAuthOption,
+  bedrockAuthOptions,
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
@@ -51,6 +53,138 @@ type DialogPhase =
       discovery: ModelCatalog
       providerCreated: boolean
     }
+
+function modelProviderRequest(
+  values: CreateModelProviderFormValues,
+): CreateModelProviderConfigRequest {
+  const common = {
+    name: values.name,
+    credential_secret_id: values.secretId,
+  }
+  if (values.provider !== 'bedrock') return { ...common, preset: values.provider }
+
+  const api = bedrockAPIOption(values.bedrockAPI)
+  const region = values.region.trim()
+  const request: CreateModelProviderConfigRequest = {
+    ...common,
+    api_format: api.apiFormat,
+    api_variant: 'bedrock',
+    base_url: `https://bedrock-mantle.${region}.api.aws${api.basePath}`,
+  }
+  if (values.bedrockAuth !== 'sigv4') return request
+  return {
+    ...request,
+    auth_kind: 'sigv4',
+    auth_options: { service: 'bedrock-mantle', region },
+  }
+}
+
+function BedrockProviderFields({
+  values,
+  onChange,
+}: {
+  values: CreateModelProviderFormValues
+  onChange: (patch: Partial<CreateModelProviderFormValues>) => void
+}) {
+  const regionValid = awsRegionPattern.test(values.region.trim())
+  const sigv4 = values.bedrockAuth === 'sigv4'
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field>
+        <FieldLabel htmlFor="mp-bedrock-api">API and endpoint</FieldLabel>
+        <Select
+          value={values.bedrockAPI}
+          onValueChange={(value) => {
+            const option = bedrockAPIOptions.find((candidate) => candidate.value === value)
+            if (!option) return
+            onChange({ bedrockAPI: option.value })
+          }}
+        >
+          <SelectTrigger id="mp-bedrock-api" className="w-full">
+            <SelectValue>{bedrockAPIOption(values.bedrockAPI).label}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {bedrockAPIOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldDescription>Use the endpoint listed for the model by AWS.</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="mp-bedrock-auth">Authentication</FieldLabel>
+        <Select
+          value={values.bedrockAuth}
+          onValueChange={(value) => {
+            const option = bedrockAuthOptions.find((candidate) => candidate.value === value)
+            if (!option) return
+            onChange({ bedrockAuth: option.value, secretId: '' })
+          }}
+        >
+          <SelectTrigger id="mp-bedrock-auth" className="w-full">
+            <SelectValue>{bedrockAuthOption(values.bedrockAuth).label}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {bedrockAuthOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
+        <Input
+          id="mp-region"
+          required
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          pattern={awsRegionPattern.source}
+          value={values.region}
+          placeholder="us-west-2"
+          aria-invalid={!regionValid}
+          onChange={(event) => {
+            onChange({ region: event.target.value })
+          }}
+        />
+        <FieldDescription>
+          {!regionValid
+            ? 'Enter an AWS region such as us-west-2.'
+            : sigv4
+              ? 'The AWS region used to sign model requests.'
+              : 'The region where your Bedrock API key was generated.'}
+        </FieldDescription>
+      </Field>
+    </div>
+  )
+}
+
+function credentialFieldCopy(
+  values: CreateModelProviderFormValues,
+  provider: ReturnType<typeof modelProviderOption>,
+) {
+  if (values.provider === 'bedrock' && values.bedrockAuth === 'sigv4') {
+    return {
+      label: 'AWS credentials',
+      placeholder: 'Search AWS credential secrets…',
+      emptyDescription: 'No AWS credentials yet — use New secret to create one.',
+      defaultSecretName: 'bedrock-aws-credentials',
+      kind: 'aws_credentials' as const,
+    }
+  }
+  return {
+    label: `${provider.label} API key`,
+    placeholder: `Search secrets for your ${provider.label} API key…`,
+    emptyDescription: `No secrets yet — use New secret to store your ${provider.label} API key.`,
+    defaultSecretName: providerSecretName(values.provider),
+    kind: 'generic' as const,
+  }
+}
 
 export function CreateModelProviderDialog({
   open,
@@ -90,23 +224,7 @@ export function CreateModelProviderDialog({
     const submissionGeneration = ++providerSubmissionGeneration.current
     setStatus(idle)
     try {
-      const common = {
-        name: values.name,
-        credential_secret_id: values.secretId,
-      }
-      let request: CreateModelProviderConfigRequest
-      if (values.provider === 'bedrock') {
-        const api = bedrockAPIOption(values.bedrockAPI)
-        request = {
-          ...common,
-          api_format: api.apiFormat,
-          api_variant: 'bedrock',
-          base_url: `https://bedrock-mantle.${values.region.trim()}.api.aws${api.basePath}`,
-        }
-      } else {
-        request = { ...common, preset: values.provider }
-      }
-      const result = await createModelProvider.mutateAsync(request)
+      const result = await createModelProvider.mutateAsync(modelProviderRequest(values))
       if (submissionGeneration !== providerSubmissionGeneration.current) return
       if (result.config.api_variant === 'bedrock' && result.model_catalog.status === 'ok') {
         close()
@@ -132,7 +250,7 @@ export function CreateModelProviderDialog({
   }
 
   const provider = modelProviderOption(values.provider)
-  const regionValid = awsRegionPattern.test(values.region.trim())
+  const credential = credentialFieldCopy(values, provider)
   const providerPending = createModelProvider.isPending || deleteModelProvider.isPending
 
   return (
@@ -192,60 +310,15 @@ export function CreateModelProviderDialog({
                   </Field>
                 </div>
                 {values.provider === 'bedrock' && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field>
-                      <FieldLabel htmlFor="mp-bedrock-api">API and endpoint</FieldLabel>
-                      <Select
-                        value={values.bedrockAPI}
-                        onValueChange={(value) => {
-                          const option = bedrockAPIOptions.find(
-                            (candidate) => candidate.value === value,
-                          )
-                          if (!option) return
-                          setValues((prev) => ({ ...prev, bedrockAPI: option.value }))
-                        }}
-                      >
-                        <SelectTrigger id="mp-bedrock-api" className="w-full">
-                          <SelectValue>{bedrockAPIOption(values.bedrockAPI).label}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {bedrockAPIOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FieldDescription>
-                        Use the endpoint listed for the model by AWS.
-                      </FieldDescription>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
-                      <Input
-                        id="mp-region"
-                        required
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        pattern={awsRegionPattern.source}
-                        value={values.region}
-                        placeholder="us-west-2"
-                        aria-invalid={!regionValid}
-                        onChange={(event) => {
-                          setValues((prev) => ({ ...prev, region: event.target.value }))
-                        }}
-                      />
-                      <FieldDescription>
-                        {regionValid
-                          ? 'The region where your Bedrock API key was generated.'
-                          : 'Enter an AWS region such as us-west-2.'}
-                      </FieldDescription>
-                    </Field>
-                  </div>
+                  <BedrockProviderFields
+                    values={values}
+                    onChange={(patch) => {
+                      setValues((prev) => ({ ...prev, ...patch }))
+                    }}
+                  />
                 )}
                 <CredentialSecretField
-                  key={values.provider}
+                  key={`${values.provider}-${values.bedrockAuth}`}
                   orgId={orgId}
                   enabled={open}
                   value={values.secretId}
@@ -254,11 +327,12 @@ export function CreateModelProviderDialog({
                       prev.provider === provider.value ? { ...prev, secretId } : prev,
                     )
                   }}
-                  label={`${provider.label} API key`}
-                  placeholder={`Search secrets for your ${provider.label} API key…`}
-                  emptyDescription={`No secrets yet — use New secret to store your ${provider.label} API key.`}
-                  defaultSecretName={providerSecretName(values.provider)}
+                  label={credential.label}
+                  placeholder={credential.placeholder}
+                  emptyDescription={credential.emptyDescription}
+                  defaultSecretName={credential.defaultSecretName}
                   secretValuePlaceholder={provider.keyPlaceholder}
+                  kind={credential.kind}
                 />
                 {statusError(status) && (
                   <p className="text-destructive text-sm">{statusError(status)}</p>

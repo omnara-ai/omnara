@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -28,6 +29,7 @@ type Resolver struct {
 	Secrets               *secretstore.Store
 	HTTPRecorder          *metrics.HTTPClientRecorder
 	AllowLoopback         bool
+	SigV4CredentialCache  *sigv4.CredentialCache
 	OpenRouterAttribution OpenRouterAttribution
 }
 
@@ -150,13 +152,22 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
+	credentialKind, err := modelstore.ModelProviderCredentialSecretKind(providerConfig.AuthKind)
+	if err != nil {
+		return model.ResolvedClient{}, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_auth",
+			"The configured model provider authentication settings are invalid.",
+			err,
+		)
+	}
 	credential, err := r.Secrets.ReadOrgOwnedSecretPayload(
 		ctx,
 		secretstore.ReadOrgOwnedSecretPayloadInput{
 			OrgID:          orgID,
 			SecretID:       providerConfig.CredentialSecretID,
 			ManagementKind: providerConfig.ManagementKind,
-			Kind:           secretstore.SecretKindGeneric,
+			Kind:           credentialKind,
 		},
 	)
 	if err != nil {
@@ -170,8 +181,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		}
 		return model.ResolvedClient{}, err
 	}
-	apiKey := credential.Payload[secrets.KeyValue]
-	if apiKey == "" {
+	if credentialKind == secrets.KindGeneric && credential.Payload[secrets.KeyValue] == "" {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindAuth,
 			"model_credential_unavailable",
@@ -179,7 +189,12 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			errors.New("model provider credential secret value is required"),
 		)
 	}
-	auth, err := routeAuthForProviderConfig(providerConfig, apiKey)
+	var auth route.Auth
+	if providerConfig.AuthKind == modelstore.ModelProviderAuthKindSigV4 {
+		auth, err = r.sigV4RouteAuth(providerConfig, credential)
+	} else {
+		auth, err = routeAuthForProviderConfig(providerConfig, credential.Payload[secrets.KeyValue])
+	}
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -309,6 +324,31 @@ func routeAuthForProviderConfig(
 	default:
 		return nil, fmt.Errorf("unsupported model provider auth_kind %q", providerConfig.AuthKind)
 	}
+}
+
+func (r Resolver) sigV4RouteAuth(
+	providerConfig modelstore.ModelProviderConfigRecord,
+	credential secretstore.SecretPayloadRecord,
+) (route.Auth, error) {
+	service, region, err := modelstore.ModelProviderSigV4ServiceRegion(providerConfig.AuthOptions)
+	if err != nil {
+		return nil, fmt.Errorf("invalid auth_options for model provider config %s: %w", providerConfig.ID, err)
+	}
+	provider, err := sigv4.ResolveCredentialProvider(
+		r.SigV4CredentialCache,
+		providerConfig.CredentialSecretID,
+		credential.CurrentVersionID,
+		region,
+		credential.Payload,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("resolve AWS credentials for model provider config %s: %w", providerConfig.ID, err)
+	}
+	signer, err := sigv4.NewSigner(service, region, provider)
+	if err != nil {
+		return nil, fmt.Errorf("configure SigV4 for model provider config %s: %w", providerConfig.ID, err)
+	}
+	return signer, nil
 }
 
 func (r Resolver) httpClientForProviderConfig(

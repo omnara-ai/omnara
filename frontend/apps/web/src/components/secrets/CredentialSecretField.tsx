@@ -2,6 +2,11 @@ import { useCreateSecret } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
 import { type KeyboardEvent, useState } from 'react'
 
+import { AWSCredentialsSecretFields } from '@/components/org/AWSCredentialsSecretFields'
+import {
+  awsCredentialsMaterial,
+  newAWSCredentialsSecret,
+} from '@/components/org/CreateSecretDialogState'
 import { SecretTypeaheadField } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -20,6 +25,7 @@ export function CredentialSecretField({
   emptyDescription,
   defaultSecretName = '',
   secretValuePlaceholder = 'sk-…',
+  kind = 'generic',
 }: {
   orgId: string
   enabled: boolean
@@ -30,6 +36,7 @@ export function CredentialSecretField({
   emptyDescription: string
   defaultSecretName?: string
   secretValuePlaceholder?: string
+  kind?: 'generic' | 'aws_credentials'
 }) {
   const [creating, setCreating] = useState(false)
   const [createdSecret, setCreatedSecret] = useState<Secret>()
@@ -45,6 +52,7 @@ export function CredentialSecretField({
         placeholder={placeholder}
         emptyDescription={emptyDescription}
         knownSecret={createdSecret}
+        kind={kind}
         onCreateSecret={() => {
           setCreating(true)
         }}
@@ -57,6 +65,7 @@ export function CredentialSecretField({
       label={label}
       defaultName={defaultSecretName}
       valuePlaceholder={secretValuePlaceholder}
+      kind={kind}
       onCancel={() => {
         setCreating(false)
       }}
@@ -74,6 +83,7 @@ function InlineNewSecretFields({
   label,
   defaultName,
   valuePlaceholder,
+  kind,
   onCancel,
   onCreated,
 }: {
@@ -81,22 +91,30 @@ function InlineNewSecretFields({
   label: string
   defaultName: string
   valuePlaceholder: string
+  kind: 'generic' | 'aws_credentials'
   onCancel: () => void
   onCreated: (secret: Secret) => void
 }) {
   const createSecret = useCreateSecret(orgId)
   const [name, setName] = useState(defaultName)
   const [secretValue, setSecretValue] = useState('')
+  const [awsCredentials, setAWSCredentials] = useState(newAWSCredentialsSecret)
   const [error, setError] = useState('')
-  const valid = resourceNameValid(name) && secretValue !== ''
+  const awsMaterial = awsCredentialsMaterial(awsCredentials)
+  const valid =
+    resourceNameValid(name) &&
+    (kind === 'aws_credentials' ? awsMaterial !== undefined : secretValue !== '')
 
   async function submit() {
     setError('')
     try {
+      const material =
+        kind === 'aws_credentials' ? awsMaterial : { kind: 'generic' as const, value: secretValue }
+      if (material === undefined) return
       const secret = await createSecret.mutateAsync({
         owner: { kind: 'org' },
         name,
-        material: { kind: 'generic', value: secretValue },
+        material,
       })
       onCreated(secret)
     } catch (err) {
@@ -131,20 +149,29 @@ function InlineNewSecretFields({
             />
             <ResourceNameFieldError value={name} />
           </Field>
-          <Field>
-            <FieldLabel htmlFor="credential-secret-value">API key</FieldLabel>
-            <Input
-              id="credential-secret-value"
-              type="password"
-              value={secretValue}
-              autoComplete="new-password"
-              placeholder={valuePlaceholder}
-              onChange={(event) => {
-                setSecretValue(event.target.value)
+          {kind === 'aws_credentials' ? (
+            <AWSCredentialsSecretFields
+              value={awsCredentials}
+              onChange={(patch) => {
+                setAWSCredentials((current) => ({ ...current, ...patch }))
               }}
-              onKeyDown={submitOnEnter}
             />
-          </Field>
+          ) : (
+            <Field>
+              <FieldLabel htmlFor="credential-secret-value">API key</FieldLabel>
+              <Input
+                id="credential-secret-value"
+                type="password"
+                value={secretValue}
+                autoComplete="new-password"
+                placeholder={valuePlaceholder}
+                onChange={(event) => {
+                  setSecretValue(event.target.value)
+                }}
+                onKeyDown={submitOnEnter}
+              />
+            </Field>
+          )}
         </div>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <div className="flex items-center justify-between gap-2">

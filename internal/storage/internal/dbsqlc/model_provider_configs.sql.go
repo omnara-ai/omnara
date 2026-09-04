@@ -966,7 +966,6 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.id = $10
   AND credential.management_kind = $1
   AND credential.owner_kind = 'org'
-  AND credential.kind = 'generic'
 WHERE org.id = $11
 ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
@@ -1946,7 +1945,6 @@ WHERE config.org_id = $7
   AND credential.id = $6
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
-  AND credential.kind = 'generic'
 RETURNING config.id, config.org_id, config.management_kind,
           config.name, config.api_format,
           config.api_variant, config.base_url, config.endpoint_path,

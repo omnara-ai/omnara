@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -172,7 +173,7 @@ func main() {
 		log.Error("configure skill broadcaster", "error", err)
 		os.Exit(1)
 	}
-	sigV4CredentialCache, err := mcp.NewSigV4CredentialCache()
+	sigV4CredentialCache, err := sigv4.NewCredentialCache()
 	if err != nil {
 		log.Error("configure SigV4 credential cache", "error", err)
 		os.Exit(1)
@@ -184,10 +185,11 @@ func main() {
 			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{
-			Models:        store.Models(),
-			Secrets:       store.Secrets(),
-			HTTPRecorder:  httpRecorder,
-			AllowLoopback: cfg.AllowInsecureDev,
+			Models:               store.Models(),
+			Secrets:              store.Secrets(),
+			HTTPRecorder:         httpRecorder,
+			AllowLoopback:        cfg.AllowInsecureDev,
+			SigV4CredentialCache: sigV4CredentialCache,
 			OpenRouterAttribution: modelprovider.OpenRouterAttribution{
 				SiteURL:       cfg.OpenRouterSiteURL,
 				AppTitle:      cfg.OpenRouterAppTitle,

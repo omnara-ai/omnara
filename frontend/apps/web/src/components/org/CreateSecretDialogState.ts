@@ -1,4 +1,4 @@
-import type { Secret } from '@omnara/sdk'
+import type { AwsCredentialsSecretMaterial, Secret } from '@omnara/sdk'
 
 import { newOAuthTokenSetEntries, type OAuthEntry } from '@/lib/oauthEntries'
 
@@ -45,6 +45,39 @@ export interface AWSCredentialsSecretFormSecret {
   sessionToken: string
   roleArn: string
   externalId: string
+}
+
+export function newAWSCredentialsSecret(): AWSCredentialsSecretFormSecret {
+  return {
+    kind: 'aws_credentials',
+    accessKeyId: '',
+    secretAccessKey: '',
+    sessionToken: '',
+    roleArn: '',
+    externalId: '',
+  }
+}
+
+export function awsCredentialsMaterial(
+  secret: AWSCredentialsSecretFormSecret,
+): AwsCredentialsSecretMaterial | undefined {
+  const accessKeyId = secret.accessKeyId.trim()
+  const secretAccessKey = secret.secretAccessKey.trim()
+  const sessionToken = secret.sessionToken.trim()
+  const roleArn = secret.roleArn.trim()
+  const externalId = secret.externalId.trim()
+  if (accessKeyId === '' || secretAccessKey === '') return undefined
+  if (externalId !== '' && roleArn === '') return undefined
+
+  const material: AwsCredentialsSecretMaterial = {
+    kind: 'aws_credentials',
+    access_key_id: accessKeyId,
+    secret_access_key: secretAccessKey,
+  }
+  if (sessionToken !== '') material.session_token = sessionToken
+  if (roleArn !== '') material.role_arn = roleArn
+  if (externalId !== '') material.external_id = externalId
+  return material
 }
 
 export interface SecretDialogState {
@@ -103,14 +136,7 @@ export function newSecretFormSecret(kind: SecretKind): SecretFormSecret {
     }
   }
   if (kind === 'aws_credentials') {
-    return {
-      kind,
-      accessKeyId: '',
-      secretAccessKey: '',
-      sessionToken: '',
-      roleArn: '',
-      externalId: '',
-    }
+    return newAWSCredentialsSecret()
   }
   return {
     kind: 'generic',

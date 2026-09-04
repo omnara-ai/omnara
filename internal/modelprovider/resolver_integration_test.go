@@ -3,9 +3,11 @@
 package modelprovider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -239,6 +241,82 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 	}
 	if got := model.ProviderReplayIdentityForClient(providerConfig.ID.String(), client); got != wantReplayIdentity {
 		t.Fatalf("resolved replay identity = %+v, want %+v", got, wantReplayIdentity)
+	}
+
+	awsCredential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     created.Org.ID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "bedrock-aws-credentials",
+		Material: secrets.AWSCredentialsMaterial{
+			AccessKeyID:     "AKIAEXAMPLE",
+			SecretAccessKey: "secret",
+			SessionToken:    "session-token",
+		},
+		Actor: modelProviderUserPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create AWS credential secret: %v", err)
+	}
+	sigV4Provider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              created.Org.ID,
+		Name:               "bedrock-sigv4",
+		APIFormat:          modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:         modelprotocol.APIVariantBedrock,
+		BaseURL:            "https://bedrock-mantle.us-west-2.api.aws/v1",
+		AuthKind:           modelstore.ModelProviderAuthKindSigV4,
+		AuthOptions:        json.RawMessage(`{"service":"bedrock-mantle","region":"us-west-2"}`),
+		CredentialSecretID: awsCredential.ID,
+	})
+	if err != nil {
+		t.Fatalf("create SigV4 provider config: %v", err)
+	}
+	sigV4Model, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                 created.Org.ID,
+		ModelProviderConfigID: sigV4Provider.ID,
+		Name:                  "gpt-oss",
+		ProviderModelSlug:     "openai.gpt-oss-20b",
+		ContextWindowTokens:   128000,
+		MaxOutputTokens:       8192,
+	})
+	if err != nil {
+		t.Fatalf("create SigV4 configured model: %v", err)
+	}
+	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID:             created.Org.ID,
+		ProjectID:         created.Project.ID,
+		ConfiguredModelID: sigV4Model.ID,
+	}); err != nil {
+		t.Fatalf("grant SigV4 configured model: %v", err)
+	}
+	sigV4Resolved, err := integrationResolver(store).Resolve(ctx, model.Selection{
+		OrgID:                     created.Org.ID.String(),
+		ProjectID:                 created.Project.ID.String(),
+		ConfiguredModelRevisionID: sigV4Model.CurrentRevisionID.String(),
+	})
+	if err != nil {
+		t.Fatalf("resolve SigV4 Bedrock model: %v", err)
+	}
+	sigV4Client, ok := sigV4Resolved.Client.(openaichatcompletions.Client)
+	if !ok {
+		t.Fatalf("resolved SigV4 client type = %T", sigV4Resolved.Client)
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"https://bedrock-mantle.us-west-2.api.aws/v1/chat/completions",
+		bytes.NewReader([]byte(`{"model":"openai.gpt-oss-20b"}`)),
+	)
+	if err != nil {
+		t.Fatalf("create SigV4 model request: %v", err)
+	}
+	if err := sigV4Client.Auth.Apply(request); err != nil {
+		t.Fatalf("sign model request: %v", err)
+	}
+	if authorization := request.Header.Get("Authorization"); !strings.Contains(authorization, "/us-west-2/bedrock-mantle/aws4_request") {
+		t.Fatalf("SigV4 authorization = %q", authorization)
+	}
+	if request.Header.Get("X-Amz-Security-Token") != "session-token" {
+		t.Fatalf("SigV4 session token = %q", request.Header.Get("X-Amz-Security-Token"))
 	}
 }
 

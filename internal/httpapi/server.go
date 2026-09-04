@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -66,7 +67,7 @@ type Server struct {
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
-	sigV4CredentialCache                *mcp.SigV4CredentialCache
+	sigV4CredentialCache                *sigv4.CredentialCache
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -448,7 +449,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
-	server.sigV4CredentialCache, err = mcp.NewSigV4CredentialCache()
+	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
 	if err != nil {
 		return nil, err
 	}
