@@ -732,6 +732,17 @@ func TestParseResponseRecordsOpenRouterServedProvider(t *testing.T) {
 	if response.ProviderMetadata.OpenRouter.Provider != "Moonshot AI" {
 		t.Fatalf("provider metadata = %+v, want Moonshot AI", response.ProviderMetadata)
 	}
+	malformed := json.RawMessage(`{"id":"chatcmpl_provider","model":"moonshotai/kimi-k3","provider":{"name":"Moonshot AI"},` +
+		`"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+		`"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+	response, err = openRouter.ParseResponse(context.Background(), route.Response{
+		StatusCode: http.StatusOK,
+		Body:       malformed,
+	})
+	if err != nil || response.ProviderMetadata != (modelenvelope.ProviderMetadata{}) || response.Usage.InputTokens != 10 {
+		t.Fatalf("malformed provider field: err=%v metadata=%+v usage=%+v, want parsed without metadata", err,
+			response.ProviderMetadata, response.Usage)
+	}
 
 	response, err = (protocol{}).ParseResponse(context.Background(), route.Response{
 		StatusCode: http.StatusOK,

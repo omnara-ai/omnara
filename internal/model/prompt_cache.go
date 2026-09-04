@@ -26,15 +26,7 @@ func EffectiveCacheRetention(retention CacheRetention) CacheRetention {
 	return retention
 }
 
-type PromptCacheAffinity string
-
-const (
-	PromptCacheAffinityNone           PromptCacheAffinity = ""
-	PromptCacheAffinitySessionID      PromptCacheAffinity = "session_id"
-	PromptCacheAffinityPromptCacheKey PromptCacheAffinity = "prompt_cache_key"
-)
-
-type PromptCacheRoute struct {
+type ProviderRoute struct {
 	APIFormat         modelprotocol.APIFormat
 	APIVariant        modelprotocol.APIVariant
 	BaseURL           string
@@ -43,13 +35,12 @@ type PromptCacheRoute struct {
 
 type PromptCachePlan struct {
 	ConversationKey string
-	Affinity        PromptCacheAffinity
 	Explicit        bool
 	LongRetention   bool
 }
 
 func PlanPromptCache(
-	route PromptCacheRoute,
+	route ProviderRoute,
 	bundle modelcontext.Bundle,
 	retention CacheRetention,
 ) PromptCachePlan {
@@ -62,20 +53,19 @@ func PlanPromptCache(
 		Explicit:      capability.explicit,
 		LongRetention: retention == CacheRetentionLong && capability.longRetention,
 	}
-	if capability.affinity != PromptCacheAffinityNone && bundle.AgentID != uuid.Nil {
-		plan.Affinity = capability.affinity
+	if capability.conversationKey && bundle.AgentID != uuid.Nil {
 		plan.ConversationKey = bundle.AgentID.String()
 	}
 	return plan
 }
 
 type promptCacheCapability struct {
-	explicit      bool
-	longRetention bool
-	affinity      PromptCacheAffinity
+	explicit        bool
+	longRetention   bool
+	conversationKey bool
 }
 
-func promptCacheCapabilityFor(route PromptCacheRoute) promptCacheCapability {
+func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 	switch route.APIFormat {
 	case modelprotocol.APIFormatAnthropicMessages:
 		return promptCacheCapability{explicit: true, longRetention: true}
@@ -85,9 +75,9 @@ func promptCacheCapabilityFor(route PromptCacheRoute) promptCacheCapability {
 		if route.APIVariant == modelprotocol.APIVariantOpenRouter {
 			anthropic := strings.HasPrefix(normalizedProviderModelSlug(route.ProviderModelSlug), "anthropic/")
 			return promptCacheCapability{
-				explicit:      anthropic,
-				longRetention: anthropic,
-				affinity:      PromptCacheAffinitySessionID,
+				explicit:        anthropic,
+				longRetention:   anthropic,
+				conversationKey: true,
 			}
 		}
 		return openAIPromptCacheCapability(route.BaseURL)
@@ -99,7 +89,7 @@ func openAIPromptCacheCapability(baseURL string) promptCacheCapability {
 	if !isOpenAIHost(baseURL) {
 		return promptCacheCapability{}
 	}
-	return promptCacheCapability{affinity: PromptCacheAffinityPromptCacheKey}
+	return promptCacheCapability{conversationKey: true}
 }
 
 func isOpenAIHost(baseURL string) bool {

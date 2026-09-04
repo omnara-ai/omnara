@@ -61,7 +61,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		payload.MaxOutputTokens = input.Policy.MaxOutputTokens
 	}
 	plan := model.PlanPromptCache(
-		model.PromptCacheRoute{
+		model.ProviderRoute{
 			APIFormat:  modelprotocol.APIFormatOpenAIResponses,
 			APIVariant: c.ModelAPIVariant(),
 			BaseURL:    c.endpoint().ResolvedBaseURL(),
@@ -69,9 +69,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Context,
 		input.Policy.CacheRetention,
 	)
-	if plan.Affinity == model.PromptCacheAffinityPromptCacheKey {
-		payload.PromptCacheKey = plan.ConversationKey
-	}
+	payload.PromptCacheKey = plan.ConversationKey
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,

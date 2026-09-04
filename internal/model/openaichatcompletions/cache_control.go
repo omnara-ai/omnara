@@ -12,13 +12,14 @@ type chatCacheControl struct {
 	TTL  string `json:"ttl,omitempty"`
 }
 
-func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCachePlan) {
-	switch plan.Affinity {
-	case model.PromptCacheAffinitySessionID:
-		payload.SessionID = plan.ConversationKey
-	case model.PromptCacheAffinityPromptCacheKey:
-		payload.PromptCacheKey = plan.ConversationKey
-	case model.PromptCacheAffinityNone:
+func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCachePlan, compat compat) {
+	if plan.ConversationKey != "" {
+		switch compat.conversationKeyField {
+		case conversationKeyFieldSessionID:
+			payload.SessionID = plan.ConversationKey
+		case conversationKeyFieldPromptCacheKey:
+			payload.PromptCacheKey = plan.ConversationKey
+		}
 	}
 	if !plan.Explicit {
 		return

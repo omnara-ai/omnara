@@ -23,6 +23,16 @@ type AnthropicCacheCreation struct {
 	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 }
 
+func (c *AnthropicCacheCreation) UnmarshalJSON(data []byte) error {
+	type plain AnthropicCacheCreation
+	var decoded plain
+	if json.Unmarshal(data, &decoded) != nil {
+		decoded = plain{}
+	}
+	*c = AnthropicCacheCreation(decoded)
+	return nil
+}
+
 const maxProviderNameBytes = 2_000
 
 func (m ProviderMetadata) MarshalJSON() ([]byte, error) {

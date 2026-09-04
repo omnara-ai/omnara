@@ -1,6 +1,9 @@
 package openaichatcompletions
 
-import "github.com/omnara-ai/omnara/internal/modelprotocol"
+import (
+	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
+)
 
 type reasoningFormat string
 
@@ -9,9 +12,17 @@ const (
 	reasoningFormatOpenRouter reasoningFormat = "openrouter"
 )
 
+type conversationKeyField string
+
+const (
+	conversationKeyFieldPromptCacheKey conversationKeyField = "prompt_cache_key"
+	conversationKeyFieldSessionID      conversationKeyField = "session_id"
+)
+
 type compat struct {
 	sendsStoreFalse              bool
 	reasoningFormat              reasoningFormat
+	conversationKeyField         conversationKeyField
 	usageViaStreamOptions        bool
 	usageChunkCompletesStream    bool
 	refinesErrorsFromRawDetails  bool
@@ -20,11 +31,12 @@ type compat struct {
 	routesFallbackModels         bool
 }
 
-func compatFor(variant modelprotocol.APIVariant) compat {
-	switch variant {
+func compatFor(route model.ProviderRoute) compat {
+	switch route.APIVariant {
 	case modelprotocol.APIVariantOpenRouter:
 		return compat{
 			reasoningFormat:              reasoningFormatOpenRouter,
+			conversationKeyField:         conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
 			reportsServedProviderAndCost: true,
 			parsesPDFDocuments:           true,
@@ -34,6 +46,7 @@ func compatFor(variant modelprotocol.APIVariant) compat {
 		return compat{
 			sendsStoreFalse:           true,
 			reasoningFormat:           reasoningFormatOpenAI,
+			conversationKeyField:      conversationKeyFieldPromptCacheKey,
 			usageViaStreamOptions:     true,
 			usageChunkCompletesStream: true,
 		}
@@ -41,11 +54,21 @@ func compatFor(variant modelprotocol.APIVariant) compat {
 		return compat{
 			sendsStoreFalse:       true,
 			reasoningFormat:       reasoningFormatOpenAI,
+			conversationKeyField:  conversationKeyFieldPromptCacheKey,
 			usageViaStreamOptions: true,
 		}
 	}
 }
 
+func (c Client) providerRoute() model.ProviderRoute {
+	return model.ProviderRoute{
+		APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:        c.ModelAPIVariant(),
+		BaseURL:           c.endpoint().ResolvedBaseURL(),
+		ProviderModelSlug: c.RequestedProviderModelSlug(),
+	}
+}
+
 func (c Client) compat() compat {
-	return compatFor(c.ModelAPIVariant())
+	return compatFor(c.providerRoute())
 }

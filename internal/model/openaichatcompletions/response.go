@@ -147,7 +147,7 @@ func (p protocol) chatResponseEvidence(
 		Usage:                   usageFromResponse(response.Usage),
 	}
 	if p.client.compat().reportsServedProviderAndCost {
-		out.ProviderMetadata.OpenRouter.Provider = response.Provider
+		out.ProviderMetadata.OpenRouter.Provider = jsonFieldText(response.Provider)
 		cost, issue := openRouterReportedCost(response.Usage)
 		out.ProviderReportedCostUSD = cost
 		switch issue {
@@ -168,7 +168,7 @@ func (p protocol) chatResponseEvidence(
 type chatCompletionsResponse struct {
 	ID       string            `json:"id"`
 	Model    string            `json:"model"`
-	Provider string            `json:"provider,omitempty"`
+	Provider json.RawMessage   `json:"provider,omitempty"`
 	Choices  []chatChoice      `json:"choices"`
 	Usage    chatUsage         `json:"usage"`
 	Error    chatProviderError `json:"error"`

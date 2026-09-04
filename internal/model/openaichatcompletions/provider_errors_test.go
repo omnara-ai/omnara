@@ -457,7 +457,7 @@ func TestClassifyProviderErrorBoundsRawEvidence(t *testing.T) {
 			}
 			got := classifyProviderError(
 				"test-provider",
-				compatFor(modelprotocol.APIVariantOpenRouter),
+				compatFor(model.ProviderRoute{APIVariant: modelprotocol.APIVariantOpenRouter}),
 				statusCode,
 				nil,
 				test.providerErr,

@@ -180,6 +180,7 @@ func (imageOnlyMediaProjector) ProjectRenderedMedia(bundle Bundle) []RenderedMed
 			Occurrence:     occurrence.Ref,
 			Media:          occurrence.Media,
 			Representation: MediaRepresentationInline,
+			InputModality:  "image",
 		})
 	}
 	return rendered

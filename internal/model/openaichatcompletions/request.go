@@ -18,7 +18,6 @@ import (
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
 	_ = ctx
 	c := p.client
-	apiVariant := c.ModelAPIVariant()
 	providerModelSlug := c.RequestedProviderModelSlug()
 	if providerModelSlug == "" {
 		return nil, errors.New("openai-chat-completions provider model slug is required")
@@ -66,20 +65,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
-	plan := model.PlanPromptCache(
-		model.PromptCacheRoute{
-			APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
-			APIVariant:        apiVariant,
-			BaseURL:           c.endpoint().ResolvedBaseURL(),
-			ProviderModelSlug: providerModelSlug,
-		},
-		input.Context,
-		input.Policy.CacheRetention,
-	)
+	plan := model.PlanPromptCache(c.providerRoute(), input.Context, input.Policy.CacheRetention)
 	if apivariantbody.Sets(c.APIVariantOptions, "session_id", "prompt_cache_key") {
-		plan.Affinity = model.PromptCacheAffinityNone
+		plan.ConversationKey = ""
 	}
-	applyPromptCachePlan(&payload, plan)
+	applyPromptCachePlan(&payload, plan, compat)
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
