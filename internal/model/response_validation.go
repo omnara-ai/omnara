@@ -85,17 +85,6 @@ func ValidateProviderResponse(response Response) error {
 	return nil
 }
 
-func SanitizeProviderMetadata(metadata modelenvelope.ProviderMetadata) modelenvelope.ProviderMetadata {
-	if validateProviderIdentity(metadata.OpenRouter.Provider) != nil {
-		metadata.OpenRouter.Provider = ""
-	}
-	if creation := metadata.Anthropic.CacheCreation; creation.Ephemeral5mInputTokens < 0 ||
-		creation.Ephemeral1hInputTokens < 0 {
-		metadata.Anthropic.CacheCreation = modelenvelope.AnthropicCacheCreation{}
-	}
-	return metadata
-}
-
 func ResponseEvidenceForStorage(response Response) Response {
 	evidence := Response{
 		ID:                      response.ID,

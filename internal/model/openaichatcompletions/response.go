@@ -148,7 +148,6 @@ func (p protocol) chatResponseEvidence(
 	}
 	if p.client.compat().reportsServedProviderAndCost {
 		out.ProviderMetadata.OpenRouter.Provider = response.Provider
-		out.ProviderMetadata = model.SanitizeProviderMetadata(out.ProviderMetadata)
 		cost, issue := openRouterReportedCost(response.Usage)
 		out.ProviderReportedCostUSD = cost
 		switch issue {
