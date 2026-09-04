@@ -558,7 +558,7 @@ func TestPrepareBoundsCacheBreakpoints(t *testing.T) {
 }
 
 func TestCacheBreakpointSkipsUncacheableMessageBlocks(t *testing.T) {
-	control := &model.CacheControl{Type: "ephemeral"}
+	control := &CacheControl{Type: "ephemeral"}
 	for _, block := range []any{
 		map[string]any{"type": "thinking", "thinking": "signed reasoning"},
 		textBlock{Type: "text"},

@@ -4,6 +4,7 @@ import (
 	"maps"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 )
 
 func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCachePlan, compat compat) {
@@ -15,14 +16,14 @@ func applyPromptCachePlan(payload *chatCompletionsRequest, plan model.PromptCach
 			payload.PromptCacheKey = plan.ConversationKey
 		}
 	}
-	control := plan.CacheControl()
+	control := anthropicmessages.CacheControlFor(plan)
 	if control == nil {
 		return
 	}
 	payload.Messages = markCacheBreakpoints(payload.Messages, control)
 }
 
-func markCacheBreakpoints(messages []chatMessage, control *model.CacheControl) []chatMessage {
+func markCacheBreakpoints(messages []chatMessage, control *anthropicmessages.CacheControl) []chatMessage {
 	if len(messages) == 0 {
 		return messages
 	}
@@ -58,7 +59,7 @@ func acceptsCacheBreakpoint(message chatMessage) bool {
 	return ok
 }
 
-func withCacheBreakpoint(message chatMessage, control *model.CacheControl) chatMessage {
+func withCacheBreakpoint(message chatMessage, control *anthropicmessages.CacheControl) chatMessage {
 	content, _ := message.Content.([]any)
 	if block, ok := content[len(content)-1].(map[string]any); ok {
 		marked := maps.Clone(block)

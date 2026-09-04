@@ -32,22 +32,6 @@ type PromptCachePlan struct {
 	LongRetention   bool
 }
 
-type CacheControl struct {
-	Type string `json:"type"`
-	TTL  string `json:"ttl,omitempty"`
-}
-
-func (p PromptCachePlan) CacheControl() *CacheControl {
-	if !p.Explicit {
-		return nil
-	}
-	control := &CacheControl{Type: "ephemeral"}
-	if p.LongRetention {
-		control.TTL = "1h"
-	}
-	return control
-}
-
 func PlanPromptCache(
 	route ProviderRoute,
 	bundle modelcontext.Bundle,

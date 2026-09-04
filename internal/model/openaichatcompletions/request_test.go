@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -987,7 +988,7 @@ func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
 type cacheControlMark struct {
 	role    string
 	index   int
-	control model.CacheControl
+	control anthropicmessages.CacheControl
 }
 
 func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
@@ -1004,8 +1005,8 @@ func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
 	var marks []cacheControlMark
 	for index, message := range payload.Messages {
 		var blocks []struct {
-			Type         string              `json:"type"`
-			CacheControl *model.CacheControl `json:"cache_control"`
+			Type         string                          `json:"type"`
+			CacheControl *anthropicmessages.CacheControl `json:"cache_control"`
 		}
 		if json.Unmarshal(message.Content, &blocks) != nil {
 			continue

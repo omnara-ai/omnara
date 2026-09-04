@@ -43,7 +43,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolNames(input.Context.ToolSpecs); err != nil {
 		return nil, err
 	}
-	control := model.PlanPromptCache(
+	control := CacheControlFor(model.PlanPromptCache(
 		model.ProviderRoute{
 			APIFormat:         modelprotocol.APIFormatAnthropicMessages,
 			APIVariant:        c.APIVariant,
@@ -51,7 +51,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		},
 		input.Context,
 		input.Policy.CacheRetention,
-	).CacheControl()
+	))
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
@@ -113,9 +113,9 @@ type message struct {
 }
 
 type textBlock struct {
-	Type         string              `json:"type"`
-	Text         string              `json:"text"`
-	CacheControl *model.CacheControl `json:"cache_control,omitempty"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 type toolUseBlock struct {
@@ -133,10 +133,10 @@ type toolResultBlock struct {
 }
 
 type toolDefinition struct {
-	Name         string              `json:"name"`
-	Description  string              `json:"description,omitempty"`
-	InputSchema  json.RawMessage     `json:"input_schema"`
-	CacheControl *model.CacheControl `json:"cache_control,omitempty"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 }
 
 func validateToolNames(specs []modelcontext.ToolSpec) error {
@@ -148,7 +148,7 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 	return nil
 }
 
-func systemContent(bundle modelcontext.Bundle, control *model.CacheControl) any {
+func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		blocks = append(blocks, textBlock{
@@ -179,7 +179,7 @@ func buildMessages(
 	bundle modelcontext.Bundle,
 	policy model.RequestPolicy,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
-	control *model.CacheControl,
+	control *CacheControl,
 ) ([]message, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -261,7 +261,7 @@ func buildMessages(
 	return messages, nil
 }
 
-func markLastMessageCacheBreakpoint(messages []message, control *model.CacheControl) []message {
+func markLastMessageCacheBreakpoint(messages []message, control *CacheControl) []message {
 	if control == nil {
 		return messages
 	}
@@ -623,7 +623,7 @@ func sanitizeID(value string) string {
 	return b.String()
 }
 
-func buildTools(specs []modelcontext.ToolSpec, control *model.CacheControl) []toolDefinition {
+func buildTools(specs []modelcontext.ToolSpec, control *CacheControl) []toolDefinition {
 	tools := make([]toolDefinition, 0, len(specs))
 	for index, spec := range specs {
 		schema := spec.InputSchema
