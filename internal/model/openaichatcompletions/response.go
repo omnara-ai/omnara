@@ -292,8 +292,6 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 
 type chatUsage struct {
 	PromptTokens            int              `json:"prompt_tokens"`
-	PromptCacheHitTokens    lenientInt       `json:"prompt_cache_hit_tokens"`
-	CachedTokens            lenientInt       `json:"cached_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
@@ -357,9 +355,6 @@ func textFromChatContent(raw json.RawMessage) (string, error) {
 }
 
 func usageFromResponse(usage chatUsage) model.Usage {
-	if usage.PromptTokensDetails.CachedTokens == 0 {
-		usage.PromptTokensDetails.CachedTokens = max(int(usage.PromptCacheHitTokens), int(usage.CachedTokens))
-	}
 	if usage.PromptTokens < 0 ||
 		usage.PromptTokensDetails.CachedTokens < 0 ||
 		usage.PromptTokensDetails.CacheWriteTokens < 0 ||
