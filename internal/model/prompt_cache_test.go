@@ -154,12 +154,13 @@ func TestBedrockOneHourCacheRequiresClaude45OrNewer(t *testing.T) {
 func TestOpenRouterVariantsKeepTheModelsCacheCapability(t *testing.T) {
 	bundle := modelcontext.Bundle{AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")}
 	for slug, want := range map[string]PromptCachePlan{
-		"qwen/qwen3-coder-plus:nitro":        {Explicit: true},
-		"qwen/qwen3-coder-plus:floor":        {Explicit: true},
-		"deepseek/deepseek-v3.2:exacto":      {Explicit: true},
-		"qwen/qwen3-coder-plus:free":         {},
-		"anthropic/claude-sonnet-5:thinking": {Explicit: true, LongRetention: true},
-		"moonshotai/kimi-k3:nitro":           {},
+		"qwen/qwen3-coder-plus:nitro":       {Explicit: true},
+		"qwen/qwen3-coder-plus:floor":       {Explicit: true},
+		"deepseek/deepseek-v3.2:exacto":     {Explicit: true},
+		"qwen/qwen3-coder-plus:free":        {},
+		"qwen/qwen3-coder-plus:free:online": {},
+		"anthropic/claude-sonnet-5:nitro":   {Explicit: true, LongRetention: true},
+		"moonshotai/kimi-k3:nitro":          {},
 	} {
 		t.Run(slug, func(t *testing.T) {
 			want.Affinity = PromptCacheAffinitySessionID

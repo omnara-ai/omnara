@@ -114,36 +114,6 @@ func normalizedProviderModelSlug(providerModelSlug string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(providerModelSlug)), "~")
 }
 
-type openRouterModel struct {
-	id      string
-	variant string
-}
-
-func parseOpenRouterModel(providerModelSlug string) openRouterModel {
-	id, variant, _ := strings.Cut(normalizedProviderModelSlug(providerModelSlug), ":")
-	return openRouterModel{id: id, variant: variant}
-}
-
-// Explicit-caching models per https://openrouter.ai/docs/guides/best-practices/prompt-caching;
-// the Alibaba-served entries hold for the paid endpoints, not the :free provider pool.
-var openRouterExplicitCacheModels = map[string]bool{
-	"deepseek/deepseek-v3.2": true,
-	"qwen/qwen3-max":         true,
-	"qwen/qwen-plus":         true,
-	"qwen/qwen3.6-plus":      true,
-	"qwen/qwen3-coder-plus":  true,
-	"qwen/qwen3-coder-flash": true,
-}
-
-func openRouterPromptCacheCapability(model openRouterModel) promptCacheCapability {
-	claude := strings.HasPrefix(model.id, "anthropic/claude-")
-	return promptCacheCapability{
-		explicit:      claude || (openRouterExplicitCacheModels[model.id] && model.variant != "free"),
-		longRetention: claude,
-		affinity:      PromptCacheAffinitySessionID,
-	}
-}
-
 // Bedrock offers the one-hour cache on Claude 4.5 and newer:
 // https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
 var bedrockOneHourCacheModel = regexp.MustCompile(`claude-(?:[a-z]+-)?(?:4-[5-9]|[5-9])(?:[-:]|$)`)
