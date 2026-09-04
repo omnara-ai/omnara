@@ -453,10 +453,22 @@ func isHTTPTokenChar(value byte) bool {
 	}
 }
 
-// On a cluster-managed OpenRouter provider a tenant may not reach what other tenants share:
-// the free-tier pool (https://openrouter.ai/docs/guides/routing/model-variants), the account's
-// end-user identity signal, or plugins whose charges are not attributed to the call. Everything
-// else shapes or bills only that tenant's own requests.
+// On a cluster-managed OpenRouter provider a tenant may only use what shapes or bills their own
+// requests. Option keys are an allowlist so a new OpenRouter parameter is refused until it is
+// classified (https://openrouter.ai/docs/api-reference/parameters); model ids are refused when
+// they reach the shared free pool, the web plugin, or workspace presets
+// (https://openrouter.ai/docs/guides/routing/model-variants,
+// https://openrouter.ai/docs/guides/features/web-search,
+// https://openrouter.ai/docs/guides/features/presets).
+var sharedOpenRouterTenantOptionKeys = map[string]bool{
+	"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
+	"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
+	"seed": true, "stop": true, "logit_bias": true, "response_format": true,
+	"parallel_tool_calls": true, "verbosity": true, "reasoning": true, "reasoning_effort": true,
+	"provider": true, "models": true, "route": true, "transforms": true,
+	"session_id": true, "prompt_cache_key": true, "usage": true,
+}
+
 func validateTenantModelOnClusterProvider(
 	modelKind, providerKind management.Kind,
 	apiVariant modelprotocol.APIVariant,
@@ -467,45 +479,62 @@ func validateTenantModelOnClusterProvider(
 		apiVariant != modelprotocol.APIVariantOpenRouter {
 		return nil
 	}
-	if usesFreeVariant(providerModelSlug) {
+	if reachesSharedOpenRouterPool(providerModelSlug) {
 		return fmt.Errorf(
-			"provider_model_slug cannot use the :free variant on a cluster-managed provider: %w",
-			storeerr.ErrInvalidModelProviderConfig,
+			"provider_model_slug %q is not allowed on a cluster-managed provider: %w",
+			providerModelSlug, storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	var options struct {
-		User    json.RawMessage `json:"user"`
-		Plugins json.RawMessage `json:"plugins"`
-		Models  []string        `json:"models"`
-	}
+	var options map[string]json.RawMessage
 	if err := json.Unmarshal(storeutil.NormalizeJSON(apiVariantOptions), &options); err != nil {
 		return fmt.Errorf(
 			"%s must be a JSON object: %w",
 			apiVariantOptionsPath, errors.Join(err, storeerr.ErrInvalidModelProviderConfig),
 		)
 	}
-	for key, value := range map[string]json.RawMessage{"user": options.User, "plugins": options.Plugins} {
-		if len(value) != 0 {
+	for key := range options {
+		if !sharedOpenRouterTenantOptionKeys[key] {
 			return fmt.Errorf(
 				"api_variant_options.%s is not allowed on a cluster-managed provider: %w",
 				key, storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
 	}
-	for _, fallback := range options.Models {
-		if usesFreeVariant(fallback) {
+	var fallbacks []string
+	if raw := options["models"]; len(raw) != 0 {
+		if err := json.Unmarshal(raw, &fallbacks); err != nil {
 			return fmt.Errorf(
-				"api_variant_options.models cannot use the :free variant on a cluster-managed provider: %w",
-				storeerr.ErrInvalidModelProviderConfig,
+				"api_variant_options.models must be a list of model ids: %w",
+				errors.Join(err, storeerr.ErrInvalidModelProviderConfig),
+			)
+		}
+	}
+	for _, fallback := range fallbacks {
+		if reachesSharedOpenRouterPool(fallback) {
+			return fmt.Errorf(
+				"api_variant_options.models entry %q is not allowed on a cluster-managed provider: %w",
+				fallback, storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
 	}
 	return nil
 }
 
-func usesFreeVariant(providerModelSlug string) bool {
-	_, variants, _ := strings.Cut(providerModelSlug, ":")
-	return slices.Contains(strings.Split(strings.ToLower(variants), ":"), "free")
+func reachesSharedOpenRouterPool(modelID string) bool {
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	if strings.Contains(modelID, "@preset/") {
+		return true
+	}
+	base, variants, _ := strings.Cut(strings.TrimPrefix(modelID, "~"), ":")
+	if base == "openrouter/free" {
+		return true
+	}
+	for _, variant := range strings.Split(variants, ":") {
+		if variant == "free" || variant == "online" {
+			return true
+		}
+	}
+	return false
 }
 
 func validateModelProviderAPIVariant(
