@@ -549,29 +549,49 @@ func revisionWithToolSupport(revision ConfiguredModelRevisionRecord, supportsToo
 }
 
 func TestValidateTenantModelOnClusterProvider(t *testing.T) {
-	for name, tc := range map[string]struct {
+	shared := func(slug, options string, wantErr bool) struct {
 		modelKind, providerKind management.Kind
 		variant                 modelprotocol.APIVariant
-		slug                    string
-		options                 string
+		slug, options           string
+		wantErr                 bool
+	} {
+		return struct {
+			modelKind, providerKind management.Kind
+			variant                 modelprotocol.APIVariant
+			slug, options           string
+			wantErr                 bool
+		}{management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, slug, options, wantErr}
+	}
+	cases := map[string]struct {
+		modelKind, providerKind management.Kind
+		variant                 modelprotocol.APIVariant
+		slug, options           string
 		wantErr                 bool
 	}{
-		"routing suffix on shared provider": {management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:free", `{}`, true},
-		"routing key on shared provider": {
-			management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter,
-			"qwen/qwen3-coder-plus", `{"prompt_cache_key":"someone-else"}`, true,
+		"free variant":                  shared("qwen/qwen3-coder-plus:free", `{}`, true),
+		"free variant chained":          shared("qwen/qwen3-coder-plus:free:online", `{}`, true),
+		"routing variant":               shared("qwen/qwen3-coder-plus:nitro", `{}`, false),
+		"alias":                         shared("~anthropic/claude-sonnet-latest", `{}`, false),
+		"provider pin":                  shared("moonshotai/kimi-k3", `{"provider":{"only":["moonshotai"]}}`, false),
+		"model fallback":                shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max"]}`, false),
+		"free model fallback":           shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max:free"]}`, true),
+		"end-user identity":             shared("qwen/qwen3-coder-plus", `{"user":"someone-else"}`, true),
+		"web plugin":                    shared("qwen/qwen3-coder-plus", `{"plugins":[{"id":"web"}]}`, true),
+		"sampling and conversation key": shared("qwen/qwen3-coder-plus", `{"temperature":0.2,"session_id":"mine"}`, false),
+		"tenant's own provider": {
+			management.Tenant, management.Tenant, modelprotocol.APIVariantOpenRouter,
+			"qwen/qwen3-coder-plus:free", `{"user":"x","plugins":[{"id":"web"}]}`, false,
 		},
-		"provider pin on shared provider": {
-			management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter,
-			"moonshotai/kimi-k3", `{"provider":{"only":["moonshotai"]}}`, false,
+		"cluster model on shared provider": {
+			management.Cluster, management.Cluster, modelprotocol.APIVariantOpenRouter,
+			"qwen/qwen3-coder-plus:free", `{"user":"x"}`, false,
 		},
-		"model fallback on shared provider": {
-			management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter,
-			"qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max"]}`, true,
+		"bedrock version suffix": {
+			management.Tenant, management.Cluster, modelprotocol.APIVariantBedrock,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0", `{}`, false,
 		},
-		"bedrock version suffix":           {management.Tenant, management.Cluster, modelprotocol.APIVariantBedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0", `{}`, false},
-		"cluster model on shared provider": {management.Cluster, management.Cluster, modelprotocol.APIVariantOpenRouter, "qwen/qwen3-coder-plus:nitro", `{"provider":{"sort":"price"}}`, false},
-	} {
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			err := validateTenantModelOnClusterProvider(
 				tc.modelKind, tc.providerKind, tc.variant, tc.slug, json.RawMessage(tc.options),

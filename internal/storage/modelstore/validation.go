@@ -453,19 +453,10 @@ func isHTTPTokenChar(value byte) bool {
 	}
 }
 
-// Options a tenant may set on a cluster-managed OpenRouter provider: per-request sampling and
-// reasoning controls per https://openrouter.ai/docs/api-reference/parameters, plus provider
-// routing preferences (https://openrouter.ai/docs/guides/routing/provider-selection), which only
-// move that tenant's own requests. Model fallbacks, plugins, transforms, and identity or routing
-// keys are refused.
-var clusterOpenRouterTenantOptionKeys = map[string]bool{
-	"temperature": true, "top_p": true, "top_k": true, "min_p": true, "top_a": true,
-	"frequency_penalty": true, "presence_penalty": true, "repetition_penalty": true,
-	"seed": true, "stop": true, "logit_bias": true,
-	"response_format": true, "parallel_tool_calls": true, "verbosity": true,
-	"reasoning": true, "reasoning_effort": true, "usage": true, "provider": true,
-}
-
+// On a cluster-managed OpenRouter provider a tenant may not reach what other tenants share:
+// the free-tier pool (https://openrouter.ai/docs/guides/routing/model-variants), the account's
+// end-user identity signal, or plugins whose charges are not attributed to the call. Everything
+// else shapes or bills only that tenant's own requests.
 func validateTenantModelOnClusterProvider(
 	modelKind, providerKind management.Kind,
 	apiVariant modelprotocol.APIVariant,
@@ -476,28 +467,45 @@ func validateTenantModelOnClusterProvider(
 		apiVariant != modelprotocol.APIVariantOpenRouter {
 		return nil
 	}
-	if strings.Contains(providerModelSlug, ":") {
+	if usesFreeVariant(providerModelSlug) {
 		return fmt.Errorf(
-			"provider_model_slug cannot carry a routing variant suffix on a cluster-managed provider: %w",
+			"provider_model_slug cannot use the :free variant on a cluster-managed provider: %w",
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	var options map[string]json.RawMessage
+	var options struct {
+		User    json.RawMessage `json:"user"`
+		Plugins json.RawMessage `json:"plugins"`
+		Models  []string        `json:"models"`
+	}
 	if err := json.Unmarshal(storeutil.NormalizeJSON(apiVariantOptions), &options); err != nil {
 		return fmt.Errorf(
 			"%s must be a JSON object: %w",
 			apiVariantOptionsPath, errors.Join(err, storeerr.ErrInvalidModelProviderConfig),
 		)
 	}
-	for key := range options {
-		if !clusterOpenRouterTenantOptionKeys[key] {
+	for key, value := range map[string]json.RawMessage{"user": options.User, "plugins": options.Plugins} {
+		if len(value) != 0 {
 			return fmt.Errorf(
 				"api_variant_options.%s is not allowed on a cluster-managed provider: %w",
 				key, storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
 	}
+	for _, fallback := range options.Models {
+		if usesFreeVariant(fallback) {
+			return fmt.Errorf(
+				"api_variant_options.models cannot use the :free variant on a cluster-managed provider: %w",
+				storeerr.ErrInvalidModelProviderConfig,
+			)
+		}
+	}
 	return nil
+}
+
+func usesFreeVariant(providerModelSlug string) bool {
+	_, variants, _ := strings.Cut(providerModelSlug, ":")
+	return slices.Contains(strings.Split(strings.ToLower(variants), ":"), "free")
 }
 
 func validateModelProviderAPIVariant(

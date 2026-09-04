@@ -150,7 +150,7 @@ export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 export type ModelProviderApiVariantResponse = string;
 
 /**
- * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and `provider` routing parameters here.
+ * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers reject `user`, `plugins`, and `:free` fallback models here.
  */
 export type ModelApiVariantOptions = {
     [key: string]: unknown;
@@ -289,7 +289,7 @@ export type CreateConfiguredModelRequest = {
      */
     name: ResourceName;
     /**
-     * Exact provider model slug sent to the provider endpoint. Routing variant suffixes such as `:free` are not accepted on Omnara-managed OpenRouter providers.
+     * Exact provider model slug sent to the provider endpoint. The `:free` variant is not accepted on Omnara-managed OpenRouter providers.
      */
     provider_model_slug: string;
     /**
@@ -341,7 +341,7 @@ export type UpdateConfiguredModelRequest = {
      */
     name?: ResourceName;
     /**
-     * Exact provider model slug sent to the provider endpoint. Routing variant suffixes such as `:free` are not accepted on Omnara-managed OpenRouter providers.
+     * Exact provider model slug sent to the provider endpoint. The `:free` variant is not accepted on Omnara-managed OpenRouter providers.
      */
     provider_model_slug?: string;
     /**

@@ -7022,8 +7022,8 @@ components:
         options, see
         https://openrouter.ai/docs/guides/routing/provider-selection and general
         request parameters at https://openrouter.ai/docs/api/reference/parameters.
-        Omnara-managed OpenRouter providers accept only sampling, reasoning,
-        and `provider` routing parameters here.
+        Omnara-managed OpenRouter providers reject `user`, `plugins`, and
+        `:free` fallback models here.
       additionalProperties: true
     ModelCacheRetention:
       type: string
@@ -7226,9 +7226,8 @@ components:
           type: string
           minLength: 1
           description: >-
-            Exact provider model slug sent to the provider endpoint. Routing
-            variant suffixes such as `:free` are not accepted on Omnara-managed
-            OpenRouter providers.
+            Exact provider model slug sent to the provider endpoint. The `:free`
+            variant is not accepted on Omnara-managed OpenRouter providers.
         context_window_tokens:
           type: integer
           minimum: 2
@@ -7286,9 +7285,8 @@ components:
           type: string
           minLength: 1
           description: >-
-            Exact provider model slug sent to the provider endpoint. Routing
-            variant suffixes such as `:free` are not accepted on Omnara-managed
-            OpenRouter providers.
+            Exact provider model slug sent to the provider endpoint. The `:free`
+            variant is not accepted on Omnara-managed OpenRouter providers.
         context_window_tokens:
           type: integer
           minimum: 2
