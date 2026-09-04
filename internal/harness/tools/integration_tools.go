@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -178,6 +179,9 @@ func (e Executor) dispatchIntegrationMessageSend(
 	if err != nil {
 		return toolResultContent{}, err
 	}
+	if len(input.ArtifactIDs) != 0 {
+		return e.dispatchIntegrationArtifactSend(ctx, turn, slackTarget, input)
+	}
 
 	agentPublicID, err := publicid.Encode(publicid.KindAgent, turn.AgentID)
 	if err != nil {
@@ -224,32 +228,138 @@ func (e Executor) dispatchIntegrationMessageSend(
 				return e.integrationDeliveryUnknown(target.TargetRef, errors.New(posted.Message))
 			}
 		default:
-			code := posted.Code
-			if code == "" {
-				code = "permanent_failure"
-			}
-			message := posted.Message
-			if message == "" {
-				message = code
-			}
-			content, err := structuredToolResultContent(
-				integrationToolResult{
-					Provider:  integrationstore.IntegrationProviderSlack,
-					Code:      code,
-					TargetRef: target.TargetRef,
-					Message:   message,
-				},
-			)
-			if err != nil {
-				return toolResultContent{}, err
-			}
-			return content, errors.New(message)
+			return integrationSlackFailureResult(target.TargetRef, posted)
 		}
 	}
 	return e.integrationDeliveryUnknown(
 		target.TargetRef,
 		errors.New("message delivery could not be confirmed"),
 	)
+}
+
+func (e Executor) dispatchIntegrationArtifactSend(
+	ctx context.Context,
+	turn Turn,
+	slackTarget slack.MessageTarget,
+	input integrationMessageRequest,
+) (toolResultContent, error) {
+	var rateLimitSlept time.Duration
+	uploadedFiles := make([]slack.UploadedFile, 0, len(input.ArtifactIDs))
+	for _, artifactPublicID := range input.ArtifactIDs {
+		artifactID, err := publicid.Decode(publicid.KindArtifact, artifactPublicID)
+		if err != nil {
+			return toolResultContent{}, err
+		}
+		content, artifact, err := e.Store.Artifacts().GetArtifactBlob(
+			ctx,
+			turn.ProjectID,
+			turn.AgentID,
+			artifactID,
+		)
+		if err != nil {
+			return toolResultContent{}, fmt.Errorf("load artifact %s: %w", artifactPublicID, err)
+		}
+		filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
+		var fileID string
+		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
+			var result slack.APIResult
+			fileID, result, err = slack.UploadFile(
+				ctx,
+				e.IntegrationHTTPClient,
+				slackTarget,
+				filename,
+				content,
+				func(ctx context.Context) error {
+					return e.ensureIntegrationPostOwnership(ctx, turn)
+				},
+			)
+			if err != nil {
+				return toolResultContent{}, err
+			}
+			if fileID != "" {
+				break
+			}
+			switch {
+			case result.RateLimited:
+				if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+					return toolResultContent{}, err
+				} else if slept {
+					continue
+				}
+				return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+			case result.TransientFailure && attempt < integrationMessageSendAttempts:
+				continue
+			default:
+				return integrationSlackFailureResult(slackTarget.TargetRef, result)
+			}
+		}
+		uploadedFiles = append(uploadedFiles, slack.UploadedFile{ID: fileID, Title: filename})
+	}
+	rateLimitSlept = 0
+	for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
+		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+			return toolResultContent{}, err
+		}
+		result, err := slack.CompleteFileUploads(
+			ctx,
+			e.IntegrationHTTPClient,
+			slackTarget,
+			uploadedFiles,
+			input.Text,
+		)
+		if err != nil {
+			return toolResultContent{}, err
+		}
+		switch {
+		case result == (slack.APIResult{}):
+			return e.integrationDelivered(slackTarget.TargetRef, "")
+		case result.RateLimited:
+			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+				return toolResultContent{}, err
+			} else if slept {
+				continue
+			}
+			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+		case result.DeliveryUnknown:
+			message := result.Message
+			if message == "" {
+				message = "file delivery could not be confirmed"
+			}
+			return e.integrationDeliveryUnknown(slackTarget.TargetRef, errors.New(message))
+		default:
+			return integrationSlackFailureResult(slackTarget.TargetRef, result)
+		}
+	}
+	return e.integrationDeliveryUnknown(
+		slackTarget.TargetRef,
+		errors.New("file delivery could not be confirmed"),
+	)
+}
+
+func integrationSlackFailureResult(
+	targetRef string,
+	result slack.APIResult,
+) (toolResultContent, error) {
+	code := result.Code
+	if code == "" {
+		code = "permanent_failure"
+	}
+	message := result.Message
+	if message == "" {
+		message = code
+	}
+	content, err := structuredToolResultContent(
+		integrationToolResult{
+			Provider:  integrationstore.IntegrationProviderSlack,
+			Code:      code,
+			TargetRef: targetRef,
+			Message:   message,
+		},
+	)
+	if err != nil {
+		return toolResultContent{}, err
+	}
+	return content, errors.New(message)
 }
 
 func integrationTargetFailureResult(
