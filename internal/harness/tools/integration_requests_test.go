@@ -18,18 +18,19 @@ func TestResolveIntegrationMessageRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	request, err := resolveIntegrationMessageRequest(
-		json.RawMessage(`{"text":" hello ","artifact_id":"` + artifactID + `"}`),
+		json.RawMessage(`{"text":" hello ","artifact_ids":["` + artifactID + `"]}`),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.Text != " hello " || request.ArtifactID != artifactID {
+	if request.Text != " hello " || len(request.ArtifactIDs) != 1 || request.ArtifactIDs[0] != artifactID {
 		t.Fatalf("request = %+v", request)
 	}
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"text":" "}`),
 		json.RawMessage(`{"text":null}`),
-		json.RawMessage(`{"text":"hello","artifact_id":"agt_invalid"}`),
+		json.RawMessage(`{"text":"hello","artifact_ids":["agt_invalid"]}`),
+		json.RawMessage(`{"text":"hello","artifact_id":"` + artifactID + `"}`),
 		json.RawMessage(`{"text":"hello","channel":"C123"}`),
 		json.RawMessage(`{"text":"hello"} {}`),
 	} {

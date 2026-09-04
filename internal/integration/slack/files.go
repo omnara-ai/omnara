@@ -78,6 +78,11 @@ type completeUploadExternalResponse struct {
 	Error string `json:"error"`
 }
 
+type UploadedFile struct {
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+}
+
 func UploadFile(
 	ctx context.Context,
 	client *http.Client,
@@ -131,16 +136,15 @@ func UploadFile(
 	return uploadURL.FileID, APIResult{}, nil
 }
 
-func CompleteFileUpload(
+func CompleteFileUploads(
 	ctx context.Context,
 	client *http.Client,
 	target MessageTarget,
-	fileID string,
-	filename string,
+	files []UploadedFile,
 	initialComment string,
 ) (APIResult, error) {
 	payload := map[string]any{
-		"files":           []map[string]string{{"id": fileID, "title": filename}},
+		"files":           files,
 		"channel_id":      target.Channel,
 		"initial_comment": initialComment,
 	}

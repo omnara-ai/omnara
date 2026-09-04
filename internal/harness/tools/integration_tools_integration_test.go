@@ -162,6 +162,7 @@ func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
 func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 	tests := []struct {
 		name                   string
+		artifactCount          int
 		uploadURLFailures      int
 		completionRateLimits   int
 		completionStatus       int
@@ -170,7 +171,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 		wantUploadRequests     int
 		wantCompletionRequests int
 	}{
-		{name: "success", wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{name: "success", artifactCount: 2, wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1},
 		{name: "upload URL transient failure", uploadURLFailures: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
 		{name: "upload retries do not consume completion retry budget", uploadURLFailures: 2, completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
 		{name: "completion rate limit", completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
@@ -189,22 +190,39 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				false,
 				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
 			)
-			artifactContent := []byte("artifact contents")
-			artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
-				ProjectID:      toolsTestProjectID,
-				AgentID:        fixture.Agent.ID,
-				ContentType:    "text/plain",
-				Filename:       "report.txt",
-				Content:        artifactContent,
-				MaxBytes:       1024,
-				IdempotencyKey: seed,
-			})
-			if err != nil {
-				t.Fatalf("create artifact: %v", err)
+			artifactCount := tt.artifactCount
+			if artifactCount == 0 {
+				artifactCount = 1
 			}
-			artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
-			if err != nil {
-				t.Fatalf("encode artifact id: %v", err)
+			artifactFiles := []struct {
+				filename   string
+				content    []byte
+				fileID     string
+				uploadPath string
+			}{
+				{filename: "report.txt", content: []byte("artifact contents"), fileID: "F123", uploadPath: "/upload/v1/artifact"},
+				{filename: "chart.txt", content: []byte("chart contents"), fileID: "F456", uploadPath: "/upload/v1/chart"},
+			}
+			artifactFiles = artifactFiles[:artifactCount]
+			artifactIDs := make([]string, 0, artifactCount)
+			for artifactIndex, file := range artifactFiles {
+				artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+					ProjectID:      toolsTestProjectID,
+					AgentID:        fixture.Agent.ID,
+					ContentType:    "text/plain",
+					Filename:       file.filename,
+					Content:        file.content,
+					MaxBytes:       1024,
+					IdempotencyKey: seed + "-" + strconv.Itoa(artifactIndex),
+				})
+				if err != nil {
+					t.Fatalf("create artifact: %v", err)
+				}
+				artifactID, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
+				if err != nil {
+					t.Fatalf("encode artifact id: %v", err)
+				}
+				artifactIDs = append(artifactIDs, artifactID)
 			}
 			requests := make(map[string]int)
 			loseOwnership := func() {
@@ -228,7 +246,12 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					if err := r.ParseForm(); err != nil {
 						t.Fatalf("parse upload URL request: %v", err)
 					}
-					if r.Form.Get("filename") != "report.txt" || r.Form.Get("length") != strconv.Itoa(len(artifactContent)) {
+					artifactIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
+					if artifactIndex >= len(artifactFiles) {
+						t.Fatalf("unexpected upload URL request %d", requests[r.URL.Path])
+					}
+					file := artifactFiles[artifactIndex]
+					if r.Form.Get("filename") != file.filename || r.Form.Get("length") != strconv.Itoa(len(file.content)) {
 						t.Fatalf("upload URL form = %v", r.Form)
 					}
 					if tt.loseAfterPath == r.URL.Path {
@@ -236,18 +259,26 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					writeToolTestJSON(w, map[string]any{
 						"ok":         true,
-						"upload_url": "https://files.slack.com/upload/v1/artifact",
-						"file_id":    "F123",
+						"upload_url": "https://files.slack.com" + file.uploadPath,
+						"file_id":    file.fileID,
 					})
-				case "/upload/v1/artifact":
+				case "/upload/v1/artifact", "/upload/v1/chart":
 					if r.Header.Get("Authorization") != "" {
 						t.Fatalf("file upload included authorization")
 					}
+					artifactIndex := 0
+					if r.URL.Path == "/upload/v1/chart" {
+						artifactIndex = 1
+					}
+					if artifactIndex >= len(artifactFiles) {
+						t.Fatalf("unexpected artifact upload path %s", r.URL.Path)
+					}
+					file := artifactFiles[artifactIndex]
 					body, err := io.ReadAll(r.Body)
 					if err != nil {
 						t.Fatalf("read uploaded artifact: %v", err)
 					}
-					if string(body) != string(artifactContent) {
+					if string(body) != string(file.content) {
 						t.Fatalf("uploaded artifact = %q", body)
 					}
 					if tt.loseAfterPath == r.URL.Path {
@@ -267,10 +298,14 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 						t.Fatalf("decode completion payload: %v", err)
 					}
-					if len(payload.Files) != 1 || payload.Files[0].ID != "F123" || payload.Files[0].Title != "report.txt" ||
-						payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
+					if len(payload.Files) != len(artifactFiles) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 						payload.InitialComment != "here is the report" {
 						t.Fatalf("completion payload = %+v", payload)
+					}
+					for artifactIndex, file := range artifactFiles {
+						if payload.Files[artifactIndex].ID != file.fileID || payload.Files[artifactIndex].Title != file.filename {
+							t.Fatalf("completion payload = %+v", payload)
+						}
 					}
 					if requests[r.URL.Path] <= tt.completionRateLimits {
 						w.Header().Set("Retry-After", "0")
@@ -306,18 +341,25 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					ctx,
 					fixture.turn(),
 					slackTarget,
-					integrationMessageRequest{Text: "here is the report", ArtifactID: artifactID},
+					integrationMessageRequest{Text: "here is the report", ArtifactIDs: artifactIDs},
 				)
 				if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 					t.Fatalf("artifact send error = %v, want ErrRuntimeLockInactive", err)
 				}
 			} else {
+				input, err := json.Marshal(map[string]any{
+					"text":         "here is the report",
+					"artifact_ids": artifactIDs,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
 				call := fixture.recordToolCall(
 					t,
 					ctx,
 					"call_"+seed,
 					"send_integration_message",
-					`{"text":"here is the report","artifact_id":"`+artifactID+`"}`,
+					string(input),
 					fixture.Now.Add(20*time.Second),
 				)
 				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, fixture.turn(), call)
@@ -329,15 +371,15 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					t.Fatalf("artifact send result = %+v", body)
 				}
 			}
-			wantRequests := map[string]int{
-				"/files.getUploadURLExternal":   1 + tt.uploadURLFailures,
-				"/upload/v1/artifact":           tt.wantUploadRequests,
-				"/files.completeUploadExternal": tt.wantCompletionRequests,
+			if requests["/files.getUploadURLExternal"] != artifactCount+tt.uploadURLFailures {
+				t.Fatalf("upload URL requests = %d, want %d", requests["/files.getUploadURLExternal"], artifactCount+tt.uploadURLFailures)
 			}
-			for path, want := range wantRequests {
-				if requests[path] != want {
-					t.Fatalf("requests[%q] = %d, want %d", path, requests[path], want)
-				}
+			uploadRequests := requests["/upload/v1/artifact"] + requests["/upload/v1/chart"]
+			if uploadRequests != tt.wantUploadRequests {
+				t.Fatalf("upload requests = %d, want %d", uploadRequests, tt.wantUploadRequests)
+			}
+			if requests["/files.completeUploadExternal"] != tt.wantCompletionRequests {
+				t.Fatalf("completion requests = %d, want %d", requests["/files.completeUploadExternal"], tt.wantCompletionRequests)
 			}
 		})
 	}

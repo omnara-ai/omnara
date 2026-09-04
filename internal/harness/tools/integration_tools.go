@@ -179,7 +179,7 @@ func (e Executor) dispatchIntegrationMessageSend(
 	if err != nil {
 		return toolResultContent{}, err
 	}
-	if input.ArtifactID != "" {
+	if len(input.ArtifactIDs) != 0 {
 		return e.dispatchIntegrationArtifactSend(ctx, turn, slackTarget, input)
 	}
 
@@ -243,69 +243,68 @@ func (e Executor) dispatchIntegrationArtifactSend(
 	slackTarget slack.MessageTarget,
 	input integrationMessageRequest,
 ) (toolResultContent, error) {
-	artifactID, err := publicid.Decode(publicid.KindArtifact, input.ArtifactID)
-	if err != nil {
-		return toolResultContent{}, err
-	}
-	content, artifact, err := e.Store.Artifacts().GetArtifactBlob(
-		ctx,
-		turn.ProjectID,
-		turn.AgentID,
-		artifactID,
-	)
-	if err != nil {
-		return toolResultContent{}, fmt.Errorf("load artifact %s: %w", input.ArtifactID, err)
-	}
-	filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
 	var rateLimitSlept time.Duration
-	attempt := 1
-	var fileID string
-	for {
-		var result slack.APIResult
-		fileID, result, err = slack.UploadFile(
-			ctx,
-			e.IntegrationHTTPClient,
-			slackTarget,
-			filename,
-			content,
-			func(ctx context.Context) error {
-				return e.ensureIntegrationPostOwnership(ctx, turn)
-			},
-		)
+	uploadedFiles := make([]slack.UploadedFile, 0, len(input.ArtifactIDs))
+	for _, artifactPublicID := range input.ArtifactIDs {
+		artifactID, err := publicid.Decode(publicid.KindArtifact, artifactPublicID)
 		if err != nil {
 			return toolResultContent{}, err
 		}
-		if fileID != "" {
-			break
+		content, artifact, err := e.Store.Artifacts().GetArtifactBlob(
+			ctx,
+			turn.ProjectID,
+			turn.AgentID,
+			artifactID,
+		)
+		if err != nil {
+			return toolResultContent{}, fmt.Errorf("load artifact %s: %w", artifactPublicID, err)
 		}
-		switch {
-		case result.RateLimited:
-			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+		filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
+		var fileID string
+		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
+			var result slack.APIResult
+			fileID, result, err = slack.UploadFile(
+				ctx,
+				e.IntegrationHTTPClient,
+				slackTarget,
+				filename,
+				content,
+				func(ctx context.Context) error {
+					return e.ensureIntegrationPostOwnership(ctx, turn)
+				},
+			)
+			if err != nil {
 				return toolResultContent{}, err
-			} else if slept {
-				attempt++
-				continue
 			}
-			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
-		case result.TransientFailure && attempt < integrationMessageSendAttempts:
-			attempt++
-			continue
-		default:
-			return integrationSlackFailureResult(slackTarget.TargetRef, result)
+			if fileID != "" {
+				break
+			}
+			switch {
+			case result.RateLimited:
+				if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
+					return toolResultContent{}, err
+				} else if slept {
+					continue
+				}
+				return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
+			case result.TransientFailure && attempt < integrationMessageSendAttempts:
+				continue
+			default:
+				return integrationSlackFailureResult(slackTarget.TargetRef, result)
+			}
 		}
+		uploadedFiles = append(uploadedFiles, slack.UploadedFile{ID: fileID, Title: filename})
 	}
-	attempt = 1
 	rateLimitSlept = 0
-	for {
+	for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
 		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
 			return toolResultContent{}, err
 		}
-		result, err := slack.CompleteFileUpload(
+		result, err := slack.CompleteFileUploads(
 			ctx,
 			e.IntegrationHTTPClient,
 			slackTarget,
-			fileID,
-			filename,
+			uploadedFiles,
 			input.Text,
 		)
 		if err != nil {
@@ -318,7 +317,6 @@ func (e Executor) dispatchIntegrationArtifactSend(
 			if slept, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &rateLimitSlept, attempt); err != nil {
 				return toolResultContent{}, err
 			} else if slept {
-				attempt++
 				continue
 			}
 			return e.integrationRateLimited(slackTarget.TargetRef, result.RetryAfter)
@@ -332,6 +330,10 @@ func (e Executor) dispatchIntegrationArtifactSend(
 			return integrationSlackFailureResult(slackTarget.TargetRef, result)
 		}
 	}
+	return e.integrationDeliveryUnknown(
+		slackTarget.TargetRef,
+		errors.New("file delivery could not be confirmed"),
+	)
 }
 
 func integrationSlackFailureResult(

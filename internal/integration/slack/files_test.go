@@ -63,7 +63,8 @@ func TestUploadFile(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode completion request: %v", err)
 			}
-			if len(payload.Files) != 1 || payload.Files[0].ID != "F123" || payload.Files[0].Title != "report.txt" ||
+			if len(payload.Files) != 2 || payload.Files[0].ID != "F123" || payload.Files[0].Title != "report.txt" ||
+				payload.Files[1].ID != "F456" || payload.Files[1].Title != "chart.png" ||
 				payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 				payload.InitialComment != "here is the report" {
 				t.Fatalf("completion payload = %+v", payload)
@@ -89,12 +90,11 @@ func TestUploadFile(t *testing.T) {
 	if fileID != "F123" || result != (APIResult{}) {
 		t.Fatalf("upload file id=%q result=%+v", fileID, result)
 	}
-	result, err = CompleteFileUpload(
+	result, err = CompleteFileUploads(
 		context.Background(),
 		slackTestClient(server),
 		MessageTarget{Channel: "C123", ThreadTS: "111.222", BotToken: "xoxb-test"},
-		fileID,
-		"report.txt",
+		[]UploadedFile{{ID: fileID, Title: "report.txt"}, {ID: "F456", Title: "chart.png"}},
 		"here is the report",
 	)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestUploadFile(t *testing.T) {
 	}
 }
 
-func TestCompleteFileUploadServerErrorIsDeliveryUnknown(t *testing.T) {
+func TestCompleteFileUploadsServerErrorIsDeliveryUnknown(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/files.completeUploadExternal" {
@@ -120,12 +120,11 @@ func TestCompleteFileUploadServerErrorIsDeliveryUnknown(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := CompleteFileUpload(
+	result, err := CompleteFileUploads(
 		context.Background(),
 		slackTestClient(server),
 		MessageTarget{Channel: "C123", BotToken: "xoxb-test"},
-		"F123",
-		"report.txt",
+		[]UploadedFile{{ID: "F123", Title: "report.txt"}},
 		"here is the report",
 	)
 	if err != nil {
