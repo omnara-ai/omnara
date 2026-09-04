@@ -222,7 +222,7 @@ func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *te
 func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	bundle := modelcontext.Bundle{
 		RenderedMedia: []modelcontext.RenderedMedia{{
-			Media:         modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
+			Media: modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage},
 		}},
 	}
 	client := prepareForSendClient{
