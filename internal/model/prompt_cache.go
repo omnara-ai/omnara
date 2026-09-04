@@ -66,9 +66,10 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 		return openAIPromptCacheCapability(route.BaseURL)
 	case modelprotocol.APIFormatOpenAIChatCompletions:
 		if route.APIVariant == modelprotocol.APIVariantOpenRouter {
-			anthropic := strings.HasPrefix(normalizedProviderModelSlug(route.ProviderModelSlug), "anthropic/")
+			model, _, _ := strings.Cut(normalizedProviderModelSlug(route.ProviderModelSlug), ":")
+			anthropic := strings.HasPrefix(model, "anthropic/")
 			return promptCacheCapability{
-				explicit:        anthropic,
+				explicit:        anthropic || openRouterExplicitCacheModels[model],
 				longRetention:   anthropic,
 				conversationKey: true,
 			}
@@ -91,6 +92,16 @@ func isOpenAIHost(baseURL string) bool {
 		return false
 	}
 	return strings.EqualFold(parsed.Hostname(), "api.openai.com")
+}
+
+// Explicit-caching models per https://openrouter.ai/docs/guides/best-practices/prompt-caching.
+var openRouterExplicitCacheModels = map[string]bool{
+	"deepseek/deepseek-v3.2": true,
+	"qwen/qwen3-max":         true,
+	"qwen/qwen-plus":         true,
+	"qwen/qwen3.6-plus":      true,
+	"qwen/qwen3-coder-plus":  true,
+	"qwen/qwen3-coder-flash": true,
 }
 
 func normalizedProviderModelSlug(providerModelSlug string) string {

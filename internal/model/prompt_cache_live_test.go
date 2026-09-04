@@ -67,6 +67,18 @@ func livePromptCacheRoutes() []livePromptCacheRoute {
 			},
 		},
 		{
+			name: "openrouter qwen", keyEnv: "OPENROUTER_API_KEY", writesCache: true,
+			client: func(apiKey string) model.Client {
+				return openaichatcompletions.Client{
+					Auth:              openRouterAuth(apiKey),
+					BaseURL:           openRouterBaseURL,
+					EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
+					ProviderModelSlug: "qwen/qwen3-coder-plus",
+					APIVariant:        modelprotocol.APIVariantOpenRouter,
+				}
+			},
+		},
+		{
 			name: "openrouter automatic", keyEnv: "OPENROUTER_API_KEY",
 			client: func(apiKey string) model.Client {
 				return openaichatcompletions.Client{

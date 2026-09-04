@@ -29,6 +29,8 @@ func TestPlanPromptCache(t *testing.T) {
 	openRouterKimi.ProviderModelSlug = "moonshotai/kimi-k3"
 	openRouterClaudeVariant := openRouterClaude
 	openRouterClaudeVariant.ProviderModelSlug = "anthropic/claude-sonnet-5:nitro"
+	openRouterQwenVariant := openRouterClaude
+	openRouterQwenVariant.ProviderModelSlug = "Qwen/Qwen3-Coder-Plus:nitro"
 	openAIChat := ProviderRoute{
 		APIFormat:  modelprotocol.APIFormatOpenAIChatCompletions,
 		APIVariant: modelprotocol.APIVariantDefault,
@@ -80,6 +82,11 @@ func TestPlanPromptCache(t *testing.T) {
 			name: "openrouter claude routing variant long", route: openRouterClaudeVariant, bundle: bundle,
 			retention: CacheRetentionLong,
 			want:      withKey(PromptCachePlan{Explicit: true, LongRetention: true}),
+		},
+		{
+			name: "openrouter explicit five-minute-only model long", route: openRouterQwenVariant, bundle: bundle,
+			retention: CacheRetentionLong,
+			want:      withKey(PromptCachePlan{Explicit: true}),
 		},
 		{
 			name: "openai chat completions", route: openAIChat, bundle: bundle,

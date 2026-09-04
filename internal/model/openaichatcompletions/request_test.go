@@ -1420,3 +1420,27 @@ func TestPrepareSuppressesGeneratedAffinityWhenAnyNativeAffinityIsConfigured(t *
 		t.Fatalf("payload = %+v, want only the operator's prompt_cache_key: %s", payload, prepared.Body)
 	}
 }
+
+func TestPrepareMarksOpenRouterExplicitFiveMinuteModelsWithoutTTL(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "qwen/qwen3-coder-plus",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt: "system prompt",
+			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 || marks[0].control.TTL != "" || marks[1].control.TTL != "" {
+		t.Fatalf("cache_control marks = %+v, want two default-ttl breakpoints: %s", marks, prepared.Body)
+	}
+}
