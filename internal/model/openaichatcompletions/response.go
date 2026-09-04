@@ -291,7 +291,12 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 }
 
 type chatUsage struct {
-	PromptTokens            int              `json:"prompt_tokens"`
+	PromptTokens int `json:"prompt_tokens"`
+	// Cache reads on OpenAI-compatible hosts that predate prompt_tokens_details:
+	// https://api-docs.deepseek.com/guides/kv_cache (prompt_cache_hit_tokens) and
+	// https://platform.kimi.ai/docs/api/chat (cached_tokens).
+	PromptCacheHitTokens    lenientInt       `json:"prompt_cache_hit_tokens"`
+	CachedTokens            lenientInt       `json:"cached_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
@@ -359,6 +364,9 @@ func usageFromResponse(usage chatUsage) model.Usage {
 		return model.Usage{}
 	}
 	cache := usage.PromptTokensDetails
+	if cache.CachedTokens == 0 {
+		cache.CachedTokens = max(int(usage.PromptCacheHitTokens), int(usage.CachedTokens))
+	}
 	if cache.CachedTokens < 0 || cache.CacheWriteTokens < 0 ||
 		cache.CachedTokens > usage.PromptTokens ||
 		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens {
