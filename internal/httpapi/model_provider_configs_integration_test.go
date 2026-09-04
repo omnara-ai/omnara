@@ -1049,6 +1049,16 @@ func TestGetModelCatalog(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"catalog-sigv4-region-mismatch","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-east-1"},"credential_secret_id":"`+awsSecret["id"].(string)+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
 	createdSigV4 := requestJSONWithHeaders(
 		t,
 		devHandler,
@@ -1064,6 +1074,16 @@ func TestGetModelCatalog(t *testing.T) {
 		t.Fatalf("SigV4 Bedrock catalog should succeed without probing: %+v", sigV4Catalog)
 	}
 	sigV4ConfigID := createdModelProviderConfig(t, createdSigV4)["id"].(string)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
+		`{"auth_options":{"service":"bedrock-mantle","region":"us-east-1"}}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
 	requestJSONWithHeaders(
 		t,
 		devHandler,

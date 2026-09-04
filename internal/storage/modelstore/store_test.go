@@ -292,6 +292,28 @@ func TestModelProviderSigV4Validation(t *testing.T) {
 		got != secrets.KindAWSCredentials {
 		t.Fatalf("SigV4 credential kind = %q, %v", got, err)
 	}
+	authOptions := json.RawMessage(`{"service":"bedrock-mantle","region":"us-west-2"}`)
+	if err := validateModelProviderSigV4EndpointRegion(
+		"https://bedrock-mantle.us-west-2.api.aws/v1",
+		ModelProviderAuthKindSigV4,
+		authOptions,
+	); err != nil {
+		t.Fatalf("matching Bedrock endpoint and signing regions rejected: %v", err)
+	}
+	if err := validateModelProviderSigV4EndpointRegion(
+		"https://bedrock-mantle.us-east-1.api.aws/v1",
+		ModelProviderAuthKindSigV4,
+		authOptions,
+	); err == nil {
+		t.Fatal("mismatched Bedrock endpoint and signing regions accepted")
+	}
+	if err := validateModelProviderSigV4EndpointRegion(
+		"https://bedrock.example.com/v1",
+		ModelProviderAuthKindSigV4,
+		authOptions,
+	); err != nil {
+		t.Fatalf("custom Bedrock endpoint rejected: %v", err)
+	}
 }
 
 func TestDefaultModelProviderTemplateRejectsSigV4(t *testing.T) {

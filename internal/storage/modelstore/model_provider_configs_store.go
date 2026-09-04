@@ -109,6 +109,9 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
 	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
 		return ModelProviderConfigRecord{}, err
@@ -426,6 +429,9 @@ func normalizeModelProviderConfigUpdate(
 		return modelProviderConfigUpdate{}, err
 	}
 	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
 	if err := validateCredential(ctx, input.OrgID, input.CredentialSecretID, input.AuthKind); err != nil {

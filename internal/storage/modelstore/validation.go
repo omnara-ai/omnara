@@ -19,6 +19,7 @@ import (
 )
 
 var sigV4ScopeComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var bedrockMantleEndpointPattern = regexp.MustCompile(`^bedrock-mantle\.([^.]+)\.api\.aws\.?$`)
 
 func sameModelProviderConfigIntent(record ModelProviderConfigRecord, input CreateModelProviderConfigInput) bool {
 	return record.ManagementKind == input.managementKind &&
@@ -405,6 +406,36 @@ func ModelProviderSigV4ServiceRegion(authOptions json.RawMessage) (string, strin
 		return "", "", err
 	}
 	return service, region, nil
+}
+
+func validateModelProviderSigV4EndpointRegion(
+	baseURL, authKind string,
+	authOptions json.RawMessage,
+) error {
+	if authKind != ModelProviderAuthKindSigV4 {
+		return nil
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("base_url is invalid: %w", storeerr.ErrInvalidModelProviderConfig)
+	}
+	match := bedrockMantleEndpointPattern.FindStringSubmatch(strings.ToLower(parsed.Hostname()))
+	if match == nil {
+		return nil
+	}
+	_, signingRegion, err := ModelProviderSigV4ServiceRegion(authOptions)
+	if err != nil {
+		return err
+	}
+	if signingRegion != match[1] {
+		return fmt.Errorf(
+			"auth_options.region %q must match Bedrock endpoint region %q: %w",
+			signingRegion,
+			match[1],
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	return nil
 }
 
 func modelProviderAuthOptionString(fields map[string]json.RawMessage, name, authKind string) (string, error) {
