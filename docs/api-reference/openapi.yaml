@@ -7022,8 +7022,8 @@ components:
         options, see
         https://openrouter.ai/docs/guides/routing/provider-selection and general
         request parameters at https://openrouter.ai/docs/api/reference/parameters.
-        Omnara-managed providers accept only sampling and reasoning parameters
-        here.
+        Omnara-managed OpenRouter providers accept only sampling and reasoning
+        parameters here.
       additionalProperties: true
     ModelCacheRetention:
       type: string

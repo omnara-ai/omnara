@@ -116,7 +116,6 @@ func (s *Store) createConfiguredModelTx(
 	if err := validateTenantModelOnClusterProvider(
 		managementKind,
 		management.Kind(providerConfigRow.ManagementKind),
-		modelprotocol.APIFormat(providerConfigRow.ApiFormat),
 		modelprotocol.APIVariant(providerConfigRow.ApiVariant),
 		input.ProviderModelSlug,
 		input.APIVariantOptions,
@@ -346,7 +345,6 @@ func updateConfiguredModelTx(
 	if err := validateTenantModelOnClusterProvider(
 		managementKind,
 		management.Kind(providerConfig.ManagementKind),
-		modelprotocol.APIFormat(providerConfig.ApiFormat),
 		modelprotocol.APIVariant(providerConfig.ApiVariant),
 		input.ProviderModelSlug,
 		input.APIVariantOptions,
