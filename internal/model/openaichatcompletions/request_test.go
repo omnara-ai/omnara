@@ -1004,7 +1004,7 @@ func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
 	var marks []cacheControlMark
 	for index, message := range payload.Messages {
 		var blocks []struct {
-			Type         string            `json:"type"`
+			Type         string              `json:"type"`
 			CacheControl *model.CacheControl `json:"cache_control"`
 		}
 		if json.Unmarshal(message.Content, &blocks) != nil {
