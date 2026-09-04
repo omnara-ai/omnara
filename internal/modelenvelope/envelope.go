@@ -250,6 +250,13 @@ type Usage struct {
 	CacheWriteTokens int `json:"cache_write_input_tokens,omitempty"`
 }
 
+func OptionalCount(value int) *int {
+	if value <= 0 {
+		return nil
+	}
+	return &value
+}
+
 // NormalizeUsage rejects usage that violates the token-accounting
 // invariants (negative counts, cache reads/writes exceeding input, or an
 // inconsistent uncached-input derivation) by zeroing it, and derives
