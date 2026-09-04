@@ -43,10 +43,8 @@ func TestPlanPromptCache(t *testing.T) {
 	}
 	openRouterKimi := openRouterClaude
 	openRouterKimi.ProviderModelSlug = "moonshotai/kimi-k3"
-	openRouterQwen := openRouterClaude
-	openRouterQwen.ProviderModelSlug = "Qwen/Qwen3-Coder-Plus"
-	openRouterDeepSeekV4 := openRouterClaude
-	openRouterDeepSeekV4.ProviderModelSlug = "deepseek/deepseek-v4"
+	openRouterClaudeVariant := openRouterClaude
+	openRouterClaudeVariant.ProviderModelSlug = "anthropic/claude-sonnet-5:nitro"
 	openAIChat := PromptCacheRoute{
 		APIFormat:  modelprotocol.APIFormatOpenAIChatCompletions,
 		APIVariant: modelprotocol.APIVariantDefault,
@@ -96,13 +94,9 @@ func TestPlanPromptCache(t *testing.T) {
 			want: withKey(PromptCachePlan{}, PromptCacheAffinitySessionID),
 		},
 		{
-			name: "openrouter explicit five-minute-only model long", route: openRouterQwen, bundle: bundle,
+			name: "openrouter claude routing variant long", route: openRouterClaudeVariant, bundle: bundle,
 			retention: CacheRetentionLong,
-			want:      withKey(PromptCachePlan{Explicit: true}, PromptCacheAffinitySessionID),
-		},
-		{
-			name: "openrouter deepseek v4 stays automatic", route: openRouterDeepSeekV4, bundle: bundle,
-			want: withKey(PromptCachePlan{}, PromptCacheAffinitySessionID),
+			want:      withKey(PromptCachePlan{Explicit: true, LongRetention: true}, PromptCacheAffinitySessionID),
 		},
 		{
 			name: "openai chat completions", route: openAIChat, bundle: bundle,
@@ -146,32 +140,6 @@ func TestBedrockOneHourCacheRequiresClaude45OrNewer(t *testing.T) {
 			}, bundle, CacheRetentionLong)
 			if plan.LongRetention != want {
 				t.Fatalf("bedrock long retention for %s = %v, want %v", slug, plan.LongRetention, want)
-			}
-		})
-	}
-}
-
-func TestOpenRouterVariantsKeepTheModelsCacheCapability(t *testing.T) {
-	bundle := modelcontext.Bundle{AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")}
-	for slug, want := range map[string]PromptCachePlan{
-		"qwen/qwen3-coder-plus:nitro":       {Explicit: true},
-		"qwen/qwen3-coder-plus:floor":       {Explicit: true},
-		"deepseek/deepseek-v3.2:exacto":     {Explicit: true},
-		"qwen/qwen3-coder-plus:free":        {},
-		"qwen/qwen3-coder-plus:free:online": {},
-		"anthropic/claude-sonnet-5:nitro":   {Explicit: true, LongRetention: true},
-		"moonshotai/kimi-k3:nitro":          {},
-	} {
-		t.Run(slug, func(t *testing.T) {
-			want.Affinity = PromptCacheAffinitySessionID
-			want.ConversationKey = bundle.AgentID.String()
-			got := PlanPromptCache(PromptCacheRoute{
-				APIFormat:         modelprotocol.APIFormatOpenAIChatCompletions,
-				APIVariant:        modelprotocol.APIVariantOpenRouter,
-				ProviderModelSlug: slug,
-			}, bundle, CacheRetentionLong)
-			if got != want {
-				t.Fatalf("plan for %s = %+v, want %+v", slug, got, want)
 			}
 		})
 	}
