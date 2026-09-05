@@ -92,6 +92,8 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 				stats.Launched++
 			case executionstore.CronTriggerTargetAgent:
 				stats.Inputs++
+				// Agent input delivery completes the firing in the same transaction.
+				continue
 			}
 		}
 		if err := s.execution.CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
@@ -184,12 +186,10 @@ func (s *Service) sendAgentInput(
 	if err != nil {
 		return fmt.Errorf("marshal cron trigger message: %w", err)
 	}
-	if _, _, _, err := s.execution.CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      trigger.ProjectID,
-		AgentID:        trigger.Target.ID,
+	if err := s.execution.CreateCronTriggerAgentInput(ctx, executionstore.CreateCronTriggerAgentInputInput{
+		Trigger:        trigger,
 		Actor:          actor,
 		ContentBlocks:  contentBlocks,
-		DeliveryMode:   executionstore.DeliveryModeQueued,
 		IdempotencyKey: idempotencyKey,
 	}); err != nil {
 		return fmt.Errorf("send cron trigger input: %w", err)

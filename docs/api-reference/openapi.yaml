@@ -8601,6 +8601,8 @@ components:
           enum: [agent]
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        delivery_mode:
+          $ref: '#/components/schemas/CronTriggerDeliveryMode'
     AgentProfileCronTriggerTarget:
       type: object
       additionalProperties: false
@@ -8641,6 +8643,12 @@ components:
         width and precision specifiers are capped at 1024; a firing whose template fails to
         render is recorded in `failure_report` without sending a message.
       maxLength: 65536
+    CronTriggerDeliveryMode:
+      type: string
+      enum: [queued, steering]
+      description: >-
+        Each firing sends a queued or steering message to the agent. Defaults to `queued` on creation;
+        omitted updates preserve the current mode.
     CronTriggerFailureReport:
       type: object
       additionalProperties: false
@@ -8676,6 +8684,9 @@ components:
       type: object
       additionalProperties: false
       properties:
+        target:
+          $ref: '#/components/schemas/CronTriggerTarget'
+          description: Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
         name:
           $ref: '#/components/schemas/ResourceName'
         cron:
