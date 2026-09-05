@@ -624,13 +624,29 @@ func (s *Store) CompleteCronTriggerFiring(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	qtx := s.q.WithTx(tx)
+	if err := completeCronTriggerFiringTx(ctx, s.q.WithTx(tx), input); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit complete cron trigger firing: %w", err)
+	}
+	return nil
+}
+
+func completeCronTriggerFiringTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CompleteCronTriggerFiringInput,
+) error {
 	row, err := qtx.GetCronTriggerForUpdate(
 		ctx,
 		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: input.ProjectID, ID: input.TriggerID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return storeerr.ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("lock cron trigger for completion: %w", err)
@@ -659,9 +675,6 @@ func (s *Store) CompleteCronTriggerFiring(
 	}
 	if rows == 0 {
 		return fmt.Errorf("cron trigger claim was taken over: %w", storeerr.ErrConflict)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit complete cron trigger firing: %w", err)
 	}
 	return nil
 }

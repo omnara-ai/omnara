@@ -489,6 +489,24 @@ func TestCronTriggerClaimFencing(t *testing.T) {
 		t.Fatal("reclaim must mint a fresh claim token")
 	}
 
+	staleDelivery := store.Execution().CreateCronTriggerAgentInput(ctx, executionstore.CreateCronTriggerAgentInputInput{
+		Trigger:        stale,
+		ContentBlocks:  []byte(`[{"type":"text","text":"Stale delivery."}]`),
+		IdempotencyKey: "cron-fence-stale-input",
+	})
+	if !errors.Is(staleDelivery, storeerr.ErrConflict) {
+		t.Fatalf("stale delivery must conflict, got %v", staleDelivery)
+	}
+	var inputCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM agent_inputs WHERE agent_id = $1 AND input_kind = 'content'", stale.Target.ID,
+	).Scan(&inputCount); err != nil {
+		t.Fatalf("count inputs after stale delivery: %v", err)
+	}
+	if inputCount != 0 {
+		t.Fatalf("stale claim must not deliver an input, got %d", inputCount)
+	}
+
 	staleComplete := store.Execution().CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
 		ProjectID:  stale.ProjectID,
 		TriggerID:  stale.TriggerID,
