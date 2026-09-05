@@ -23,10 +23,17 @@ const (
 	CronTriggerTargetAgentProfile CronTriggerTargetKind = "profile"
 )
 
+type CronTriggerDeliveryMode string
+
+const (
+	CronTriggerDeliveryModeQueued   CronTriggerDeliveryMode = "queued"
+	CronTriggerDeliveryModeSteering CronTriggerDeliveryMode = "steering"
+)
+
 type CronTriggerTarget struct {
 	Kind         CronTriggerTargetKind
 	ID           ID
-	DeliveryMode AgentInputDeliveryMode
+	DeliveryMode CronTriggerDeliveryMode
 }
 
 type CreateCronTriggerInput struct {
@@ -105,7 +112,7 @@ func (s *Store) CreateCronTrigger(
 		input.Timezone = "UTC"
 	}
 	if input.Target.Kind == CronTriggerTargetAgent && input.Target.DeliveryMode == "" {
-		input.Target.DeliveryMode = DeliveryModeQueued
+		input.Target.DeliveryMode = CronTriggerDeliveryModeQueued
 	}
 	if err := validateCronTriggerDeliveryMode(input.Target.Kind, input.Target.DeliveryMode); err != nil {
 		return CronTriggerRecord{}, err
@@ -722,18 +729,18 @@ func cronTriggerTargetFromColumns(agentProfileID, agentID *ID, deliveryMode stri
 	return CronTriggerTarget{
 		Kind:         CronTriggerTargetAgent,
 		ID:           idFromSQLCPtr(agentID),
-		DeliveryMode: AgentInputDeliveryMode(deliveryMode),
+		DeliveryMode: CronTriggerDeliveryMode(deliveryMode),
 	}
 }
 
-func validateCronTriggerDeliveryMode(kind CronTriggerTargetKind, mode AgentInputDeliveryMode) error {
+func validateCronTriggerDeliveryMode(kind CronTriggerTargetKind, mode CronTriggerDeliveryMode) error {
 	if kind == CronTriggerTargetAgentProfile {
 		if mode != "" {
 			return fmt.Errorf("delivery mode is only supported for agent targets: %w", storeerr.ErrInvalidRequest)
 		}
 		return nil
 	}
-	if mode != DeliveryModeQueued && mode != DeliveryModeSteering {
+	if mode != CronTriggerDeliveryModeQueued && mode != CronTriggerDeliveryModeSteering {
 		return fmt.Errorf(
 			"cron trigger delivery mode must be queued or steering: %w",
 			storeerr.ErrInvalidRequest,
@@ -751,7 +758,7 @@ func cronTriggerCreateIdempotencyKey(key string) string {
 
 func cronTriggerDeliveryModeColumn(target CronTriggerTarget) string {
 	if target.Kind == CronTriggerTargetAgentProfile {
-		return string(DeliveryModeQueued)
+		return string(CronTriggerDeliveryModeQueued)
 	}
 	return string(target.DeliveryMode)
 }

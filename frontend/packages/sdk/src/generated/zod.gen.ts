@@ -893,7 +893,7 @@ export const zCronTimezone = z.string().max(64).default('UTC');
 export const zCronMessageTemplate = z.string().max(65536);
 
 /**
- * How each firing's message is delivered to an existing agent target. Defaults to `queued` when creating a trigger; omitting it from an update preserves the current mode. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs.
+ * Each firing sends a queued or steering message to the agent. Defaults to `queued` on creation; omitted updates preserve the current mode.
  */
 export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']);
 

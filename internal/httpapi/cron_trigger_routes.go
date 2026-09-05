@@ -288,9 +288,9 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 				"invalid target agent_id",
 			)
 		}
-		var deliveryMode executionstore.AgentInputDeliveryMode
+		var deliveryMode executionstore.CronTriggerDeliveryMode
 		if target.DeliveryMode != nil {
-			deliveryMode = executionstore.AgentInputDeliveryMode(*target.DeliveryMode)
+			deliveryMode = executionstore.CronTriggerDeliveryMode(*target.DeliveryMode)
 		}
 		return executionstore.CronTriggerTarget{
 			Kind:         executionstore.CronTriggerTargetAgent,

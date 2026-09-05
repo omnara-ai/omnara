@@ -15,7 +15,7 @@ export const cronTriggerDeliveryModeOptions: CronTriggerDeliveryModeOption[] = [
   {
     value: 'steering',
     label: 'Steer',
-    hint: 'Each firing is delivered into the current turn, or starts a new turn if the agent is idle.',
+    hint: 'Each firing steers the agent without waiting for earlier queued inputs.',
   },
 ]
 
