@@ -1,2 +1,4 @@
 .env
 deno.lock
+node_modules
+package-lock.json

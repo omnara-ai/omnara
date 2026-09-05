@@ -11,24 +11,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 let container: HTMLDivElement
 let root: Root
-let previousActEnvironment: boolean | undefined
+let restoreActEnvironment: () => void
 
 beforeAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+  restoreActEnvironment = enableReactActEnvironment()
 })
 
 afterAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+  restoreActEnvironment()
 })
 
 beforeEach(() => {

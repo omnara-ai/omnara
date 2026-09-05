@@ -23,6 +23,7 @@ import {
   memoryGbToMb,
   memoryGbToMbPreservingOriginal,
 } from '@/lib/machine-memory'
+import { providerOptionStrings } from '@/lib/provider-options'
 import { resourceNameValid } from '@/lib/resource-name'
 
 import {
@@ -280,7 +281,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
   if (!isMachinePoolProvider(pool.provider)) return null
   const provider = pool.provider
   const definition = machinePoolProviderDefinitions[provider]
-  const options = pool.default_machine_provider_options
+  const options = providerOptionStrings(pool.default_machine_provider_options)
   const cpuValue =
     definition.resources.cpu === 'provider-resolved'
       ? pool.max_machine_cpu
@@ -293,10 +294,10 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     name: pool.name,
     description: pool.description,
     provider,
-    workspace: stringValue(pool.provider_config.workspace),
-    image: stringValue(options[definition.resource.key]),
-    location: stringValue(options[definition.location.key]),
-    startupScript: stringValue(options.startup_script),
+    workspace: providerOptionStrings(pool.provider_config).workspace ?? '',
+    image: options[definition.resource.key] ?? '',
+    location: options[definition.location.key] ?? '',
+    startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
     envRows: envRowsFromRecord(pool.default_machine_env),
     secretEnvRows: secretEnvRowsFromRecord(pool.default_machine_secret_env),
@@ -332,15 +333,15 @@ export function machinePoolUpdateRequest(
     definition.location.key,
     'startup_script',
   ])
-  const defaultMachineProviderOptions = {
-    ...Object.fromEntries(
-      Object.entries(pool.default_machine_provider_options).filter(
-        ([key]) => !editableOptionKeys.has(key),
-      ),
+  const defaultMachineProviderOptions = Object.fromEntries(
+    Object.entries(pool.default_machine_provider_options).filter(
+      ([key]) => !editableOptionKeys.has(key),
     ),
-    [definition.resource.key]: values.image.trim(),
-    [definition.location.key]: values.location.trim(),
-    ...(values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }),
+  )
+  defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
+  defaultMachineProviderOptions[definition.location.key] = values.location.trim()
+  if (values.startupScript.trim() !== '') {
+    defaultMachineProviderOptions.startup_script = values.startupScript
   }
   const cpu = Number(values.cpu)
   const originalMemoryMb =
@@ -495,10 +496,6 @@ function secretEnvRowsFromRecord(values: Record<string, string>): SecretEnvOverl
   return Object.entries(values)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, secretId]) => ({ ...newSecretEnvOverlayRow(), key, secretId }))
-}
-
-function stringValue(value: unknown) {
-  return typeof value === 'string' ? value : ''
 }
 
 function memoryMbFromDraft(value: string, originalMemoryMb: number | null) {

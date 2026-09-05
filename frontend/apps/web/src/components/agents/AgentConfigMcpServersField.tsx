@@ -2,6 +2,7 @@ import { useServerInfo } from '@omnara/react'
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
+import { permissionSelection } from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
 import { AgentConfigMcpServerTools } from '@/components/agents/AgentConfigMcpServerTools'
@@ -60,7 +61,7 @@ function newMcpServer(permissionProfile: ToolPermissionProfile): BasicMcpServer 
     id: crypto.randomUUID(),
     name: '',
     url: '',
-    permission: structuredClone(permissionProfile.default_permission),
+    permission: permissionSelection(permissionProfile.default_permission),
     defaultEnabled: true,
     authType: 'none',
     secretId: '',
@@ -333,8 +334,8 @@ function McpServerSecretField({
               ? `This will update the existing secret "${existingLoginSecret.name}"`
               : undefined,
             onSelect: () => {
-              login.start({ name: loginSecretName }).catch((error: unknown) => {
-                setDialog({ error: errorMessage(error, 'Could not start login') })
+              login.start({ name: loginSecretName }).catch((cause: unknown) => {
+                setDialog({ error: errorMessage(cause, 'Could not start login') })
               })
             },
           },
@@ -404,12 +405,13 @@ function McpServerIdentityFields({
             nameInvalid={nameError !== undefined}
             url={server.url}
             onChange={(patch) => {
-              onChange({
-                ...(patch.name === undefined ? {} : { name: patch.name }),
-                ...(patch.url === undefined || patch.url === server.url
-                  ? {}
-                  : { url: patch.url, secretId: '' }),
-              })
+              const next: Partial<BasicMcpServer> = {}
+              if (patch.name !== undefined) next.name = patch.name
+              if (patch.url !== undefined && patch.url !== server.url) {
+                next.url = patch.url
+                next.secretId = ''
+              }
+              onChange(next)
             }}
           />
         </div>

@@ -4,7 +4,7 @@ import { type Client, type ClientMeta, formDataBodySerializer, type Options as O
 import { client } from './client.gen';
 import type { AcceptInvitationData, AcceptInvitationErrors, AcceptInvitationResponses, ArchiveAgentData, ArchiveAgentErrors, ArchiveAgentResponses, BootstrapDaemonData, BootstrapDaemonErrors, BootstrapDaemonResponses, CancelAgentData, CancelAgentErrors, CancelAgentResponses, CancelQueuedBacklogInputData, CancelQueuedBacklogInputErrors, CancelQueuedBacklogInputResponses, ConnectByoMachineData, ConnectByoMachineErrors, ConnectByoMachineResponses, CreateAgentConfigData, CreateAgentConfigErrors, CreateAgentConfigResponses, CreateAgentData, CreateAgentErrors, CreateAgentInputData, CreateAgentInputErrors, CreateAgentInputResponses, CreateAgentProfileData, CreateAgentProfileErrors, CreateAgentProfileResponses, CreateAgentResponses, CreateByoMachineDaemonTokenData, CreateByoMachineDaemonTokenErrors, CreateByoMachineDaemonTokenResponses, CreateConfiguredModelData, CreateConfiguredModelErrors, CreateConfiguredModelResponses, CreateCronTriggerData, CreateCronTriggerErrors, CreateCronTriggerResponses, CreateIntegrationOAuthSetupData, CreateIntegrationOAuthSetupErrors, CreateIntegrationOAuthSetupResponses, CreateMachineData, CreateMachineErrors, CreateMachinePoolData, CreateMachinePoolErrors, CreateMachinePoolResponses, CreateMachineResponses, CreateModelProviderConfigData, CreateModelProviderConfigErrors, CreateModelProviderConfigResponses, CreateOrganizationData, CreateOrganizationErrors, CreateOrganizationResponses, CreateOrgApiKeyData, CreateOrgApiKeyErrors, CreateOrgApiKeyResponses, CreateOrgInvitationData, CreateOrgInvitationErrors, CreateOrgInvitationResponses, CreatePersonalAccessTokenData, CreatePersonalAccessTokenErrors, CreatePersonalAccessTokenResponses, CreateProjectData, CreateProjectErrors, CreateProjectMachineGrantData, CreateProjectMachineGrantErrors, CreateProjectMachineGrantResponses, CreateProjectMachinePoolGrantData, CreateProjectMachinePoolGrantErrors, CreateProjectMachinePoolGrantResponses, CreateProjectModelGrantData, CreateProjectModelGrantErrors, CreateProjectModelGrantResponses, CreateProjectResponses, CreateSecretData, CreateSecretErrors, CreateSecretGrantData, CreateSecretGrantErrors, CreateSecretGrantResponses, CreateSecretResponses, CreateSecretVersionData, CreateSecretVersionErrors, CreateSecretVersionResponses, CreateSkillData, CreateSkillErrors, CreateSkillGrantData, CreateSkillGrantErrors, CreateSkillGrantResponses, CreateSkillResponses, CreateSlackSetupData, CreateSlackSetupErrors, CreateSlackSetupResponses, DeclineInvitationData, DeclineInvitationErrors, DeclineInvitationResponses, DeleteAgentProfileData, DeleteAgentProfileErrors, DeleteAgentProfileResponses, DeleteConfiguredModelData, DeleteConfiguredModelErrors, DeleteConfiguredModelResponses, DeleteCronTriggerData, DeleteCronTriggerErrors, DeleteCronTriggerResponses, DeleteCurrentUserData, DeleteCurrentUserErrors, DeleteCurrentUserResponses, DeleteIntegrationInstallData, DeleteIntegrationInstallErrors, DeleteIntegrationInstallResponses, DeleteMachineData, DeleteMachineErrors, DeleteMachinePoolData, DeleteMachinePoolErrors, DeleteMachinePoolResponses, DeleteMachineResponses, DeleteModelProviderConfigData, DeleteModelProviderConfigErrors, DeleteModelProviderConfigResponses, DeleteOrganizationData, DeleteOrganizationErrors, DeleteOrganizationResponses, DeleteOrgInvitationData, DeleteOrgInvitationErrors, DeleteOrgInvitationResponses, DeleteProjectData, DeleteProjectErrors, DeleteProjectMachineGrantData, DeleteProjectMachineGrantErrors, DeleteProjectMachineGrantResponses, DeleteProjectMachinePoolGrantData, DeleteProjectMachinePoolGrantErrors, DeleteProjectMachinePoolGrantResponses, DeleteProjectModelGrantData, DeleteProjectModelGrantErrors, DeleteProjectModelGrantResponses, DeleteProjectResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretGrantData, DeleteSecretGrantErrors, DeleteSecretGrantResponses, DeleteSecretResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillGrantData, DeleteSkillGrantErrors, DeleteSkillGrantResponses, DeleteSkillResponses, DemoteSteeringInputToQueuedData, DemoteSteeringInputToQueuedErrors, DemoteSteeringInputToQueuedResponses, DownloadDaemonArtifactData, DownloadDaemonArtifactErrors, DownloadDaemonArtifactResponses, EndMachineDaemonRuntimeData, EndMachineDaemonRuntimeErrors, EndMachineDaemonRuntimeResponses, GetActorData, GetActorErrors, GetActorResponses, GetAgentConfigData, GetAgentConfigErrors, GetAgentConfigResponses, GetAgentData, GetAgentErrors, GetAgentProfileData, GetAgentProfileErrors, GetAgentProfileResponses, GetAgentResponses, GetArtifactContentData, GetArtifactContentErrors, GetArtifactContentResponses, GetArtifactData, GetArtifactErrors, GetArtifactResponses, GetCronTriggerData, GetCronTriggerErrors, GetCronTriggerResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetDaemonSkillArchiveData, GetDaemonSkillArchiveErrors, GetDaemonSkillArchiveResponses, GetMachineData, GetMachineErrors, GetMachinePoolData, GetMachinePoolErrors, GetMachinePoolResponses, GetMachineResponses, GetModelCatalogData, GetModelCatalogErrors, GetModelCatalogResponses, GetModelProviderConfigData, GetModelProviderConfigErrors, GetModelProviderConfigResponses, GetOrgApiKeyData, GetOrgApiKeyErrors, GetOrgApiKeyResponses, GetOrgOverviewData, GetOrgOverviewErrors, GetOrgOverviewResponses, GetProjectAvailableSecretData, GetProjectAvailableSecretErrors, GetProjectAvailableSecretResponses, GetProjectMachinePoolGrantData, GetProjectMachinePoolGrantErrors, GetProjectMachinePoolGrantResponses, GetSecretData, GetSecretErrors, GetSecretResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetToolCatalogData, GetToolCatalogErrors, GetToolCatalogResponses, ListActorsData, ListActorsErrors, ListActorsResponses, ListAgentInteractionsData, ListAgentInteractionsErrors, ListAgentInteractionsResponses, ListAgentProfilesData, ListAgentProfilesErrors, ListAgentProfilesResponses, ListAgentsData, ListAgentsErrors, ListAgentsResponses, ListByoMachineDaemonTokensData, ListByoMachineDaemonTokensErrors, ListByoMachineDaemonTokensResponses, ListConfiguredModelsData, ListConfiguredModelsErrors, ListConfiguredModelsResponses, ListCronTriggersData, ListCronTriggersErrors, ListCronTriggersResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListIntegrationInstallsData, ListIntegrationInstallsErrors, ListIntegrationInstallsResponses, ListMachinePoolsData, ListMachinePoolsErrors, ListMachinePoolsResponses, ListMcpServersData, ListMcpServersErrors, ListMcpServersResponses, ListMcpServerToolsData, ListMcpServerToolsErrors, ListMcpServerToolsResponses, ListMemberProjectAccessData, ListMemberProjectAccessErrors, ListMemberProjectAccessResponses, ListModelProviderConfigsData, ListModelProviderConfigsErrors, ListModelProviderConfigsResponses, ListOrgApiKeyProjectAccessData, ListOrgApiKeyProjectAccessErrors, ListOrgApiKeyProjectAccessResponses, ListOrgApiKeysData, ListOrgApiKeysErrors, ListOrgApiKeysResponses, ListOrgInvitationsData, ListOrgInvitationsErrors, ListOrgInvitationsResponses, ListOrgMembersData, ListOrgMembersErrors, ListOrgMembersResponses, ListPendingInvitationsData, ListPendingInvitationsErrors, ListPendingInvitationsResponses, ListPersonalAccessTokensData, ListPersonalAccessTokensErrors, ListPersonalAccessTokensResponses, ListProjectAvailableSecretsData, ListProjectAvailableSecretsErrors, ListProjectAvailableSecretsResponses, ListProjectAvailableSkillsData, ListProjectAvailableSkillsErrors, ListProjectAvailableSkillsResponses, ListProjectMachineGrantsData, ListProjectMachineGrantsErrors, ListProjectMachineGrantsResponses, ListProjectMachinePoolGrantsData, ListProjectMachinePoolGrantsErrors, ListProjectMachinePoolGrantsResponses, ListProjectModelGrantsData, ListProjectModelGrantsErrors, ListProjectModelGrantsResponses, ListQueuedBacklogInputsData, ListQueuedBacklogInputsErrors, ListQueuedBacklogInputsResponses, ListSecretGrantsData, ListSecretGrantsErrors, ListSecretGrantsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillGrantsData, ListSkillGrantsErrors, ListSkillGrantsResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListToolCallsData, ListToolCallsErrors, ListToolCallsResponses, ListTurnEventsData, ListTurnEventsErrors, ListTurnEventsResponses, ListTurnsData, ListTurnsErrors, ListTurnsResponses, ListVisibleMachinesData, ListVisibleMachinesErrors, ListVisibleMachinesResponses, ListVisibleProjectMachinesData, ListVisibleProjectMachinesErrors, ListVisibleProjectMachinesResponses, ListVisibleProjectsData, ListVisibleProjectsErrors, ListVisibleProjectsResponses, MoveQueuedBacklogInputData, MoveQueuedBacklogInputErrors, MoveQueuedBacklogInputResponses, PromoteQueuedInputToSteeringData, PromoteQueuedInputToSteeringErrors, PromoteQueuedInputToSteeringResponses, PutActorData, PutActorErrors, PutActorResponses, RecordMachineFailureData, RecordMachineFailureErrors, RecordMachineFailureResponses, RegisterMachineDaemonRuntimeData, RegisterMachineDaemonRuntimeErrors, RegisterMachineDaemonRuntimeResponses, RemoveMemberProjectAccessData, RemoveMemberProjectAccessErrors, RemoveMemberProjectAccessResponses, RemoveOrgApiKeyProjectRoleData, RemoveOrgApiKeyProjectRoleErrors, RemoveOrgApiKeyProjectRoleResponses, RemoveOrgMemberData, RemoveOrgMemberErrors, RemoveOrgMemberResponses, RenameAgentProfileData, RenameAgentProfileErrors, RenameAgentProfileResponses, ResolveAgentInteractionData, ResolveAgentInteractionErrors, ResolveAgentInteractionResponses, RevokeMachineDaemonTokenData, RevokeMachineDaemonTokenErrors, RevokeMachineDaemonTokenResponses, RevokeOrgApiKeyData, RevokeOrgApiKeyErrors, RevokeOrgApiKeyResponses, RevokePersonalAccessTokenData, RevokePersonalAccessTokenErrors, RevokePersonalAccessTokenResponses, SetMemberProjectAccessData, SetMemberProjectAccessErrors, SetMemberProjectAccessResponses, SetOrgApiKeyProjectRoleData, SetOrgApiKeyProjectRoleErrors, SetOrgApiKeyProjectRoleResponses, SleepMachineDaemonRuntimeData, SleepMachineDaemonRuntimeErrors, SleepMachineDaemonRuntimeResponses, SocketMachineDaemonRuntimeData, SocketMachineDaemonRuntimeErrors, StartSecretMcpoAuthData, StartSecretMcpoAuthErrors, StartSecretMcpoAuthResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, SubmitToolCallResultData, SubmitToolCallResultErrors, SubmitToolCallResultResponses, UpdateAgentConfigData, UpdateAgentConfigErrors, UpdateAgentConfigResponses, UpdateAgentProfileData, UpdateAgentProfileErrors, UpdateAgentProfileResponses, UpdateConfiguredModelData, UpdateConfiguredModelErrors, UpdateConfiguredModelResponses, UpdateCronTriggerData, UpdateCronTriggerErrors, UpdateCronTriggerResponses, UpdateMachineData, UpdateMachineErrors, UpdateMachinePoolData, UpdateMachinePoolErrors, UpdateMachinePoolResponses, UpdateMachineResponses, UpdateModelProviderConfigData, UpdateModelProviderConfigErrors, UpdateModelProviderConfigResponses, UpdateOrgApiKeyData, UpdateOrgApiKeyErrors, UpdateOrgApiKeyResponses, UpdateOrgMemberData, UpdateOrgMemberErrors, UpdateOrgMemberResponses, UpdateProjectMachinePoolGrantData, UpdateProjectMachinePoolGrantErrors, UpdateProjectMachinePoolGrantResponses, UpdateProjectModelGrantData, UpdateProjectModelGrantErrors, UpdateProjectModelGrantResponses, UpdateSecretData, UpdateSecretErrors, UpdateSecretResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, UploadDaemonArtifactData, UploadDaemonArtifactErrors, UploadDaemonArtifactResponses } from './types.gen';
 import { zAcceptInvitationResponse, zArchiveAgentResponse, zBootstrapDaemonResponse2, zCancelAgentResponse2, zCancelQueuedBacklogInputResponse, zConnectByoMachineResponse2, zCreateAgentConfigResponse, zCreateAgentInputResponse, zCreateAgentProfileResponse, zCreateAgentResponse, zCreateByoMachineDaemonTokenResponse, zCreateConfiguredModelResponse, zCreateCronTriggerResponse, zCreateIntegrationOAuthSetupResponse, zCreateMachinePoolResponse, zCreateMachineResponse, zCreateModelProviderConfigResponse2, zCreateOrganizationResponse2, zCreateOrgApiKeyResponse2, zCreateOrgInvitationResponse, zCreatePersonalAccessTokenResponse2, zCreateProjectMachineGrantResponse2, zCreateProjectMachinePoolGrantResponse, zCreateProjectModelGrantResponse, zCreateProjectResponse, zCreateSecretGrantResponse, zCreateSecretResponse, zCreateSecretVersionResponse, zCreateSkillGrantResponse, zCreateSkillResponse, zCreateSlackSetupResponse, zDeclineInvitationResponse, zDeleteAgentProfileResponse, zDeleteConfiguredModelResponse, zDeleteCronTriggerResponse, zDeleteCurrentUserResponse, zDeleteIntegrationInstallResponse, zDeleteMachinePoolResponse, zDeleteMachineResponse, zDeleteModelProviderConfigResponse, zDeleteOrganizationResponse, zDeleteOrgInvitationResponse, zDeleteProjectMachineGrantResponse, zDeleteProjectMachinePoolGrantResponse, zDeleteProjectModelGrantResponse, zDeleteProjectResponse, zDeleteSecretGrantResponse, zDeleteSecretResponse, zDeleteSkillGrantResponse, zDeleteSkillResponse, zDemoteSteeringInputToQueuedResponse, zDownloadDaemonArtifactResponse, zEndMachineDaemonRuntimeResponse, zGetActorResponse, zGetAgentConfigResponse, zGetAgentProfileResponse, zGetAgentResponse2, zGetArtifactContentResponse, zGetArtifactResponse, zGetCronTriggerResponse, zGetCurrentUserResponse, zGetDaemonSkillArchiveResponse, zGetMachinePoolResponse, zGetMachineResponse, zGetModelCatalogResponse, zGetModelProviderConfigResponse, zGetOrgApiKeyResponse, zGetOrgOverviewResponse, zGetProjectAvailableSecretResponse, zGetProjectMachinePoolGrantResponse, zGetSecretResponse, zGetSkillResponse, zGetToolCatalogResponse, zListActorsResponse2, zListAgentInteractionsResponse2, zListAgentProfilesResponse2, zListAgentsResponse2, zListByoMachineDaemonTokensResponse, zListConfiguredModelsResponse, zListCronTriggersResponse2, zListEventsResponse, zListIntegrationInstallsResponse2, zListMachinePoolsResponse2, zListMcpServersResponse2, zListMcpServerToolsResponse, zListMemberProjectAccessResponse, zListModelProviderConfigsResponse, zListOrgApiKeyProjectAccessResponse, zListOrgApiKeysResponse2, zListOrgInvitationsResponse2, zListOrgMembersResponse2, zListPendingInvitationsResponse, zListPersonalAccessTokensResponse2, zListProjectAvailableSecretsResponse, zListProjectAvailableSkillsResponse, zListProjectMachineGrantsResponse2, zListProjectMachinePoolGrantsResponse2, zListProjectModelGrantsResponse2, zListQueuedBacklogInputsResponse, zListSecretGrantsResponse2, zListSecretsResponse2, zListSkillGrantsResponse2, zListSkillsResponse2, zListToolCallsResponse2, zListTurnEventsResponse2, zListTurnsResponse, zListVisibleMachinesResponse2, zListVisibleProjectMachinesResponse, zListVisibleProjectsResponse, zMoveQueuedBacklogInputResponse, zPromoteQueuedInputToSteeringResponse, zPutActorResponse, zRecordMachineFailureResponse, zRegisterMachineDaemonRuntimeResponse, zRemoveMemberProjectAccessResponse, zRemoveOrgApiKeyProjectRoleResponse, zRemoveOrgMemberResponse, zRenameAgentProfileResponse, zResolveAgentInteractionResponse, zRevokeMachineDaemonTokenResponse, zRevokeOrgApiKeyResponse, zRevokePersonalAccessTokenResponse, zSetMemberProjectAccessResponse, zSetOrgApiKeyProjectRoleResponse, zSleepMachineDaemonRuntimeResponse, zStartSecretMcpoAuthResponse, zStreamEventsResponse, zSubmitToolCallResultResponse2, zUpdateAgentConfigResponse2, zUpdateAgentProfileResponse, zUpdateConfiguredModelResponse, zUpdateCronTriggerResponse, zUpdateMachinePoolResponse, zUpdateMachineResponse, zUpdateModelProviderConfigResponse, zUpdateOrgApiKeyResponse, zUpdateOrgMemberResponse, zUpdateProjectMachinePoolGrantResponse, zUpdateProjectModelGrantResponse, zUpdateSecretResponse, zUpdateSkillResponse, zUploadDaemonArtifactResponse } from './zod.gen';
-import { validateResponse } from '../validate-response';
+import { relaxedResponseValidator } from '../validate-response';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -26,7 +26,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  * Items are ordered by created_at descending, then id descending.
  */
 export const listPersonalAccessTokens = <ThrowOnError extends boolean = true>(options?: Options<ListPersonalAccessTokensData, ThrowOnError>): RequestResult<ListPersonalAccessTokensResponses, ListPersonalAccessTokensErrors, ThrowOnError> => (options?.client ?? client).get<ListPersonalAccessTokensResponses, ListPersonalAccessTokensErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListPersonalAccessTokensResponse2, data),
+    responseValidator: relaxedResponseValidator(zListPersonalAccessTokensResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -44,7 +44,7 @@ export const listPersonalAccessTokens = <ThrowOnError extends boolean = true>(op
  * Create personal access token
  */
 export const createPersonalAccessToken = <ThrowOnError extends boolean = true>(options: Options<CreatePersonalAccessTokenData, ThrowOnError>): RequestResult<CreatePersonalAccessTokenResponses, CreatePersonalAccessTokenErrors, ThrowOnError> => (options.client ?? client).post<CreatePersonalAccessTokenResponses, CreatePersonalAccessTokenErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreatePersonalAccessTokenResponse2, data),
+    responseValidator: relaxedResponseValidator(zCreatePersonalAccessTokenResponse2),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -62,7 +62,7 @@ export const createPersonalAccessToken = <ThrowOnError extends boolean = true>(o
  * Revoke a personal access token
  */
 export const revokePersonalAccessToken = <ThrowOnError extends boolean = true>(options: Options<RevokePersonalAccessTokenData, ThrowOnError>): RequestResult<RevokePersonalAccessTokenResponses, RevokePersonalAccessTokenErrors, ThrowOnError> => (options.client ?? client).post<RevokePersonalAccessTokenResponses, RevokePersonalAccessTokenErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRevokePersonalAccessTokenResponse, data),
+    responseValidator: relaxedResponseValidator(zRevokePersonalAccessTokenResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -84,7 +84,7 @@ export const revokePersonalAccessToken = <ThrowOnError extends boolean = true>(o
  * Bootstrap daemon
  */
 export const bootstrapDaemon = <ThrowOnError extends boolean = true>(options?: Options<BootstrapDaemonData, ThrowOnError>): RequestResult<BootstrapDaemonResponses, BootstrapDaemonErrors, ThrowOnError> => (options?.client ?? client).post<BootstrapDaemonResponses, BootstrapDaemonErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zBootstrapDaemonResponse2, data),
+    responseValidator: relaxedResponseValidator(zBootstrapDaemonResponse2),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -99,7 +99,7 @@ export const bootstrapDaemon = <ThrowOnError extends boolean = true>(options?: O
  */
 export const recordMachineFailure = <ThrowOnError extends boolean = true>(options: Options<RecordMachineFailureData, ThrowOnError>): RequestResult<RecordMachineFailureResponses, RecordMachineFailureErrors, ThrowOnError> => (options.client ?? client).post<RecordMachineFailureResponses, RecordMachineFailureErrors, ThrowOnError>({
     bodySerializer: null,
-    responseValidator: async (data) => await validateResponse(zRecordMachineFailureResponse, data),
+    responseValidator: relaxedResponseValidator(zRecordMachineFailureResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -124,7 +124,7 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
  *
  */
 export const createOrganization = <ThrowOnError extends boolean = true>(options: Options<CreateOrganizationData, ThrowOnError>): RequestResult<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError> => (options.client ?? client).post<CreateOrganizationResponses, CreateOrganizationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateOrganizationResponse2, data),
+    responseValidator: relaxedResponseValidator(zCreateOrganizationResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -152,7 +152,7 @@ export const createOrganization = <ThrowOnError extends boolean = true>(options:
  * Deletes the organization and everything in it: projects, memberships, pending invitations, profiles, integrations, machine pools and machines, model provider configs and configured models, and all skills. Agents are archived and their runtimes and queued work are stopped. Secrets are permanently deleted once machine teardown no longer needs them. Deletion fails if project agent teardown cannot complete. Only organization owners can delete an organization.
  */
 export const deleteOrganization = <ThrowOnError extends boolean = true>(options: Options<DeleteOrganizationData, ThrowOnError>): RequestResult<DeleteOrganizationResponses, DeleteOrganizationErrors, ThrowOnError> => (options.client ?? client).delete<DeleteOrganizationResponses, DeleteOrganizationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteOrganizationResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteOrganizationResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -176,7 +176,7 @@ export const deleteOrganization = <ThrowOnError extends boolean = true>(options:
  * Deletes the account, revokes all personal access tokens and browser sessions, removes all organization and project memberships, and releases the account's sign-in identity (emails, linked auth identities, and password credentials) so the same email can register a new account. Personal secrets and skills owned by the user are deleted with the account. Deletion is blocked while the user is the last owner of any organization (add another owner or delete the organization first), while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration install. Organization and project resources are unaffected, and agents, machines, and other records the user created are kept with their attribution.
  */
 export const deleteCurrentUser = <ThrowOnError extends boolean = true>(options?: Options<DeleteCurrentUserData, ThrowOnError>): RequestResult<DeleteCurrentUserResponses, DeleteCurrentUserErrors, ThrowOnError> => (options?.client ?? client).delete<DeleteCurrentUserResponses, DeleteCurrentUserErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteCurrentUserResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteCurrentUserResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -198,7 +198,7 @@ export const deleteCurrentUser = <ThrowOnError extends boolean = true>(options?:
  * Get the authenticated user and their organizations
  */
 export const getCurrentUser = <ThrowOnError extends boolean = true>(options?: Options<GetCurrentUserData, ThrowOnError>): RequestResult<GetCurrentUserResponses, GetCurrentUserErrors, ThrowOnError> => (options?.client ?? client).get<GetCurrentUserResponses, GetCurrentUserErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetCurrentUserResponse, data),
+    responseValidator: relaxedResponseValidator(zGetCurrentUserResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -218,7 +218,7 @@ export const getCurrentUser = <ThrowOnError extends boolean = true>(options?: Op
  * Items are ordered by created_at ascending, then id ascending.
  */
 export const listPendingInvitations = <ThrowOnError extends boolean = true>(options?: Options<ListPendingInvitationsData, ThrowOnError>): RequestResult<ListPendingInvitationsResponses, ListPendingInvitationsErrors, ThrowOnError> => (options?.client ?? client).get<ListPendingInvitationsResponses, ListPendingInvitationsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListPendingInvitationsResponse, data),
+    responseValidator: relaxedResponseValidator(zListPendingInvitationsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -236,7 +236,7 @@ export const listPendingInvitations = <ThrowOnError extends boolean = true>(opti
  * Accept invitation
  */
 export const acceptInvitation = <ThrowOnError extends boolean = true>(options: Options<AcceptInvitationData, ThrowOnError>): RequestResult<AcceptInvitationResponses, AcceptInvitationErrors, ThrowOnError> => (options.client ?? client).post<AcceptInvitationResponses, AcceptInvitationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zAcceptInvitationResponse, data),
+    responseValidator: relaxedResponseValidator(zAcceptInvitationResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -258,7 +258,7 @@ export const acceptInvitation = <ThrowOnError extends boolean = true>(options: O
  * Decline invitation
  */
 export const declineInvitation = <ThrowOnError extends boolean = true>(options: Options<DeclineInvitationData, ThrowOnError>): RequestResult<DeclineInvitationResponses, DeclineInvitationErrors, ThrowOnError> => (options.client ?? client).post<DeclineInvitationResponses, DeclineInvitationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeclineInvitationResponse, data),
+    responseValidator: relaxedResponseValidator(zDeclineInvitationResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -282,7 +282,7 @@ export const declineInvitation = <ThrowOnError extends boolean = true>(options: 
  * Returns the data backing the web app's overview page: the caller's visible projects plus the most recently active agents and most recently updated agent profiles across every project the caller can read. Internal to the web app and subject to change without notice.
  */
 export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Options<GetOrgOverviewData, ThrowOnError>): RequestResult<GetOrgOverviewResponses, GetOrgOverviewErrors, ThrowOnError> => (options.client ?? client).get<GetOrgOverviewResponses, GetOrgOverviewErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetOrgOverviewResponse, data),
+    responseValidator: relaxedResponseValidator(zGetOrgOverviewResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -302,7 +302,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
  * Items are ordered by created_at descending, then id descending.
  */
 export const listVisibleProjects = <ThrowOnError extends boolean = true>(options: Options<ListVisibleProjectsData, ThrowOnError>): RequestResult<ListVisibleProjectsResponses, ListVisibleProjectsErrors, ThrowOnError> => (options.client ?? client).get<ListVisibleProjectsResponses, ListVisibleProjectsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListVisibleProjectsResponse, data),
+    responseValidator: relaxedResponseValidator(zListVisibleProjectsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -320,7 +320,7 @@ export const listVisibleProjects = <ThrowOnError extends boolean = true>(options
  * Create project
  */
 export const createProject = <ThrowOnError extends boolean = true>(options: Options<CreateProjectData, ThrowOnError>): RequestResult<CreateProjectResponses, CreateProjectErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectResponses, CreateProjectErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateProjectResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateProjectResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -348,7 +348,7 @@ export const createProject = <ThrowOnError extends boolean = true>(options: Opti
  * Deletes the project, its memberships, profiles and profile versions, integration installs and targets, project-owned skills and revisions, and grants owned by or targeting the project. Project-owned secrets are permanently deleted with their versions and grants. The project's agents are archived and their runtimes and queued work are stopped. Machine, machine-pool, and model grants are removed without deleting the shared machine, pool, or model. Deletion fails if agent teardown cannot complete.
  */
 export const deleteProject = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectData, ThrowOnError>): RequestResult<DeleteProjectResponses, DeleteProjectErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectResponses, DeleteProjectErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteProjectResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteProjectResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -372,7 +372,7 @@ export const deleteProject = <ThrowOnError extends boolean = true>(options: Opti
  * List organization members with server-side display-name filtering, sorting, and cursor pagination.
  */
 export const listOrgMembers = <ThrowOnError extends boolean = true>(options: Options<ListOrgMembersData, ThrowOnError>): RequestResult<ListOrgMembersResponses, ListOrgMembersErrors, ThrowOnError> => (options.client ?? client).get<ListOrgMembersResponses, ListOrgMembersErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListOrgMembersResponse2, data),
+    responseValidator: relaxedResponseValidator(zListOrgMembersResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -392,7 +392,7 @@ export const listOrgMembers = <ThrowOnError extends boolean = true>(options: Opt
  * Removes the user's organization membership and all project memberships in the organization. The member's personal secrets and skills in the organization are deleted with the membership. Removal is blocked when the user is the organization's last owner, while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration install.
  */
 export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Options<RemoveOrgMemberData, ThrowOnError>): RequestResult<RemoveOrgMemberResponses, RemoveOrgMemberErrors, ThrowOnError> => (options.client ?? client).delete<RemoveOrgMemberResponses, RemoveOrgMemberErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRemoveOrgMemberResponse, data),
+    responseValidator: relaxedResponseValidator(zRemoveOrgMemberResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -414,7 +414,7 @@ export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Op
  * Update org member role
  */
 export const updateOrgMember = <ThrowOnError extends boolean = true>(options: Options<UpdateOrgMemberData, ThrowOnError>): RequestResult<UpdateOrgMemberResponses, UpdateOrgMemberErrors, ThrowOnError> => (options.client ?? client).patch<UpdateOrgMemberResponses, UpdateOrgMemberErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateOrgMemberResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateOrgMemberResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -442,7 +442,7 @@ export const updateOrgMember = <ThrowOnError extends boolean = true>(options: Op
  * Lists the member's explicit per-project role grants. Org owners and admins implicitly have admin access to every project and will not appear here for those projects.
  */
 export const listMemberProjectAccess = <ThrowOnError extends boolean = true>(options: Options<ListMemberProjectAccessData, ThrowOnError>): RequestResult<ListMemberProjectAccessResponses, ListMemberProjectAccessErrors, ThrowOnError> => (options.client ?? client).get<ListMemberProjectAccessResponses, ListMemberProjectAccessErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListMemberProjectAccessResponse, data),
+    responseValidator: relaxedResponseValidator(zListMemberProjectAccessResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -462,7 +462,7 @@ export const listMemberProjectAccess = <ThrowOnError extends boolean = true>(opt
  * Removes only the member's explicit role grant for this project. No other memberships, grants, or resources are deleted, and there are no dependency blockers.
  */
 export const removeMemberProjectAccess = <ThrowOnError extends boolean = true>(options: Options<RemoveMemberProjectAccessData, ThrowOnError>): RequestResult<RemoveMemberProjectAccessResponses, RemoveMemberProjectAccessErrors, ThrowOnError> => (options.client ?? client).delete<RemoveMemberProjectAccessResponses, RemoveMemberProjectAccessErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRemoveMemberProjectAccessResponse, data),
+    responseValidator: relaxedResponseValidator(zRemoveMemberProjectAccessResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -486,7 +486,7 @@ export const removeMemberProjectAccess = <ThrowOnError extends boolean = true>(o
  * Creates or updates the member's explicit role grant on the project.
  */
 export const setMemberProjectAccess = <ThrowOnError extends boolean = true>(options: Options<SetMemberProjectAccessData, ThrowOnError>): RequestResult<SetMemberProjectAccessResponses, SetMemberProjectAccessErrors, ThrowOnError> => (options.client ?? client).put<SetMemberProjectAccessResponses, SetMemberProjectAccessErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zSetMemberProjectAccessResponse, data),
+    responseValidator: relaxedResponseValidator(zSetMemberProjectAccessResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -514,7 +514,7 @@ export const setMemberProjectAccess = <ThrowOnError extends boolean = true>(opti
  * Items are ordered by created_at descending, then id descending. Revoked keys are included.
  */
 export const listOrgApiKeys = <ThrowOnError extends boolean = true>(options: Options<ListOrgApiKeysData, ThrowOnError>): RequestResult<ListOrgApiKeysResponses, ListOrgApiKeysErrors, ThrowOnError> => (options.client ?? client).get<ListOrgApiKeysResponses, ListOrgApiKeysErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListOrgApiKeysResponse2, data),
+    responseValidator: relaxedResponseValidator(zListOrgApiKeysResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -534,7 +534,7 @@ export const listOrgApiKeys = <ThrowOnError extends boolean = true>(options: Opt
  * Mints an org API key. The plaintext token is returned once and never stored.
  */
 export const createOrgApiKey = <ThrowOnError extends boolean = true>(options: Options<CreateOrgApiKeyData, ThrowOnError>): RequestResult<CreateOrgApiKeyResponses, CreateOrgApiKeyErrors, ThrowOnError> => (options.client ?? client).post<CreateOrgApiKeyResponses, CreateOrgApiKeyErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateOrgApiKeyResponse2, data),
+    responseValidator: relaxedResponseValidator(zCreateOrgApiKeyResponse2),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -552,7 +552,7 @@ export const createOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
  * Get an org API key
  */
 export const getOrgApiKey = <ThrowOnError extends boolean = true>(options: Options<GetOrgApiKeyData, ThrowOnError>): RequestResult<GetOrgApiKeyResponses, GetOrgApiKeyErrors, ThrowOnError> => (options.client ?? client).get<GetOrgApiKeyResponses, GetOrgApiKeyErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetOrgApiKeyResponse, data),
+    responseValidator: relaxedResponseValidator(zGetOrgApiKeyResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -572,7 +572,7 @@ export const getOrgApiKey = <ThrowOnError extends boolean = true>(options: Optio
  * Renames the key and/or changes its org role. Revoked keys cannot be updated.
  */
 export const updateOrgApiKey = <ThrowOnError extends boolean = true>(options: Options<UpdateOrgApiKeyData, ThrowOnError>): RequestResult<UpdateOrgApiKeyResponses, UpdateOrgApiKeyErrors, ThrowOnError> => (options.client ?? client).patch<UpdateOrgApiKeyResponses, UpdateOrgApiKeyErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateOrgApiKeyResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateOrgApiKeyResponse),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -592,7 +592,7 @@ export const updateOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
  * Terminally revokes the key and removes its org and project roles. Idempotent.
  */
 export const revokeOrgApiKey = <ThrowOnError extends boolean = true>(options: Options<RevokeOrgApiKeyData, ThrowOnError>): RequestResult<RevokeOrgApiKeyResponses, RevokeOrgApiKeyErrors, ThrowOnError> => (options.client ?? client).post<RevokeOrgApiKeyResponses, RevokeOrgApiKeyErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRevokeOrgApiKeyResponse, data),
+    responseValidator: relaxedResponseValidator(zRevokeOrgApiKeyResponse),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -608,7 +608,7 @@ export const revokeOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
  * Lists the key's explicit per-project role grants. Keys with the admin org role implicitly have admin access to every project and will not appear here for those projects.
  */
 export const listOrgApiKeyProjectAccess = <ThrowOnError extends boolean = true>(options: Options<ListOrgApiKeyProjectAccessData, ThrowOnError>): RequestResult<ListOrgApiKeyProjectAccessResponses, ListOrgApiKeyProjectAccessErrors, ThrowOnError> => (options.client ?? client).get<ListOrgApiKeyProjectAccessResponses, ListOrgApiKeyProjectAccessErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListOrgApiKeyProjectAccessResponse, data),
+    responseValidator: relaxedResponseValidator(zListOrgApiKeyProjectAccessResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -626,7 +626,7 @@ export const listOrgApiKeyProjectAccess = <ThrowOnError extends boolean = true>(
  * Remove an org API key's project role grant
  */
 export const removeOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(options: Options<RemoveOrgApiKeyProjectRoleData, ThrowOnError>): RequestResult<RemoveOrgApiKeyProjectRoleResponses, RemoveOrgApiKeyProjectRoleErrors, ThrowOnError> => (options.client ?? client).delete<RemoveOrgApiKeyProjectRoleResponses, RemoveOrgApiKeyProjectRoleErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRemoveOrgApiKeyProjectRoleResponse, data),
+    responseValidator: relaxedResponseValidator(zRemoveOrgApiKeyProjectRoleResponse),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -642,7 +642,7 @@ export const removeOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(
  * Creates or updates the key's explicit role grant on the project.
  */
 export const setOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(options: Options<SetOrgApiKeyProjectRoleData, ThrowOnError>): RequestResult<SetOrgApiKeyProjectRoleResponses, SetOrgApiKeyProjectRoleErrors, ThrowOnError> => (options.client ?? client).put<SetOrgApiKeyProjectRoleResponses, SetOrgApiKeyProjectRoleErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zSetOrgApiKeyProjectRoleResponse, data),
+    responseValidator: relaxedResponseValidator(zSetOrgApiKeyProjectRoleResponse),
     security: [{
             in: 'cookie',
             name: '__Host-omnara_session',
@@ -662,7 +662,7 @@ export const setOrgApiKeyProjectRole = <ThrowOnError extends boolean = true>(opt
  * Every listed invitation is pending: accepting, declining, revoking, or organization deletion removes the invitation. Items are ordered by created_at descending, then id descending.
  */
 export const listOrgInvitations = <ThrowOnError extends boolean = true>(options: Options<ListOrgInvitationsData, ThrowOnError>): RequestResult<ListOrgInvitationsResponses, ListOrgInvitationsErrors, ThrowOnError> => (options.client ?? client).get<ListOrgInvitationsResponses, ListOrgInvitationsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListOrgInvitationsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListOrgInvitationsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -680,7 +680,7 @@ export const listOrgInvitations = <ThrowOnError extends boolean = true>(options:
  * Create org invitation
  */
 export const createOrgInvitation = <ThrowOnError extends boolean = true>(options: Options<CreateOrgInvitationData, ThrowOnError>): RequestResult<CreateOrgInvitationResponses, CreateOrgInvitationErrors, ThrowOnError> => (options.client ?? client).post<CreateOrgInvitationResponses, CreateOrgInvitationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateOrgInvitationResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateOrgInvitationResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -708,7 +708,7 @@ export const createOrgInvitation = <ThrowOnError extends boolean = true>(options
  * Deletes the pending invitation so it can no longer be accepted.
  */
 export const deleteOrgInvitation = <ThrowOnError extends boolean = true>(options: Options<DeleteOrgInvitationData, ThrowOnError>): RequestResult<DeleteOrgInvitationResponses, DeleteOrgInvitationErrors, ThrowOnError> => (options.client ?? client).delete<DeleteOrgInvitationResponses, DeleteOrgInvitationErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteOrgInvitationResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteOrgInvitationResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -732,7 +732,7 @@ export const deleteOrgInvitation = <ThrowOnError extends boolean = true>(options
  * Items are ordered by created_at descending, then id descending. Without an owner filter, returns the deduplicated union of organization skills the caller may list, project skills the caller may list, and the caller's own user skills. Grants are managed separately and do not change ownership.
  */
 export const listSkills = <ThrowOnError extends boolean = true>(options: Options<ListSkillsData, ThrowOnError>): RequestResult<ListSkillsResponses, ListSkillsErrors, ThrowOnError> => (options.client ?? client).get<ListSkillsResponses, ListSkillsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListSkillsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListSkillsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -753,7 +753,7 @@ export const listSkills = <ThrowOnError extends boolean = true>(options: Options
  */
 export const createSkill = <ThrowOnError extends boolean = true>(options: Options<CreateSkillData, ThrowOnError>): RequestResult<CreateSkillResponses, CreateSkillErrors, ThrowOnError> => (options.client ?? client).post<CreateSkillResponses, CreateSkillErrors, ThrowOnError>({
     ...formDataBodySerializer,
-    responseValidator: async (data) => await validateResponse(zCreateSkillResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSkillResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -781,7 +781,7 @@ export const createSkill = <ThrowOnError extends boolean = true>(options: Option
  * Deletes the skill together with all of its revisions and project grants; uploaded archive content is destroyed. No other resources are deleted. Deletion is blocked while an active agent's configuration references the skill.
  */
 export const deleteSkill = <ThrowOnError extends boolean = true>(options: Options<DeleteSkillData, ThrowOnError>): RequestResult<DeleteSkillResponses, DeleteSkillErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSkillResponses, DeleteSkillErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteSkillResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteSkillResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -803,7 +803,7 @@ export const deleteSkill = <ThrowOnError extends boolean = true>(options: Option
  * Get skill through ownership authority
  */
 export const getSkill = <ThrowOnError extends boolean = true>(options: Options<GetSkillData, ThrowOnError>): RequestResult<GetSkillResponses, GetSkillErrors, ThrowOnError> => (options.client ?? client).get<GetSkillResponses, GetSkillErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetSkillResponse, data),
+    responseValidator: relaxedResponseValidator(zGetSkillResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -824,7 +824,7 @@ export const getSkill = <ThrowOnError extends boolean = true>(options: Options<G
  */
 export const updateSkill = <ThrowOnError extends boolean = true>(options: Options<UpdateSkillData, ThrowOnError>): RequestResult<UpdateSkillResponses, UpdateSkillErrors, ThrowOnError> => (options.client ?? client).post<UpdateSkillResponses, UpdateSkillErrors, ThrowOnError>({
     ...formDataBodySerializer,
-    responseValidator: async (data) => await validateResponse(zUpdateSkillResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateSkillResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -852,7 +852,7 @@ export const updateSkill = <ThrowOnError extends boolean = true>(options: Option
  * Items are ordered by created_at descending, then id descending.
  */
 export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Options<ListSkillGrantsData, ThrowOnError>): RequestResult<ListSkillGrantsResponses, ListSkillGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListSkillGrantsResponses, ListSkillGrantsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListSkillGrantsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListSkillGrantsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -870,7 +870,7 @@ export const listSkillGrants = <ThrowOnError extends boolean = true>(options: Op
  * Create skill grant
  */
 export const createSkillGrant = <ThrowOnError extends boolean = true>(options: Options<CreateSkillGrantData, ThrowOnError>): RequestResult<CreateSkillGrantResponses, CreateSkillGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateSkillGrantResponses, CreateSkillGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateSkillGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSkillGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -898,7 +898,7 @@ export const createSkillGrant = <ThrowOnError extends boolean = true>(options: O
  * Deletes only this project grant. The skill, its revisions, the target project, and other grants are retained, and there are no dependency blockers.
  */
 export const deleteSkillGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteSkillGrantData, ThrowOnError>): RequestResult<DeleteSkillGrantResponses, DeleteSkillGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSkillGrantResponses, DeleteSkillGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteSkillGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteSkillGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -922,7 +922,7 @@ export const deleteSkillGrant = <ThrowOnError extends boolean = true>(options: O
  * Includes directly owned project skills and granted skills, ordered by created_at descending, then id descending.
  */
 export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(options: Options<ListProjectAvailableSkillsData, ThrowOnError>): RequestResult<ListProjectAvailableSkillsResponses, ListProjectAvailableSkillsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectAvailableSkillsResponses, ListProjectAvailableSkillsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListProjectAvailableSkillsResponse, data),
+    responseValidator: relaxedResponseValidator(zListProjectAvailableSkillsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -942,7 +942,7 @@ export const listProjectAvailableSkills = <ThrowOnError extends boolean = true>(
  * Items are ordered by created_at descending, then id descending. Without an owner filter, returns the deduplicated union of organization secrets the caller may list, project secrets the caller may list, and the caller's own user secrets.
  */
 export const listSecrets = <ThrowOnError extends boolean = true>(options: Options<ListSecretsData, ThrowOnError>): RequestResult<ListSecretsResponses, ListSecretsErrors, ThrowOnError> => (options.client ?? client).get<ListSecretsResponses, ListSecretsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListSecretsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListSecretsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -960,7 +960,7 @@ export const listSecrets = <ThrowOnError extends boolean = true>(options: Option
  * Create secret
  */
 export const createSecret = <ThrowOnError extends boolean = true>(options: Options<CreateSecretData, ThrowOnError>): RequestResult<CreateSecretResponses, CreateSecretErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretResponses, CreateSecretErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateSecretResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSecretResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -986,7 +986,7 @@ export const createSecret = <ThrowOnError extends boolean = true>(options: Optio
  * Start MCP OAuth for a new secret
  */
 export const startSecretMcpoAuth = <ThrowOnError extends boolean = true>(options: Options<StartSecretMcpoAuthData, ThrowOnError>): RequestResult<StartSecretMcpoAuthResponses, StartSecretMcpoAuthErrors, ThrowOnError> => (options.client ?? client).post<StartSecretMcpoAuthResponses, StartSecretMcpoAuthErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zStartSecretMcpoAuthResponse, data),
+    responseValidator: relaxedResponseValidator(zStartSecretMcpoAuthResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1014,7 +1014,7 @@ export const startSecretMcpoAuth = <ThrowOnError extends boolean = true>(options
  * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, or integration install.
  */
 export const deleteSecret = <ThrowOnError extends boolean = true>(options: Options<DeleteSecretData, ThrowOnError>): RequestResult<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteSecretResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteSecretResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1036,7 +1036,7 @@ export const deleteSecret = <ThrowOnError extends boolean = true>(options: Optio
  * Get secret through ownership authority
  */
 export const getSecret = <ThrowOnError extends boolean = true>(options: Options<GetSecretData, ThrowOnError>): RequestResult<GetSecretResponses, GetSecretErrors, ThrowOnError> => (options.client ?? client).get<GetSecretResponses, GetSecretErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetSecretResponse, data),
+    responseValidator: relaxedResponseValidator(zGetSecretResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1054,7 +1054,7 @@ export const getSecret = <ThrowOnError extends boolean = true>(options: Options<
  * Update secret metadata
  */
 export const updateSecret = <ThrowOnError extends boolean = true>(options: Options<UpdateSecretData, ThrowOnError>): RequestResult<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError> => (options.client ?? client).patch<UpdateSecretResponses, UpdateSecretErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateSecretResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateSecretResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1080,7 +1080,7 @@ export const updateSecret = <ThrowOnError extends boolean = true>(options: Optio
  * Create secret version
  */
 export const createSecretVersion = <ThrowOnError extends boolean = true>(options: Options<CreateSecretVersionData, ThrowOnError>): RequestResult<CreateSecretVersionResponses, CreateSecretVersionErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretVersionResponses, CreateSecretVersionErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateSecretVersionResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSecretVersionResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1108,7 +1108,7 @@ export const createSecretVersion = <ThrowOnError extends boolean = true>(options
  * Items are ordered by created_at descending, then id descending.
  */
 export const listSecretGrants = <ThrowOnError extends boolean = true>(options: Options<ListSecretGrantsData, ThrowOnError>): RequestResult<ListSecretGrantsResponses, ListSecretGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListSecretGrantsResponses, ListSecretGrantsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListSecretGrantsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListSecretGrantsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1126,7 +1126,7 @@ export const listSecretGrants = <ThrowOnError extends boolean = true>(options: O
  * Create secret grant
  */
 export const createSecretGrant = <ThrowOnError extends boolean = true>(options: Options<CreateSecretGrantData, ThrowOnError>): RequestResult<CreateSecretGrantResponses, CreateSecretGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateSecretGrantResponses, CreateSecretGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateSecretGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSecretGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1154,7 +1154,7 @@ export const createSecretGrant = <ThrowOnError extends boolean = true>(options: 
  * Deletes only this project grant. The secret, its versions, the target project, and other grants are retained, and there are no dependency blockers.
  */
 export const deleteSecretGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteSecretGrantData, ThrowOnError>): RequestResult<DeleteSecretGrantResponses, DeleteSecretGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSecretGrantResponses, DeleteSecretGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteSecretGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteSecretGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1178,7 +1178,7 @@ export const deleteSecretGrant = <ThrowOnError extends boolean = true>(options: 
  * Items are ordered by created_at descending, then id descending. The list's logical name is provider_agent_display_name.
  */
 export const listIntegrationInstalls = <ThrowOnError extends boolean = true>(options: Options<ListIntegrationInstallsData, ThrowOnError>): RequestResult<ListIntegrationInstallsResponses, ListIntegrationInstallsErrors, ThrowOnError> => (options.client ?? client).get<ListIntegrationInstallsResponses, ListIntegrationInstallsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListIntegrationInstallsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListIntegrationInstallsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1198,7 +1198,7 @@ export const listIntegrationInstalls = <ThrowOnError extends boolean = true>(opt
  * Deletes the install and all of its integration targets and clears those target associations from agents. Agents and profiles are retained. This uninstalls on the Omnara side only: credentials already issued by the provider are not revoked and provider-side webhooks are not removed.
  */
 export const deleteIntegrationInstall = <ThrowOnError extends boolean = true>(options: Options<DeleteIntegrationInstallData, ThrowOnError>): RequestResult<DeleteIntegrationInstallResponses, DeleteIntegrationInstallErrors, ThrowOnError> => (options.client ?? client).delete<DeleteIntegrationInstallResponses, DeleteIntegrationInstallErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteIntegrationInstallResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteIntegrationInstallResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1220,7 +1220,7 @@ export const deleteIntegrationInstall = <ThrowOnError extends boolean = true>(op
  * Create agent config
  */
 export const createAgentConfig = <ThrowOnError extends boolean = true>(options: Options<CreateAgentConfigData, ThrowOnError>): RequestResult<CreateAgentConfigResponses, CreateAgentConfigErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentConfigResponses, CreateAgentConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateAgentConfigResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateAgentConfigResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1246,7 +1246,7 @@ export const createAgentConfig = <ThrowOnError extends boolean = true>(options: 
  * Get tool catalog
  */
 export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Options<GetToolCatalogData, ThrowOnError>): RequestResult<GetToolCatalogResponses, GetToolCatalogErrors, ThrowOnError> => (options?.client ?? client).get<GetToolCatalogResponses, GetToolCatalogErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetToolCatalogResponse, data),
+    responseValidator: relaxedResponseValidator(zGetToolCatalogResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1266,7 +1266,7 @@ export const getToolCatalog = <ThrowOnError extends boolean = true>(options?: Op
  * Search the API's snapshot of the public MCP registry. The snapshot only holds active servers that publish a `streamable-http` remote. Results are ranked by relevance when `q` is set, otherwise ordered by name.
  */
 export const listMcpServers = <ThrowOnError extends boolean = true>(options?: Options<ListMcpServersData, ThrowOnError>): RequestResult<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError> => (options?.client ?? client).get<ListMcpServersResponses, ListMcpServersErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListMcpServersResponse2, data),
+    responseValidator: relaxedResponseValidator(zListMcpServersResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1286,7 +1286,7 @@ export const listMcpServers = <ThrowOnError extends boolean = true>(options?: Op
  * Connects to a remote MCP server over streamable HTTP, completes the initialize handshake, and returns the server's `tools/list` result. The request is not stored; use it to preview which tools a server exposes before referencing it from an agent config. Authentication mirrors the agent config `mcp_servers.<key>.auth` shape and resolves secrets available to the project. When the server rejects the connection with HTTP 401 or 403, the API probes the server's authorization requirements and responds 422 with an `auth` hint — `oauth` when the server advertises an OAuth authorization server, `bearer` when it expects a token but advertises no OAuth metadata.
  */
 export const listMcpServerTools = <ThrowOnError extends boolean = true>(options: Options<ListMcpServerToolsData, ThrowOnError>): RequestResult<ListMcpServerToolsResponses, ListMcpServerToolsErrors, ThrowOnError> => (options.client ?? client).post<ListMcpServerToolsResponses, ListMcpServerToolsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListMcpServerToolsResponse, data),
+    responseValidator: relaxedResponseValidator(zListMcpServerToolsResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1312,7 +1312,7 @@ export const listMcpServerTools = <ThrowOnError extends boolean = true>(options:
  * Get agent config
  */
 export const getAgentConfig = <ThrowOnError extends boolean = true>(options: Options<GetAgentConfigData, ThrowOnError>): RequestResult<GetAgentConfigResponses, GetAgentConfigErrors, ThrowOnError> => (options.client ?? client).get<GetAgentConfigResponses, GetAgentConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetAgentConfigResponse, data),
+    responseValidator: relaxedResponseValidator(zGetAgentConfigResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1332,7 +1332,7 @@ export const getAgentConfig = <ThrowOnError extends boolean = true>(options: Opt
  * Items are ordered by created_at descending, then id descending.
  */
 export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: Options<ListAgentProfilesData, ThrowOnError>): RequestResult<ListAgentProfilesResponses, ListAgentProfilesErrors, ThrowOnError> => (options.client ?? client).get<ListAgentProfilesResponses, ListAgentProfilesErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListAgentProfilesResponse2, data),
+    responseValidator: relaxedResponseValidator(zListAgentProfilesResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1350,7 +1350,7 @@ export const listAgentProfiles = <ThrowOnError extends boolean = true>(options: 
  * Create agent profile
  */
 export const createAgentProfile = <ThrowOnError extends boolean = true>(options: Options<CreateAgentProfileData, ThrowOnError>): RequestResult<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentProfileResponses, CreateAgentProfileErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateAgentProfileResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateAgentProfileResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1378,7 +1378,7 @@ export const createAgentProfile = <ThrowOnError extends boolean = true>(options:
  * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Deletion is blocked while an active integration install references the profile.
  */
 export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options: Options<DeleteAgentProfileData, ThrowOnError>): RequestResult<DeleteAgentProfileResponses, DeleteAgentProfileErrors, ThrowOnError> => (options.client ?? client).delete<DeleteAgentProfileResponses, DeleteAgentProfileErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteAgentProfileResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteAgentProfileResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1400,7 +1400,7 @@ export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options:
  * Get agent profile
  */
 export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Options<GetAgentProfileData, ThrowOnError>): RequestResult<GetAgentProfileResponses, GetAgentProfileErrors, ThrowOnError> => (options.client ?? client).get<GetAgentProfileResponses, GetAgentProfileErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetAgentProfileResponse, data),
+    responseValidator: relaxedResponseValidator(zGetAgentProfileResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1418,7 +1418,7 @@ export const getAgentProfile = <ThrowOnError extends boolean = true>(options: Op
  * Rename agent profile
  */
 export const renameAgentProfile = <ThrowOnError extends boolean = true>(options: Options<RenameAgentProfileData, ThrowOnError>): RequestResult<RenameAgentProfileResponses, RenameAgentProfileErrors, ThrowOnError> => (options.client ?? client).patch<RenameAgentProfileResponses, RenameAgentProfileErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRenameAgentProfileResponse, data),
+    responseValidator: relaxedResponseValidator(zRenameAgentProfileResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1444,7 +1444,7 @@ export const renameAgentProfile = <ThrowOnError extends boolean = true>(options:
  * Update agent profile
  */
 export const updateAgentProfile = <ThrowOnError extends boolean = true>(options: Options<UpdateAgentProfileData, ThrowOnError>): RequestResult<UpdateAgentProfileResponses, UpdateAgentProfileErrors, ThrowOnError> => (options.client ?? client).post<UpdateAgentProfileResponses, UpdateAgentProfileErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateAgentProfileResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateAgentProfileResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1470,7 +1470,7 @@ export const updateAgentProfile = <ThrowOnError extends boolean = true>(options:
  * Create integration OAuth setup
  */
 export const createIntegrationOAuthSetup = <ThrowOnError extends boolean = true>(options: Options<CreateIntegrationOAuthSetupData, ThrowOnError>): RequestResult<CreateIntegrationOAuthSetupResponses, CreateIntegrationOAuthSetupErrors, ThrowOnError> => (options.client ?? client).post<CreateIntegrationOAuthSetupResponses, CreateIntegrationOAuthSetupErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateIntegrationOAuthSetupResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateIntegrationOAuthSetupResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1496,7 +1496,7 @@ export const createIntegrationOAuthSetup = <ThrowOnError extends boolean = true>
  * Create Slack app and OAuth setup
  */
 export const createSlackSetup = <ThrowOnError extends boolean = true>(options: Options<CreateSlackSetupData, ThrowOnError>): RequestResult<CreateSlackSetupResponses, CreateSlackSetupErrors, ThrowOnError> => (options.client ?? client).post<CreateSlackSetupResponses, CreateSlackSetupErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateSlackSetupResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateSlackSetupResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1524,7 +1524,7 @@ export const createSlackSetup = <ThrowOnError extends boolean = true>(options: O
  * Items are ordered by created_at descending, then id descending.
  */
 export const listCronTriggers = <ThrowOnError extends boolean = true>(options: Options<ListCronTriggersData, ThrowOnError>): RequestResult<ListCronTriggersResponses, ListCronTriggersErrors, ThrowOnError> => (options.client ?? client).get<ListCronTriggersResponses, ListCronTriggersErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListCronTriggersResponse2, data),
+    responseValidator: relaxedResponseValidator(zListCronTriggersResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1544,7 +1544,7 @@ export const listCronTriggers = <ThrowOnError extends boolean = true>(options: O
  * Creates a cron trigger that fires on a schedule. A trigger targeting an agent profile launches a new agent from the profile's current config on each firing; a trigger targeting an agent sends an input to that agent. Missed firings are coalesced, matching standard cron behavior: if one or more scheduled times pass while firing is delayed, the trigger fires once for the oldest missed time and then resumes its schedule from the current time, without retroactively firing for the other missed times.
  */
 export const createCronTrigger = <ThrowOnError extends boolean = true>(options: Options<CreateCronTriggerData, ThrowOnError>): RequestResult<CreateCronTriggerResponses, CreateCronTriggerErrors, ThrowOnError> => (options.client ?? client).post<CreateCronTriggerResponses, CreateCronTriggerErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateCronTriggerResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateCronTriggerResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1570,7 +1570,7 @@ export const createCronTrigger = <ThrowOnError extends boolean = true>(options: 
  * Delete cron trigger
  */
 export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: Options<DeleteCronTriggerData, ThrowOnError>): RequestResult<DeleteCronTriggerResponses, DeleteCronTriggerErrors, ThrowOnError> => (options.client ?? client).delete<DeleteCronTriggerResponses, DeleteCronTriggerErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteCronTriggerResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteCronTriggerResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1592,7 +1592,7 @@ export const deleteCronTrigger = <ThrowOnError extends boolean = true>(options: 
  * Get cron trigger
  */
 export const getCronTrigger = <ThrowOnError extends boolean = true>(options: Options<GetCronTriggerData, ThrowOnError>): RequestResult<GetCronTriggerResponses, GetCronTriggerErrors, ThrowOnError> => (options.client ?? client).get<GetCronTriggerResponses, GetCronTriggerErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetCronTriggerResponse, data),
+    responseValidator: relaxedResponseValidator(zGetCronTriggerResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1612,7 +1612,7 @@ export const getCronTrigger = <ThrowOnError extends boolean = true>(options: Opt
  * Updates the schedule, message template, or enabled state. The target is immutable; delete the trigger and create a new one to retarget.
  */
 export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: Options<UpdateCronTriggerData, ThrowOnError>): RequestResult<UpdateCronTriggerResponses, UpdateCronTriggerErrors, ThrowOnError> => (options.client ?? client).patch<UpdateCronTriggerResponses, UpdateCronTriggerErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateCronTriggerResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateCronTriggerResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1640,7 +1640,7 @@ export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: 
  * Items are ordered by created_at descending, then id descending.
  */
 export const listAgents = <ThrowOnError extends boolean = true>(options: Options<ListAgentsData, ThrowOnError>): RequestResult<ListAgentsResponses, ListAgentsErrors, ThrowOnError> => (options.client ?? client).get<ListAgentsResponses, ListAgentsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListAgentsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListAgentsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1660,7 +1660,7 @@ export const listAgents = <ThrowOnError extends boolean = true>(options: Options
  * Reusing an idempotency key returns the current agent even if the retry body differs. The retry body is not applied.
  */
 export const createAgent = <ThrowOnError extends boolean = true>(options: Options<CreateAgentData, ThrowOnError>): RequestResult<CreateAgentResponses, CreateAgentErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentResponses, CreateAgentErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateAgentResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateAgentResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1686,7 +1686,7 @@ export const createAgent = <ThrowOnError extends boolean = true>(options: Option
  * Get agent
  */
 export const getAgent = <ThrowOnError extends boolean = true>(options: Options<GetAgentData, ThrowOnError>): RequestResult<GetAgentResponses, GetAgentErrors, ThrowOnError> => (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetAgentResponse2, data),
+    responseValidator: relaxedResponseValidator(zGetAgentResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1706,7 +1706,7 @@ export const getAgent = <ThrowOnError extends boolean = true>(options: Options<G
  * Archives the agent: requests cancellation of its active runtime, cancels queued inputs and affected processes, removes its pending wakeup, releases explicit machine bindings, deletes pooled machines created for the agent, and deletes cron triggers targeting the agent. The agent and its full event history stay readable by id; archived agents leave listings. The agent's profile and configuration are retained, as are explicitly attached BYO machines. Archiving an already-archived agent is a no-op that returns the agent unchanged.
  */
 export const archiveAgent = <ThrowOnError extends boolean = true>(options: Options<ArchiveAgentData, ThrowOnError>): RequestResult<ArchiveAgentResponses, ArchiveAgentErrors, ThrowOnError> => (options.client ?? client).post<ArchiveAgentResponses, ArchiveAgentErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zArchiveAgentResponse, data),
+    responseValidator: relaxedResponseValidator(zArchiveAgentResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1728,7 +1728,7 @@ export const archiveAgent = <ThrowOnError extends boolean = true>(options: Optio
  * Update agent config
  */
 export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: Options<UpdateAgentConfigData, ThrowOnError>): RequestResult<UpdateAgentConfigResponses, UpdateAgentConfigErrors, ThrowOnError> => (options.client ?? client).post<UpdateAgentConfigResponses, UpdateAgentConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateAgentConfigResponse2, data),
+    responseValidator: relaxedResponseValidator(zUpdateAgentConfigResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -1754,7 +1754,7 @@ export const updateAgentConfig = <ThrowOnError extends boolean = true>(options: 
  * Create agent input
  */
 export const createAgentInput = <ThrowOnError extends boolean = true>(options: Options<CreateAgentInputData, ThrowOnError>): RequestResult<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError> => (options.client ?? client).post<CreateAgentInputResponses, CreateAgentInputErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateAgentInputResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateAgentInputResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1782,7 +1782,7 @@ export const createAgentInput = <ThrowOnError extends boolean = true>(options: O
  * Items are ordered by created_at ascending, then id ascending.
  */
 export const listToolCalls = <ThrowOnError extends boolean = true>(options: Options<ListToolCallsData, ThrowOnError>): RequestResult<ListToolCallsResponses, ListToolCallsErrors, ThrowOnError> => (options.client ?? client).get<ListToolCallsResponses, ListToolCallsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListToolCallsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListToolCallsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1802,7 +1802,7 @@ export const listToolCalls = <ThrowOnError extends boolean = true>(options: Opti
  * Only ready custom tool calls accept externally supplied results. The first accepted result completes the call. Any later submission, or a result for a non-custom tool call, returns 409.
  */
 export const submitToolCallResult = <ThrowOnError extends boolean = true>(options: Options<SubmitToolCallResultData, ThrowOnError>): RequestResult<SubmitToolCallResultResponses, SubmitToolCallResultErrors, ThrowOnError> => (options.client ?? client).post<SubmitToolCallResultResponses, SubmitToolCallResultErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zSubmitToolCallResultResponse2, data),
+    responseValidator: relaxedResponseValidator(zSubmitToolCallResultResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -1830,7 +1830,7 @@ export const submitToolCallResult = <ThrowOnError extends boolean = true>(option
  * Returns turns newest first. Use the returned next_before_turn_sequence as before_turn_sequence to fetch older turns.
  */
 export const listTurns = <ThrowOnError extends boolean = true>(options: Options<ListTurnsData, ThrowOnError>): RequestResult<ListTurnsResponses, ListTurnsErrors, ThrowOnError> => (options.client ?? client).get<ListTurnsResponses, ListTurnsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListTurnsResponse, data),
+    responseValidator: relaxedResponseValidator(zListTurnsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1850,7 +1850,7 @@ export const listTurns = <ThrowOnError extends boolean = true>(options: Options<
  * Returns one older event page for a turn, ordered chronologically within the page. Use the returned next_before_sequence as before_sequence to fetch older events.
  */
 export const listTurnEvents = <ThrowOnError extends boolean = true>(options: Options<ListTurnEventsData, ThrowOnError>): RequestResult<ListTurnEventsResponses, ListTurnEventsErrors, ThrowOnError> => (options.client ?? client).get<ListTurnEventsResponses, ListTurnEventsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListTurnEventsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListTurnEventsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1870,7 +1870,7 @@ export const listTurnEvents = <ThrowOnError extends boolean = true>(options: Opt
  * Returns one page of agent events, chronological within the page. Forward pagination (after_sequence) walks from a known boundary toward the present using next_after_sequence. Backward pagination (before_sequence) starts at the latest events and walks toward the beginning using next_before_sequence; passing before_sequence takes precedence over after_sequence.
  */
 export const listEvents = <ThrowOnError extends boolean = true>(options: Options<ListEventsData, ThrowOnError>): RequestResult<ListEventsResponses, ListEventsErrors, ThrowOnError> => (options.client ?? client).get<ListEventsResponses, ListEventsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListEventsResponse, data),
+    responseValidator: relaxedResponseValidator(zListEventsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1888,7 +1888,7 @@ export const listEvents = <ThrowOnError extends boolean = true>(options: Options
  * Stream events
  */
 export const streamEvents = <ThrowOnError extends boolean = true>(options: Options<StreamEventsData, ThrowOnError, StreamEventsResponse>): Promise<ServerSentEventsResult<StreamEventsResponses>> => (options.client ?? client).sse.get<StreamEventsResponses, StreamEventsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zStreamEventsResponse, data),
+    responseValidator: relaxedResponseValidator(zStreamEventsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1906,7 +1906,7 @@ export const streamEvents = <ThrowOnError extends boolean = true>(options: Optio
  * Cancel agent
  */
 export const cancelAgent = <ThrowOnError extends boolean = true>(options: Options<CancelAgentData, ThrowOnError>): RequestResult<CancelAgentResponses, CancelAgentErrors, ThrowOnError> => (options.client ?? client).post<CancelAgentResponses, CancelAgentErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCancelAgentResponse2, data),
+    responseValidator: relaxedResponseValidator(zCancelAgentResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -1934,7 +1934,7 @@ export const cancelAgent = <ThrowOnError extends boolean = true>(options: Option
  * Items are ordered by created_at ascending, then id ascending.
  */
 export const listAgentInteractions = <ThrowOnError extends boolean = true>(options: Options<ListAgentInteractionsData, ThrowOnError>): RequestResult<ListAgentInteractionsResponses, ListAgentInteractionsErrors, ThrowOnError> => (options.client ?? client).get<ListAgentInteractionsResponses, ListAgentInteractionsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListAgentInteractionsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListAgentInteractionsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1952,7 +1952,7 @@ export const listAgentInteractions = <ThrowOnError extends boolean = true>(optio
  * Resolve agent interaction
  */
 export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(options: Options<ResolveAgentInteractionData, ThrowOnError>): RequestResult<ResolveAgentInteractionResponses, ResolveAgentInteractionErrors, ThrowOnError> => (options.client ?? client).post<ResolveAgentInteractionResponses, ResolveAgentInteractionErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zResolveAgentInteractionResponse, data),
+    responseValidator: relaxedResponseValidator(zResolveAgentInteractionResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -1980,7 +1980,7 @@ export const resolveAgentInteraction = <ThrowOnError extends boolean = true>(opt
  * Steering inputs are listed first, followed by queued inputs. Each group is ordered by input rank, queued_at ascending, then id ascending.
  */
 export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(options: Options<ListQueuedBacklogInputsData, ThrowOnError>): RequestResult<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError> => (options.client ?? client).get<ListQueuedBacklogInputsResponses, ListQueuedBacklogInputsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListQueuedBacklogInputsResponse, data),
+    responseValidator: relaxedResponseValidator(zListQueuedBacklogInputsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -1998,7 +1998,7 @@ export const listQueuedBacklogInputs = <ThrowOnError extends boolean = true>(opt
  * Cancel queued backlog input
  */
 export const cancelQueuedBacklogInput = <ThrowOnError extends boolean = true>(options: Options<CancelQueuedBacklogInputData, ThrowOnError>): RequestResult<CancelQueuedBacklogInputResponses, CancelQueuedBacklogInputErrors, ThrowOnError> => (options.client ?? client).post<CancelQueuedBacklogInputResponses, CancelQueuedBacklogInputErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCancelQueuedBacklogInputResponse, data),
+    responseValidator: relaxedResponseValidator(zCancelQueuedBacklogInputResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2020,7 +2020,7 @@ export const cancelQueuedBacklogInput = <ThrowOnError extends boolean = true>(op
  * Move queued backlog input
  */
 export const moveQueuedBacklogInput = <ThrowOnError extends boolean = true>(options: Options<MoveQueuedBacklogInputData, ThrowOnError>): RequestResult<MoveQueuedBacklogInputResponses, MoveQueuedBacklogInputErrors, ThrowOnError> => (options.client ?? client).post<MoveQueuedBacklogInputResponses, MoveQueuedBacklogInputErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zMoveQueuedBacklogInputResponse, data),
+    responseValidator: relaxedResponseValidator(zMoveQueuedBacklogInputResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2046,7 +2046,7 @@ export const moveQueuedBacklogInput = <ThrowOnError extends boolean = true>(opti
  * Promote queued input to steering
  */
 export const promoteQueuedInputToSteering = <ThrowOnError extends boolean = true>(options: Options<PromoteQueuedInputToSteeringData, ThrowOnError>): RequestResult<PromoteQueuedInputToSteeringResponses, PromoteQueuedInputToSteeringErrors, ThrowOnError> => (options.client ?? client).post<PromoteQueuedInputToSteeringResponses, PromoteQueuedInputToSteeringErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zPromoteQueuedInputToSteeringResponse, data),
+    responseValidator: relaxedResponseValidator(zPromoteQueuedInputToSteeringResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2072,7 +2072,7 @@ export const promoteQueuedInputToSteering = <ThrowOnError extends boolean = true
  * Demote steering input to queued
  */
 export const demoteSteeringInputToQueued = <ThrowOnError extends boolean = true>(options: Options<DemoteSteeringInputToQueuedData, ThrowOnError>): RequestResult<DemoteSteeringInputToQueuedResponses, DemoteSteeringInputToQueuedErrors, ThrowOnError> => (options.client ?? client).post<DemoteSteeringInputToQueuedResponses, DemoteSteeringInputToQueuedErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDemoteSteeringInputToQueuedResponse, data),
+    responseValidator: relaxedResponseValidator(zDemoteSteeringInputToQueuedResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2094,7 +2094,7 @@ export const demoteSteeringInputToQueued = <ThrowOnError extends boolean = true>
  * Get artifact
  */
 export const getArtifact = <ThrowOnError extends boolean = true>(options: Options<GetArtifactData, ThrowOnError>): RequestResult<GetArtifactResponses, GetArtifactErrors, ThrowOnError> => (options.client ?? client).get<GetArtifactResponses, GetArtifactErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetArtifactResponse, data),
+    responseValidator: relaxedResponseValidator(zGetArtifactResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2112,7 +2112,7 @@ export const getArtifact = <ThrowOnError extends boolean = true>(options: Option
  * Get artifact content
  */
 export const getArtifactContent = <ThrowOnError extends boolean = true>(options: Options<GetArtifactContentData, ThrowOnError>): RequestResult<GetArtifactContentResponses, GetArtifactContentErrors, ThrowOnError> => (options.client ?? client).get<GetArtifactContentResponses, GetArtifactContentErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetArtifactContentResponse, data),
+    responseValidator: relaxedResponseValidator(zGetArtifactContentResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2132,7 +2132,7 @@ export const getArtifactContent = <ThrowOnError extends boolean = true>(options:
  * Items are ordered by machine created_at descending, then machine id descending.
  */
 export const listVisibleProjectMachines = <ThrowOnError extends boolean = true>(options: Options<ListVisibleProjectMachinesData, ThrowOnError>): RequestResult<ListVisibleProjectMachinesResponses, ListVisibleProjectMachinesErrors, ThrowOnError> => (options.client ?? client).get<ListVisibleProjectMachinesResponses, ListVisibleProjectMachinesErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListVisibleProjectMachinesResponse, data),
+    responseValidator: relaxedResponseValidator(zListVisibleProjectMachinesResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2152,7 +2152,7 @@ export const listVisibleProjectMachines = <ThrowOnError extends boolean = true>(
  * Lists explicit machine grants that can be deleted directly. Pool-derived machine access is managed through project machine pool grants.
  */
 export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(options: Options<ListProjectMachineGrantsData, ThrowOnError>): RequestResult<ListProjectMachineGrantsResponses, ListProjectMachineGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectMachineGrantsResponses, ListProjectMachineGrantsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListProjectMachineGrantsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListProjectMachineGrantsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2170,7 +2170,7 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
  * Create project machine grant
  */
 export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachineGrantData, ThrowOnError>): RequestResult<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateProjectMachineGrantResponse2, data),
+    responseValidator: relaxedResponseValidator(zCreateProjectMachineGrantResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -2198,7 +2198,7 @@ export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(o
  * Removes the project's access to the machine. Processes that depended on the grant are stopped. The machine itself is retained, and there are no dependency blockers.
  */
 export const deleteProjectMachineGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectMachineGrantData, ThrowOnError>): RequestResult<DeleteProjectMachineGrantResponses, DeleteProjectMachineGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectMachineGrantResponses, DeleteProjectMachineGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteProjectMachineGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteProjectMachineGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2222,7 +2222,7 @@ export const deleteProjectMachineGrant = <ThrowOnError extends boolean = true>(o
  * Includes directly owned and granted secrets, ordered by created_at descending, then id descending.
  */
 export const listProjectAvailableSecrets = <ThrowOnError extends boolean = true>(options: Options<ListProjectAvailableSecretsData, ThrowOnError>): RequestResult<ListProjectAvailableSecretsResponses, ListProjectAvailableSecretsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectAvailableSecretsResponses, ListProjectAvailableSecretsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListProjectAvailableSecretsResponse, data),
+    responseValidator: relaxedResponseValidator(zListProjectAvailableSecretsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2240,7 +2240,7 @@ export const listProjectAvailableSecrets = <ThrowOnError extends boolean = true>
  * Get secret available to project
  */
 export const getProjectAvailableSecret = <ThrowOnError extends boolean = true>(options: Options<GetProjectAvailableSecretData, ThrowOnError>): RequestResult<GetProjectAvailableSecretResponses, GetProjectAvailableSecretErrors, ThrowOnError> => (options.client ?? client).get<GetProjectAvailableSecretResponses, GetProjectAvailableSecretErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetProjectAvailableSecretResponse, data),
+    responseValidator: relaxedResponseValidator(zGetProjectAvailableSecretResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2260,7 +2260,7 @@ export const getProjectAvailableSecret = <ThrowOnError extends boolean = true>(o
  * Items are ordered by created_at ascending, then id ascending.
  */
 export const listActors = <ThrowOnError extends boolean = true>(options: Options<ListActorsData, ThrowOnError>): RequestResult<ListActorsResponses, ListActorsErrors, ThrowOnError> => (options.client ?? client).get<ListActorsResponses, ListActorsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListActorsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListActorsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2280,7 +2280,7 @@ export const listActors = <ThrowOnError extends boolean = true>(options: Options
  * Upserts by (provider_tenant_id, provider_user_id). Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. An unchanged actor is not rewritten. Actors written through this endpoint always have the external provider.
  */
 export const putActor = <ThrowOnError extends boolean = true>(options: Options<PutActorData, ThrowOnError>): RequestResult<PutActorResponses, PutActorErrors, ThrowOnError> => (options.client ?? client).put<PutActorResponses, PutActorErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zPutActorResponse, data),
+    responseValidator: relaxedResponseValidator(zPutActorResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2306,7 +2306,7 @@ export const putActor = <ThrowOnError extends boolean = true>(options: Options<P
  * Get a project actor
  */
 export const getActor = <ThrowOnError extends boolean = true>(options: Options<GetActorData, ThrowOnError>): RequestResult<GetActorResponses, GetActorErrors, ThrowOnError> => (options.client ?? client).get<GetActorResponses, GetActorErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetActorResponse, data),
+    responseValidator: relaxedResponseValidator(zGetActorResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2326,7 +2326,7 @@ export const getActor = <ThrowOnError extends boolean = true>(options: Options<G
  * Items are ordered by machine created_at descending, then machine id descending.
  */
 export const listVisibleMachines = <ThrowOnError extends boolean = true>(options: Options<ListVisibleMachinesData, ThrowOnError>): RequestResult<ListVisibleMachinesResponses, ListVisibleMachinesErrors, ThrowOnError> => (options.client ?? client).get<ListVisibleMachinesResponses, ListVisibleMachinesErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListVisibleMachinesResponse2, data),
+    responseValidator: relaxedResponseValidator(zListVisibleMachinesResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2344,7 +2344,7 @@ export const listVisibleMachines = <ThrowOnError extends boolean = true>(options
  * Create machine
  */
 export const createMachine = <ThrowOnError extends boolean = true>(options: Options<CreateMachineData, ThrowOnError>): RequestResult<CreateMachineResponses, CreateMachineErrors, ThrowOnError> => (options.client ?? client).post<CreateMachineResponses, CreateMachineErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateMachineResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateMachineResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2370,7 +2370,7 @@ export const createMachine = <ThrowOnError extends boolean = true>(options: Opti
  * Connect a BYO machine
  */
 export const connectByoMachine = <ThrowOnError extends boolean = true>(options: Options<ConnectByoMachineData, ThrowOnError>): RequestResult<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError> => (options.client ?? client).post<ConnectByoMachineResponses, ConnectByoMachineErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zConnectByoMachineResponse2, data),
+    responseValidator: relaxedResponseValidator(zConnectByoMachineResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -2398,7 +2398,7 @@ export const connectByoMachine = <ThrowOnError extends boolean = true>(options: 
  * Deletes a BYO machine, ends its active daemon runtimes and work, revokes its daemon tokens and project grants, and releases agent bindings. Pooled machines are managed through their machine pool and cannot be deleted through this route. There are no dependency blockers for a BYO machine.
  */
 export const deleteMachine = <ThrowOnError extends boolean = true>(options: Options<DeleteMachineData, ThrowOnError>): RequestResult<DeleteMachineResponses, DeleteMachineErrors, ThrowOnError> => (options.client ?? client).delete<DeleteMachineResponses, DeleteMachineErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteMachineResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteMachineResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2420,7 +2420,7 @@ export const deleteMachine = <ThrowOnError extends boolean = true>(options: Opti
  * Get machine
  */
 export const getMachine = <ThrowOnError extends boolean = true>(options: Options<GetMachineData, ThrowOnError>): RequestResult<GetMachineResponses, GetMachineErrors, ThrowOnError> => (options.client ?? client).get<GetMachineResponses, GetMachineErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetMachineResponse, data),
+    responseValidator: relaxedResponseValidator(zGetMachineResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2438,7 +2438,7 @@ export const getMachine = <ThrowOnError extends boolean = true>(options: Options
  * Update machine execution defaults
  */
 export const updateMachine = <ThrowOnError extends boolean = true>(options: Options<UpdateMachineData, ThrowOnError>): RequestResult<UpdateMachineResponses, UpdateMachineErrors, ThrowOnError> => (options.client ?? client).patch<UpdateMachineResponses, UpdateMachineErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateMachineResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateMachineResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2466,7 +2466,7 @@ export const updateMachine = <ThrowOnError extends boolean = true>(options: Opti
  * List model provider configs with server-side filtering, sorting, and cursor pagination.
  */
 export const listModelProviderConfigs = <ThrowOnError extends boolean = true>(options: Options<ListModelProviderConfigsData, ThrowOnError>): RequestResult<ListModelProviderConfigsResponses, ListModelProviderConfigsErrors, ThrowOnError> => (options.client ?? client).get<ListModelProviderConfigsResponses, ListModelProviderConfigsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListModelProviderConfigsResponse, data),
+    responseValidator: relaxedResponseValidator(zListModelProviderConfigsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2486,7 +2486,7 @@ export const listModelProviderConfigs = <ThrowOnError extends boolean = true>(op
  * Create a model provider config, validate the configured credential where the provider exposes a validation endpoint, then probe the provider's /models endpoint. The result is returned as model_catalog; a failed probe does not fail creation.
  */
 export const createModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<CreateModelProviderConfigData, ThrowOnError>): RequestResult<CreateModelProviderConfigResponses, CreateModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).post<CreateModelProviderConfigResponses, CreateModelProviderConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateModelProviderConfigResponse2, data),
+    responseValidator: relaxedResponseValidator(zCreateModelProviderConfigResponse2),
     security: [
         {
             key: 'bearerAuth',
@@ -2514,7 +2514,7 @@ export const createModelProviderConfig = <ThrowOnError extends boolean = true>(o
  * Deletes only the model provider config. Deletion is blocked while it has configured models. Cluster-managed provider configs cannot be deleted through this route.
  */
 export const deleteModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<DeleteModelProviderConfigData, ThrowOnError>): RequestResult<DeleteModelProviderConfigResponses, DeleteModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).delete<DeleteModelProviderConfigResponses, DeleteModelProviderConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteModelProviderConfigResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteModelProviderConfigResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2536,7 +2536,7 @@ export const deleteModelProviderConfig = <ThrowOnError extends boolean = true>(o
  * Get model provider config
  */
 export const getModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<GetModelProviderConfigData, ThrowOnError>): RequestResult<GetModelProviderConfigResponses, GetModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).get<GetModelProviderConfigResponses, GetModelProviderConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetModelProviderConfigResponse, data),
+    responseValidator: relaxedResponseValidator(zGetModelProviderConfigResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2554,7 +2554,7 @@ export const getModelProviderConfig = <ThrowOnError extends boolean = true>(opti
  * Update model provider config
  */
 export const updateModelProviderConfig = <ThrowOnError extends boolean = true>(options: Options<UpdateModelProviderConfigData, ThrowOnError>): RequestResult<UpdateModelProviderConfigResponses, UpdateModelProviderConfigErrors, ThrowOnError> => (options.client ?? client).put<UpdateModelProviderConfigResponses, UpdateModelProviderConfigErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateModelProviderConfigResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateModelProviderConfigResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2582,7 +2582,7 @@ export const updateModelProviderConfig = <ThrowOnError extends boolean = true>(o
  * Fetches the provider's live model catalog by validating the configured credential and probing the provider's /models endpoint. The call waits on the upstream provider, so it is slower than the other model provider config routes and can report failure as data.
  */
 export const getModelCatalog = <ThrowOnError extends boolean = true>(options: Options<GetModelCatalogData, ThrowOnError>): RequestResult<GetModelCatalogResponses, GetModelCatalogErrors, ThrowOnError> => (options.client ?? client).get<GetModelCatalogResponses, GetModelCatalogErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetModelCatalogResponse, data),
+    responseValidator: relaxedResponseValidator(zGetModelCatalogResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2602,7 +2602,7 @@ export const getModelCatalog = <ThrowOnError extends boolean = true>(options: Op
  * Items are ordered by created_at descending, then id descending.
  */
 export const listConfiguredModels = <ThrowOnError extends boolean = true>(options: Options<ListConfiguredModelsData, ThrowOnError>): RequestResult<ListConfiguredModelsResponses, ListConfiguredModelsErrors, ThrowOnError> => (options.client ?? client).get<ListConfiguredModelsResponses, ListConfiguredModelsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListConfiguredModelsResponse, data),
+    responseValidator: relaxedResponseValidator(zListConfiguredModelsResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2620,7 +2620,7 @@ export const listConfiguredModels = <ThrowOnError extends boolean = true>(option
  * Create configured model
  */
 export const createConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<CreateConfiguredModelData, ThrowOnError>): RequestResult<CreateConfiguredModelResponses, CreateConfiguredModelErrors, ThrowOnError> => (options.client ?? client).post<CreateConfiguredModelResponses, CreateConfiguredModelErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateConfiguredModelResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateConfiguredModelResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2648,7 +2648,7 @@ export const createConfiguredModel = <ThrowOnError extends boolean = true>(optio
  * Deletes only the configured model. Deletion is blocked while it has active project grants. Cluster-managed configured models cannot be deleted through this route.
  */
 export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<DeleteConfiguredModelData, ThrowOnError>): RequestResult<DeleteConfiguredModelResponses, DeleteConfiguredModelErrors, ThrowOnError> => (options.client ?? client).delete<DeleteConfiguredModelResponses, DeleteConfiguredModelErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteConfiguredModelResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteConfiguredModelResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2670,7 +2670,7 @@ export const deleteConfiguredModel = <ThrowOnError extends boolean = true>(optio
  * Update configured model
  */
 export const updateConfiguredModel = <ThrowOnError extends boolean = true>(options: Options<UpdateConfiguredModelData, ThrowOnError>): RequestResult<UpdateConfiguredModelResponses, UpdateConfiguredModelErrors, ThrowOnError> => (options.client ?? client).put<UpdateConfiguredModelResponses, UpdateConfiguredModelErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateConfiguredModelResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateConfiguredModelResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2698,7 +2698,7 @@ export const updateConfiguredModel = <ThrowOnError extends boolean = true>(optio
  * Items are ordered by created_at descending, then id descending.
  */
 export const listProjectModelGrants = <ThrowOnError extends boolean = true>(options: Options<ListProjectModelGrantsData, ThrowOnError>): RequestResult<ListProjectModelGrantsResponses, ListProjectModelGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectModelGrantsResponses, ListProjectModelGrantsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListProjectModelGrantsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListProjectModelGrantsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2716,7 +2716,7 @@ export const listProjectModelGrants = <ThrowOnError extends boolean = true>(opti
  * Create project model grant
  */
 export const createProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectModelGrantData, ThrowOnError>): RequestResult<CreateProjectModelGrantResponses, CreateProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectModelGrantResponses, CreateProjectModelGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateProjectModelGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateProjectModelGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2744,7 +2744,7 @@ export const createProjectModelGrant = <ThrowOnError extends boolean = true>(opt
  * Removes the project's access to the configured model. The grant is live policy: new launches can no longer select the model, and agents already using it lose access on their next model call. The model itself is retained, and there are no dependency blockers.
  */
 export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectModelGrantData, ThrowOnError>): RequestResult<DeleteProjectModelGrantResponses, DeleteProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectModelGrantResponses, DeleteProjectModelGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteProjectModelGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteProjectModelGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2768,7 +2768,7 @@ export const deleteProjectModelGrant = <ThrowOnError extends boolean = true>(opt
  * Updates the project's overrides for the configured model. Omitted fields keep their current values; null clears an override so the project inherits from the configured model. The grant is live policy: agents already using the model re-apply the updated overrides on their next model call, against the configured-model revision each agent pinned at launch. Updates are validated against the configured model's current revision only, so an update can make an agent pinned to an older, incompatible revision fail its next model call.
  */
 export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(options: Options<UpdateProjectModelGrantData, ThrowOnError>): RequestResult<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError> => (options.client ?? client).patch<UpdateProjectModelGrantResponses, UpdateProjectModelGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateProjectModelGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateProjectModelGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2796,7 +2796,7 @@ export const updateProjectModelGrant = <ThrowOnError extends boolean = true>(opt
  * List machine pools with server-side filtering, sorting, and cursor pagination.
  */
 export const listMachinePools = <ThrowOnError extends boolean = true>(options: Options<ListMachinePoolsData, ThrowOnError>): RequestResult<ListMachinePoolsResponses, ListMachinePoolsErrors, ThrowOnError> => (options.client ?? client).get<ListMachinePoolsResponses, ListMachinePoolsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListMachinePoolsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListMachinePoolsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2814,7 +2814,7 @@ export const listMachinePools = <ThrowOnError extends boolean = true>(options: O
  * Create machine pool
  */
 export const createMachinePool = <ThrowOnError extends boolean = true>(options: Options<CreateMachinePoolData, ThrowOnError>): RequestResult<CreateMachinePoolResponses, CreateMachinePoolErrors, ThrowOnError> => (options.client ?? client).post<CreateMachinePoolResponses, CreateMachinePoolErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateMachinePoolResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateMachinePoolResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2842,7 +2842,7 @@ export const createMachinePool = <ThrowOnError extends boolean = true>(options: 
  * Deletes the machine pool and its pooled machines, revokes generated machine grants and project machine-pool grants, and stops processes that depended on those grants. Deleting a cluster-managed machine pool is rejected with 409 Conflict; there are no other dependency blockers.
  */
 export const deleteMachinePool = <ThrowOnError extends boolean = true>(options: Options<DeleteMachinePoolData, ThrowOnError>): RequestResult<DeleteMachinePoolResponses, DeleteMachinePoolErrors, ThrowOnError> => (options.client ?? client).delete<DeleteMachinePoolResponses, DeleteMachinePoolErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteMachinePoolResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteMachinePoolResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2864,7 +2864,7 @@ export const deleteMachinePool = <ThrowOnError extends boolean = true>(options: 
  * Get machine pool
  */
 export const getMachinePool = <ThrowOnError extends boolean = true>(options: Options<GetMachinePoolData, ThrowOnError>): RequestResult<GetMachinePoolResponses, GetMachinePoolErrors, ThrowOnError> => (options.client ?? client).get<GetMachinePoolResponses, GetMachinePoolErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetMachinePoolResponse, data),
+    responseValidator: relaxedResponseValidator(zGetMachinePoolResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2884,7 +2884,7 @@ export const getMachinePool = <ThrowOnError extends boolean = true>(options: Opt
  * Tenant-managed pools support every request field. Cluster-managed pools only allow changes to default CPU and memory, environment and secret environment variables, provider-supported per-machine CPU and memory limits, and the idle deletion policy. Other cluster-managed changes are rejected with 409 Conflict.
  */
 export const updateMachinePool = <ThrowOnError extends boolean = true>(options: Options<UpdateMachinePoolData, ThrowOnError>): RequestResult<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError> => (options.client ?? client).put<UpdateMachinePoolResponses, UpdateMachinePoolErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateMachinePoolResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateMachinePoolResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2912,7 +2912,7 @@ export const updateMachinePool = <ThrowOnError extends boolean = true>(options: 
  * Items are ordered by created_at descending, then id descending.
  */
 export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true>(options: Options<ListProjectMachinePoolGrantsData, ThrowOnError>): RequestResult<ListProjectMachinePoolGrantsResponses, ListProjectMachinePoolGrantsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectMachinePoolGrantsResponses, ListProjectMachinePoolGrantsErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListProjectMachinePoolGrantsResponse2, data),
+    responseValidator: relaxedResponseValidator(zListProjectMachinePoolGrantsResponse2),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -2930,7 +2930,7 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
  * Create project machine pool grant
  */
 export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachinePoolGrantData, ThrowOnError>): RequestResult<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateProjectMachinePoolGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateProjectMachinePoolGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2958,7 +2958,7 @@ export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
  * Removes the project's access to the machine pool, revokes machine grants generated through it, and stops processes that depended on those grants. The pool itself is retained, and there are no dependency blockers.
  */
 export const deleteProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<DeleteProjectMachinePoolGrantData, ThrowOnError>): RequestResult<DeleteProjectMachinePoolGrantResponses, DeleteProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).delete<DeleteProjectMachinePoolGrantResponses, DeleteProjectMachinePoolGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDeleteProjectMachinePoolGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zDeleteProjectMachinePoolGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -2980,7 +2980,7 @@ export const deleteProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
  * Get project machine pool grant
  */
 export const getProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<GetProjectMachinePoolGrantData, ThrowOnError>): RequestResult<GetProjectMachinePoolGrantResponses, GetProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).get<GetProjectMachinePoolGrantResponses, GetProjectMachinePoolGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetProjectMachinePoolGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zGetProjectMachinePoolGrantResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -3000,7 +3000,7 @@ export const getProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(
  * Updates the grant's overrides and limits. Omitted fields keep their current values; null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present. Existing machines keep their configuration; the updated defaults and limits apply to new launches.
  */
 export const updateProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<UpdateProjectMachinePoolGrantData, ThrowOnError>): RequestResult<UpdateProjectMachinePoolGrantResponses, UpdateProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).patch<UpdateProjectMachinePoolGrantResponses, UpdateProjectMachinePoolGrantErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zUpdateProjectMachinePoolGrantResponse, data),
+    responseValidator: relaxedResponseValidator(zUpdateProjectMachinePoolGrantResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -3028,7 +3028,7 @@ export const updateProjectMachinePoolGrant = <ThrowOnError extends boolean = tru
  * Items are ordered by created_at descending, then id descending.
  */
 export const listByoMachineDaemonTokens = <ThrowOnError extends boolean = true>(options: Options<ListByoMachineDaemonTokensData, ThrowOnError>): RequestResult<ListByoMachineDaemonTokensResponses, ListByoMachineDaemonTokensErrors, ThrowOnError> => (options.client ?? client).get<ListByoMachineDaemonTokensResponses, ListByoMachineDaemonTokensErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zListByoMachineDaemonTokensResponse, data),
+    responseValidator: relaxedResponseValidator(zListByoMachineDaemonTokensResponse),
     security: [{
             key: 'bearerAuth',
             scheme: 'bearer',
@@ -3046,7 +3046,7 @@ export const listByoMachineDaemonTokens = <ThrowOnError extends boolean = true>(
  * Create byo machine daemon token
  */
 export const createByoMachineDaemonToken = <ThrowOnError extends boolean = true>(options: Options<CreateByoMachineDaemonTokenData, ThrowOnError>): RequestResult<CreateByoMachineDaemonTokenResponses, CreateByoMachineDaemonTokenErrors, ThrowOnError> => (options.client ?? client).post<CreateByoMachineDaemonTokenResponses, CreateByoMachineDaemonTokenErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zCreateByoMachineDaemonTokenResponse, data),
+    responseValidator: relaxedResponseValidator(zCreateByoMachineDaemonTokenResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -3072,7 +3072,7 @@ export const createByoMachineDaemonToken = <ThrowOnError extends boolean = true>
  * Revoke machine daemon token
  */
 export const revokeMachineDaemonToken = <ThrowOnError extends boolean = true>(options: Options<RevokeMachineDaemonTokenData, ThrowOnError>): RequestResult<RevokeMachineDaemonTokenResponses, RevokeMachineDaemonTokenErrors, ThrowOnError> => (options.client ?? client).post<RevokeMachineDaemonTokenResponses, RevokeMachineDaemonTokenErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRevokeMachineDaemonTokenResponse, data),
+    responseValidator: relaxedResponseValidator(zRevokeMachineDaemonTokenResponse),
     security: [
         {
             key: 'bearerAuth',
@@ -3094,7 +3094,7 @@ export const revokeMachineDaemonToken = <ThrowOnError extends boolean = true>(op
  * Register machine daemon runtime
  */
 export const registerMachineDaemonRuntime = <ThrowOnError extends boolean = true>(options: Options<RegisterMachineDaemonRuntimeData, ThrowOnError>): RequestResult<RegisterMachineDaemonRuntimeResponses, RegisterMachineDaemonRuntimeErrors, ThrowOnError> => (options.client ?? client).post<RegisterMachineDaemonRuntimeResponses, RegisterMachineDaemonRuntimeErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zRegisterMachineDaemonRuntimeResponse, data),
+    responseValidator: relaxedResponseValidator(zRegisterMachineDaemonRuntimeResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -3125,7 +3125,7 @@ export const socketMachineDaemonRuntime = <ThrowOnError extends boolean = true>(
  * End machine daemon runtime
  */
 export const endMachineDaemonRuntime = <ThrowOnError extends boolean = true>(options: Options<EndMachineDaemonRuntimeData, ThrowOnError>): RequestResult<EndMachineDaemonRuntimeResponses, EndMachineDaemonRuntimeErrors, ThrowOnError> => (options.client ?? client).post<EndMachineDaemonRuntimeResponses, EndMachineDaemonRuntimeErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zEndMachineDaemonRuntimeResponse, data),
+    responseValidator: relaxedResponseValidator(zEndMachineDaemonRuntimeResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -3141,7 +3141,7 @@ export const endMachineDaemonRuntime = <ThrowOnError extends boolean = true>(opt
  * Gracefully ends the daemon runtime and marks the machine asleep so new work queues and triggers an automatic wake. Rejected with 409 code pending_work when the machine has queued or live daemon work, and 409 code not_wake_capable when the machine has no sandbox URL.
  */
 export const sleepMachineDaemonRuntime = <ThrowOnError extends boolean = true>(options: Options<SleepMachineDaemonRuntimeData, ThrowOnError>): RequestResult<SleepMachineDaemonRuntimeResponses, SleepMachineDaemonRuntimeErrors, ThrowOnError> => (options.client ?? client).post<SleepMachineDaemonRuntimeResponses, SleepMachineDaemonRuntimeErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zSleepMachineDaemonRuntimeResponse, data),
+    responseValidator: relaxedResponseValidator(zSleepMachineDaemonRuntimeResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -3157,7 +3157,7 @@ export const sleepMachineDaemonRuntime = <ThrowOnError extends boolean = true>(o
  * Requires daemon authentication plus a short-lived capability bound to the authenticated machine, skill, and revision.
  */
 export const getDaemonSkillArchive = <ThrowOnError extends boolean = true>(options: Options<GetDaemonSkillArchiveData, ThrowOnError>): RequestResult<GetDaemonSkillArchiveResponses, GetDaemonSkillArchiveErrors, ThrowOnError> => (options.client ?? client).get<GetDaemonSkillArchiveResponses, GetDaemonSkillArchiveErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zGetDaemonSkillArchiveResponse, data),
+    responseValidator: relaxedResponseValidator(zGetDaemonSkillArchiveResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -3172,7 +3172,7 @@ export const getDaemonSkillArchive = <ThrowOnError extends boolean = true>(optio
  */
 export const uploadDaemonArtifact = <ThrowOnError extends boolean = true>(options: Options<UploadDaemonArtifactData, ThrowOnError>): RequestResult<UploadDaemonArtifactResponses, UploadDaemonArtifactErrors, ThrowOnError> => (options.client ?? client).post<UploadDaemonArtifactResponses, UploadDaemonArtifactErrors, ThrowOnError>({
     bodySerializer: null,
-    responseValidator: async (data) => await validateResponse(zUploadDaemonArtifactResponse, data),
+    responseValidator: relaxedResponseValidator(zUploadDaemonArtifactResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',
@@ -3190,7 +3190,7 @@ export const uploadDaemonArtifact = <ThrowOnError extends boolean = true>(option
  * Download daemon artifact
  */
 export const downloadDaemonArtifact = <ThrowOnError extends boolean = true>(options: Options<DownloadDaemonArtifactData, ThrowOnError>): RequestResult<DownloadDaemonArtifactResponses, DownloadDaemonArtifactErrors, ThrowOnError> => (options.client ?? client).get<DownloadDaemonArtifactResponses, DownloadDaemonArtifactErrors, ThrowOnError>({
-    responseValidator: async (data) => await validateResponse(zDownloadDaemonArtifactResponse, data),
+    responseValidator: relaxedResponseValidator(zDownloadDaemonArtifactResponse),
     security: [{
             key: 'machineDaemonAuth',
             scheme: 'bearer',

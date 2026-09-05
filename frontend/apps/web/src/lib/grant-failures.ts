@@ -29,12 +29,13 @@ export function collectBatchGrantFailures(
   const failed = results.flatMap((result, index) => {
     const id = ids[index]
     if (result.status !== 'rejected' || id === undefined) return []
-    return [{ id, reason: result.reason as unknown }]
+    const cause: unknown = result.reason
+    return [{ id, cause }]
   })
   if (failed.length === 0) return null
   return {
     failedIds: failed.map((entry) => entry.id),
-    message: `${String(failed.length)} ${grantLabel}${failed.length === 1 ? '' : 's'} failed${grantFailureDetail(failed[0]?.reason)}. The failed selections are still selected — retry or remove them.`,
+    message: `${String(failed.length)} ${grantLabel}${failed.length === 1 ? '' : 's'} failed${grantFailureDetail(failed[0]?.cause)}. The failed selections are still selected — retry or remove them.`,
   }
 }
 
@@ -55,9 +56,9 @@ export function collectGrantFailures(
   }
 }
 
-function grantFailureDetail(reason: unknown) {
-  if (reason instanceof ApiError || reason instanceof Error) {
-    return reason.message ? `: ${reason.message}` : ''
+function grantFailureDetail(cause: unknown) {
+  if (cause instanceof ApiError || cause instanceof Error) {
+    return cause.message ? `: ${cause.message}` : ''
   }
   return ''
 }

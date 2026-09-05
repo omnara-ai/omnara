@@ -1,7 +1,8 @@
 /** @vitest-environment happy-dom */
 
-import type * as OmnaraReact from '@omnara/react'
-import type { ToolCatalog, ToolPermissionProfile } from '@omnara/sdk'
+import { OmnaraClientProvider } from '@omnara/react'
+import { createOmnaraClient, type ToolCatalog, type ToolPermissionProfile } from '@omnara/sdk'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
@@ -9,23 +10,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
 import { type BasicMcpServer, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
-
-vi.mock('@omnara/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof OmnaraReact>()
-  return { ...actual, useServerInfo: () => ({ data: undefined }) }
-})
-
-vi.mock('@/components/agents/AgentConfigMcpServerTools', () => ({
-  AgentConfigMcpServerTools: () => null,
-}))
-
-vi.mock('@/components/mcp/McpServerIdentityGroup', () => ({
-  McpServerIdentityGroup: () => null,
-}))
-
-vi.mock('@/components/secrets/McpOAuthOutcomeDialog', () => ({
-  McpOAuthOutcomeDialog: () => null,
-}))
+import { ActiveOrgContext } from '@/lib/active-org-context'
+import { fakeApi, jsonResponse } from '@/test/fake-api'
+import { currentUserOrg } from '@/test/fixtures'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 const alwaysAllowProfile: ToolPermissionProfile = {
   default_permission: { mode: 'always_allow', parameters: {} },
@@ -61,26 +49,22 @@ const catalog: ToolCatalog = {
   },
 }
 
+const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
+
 let container: HTMLDivElement
 let root: Root
-let previousActEnvironment: boolean | undefined
+let restoreActEnvironment: () => void
 
 beforeAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+  restoreActEnvironment = enableReactActEnvironment()
 })
 
 afterAll(() => {
-  const actEnvironment = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+  restoreActEnvironment()
 })
 
 beforeEach(() => {
+  Providers = testProviders()
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -93,9 +77,47 @@ afterEach(() => {
   container.remove()
 })
 
+function testProviders() {
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: '/api/v1/mcp-servers',
+      respond: () => jsonResponse({ data: [], next_cursor: null }),
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/mcp-servers/tools',
+      respond: () =>
+        jsonResponse({
+          protocol_version: '2025-06-18',
+          server_info: { name: 'example', version: '1.0.0' },
+          tools: [],
+        }),
+    },
+  ])
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+  client.setConfig({ fetch: api.fetch })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return function Providers({ children }: { children: ReactNode }) {
+    return (
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={queryClient}>
+          <ActiveOrgContext.Provider
+            value={{ orgs: [activeOrg], activeOrg, setActiveOrgId: () => undefined }}
+          >
+            <form>{children}</form>
+          </ActiveOrgContext.Provider>
+        </QueryClientProvider>
+      </OmnaraClientProvider>
+    )
+  }
+}
+
+let Providers: ReturnType<typeof testProviders>
+
 async function renderAndFlush(node: ReactNode) {
   await act(async () => {
-    root.render(node)
+    root.render(<Providers>{node}</Providers>)
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
@@ -104,15 +126,9 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
   const onToolsChange = vi.fn()
   const tools = [{ name: 'download_artifact', permission: null }]
 
+  await renderAndFlush(<AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />)
   await renderAndFlush(
-    <form>
-      <AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />
-    </form>,
-  )
-  await renderAndFlush(
-    <form>
-      <AgentConfigToolsField catalog={catalog} tools={tools} onToolsChange={onToolsChange} />
-    </form>,
+    <AgentConfigToolsField catalog={catalog} tools={tools} onToolsChange={onToolsChange} />,
   )
 
   expect(onToolsChange).not.toHaveBeenCalled()
@@ -137,27 +153,23 @@ it('preserves an inherited MCP permission when its profile loads', async () => {
   const builderDraft = { ...emptyBasicConfig, mcpServers: servers }
 
   await renderAndFlush(
-    <form>
-      <AgentConfigMcpServersField
-        orgId="org-test"
-        projectId="project-test"
-        servers={servers}
-        onServersChange={onServersChange}
-        builderDraft={builderDraft}
-      />
-    </form>,
+    <AgentConfigMcpServersField
+      orgId="org-test"
+      projectId="project-test"
+      servers={servers}
+      onServersChange={onServersChange}
+      builderDraft={builderDraft}
+    />,
   )
   await renderAndFlush(
-    <form>
-      <AgentConfigMcpServersField
-        orgId="org-test"
-        projectId="project-test"
-        permissionProfile={catalog.mcp_tool_permissions}
-        servers={servers}
-        onServersChange={onServersChange}
-        builderDraft={builderDraft}
-      />
-    </form>,
+    <AgentConfigMcpServersField
+      orgId="org-test"
+      projectId="project-test"
+      permissionProfile={catalog.mcp_tool_permissions}
+      servers={servers}
+      onServersChange={onServersChange}
+      builderDraft={builderDraft}
+    />,
   )
 
   expect(onServersChange).not.toHaveBeenCalled()

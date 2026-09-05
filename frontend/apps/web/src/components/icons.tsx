@@ -47,6 +47,7 @@ export {
   EllipsisHorizontalIcon as MoreHorizontalIcon,
   Bars3Icon as PanelLeftIcon,
   PaperClipIcon as Paperclip,
+  PauseIcon,
   PencilIcon,
   PlayIcon,
   PlusIcon as Plus,

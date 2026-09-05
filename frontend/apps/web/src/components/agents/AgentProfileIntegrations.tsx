@@ -8,10 +8,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
 
-const providerLabels: Record<string, string> = { slack: 'Slack' }
+const providerLabels = new Map([['slack', 'Slack']])
 
 function providerLabel(provider: string) {
-  return providerLabels[provider] ?? provider
+  return providerLabels.get(provider) ?? provider
 }
 
 function installName(install: IntegrationInstall) {

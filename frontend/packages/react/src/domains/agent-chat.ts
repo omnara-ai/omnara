@@ -3,20 +3,19 @@ import {
   type AgentEventStreamConnectionState,
   type AgentInput,
   type OmnaraClient,
-  openAgentEventStream,
-  sdk,
 } from '@omnara/sdk'
+import { getAgentOptions } from '@omnara/sdk/tanstack'
 import {
   type InfiniteData,
   type QueryClient,
   type QueryStatus,
-  useInfiniteQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
+import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
 import {
   hasToolCalls,
   isControlEvent,
@@ -27,11 +26,21 @@ import {
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
-import { createAgentChatInput, isDefiniteSendFailure, sameMessage } from './agent-chat-transport'
+import {
+  createAgentChatInput,
+  isDefiniteSendFailure,
+  sameMessage,
+  sdkAgentChatTransport,
+  sourceHint,
+} from './agent-chat-transport'
 import type {
   AgentChatData,
   AgentChatMessageInput,
+  AgentChatOptions,
+  AgentChatScope,
+  AgentChatSessionOptions,
   AgentChatStatus,
+  AgentChatTransport,
   LocalAgentInput,
 } from './agent-chat-types'
 import {
@@ -47,17 +56,16 @@ export type {
   AgentChatAttachmentInput,
   AgentChatData,
   AgentChatMessageInput,
+  AgentChatOptions,
+  AgentChatScope,
+  AgentChatSessionOptions,
+  AgentChatSource,
   AgentChatStatus,
+  AgentChatTransport,
   OmnaraMessageMetadata,
 } from './agent-chat-types'
 
 export type AgentChatHistoryStatus = QueryStatus
-
-export interface AgentChatScope {
-  orgID: string
-  projectID: string
-  agentID: string
-}
 
 export interface UseAgentChatResult {
   messages: OmnaraUIMessage[]
@@ -65,6 +73,7 @@ export interface UseAgentChatResult {
   isWorking: boolean
   error: Error | undefined
   historyStatus: AgentChatHistoryStatus
+  historyError: Error | null
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
@@ -72,21 +81,11 @@ export interface UseAgentChatResult {
   inputBacklog: AgentInputBacklogControls
 }
 
-const historyPageSize = 100
 const emptyBacklogInputs: AgentInput[] = []
-
-function agentChatHistoryQueryKey(scope: AgentChatScope) {
-  return ['agent-chat-history', scope.orgID, scope.projectID, scope.agentID]
-}
-
-export interface AgentChatSessionOptions extends AgentChatScope {
-  client: OmnaraClient
-  queryClient: QueryClient
-  inputReconciliationDelayMs?: number
-}
 
 export class AgentChatSession {
   private readonly client: OmnaraClient
+  private readonly transport: AgentChatTransport
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
   private readonly inputReconciliationDelayMs: number
@@ -119,8 +118,10 @@ export class AgentChatSession {
     projectID,
     agentID,
     inputReconciliationDelayMs = 1000,
+    transport = sdkAgentChatTransport,
   }: AgentChatSessionOptions) {
     this.client = client
+    this.transport = transport
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
     this.inputReconciliationDelayMs = inputReconciliationDelayMs
@@ -146,6 +147,7 @@ export class AgentChatSession {
   sendMessage = async (
     message: AgentChatMessageInput,
     placement: LocalAgentInput['placement'] = 'conversation',
+    resolveHint?: () => Promise<string | undefined>,
   ): Promise<void> => {
     const text = message.text.trim()
     const attachments = message.attachments ?? []
@@ -163,7 +165,15 @@ export class AgentChatSession {
     this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      const input = await createAgentChatInput(this.client, this.scope, id, normalized)
+      const hint = resolveHint == null ? undefined : await resolveHint()
+      const input = await createAgentChatInput(
+        this.transport,
+        this.client,
+        this.scope,
+        id,
+        normalized,
+        hint,
+      )
       this.acceptAgentInput(id, input)
     } catch (error) {
       if (this.inputEchoLoaded(id)) {
@@ -171,7 +181,7 @@ export class AgentChatSession {
         return
       }
       const sendError = error instanceof Error ? error : new Error('Could not send message')
-      if (!isDefiniteSendFailure(error)) {
+      if (!isDefiniteSendFailure(sendError)) {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
@@ -386,7 +396,7 @@ export class AgentChatSession {
     const cursor = this.cursor
     if (cursor == null) return
     try {
-      const stream = openAgentEventStream({
+      const stream = this.transport.openAgentEventStream({
         client: this.client,
         path: this.scope,
         query: { after_sequence: cursor, stream_deltas: true },
@@ -409,34 +419,20 @@ export class AgentChatSession {
   }
 }
 
-export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
+export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): UseAgentChatResult {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
+  const { source } = options
+  const resolveHint = useCallback(async () => {
+    const { agent } = await queryClient.ensureQueryData(
+      getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+    )
+    return agent.integration_target == null ? undefined : sourceHint(source)
+  }, [agentID, client, orgID, projectID, queryClient, source])
 
-  const history = useInfiniteQuery({
-    queryKey: agentChatHistoryQueryKey({ orgID, projectID, agentID }),
-    initialPageParam: 0,
-    queryFn: async ({ pageParam, signal }) => {
-      const { data: page } = await sdk.listEvents({
-        client,
-        path: { orgID, projectID, agentID },
-        query: { before_sequence: pageParam, limit: historyPageSize },
-        signal,
-      })
-      return page
-    },
-    getNextPageParam: (lastPage) => {
-      const nextBeforeSequence = lastPage.next_before_sequence
-      return nextBeforeSequence == null ? undefined : sequenceNumber(nextBeforeSequence)
-    },
-    select: (data) => ({
-      ...data,
-      events: [...data.pages].reverse().flatMap((page) => page.data),
-    }),
-    staleTime: Infinity,
-  })
+  const history = useAgentChatHistory(client, scope)
 
   const newestLoadedSequence = sequenceNumber(
     history.data?.pages[0]?.data.at(-1)?.sequence ?? undefined,
@@ -482,10 +478,11 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
     isWorking: projected.isWorking,
     error: data.error,
     historyStatus: history.status,
+    historyError: history.error,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
-    sendMessage: (message) => session.sendMessage(message, inputPlacement),
+    sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
     inputBacklog: {
       inputs: projected.backlogInputs,
       actionPending:

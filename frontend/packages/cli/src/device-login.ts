@@ -15,7 +15,7 @@ import { zResourceName } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
-import { configFilePath, updateConfigFile } from './config-file.ts'
+import type { ConfigStore } from './config-file.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { CliInputError } from './output.ts'
 
@@ -125,6 +125,9 @@ export interface DeviceLoginOptions {
   browser: boolean
   tokenName?: string
   report: LoginReporter
+  store: ConfigStore
+  fetch: typeof fetch
+  sleep: (seconds: number) => Promise<void>
 }
 
 export interface DeviceLoginResult {
@@ -135,12 +138,13 @@ export interface DeviceLoginResult {
 }
 
 export async function loginWithDevice(options: DeviceLoginOptions): Promise<DeviceLoginResult> {
-  const { report } = options
-  updateConfigFile({})
+  const { report, store } = options
+  store.update({})
   const start = await startDeviceAuth({
     issuerUrl: options.issuerUrl,
     clientId: OMNARA_CLI_OAUTH_CLIENT_ID,
     tokenName: loginTokenName(options.tokenName, hostname()),
+    fetch: options.fetch,
   })
   report.showCode(start.userCode, start.verificationUriComplete)
   if (options.browser) {
@@ -156,18 +160,24 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
       clientId: start.clientId,
       deviceCode: start.deviceCode,
       intervalSeconds: start.intervalSeconds,
+      fetch: options.fetch,
+      sleep: options.sleep,
     })
   } catch (error) {
     report.stopWaiting(false)
     throw error
   }
   report.stopWaiting(true)
-  const saved = updateConfigFile({
+  const saved = store.update({
     token,
     api_url: options.apiUrl,
     issuer_url: options.issuerUrl,
   })
-  const client = createOmnaraClient({ baseUrl: options.apiUrl, auth: bearerToken(token) })
+  const client = createOmnaraClient({
+    baseUrl: options.apiUrl,
+    auth: bearerToken(token),
+    fetch: options.fetch,
+  })
   let orgId = saved.org_id
   let projectId = saved.project_id
   let hasOrganizations: boolean | undefined
@@ -178,7 +188,7 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
     loginMessage = `Logged in as ${me.user.email || me.user.display_name}`
     hasOrganizations = me.orgs.length > 0
     if (orgId !== undefined && !me.orgs.some((org) => org.id === orgId)) {
-      updateConfigFile({ org_id: undefined, project_id: undefined })
+      store.update({ org_id: undefined, project_id: undefined })
       orgId = undefined
       projectId = undefined
       report.warn(
@@ -189,7 +199,7 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
       projectId !== undefined &&
       !(await isProjectVisible(client, orgId, projectId))
     ) {
-      updateConfigFile({ project_id: undefined })
+      store.update({ project_id: undefined })
       projectId = undefined
       report.warn('Cleared the saved default project: this account cannot access it.')
     }
@@ -197,7 +207,7 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
     validationWarning = `could not verify the account or saved organization and project defaults: ${error instanceof Error ? error.message : String(error)}`
   }
   report.success(loginMessage)
-  report.info(`Token saved to ${configFilePath()}`)
+  report.info(`Token saved to ${store.path}`)
   if (validationWarning !== undefined) report.warn(validationWarning)
   if (process.env.OMNARA_API_KEY !== undefined) {
     report.warn('OMNARA_API_KEY is set and takes precedence over the saved token')

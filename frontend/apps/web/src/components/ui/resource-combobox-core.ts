@@ -14,8 +14,8 @@ export interface ResourceComboboxQuery {
   isFetching: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
-  fetchNextPage: () => unknown
-  refetch: () => unknown
+  fetchNextPage: () => void
+  refetch: () => void
 }
 
 export interface ResourceComboboxSearch {

@@ -26,7 +26,9 @@ import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 
 import {
   type CacheRetentionDraft,
+  cacheRetentionDrafts,
   type InheritableToggleDraft,
+  inheritableToggleDrafts,
   MODEL_GRANT_TEXT_FIELDS,
   MODEL_GRANT_TOKEN_FIELDS,
   modelGrantDraftFromGrant,
@@ -60,7 +62,8 @@ function InheritableToggleField({
       <Select
         value={value}
         onValueChange={(next) => {
-          onValueChange(next as InheritableToggleDraft)
+          const draft = inheritableToggleDrafts.find((candidate) => candidate === next)
+          if (draft !== undefined) onValueChange(draft)
         }}
       >
         <SelectTrigger className="w-full">
@@ -164,8 +167,11 @@ export function EditModelGrantDialog({
                 <FieldLabel>Cache retention</FieldLabel>
                 <Select
                   value={draft.cacheRetention}
-                  onValueChange={(cacheRetention) => {
-                    setDraft({ ...draft, cacheRetention: cacheRetention as CacheRetentionDraft })
+                  onValueChange={(value) => {
+                    const cacheRetention = cacheRetentionDrafts.find(
+                      (candidate) => candidate === value,
+                    )
+                    if (cacheRetention !== undefined) setDraft({ ...draft, cacheRetention })
                   }}
                 >
                   <SelectTrigger className="w-full">

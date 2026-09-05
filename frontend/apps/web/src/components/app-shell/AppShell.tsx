@@ -26,7 +26,9 @@ function AppSidebar({ children }: { children: ReactNode }) {
     <Sidebar
       collapsible={isMobile ? 'offcanvas' : 'none'}
       onClick={(event) => {
-        if (isMobile && (event.target as HTMLElement).closest('a')) setOpenMobile(false)
+        if (isMobile && event.target instanceof Element && event.target.closest('a')) {
+          setOpenMobile(false)
+        }
       }}
     >
       {children}

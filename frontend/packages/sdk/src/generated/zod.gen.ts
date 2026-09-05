@@ -872,20 +872,10 @@ export const zListAgentProfilesResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
-export const zAgentCronTriggerTarget = z.object({
-    type: z.enum(['agent']),
-    agent_id: zAgentId
-});
-
 export const zAgentProfileCronTriggerTarget = z.object({
     type: z.enum(['profile']),
     agent_profile_id: zAgentProfileId
 });
-
-export const zCronTriggerTarget = z.discriminatedUnion('type', [
-    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
-    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
-]);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -901,6 +891,22 @@ export const zCronTimezone = z.string().max(64).default('UTC');
  * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
+
+/**
+ * Each firing sends a queued or steering message to the agent. Defaults to `queued` on creation; omitted updates preserve the current mode.
+ */
+export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']);
+
+export const zAgentCronTriggerTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId,
+    delivery_mode: zCronTriggerDeliveryMode.optional()
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
+]);
 
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
@@ -918,6 +924,7 @@ export const zCreateCronTriggerRequest = z.object({
 });
 
 export const zUpdateCronTriggerRequest = z.object({
+    target: zCronTriggerTarget.optional(),
     name: zResourceName.optional(),
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),

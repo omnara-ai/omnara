@@ -355,14 +355,14 @@ function DiscoveryFailure({
   )
 }
 
-function detectedAuthType(error: unknown): McpAuthType | null {
-  if (!(error instanceof ApiError) || error.status !== 422) return null
-  const parsed = schemas.zMcpServerAuthRequiredError.safeParse(error.body)
+function detectedAuthType(cause: unknown): McpAuthType | null {
+  if (!(cause instanceof ApiError) || cause.status !== 422) return null
+  const parsed = schemas.zMcpServerAuthRequiredError.safeParse(cause.body)
   return parsed.success ? parsed.data.auth.type : null
 }
 
 function discoveryFailureTitle(
-  error: unknown,
+  cause: unknown,
   server: BasicMcpServer,
   detected: McpAuthType | null,
 ) {
@@ -376,10 +376,10 @@ function discoveryFailureTitle(
       ? 'The server rejected the selected secret.'
       : 'This server expects a bearer token. Switch authentication to a bearer secret.'
   }
-  if (error instanceof ApiError && error.status === 502) {
+  if (cause instanceof ApiError && cause.status === 502) {
     return 'Could not connect to the MCP server.'
   }
-  if (error instanceof ApiError && error.status === 404) {
+  if (cause instanceof ApiError && cause.status === 404) {
     return 'The selected secret is not available to this project.'
   }
   return 'Could not discover tools.'

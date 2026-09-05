@@ -1,8 +1,30 @@
-import { type AgentInput, ApiError, type OmnaraClient, sdk } from '@omnara/sdk'
+import {
+  type AgentInput,
+  ApiError,
+  type OmnaraClient,
+  openAgentEventStream,
+  sdk,
+} from '@omnara/sdk'
 
-import type { AgentChatMessageInput, LocalAgentInput } from './agent-chat-types'
+import type {
+  AgentChatMessageInput,
+  AgentChatSource,
+  AgentChatTransport,
+  LocalAgentInput,
+} from './agent-chat-types'
 
-export function isDefiniteSendFailure(error: unknown): boolean {
+const sourceLabels: Record<AgentChatSource, string> = { web: 'web app', cli: 'CLI' }
+
+export function sourceHint(source: AgentChatSource): string {
+  return `This message came from the Omnara ${sourceLabels[source]}. Reply with normal assistant text unless explicitly asked to message an integration.`
+}
+
+export const sdkAgentChatTransport: AgentChatTransport = {
+  openAgentEventStream,
+  createAgentInput: sdk.createAgentInput,
+}
+
+export function isDefiniteSendFailure(error: Error): boolean {
   if (!(error instanceof ApiError)) return false
   return error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
 }
@@ -26,23 +48,23 @@ export function sameMessage(
 }
 
 export async function createAgentChatInput(
+  transport: AgentChatTransport,
   client: OmnaraClient,
   path: { orgID: string; projectID: string; agentID: string },
   id: string,
   message: Required<AgentChatMessageInput>,
+  hint: string | undefined,
   signal?: AbortSignal,
 ): Promise<AgentInput> {
-  const { data } = await sdk.createAgentInput({
+  const { data } = await transport.createAgentInput({
     client,
     path,
     headers: { 'Idempotency-Key': id },
     body: {
       content_blocks: [
-        {
-          type: 'text',
-          text: 'This message came from the Omnara web app. Reply with normal assistant text unless explicitly asked to message an integration.',
-          metadata: { omnara_hidden: 'true' },
-        },
+        ...(hint == null
+          ? []
+          : [{ type: 'text' as const, text: hint, metadata: { omnara_hidden: 'true' } }]),
         ...(message.text === '' ? [] : [{ type: 'text' as const, text: message.text }]),
         ...message.attachments.map((attachment) => ({
           type: 'media' as const,
@@ -52,7 +74,7 @@ export async function createAgentChatInput(
         })),
       ],
     },
-    ...(signal == null ? {} : { signal }),
+    signal,
   })
   return data.agent_input
 }

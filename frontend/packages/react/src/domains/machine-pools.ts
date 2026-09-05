@@ -13,7 +13,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 export type MachinePoolListFilters = ListFilters<ListMachinePoolsData>
@@ -24,12 +24,13 @@ export function useMachinePools(orgID: string, options?: MachinePoolListOptions)
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListMachinePoolsData>(options)
   return useInfiniteQuery({
-    ...listMachinePoolsInfiniteOptions({
-      path: { orgID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listMachinePoolsInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

@@ -10,8 +10,11 @@ import {
   optionalPositiveInt32Valid,
 } from '@/components/machines/machineOverrides'
 
-export type InheritableToggleDraft = 'inherit' | 'enabled' | 'disabled'
-export type CacheRetentionDraft = 'inherit' | 'none' | 'short' | 'long'
+export const inheritableToggleDrafts = ['inherit', 'enabled', 'disabled'] as const
+export const cacheRetentionDrafts = ['inherit', 'none', 'short', 'long'] as const
+
+export type InheritableToggleDraft = (typeof inheritableToggleDrafts)[number]
+export type CacheRetentionDraft = (typeof cacheRetentionDrafts)[number]
 
 export interface ModelGrantOverrideDraft {
   contextWindow: string

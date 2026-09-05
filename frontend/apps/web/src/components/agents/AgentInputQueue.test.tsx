@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 const cancel = vi.fn()
 const promote = vi.fn()
@@ -191,11 +192,7 @@ describe('AgentInputQueue', () => {
           resolveMove = resolve
         }),
     )
-    const actEnvironment = globalThis as typeof globalThis & {
-      IS_REACT_ACT_ENVIRONMENT?: boolean
-    }
-    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    const restoreActEnvironment = enableReactActEnvironment()
 
     try {
       act(() => {
@@ -294,7 +291,7 @@ describe('AgentInputQueue', () => {
         root.unmount()
       })
       container.remove()
-      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+      restoreActEnvironment()
     }
   })
 })

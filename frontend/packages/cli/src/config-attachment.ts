@@ -71,32 +71,34 @@ export function renderConfigSource(attachment: ConfigSourceAttachment): ConfigSo
   throw new CliInputError(SOURCE_HINT)
 }
 
-const zProjectScope = z.object({
-  orgID: z.string().min(1),
-  projectID: z.string().min(1),
-})
+export interface ProjectScope {
+  orgID: string
+  projectID: string
+}
+
+export interface ProfileScope extends ProjectScope {
+  agentProfileID: string
+}
 
 export async function resolveConfigId(
   client: OmnaraClient,
-  path: Record<string, unknown>,
+  path: ProjectScope,
   attachment: ConfigAttachment,
 ): Promise<string> {
   requireExactlyOne([attachment.config, attachment.file, attachment.source], ATTACHMENT_HINT)
   if (attachment.config !== undefined) return attachment.config
   const { data } = await sdk.createAgentConfig({
     client,
-    path: zProjectScope.parse(path),
+    path,
     body: renderConfigSource(attachment),
   })
   return data.id
 }
 
-const zProfilePath = zProjectScope.extend({ agentProfileID: z.string().min(1) })
-
 export async function currentProfileConfigId(
   client: OmnaraClient,
-  path: Record<string, unknown>,
+  path: ProfileScope,
 ): Promise<string> {
-  const { data } = await sdk.getAgentProfile({ client, path: zProfilePath.parse(path) })
+  const { data } = await sdk.getAgentProfile({ client, path })
   return data.current_config_id
 }

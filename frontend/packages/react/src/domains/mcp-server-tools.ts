@@ -9,7 +9,7 @@ export function useMcpServerTools(
   orgID: string,
   projectID: string,
   request: McpServerToolsRequest | null,
-  options?: { onError?: (error: unknown) => void },
+  options?: { onError?: (error: Error) => void },
 ) {
   const client = useOmnaraClient()
   return useQuery({
@@ -25,7 +25,9 @@ export function useMcpServerTools(
         })
         return data
       } catch (error) {
-        if (!signal.aborted) options?.onError?.(error)
+        if (!signal.aborted) {
+          options?.onError?.(error instanceof Error ? error : new Error(String(error)))
+        }
         throw error
       }
     },

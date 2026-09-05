@@ -1192,6 +1192,7 @@ export type ListAgentProfilesResponse = {
 export type AgentCronTriggerTarget = {
     type: 'agent';
     agent_id: AgentId;
+    delivery_mode?: CronTriggerDeliveryMode;
 };
 
 export type AgentProfileCronTriggerTarget = {
@@ -1220,6 +1221,11 @@ export type CronTimezone = string;
  */
 export type CronMessageTemplate = string;
 
+/**
+ * Each firing sends a queued or steering message to the agent. Defaults to `queued` on creation; omitted updates preserve the current mode.
+ */
+export type CronTriggerDeliveryMode = 'queued' | 'steering';
+
 export type CronTriggerFailureReport = {
     /**
      * Why the most recent failed firing did not deliver a message.
@@ -1242,6 +1248,10 @@ export type CreateCronTriggerRequest = {
 };
 
 export type UpdateCronTriggerRequest = {
+    /**
+     * Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+     */
+    target?: CronTriggerTarget;
     name?: ResourceName;
     cron?: CronExpression;
     timezone?: CronTimezone;

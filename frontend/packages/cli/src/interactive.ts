@@ -39,20 +39,50 @@ export async function promptOrgSelection(client: OmnaraClient, issuerUrl: string
   )
 }
 
-export async function promptProjectSelection(client: OmnaraClient, orgId: string): Promise<string> {
-  const projects: Choice[] = []
+interface Page<T> {
+  data: T[]
+  next_cursor?: string | null
+}
+
+async function collectAllPages<T>(
+  fetchPage: (query: { cursor?: string }) => Promise<{ data: Page<T> }>,
+): Promise<T[]> {
+  const items: T[] = []
   let cursor: string | undefined
   do {
-    const { data } = await sdk.listVisibleProjects({
-      client,
-      path: { orgID: orgId },
-      query: cursor === undefined ? {} : { cursor },
-    })
-    projects.push(...data.data.map((project) => ({ id: project.id, label: project.name })))
+    const { data } = await fetchPage(cursor === undefined ? {} : { cursor })
+    items.push(...data.data)
     cursor = data.next_cursor ?? undefined
   } while (cursor !== undefined)
+  return items
+}
+
+export async function promptAgentSelection(
+  client: OmnaraClient,
+  orgId: string,
+  projectId: string,
+): Promise<string> {
+  const agents = await collectAllPages((query) =>
+    sdk.listAgents({ client, path: { orgID: orgId, projectID: projectId }, query }),
+  )
+  if (agents.length === 0) {
+    throw new CliInputError(`no agents in project ${projectId}`)
+  }
+  return selectFrom(
+    'Select an agent',
+    agents.map((agent) => ({ id: agent.id, label: `${agent.name} (${agent.state})` })),
+  )
+}
+
+export async function promptProjectSelection(client: OmnaraClient, orgId: string): Promise<string> {
+  const projects = await collectAllPages((query) =>
+    sdk.listVisibleProjects({ client, path: { orgID: orgId }, query }),
+  )
   if (projects.length === 0) {
     throw new CliInputError(`no projects visible in organization ${orgId}`)
   }
-  return selectFrom('Select a project', projects)
+  return selectFrom(
+    'Select a project',
+    projects.map((project) => ({ id: project.id, label: project.name })),
+  )
 }

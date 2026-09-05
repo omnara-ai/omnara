@@ -9,7 +9,7 @@ import {
   useMe,
 } from '@omnara/react'
 import { useParams } from '@tanstack/react-router'
-import { type ComponentProps, type CSSProperties, useRef, useState } from 'react'
+import { type ComponentProps, useRef, useState } from 'react'
 
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
@@ -27,11 +27,13 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import type { CssVariables } from '@/lib/css'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
 const agentDetailPollInterval = 5_000
+const agentSidebarStyle: CssVariables = { '--sidebar-width': '20rem' }
 
 export function AgentView() {
   const { activeOrg } = useActiveOrg()
@@ -39,7 +41,10 @@ export function AgentView() {
   const params = useParams({ strict: false })
   const projectId = params.projectId ?? ''
   const agentId = params.agentId ?? ''
-  const chat = useAgentChat({ orgID: activeOrg.id, projectID: projectId, agentID: agentId })
+  const chat = useAgentChat(
+    { orgID: activeOrg.id, projectID: projectId, agentID: agentId },
+    { source: 'web' },
+  )
   const { data } = useAgent(activeOrg.id, projectId, agentId, {
     refetchInterval: (detail) =>
       chat.isWorking ||
@@ -81,7 +86,7 @@ export function AgentView() {
     }
     const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
     try {
-      return await cancelAgent.mutateAsync()
+      await cancelAgent.mutateAsync()
     } catch (error) {
       rollback()
       throw error
@@ -89,10 +94,7 @@ export function AgentView() {
   }
 
   return (
-    <SidebarProvider
-      className="h-full min-h-0 overflow-hidden"
-      style={{ '--sidebar-width': '20rem' } as CSSProperties}
-    >
+    <SidebarProvider className="h-full min-h-0 overflow-hidden" style={agentSidebarStyle}>
       <MessageScrollerProvider key={agentId} autoScroll>
         <div
           className="mx-auto flex h-full w-full min-w-0 max-w-5xl flex-1 flex-col overflow-hidden"
@@ -209,7 +211,7 @@ function AgentDock({
   agentID: string
   cancelPending: boolean
   cancelError: Error | null
-  onCancel: () => Promise<unknown>
+  onCancel: () => Promise<void>
 }) {
   return (
     <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">

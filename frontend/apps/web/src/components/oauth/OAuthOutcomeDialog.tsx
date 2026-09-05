@@ -27,8 +27,6 @@ export interface OAuthOutcomeDialogProps {
 }
 
 function initialOutcome(props: OAuthOutcomeDialogProps): OAuthOutcome | null {
-  if (typeof window === 'undefined') return null
-
   const search = new URLSearchParams(window.location.search)
   const success = search.get(props.successParam) === 'success'
   const errorCode = search.get(props.errorParam)
@@ -41,8 +39,6 @@ function initialOutcome(props: OAuthOutcomeDialogProps): OAuthOutcome | null {
 }
 
 function clearParams(props: OAuthOutcomeDialogProps) {
-  if (typeof window === 'undefined') return
-
   const url = new URL(window.location.href)
   url.searchParams.delete(props.successParam)
   url.searchParams.delete(props.errorParam)

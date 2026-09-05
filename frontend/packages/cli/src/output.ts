@@ -3,8 +3,14 @@ import * as z from 'zod'
 
 const zRenderValue = z.json()
 export type RenderValue = z.output<typeof zRenderValue>
+export const zOptionalRenderValue = zRenderValue.optional()
 
+type Scalar = string | number | boolean | null
 type Row = Record<string, RenderValue>
+const zListEnvelope = z.strictObject({
+  data: z.array(zRenderValue),
+  next_cursor: z.string().nullable(),
+})
 
 const PREFERRED_LEADING_COLUMNS = ['id', 'name']
 const HIDDEN_TABLE_COLUMNS = new Set(['org_id', 'project_id'])
@@ -23,22 +29,22 @@ function dim(text: string): string {
   return styled('2', text)
 }
 
-function isScalar(value: RenderValue | undefined): boolean {
+function isScalar(value: RenderValue | undefined): value is Scalar | undefined {
   return typeof value !== 'object' || value === null
 }
 
+function isRow(value: RenderValue): value is Row {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function objectRows(values: RenderValue[]): Row[] | undefined {
-  const rows = values.flatMap((value) =>
-    typeof value === 'object' && value !== null && !Array.isArray(value) ? [value] : [],
-  )
+  const rows = values.flatMap((value) => (isRow(value) ? [value] : []))
   return rows.length === values.length ? rows : undefined
 }
 
 function cell(value: RenderValue | undefined): string {
   if (value === null || value === undefined || value === '') return '–'
-  if (typeof value === 'string') return formatTimestamp(value)
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return JSON.stringify(value)
+  return isScalar(value) ? formatTimestamp(String(value)) : JSON.stringify(value)
 }
 
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -109,6 +115,10 @@ function truncate(value: string, width: number): string {
   return `${value.slice(0, end)}…`
 }
 
+export function abbreviate(text: string, max: number): string {
+  return truncate(text.replaceAll(/\s+/g, ' ').trim(), max)
+}
+
 function printTable(rows: Row[], indent: number, explicitColumns?: readonly string[]): void {
   if (rows.length === 0) {
     console.log(indented(indent, dim('(no results)')))
@@ -175,7 +185,7 @@ function printValue(value: RenderValue, indent: number, columns?: readonly strin
     for (const item of value) console.log(indented(indent, cell(item)))
     return
   }
-  if (typeof value === 'object' && value !== null) {
+  if (isRow(value)) {
     printObject(value, indent)
     return
   }
@@ -186,32 +196,29 @@ export interface RenderOptions {
   columns?: readonly string[]
 }
 
-export function renderResult(data: unknown, asJson: boolean, options: RenderOptions = {}): void {
+export function renderResult(
+  value: RenderValue | undefined,
+  asJson: boolean,
+  options: RenderOptions = {},
+): void {
   if (asJson) {
-    console.log(JSON.stringify(data ?? null, null, 2))
+    console.log(JSON.stringify(value ?? null, null, 2))
     return
   }
-  if (data === undefined || data === null || data === '') {
+  if (value === undefined || value === null || value === '') {
     console.log('ok')
     return
   }
-  const value = zRenderValue.parse(data)
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 2 &&
-    Array.isArray(value.data) &&
-    'next_cursor' in value
-  ) {
-    const rows = objectRows(value.data)
+  const envelope = zListEnvelope.safeParse(value)
+  if (envelope.success) {
+    const rows = objectRows(envelope.data.data)
     if (rows !== undefined) {
       printTable(rows, 0, options.columns)
     } else {
-      printValue(value.data, 0, options.columns)
+      printValue(envelope.data.data, 0, options.columns)
     }
-    if (typeof value.next_cursor === 'string') {
-      console.log(dim(`(more results: pass --all, or --cursor ${value.next_cursor})`))
+    if (envelope.data.next_cursor !== null) {
+      console.log(dim(`(more results: pass --all, or --cursor ${envelope.data.next_cursor})`))
     }
     return
   }

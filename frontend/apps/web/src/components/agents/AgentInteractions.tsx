@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
-type Resolve = (interactionID: string, body: ResolveAgentInteractionRequest) => Promise<unknown>
+type Resolve = (interactionID: string, body: ResolveAgentInteractionRequest) => Promise<void>
 
 function selectedOptions(
   options: InteractionFormOption[],
@@ -239,8 +239,9 @@ export function AgentInteractions({
     interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
   const error = resolveInteraction.error
   const pending = resolveInteraction.isPending
-  const onResolve: Resolve = (interactionID, body) =>
-    resolveInteraction.mutateAsync({ interactionID, body })
+  const onResolve: Resolve = async (interactionID, body) => {
+    await resolveInteraction.mutateAsync({ interactionID, body })
+  }
   if (interactions.length === 0 && loadError == null) return null
   return (
     <section

@@ -2,15 +2,12 @@ import type { AgentConfigModel } from '@omnara/sdk'
 import { zInlineMediaContentBlock } from '@omnara/sdk/zod'
 import { describe, expect, it, vi } from 'vitest'
 
+import { agentConfigModel } from '@/test/fixtures'
+
 import { selectAgentAttachment } from './agent-attachments'
 
 function model(overrides: Partial<AgentConfigModel> = {}): AgentConfigModel {
-  return {
-    api_format: 'openai-responses',
-    api_variant: 'openai',
-    input_modalities: [],
-    ...overrides,
-  } as AgentConfigModel
+  return agentConfigModel(overrides)
 }
 
 describe('selectAgentAttachment', () => {
