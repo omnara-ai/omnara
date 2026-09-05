@@ -43,10 +43,6 @@ func (s strictOpenAPIServer) createCronTrigger(
 	if request.Body.Enabled != nil {
 		enabled = *request.Body.Enabled
 	}
-	deliveryMode := executionstore.DeliveryModeQueued
-	if request.Body.DeliveryMode != nil {
-		deliveryMode = executionstore.AgentInputDeliveryMode(*request.Body.DeliveryMode)
-	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
@@ -58,7 +54,6 @@ func (s strictOpenAPIServer) createCronTrigger(
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
 		MessageTemplate: request.Body.MessageTemplate,
-		DeliveryMode:    deliveryMode,
 		Enabled:         enabled,
 		IdempotencyKey:  idempotencyKey,
 	})
@@ -215,10 +210,13 @@ func (s strictOpenAPIServer) updateCronTrigger(
 		trimmed := strings.TrimSpace(*timezone)
 		timezone = &trimmed
 	}
-	var deliveryMode *executionstore.AgentInputDeliveryMode
-	if request.Body.DeliveryMode != nil {
-		mode := executionstore.AgentInputDeliveryMode(*request.Body.DeliveryMode)
-		deliveryMode = &mode
+	var target *executionstore.CronTriggerTarget
+	if request.Body.Target != nil {
+		parsed, err := parseCronTriggerTarget(*request.Body.Target)
+		if err != nil {
+			return nil, err
+		}
+		target = &parsed
 	}
 	trigger, err := s.server.store.Execution().UpdateCronTrigger(ctx, executionstore.UpdateCronTriggerInput{
 		ProjectID:       project.ID,
@@ -227,7 +225,7 @@ func (s strictOpenAPIServer) updateCronTrigger(
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
 		MessageTemplate: request.Body.MessageTemplate,
-		DeliveryMode:    deliveryMode,
+		Target:          target,
 		Enabled:         request.Body.Enabled,
 	})
 	if err != nil {
@@ -290,9 +288,14 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 				"invalid target agent_id",
 			)
 		}
+		var deliveryMode executionstore.AgentInputDeliveryMode
+		if target.DeliveryMode != nil {
+			deliveryMode = executionstore.AgentInputDeliveryMode(*target.DeliveryMode)
+		}
 		return executionstore.CronTriggerTarget{
-			Kind: executionstore.CronTriggerTargetAgent,
-			ID:   agentID,
+			Kind:         executionstore.CronTriggerTargetAgent,
+			ID:           agentID,
+			DeliveryMode: deliveryMode,
 		}, nil
 	case string(executionstore.CronTriggerTargetAgentProfile):
 		target, err := input.AsAgentProfileCronTriggerTarget()
@@ -329,9 +332,11 @@ func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi
 		if err != nil {
 			return openapi.CronTriggerTarget{}, err
 		}
+		deliveryMode := openapi.CronTriggerDeliveryMode(target.DeliveryMode)
 		if err := response.FromAgentCronTriggerTarget(openapi.AgentCronTriggerTarget{
-			Type:    openapi.AgentCronTriggerTargetTypeAgent,
-			AgentId: agentID,
+			Type:         openapi.AgentCronTriggerTargetTypeAgent,
+			AgentId:      agentID,
+			DeliveryMode: &deliveryMode,
 		}); err != nil {
 			return openapi.CronTriggerTarget{}, err
 		}
@@ -383,7 +388,6 @@ func cronTriggerResponseFromRecord(
 		Cron:            record.CronExpression,
 		Timezone:        record.Timezone,
 		MessageTemplate: record.MessageTemplate,
-		DeliveryMode:    openapi.CronTriggerDeliveryMode(record.DeliveryMode),
 		Enabled:         record.Enabled,
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),

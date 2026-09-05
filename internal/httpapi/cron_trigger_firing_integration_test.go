@@ -57,6 +57,9 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	agentTriggerID := agentTrigger["id"].(string)
+	if agentTrigger["target"].(map[string]any)["delivery_mode"] != "queued" {
+		t.Fatalf("expected default agent delivery_mode queued: %+v", agentTrigger)
+	}
 
 	idleStats, err := service.FireDueTriggers(ctx)
 	if err != nil {
@@ -387,8 +390,8 @@ func TestCronTriggerFiringSteeringDelivery(t *testing.T) {
 		handler,
 		http.MethodPost,
 		triggersPath,
-		`{"name":"steer-nudge","target":{"type":"agent","agent_id":"`+agentID+`"},`+
-			`"cron":"0 9 * * *","message_template":"Steer {{ .trigger.name }}.","delivery_mode":"steering"}`,
+		`{"name":"steer-nudge","target":{"type":"agent","agent_id":"`+agentID+`","delivery_mode":"steering"},`+
+			`"cron":"0 9 * * *","message_template":"Steer {{ .trigger.name }}."}`,
 		"idem-cron-steer-trigger",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),

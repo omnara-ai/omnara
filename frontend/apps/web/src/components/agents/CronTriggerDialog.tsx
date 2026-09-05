@@ -342,11 +342,11 @@ export function CreateCronTriggerDialog({
       onSubmit={async (value) => {
         const trigger = await createTrigger.mutateAsync({
           name: value.name,
-          target,
+          target:
+            target.type === 'agent' ? { ...target, delivery_mode: value.deliveryMode } : target,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
-          delivery_mode: value.deliveryMode,
         })
         onCreated?.(trigger)
       }}
@@ -382,7 +382,8 @@ export function EditCronTriggerDialog({
         cron: trigger.cron,
         timezone: trigger.timezone,
         messageTemplate: trigger.message_template,
-        deliveryMode: trigger.delivery_mode,
+        deliveryMode:
+          trigger.target.type === 'agent' ? (trigger.target.delivery_mode ?? 'queued') : 'queued',
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
@@ -392,7 +393,9 @@ export function EditCronTriggerDialog({
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
-          delivery_mode: value.deliveryMode,
+          ...(trigger.target.type === 'agent'
+            ? { target: { ...trigger.target, delivery_mode: value.deliveryMode } }
+            : {}),
         })
       }}
     />

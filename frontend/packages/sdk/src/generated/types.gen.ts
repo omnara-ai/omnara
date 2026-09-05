@@ -1192,6 +1192,7 @@ export type ListAgentProfilesResponse = {
 export type AgentCronTriggerTarget = {
     type: 'agent';
     agent_id: AgentId;
+    delivery_mode?: CronTriggerDeliveryMode;
 };
 
 export type AgentProfileCronTriggerTarget = {
@@ -1221,7 +1222,7 @@ export type CronTimezone = string;
 export type CronMessageTemplate = string;
 
 /**
- * How each firing's message is delivered to an existing agent target. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs. Agent profile targets always use `queued`: each firing launches a new agent with the message as its initial prompt.
+ * How each firing's message is delivered to an existing agent target. Defaults to `queued` when creating a trigger; omitting it from an update preserves the current mode. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs.
  */
 export type CronTriggerDeliveryMode = 'queued' | 'steering';
 
@@ -1243,16 +1244,18 @@ export type CreateCronTriggerRequest = {
     cron: CronExpression;
     timezone?: CronTimezone;
     message_template: CronMessageTemplate;
-    delivery_mode?: CronTriggerDeliveryMode;
     enabled?: boolean;
 };
 
 export type UpdateCronTriggerRequest = {
+    /**
+     * Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+     */
+    target?: CronTriggerTarget;
     name?: ResourceName;
     cron?: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
-    delivery_mode?: CronTriggerDeliveryMode;
     enabled?: boolean;
 };
 
@@ -1265,7 +1268,6 @@ export type CronTrigger = {
     cron: CronExpression;
     timezone: CronTimezone;
     message_template: CronMessageTemplate;
-    delivery_mode: CronTriggerDeliveryMode;
     enabled: boolean;
     /**
      * When the trigger last fired, or null if it has never fired.

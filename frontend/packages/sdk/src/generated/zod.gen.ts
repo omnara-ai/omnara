@@ -872,20 +872,10 @@ export const zListAgentProfilesResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
-export const zAgentCronTriggerTarget = z.object({
-    type: z.enum(['agent']),
-    agent_id: zAgentId
-});
-
 export const zAgentProfileCronTriggerTarget = z.object({
     type: z.enum(['profile']),
     agent_profile_id: zAgentProfileId
 });
-
-export const zCronTriggerTarget = z.discriminatedUnion('type', [
-    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
-    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
-]);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -903,9 +893,20 @@ export const zCronTimezone = z.string().max(64).default('UTC');
 export const zCronMessageTemplate = z.string().max(65536);
 
 /**
- * How each firing's message is delivered to an existing agent target. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs. Agent profile targets always use `queued`: each firing launches a new agent with the message as its initial prompt.
+ * How each firing's message is delivered to an existing agent target. Defaults to `queued` when creating a trigger; omitting it from an update preserves the current mode. `queued` appends the message to the agent's input backlog, so firings accumulate while the agent is busy. `steering` delivers the message into the agent's current turn, or opens a new turn when the agent is idle, so a firing is never left waiting behind earlier inputs.
  */
-export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']).default('queued');
+export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']);
+
+export const zAgentCronTriggerTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId,
+    delivery_mode: zCronTriggerDeliveryMode.optional()
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
+]);
 
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
@@ -919,16 +920,15 @@ export const zCreateCronTriggerRequest = z.object({
     cron: zCronExpression,
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate,
-    delivery_mode: zCronTriggerDeliveryMode.optional(),
     enabled: z.boolean().optional().default(true)
 });
 
 export const zUpdateCronTriggerRequest = z.object({
+    target: zCronTriggerTarget.optional(),
     name: zResourceName.optional(),
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),
     message_template: zCronMessageTemplate.optional(),
-    delivery_mode: zCronTriggerDeliveryMode.optional(),
     enabled: z.boolean().optional()
 });
 
@@ -941,7 +941,6 @@ export const zCronTrigger = z.object({
     cron: zCronExpression,
     timezone: zCronTimezone,
     message_template: zCronMessageTemplate,
-    delivery_mode: zCronTriggerDeliveryMode,
     enabled: z.boolean(),
     last_fired_at: zTimestamp.nullable(),
     next_fire_at: zTimestamp.nullable(),

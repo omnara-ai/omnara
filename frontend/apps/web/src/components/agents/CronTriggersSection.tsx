@@ -89,7 +89,7 @@ export function CronTriggersList({
                 <p className="text-muted-foreground truncate text-xs">
                   <span className="font-mono">{trigger.cron}</span> · {trigger.timezone}
                   {trigger.target.type === 'agent' &&
-                    ` · ${cronTriggerDeliveryModeLabel(trigger.delivery_mode)}`}
+                    ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
                 {trigger.failure_report && (
