@@ -170,6 +170,9 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 		APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
 		APIVariant:                 modelprotocol.APIVariantDefault,
 		ProviderReportedCostUSD:    "0.0000125",
+		ProviderMetadata: modelenvelope.ProviderMetadata{
+			OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moonshot AI"},
+		},
 		Normalized: modelenvelope.ResponseNormalized{
 			ID:         "resp_kernel_model_output_authority",
 			Content:    []modelenvelope.ResponsePart{{Type: "text", Text: "hello"}},
@@ -312,6 +315,36 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			"model call provider-reported cost = %q, want %q",
 			completedContext.ProviderReportedCostUSD,
 			providerResponse.ProviderReportedCostUSD,
+		)
+	}
+	if completedContext.ProviderMetadata != providerResponse.ProviderMetadata {
+		t.Fatalf(
+			"model call provider metadata = %+v, want %+v",
+			completedContext.ProviderMetadata,
+			providerResponse.ProviderMetadata,
+		)
+	}
+	readEvents, err := fixture.Store.Execution().ListAgentEventsForRead(ctx, testProjectID, fixture.AgentID, 0, 100)
+	if err != nil {
+		t.Fatalf("list agent events for read: %v", err)
+	}
+	var readModelOutput *executionstore.AgentEventReadRecord
+	for index := range readEvents {
+		if readEvents[index].ID == event.ID {
+			readModelOutput = &readEvents[index]
+		}
+	}
+	if readModelOutput == nil {
+		t.Fatalf("model output event %s missing from read projection", event.ID)
+	}
+	if readModelOutput.ModelUsage != providerResponse.Normalized.Usage ||
+		readModelOutput.ProviderMetadata != providerResponse.ProviderMetadata {
+		t.Fatalf(
+			"read projection usage=%+v metadata=%+v, want %+v and %+v",
+			readModelOutput.ModelUsage,
+			readModelOutput.ProviderMetadata,
+			providerResponse.Normalized.Usage,
+			providerResponse.ProviderMetadata,
 		)
 	}
 	var inputTokens, outputTokens, contentBlocks int

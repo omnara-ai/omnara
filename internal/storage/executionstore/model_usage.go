@@ -31,12 +31,12 @@ func modelUsageForStorage(usage modelenvelope.Usage) modelenvelope.Usage {
 func usageColumnsFromModelUsage(usage modelenvelope.Usage) normalizedUsageColumns {
 	usage = modelUsageForStorage(usage)
 	return normalizedUsageColumns{
-		InputTokens:         positiveUsageTokenCountPtr(usage.InputTokens),
-		UncachedInputTokens: positiveUsageTokenCountPtr(usage.UncachedInputTokens),
-		OutputTokens:        positiveUsageTokenCountPtr(usage.OutputTokens),
-		ReasoningTokens:     positiveUsageTokenCountPtr(usage.ReasoningTokens),
-		CacheReadTokens:     positiveUsageTokenCountPtr(usage.CacheReadTokens),
-		CacheWriteTokens:    positiveUsageTokenCountPtr(usage.CacheWriteTokens),
+		InputTokens:         modelenvelope.OptionalCount(usage.InputTokens),
+		UncachedInputTokens: modelenvelope.OptionalCount(usage.UncachedInputTokens),
+		OutputTokens:        modelenvelope.OptionalCount(usage.OutputTokens),
+		ReasoningTokens:     modelenvelope.OptionalCount(usage.ReasoningTokens),
+		CacheReadTokens:     modelenvelope.OptionalCount(usage.CacheReadTokens),
+		CacheWriteTokens:    modelenvelope.OptionalCount(usage.CacheWriteTokens),
 	}
 }
 
@@ -56,13 +56,6 @@ func modelUsageFromSQLC(
 		OutputTokens:        intFromSQLCPtr(outputTokens),
 		ReasoningTokens:     intFromSQLCPtr(reasoningTokens),
 	})
-}
-
-func positiveUsageTokenCountPtr(value int) *int {
-	if value <= 0 {
-		return nil
-	}
-	return &value
 }
 
 func intFromSQLCPtr(value *int32) int {

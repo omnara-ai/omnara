@@ -14,8 +14,9 @@ import (
 
 func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
 	var rendered []modelcontext.RenderedMedia
+	compat := p.client.compat()
 	modelCandidates := []string{p.client.ProviderModelSlug}
-	if p.client.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+	if compat.routesFallbackModels {
 		modelCandidates = append(
 			modelCandidates,
 			openRouterFallbackModelSlugs(p.client.APIVariantOptions)...,
@@ -31,13 +32,13 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		}
 		representation := modelcontext.MediaRepresentationInline
 		tokenEstimate := 0
+		routeParsed := compat.parsesPDFDocuments && item.MediaType == "application/pdf"
 		switch item.Kind {
 		case modelcontext.AttachmentKindImage:
 			tokenEstimate = model.OpenAIImageTokenEstimateForModels(modelCandidates, item)
 		case modelcontext.AttachmentKindDocument:
-			if !occurrence.Opening && item.MediaType == "application/pdf" &&
-				p.client.ModelAPIVariant() != modelprotocol.APIVariantOpenRouter &&
-				!p.client.ModelCapabilities.AllowsInputModality("file") {
+			if !occurrence.Opening && item.MediaType == "application/pdf" && !routeParsed &&
+				!p.client.ModelCapabilities.AllowsInputModality(modelcontext.InputModalityFile) {
 				continue
 			}
 			if !rendersAsChatDocument(item) {
@@ -53,6 +54,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 			Occurrence:     occurrence.Ref,
 			Media:          item,
 			Representation: representation,
+			RouteParsed:    routeParsed,
 			TokenEstimate:  tokenEstimate,
 		})
 	}

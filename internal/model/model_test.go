@@ -256,18 +256,17 @@ func TestPrepareForSendEnforcesLiveModalities(t *testing.T) {
 	}
 
 	bundle.RenderedMedia[0].Representation = modelcontext.MediaRepresentationInline
-	bundle.RenderedMedia[0].Media.MediaType = "application/pdf"
+	bundle.RenderedMedia[0].RouteParsed = true
 	prepareInput.Context = bundle
-	client.apiVariant = modelprotocol.APIVariantOpenRouter
 	if _, err := PrepareForSend(context.Background(), client, prepareInput); err != nil {
-		t.Fatalf("OpenRouter PDF: %v", err)
+		t.Fatalf("route-parsed document: %v", err)
 	}
 
-	bundle.RenderedMedia[0].Media.MediaType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	bundle.RenderedMedia[0].RouteParsed = false
 	prepareInput.Context = bundle
 	_, err = PrepareForSend(context.Background(), client, prepareInput)
 	if !errors.As(err, &providerErr) || providerErr.Code != "unsupported_input_modality" {
-		t.Fatalf("OpenRouter Office file modality error = %v, want unsupported input modality", err)
+		t.Fatalf("file modality error = %v, want unsupported input modality", err)
 	}
 
 	client.capabilities.InputModalities = []string{"text", "image", "file"}
@@ -378,6 +377,7 @@ type prepareForSendClient struct {
 
 func (c prepareForSendClient) RequestedProviderModelSlug() string { return "prepare-test" }
 func (prepareForSendClient) APIFormat() modelprotocol.APIFormat   { return "test" }
+
 func (c prepareForSendClient) ModelAPIVariant() modelprotocol.APIVariant {
 	return c.apiVariant
 }
@@ -654,80 +654,4 @@ func (replayIdentityClient) Prepare(context.Context, PrepareInput) (PreparedRequ
 }
 func (replayIdentityClient) Respond(context.Context, Request) (Response, error) {
 	return Response{}, nil
-}
-
-func TestEffectiveCacheRetentionDefaultsAnthropicToShort(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		format    modelprotocol.APIFormat
-		variant   modelprotocol.APIVariant
-		slug      string
-		retention CacheRetention
-		want      CacheRetention
-	}{
-		{
-			name:    "anthropic messages unset",
-			format:  modelprotocol.APIFormatAnthropicMessages,
-			variant: modelprotocol.APIVariantDefault,
-			slug:    "claude-sonnet-4",
-			want:    CacheRetentionShort,
-		},
-		{
-			name:    "anthropic messages bedrock unset",
-			format:  modelprotocol.APIFormatAnthropicMessages,
-			variant: modelprotocol.APIVariantBedrock,
-			slug:    "claude-sonnet-4",
-			want:    CacheRetentionShort,
-		},
-		{
-			name:    "openrouter claude unset",
-			format:  modelprotocol.APIFormatOpenAIChatCompletions,
-			variant: modelprotocol.APIVariantOpenRouter,
-			slug:    "~Anthropic/Claude-Sonnet-4",
-			want:    CacheRetentionShort,
-		},
-		{
-			name:    "openrouter non-claude unset",
-			format:  modelprotocol.APIFormatOpenAIChatCompletions,
-			variant: modelprotocol.APIVariantOpenRouter,
-			slug:    "openai/gpt-5",
-			want:    CacheRetentionNone,
-		},
-		{
-			name:    "chat completions default variant unset",
-			format:  modelprotocol.APIFormatOpenAIChatCompletions,
-			variant: modelprotocol.APIVariantDefault,
-			slug:    "anthropic/claude-sonnet-4",
-			want:    CacheRetentionNone,
-		},
-		{
-			name:    "responses unset",
-			format:  modelprotocol.APIFormatOpenAIResponses,
-			variant: modelprotocol.APIVariantDefault,
-			slug:    "gpt-5",
-			want:    CacheRetentionNone,
-		},
-		{
-			name:      "explicit none wins",
-			format:    modelprotocol.APIFormatAnthropicMessages,
-			variant:   modelprotocol.APIVariantDefault,
-			slug:      "claude-sonnet-4",
-			retention: CacheRetentionNone,
-			want:      CacheRetentionNone,
-		},
-		{
-			name:      "explicit long wins",
-			format:    modelprotocol.APIFormatOpenAIResponses,
-			variant:   modelprotocol.APIVariantDefault,
-			slug:      "gpt-5",
-			retention: CacheRetentionLong,
-			want:      CacheRetentionLong,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := EffectiveCacheRetention(tc.format, tc.variant, tc.slug, tc.retention); got != tc.want {
-				t.Fatalf("effective cache retention = %q, want %q", got, tc.want)
-			}
-		})
-	}
 }

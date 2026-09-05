@@ -91,6 +91,7 @@ func ResponseEvidenceForStorage(response Response) Response {
 		ProviderRequestID:       response.ProviderRequestID,
 		ServedProviderModelSlug: response.ServedProviderModelSlug,
 		ProviderReportedCostUSD: response.ProviderReportedCostUSD,
+		ProviderMetadata:        response.ProviderMetadata,
 		Usage:                   response.Usage,
 	}
 	if err := ValidateProviderResponse(evidence); err != nil {

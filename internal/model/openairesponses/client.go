@@ -47,18 +47,22 @@ func (c Client) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.
 	return (protocol{client: c}).ProjectRenderedMedia(bundle)
 }
 
+func (c Client) endpoint() route.StaticEndpoint {
+	return route.StaticEndpoint{
+		BaseURL:        c.BaseURL,
+		DefaultBaseURL: "https://api.openai.com/v1",
+		Path:           c.EndpointPath,
+	}
+}
+
 func (c Client) routeClient() route.Client {
 	return route.Client{
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
-		Endpoint: route.StaticEndpoint{
-			BaseURL:        c.BaseURL,
-			DefaultBaseURL: "https://api.openai.com/v1",
-			Path:           c.EndpointPath,
-		},
-		Auth:      c.Auth,
-		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost},
-		Protocol:  protocol{client: c},
+		Endpoint:          c.endpoint(),
+		Auth:              c.Auth,
+		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost},
+		Protocol:          protocol{client: c},
 	}
 }
 

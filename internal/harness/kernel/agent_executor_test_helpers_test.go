@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -145,6 +146,7 @@ func newKernelFixture(t *testing.T, ctx context.Context) kernelFixture {
 		pool,
 		storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)),
 		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
+		storage.WithMachinePoolProviders(kernelTestMachinePoolProviders{}),
 		storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }),
 	)
 	if _, err := store.Identity().AddOrgMembership(
@@ -335,6 +337,18 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil
+		},
+		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
+			machinePoolID, err := f.Store.Execution().ResolveAgentConfigMachinePoolName(
+				ctx,
+				kernelTestOrgID,
+				kernelTestProjectID,
+				machinePoolName,
+			)
+			if err != nil {
+				return "", err
+			}
+			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
 		},
 		ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
 			records, _, err := f.Store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
@@ -985,6 +999,7 @@ type modelcontextSnapshot struct {
 	ProviderReplaySequences []int64
 	Policy                  model.RequestPolicy
 	ProviderRequest         json.RawMessage
+	Bundle                  modelcontext.Bundle
 }
 
 func (m *sequenceKernelModel) RequestedProviderModelSlug() string {
@@ -1048,6 +1063,7 @@ func (m *sequenceKernelModel) Prepare(_ context.Context, input model.PrepareInpu
 			ProviderReplaySequences: providerReplaySequences,
 			Policy:                  input.Policy,
 			ProviderRequest:         body,
+			Bundle:                  input.Context,
 		},
 	)
 	estimate := m.preparedInputTokenEstimate
@@ -1322,4 +1338,34 @@ func (c *fakeKernelMCPClient) expectedAgentIDLocked() string {
 		return c.lastAgentID
 	}
 	return c.agentID
+}
+
+type kernelTestMachinePoolProviders struct{}
+
+func (kernelTestMachinePoolProviders) ResolveMachineProviderOptions(
+	_ string,
+	defaultOptions, projectOptions, agentOptions map[string]json.RawMessage,
+) (map[string]json.RawMessage, error) {
+	var merged map[string]json.RawMessage
+	for _, overlay := range []map[string]json.RawMessage{defaultOptions, projectOptions, agentOptions} {
+		if overlay != nil && merged == nil {
+			merged = map[string]json.RawMessage{}
+		}
+		for key, value := range overlay {
+			merged[key] = append(json.RawMessage(nil), value...)
+		}
+	}
+	return merged, nil
+}
+
+func (kernelTestMachinePoolProviders) ValidatePool(string, executionstore.MachinePoolProviderPolicy) error {
+	return nil
+}
+
+func (kernelTestMachinePoolProviders) BuildMachineProvisioningIntent(
+	_ string,
+	_ executionstore.MachinePoolProviderPolicy,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) (executionstore.MachineProvisioningConfig, error) {
+	return machineProvisioning, nil
 }

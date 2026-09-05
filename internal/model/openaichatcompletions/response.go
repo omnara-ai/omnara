@@ -11,14 +11,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return model.Response{}, classifyHTTPError(
-			p.errorSource(), p.ModelAPIVariant(), resp.StatusCode, resp.Header, body,
+			p.errorSource(), p.client.compat(), resp.StatusCode, resp.Header, body,
 		)
 	}
 	if err := model.ValidateProviderJSON(body); err != nil {
@@ -31,7 +30,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	if decoded.Error.present() {
 		return p.chatResponseEvidence(ctx, decoded), classifyProviderError(
 			p.errorSource(),
-			p.ModelAPIVariant(),
+			p.client.compat(),
 			resp.StatusCode,
 			resp.Header,
 			decoded.Error,
@@ -77,7 +76,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		if choice.hasError() {
 			return out, classifyChoiceError(
 				p.errorSource(),
-				p.ModelAPIVariant(),
+				p.client.compat(),
 				resp.StatusCode,
 				resp.Header,
 				choice,
@@ -147,7 +146,8 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
-	if p.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter {
+	if p.client.compat().reportsServedProviderAndCost {
+		out.ProviderMetadata.OpenRouter.Provider = string(response.Provider)
 		cost, issue := openRouterReportedCost(response.Usage)
 		out.ProviderReportedCostUSD = cost
 		switch issue {
@@ -166,11 +166,12 @@ func (p protocol) chatResponseEvidence(
 }
 
 type chatCompletionsResponse struct {
-	ID      string            `json:"id"`
-	Model   string            `json:"model"`
-	Choices []chatChoice      `json:"choices"`
-	Usage   chatUsage         `json:"usage"`
-	Error   chatProviderError `json:"error"`
+	ID       string            `json:"id"`
+	Model    string            `json:"model"`
+	Provider lenientString     `json:"provider,omitempty"`
+	Choices  []chatChoice      `json:"choices"`
+	Usage    chatUsage         `json:"usage"`
+	Error    chatProviderError `json:"error"`
 }
 
 type chatChoice struct {
@@ -290,7 +291,12 @@ func reasoningTextFromDetails(details []json.RawMessage) string {
 }
 
 type chatUsage struct {
-	PromptTokens            int              `json:"prompt_tokens"`
+	PromptTokens int `json:"prompt_tokens"`
+	// Cache reads on OpenAI-compatible hosts that predate prompt_tokens_details:
+	// https://api-docs.deepseek.com/guides/kv_cache (prompt_cache_hit_tokens) and
+	// https://platform.kimi.ai/docs/api/chat (cached_tokens).
+	PromptCacheHitTokens    lenientInt       `json:"prompt_cache_hit_tokens"`
+	CachedTokens            lenientInt       `json:"cached_tokens"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
@@ -354,26 +360,29 @@ func textFromChatContent(raw json.RawMessage) (string, error) {
 }
 
 func usageFromResponse(usage chatUsage) model.Usage {
-	if usage.PromptTokens < 0 ||
-		usage.PromptTokensDetails.CachedTokens < 0 ||
-		usage.PromptTokensDetails.CacheWriteTokens < 0 ||
-		usage.CompletionTokens < 0 ||
-		usage.CompletionTokensDetails.ReasoningTokens < 0 ||
-		usage.PromptTokensDetails.CachedTokens > usage.PromptTokens ||
-		usage.PromptTokensDetails.CacheWriteTokens > usage.PromptTokens-usage.PromptTokensDetails.CachedTokens ||
-		usage.CompletionTokensDetails.ReasoningTokens > usage.CompletionTokens {
+	if usage.PromptTokens < 0 || usage.CompletionTokens < 0 {
 		return model.Usage{}
 	}
-	uncachedInputTokens := usage.PromptTokens -
-		usage.PromptTokensDetails.CachedTokens -
-		usage.PromptTokensDetails.CacheWriteTokens
+	cache := usage.PromptTokensDetails
+	if cache.CachedTokens == 0 {
+		cache.CachedTokens = max(int(usage.PromptCacheHitTokens), int(usage.CachedTokens))
+	}
+	if cache.CachedTokens < 0 || cache.CacheWriteTokens < 0 ||
+		cache.CachedTokens > usage.PromptTokens ||
+		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens {
+		cache = chatTokenDetails{}
+	}
+	reasoning := usage.CompletionTokensDetails.ReasoningTokens
+	if reasoning < 0 || reasoning > usage.CompletionTokens {
+		reasoning = 0
+	}
 	return model.Usage{
 		InputTokens:         usage.PromptTokens,
-		UncachedInputTokens: uncachedInputTokens,
+		UncachedInputTokens: usage.PromptTokens - cache.CachedTokens - cache.CacheWriteTokens,
 		OutputTokens:        usage.CompletionTokens,
-		ReasoningTokens:     usage.CompletionTokensDetails.ReasoningTokens,
-		CacheReadTokens:     usage.PromptTokensDetails.CachedTokens,
-		CacheWriteTokens:    usage.PromptTokensDetails.CacheWriteTokens,
+		ReasoningTokens:     reasoning,
+		CacheReadTokens:     cache.CachedTokens,
+		CacheWriteTokens:    cache.CacheWriteTokens,
 	}
 }
 

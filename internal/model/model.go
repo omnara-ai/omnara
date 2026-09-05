@@ -255,7 +255,7 @@ func OutputTokenLimitsForClient(
 func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorSource string) error {
 	capabilities := CapabilitiesForClient(client)
 	if len(capabilities.InputModalities) > 0 {
-		if !containsModality(capabilities.InputModalities, "text") {
+		if !containsModality(capabilities.InputModalities, modelcontext.InputModalityText) {
 			return ProviderError{
 				Kind:    ErrorKindInvalidRequest,
 				Source:  errorSource,
@@ -264,34 +264,20 @@ func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorS
 			}
 		}
 		for _, media := range bundle.RenderedMedia {
-			requiredModality := ""
-			requiredDescription := ""
-			switch media.Media.Kind {
-			case modelcontext.AttachmentKindImage:
-				requiredModality = "image"
-				requiredDescription = "image"
-			case modelcontext.AttachmentKindDocument:
-				if media.Representation == modelcontext.MediaRepresentationInlineText ||
-					(APIVariantForClient(client) == modelprotocol.APIVariantOpenRouter &&
-						media.Media.MediaType == "application/pdf") {
-					continue
-				}
-				requiredModality = "file"
-				requiredDescription = "file"
-			}
-			if requiredModality != "" && !containsModality(capabilities.InputModalities, requiredModality) {
+			modality := media.InputModality()
+			if modality != "" && !containsModality(capabilities.InputModalities, modality) {
 				return ProviderError{
 					Kind:   ErrorKindInvalidRequest,
 					Source: errorSource,
 					Code:   "unsupported_input_modality",
-					Message: "The live model grant does not allow " + requiredDescription +
+					Message: "The live model grant does not allow " + modality +
 						" input required by this agent request.",
 				}
 			}
 		}
 	}
 	if len(capabilities.OutputModalities) > 0 &&
-		!containsModality(capabilities.OutputModalities, "text") {
+		!containsModality(capabilities.OutputModalities, modelcontext.InputModalityText) {
 		return ProviderError{
 			Kind:    ErrorKindInvalidRequest,
 			Source:  errorSource,
@@ -313,40 +299,6 @@ func containsModality(values []string, want string) bool {
 
 func (c Capabilities) AllowsInputModality(modality string) bool {
 	return len(c.InputModalities) == 0 || containsModality(c.InputModalities, modality)
-}
-
-type CacheRetention string
-
-const (
-	CacheRetentionUnset CacheRetention = ""
-	CacheRetentionNone  CacheRetention = "none"
-	CacheRetentionShort CacheRetention = "short"
-	CacheRetentionLong  CacheRetention = "long"
-)
-
-func EffectiveCacheRetention(
-	apiFormat modelprotocol.APIFormat,
-	apiVariant modelprotocol.APIVariant,
-	providerModelSlug string,
-	retention CacheRetention,
-) CacheRetention {
-	if retention != CacheRetentionUnset {
-		return retention
-	}
-	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
-		return CacheRetentionShort
-	}
-	if apiFormat == modelprotocol.APIFormatOpenAIChatCompletions &&
-		apiVariant == modelprotocol.APIVariantOpenRouter &&
-		OpenRouterSupportsCacheControl(providerModelSlug) {
-		return CacheRetentionShort
-	}
-	return CacheRetentionNone
-}
-
-func OpenRouterSupportsCacheControl(providerModelSlug string) bool {
-	slug := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(providerModelSlug)), "~")
-	return strings.HasPrefix(slug, "anthropic/claude-")
 }
 
 type RequestPolicy struct {

@@ -3,6 +3,8 @@ package model
 import (
 	"strings"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 func TestResponseEvidenceForStorageKeepsOnlySafeAuditFields(t *testing.T) {
@@ -75,5 +77,15 @@ func TestValidateProviderResponseRejectsOversizedIdentities(t *testing.T) {
 				t.Fatalf("oversized identity error = %v", err)
 			}
 		})
+	}
+}
+
+func TestResponseEvidenceForStorageKeepsUsageRegardlessOfProviderMetadata(t *testing.T) {
+	metadata := modelenvelope.ProviderMetadata{OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moon\x00shot"}}
+	evidence := ResponseEvidenceForStorage(Response{
+		ID: "resp_1", ProviderMetadata: metadata, Usage: Usage{InputTokens: 12},
+	})
+	if evidence.ID != "resp_1" || evidence.Usage != (Usage{InputTokens: 12}) || evidence.ProviderMetadata != metadata {
+		t.Fatalf("evidence = %+v, want kept intact", evidence)
 	}
 }

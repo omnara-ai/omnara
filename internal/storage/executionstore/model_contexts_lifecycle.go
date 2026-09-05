@@ -94,6 +94,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 		RetryDelay:              &input.RetryDelay,
 		Usage:                   input.Usage,
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	})
 	if err != nil {
 		return ModelCallContextRecord{}, err
@@ -166,6 +167,7 @@ type finishModelCallContextInput struct {
 	RetryDelay              *time.Duration
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 type modelCallContextRuntimeAuthority uint8
@@ -200,6 +202,10 @@ func finishModelCallContextWithAuthorityTx(
 	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("provider-reported cost: %w", err)
 	}
+	providerMetadata, err := json.Marshal(input.ProviderMetadata)
+	if err != nil {
+		return ModelCallContextRecord{}, fmt.Errorf("encode provider metadata: %w", err)
+	}
 	var retryDelayMicroseconds *int64
 	if input.RetryDelay != nil {
 		if *input.RetryDelay < 0 {
@@ -227,6 +233,7 @@ func finishModelCallContextWithAuthorityTx(
 		OutputTokensTotal:                   sqlcInt32Ptr(usage.OutputTokens),
 		ReasoningOutputTokens:               sqlcInt32Ptr(usage.ReasoningTokens),
 		ProviderReportedCostUsd:             providerReportedCostUSDToSQLC(input.ProviderReportedCostUSD),
+		ProviderMetadata:                    providerMetadata,
 		ID:                                  input.ModelCallContextID,
 		ProjectID:                           input.ProjectID,
 		AgentID:                             input.AgentID,

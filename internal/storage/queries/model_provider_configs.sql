@@ -32,7 +32,7 @@ WHERE org_id = sqlc.arg(org_id)
   AND deleted_at IS NULL;
 
 -- name: LockModelProviderConfigForConfiguredModelCreate :one
-SELECT id, management_kind, api_format
+SELECT id, management_kind, api_format, api_variant
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)

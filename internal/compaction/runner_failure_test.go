@@ -75,6 +75,7 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 			}
 			want := model.RequestPolicyFromCapabilities(test.caps)
 			want.MaxOutputTokens = test.wantOutput
+			want.CacheRetention = model.CacheRetentionNone
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("compaction policy = %+v, want %+v", got, want)
 			}
@@ -132,6 +133,7 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 			}
 			want := model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client))
 			want.MaxOutputTokens = test.wantOutput
+			want.CacheRetention = model.CacheRetentionNone
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("compaction policy = %+v, want only output changed in %+v", got, want)
 			}

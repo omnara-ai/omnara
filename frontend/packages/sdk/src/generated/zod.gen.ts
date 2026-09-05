@@ -187,12 +187,12 @@ export const zModelProviderApiVariant = z.enum([
 export const zModelProviderApiVariantResponse = z.string();
 
 /**
- * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
+ * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
  */
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export const zModelCacheRetention = z.enum([
     'none',
@@ -1373,22 +1373,6 @@ export const zAgentInputEvent = z.object({
     created_at: zTimestamp
 });
 
-export const zModelOutputEvent = z.object({
-    id: zAgentEventId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    turn_id: zAgentTurnId,
-    turn_sequence: zAgentSequence,
-    is_opening_event: z.literal(false),
-    sequence: zAgentSequence,
-    event_kind: z.enum(['model_output']),
-    model_call_context_id: zModelCallContextId,
-    stop_reason: zModelOutputStopReason,
-    content_blocks: z.array(zModelOutputContentBlock),
-    created_at: zTimestamp
-});
-
 export const zToolResultEvent = z.object({
     id: zAgentEventId,
     org_id: zOrganizationId,
@@ -1420,13 +1404,6 @@ export const zContextCheckpointEvent = z.object({
     summary: z.string(),
     created_at: zTimestamp
 });
-
-export const zAgentEvent = z.discriminatedUnion('event_kind', [
-    zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
-    zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
-    zToolResultEvent.extend({ event_kind: z.literal('tool_result') }),
-    zContextCheckpointEvent.extend({ event_kind: z.literal('context_checkpoint') })
-]);
 
 export const zModelOutputTextStreamBlock = z.object({
     kind: z.enum(['text'])
@@ -1477,6 +1454,9 @@ export const zModelOutputBlockStopDelta = z.object({
     block_index: z.int().gte(0)
 });
 
+/**
+ * Token counts the provider reported for one model call. Cache and reasoning counts are omitted when the provider reported none.
+ */
 export const zModelUsage = z.object({
     input_tokens_total: z.int().gte(0).optional(),
     uncached_input_tokens: z.int().gte(0).optional(),
@@ -1485,6 +1465,31 @@ export const zModelUsage = z.object({
     cache_read_input_tokens: z.int().gte(0).optional(),
     cache_write_input_tokens: z.int().gte(0).optional()
 });
+
+export const zModelOutputEvent = z.object({
+    id: zAgentEventId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    turn_id: zAgentTurnId,
+    turn_sequence: zAgentSequence,
+    is_opening_event: z.literal(false),
+    sequence: zAgentSequence,
+    event_kind: z.enum(['model_output']),
+    model_call_context_id: zModelCallContextId,
+    stop_reason: zModelOutputStopReason,
+    content_blocks: z.array(zModelOutputContentBlock),
+    usage: zModelUsage.optional(),
+    provider_metadata: z.record(z.string(), z.unknown()).optional(),
+    created_at: zTimestamp
+});
+
+export const zAgentEvent = z.discriminatedUnion('event_kind', [
+    zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
+    zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
+    zToolResultEvent.extend({ event_kind: z.literal('tool_result') }),
+    zContextCheckpointEvent.extend({ event_kind: z.literal('context_checkpoint') })
+]);
 
 export const zModelOutputMessageStopDelta = z.object({
     kind: z.enum(['message_stop']),

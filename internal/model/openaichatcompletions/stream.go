@@ -13,7 +13,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 var errChatStreamTerminal = errors.New("chat completions stream reached a terminal event")
@@ -32,7 +31,7 @@ func (p protocol) BuildStreamRequest(body json.RawMessage) (json.RawMessage, err
 		return nil, fmt.Errorf("decode openai chat completions request for streaming: %w", err)
 	}
 	decoded["stream"] = json.RawMessage(`true`)
-	if p.client.ModelAPIVariant() != modelprotocol.APIVariantOpenRouter {
+	if p.client.compat().usageViaStreamOptions {
 		decoded["stream_options"] = streamOptionsWithUsage(decoded["stream_options"])
 	}
 	return json.Marshal(decoded)
@@ -97,7 +96,7 @@ func (p protocol) ConsumeStream(
 		return acc.partialResponse(ctx), acc.streamErr
 	}
 	if !acc.hasCompleteTerminalOutcome() ||
-		(!acc.completed && (p.ModelAPIVariant() != modelprotocol.APIVariantBedrock || !acc.usageReceived)) {
+		(!acc.completed && !(p.client.compat().usageChunkCompletesStream && acc.usageReceived)) {
 		err := model.AmbiguousProviderOutcome(model.ProviderError{
 			Kind:       model.ErrorKindTransient,
 			Source:     p.errorSource(),
@@ -167,6 +166,7 @@ type chatStreamAccumulator struct {
 	choices        map[int]*chatStreamChoiceState
 	id             string
 	servedModel    string
+	provider       lenientString
 	usage          chatUsage
 	usageReceived  bool
 	completed      bool
@@ -175,9 +175,10 @@ type chatStreamAccumulator struct {
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
 	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
-		ID:    a.id,
-		Model: a.servedModel,
-		Usage: a.usage,
+		ID:       a.id,
+		Model:    a.servedModel,
+		Provider: a.provider,
+		Usage:    a.usage,
 	})
 }
 
@@ -217,11 +218,12 @@ type chatStreamReasoningDetailState struct {
 }
 
 type chatStreamChunk struct {
-	ID      string             `json:"id"`
-	Model   string             `json:"model"`
-	Choices []chatStreamChoice `json:"choices"`
-	Usage   *chatUsage         `json:"usage"`
-	Error   chatProviderError  `json:"error"`
+	ID       string             `json:"id"`
+	Model    string             `json:"model"`
+	Provider lenientString      `json:"provider,omitempty"`
+	Choices  []chatStreamChoice `json:"choices"`
+	Usage    *chatUsage         `json:"usage"`
+	Error    chatProviderError  `json:"error"`
 }
 
 type chatStreamChoice struct {
@@ -277,6 +279,9 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	if chunk.Model != "" {
 		a.servedModel = chunk.Model
 	}
+	if chunk.Provider != "" {
+		a.provider = chunk.Provider
+	}
 	if chunk.Usage != nil {
 		a.usage = *chunk.Usage
 		a.usageReceived = true
@@ -284,7 +289,7 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	if chunk.Error.present() {
 		a.streamErr = classifyProviderError(
 			a.protocol.errorSource(),
-			a.protocol.ModelAPIVariant(),
+			a.protocol.client.compat(),
 			a.statusCode,
 			a.header,
 			chunk.Error,
@@ -364,7 +369,7 @@ func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStr
 	}
 	if choice.Error.present() || strings.EqualFold(choice.FinishReason, "error") {
 		a.streamErr = classifyChoiceError(
-			a.protocol.errorSource(), a.protocol.ModelAPIVariant(), a.statusCode, a.header, chatChoice{
+			a.protocol.errorSource(), a.protocol.client.compat(), a.statusCode, a.header, chatChoice{
 				Index:        choice.Index,
 				FinishReason: choice.FinishReason,
 				Error:        choice.Error,
@@ -580,10 +585,11 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 		})
 	}
 	return json.Marshal(chatCompletionsResponse{
-		ID:      a.id,
-		Model:   a.servedModel,
-		Choices: choices,
-		Usage:   a.usage,
+		ID:       a.id,
+		Model:    a.servedModel,
+		Provider: a.provider,
+		Choices:  choices,
+		Usage:    a.usage,
 	})
 }
 

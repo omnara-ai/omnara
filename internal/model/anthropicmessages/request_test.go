@@ -558,18 +558,43 @@ func TestPrepareBoundsCacheBreakpoints(t *testing.T) {
 }
 
 func TestCacheBreakpointSkipsUncacheableMessageBlocks(t *testing.T) {
+	control := &CacheControl{Type: "ephemeral"}
 	for _, block := range []any{
 		map[string]any{"type": "thinking", "thinking": "signed reasoning"},
 		textBlock{Type: "text"},
 	} {
 		messages := []message{{Role: anthropicRoleAssistant, Content: []any{block}}}
-		messages = markLastMessageCacheBreakpoint(messages, cacheControl(model.CacheRetentionShort))
+		messages = markLastMessageCacheBreakpoint(messages, control)
 		body, err := json.Marshal(messages)
 		if err != nil {
 			t.Fatalf("marshal messages: %v", err)
 		}
 		if strings.Contains(string(body), "cache_control") {
 			t.Fatalf("uncacheable block gained cache control: %s", body)
+		}
+		messages = markLastMessageCacheBreakpoint([]message{
+			{Role: anthropicRoleUser, Content: []any{textBlock{Type: "text", Text: "cacheable"}}},
+			{Role: anthropicRoleAssistant, Content: []any{block}},
+		}, control)
+		body, err = json.Marshal(messages)
+		if err != nil {
+			t.Fatalf("marshal messages: %v", err)
+		}
+		if strings.Count(string(body), "cache_control") != 1 ||
+			!strings.Contains(string(body), `{"cache_control":{"type":"ephemeral"},"text":"cacheable","type":"text"}`) {
+			t.Fatalf("breakpoint should fall back to the last cacheable block: %s", body)
+		}
+		messages = markLastMessageCacheBreakpoint([]message{
+			{Role: anthropicRoleUser, Content: []any{textBlock{Type: "text", Text: "earlier"}}},
+			{Role: anthropicRoleAssistant, Content: []any{textBlock{Type: "text", Text: "cacheable"}, block}},
+		}, control)
+		body, err = json.Marshal(messages)
+		if err != nil {
+			t.Fatalf("marshal messages: %v", err)
+		}
+		if strings.Count(string(body), "cache_control") != 1 ||
+			!strings.Contains(string(body), `{"cache_control":{"type":"ephemeral"},"text":"cacheable","type":"text"}`) {
+			t.Fatalf("breakpoint should land on the last cacheable block within the tail message: %s", body)
 		}
 	}
 }
@@ -672,9 +697,12 @@ func TestPrepareDefaultsCacheBreakpointsToShortRetention(t *testing.T) {
 		name      string
 		retention model.CacheRetention
 		wantTTL   string
+		wantMarks int
 	}{
-		{name: "unset", retention: model.CacheRetentionUnset, wantTTL: "5m"},
-		{name: "none", retention: model.CacheRetentionNone, wantTTL: ""},
+		{name: "unset", retention: model.CacheRetentionUnset, wantMarks: 3},
+		{name: "short", retention: model.CacheRetentionShort, wantMarks: 3},
+		{name: "long", retention: model.CacheRetentionLong, wantTTL: "1h", wantMarks: 3},
+		{name: "none", retention: model.CacheRetentionNone},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
@@ -690,15 +718,59 @@ func TestPrepareDefaultsCacheBreakpointsToShortRetention(t *testing.T) {
 				t.Fatalf("prepare: %v", err)
 			}
 			body := string(prepared.Body)
-			if tc.wantTTL == "" {
-				if strings.Contains(body, "cache_control") {
-					t.Fatalf("cache_control should be omitted: %s", body)
-				}
-				return
+			if got := strings.Count(body, "cache_control"); got != tc.wantMarks {
+				t.Fatalf("cache breakpoints = %d, want %d: %s", got, tc.wantMarks, body)
 			}
-			if !strings.Contains(body, `"ttl":"`+tc.wantTTL+`"`) || strings.Count(body, "cache_control") != 3 {
-				t.Fatalf("want 3 cache breakpoints with ttl %s: %s", tc.wantTTL, body)
+			if got := strings.Count(body, `"ttl":`); got != 0 && tc.wantTTL == "" {
+				t.Fatalf("short retention must use the default ttl: %s", body)
+			}
+			if tc.wantTTL != "" && strings.Count(body, `"ttl":"`+tc.wantTTL+`"`) != tc.wantMarks {
+				t.Fatalf("want every breakpoint with ttl %s: %s", tc.wantTTL, body)
 			}
 		})
+	}
+}
+func TestPrepareBoundsCacheBreakpointsWithCheckpointAndUncacheableTail(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "claude-test",
+	}
+	replay := testProviderReplay(
+		"claude-test",
+		modelprotocol.APIFormatAnthropicMessages,
+		json.RawMessage(`[{"type":"thinking","thinking":"signed reasoning","signature":"sig_1"}]`),
+	)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt:      "sys",
+			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "summary"},
+			Messages: []modelcontext.Message{
+				{Sequence: 10, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+				{
+					Sequence:             20,
+					Role:                 modelprotocol.RoleAssistant,
+					Content:              json.RawMessage(`[{"type":"reasoning","text":"signed reasoning"}]`),
+					ProviderReplay:       replay.payload,
+					ProviderReplaySource: replay.source,
+				},
+			},
+			ToolSpecs: []modelcontext.ToolSpec{{Name: "tool_1"}, {Name: "tool_2"}},
+		},
+		Policy: model.RequestPolicy{MaxOutputTokens: 64},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	body := string(prepared.Body)
+	if !strings.Contains(body, `"signature":"sig_1"`) {
+		t.Fatalf("assistant thinking turn was not replayed: %s", body)
+	}
+	if got := strings.Count(body, "cache_control"); got != 4 {
+		t.Fatalf("cache breakpoints = %d, want tools, system, checkpoint, and the last user turn: %s", got, body)
+	}
+	if strings.Contains(body, `"signature":"sig_1","cache_control"`) ||
+		strings.Contains(body, `"cache_control":{"type":"ephemeral"},"signature"`) {
+		t.Fatalf("thinking block must not carry a cache breakpoint: %s", body)
 	}
 }

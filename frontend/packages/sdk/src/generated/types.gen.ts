@@ -150,14 +150,14 @@ export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 export type ModelProviderApiVariantResponse = string;
 
 /**
- * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
+ * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
  */
 export type ModelApiVariantOptions = {
     [key: string]: unknown;
 };
 
 /**
- * Default prompt-cache hint for model requests. When omitted, the provider adapter chooses: Anthropic models (direct or via OpenRouter) default to `short`; other providers rely on their own automatic caching. `none` means Omnara does not send a cache hint. `short` and `long` are translated to the closest supported control for the selected API.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export type ModelCacheRetention = 'none' | 'short' | 'long';
 
@@ -289,7 +289,7 @@ export type CreateConfiguredModelRequest = {
      */
     name: ResourceName;
     /**
-     * Exact provider model slug sent to the provider endpoint.
+     * Exact provider model slug sent to the provider endpoint. Free-pool, `:online`, and preset model ids are not accepted on Omnara-managed OpenRouter providers.
      */
     provider_model_slug: string;
     /**
@@ -341,7 +341,7 @@ export type UpdateConfiguredModelRequest = {
      */
     name?: ResourceName;
     /**
-     * Exact provider model slug sent to the provider endpoint.
+     * Exact provider model slug sent to the provider endpoint. Free-pool, `:online`, and preset model ids are not accepted on Omnara-managed OpenRouter providers.
      */
     provider_model_slug?: string;
     /**
@@ -1738,6 +1738,13 @@ export type ModelOutputEvent = {
     model_call_context_id: ModelCallContextId;
     stop_reason: ModelOutputStopReason;
     content_blocks: Array<ModelOutputContentBlock>;
+    usage?: ModelUsage;
+    /**
+     * Facts the provider reported about this call, keyed by provider (for example `openrouter.provider` names the upstream that served an OpenRouter request). Present only when the provider reported something.
+     */
+    provider_metadata?: {
+        [key: string]: unknown;
+    };
     created_at: Timestamp;
 };
 
@@ -1837,6 +1844,9 @@ export type ModelOutputBlockStopDelta = {
     block_index: number;
 };
 
+/**
+ * Token counts the provider reported for one model call. Cache and reasoning counts are omitted when the provider reported none.
+ */
 export type ModelUsage = {
     input_tokens_total?: number;
     uncached_input_tokens?: number;

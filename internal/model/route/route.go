@@ -56,11 +56,16 @@ type StaticEndpoint struct {
 	Path           string
 }
 
-func (e StaticEndpoint) URL() (string, error) {
+func (e StaticEndpoint) ResolvedBaseURL() string {
 	baseURL := strings.TrimRight(e.BaseURL, "/")
 	if baseURL == "" {
-		baseURL = strings.TrimRight(e.DefaultBaseURL, "/")
+		return strings.TrimRight(e.DefaultBaseURL, "/")
 	}
+	return baseURL
+}
+
+func (e StaticEndpoint) URL() (string, error) {
+	baseURL := e.ResolvedBaseURL()
 	if baseURL == "" {
 		return "", SetupError{Err: errors.New("model endpoint base URL is required")}
 	}

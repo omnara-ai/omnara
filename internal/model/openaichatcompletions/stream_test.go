@@ -744,3 +744,20 @@ func TestChatCompletionsConsumeMalformedStreamIsAmbiguous(t *testing.T) {
 		t.Fatalf("malformed stream = %T %v, want ambiguous outcome", err, err)
 	}
 }
+
+func TestChatCompletionsConsumeStreamRecordsOpenRouterServedProvider(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"}}]}`,
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		`{"id":"chatcmpl_1","model":"moonshotai/kimi-k3","provider":"Moonshot AI","choices":[],`+
+			`"usage":{"prompt_tokens":10,"completion_tokens":1,"cost":0.00001}}`,
+		`[DONE]`,
+	)
+	resp, err := consumeChatCompletionsStream(t, stream, &chatRecordingSink{}, modelprotocol.APIVariantOpenRouter)
+	if err != nil {
+		t.Fatalf("consume stream: %v", err)
+	}
+	if resp.ProviderMetadata.OpenRouter.Provider != "Moonshot AI" {
+		t.Fatalf("provider metadata = %+v, want OpenRouter provider Moonshot AI", resp.ProviderMetadata)
+	}
+}

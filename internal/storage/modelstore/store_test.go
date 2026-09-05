@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"math"
 	"slices"
 	"strings"
@@ -545,4 +546,74 @@ func boolPtrForModelProviderConfigStoreTest(value bool) *bool {
 func revisionWithToolSupport(revision ConfiguredModelRevisionRecord, supportsTools bool) ConfiguredModelRevisionRecord {
 	revision.SupportsTools = supportsTools
 	return revision
+}
+
+func TestValidateTenantModelOnClusterProvider(t *testing.T) {
+	shared := func(slug, options string, wantErr bool) struct {
+		modelKind, providerKind management.Kind
+		variant                 modelprotocol.APIVariant
+		slug, options           string
+		wantErr                 bool
+	} {
+		return struct {
+			modelKind, providerKind management.Kind
+			variant                 modelprotocol.APIVariant
+			slug, options           string
+			wantErr                 bool
+		}{management.Tenant, management.Cluster, modelprotocol.APIVariantOpenRouter, slug, options, wantErr}
+	}
+	cases := map[string]struct {
+		modelKind, providerKind management.Kind
+		variant                 modelprotocol.APIVariant
+		slug, options           string
+		wantErr                 bool
+	}{
+		"free variant":         shared("qwen/qwen3-coder-plus:free", `{}`, true),
+		"free variant chained": shared("qwen/qwen3-coder-plus:nitro:free", `{}`, true),
+		"free router":          shared("openrouter/free", `{}`, true),
+		"online variant":       shared("qwen/qwen3-coder-plus:online", `{}`, true),
+		"preset model":         shared("@preset/shared-thing", `{}`, true),
+		"preset on a model":    shared("openai/gpt-5.6@preset/shared-thing", `{}`, true),
+		"routing variant":      shared("qwen/qwen3-coder-plus:nitro", `{}`, false),
+		"paid router":          shared("openrouter/auto", `{}`, false),
+		"alias":                shared("~anthropic/claude-sonnet-latest", `{}`, false),
+		"provider pin":         shared("moonshotai/kimi-k3", `{"provider":{"only":["moonshotai"]}}`, false),
+		"paid fallback":        shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max"],"route":"fallback"}`, false),
+		"free fallback":        shared("qwen/qwen3-coder-plus", `{"models":["openrouter/free"]}`, true),
+		"online fallback":      shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max:online"]}`, true),
+		"end-user identity":    shared("qwen/qwen3-coder-plus", `{"user":"someone-else"}`, true),
+		"web plugin":           shared("qwen/qwen3-coder-plus", `{"plugins":[{"id":"web"}]}`, true),
+		"web search options": shared(
+			"qwen/qwen3-coder-plus",
+			`{"web_search_options":{"search_context_size":"low"}}`, true,
+		),
+		"preset option":       shared("qwen/qwen3-coder-plus", `{"preset":"shared-thing"}`, true),
+		"unclassified option": shared("qwen/qwen3-coder-plus", `{"future_knob":true}`, true),
+		"tenant-scoped options": shared(
+			"qwen/qwen3-coder-plus",
+			`{"temperature":0.2,"transforms":[],"session_id":"mine"}`, false,
+		),
+		"tenant's own provider": {
+			management.Tenant, management.Tenant, modelprotocol.APIVariantOpenRouter,
+			"openrouter/free", `{"user":"x","plugins":[{"id":"web"}]}`, false,
+		},
+		"cluster model on shared provider": {
+			management.Cluster, management.Cluster, modelprotocol.APIVariantOpenRouter,
+			"qwen/qwen3-coder-plus:free", `{"user":"x"}`, false,
+		},
+		"bedrock version suffix": {
+			management.Tenant, management.Cluster, modelprotocol.APIVariantBedrock,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0", `{}`, false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateTenantModelOnClusterProvider(
+				tc.modelKind, tc.providerKind, tc.variant, tc.slug, json.RawMessage(tc.options),
+			)
+			if tc.wantErr != (err != nil) || (err != nil && !errors.Is(err, storeerr.ErrInvalidModelProviderConfig)) {
+				t.Fatalf("err = %v, want error %v", err, tc.wantErr)
+			}
+		})
+	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -833,7 +834,16 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		ModelCallContextID: httpTestModelContext,
 		ModelStopReason:    model.StopReasonEndTurn,
 		ContentBlocks:      json.RawMessage(`[]`),
-		CreatedAt:          now,
+		ModelUsage: modelenvelope.Usage{
+			InputTokens:         12,
+			UncachedInputTokens: 2,
+			CacheReadTokens:     10,
+			OutputTokens:        3,
+		},
+		ProviderMetadata: modelenvelope.ProviderMetadata{
+			OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moonshot AI"},
+		},
+		CreatedAt: now,
 	})
 	if err != nil {
 		t.Fatalf("model output event response: %v", err)
@@ -850,6 +860,34 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 			wantModelContextID,
 		)
 	}
+	if modelOutputEvent.Usage == nil ||
+		*modelOutputEvent.Usage.InputTokensTotal != 12 ||
+		*modelOutputEvent.Usage.CacheReadInputTokens != 10 ||
+		*modelOutputEvent.Usage.OutputTokensTotal != 3 {
+		t.Fatalf("model output usage = %+v, want the recorded model call usage", modelOutputEvent.Usage)
+	}
+	if string(modelOutputEvent.ProviderMetadata) != `{"openrouter":{"provider":"Moonshot AI"}}` {
+		t.Fatalf("model output provider metadata = %s", modelOutputEvent.ProviderMetadata)
+	}
+	withoutEvidence, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
+		ID:                 testHTTPID(23),
+		OrgID:              httpTestOrgID,
+		ProjectID:          httpTestProjectID,
+		AgentID:            httpTestAgentID,
+		TurnID:             httpTestTurnID,
+		TurnSequence:       1,
+		Sequence:           11,
+		EventKind:          string(events.KindModelOutput),
+		ModelCallContextID: httpTestModelContext,
+		ModelStopReason:    model.StopReasonEndTurn,
+		ContentBlocks:      json.RawMessage(`[]`),
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("model output event response without evidence: %v", err)
+	}
+	assertNoJSONField(t, withoutEvidence, "usage")
+	assertNoJSONField(t, withoutEvidence, "provider_metadata")
 
 	agentInput, err := publicEventResponseFromReadRecord(executionstore.AgentEventReadRecord{
 		ID:                 testHTTPID(22),

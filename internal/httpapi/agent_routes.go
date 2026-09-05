@@ -1205,9 +1205,6 @@ func (s *Server) agentConfigResponseFromRecord(
 		MaxOutputTokens:        effectiveModel.MaxOutputTokens,
 		DefaultMaxOutputTokens: nullableFromPtr(effectiveModel.DefaultMaxOutputTokens),
 		DefaultCacheRetention: openapi.ModelCacheRetention(model.EffectiveCacheRetention(
-			revision.APIFormat,
-			revision.APIVariant,
-			revision.ProviderModelSlug,
 			model.CacheRetention(effectiveModel.DefaultCacheRetention),
 		)),
 		SupportsTools:             effectiveModel.SupportsTools,

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -322,4 +325,76 @@ func preparePolicyWireBody(
 		t.Fatalf("decode wire request: %v", err)
 	}
 	return body
+}
+
+func TestCompactionPolicyDisablesPromptCacheControls(t *testing.T) {
+	agentID := uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+	capabilities := model.Capabilities{
+		ContextWindowTokens:    200_000,
+		MaxOutputTokens:        64_000,
+		DefaultMaxOutputTokens: 2_048,
+		DefaultCacheRetention:  model.CacheRetentionLong,
+	}
+	clients := []model.Client{
+		anthropicmessages.Client{
+			EndpointPath:      "/messages",
+			ProviderModelSlug: "claude-test",
+			ModelCapabilities: capabilities,
+		},
+		openaichatcompletions.Client{
+			EndpointPath:      "/chat/completions",
+			ProviderModelSlug: "anthropic/claude-test",
+			ModelCapabilities: capabilities,
+			APIVariant:        modelprotocol.APIVariantOpenRouter,
+		},
+		openairesponses.Client{
+			EndpointPath:      "/responses",
+			ProviderModelSlug: "gpt-test",
+			ModelCapabilities: capabilities,
+		},
+	}
+	bundle := modelcontext.Bundle{
+		AgentID:      agentID,
+		SystemPrompt: "Summarize the closed history.",
+		Messages: []modelcontext.Message{{
+			Role:     modelprotocol.RoleUser,
+			Sequence: 1,
+			Content:  json.RawMessage(`[{"type":"text","text":"closed history"}]`),
+		}},
+	}
+	cacheFields := []string{"cache_control", "session_id", "prompt_cache_key", "prompt_cache_retention"}
+	for _, client := range clients {
+		t.Run(string(client.APIFormat())+"/"+string(client.ModelAPIVariant()), func(t *testing.T) {
+			compactionPolicy, _, err := compactionRequestPolicy(client, "test")
+			if err != nil {
+				t.Fatalf("compaction request policy: %v", err)
+			}
+			normalBody := wireBodyText(t, preparePolicyWireBody(
+				t,
+				client,
+				bundle,
+				model.RequestPolicyFromCapabilities(capabilities),
+			))
+			compactionBody := wireBodyText(t, preparePolicyWireBody(t, client, bundle, compactionPolicy))
+			normalHasCacheField := false
+			for _, field := range cacheFields {
+				normalHasCacheField = normalHasCacheField || strings.Contains(normalBody, field)
+				if strings.Contains(compactionBody, field) {
+					t.Fatalf("compaction request carries %s: %s", field, compactionBody)
+				}
+			}
+			if !normalHasCacheField {
+				t.Fatalf("normal request should carry cache controls: %s", normalBody)
+			}
+		})
+	}
+}
+
+func wireBodyText(t *testing.T, body map[string]json.RawMessage) string {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("encode wire body: %v", err)
+	}
+	return string(encoded)
 }
