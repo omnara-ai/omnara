@@ -1,10 +1,8 @@
 package model_test
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -15,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -110,86 +109,14 @@ func conversationStates(systemPrompt string) []modelcontext.Bundle {
 	return []modelcontext.Bundle{first, second, third}
 }
 
-type preparedPrefix struct {
-	static   map[string]any
-	messages []any
-}
-
-func preparePrefix(t *testing.T, client model.Client, bundle modelcontext.Bundle) preparedPrefix {
-	t.Helper()
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: bundle,
-		Policy:  model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(prepared.Body, &body); err != nil {
-		t.Fatalf("decode prepared body: %v", err)
-	}
-	canonicalize(body)
-	messagesKey := "messages"
-	if client.APIFormat() == modelprotocol.APIFormatOpenAIResponses {
-		messagesKey = "input"
-	}
-	messages, _ := body[messagesKey].([]any)
-	delete(body, messagesKey)
-	return preparedPrefix{static: body, messages: withoutTrailingSystemContext(messages)}
-}
-
-func canonicalize(value any) {
-	switch value := value.(type) {
-	case map[string]any:
-		delete(value, "cache_control")
-		for _, child := range value {
-			canonicalize(child)
-		}
-	case []any:
-		for _, child := range value {
-			canonicalize(child)
-		}
-	}
-}
-
-func withoutTrailingSystemContext(messages []any) []any {
-	end := len(messages)
-	for end > 1 {
-		message, _ := messages[end-1].(map[string]any)
-		if message["role"] != "system" {
-			break
-		}
-		end--
-	}
-	return messages[:end]
-}
-
-func prefixViolation(previous, next preparedPrefix) string {
-	if !reflect.DeepEqual(previous.static, next.static) {
-		return "request fields outside the conversation changed"
-	}
-	if len(next.messages) < len(previous.messages) {
-		return "conversation shrank"
-	}
-	for index := range previous.messages {
-		if !reflect.DeepEqual(previous.messages[index], next.messages[index]) {
-			return fmt.Sprintf("message %d changed", index)
-		}
-	}
-	return ""
-}
-
 func TestPreparedRequestsExtendThePreviousTurnsPrefix(t *testing.T) {
 	for _, route := range promptCacheRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			states := conversationStates("You are a careful assistant.")
-			previous := preparePrefix(t, route.client, states[0])
+			previous := modeltest.PreparePrefix(t, route.client, states[0])
 			for index, state := range states[1:] {
-				next := preparePrefix(t, route.client, state)
-				if len(next.messages) <= len(previous.messages) {
-					t.Fatalf("turn %d did not extend the conversation: %+v", index+1, next.messages)
-				}
-				if violation := prefixViolation(previous, next); violation != "" {
+				next := modeltest.PreparePrefix(t, route.client, state)
+				if violation := modeltest.PrefixViolation(previous, next); violation != "" {
 					t.Fatalf("turn %d broke the cached prefix: %s", index+1, violation)
 				}
 				previous = next
@@ -201,9 +128,10 @@ func TestPreparedRequestsExtendThePreviousTurnsPrefix(t *testing.T) {
 func TestPrefixCheckerDetectsVolatileSystemPrompt(t *testing.T) {
 	for _, route := range promptCacheRoutes() {
 		t.Run(route.name, func(t *testing.T) {
-			previous := preparePrefix(t, route.client, conversationStates("You are a careful assistant. Now: 12:00")[0])
-			next := preparePrefix(t, route.client, conversationStates("You are a careful assistant. Now: 12:01")[1])
-			if prefixViolation(previous, next) == "" {
+			states := conversationStates("You are a careful assistant. Now: 12:00")
+			previous := modeltest.PreparePrefix(t, route.client, states[0])
+			next := modeltest.PreparePrefix(t, route.client, conversationStates("You are a careful assistant. Now: 12:01")[1])
+			if modeltest.PrefixViolation(previous, next) == "" {
 				t.Fatal("a system prompt that changes between turns must be reported as a broken prefix")
 			}
 		})
