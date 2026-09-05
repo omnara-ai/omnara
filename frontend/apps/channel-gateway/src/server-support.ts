@@ -1,4 +1,4 @@
-import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from 'node:http'
+import { type IncomingMessage, validateHeaderValue } from 'node:http'
 
 import type { ProviderWebhookWorkContext, ProviderWorkReservation } from './types'
 import { GatewayAtCapacityError, WorkReservationScope } from './work-budget'
@@ -75,7 +75,7 @@ const hopByHopResponseHeaders = new Set([
   'upgrade',
 ])
 
-export function providerResponseHeaders(headers: Headers): OutgoingHttpHeaders {
+export function providerResponseHeaders(headers: Headers): Headers {
   const blocked = new Set(hopByHopResponseHeaders)
   for (const name of headers.get('connection')?.split(',') ?? []) {
     const normalized = name.trim().toLowerCase()
@@ -84,14 +84,16 @@ export function providerResponseHeaders(headers: Headers): OutgoingHttpHeaders {
   // Node frames the buffered body itself. Forwarding the provider's original
   // length or transfer metadata could truncate or hang the response.
   blocked.add('content-length')
+  // Provider headers must not tell the Node adapter to skip writing a response.
+  blocked.add('x-hono-already-sent')
 
-  const forwarded: OutgoingHttpHeaders = {}
-  headers.forEach((value, name) => {
-    const normalized = name.toLowerCase()
-    if (!blocked.has(normalized) && normalized !== 'set-cookie') forwarded[name] = value
-  })
-  const cookies = headers.getSetCookie()
-  if (cookies.length > 0 && !blocked.has('set-cookie')) forwarded['set-cookie'] = cookies
+  const forwarded = new Headers(headers)
+  // Fetch permits control characters that Node's response writer rejects.
+  // Validate before handing off so failures use the gateway's error handler.
+  for (const [name, value] of headers) {
+    if (blocked.has(name)) forwarded.delete(name)
+    else validateHeaderValue(name, value)
+  }
   return forwarded
 }
 
@@ -244,7 +246,7 @@ export async function readProviderResponseBody(
   response: Response,
   limit: number,
   signal: AbortSignal,
-): Promise<Buffer> {
+): Promise<Buffer<ArrayBuffer>> {
   const declaredLength = response.headers.get('content-length')?.trim()
   if (declaredLength && /^\d+$/.test(declaredLength) && BigInt(declaredLength) > BigInt(limit)) {
     throw new ProviderResponseTooLargeError()
@@ -278,17 +280,4 @@ export async function readProviderResponseBody(
         .catch(() => undefined)
     }
   }
-}
-
-export function jsonStatus(response: ServerResponse, status: number, body: string): void {
-  response.writeHead(status, {
-    'cache-control': 'no-store',
-    'content-type': 'application/json',
-  })
-  response.end(body)
-}
-
-export function textStatus(response: ServerResponse, status: number, body: string): void {
-  response.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' })
-  response.end(body)
 }

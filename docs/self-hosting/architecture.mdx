@@ -47,7 +47,7 @@ flowchart LR
 
 **maintenance** (`cmd/maintenance`) reaps expired locks and runtimes, times out stuck work, and reconciles machine pools toward their targets
 
-**channel-gateway** (`frontend/apps/channel-gateway`) is an optional, independently scalable process for provider webhooks, outbound channel delivery, and provider runtimes such as polling or sockets. It calls the API over the private service network with a narrowly scoped connector token and uses Redis for Chat SDK state. It does not connect to Postgres. Provider adapters are compiled into this process separately; the foundation image does not enable a provider by itself.
+**channel-gateway** (`frontend/apps/channel-gateway`) is an optional, independently scalable process for provider webhooks, outbound channel delivery, and provider runtimes such as polling or sockets. Its HTTP endpoints use Hono with the Node adapter. It calls the API over the private service network with a narrowly scoped connector token and uses Redis for Chat SDK state. It does not connect to Postgres. Provider adapters are compiled into this process separately; the foundation image does not enable a provider by itself.
 
 **migrate** (`cmd/migrate`) applies the release's schema migrations and exits. Run it successfully before starting or updating the long-running services.
 

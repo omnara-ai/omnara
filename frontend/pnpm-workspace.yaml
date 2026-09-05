@@ -10,6 +10,9 @@ minimumReleaseAge: 14400
 # release exits the ten-day quarantine after 2026-09-07T10:46:04Z.
 minimumReleaseAgeExclude:
   - chat@4.39.0
+  # Reviewed Hono's HTTP changes and security fixes through 4.13.7; JSX is unused.
+  # This exact patched release exits quarantine after 2026-09-14T19:18:07Z.
+  - hono@4.13.7
 
 overrides:
   react: 19.3.0-canary-eb8feb71-20260814

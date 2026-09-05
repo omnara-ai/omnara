@@ -1,6 +1,10 @@
+import { once } from 'node:events'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 
-import type { AppRuntimeRegistry } from './app-registry'
+import { getRequestListener, type HttpBindings, RequestError } from '@hono/node-server'
+import { type Context, Hono } from 'hono'
+
+import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
 import { isCoreNotFoundError } from './core-client'
 import { errorMessage } from './diagnostics'
 import {
@@ -8,17 +12,20 @@ import {
   BackgroundTaskTracker,
   BodyTooLargeError,
   declaredBodyExceedsLimit,
-  jsonStatus,
   providerResponseHeaders,
   raceWithAbort,
   readBody,
   readProviderResponseBody,
-  textStatus,
 } from './server-support'
 import type { GatewayLogger } from './types'
 import { GatewayAtCapacityError, type WorkByteBudget } from './work-budget'
 
-const appIdPattern = /^iapp_[a-z2-7]{26}$/
+interface GatewayEnv {
+  Bindings: HttpBindings
+}
+
+const webhookRoute =
+  '/hooks/:integrationAppId{iapp_[a-z2-7]{26}}/:provider{[a-z0-9][a-z0-9_.-]{0,127}}/*'
 const providerResponseBodyLimitBytes = 64 * 1024
 
 export interface GatewayServerOptions {
@@ -35,9 +42,7 @@ export interface GatewayServerOptions {
 }
 
 export class GatewayServer {
-  private readonly activeHandlers = new Set<Promise<void>>()
-  private readonly activeRequests = new Set<AbortController>()
-  private activeWebhookRequests = 0
+  private readonly activeRequests = new Map<AbortController, Promise<void>>()
   private backgroundFailures = 0
   private rejectedRequests = 0
   private requestCount = 0
@@ -47,22 +52,29 @@ export class GatewayServer {
 
   async listen(): Promise<number> {
     if (this.server) throw new Error('channel gateway server is already listening')
-    const server = createServer((request, response) => {
-      const work = this.handle(request, response)
-        .catch((error: unknown) => {
-          this.options.logger.error('channel webhook request failed', {
+    const listener = getRequestListener(this.createApp().fetch, {
+      // We own bounded body consumption and cleanup of incomplete requests.
+      autoCleanupIncoming: false,
+      hostname: 'channel-gateway.internal',
+      // Native Fetch constructors keep provider body-copy accounting stable.
+      overrideGlobalObjects: false,
+      errorHandler: (error) => {
+        const malformed = error instanceof RequestError
+        if (malformed) {
+          this.options.logger.warn('rejected malformed HTTP request', {
             error: errorMessage(error),
           })
-          if (!response.headersSent) {
-            closeIncompleteRequest(request, response)
-            response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-          }
-          if (!response.writableEnded) response.end('internal server error')
+        } else {
+          this.logRequestError(error)
+        }
+        return new Response(malformed ? 'bad request' : 'internal server error', {
+          status: malformed ? 400 : 500,
+          headers: { connection: 'close', 'content-type': 'text/plain; charset=utf-8' },
         })
-        .finally(() => {
-          this.activeHandlers.delete(work)
-        })
-      this.activeHandlers.add(work)
+      },
+    })
+    const server = createServer((request, response) => {
+      void listener(request, response)
     })
     server.headersTimeout = this.options.handlerTimeoutMs
     server.requestTimeout = this.options.handlerTimeoutMs
@@ -71,23 +83,8 @@ export class GatewayServer {
     server.maxRequestsPerSocket = 1_000
     this.server = server
     try {
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = (): void => {
-          server.removeListener('error', onError)
-          server.removeListener('listening', onListening)
-        }
-        const onError = (error: Error): void => {
-          cleanup()
-          reject(error)
-        }
-        const onListening = (): void => {
-          cleanup()
-          resolve()
-        }
-        server.once('error', onError)
-        server.once('listening', onListening)
-        server.listen(this.options.port, '0.0.0.0')
-      })
+      server.listen(this.options.port, '0.0.0.0')
+      await once(server, 'listening')
     } catch (error) {
       this.server = undefined
       throw error
@@ -110,8 +107,8 @@ export class GatewayServer {
         else resolve()
       })
     })
-    const handlers = Promise.allSettled([...this.activeHandlers]).then(() => undefined)
-    const completed = Promise.all([closed, handlers]).then(() => true)
+    const requests = Promise.allSettled([...this.activeRequests.values()])
+    const completed = Promise.all([closed, requests]).then(() => true)
     let shutdownTimer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<false>((resolve) => {
       shutdownTimer = setTimeout(() => {
@@ -125,7 +122,7 @@ export class GatewayServer {
       if (shutdownTimer) clearTimeout(shutdownTimer)
     }
     if (!withinDeadline) {
-      for (const controller of this.activeRequests) {
+      for (const controller of this.activeRequests.keys()) {
         controller.abort(new Error('channel gateway is shutting down'))
       }
       server.closeAllConnections()
@@ -134,13 +131,21 @@ export class GatewayServer {
     }
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const routeUrl = new URL(request.url ?? '/', 'http://channel-gateway.internal')
-    if (routeUrl.pathname === '/healthz') {
-      jsonStatus(response, 200, '{"ok":true}')
-      return
-    }
-    if (routeUrl.pathname === '/readyz') {
+  private createApp(): Hono<GatewayEnv> {
+    // Match canonical provider/app identifiers without Hono's default path
+    // decoding. The original path and query also reach signature verification.
+    const app = new Hono<GatewayEnv>({ getPath: (request) => new URL(request.url).pathname })
+    app.use(async (context, next) => {
+      try {
+        await next()
+      } finally {
+        closeIncompleteRequest(context.env.incoming, context.env.outgoing)
+      }
+    })
+    app.all('/healthz', (context) =>
+      context.json({ ok: true }, 200, { 'cache-control': 'no-store' }),
+    )
+    app.all('/readyz', async (context) => {
       let ready = false
       try {
         ready = (await this.options.isReady?.()) ?? true
@@ -149,146 +154,125 @@ export class GatewayServer {
           error: errorMessage(error),
         })
       }
-      jsonStatus(response, ready ? 200 : 503, `{"ok":${ready ? 'true' : 'false'}}`)
-      return
-    }
-    if (routeUrl.pathname === '/metrics') {
-      response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' })
-      response.end(this.metricsText())
-      return
-    }
-
-    const match = /^\/hooks\/([^/]+)\/([^/]+)(?:\/.*)?$/.exec(routeUrl.pathname)
-    if (!match) {
-      textStatus(response, 404, 'not found')
-      return
-    }
-    const integrationAppId = match[1]
-    const provider = match[2]
-    if (!integrationAppId || !provider || !appIdPattern.test(integrationAppId)) {
-      textStatus(response, 404, 'not found')
-      return
-    }
-    this.requestCount += 1
-    if (this.activeWebhookRequests >= this.options.maxConcurrentRequests) {
-      this.rejectedRequests += 1
-      closeIncompleteRequest(request, response)
-      response.writeHead(503, {
-        connection: 'close',
-        'content-type': 'text/plain; charset=utf-8',
-        'retry-after': '1',
-      })
-      response.end('channel gateway is at capacity')
-      return
-    }
-    this.activeWebhookRequests += 1
-    const requestController = new AbortController()
-    const deadline = setTimeout(() => {
-      requestController.abort(new Error('channel webhook handler reached its deadline'))
-    }, this.options.handlerTimeoutMs)
-    this.activeRequests.add(requestController)
-    let releaseBody = (): void => undefined
-    try {
-      await this.handleWebhook(
-        request,
-        response,
-        routeUrl,
-        integrationAppId,
-        provider,
-        requestController.signal,
-        (release) => {
-          releaseBody = release
-        },
-      )
-    } finally {
-      releaseBody()
-      clearTimeout(deadline)
-      this.activeRequests.delete(requestController)
-      requestController.abort(new Error('channel webhook request completed'))
-      this.activeWebhookRequests -= 1
-    }
+      return context.json({ ok: ready }, ready ? 200 : 503, { 'cache-control': 'no-store' })
+    })
+    app.all('/metrics', (context) =>
+      context.text(this.metricsText(), 200, {
+        'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+      }),
+    )
+    app.all(webhookRoute, (context) =>
+      this.handleWebhook(
+        context,
+        context.req.param('integrationAppId'),
+        context.req.param('provider'),
+      ),
+    )
+    app.notFound((context) => context.text('not found', 404))
+    app.onError((error, context) => {
+      this.logRequestError(error)
+      return context.text('internal server error', 500)
+    })
+    return app
   }
 
   private async handleWebhook(
-    request: IncomingMessage,
-    response: ServerResponse,
-    routeUrl: URL,
+    context: Context<GatewayEnv>,
     integrationAppId: string,
     provider: string,
-    signal: AbortSignal,
-    retainBody: (release: () => void) => void,
-  ): Promise<void> {
-    if (declaredBodyExceedsLimit(request, this.options.bodyLimitBytes)) {
-      closeIncompleteRequest(request, response)
-      textStatus(response, 413, 'request body too large')
-      return
-    }
-    let handle
-    const acquisition = this.options.registry.acquire(integrationAppId)
-    try {
-      handle = await raceWithAbort(acquisition, signal)
-    } catch (error) {
-      if (signal.aborted) {
-        // The registry cannot cancel a shared, coalesced load. If it succeeds
-        // after this request has timed out, release the acquired reference.
-        void acquisition
-          .then(
-            (lateHandle) => lateHandle.release(),
-            () => undefined,
-          )
-          .catch((releaseError: unknown) => {
-            this.options.logger.error('release late channel provider app acquisition', {
-              error: errorMessage(releaseError),
-              integration_app_id: integrationAppId,
-            })
-          })
-        throw abortError(signal)
-      }
-      closeIncompleteRequest(request, response)
-      this.options.logger.warn('load channel provider app', {
-        error: errorMessage(error),
-        integration_app_id: integrationAppId,
+  ): Promise<Response> {
+    const { incoming } = context.env
+    this.requestCount += 1
+    if (this.activeRequests.size >= this.options.maxConcurrentRequests) {
+      this.rejectedRequests += 1
+      return context.text('channel gateway is at capacity', 503, {
+        connection: 'close',
+        'retry-after': '1',
       })
-      if (isCoreNotFoundError(error)) {
-        textStatus(response, 404, 'not found')
-      } else {
-        response.writeHead(503, {
-          'content-type': 'text/plain; charset=utf-8',
-          'retry-after': '1',
-        })
-        response.end('channel provider is unavailable')
-      }
-      return
     }
+
+    const controller = new AbortController()
+    const { signal } = controller
+    // Register the whole lifetime before any await: shutdown must include
+    // background work even when it starts after shutdown has begun.
+    let finish!: () => void
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    this.activeRequests.set(controller, finished)
+    const deadline = setTimeout(() => {
+      controller.abort(new Error('channel webhook handler reached its deadline'))
+    }, this.options.handlerTimeoutMs)
+    const background = new BackgroundTaskTracker(this.options.workBudget.reserve)
+    let handle: RuntimeHandle | undefined
+    let releaseBody = (): void => undefined
+    let drain: Promise<unknown[]> = Promise.resolve([])
+    // Settle the request lifetime even if a cleanup step fails.
+    const cleanup = (): Promise<void> =>
+      Promise.resolve()
+        .then(() => {
+          background.close()
+        })
+        .finally(() => handle?.release())
+        .finally(releaseBody)
+        .finally(() => {
+          clearTimeout(deadline)
+          controller.abort(new Error('channel webhook request completed'))
+          this.activeRequests.delete(controller)
+          finish()
+        })
     try {
-      if (handle.configuration.app.provider !== provider) {
-        closeIncompleteRequest(request, response)
-        textStatus(response, 404, 'not found')
-        return
+      if (declaredBodyExceedsLimit(incoming, this.options.bodyLimitBytes)) {
+        throw new BodyTooLargeError()
       }
-      const buffered = await readBody(request, this.options.bodyLimitBytes, signal, (bytes) =>
+      const acquisition = this.options.registry.acquire(integrationAppId)
+      try {
+        handle = await raceWithAbort(acquisition, signal)
+      } catch (error) {
+        if (signal.aborted) {
+          // A shared registry load cannot be canceled by one timed-out request.
+          void acquisition
+            .then(
+              (lateHandle) => lateHandle.release(),
+              () => undefined,
+            )
+            .catch((releaseError: unknown) => {
+              this.options.logger.error('release late channel provider app acquisition', {
+                error: errorMessage(releaseError),
+                integration_app_id: integrationAppId,
+              })
+            })
+          throw abortError(signal)
+        }
+        this.options.logger.warn('load channel provider app', {
+          error: errorMessage(error),
+          integration_app_id: integrationAppId,
+        })
+        return isCoreNotFoundError(error)
+          ? context.text('not found', 404)
+          : context.text('channel provider is unavailable', 503, { 'retry-after': '1' })
+      }
+      if (handle.configuration.app.provider !== provider) {
+        return context.text('not found', 404)
+      }
+      // Keep a single raw-body consumer. A generic body parser cannot account
+      // for shared memory limits and the transient copies made below.
+      const buffered = await readBody(incoming, this.options.bodyLimitBytes, signal, (bytes) =>
         this.options.workBudget.tryAdjust(bytes),
       )
-      retainBody(() => {
-        buffered.release()
-      })
-      const headers = new Headers()
-      for (let index = 0; index < request.rawHeaders.length; index += 2) {
-        const name = request.rawHeaders[index]
-        const value = request.rawHeaders[index + 1]
-        if (name !== undefined && value !== undefined) headers.append(name, value)
-      }
+      releaseBody = buffered.release
+      const routeUrl = new URL(context.req.url)
       const providerUrl = new URL(`${routeUrl.pathname}${routeUrl.search}`, this.options.publicUrl)
-      const copiesBody = request.method !== 'GET' && request.method !== 'HEAD'
+      const copiesBody = context.req.method !== 'GET' && context.req.method !== 'HEAD'
       const requestCopyReservation =
         copiesBody && buffered.body.byteLength > 0
           ? this.options.workBudget.reserve(buffered.body.byteLength)
           : undefined
       if (requestCopyReservation) {
-        retainBody(() => {
+        releaseBody = () => {
           buffered.release()
           requestCopyReservation.release()
-        })
+        }
       }
       const providerRequest = new Request(providerUrl, {
         body: copiesBody
@@ -298,29 +282,42 @@ export class GatewayServer {
               buffered.body.byteLength,
             )
           : undefined,
-        headers,
-        method: request.method,
+        headers: context.req.raw.headers,
+        method: context.req.method,
         signal,
       })
-      const background = new BackgroundTaskTracker(this.options.workBudget.reserve)
-      try {
-        const providerResponse = await raceWithAbort(
-          handle.handleWebhook(providerRequest, background),
-          signal,
-        )
-        const responseBody = await readProviderResponseBody(
-          providerResponse,
-          providerResponseBodyLimitBytes,
-          signal,
-        )
-        response.writeHead(
-          providerResponse.status,
-          providerResponseHeaders(providerResponse.headers),
-        )
-        response.end(responseBody)
-
-        const failures = await background.drain(signal)
-        if (failures.length > 0) {
+      const providerResponse = await raceWithAbort(
+        handle.handleWebhook(providerRequest, background),
+        signal,
+      )
+      const responseBody = await readProviderResponseBody(
+        providerResponse,
+        providerResponseBodyLimitBytes,
+        signal,
+      )
+      const response = new Response(providerResponse.body === null ? null : responseBody, {
+        headers: providerResponseHeaders(providerResponse.headers),
+        status: providerResponse.status,
+      })
+      drain = background.drain(signal)
+      return response
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return context.text('request body too large', 413)
+      }
+      if (error instanceof GatewayAtCapacityError) {
+        this.rejectedRequests += 1
+        return context.text('channel gateway is at capacity', 503, {
+          connection: 'close',
+          'retry-after': '1',
+        })
+      }
+      throw error
+    } finally {
+      // Send responses promptly, including rejections, while retaining the
+      // runtime and reservations through background work and runtime release.
+      void drain
+        .then((failures) => {
           this.backgroundFailures += failures.length
           for (const error of failures) {
             this.options.logger.error('channel webhook background task failed', {
@@ -328,31 +325,16 @@ export class GatewayServer {
               integration_app_id: integrationAppId,
             })
           }
-        }
-      } finally {
-        background.close()
-      }
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        closeIncompleteRequest(request, response)
-        textStatus(response, 413, 'request body too large')
-        return
-      }
-      if (error instanceof GatewayAtCapacityError) {
-        this.rejectedRequests += 1
-        closeIncompleteRequest(request, response)
-        response.writeHead(503, {
-          connection: 'close',
-          'content-type': 'text/plain; charset=utf-8',
-          'retry-after': '1',
         })
-        response.end('channel gateway is at capacity')
-        return
-      }
-      throw error
-    } finally {
-      await handle.release()
+        .finally(cleanup)
+        .catch((error: unknown) => {
+          this.logRequestError(error)
+        })
     }
+  }
+
+  private logRequestError(error: unknown): void {
+    this.options.logger.error('channel webhook request failed', { error: errorMessage(error) })
   }
 
   private metricsText(): string {
@@ -364,7 +346,7 @@ export class GatewayServer {
       '# TYPE omnara_channel_gateway_background_failures_total counter',
       `omnara_channel_gateway_background_failures_total ${this.backgroundFailures}`,
       '# TYPE omnara_channel_gateway_active_webhook_requests gauge',
-      `omnara_channel_gateway_active_webhook_requests ${this.activeWebhookRequests}`,
+      `omnara_channel_gateway_active_webhook_requests ${this.activeRequests.size}`,
       '# TYPE omnara_channel_gateway_buffered_work_bytes gauge',
       `omnara_channel_gateway_buffered_work_bytes ${this.options.workBudget.usedBytes}`,
       '',
