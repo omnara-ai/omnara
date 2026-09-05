@@ -1,5 +1,10 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
-import { type CronTrigger, type CronTriggerDeliveryMode, type CronTriggerTarget } from '@omnara/sdk'
+import {
+  type CronTrigger,
+  type CronTriggerDeliveryMode,
+  type CronTriggerTarget,
+  type UpdateCronTriggerRequest,
+} from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import cronstrue from 'cronstrue'
 import { useState } from 'react'
@@ -387,16 +392,17 @@ export function EditCronTriggerDialog({
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
-        await updateTrigger.mutateAsync({
+        const update: UpdateCronTriggerRequest & { cronTriggerID: string } = {
           cronTriggerID: trigger.id,
           name: value.name,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
           message_template: value.messageTemplate,
-          ...(trigger.target.type === 'agent'
-            ? { target: { ...trigger.target, delivery_mode: value.deliveryMode } }
-            : {}),
-        })
+        }
+        if (trigger.target.type === 'agent') {
+          update.target = { ...trigger.target, delivery_mode: value.deliveryMode }
+        }
+        await updateTrigger.mutateAsync(update)
       }}
     />
   )
