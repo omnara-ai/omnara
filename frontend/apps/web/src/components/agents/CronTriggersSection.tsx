@@ -100,61 +100,64 @@ export function CronTriggersList({
                   </p>
                 )}
               </div>
-              {canManage && (
-                <div className="flex shrink-0 items-center">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground size-8 sm:size-7"
-                    aria-label={`Edit schedule ${trigger.name}`}
-                    onClick={() => {
-                      setEditing(trigger)
-                    }}
-                  >
-                    <PencilIcon />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground size-8 sm:size-7"
-                    aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} schedule ${trigger.name}`}
-                    title={trigger.enabled ? 'Disable' : 'Enable'}
-                    disabled={
-                      updateTrigger.isPending &&
-                      updateTrigger.variables.cronTriggerID === trigger.id
-                    }
-                    onClick={() => {
-                      updateTrigger.mutate(
-                        { cronTriggerID: trigger.id, enabled: !trigger.enabled },
-                        {
-                          onError: (error) => {
-                            window.alert(errorMessage(error, 'Could not update schedule'))
-                          },
-                        },
-                      )
-                    }}
-                  >
-                    {trigger.enabled ? <PauseIcon /> : <PlayIcon />}
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground size-8 sm:size-7"
-                    aria-label={`Delete schedule ${trigger.name}`}
-                    disabled={deleteTrigger.isPending && deleteTrigger.variables === trigger.id}
-                    onClick={() => {
-                      if (!window.confirm(`Delete schedule ${trigger.name}?`)) return
-                      deleteTrigger.mutate(trigger.id, {
+              <div className="flex shrink-0 items-center">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground size-8 sm:size-7"
+                  aria-label={`Edit schedule ${trigger.name}`}
+                  disabled={!canManage}
+                  onClick={() => {
+                    setEditing(trigger)
+                  }}
+                >
+                  <PencilIcon />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground size-8 sm:size-7"
+                  aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} schedule ${trigger.name}`}
+                  title={trigger.enabled ? 'Disable' : 'Enable'}
+                  disabled={
+                    !canManage ||
+                    (updateTrigger.isPending &&
+                      updateTrigger.variables.cronTriggerID === trigger.id)
+                  }
+                  onClick={() => {
+                    updateTrigger.mutate(
+                      { cronTriggerID: trigger.id, enabled: !trigger.enabled },
+                      {
                         onError: (error) => {
-                          window.alert(errorMessage(error, 'Could not delete schedule'))
+                          window.alert(errorMessage(error, 'Could not update schedule'))
                         },
-                      })
-                    }}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              )}
+                      },
+                    )
+                  }}
+                >
+                  {trigger.enabled ? <PauseIcon /> : <PlayIcon />}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground size-8 sm:size-7"
+                  aria-label={`Delete schedule ${trigger.name}`}
+                  disabled={
+                    !canManage ||
+                    (deleteTrigger.isPending && deleteTrigger.variables === trigger.id)
+                  }
+                  onClick={() => {
+                    if (!window.confirm(`Delete schedule ${trigger.name}?`)) return
+                    deleteTrigger.mutate(trigger.id, {
+                      onError: (error) => {
+                        window.alert(errorMessage(error, 'Could not delete schedule'))
+                      },
+                    })
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
