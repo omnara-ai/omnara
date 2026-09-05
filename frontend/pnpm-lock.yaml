@@ -48,9 +48,15 @@ importers:
 
   apps/channel-gateway:
     dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.7)
       chat:
         specifier: 4.39.0
         version: 4.39.0(ai@7.0.15(zod@4.4.3))(supports-color@7.2.0)(zod@4.4.3)
+      hono:
+        specifier: 4.13.7
+        version: 4.13.7
       redis:
         specifier: 5.11.0
         version: 5.11.0
@@ -1081,6 +1087,12 @@ packages:
   '@hono/node-server@1.19.14':
     resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
     engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
+
+  '@hono/node-server@2.1.1':
+    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -3676,6 +3688,10 @@ packages:
 
   hono@4.12.27:
     resolution: {integrity: sha512-1yrb/+w6HWQJrUCLkJ2IF5jNIPvvFkblV5RNOYl6bV+OA6p9GLcMpHFFGTosSvHvcAUibuUukRqhlYI4z32C7Q==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   html-url-attributes@3.0.1:
@@ -6343,6 +6359,10 @@ snapshots:
   '@hono/node-server@1.19.14(hono@4.12.27)':
     dependencies:
       hono: 4.12.27
+
+  '@hono/node-server@2.1.1(hono@4.13.7)':
+    dependencies:
+      hono: 4.13.7
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -9227,6 +9247,8 @@ snapshots:
       space-separated-tokens: 2.0.2
 
   hono@4.12.27: {}
+
+  hono@4.13.7: {}
 
   html-url-attributes@3.0.1: {}
 
