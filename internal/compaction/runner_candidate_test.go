@@ -538,7 +538,7 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 				t.Fatal(err)
 			}
 			if sent.MaxOutputTokens != tc.want {
-				t.Fatalf("summary allowance=%d, want%d", sent.MaxOutputTokens, tc.want)
+				t.Fatalf("summary allowance=%d, want %d", sent.MaxOutputTokens, tc.want)
 			}
 		})
 	}

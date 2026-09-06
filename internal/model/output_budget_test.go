@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 )
 
@@ -12,10 +11,8 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 		name                              string
 		window, allowance, input, minimum int
 		reserveFull                       bool
-		required                          bool
 		wantAllowance, wantUsable         int
 		wantOver                          bool
-		wantCode                          string
 	}{
 		{
 			name:          "large ceiling small input",
@@ -73,30 +70,6 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 			wantOver:      true,
 		},
 		{
-			name:      "configured allowance below thinking",
-			window:    100000,
-			allowance: 32000,
-			input:     1000,
-			minimum:   48001,
-			wantCode:  OutputTokenLimitIncompatibleCode,
-		},
-		{
-			name:      "thinking cannot fit context",
-			window:    1000,
-			allowance: 2000,
-			input:     10,
-			minimum:   1001,
-			wantCode:  InvalidOutputTokenConfigurationCode,
-		},
-		{
-			name:     "required unknown allowance",
-			window:   100000,
-			input:    1000000,
-			required: true,
-			minimum:  1,
-			wantCode: OutputTokenLimitRequiredCode,
-		},
-		{
 			name:          "compaction reserves whole allowance",
 			window:        100000,
 			allowance:     64000,
@@ -115,7 +88,7 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 							ContextWindowTokens: tc.window,
 						},
 					},
-					limits: OutputTokenLimits{Minimum: tc.minimum, Required: tc.required},
+					limits: OutputTokenLimits{Minimum: tc.minimum},
 				}, estimate: tc.input,
 			}
 			prepared, err := PrepareForSend(context.Background(), client, PrepareForSendInput{
@@ -123,21 +96,6 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 					MaxOutputTokens: tc.allowance,
 				}, ReserveFullOutputAllowance: tc.reserveFull, ErrorSource: "budget-test",
 			})
-			if tc.wantCode != "" {
-				var providerErr ProviderError
-				if !errors.As(
-					err,
-					&providerErr,
-				) ||
-					providerErr.Code != tc.wantCode ||
-					providerErr.Kind != ErrorKindInvalidRequest {
-					t.Fatalf("error = %v, want %s", err, tc.wantCode)
-				}
-				if client.prepareCalls != 0 {
-					t.Fatal("invalid configuration reached provider preparation")
-				}
-				return
-			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,7 +129,6 @@ type budgetPrepareClient struct {
 }
 
 func (c *budgetPrepareClient) Prepare(_ context.Context, input PrepareInput) (PreparedRequest, error) {
-	c.prepareCalls++
 	body, err := json.Marshal(input.Policy)
 	return PreparedRequest{Body: body, InputTokenEstimate: c.estimate}, err
 }

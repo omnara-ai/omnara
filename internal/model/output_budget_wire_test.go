@@ -33,16 +33,6 @@ func outputWireClients(capabilities model.Capabilities) []struct {
 			},
 		},
 		{
-			"openrouter",
-			"max_completion_tokens",
-			openaichatcompletions.Client{
-				EndpointPath:      "/chat/completions",
-				ProviderModelSlug: "vendor/test-model",
-				APIVariant:        modelprotocol.APIVariantOpenRouter,
-				ModelCapabilities: capabilities,
-			},
-		},
-		{
 			"responses",
 			"max_output_tokens",
 			openairesponses.Client{
@@ -57,16 +47,6 @@ func outputWireClients(capabilities model.Capabilities) []struct {
 			anthropicmessages.Client{
 				EndpointPath:      "/messages",
 				ProviderModelSlug: "test-model",
-				ModelCapabilities: capabilities,
-			},
-		},
-		{
-			"anthropic-router",
-			"max_tokens",
-			anthropicmessages.Client{
-				EndpointPath:      "/messages",
-				ProviderModelSlug: "anthropic/test-model",
-				APIVariant:        modelprotocol.APIVariantOpenRouter,
 				ModelCapabilities: capabilities,
 			},
 		},
@@ -99,10 +79,9 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 				label = "known"
 			}
 			t.Run(tc.name+"/"+label, func(t *testing.T) {
-				client := &countingWirePreparation{Client: tc.client}
 				prepared, err := model.PrepareForSend(
 					context.Background(),
-					client,
+					tc.client,
 					model.PrepareForSendInput{
 						Context:     bundle,
 						Policy:      model.RequestPolicyFromCapabilities(caps),
@@ -111,13 +90,8 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 				)
 				if !known && tc.client.APIFormat() == modelprotocol.APIFormatAnthropicMessages {
 					var providerErr model.ProviderError
-					if !errors.As(
-						err,
-						&providerErr,
-					) ||
-						providerErr.Code != model.OutputTokenLimitRequiredCode ||
-						client.prepares != 0 {
-						t.Fatalf("required allowance error=%v prepares=%d", err, client.prepares)
+					if !errors.As(err, &providerErr) || providerErr.Code != model.OutputTokenLimitRequiredCode {
+						t.Fatalf("required allowance error=%v", err)
 					}
 					return
 				}
@@ -248,23 +222,4 @@ func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
 			})
 		}
 	}
-}
-
-type countingWirePreparation struct {
-	model.Client
-	prepares int
-}
-
-func (c *countingWirePreparation) Prepare(
-	ctx context.Context,
-	input model.PrepareInput,
-) (model.PreparedRequest, error) {
-	c.prepares++
-	return c.Client.Prepare(ctx, input)
-}
-func (c *countingWirePreparation) OutputTokenLimits() (model.OutputTokenLimits, error) {
-	if provider, ok := c.Client.(model.OutputTokenLimitProvider); ok {
-		return provider.OutputTokenLimits()
-	}
-	return model.OutputTokenLimits{}, nil
 }

@@ -107,14 +107,7 @@ func TestOutputTruncationContinuesAcrossClaimsAndStopsAtDurableBound(t *testing.
 				t.Fatal("truncated provider replay reached successor")
 			}
 		}
-		if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-			ctx,
-			kernelTestProjectID,
-			agentID,
-			work.RuntimeLockID,
-		); err != nil {
-			t.Fatal(err)
-		}
+		fixture.releaseModelRuntimeLock(t, ctx, work)
 		if attempt < 2 {
 			claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
 			work = modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(time.Second))
@@ -212,23 +205,9 @@ func TestOutputTruncationContinuesAcrossClaimsAndStopsAtDurableBound(t *testing.
 	if !sawExhaustion {
 		t.Fatal("missing prior exhaustion feedback")
 	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		work.RuntimeLockID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, work)
 	work = executeNextModelWork(t, ctx, fixture, executor, work)
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		work.RuntimeLockID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, work)
 	if client.respondedCount() != 2 {
 		t.Fatalf("reset journey sends=%d", client.respondedCount())
 	}
@@ -260,14 +239,7 @@ func TestCancelOutputContinuationBeforeAndAfterRuntimeClaim(t *testing.T) {
 			if err := executor.ExecuteModelWork(ctx, work); err != nil {
 				t.Fatal(err)
 			}
-			if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-				ctx,
-				kernelTestProjectID,
-				agentID,
-				work.RuntimeLockID,
-			); err != nil {
-				t.Fatal(err)
-			}
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			if afterClaim {
 				work = modelWorkExecutionFromClaimForKernelTest(
 					claimNextAgentWorkForKernelTest(
@@ -331,14 +303,7 @@ func TestOutputContinuationIsConsumedBySuccessorTerminalFailure(t *testing.T) {
 	if err := executor.ExecuteModelWork(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		work.RuntimeLockID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, work)
 	client = &sequenceKernelModel{
 		providerModelSlug: "failed-output-recovery",
 		prepareErr: model.ProviderError{
@@ -349,14 +314,7 @@ func TestOutputContinuationIsConsumedBySuccessorTerminalFailure(t *testing.T) {
 	}
 	executor.ModelResolver = liveTestModelResolver(fixture.Store, client)
 	work = executeNextModelWork(t, ctx, fixture, executor, work)
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		kernelTestProjectID,
-		agentID,
-		work.RuntimeLockID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, work)
 	var next, failures int
 	if err := fixture.Pool.QueryRow(
 		ctx,
@@ -409,22 +367,11 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 				),
 				ModelRetryDelay: immediateKernelModelRetryDelay,
 			}
-			release := func(work ModelWorkExecution) {
-				t.Helper()
-				if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-					ctx,
-					kernelTestProjectID,
-					agentID,
-					work.RuntimeLockID,
-				); err != nil {
-					t.Fatal(err)
-				}
-			}
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "establish earlier history", fixture.Now)
 			if err := executor.ExecuteModelWork(ctx, work); err != nil {
 				t.Fatal(err)
 			}
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = fixture.admitContentInputTurn(
 				t,
 				ctx,
@@ -436,7 +383,7 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			if err := executor.ExecuteModelWork(ctx, work); err != nil {
 				t.Fatal(err)
 			}
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			client = &sequenceKernelModel{
 				providerModelSlug: "recovery-bound",
 				responses: []model.Response{
@@ -468,7 +415,7 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			}
 			executor.ModelResolver = liveTestModelResolver(fixture.Store, client)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			// A retry and a checkpoint are not semantic progress: both resume the
 			// same output frontier, preserving the consecutive truncation count.
 			claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
@@ -479,9 +426,9 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			if err := executor.ExecuteModelWork(ctx, work); err != nil {
 				t.Fatal(err)
 			}
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			var outputs, continued, checkpoints, next int
 			if err := fixture.Pool.QueryRow(
 				ctx,
@@ -580,24 +527,13 @@ func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
 					Store: fixture.Store,
 				},
 			}
-			release := func(work ModelWorkExecution) {
-				t.Helper()
-				if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-					ctx,
-					kernelTestProjectID,
-					agentID,
-					work.RuntimeLockID,
-				); err != nil {
-					t.Fatal(err)
-				}
-			}
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
 			if err := executor.ExecuteModelWork(ctx, work); err != nil {
 				t.Fatal(err)
 			}
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
-			release(work)
+			fixture.releaseModelRuntimeLock(t, ctx, work)
 			if useTool {
 				work = executeNextModelWork(t, ctx, fixture, executor, work)
 				toolWork := nextToolWorkExecution(t, ctx, fixture, work)
@@ -606,8 +542,8 @@ func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
 				}
 				if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 					ctx,
-					kernelTestProjectID,
-					agentID,
+					toolWork.ProjectID,
+					toolWork.AgentID,
 					toolWork.RuntimeLockID,
 				); err != nil {
 					t.Fatal(err)
@@ -650,7 +586,7 @@ func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
 				if err := executor.ExecuteModelWork(ctx, work); err != nil {
 					t.Fatal(err)
 				}
-				release(work)
+				fixture.releaseModelRuntimeLock(t, ctx, work)
 			}
 			var outputs, continued, next int
 			if err := fixture.Pool.QueryRow(

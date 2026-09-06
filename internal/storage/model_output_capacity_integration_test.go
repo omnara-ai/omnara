@@ -8,11 +8,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
-	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -21,22 +18,8 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	admin := createSecretTestUser(t, ctx, store, "Capacity Administrator", "admin")
-	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: "capacity-key", Material: secrets.GenericMaterial{
-			Value: "test-key",
-		}, Actor: userPrincipal(admin.ID),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID: testOrgID, Name: "capacity-provider", APIFormat: modelprotocol.APIFormatOpenAIResponses, BaseURL: "https://api.example.com/v1", CredentialSecretID: secret.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newIntegrationStore(pool)
+	providerID := testDefaultProviderConfigID()
 	type creation struct {
 		model modelstore.ConfiguredModelRecord
 		err   error
@@ -47,7 +30,12 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 		go func() {
 			<-start
 			record, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-				OrgID: testOrgID, ModelProviderConfigID: provider.ID, Name: "discovered-model", ProviderModelSlug: "test-model", ContextWindowTokens: 128000, DiscoveredMaxOutputTokens: new(hint),
+				OrgID:                     testOrgID,
+				ModelProviderConfigID:     providerID,
+				Name:                      "discovered-model",
+				ProviderModelSlug:         "test-model",
+				ContextWindowTokens:       128000,
+				DiscoveredMaxOutputTokens: new(hint),
 			})
 			results <- creation{record, err}
 		}()
@@ -84,7 +72,7 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 		t.Fatalf("explicit grant bounds must fail application validation: %v", err)
 	}
 	cleared, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
-		OrgID: testOrgID, ModelProviderConfigID: provider.ID, ID: old.ID, MaxOutputTokens: patch.NullableInt{Set: true},
+		OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, MaxOutputTokens: patch.NullableInt{Set: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,12 +103,13 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 		{name: "zero capacity", context: 128000, capacity: new(0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := pool.Exec(
 				ctx,
 				`INSERT INTO configured_model_revisions(org_id,configured_model_id,model_provider_config_id,provider_model_slug,context_window_tokens,max_output_tokens,default_max_output_tokens,created_at) VALUES($1,$2,$3,'test-model',$4,$5,$6,statement_timestamp())`,
 				testOrgID,
 				old.ID,
-				provider.ID,
+				providerID,
 				tc.context,
 				tc.capacity,
 				tc.allowance,

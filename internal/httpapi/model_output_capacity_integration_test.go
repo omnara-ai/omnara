@@ -58,12 +58,14 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 		hint = new(tc.hint)
 		created := request(http.MethodPost, modelsPath, fmt.Sprintf(
 			`{"name":%q,"provider_model_slug":"capacity-model","context_window_tokens":128000,"default_max_output_tokens":32000}`,
-			tc.name), http.StatusCreated)
+			tc.name,
+		), http.StatusCreated)
 		if value, present := created["max_output_tokens"]; !present || value != nil ||
 			created["default_max_output_tokens"] != float64(32000) {
 			t.Fatalf("catalog hint overrode explicit intent: %+v", created)
 		}
 	}
+	var unknownModelID string
 	for _, known := range []bool{false, true} {
 		name := "unknown"
 		hint = nil
@@ -83,6 +85,11 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 			t.Fatalf("discovered capacity=%v", created["max_output_tokens"])
 		}
 		if !known {
+			var ok bool
+			unknownModelID, ok = created["id"].(string)
+			if !ok || unknownModelID == "" {
+				t.Fatalf("created model ID=%v, want a nonempty string", created["id"])
+			}
 			if capacity, present := created["max_output_tokens"]; !present || capacity != nil {
 				t.Fatalf("unknown capacity missing or non-null: %v", capacity)
 			}
@@ -105,35 +112,40 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 			),
 			http.StatusConflict,
 		)
-		modelPath := modelsPath + "/" + created["id"].(string)
-		set := request(http.MethodPut, modelPath, `{"max_output_tokens":96000}`, http.StatusOK)
-		preserved := request(http.MethodPut, modelPath, `{}`, http.StatusOK)
-		if preserved["current_revision_id"] != set["current_revision_id"] ||
-			preserved["max_output_tokens"] != float64(96000) {
-			t.Fatal("omitted patch did not preserve capacity")
-		}
-		cleared := request(http.MethodPut, modelPath, `{"max_output_tokens":null}`, http.StatusOK)
-		if value, present := cleared["max_output_tokens"]; !present ||
-			value != nil ||
-			cleared["default_max_output_tokens"] != float64(32000) ||
-			cleared["current_revision_id"] == set["current_revision_id"] {
-			t.Fatal("clear did not create a nullable revision while preserving allowance")
-		}
-		request(
-			http.MethodPost,
-			project.ProjectPath+"/model-grants",
-			`{"configured_model_id":"`+created["id"].(string)+`"}`,
-			http.StatusCreated,
-		)
-		config := request(
-			http.MethodPost,
-			project.ProjectPath+"/agent-configs",
-			agentConfigSourceBody("instruction: Test.\nmodel:\n  provider_config: capacity-provider\n  name: "+name+"\n"),
-			http.StatusCreated,
-		)
-		effective := config["model"].(map[string]any)
-		if value, present := effective["max_output_tokens"]; !present || value != nil {
-			t.Fatalf("effective unknown capacity=%v present=%v", value, present)
-		}
+	}
+
+	// Exercise the patch lifecycle once, starting from the unknown-capacity model.
+	modelPath := modelsPath + "/" + unknownModelID
+	set := request(http.MethodPut, modelPath, `{"max_output_tokens":96000}`, http.StatusOK)
+	preserved := request(http.MethodPut, modelPath, `{}`, http.StatusOK)
+	if preserved["current_revision_id"] != set["current_revision_id"] ||
+		preserved["max_output_tokens"] != float64(96000) {
+		t.Fatal("omitted patch did not preserve capacity")
+	}
+	cleared := request(http.MethodPut, modelPath, `{"max_output_tokens":null}`, http.StatusOK)
+	if value, present := cleared["max_output_tokens"]; !present ||
+		value != nil ||
+		cleared["default_max_output_tokens"] != float64(32000) ||
+		cleared["current_revision_id"] == set["current_revision_id"] {
+		t.Fatal("clear did not create a nullable revision while preserving allowance")
+	}
+	request(
+		http.MethodPost,
+		project.ProjectPath+"/model-grants",
+		`{"configured_model_id":"`+unknownModelID+`"}`,
+		http.StatusCreated,
+	)
+	config := request(
+		http.MethodPost,
+		project.ProjectPath+"/agent-configs",
+		agentConfigSourceBody("instruction: Test.\nmodel:\n  provider_config: capacity-provider\n  name: unknown\n"),
+		http.StatusCreated,
+	)
+	effective, ok := config["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("effective model=%v, want an object", config["model"])
+	}
+	if value, present := effective["max_output_tokens"]; !present || value != nil {
+		t.Fatalf("effective unknown capacity=%v present=%v", value, present)
 	}
 }

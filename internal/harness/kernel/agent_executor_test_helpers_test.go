@@ -715,6 +715,14 @@ func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentW
 	}
 }
 
+func (f kernelFixture) releaseModelRuntimeLock(t *testing.T, ctx context.Context, work ModelWorkExecution) {
+	t.Helper()
+	err := f.Store.Execution().ReleaseAgentRuntimeLock(ctx, work.ProjectID, work.AgentID, work.RuntimeLockID)
+	if err != nil {
+		t.Fatalf("release model-work runtime: %v", err)
+	}
+}
+
 func nextToolWorkExecution(
 	t *testing.T,
 	ctx context.Context,
@@ -722,14 +730,7 @@ func nextToolWorkExecution(
 	prior ModelWorkExecution,
 ) ToolWorkExecution {
 	t.Helper()
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		prior.ProjectID,
-		prior.AgentID,
-		prior.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release model-work runtime: %v", err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, prior)
 	claim := claimNextAgentWorkForKernelTest(
 		t,
 		ctx,
@@ -877,14 +878,7 @@ func continueTurnOnNewLeaseForKernelTest(
 	now time.Time,
 ) ModelWorkExecution {
 	t.Helper()
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		prior.ProjectID,
-		prior.AgentID,
-		prior.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release prior runtime lease: %v", err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, prior)
 	claimAt := now
 	if wallNow := time.Now().UTC(); claimAt.Before(wallNow) {
 		claimAt = wallNow.Add(time.Second)

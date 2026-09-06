@@ -136,86 +136,57 @@ func TestPrepareForSendRejectsEmptyProviderRequest(t *testing.T) {
 	}
 }
 
-func TestPrepareForSendRejectsProviderOutputLimitConflictBeforePreparation(t *testing.T) {
-	client := &outputLimitPrepareClient{
-		prepareForSendClient: prepareForSendClient{
-			prepared: PreparedRequest{
-				Body:               json.RawMessage(`{"request":true}`),
-				InputTokenEstimate: 10,
-			},
-			capabilities: Capabilities{ContextWindowTokens: 100_000},
-		},
-		limits: OutputTokenLimits{Minimum: 16_385},
-	}
-	_, err := PrepareForSend(
-		context.Background(),
-		client,
-		PrepareForSendInput{
-			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
-			ErrorSource: "test_api",
-		},
-	)
-	var providerErr ProviderError
-	if !errors.Is(err, ErrOutputTokenLimitIncompatible) ||
-		!errors.As(err, &providerErr) ||
-		providerErr.Kind != ErrorKindInvalidRequest ||
-		providerErr.Code != OutputTokenLimitIncompatibleCode {
-		t.Fatalf("output-limit conflict = %v, want classified incompatible error", err)
-	}
-	if client.prepareCalls != 0 {
-		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
-	}
-
-	client.limitsErr = errors.New("malformed output options")
-	_, err = PrepareForSend(
-		context.Background(),
-		client,
-		PrepareForSendInput{
-			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
-			ErrorSource: "test_api",
-		},
-	)
-	if !errors.As(err, &providerErr) ||
-		providerErr.Kind != ErrorKindInvalidRequest ||
-		providerErr.Code != InvalidOutputTokenConfigurationCode {
-		t.Fatalf("invalid output configuration = %v, want classified invalid request", err)
-	}
-	if client.prepareCalls != 0 {
-		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
-	}
-
-	client.limitsErr = nil
-	client.limits = OutputTokenLimits{Minimum: -1}
-	_, err = PrepareForSend(
-		context.Background(),
-		client,
-		PrepareForSendInput{
-			Policy:      RequestPolicy{MaxOutputTokens: 16_384},
-			ErrorSource: "test_api",
-		},
-	)
-	if !errors.As(err, &providerErr) ||
-		providerErr.Kind != ErrorKindInvalidRequest ||
-		providerErr.Code != InvalidOutputTokenConfigurationCode {
-		t.Fatalf("negative output limit = %v, want classified invalid request", err)
-	}
-	if client.prepareCalls != 0 {
-		t.Fatalf("provider preparation calls = %d, want zero", client.prepareCalls)
-	}
-
-	client.limits = OutputTokenLimits{}
-	if _, err := PrepareForSend(
-		context.Background(),
-		client,
-		PrepareForSendInput{
-			Policy:      RequestPolicy{MaxOutputTokens: 32_768},
-			ErrorSource: "test_api",
-		},
-	); err != nil {
-		t.Fatalf("prepare compatible output limit: %v", err)
-	}
-	if client.prepareCalls != 1 {
-		t.Fatalf("provider preparation calls = %d, want one", client.prepareCalls)
+func TestPrepareForSendValidatesOutputLimitsBeforePreparation(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		limits            OutputTokenLimits
+		limitsErr         error
+		window, allowance int
+		wantCode          string
+		wantErr           error
+	}{
+		{name: "allowance below minimum", window: 100000, allowance: 16384,
+			limits:   OutputTokenLimits{Minimum: 16385},
+			wantCode: OutputTokenLimitIncompatibleCode, wantErr: ErrOutputTokenLimitIncompatible},
+		{name: "malformed options", window: 100000, allowance: 16384,
+			limitsErr: errors.New("malformed output options"), wantCode: InvalidOutputTokenConfigurationCode},
+		{name: "negative minimum", window: 100000, allowance: 16384,
+			limits: OutputTokenLimits{Minimum: -1}, wantCode: InvalidOutputTokenConfigurationCode},
+		{name: "minimum exceeds context", window: 1000, allowance: 2000,
+			limits: OutputTokenLimits{Minimum: 1001}, wantCode: InvalidOutputTokenConfigurationCode},
+		{name: "required unknown allowance", window: 100000,
+			limits: OutputTokenLimits{Minimum: 1, Required: true}, wantCode: OutputTokenLimitRequiredCode},
+		{name: "compatible allowance", window: 100000, allowance: 32768},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &outputLimitPrepareClient{
+				prepareForSendClient: prepareForSendClient{
+					prepared:     PreparedRequest{Body: json.RawMessage(`{"request":true}`), InputTokenEstimate: 10},
+					capabilities: Capabilities{ContextWindowTokens: tc.window},
+				},
+				limits: tc.limits, limitsErr: tc.limitsErr,
+			}
+			_, err := PrepareForSend(context.Background(), client, PrepareForSendInput{
+				Policy: RequestPolicy{MaxOutputTokens: tc.allowance}, ErrorSource: "test_api",
+			})
+			if tc.wantCode == "" {
+				if err != nil || client.prepareCalls != 1 {
+					t.Fatalf("compatible allowance: err=%v preparation calls=%d, want nil/1", err, client.prepareCalls)
+				}
+				return
+			}
+			var providerErr ProviderError
+			if !errors.As(err, &providerErr) || providerErr.Kind != ErrorKindInvalidRequest ||
+				providerErr.Code != tc.wantCode {
+				t.Fatalf("error=%v, want invalid request with code %s", err, tc.wantCode)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error=%v, want wrapped %v", err, tc.wantErr)
+			}
+			if client.prepareCalls != 0 {
+				t.Fatalf("provider preparation calls=%d, want zero", client.prepareCalls)
+			}
+		})
 	}
 }
 

@@ -313,36 +313,9 @@ func TestUnknownCapacityUsesProjectAndAgentAllowancesForAnthropic(t *testing.T) 
 			if tc.capacity == nil && effective.MaxOutputTokens != nil {
 				t.Fatal("request allowance manufactured a capacity")
 			}
-			caps := capabilitiesForRevision(effective)
-			client := anthropicmessages.Client{
-				EndpointPath:      "/messages",
-				ProviderModelSlug: "custom-model",
-				ModelCapabilities: caps,
-			}
-			prepared, err := model.PrepareForSend(context.Background(), client, model.PrepareForSendInput{
-				Context: modelcontext.Bundle{
-					Messages: []modelcontext.Message{
-						{
-							ID:       "input",
-							Sequence: 1,
-							Role:     modelprotocol.RoleUser,
-							Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
-						},
-					},
-				},
-				Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var body struct {
-				MaxTokens int `json:"max_tokens"`
-			}
-			if err := json.Unmarshal(prepared.Body, &body); err != nil {
-				t.Fatal(err)
-			}
-			if body.MaxTokens != tc.want || prepared.MaxOutputTokens != tc.want {
-				t.Fatalf("wire=%d recorded=%d want=%d", body.MaxTokens, prepared.MaxOutputTokens, tc.want)
+			prepared := prepareAnthropicRequest(t, capabilitiesForRevision(effective))
+			if prepared.MaxOutputTokens != tc.want {
+				t.Fatalf("allowance=%d want=%d", prepared.MaxOutputTokens, tc.want)
 			}
 		})
 	}
@@ -398,36 +371,44 @@ func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
 						*caps.MaxOutputTokens != capacity {
 						t.Fatalf("effective capabilities=%+v", caps)
 					}
-					client := anthropicmessages.Client{
-						EndpointPath: "/messages", ProviderModelSlug: "custom-model", ModelCapabilities: caps,
-					}
-					prepared, err := model.PrepareForSend(context.Background(), client, model.PrepareForSendInput{
-						Context: modelcontext.Bundle{Messages: []modelcontext.Message{{
-							ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
-							Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-						}}},
-						Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
-					})
-					if err != nil {
-						t.Fatal(err)
-					}
-					var body struct {
-						MaxTokens int `json:"max_tokens"`
-					}
-					if err := json.Unmarshal(prepared.Body, &body); err != nil {
-						t.Fatal(err)
-					}
+					prepared := prepareAnthropicRequest(t, caps)
 					remaining := 32000 - modelcontext.DefaultSafetyMarginTokens(32000) - prepared.InputTokenEstimate
 					want := min(capacity, remaining)
 					if allowance.value != nil {
 						want = min(want, *allowance.value)
 					}
-					if body.MaxTokens != want || prepared.MaxOutputTokens != want {
-						t.Fatalf("capacity=%d wire=%d recorded=%d want=%d",
-							capacity, body.MaxTokens, prepared.MaxOutputTokens, want)
+					if prepared.MaxOutputTokens != want {
+						t.Fatalf("capacity=%d allowance=%d want=%d", capacity, prepared.MaxOutputTokens, want)
 					}
 				}
 			})
 		}
 	}
+}
+
+func prepareAnthropicRequest(t *testing.T, caps model.Capabilities) model.PreparedRequest {
+	t.Helper()
+	client := anthropicmessages.Client{
+		EndpointPath: "/messages", ProviderModelSlug: "custom-model", ModelCapabilities: caps,
+	}
+	prepared, err := model.PrepareForSend(context.Background(), client, model.PrepareForSendInput{
+		Context: modelcontext.Bundle{Messages: []modelcontext.Message{{
+			ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+		}}},
+		Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		MaxTokens int `json:"max_tokens"`
+	}
+	if err := json.Unmarshal(prepared.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.MaxTokens != prepared.MaxOutputTokens {
+		t.Fatalf("wire allowance=%d, recorded=%d", body.MaxTokens, prepared.MaxOutputTokens)
+	}
+	return prepared
 }
