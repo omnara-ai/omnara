@@ -59,8 +59,16 @@ jobs:
             done
           fi
 
+          # Remove stale type labels when the title type changes or becomes
+          # non-conventional (for example, when changed to a [WIP] title).
+          for t in $types; do
+            if [[ "$t" != "$type" ]] && grep -qw "$t" <<< "$PR_LABELS"; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$t"
+            fi
+          done
+
           if [[ -z "$type" ]]; then
-            echo "No conventional type found in title, skipping: $PR_TITLE"
+            echo "No conventional type found; stale type labels removed: $PR_TITLE"
             exit 0
           fi
 
@@ -69,13 +77,6 @@ jobs:
             --repo "$REPO" \
             --description "PRs of type $type (auto-applied from title)" \
             --color "ededed" 2>/dev/null || true
-
-          # Remove stale type labels if the title type changed.
-          for t in $types; do
-            if [[ "$t" != "$type" ]] && grep -qw "$t" <<< "$PR_LABELS"; then
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$t"
-            fi
-          done
 
           if ! grep -qw "$type" <<< "$PR_LABELS"; then
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$type"
