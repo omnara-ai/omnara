@@ -27,6 +27,13 @@ WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 UPDATE projects SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
 
+-- name: LockOrganizationMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id)
+ORDER BY id
+FOR UPDATE;
+
 -- name: DeleteOrganizationMemberships :exec
 DELETE FROM org_memberships
 WHERE org_id = sqlc.arg(org_id);
@@ -322,6 +329,13 @@ WHERE id = $1 AND deleted_at IS NULL;
 -- name: DeleteUser :execrows
 UPDATE users SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
+
+-- name: LockUserOrgMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE user_id = sqlc.arg(user_id)::uuid
+ORDER BY id
+FOR UPDATE;
 
 -- name: DeleteUserOrgMemberships :exec
 -- Project memberships hang off the org membership row and delete with it.

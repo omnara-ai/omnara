@@ -3717,6 +3717,23 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	return id, err
 }
 
+const lockOrganizationMembershipsForDeletion = `-- name: LockOrganizationMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE org_id = $1
+ORDER BY id
+FOR UPDATE
+`
+
+type LockOrganizationMembershipsForDeletionParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) LockOrganizationMembershipsForDeletion(ctx context.Context, arg LockOrganizationMembershipsForDeletionParams) error {
+	_, err := q.db.Exec(ctx, lockOrganizationMembershipsForDeletion, arg.OrgID)
+	return err
+}
+
 const lockUserEmailsByNormalizedEmail = `-- name: LockUserEmailsByNormalizedEmail :many
 SELECT id
 FROM user_emails
@@ -3798,6 +3815,23 @@ func (q *Queries) LockUserOrgMembership(ctx context.Context, arg LockUserOrgMemb
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const lockUserOrgMembershipsForDeletion = `-- name: LockUserOrgMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE user_id = $1::uuid
+ORDER BY id
+FOR UPDATE
+`
+
+type LockUserOrgMembershipsForDeletionParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockUserOrgMembershipsForDeletion(ctx context.Context, arg LockUserOrgMembershipsForDeletionParams) error {
+	_, err := q.db.Exec(ctx, lockUserOrgMembershipsForDeletion, arg.UserID)
+	return err
 }
 
 const machineProjectVisibleToPrincipal = `-- name: MachineProjectVisibleToPrincipal :one

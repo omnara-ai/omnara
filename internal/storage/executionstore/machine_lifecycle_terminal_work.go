@@ -85,6 +85,9 @@ func completeExecutionRevokedProcessesTx(
 	if _, err := qtx.LockAgentsForExecutionRevoked(ctx, lockParams); err != nil {
 		return fmt.Errorf("lock agents for execution revoke: %w", err)
 	}
+	// Binding release terminalizes its process/action work first, and new work
+	// requires an attached binding. These agents therefore already cover every
+	// process below; no second pass through the agent lock class is needed.
 	rows, err := qtx.ListProcessesForExecutionRevoked(
 		ctx,
 		dbsqlc.ListProcessesForExecutionRevokedParams{
@@ -96,9 +99,6 @@ func completeExecutionRevokedProcessesTx(
 	)
 	if err != nil {
 		return fmt.Errorf("list processes for execution revoke: %w", err)
-	}
-	if err := lockAgentsForProcessesTx(ctx, tx, rows); err != nil {
-		return err
 	}
 	for _, row := range rows {
 		process := processRecordFromSQLC(row)

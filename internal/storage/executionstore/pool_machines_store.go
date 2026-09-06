@@ -282,14 +282,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
-	record, err := poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err := validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err := t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -314,14 +307,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, err = poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err = validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -338,14 +324,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, err = poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err = validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -358,14 +337,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err := t.lockOrAcceptExisting(ctx); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, err = poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err = validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -411,23 +383,33 @@ func (t *toolCallTransaction) deletePoolMachine(
 	return record, nil
 }
 
-func validatePoolMachineDeletion(record PoolMachineRecord, toolCallID ID) (bool, error) {
+func (t *toolCallTransaction) loadPoolMachineForDeletion(
+	ctx context.Context,
+	machineRef string,
+) (PoolMachineRecord, bool, error) {
+	record, err := poolMachineByRefTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, machineRef)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PoolMachineRecord{}, false, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return PoolMachineRecord{}, false, err
+	}
 	if record.Binding.DeleteToolCallID != NilID {
-		if record.Binding.DeleteToolCallID != toolCallID {
-			return false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+		if record.Binding.DeleteToolCallID != t.input.ToolCallID {
+			return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
 		}
-		return true, nil
+		return record, true, nil
 	}
 	if record.Binding.State == AgentMachineBindingStateReleased || record.Machine.DeletedAt != nil ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleting ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleteFailed ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleted {
-		return false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+		return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
 	}
 	if record.Machine.SourceKind != MachineSourceKindPool || record.Machine.MachinePoolID == NilID {
-		return false, fmt.Errorf("machine is not pool-backed: %w", storeerr.ErrStateTransitionConflict)
+		return PoolMachineRecord{}, false, fmt.Errorf("machine is not pool-backed: %w", storeerr.ErrStateTransitionConflict)
 	}
-	return false, nil
+	return record, false, nil
 }
 
 func (s *Store) ListMachinePoolSources(

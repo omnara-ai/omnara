@@ -427,7 +427,8 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (
     (sqlc.narg(agent_id)::uuid IS NOT NULL AND agent.id = sqlc.narg(agent_id)::uuid)
     OR (
-      (sqlc.narg(project_machine_grant_id)::uuid IS NOT NULL OR sqlc.narg(project_machine_pool_grant_id)::uuid IS NOT NULL)
+      sqlc.narg(agent_id)::uuid IS NULL
+      AND (sqlc.narg(project_machine_grant_id)::uuid IS NOT NULL OR sqlc.narg(project_machine_pool_grant_id)::uuid IS NOT NULL)
       AND EXISTS (
         SELECT 1
         FROM agent_machine_bindings binding

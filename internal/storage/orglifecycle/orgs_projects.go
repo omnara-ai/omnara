@@ -579,6 +579,15 @@ func (s *Service) deleteOrganizationOnce(
 			return nil, fmt.Errorf("delete organization BYO machine %s: %w", machineID, err)
 		}
 	}
+	// Account deletion locks organization memberships before their project
+	// memberships and user-owned resources. Both paths lock memberships in UUID
+	// order so concurrent account and organization deletions cannot form a cycle.
+	if err := q.LockOrganizationMembershipsForDeletion(ctx, dbsqlc.LockOrganizationMembershipsForDeletionParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("lock organization memberships for deletion: %w", err)
+	}
+	if err := q.DeleteOrganizationMemberships(ctx, dbsqlc.DeleteOrganizationMembershipsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization memberships: %w", err)
+	}
 	for _, projectID := range orgProjectIDs {
 		if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
 			return nil, err
@@ -628,9 +637,6 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	if err := q.DeleteOrganizationProjects(ctx, dbsqlc.DeleteOrganizationProjectsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization projects: %w", err)
-	}
-	if err := q.DeleteOrganizationMemberships(ctx, dbsqlc.DeleteOrganizationMembershipsParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("delete organization memberships: %w", err)
 	}
 	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization api keys: %w", err)

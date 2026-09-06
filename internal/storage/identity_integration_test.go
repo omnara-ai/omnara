@@ -6876,6 +6876,195 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 	}
 }
 
+func TestOrganizationDeletionLocksMembershipsBeforeAccountOwnedResources(t *testing.T) {
+	t.Parallel()
+	for _, projectMember := range []bool{false, true} {
+		name := "organization member"
+		if projectMember {
+			name = "project member"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
+			admin := createSecretTestUser(t, ctx, store, "Organization Deletion Admin", "admin")
+			member := createSecretTestUser(t, ctx, store, "Organization Deletion Member", "member")
+			if projectMember {
+				if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+					OrgID: testOrgID, ProjectID: testProjectID, UserID: member.ID, Role: "developer",
+				}); err != nil {
+					t.Fatalf("add project membership: %v", err)
+				}
+			}
+			skill := createIntegrationSkill(t, ctx, store, skillstore.CreateSkillInput{
+				OrgID: testOrgID, OwnerKind: skillstore.SkillOwnerUser, OwnerUserID: member.ID,
+				Name: "organization-deletion-skill", Actor: userPrincipal(member.ID),
+			})
+			secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+				OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerUser, OwnerUserID: member.ID,
+				Name: "organization-deletion-secret", Material: secrets.GenericMaterial{Value: "secret"},
+				Actor: userPrincipal(member.ID),
+			})
+			if err != nil {
+				t.Fatalf("create user-owned secret: %v", err)
+			}
+			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
+			if err != nil {
+				t.Fatalf("build organization deletion actor: %v", err)
+			}
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := controlTx.Exec(ctx,
+				`SELECT id FROM org_memberships WHERE org_id = $1 AND user_id = $2 FOR UPDATE`,
+				testOrgID, member.ID,
+			); err != nil {
+				t.Fatalf("lock organization membership: %v", err)
+			}
+			accountDone := integrationdb.RunAsyncError(func() error {
+				return store.Identity().DeleteUserAccount(context.Background(), member.ID)
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserOrgMembershipsForDeletion", 1)
+			organizationDone := integrationdb.RunAsyncError(func() error {
+				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+					context.Background(), testOrgID, actor,
+				)
+				return deleteErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationMembershipsForDeletion", 1)
+			// Account deletion is first in the membership lock queue. Organization
+			// deletion must not hold project memberships or owned resources that
+			// the account deletion will need after acquiring that membership.
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release organization membership: %v", err)
+			}
+			for operation, done := range map[string]<-chan error{
+				"delete account": accountDone, "delete organization": organizationDone,
+			} {
+				if err := integrationdb.Await(t, done, operation); err != nil {
+					t.Fatalf("%s: %v", operation, err)
+				}
+			}
+			var accountDeleted, organizationDeleted, skillDeleted, secretDeleted bool
+			var memberships, projectMemberships, secretVersions int
+			if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT deleted_at IS NOT NULL FROM users WHERE id = $1),
+  (SELECT deleted_at IS NOT NULL FROM orgs WHERE id = $2),
+  (SELECT deleted_at IS NOT NULL FROM skills WHERE id = $3),
+  (SELECT deleted_at IS NOT NULL FROM secrets WHERE id = $4),
+  (SELECT count(*) FROM org_memberships WHERE org_id = $2),
+  (SELECT count(*) FROM project_memberships WHERE org_id = $2),
+  (SELECT count(*) FROM secret_versions WHERE secret_id = $4)
+`, member.ID, testOrgID, skill.ID, secret.ID).Scan(
+				&accountDeleted, &organizationDeleted, &skillDeleted, &secretDeleted,
+				&memberships, &projectMemberships, &secretVersions,
+			); err != nil {
+				t.Fatalf("load account and organization deletion state: %v", err)
+			}
+			if !accountDeleted || !organizationDeleted || !skillDeleted || !secretDeleted ||
+				memberships != 0 || projectMemberships != 0 || secretVersions != 0 {
+				t.Fatalf("incomplete deletion: account=%v org=%v skill=%v secret=%v memberships=%d project memberships=%d secret versions=%d",
+					accountDeleted, organizationDeleted, skillDeleted, secretDeleted, memberships, projectMemberships, secretVersions)
+			}
+		})
+	}
+}
+
+func TestAccountAndOrganizationDeletionLockMembershipsInStableOrder(t *testing.T) {
+	t.Parallel()
+	for _, deleteAccount := range []bool{false, true} {
+		name := "organization deletion"
+		waitQuery := "LockOrganizationMembershipsForDeletion"
+		if deleteAccount {
+			name = "account deletion"
+			waitQuery = "LockUserOrgMembershipsForDeletion"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool)
+			admin := createSecretTestUser(t, ctx, store, "Membership Order Admin", "admin")
+			member := createSecretTestUser(t, ctx, store, "Membership Order First", "member")
+			secondOrgID, secondUserID := testOrgID, member.ID
+			if deleteAccount {
+				other, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+					UserID: admin.ID, Name: "Membership Order Other",
+				})
+				if err != nil {
+					t.Fatalf("create second organization: %v", err)
+				}
+				secondOrgID = other.Org.ID
+				if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+					OrgID: secondOrgID, UserID: member.ID, Role: "member",
+				}); err != nil {
+					t.Fatalf("add second organization membership: %v", err)
+				}
+			} else {
+				secondUserID = createSecretTestUser(t, ctx, store, "Membership Order Second", "member").ID
+			}
+			// Put the older membership first in heap order but last in UUID order.
+			// Production IDs are immutable; these fixture rows have no children yet.
+			lowerID := uuid.MustParse("00000000-0000-7000-8000-000000000001")
+			higherID := uuid.MustParse("00000000-0000-7000-8000-000000000002")
+			for _, membership := range []struct{ orgID, userID, id ID }{
+				{testOrgID, member.ID, higherID},
+				{secondOrgID, secondUserID, lowerID},
+			} {
+				if _, err := pool.Exec(ctx,
+					`UPDATE org_memberships SET id = $3 WHERE org_id = $1 AND user_id = $2`,
+					membership.orgID, membership.userID, membership.id,
+				); err != nil {
+					t.Fatalf("assign ordered membership ID: %v", err)
+				}
+			}
+			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
+			if err != nil {
+				t.Fatalf("build organization deletion actor: %v", err)
+			}
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := controlTx.Exec(ctx,
+				`SELECT id FROM org_memberships WHERE id = $1 FOR UPDATE`, lowerID,
+			); err != nil {
+				t.Fatalf("lock lower membership: %v", err)
+			}
+			deleteDone := integrationdb.RunAsyncError(func() error {
+				if deleteAccount {
+					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
+				}
+				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
+					context.Background(), testOrgID, actor,
+				)
+				return deleteErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, waitQuery, 1)
+			probeCtx, cancelProbe := context.WithTimeout(ctx, time.Second)
+			defer cancelProbe()
+			if _, err := controlTx.Exec(probeCtx,
+				`SELECT id FROM org_memberships WHERE id = $1 FOR UPDATE`, higherID,
+			); err != nil {
+				t.Fatalf("lock higher membership while deletion waits on lower membership: %v", err)
+			}
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release membership-order control transaction: %v", err)
+			}
+			if err := integrationdb.Await(t, deleteDone, name); err != nil {
+				t.Fatalf("%s in one transaction attempt: %v", name, err)
+			}
+			var memberships int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM org_memberships WHERE id IN ($1, $2)`, lowerID, higherID,
+			).Scan(&memberships); err != nil {
+				t.Fatalf("count remaining memberships: %v", err)
+			}
+			if memberships != 0 {
+				t.Fatalf("remaining memberships = %d, want 0", memberships)
+			}
+		})
+	}
+}
+
 func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 	t.Parallel()
 	for _, accountWins := range []bool{true, false} {

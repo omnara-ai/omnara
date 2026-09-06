@@ -1542,7 +1542,8 @@ WHERE agent.project_id = $1
   AND (
     ($2::uuid IS NOT NULL AND agent.id = $2::uuid)
     OR (
-      ($3::uuid IS NOT NULL OR $4::uuid IS NOT NULL)
+      $2::uuid IS NULL
+      AND ($3::uuid IS NOT NULL OR $4::uuid IS NOT NULL)
       AND EXISTS (
         SELECT 1
         FROM agent_machine_bindings binding

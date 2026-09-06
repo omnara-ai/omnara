@@ -819,11 +819,3 @@ func lockAgentForProcessRecordTx(ctx context.Context, qtx *dbsqlc.Queries, recor
 	}
 	return nil
 }
-
-func lockAgentsForProcessesTx(ctx context.Context, tx pgx.Tx, rows []dbsqlc.Process) error {
-	refs := make([]lifecyclelock.AgentRef, 0, len(rows))
-	for _, row := range rows {
-		refs = append(refs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
-	}
-	return lifecyclelock.Agents(ctx, tx, refs)
-}
