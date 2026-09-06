@@ -991,6 +991,103 @@ func TestSecretGrantRevocationWaitsForInFlightOAuthRotation(t *testing.T) {
 	}
 }
 
+func TestProjectOAuthOperationsWaitingBehindGrantRevocationRejectRevokedAccess(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"rotation", "lease acquisition"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newSecretIntegrationStore(pool)
+			admin := createSecretTestUser(t, ctx, store, "OAuth Revocation Winner Admin", "admin")
+			secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+				OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerOrg, Name: "oauth-revocation-winner",
+				Material: oauthSecretMaterialForTest("access-old", "refresh-old", secrets.FixedOAuthAccessTokenLifetime(time.Hour)),
+				Actor:    userPrincipal(admin.ID),
+			})
+			if err != nil {
+				t.Fatalf("create OAuth secret: %v", err)
+			}
+			grant, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+				OrgID: testOrgID, SecretID: secret.ID, TargetProjectID: testProjectID, Actor: userPrincipal(admin.ID),
+			})
+			if err != nil {
+				t.Fatalf("create secret grant: %v", err)
+			}
+			leaseInput := secretstore.AcquireProjectOAuthRefreshLeaseInput{
+				OrgID: testOrgID, ProjectID: testProjectID, SecretID: secret.ID, TTL: time.Minute,
+			}
+			var lease secretstore.OAuthRefreshLeaseRecord
+			wantLeases := 0
+			if operation == "rotation" {
+				var acquired bool
+				lease, acquired, err = store.Secrets().AcquireProjectOAuthRefreshLease(ctx, leaseInput)
+				if err != nil || !acquired {
+					t.Fatalf("acquire existing OAuth lease acquired=%v err=%v", acquired, err)
+				}
+				wantLeases = 1
+			}
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := controlTx.Exec(ctx,
+				`SELECT id FROM secret_grants WHERE org_id = $1 AND id = $2 FOR UPDATE`, testOrgID, grant.ID,
+			); err != nil {
+				t.Fatalf("lock secret grant: %v", err)
+			}
+			revocationDone := integrationdb.RunAsyncError(func() error {
+				_, revokeErr := store.Secrets().DeleteSecretGrant(ctx, secretstore.DeleteSecretGrantInput{
+					OrgID: testOrgID, SecretID: secret.ID, GrantID: grant.ID, Actor: userPrincipal(admin.ID),
+				})
+				return revokeErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteSecretGrant", 1)
+			mutationDone := integrationdb.RunAsync(func() (bool, error) {
+				if operation == "rotation" {
+					_, rotateErr := store.Secrets().RotateProjectAvailableOAuthSecret(
+						ctx,
+						secretstore.RotateProjectAvailableOAuthSecretInput{
+							ProjectID: testProjectID, Lease: lease,
+							Material: oauthSecretMaterialForTest(
+								"access-new", "refresh-new", secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+							),
+						},
+					)
+					return false, rotateErr
+				}
+				_, acquired, acquireErr := store.Secrets().AcquireProjectOAuthRefreshLease(ctx, leaseInput)
+				return acquired, acquireErr
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockSecret", 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release secret grant: %v", err)
+			}
+			if err := integrationdb.Await(t, revocationDone, "revoke secret grant"); err != nil {
+				t.Fatalf("revoke secret grant: %v", err)
+			}
+			outcome := integrationdb.Await(t, mutationDone, operation)
+			if !errors.Is(outcome.Err, storeerr.ErrNotFound) || outcome.Value {
+				t.Fatalf("%s after grant revocation acquired=%v err=%v, want not found", operation, outcome.Value, outcome.Err)
+			}
+			var currentVersionID ID
+			var versions, leases, grants int
+			if err := pool.QueryRow(ctx, `
+SELECT current_version_id,
+  (SELECT count(*) FROM secret_versions WHERE secret_id = secrets.id),
+  (SELECT count(*) FROM secret_oauth_refresh_leases WHERE secret_id = secrets.id),
+  (SELECT count(*) FROM secret_grants WHERE secret_id = secrets.id)
+FROM secrets WHERE org_id = $1 AND id = $2
+`, testOrgID, secret.ID).Scan(&currentVersionID, &versions, &leases, &grants); err != nil {
+				t.Fatalf("load OAuth state after revocation: %v", err)
+			}
+			if currentVersionID != secret.CurrentVersionID || versions != 1 || leases != wantLeases || grants != 0 {
+				t.Fatalf("unexpected OAuth state: version=%s versions=%d leases=%d (want %d) grants=%d",
+					currentVersionID, versions, leases, wantLeases, grants)
+			}
+		})
+	}
+}
+
 func TestResolveMachineProviderAuthTokenReportsMissingSecret(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
