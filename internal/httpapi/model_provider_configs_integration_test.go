@@ -58,7 +58,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		providerConfig["endpoint_path"] != "/responses" ||
 		providerConfig["auth_kind"] != "bearer_token" ||
 		len(providerConfig["auth_options"].(map[string]any)) != 0 ||
-		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) {
+		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) ||
+		providerConfig["idle_timeout_ms"] != float64(modelstore.DefaultModelProviderIdleTimeoutMS) {
 		t.Fatalf("preset did not materialize OpenAI provider config: %+v", providerConfig)
 	}
 	openRouterConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
@@ -210,7 +211,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		len(resetAuthProviderConfig["auth_options"].(map[string]any)) != 0 {
 		t.Fatalf("auth_kind patch should reset omitted auth_options to defaults: %+v", resetAuthProviderConfig)
 	}
-	defaultedConfiguredModel := requestJSONWithHeaders(
+	unknownConfiguredModel := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -220,9 +221,9 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if defaultedConfiguredModel["max_output_tokens"] != float64(8_192) ||
-		defaultedConfiguredModel["default_max_output_tokens"] != float64(4_096) {
-		t.Fatalf("defaulted configured model limits = %+v", defaultedConfiguredModel)
+	if unknownConfiguredModel["max_output_tokens"] != nil ||
+		unknownConfiguredModel["default_max_output_tokens"] != nil {
+		t.Fatalf("unknown configured model limits = %+v", unknownConfiguredModel)
 	}
 	configuredModel := requestJSONWithHeaders(
 		t,
@@ -325,7 +326,6 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		`{"name":null}`,
 		`{"provider_model_slug":null}`,
 		`{"context_window_tokens":null}`,
-		`{"max_output_tokens":null}`,
 		`{"default_cache_retention":null}`,
 		`{"supports_tools":null}`,
 		`{"supports_reasoning":null}`,

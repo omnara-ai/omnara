@@ -75,7 +75,10 @@ func (s *Store) createConfiguredModelTx(
 	managementKind management.Kind,
 ) (ConfiguredModelRecord, error) {
 	input = normalizeCreateConfiguredModelInput(input)
-	if isNilID(input.OrgID) || isNilID(input.ModelProviderConfigID) || input.Name == "" || input.ProviderModelSlug == "" {
+	if isNilID(input.OrgID) ||
+		isNilID(input.ModelProviderConfigID) ||
+		input.Name == "" ||
+		input.ProviderModelSlug == "" {
 		return ConfiguredModelRecord{}, errors.New(
 			"org, provider config, configured model name, and provider model slug are required",
 		)
@@ -85,12 +88,6 @@ func (s *Store) createConfiguredModelTx(
 		return ConfiguredModelRecord{}, storeerr.InvalidRequest(err)
 	}
 	input.Name = normalizedName
-	if input.MaxOutputTokens <= 0 {
-		return ConfiguredModelRecord{}, fmt.Errorf(
-			"max_output_tokens must be positive: %w",
-			storeerr.ErrInvalidModelProviderConfig,
-		)
-	}
 	if err := management.Validate(managementKind); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
@@ -128,6 +125,23 @@ func (s *Store) createConfiguredModelTx(
 	); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
+	// Catalog hints can change between otherwise identical CREATE attempts.
+	// Compare an existing model with caller intent before applying a new hint.
+	existing, err := qtx.GetConfiguredModelByName(ctx, dbsqlc.GetConfiguredModelByNameParams{
+		OrgID: input.OrgID, ModelProviderConfigID: input.ModelProviderConfigID, Name: input.Name,
+	})
+	if err == nil {
+		return configuredModelCreateReplay(configuredModelRecordFromGetByNameSQLC(existing), input, managementKind)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
+	}
+	resolved := input
+	if hint := input.DiscoveredMaxOutputTokens; resolved.MaxOutputTokens == nil && hint != nil &&
+		*hint > 0 && *hint < input.ContextWindowTokens &&
+		(input.DefaultMaxOutputTokens == nil || *input.DefaultMaxOutputTokens <= *hint) {
+		resolved.MaxOutputTokens = cloneIntPtr(hint)
+	}
 	row, err := qtx.InsertConfiguredModel(
 		ctx,
 		dbsqlc.InsertConfiguredModelParams{
@@ -137,7 +151,7 @@ func (s *Store) createConfiguredModelTx(
 			Name:                      input.Name,
 			ProviderModelSlug:         input.ProviderModelSlug,
 			ContextWindowTokens:       int32(input.ContextWindowTokens),
-			MaxOutputTokens:           int32(input.MaxOutputTokens),
+			MaxOutputTokens:           storeutil.Int32Ptr(resolved.MaxOutputTokens),
 			DefaultMaxOutputTokens:    storeutil.Int32Ptr(input.DefaultMaxOutputTokens),
 			DefaultCacheRetention:     storeutil.TextFromEmpty(input.DefaultCacheRetention),
 			SupportsTools:             boolPtrDefault(input.SupportsTools, true),
@@ -171,7 +185,17 @@ func (s *Store) createConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
 	}
-	record := configuredModelRecordFromGetByNameSQLC(existingRow)
+	return configuredModelCreateReplay(configuredModelRecordFromGetByNameSQLC(existingRow), input, managementKind)
+}
+
+func configuredModelCreateReplay(
+	record ConfiguredModelRecord,
+	input CreateConfiguredModelInput,
+	managementKind management.Kind,
+) (ConfiguredModelRecord, error) {
+	if managementKind == management.Tenant && input.MaxOutputTokens == nil {
+		input.MaxOutputTokens = record.MaxOutputTokens
+	}
 	if record.ManagementKind != managementKind || !sameConfiguredModelIntent(record, input) {
 		return ConfiguredModelRecord{}, configuredModelNameConflict(input.Name)
 	}
@@ -367,7 +391,7 @@ func updateConfiguredModelTx(
 			Name:                      input.Name,
 			ProviderModelSlug:         input.ProviderModelSlug,
 			ContextWindowTokens:       int32(input.ContextWindowTokens),
-			MaxOutputTokens:           int32(input.MaxOutputTokens),
+			MaxOutputTokens:           storeutil.Int32Ptr(input.MaxOutputTokens),
 			DefaultMaxOutputTokens:    storeutil.Int32Ptr(input.DefaultMaxOutputTokens),
 			DefaultCacheRetention:     storeutil.TextFromEmpty(input.DefaultCacheRetention),
 			SupportsTools:             boolPtrDefault(input.SupportsTools, true),
@@ -434,7 +458,7 @@ func updateConfiguredModelInputFromCurrent(current ConfiguredModelRecord) config
 		Name:                      current.Name,
 		ProviderModelSlug:         current.ProviderModelSlug,
 		ContextWindowTokens:       current.ContextWindowTokens,
-		MaxOutputTokens:           current.MaxOutputTokens,
+		MaxOutputTokens:           cloneIntPtr(current.MaxOutputTokens),
 		DefaultMaxOutputTokens:    cloneIntPtr(current.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     current.DefaultCacheRetention,
 		SupportsTools:             &supportsTools,
@@ -457,9 +481,7 @@ func applyConfiguredModelPatch(update *configuredModelUpdate, patch PatchConfigu
 	if patch.ContextWindowTokens != nil {
 		update.ContextWindowTokens = *patch.ContextWindowTokens
 	}
-	if patch.MaxOutputTokens != nil {
-		update.MaxOutputTokens = *patch.MaxOutputTokens
-	}
+	applyNullableIntPatch(&update.MaxOutputTokens, patch.MaxOutputTokens)
 	applyNullableIntPatch(&update.DefaultMaxOutputTokens, patch.DefaultMaxOutputTokens)
 	if patch.DefaultCacheRetention != nil {
 		update.DefaultCacheRetention = *patch.DefaultCacheRetention
@@ -491,7 +513,7 @@ func applyConfiguredModelPatch(update *configuredModelUpdate, patch PatchConfigu
 func configuredModelBehaviorChanged(current ConfiguredModelRecord, update configuredModelUpdate) bool {
 	return current.ProviderModelSlug != update.ProviderModelSlug ||
 		current.ContextWindowTokens != update.ContextWindowTokens ||
-		current.MaxOutputTokens != update.MaxOutputTokens ||
+		!storeutil.SameIntPtr(current.MaxOutputTokens, update.MaxOutputTokens) ||
 		!storeutil.SameIntPtr(current.DefaultMaxOutputTokens, update.DefaultMaxOutputTokens) ||
 		current.DefaultCacheRetention != update.DefaultCacheRetention ||
 		current.SupportsTools != boolPtrDefault(update.SupportsTools, true) ||
@@ -655,7 +677,10 @@ func (s *Store) DeleteConfiguredModel(
 		return ConfiguredModelRecord{}, fmt.Errorf("check configured model active grants: %w", err)
 	}
 	if hasGrants {
-		return ConfiguredModelRecord{}, fmt.Errorf("configured model has active project grants: %w", storeerr.ErrConflict)
+		return ConfiguredModelRecord{}, fmt.Errorf(
+			"configured model has active project grants: %w",
+			storeerr.ErrConflict,
+		)
 	}
 	deleted, err := qtx.DeleteConfiguredModel(ctx, dbsqlc.DeleteConfiguredModelParams{
 		OrgID: orgID, ID: id, ManagementKind: string(management.Tenant),
@@ -682,7 +707,7 @@ func configuredModelRecordFromInsertSQLC(row dbsqlc.InsertConfiguredModelRow) Co
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -709,7 +734,7 @@ func configuredModelRecordFromGetSQLC(row dbsqlc.GetConfiguredModelRow) Configur
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -736,7 +761,7 @@ func configuredModelRecordFromLockForUseSQLC(row dbsqlc.LockConfiguredModelForUs
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -763,7 +788,7 @@ func configuredModelRecordFromDisplaySQLC(row dbsqlc.GetConfiguredModelDisplayRo
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -790,7 +815,7 @@ func configuredModelRecordFromGetByNameSQLC(row dbsqlc.GetConfiguredModelByNameR
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -817,7 +842,7 @@ func configuredModelRecordFromListSQLC(row dbsqlc.ListConfiguredModelsRow) Confi
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -844,7 +869,7 @@ func configuredModelRecordFromUpdateSQLC(row dbsqlc.UpdateConfiguredModelRow) Co
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -871,7 +896,7 @@ func configuredModelRecordFromRenameSQLC(row dbsqlc.RenameConfiguredModelRow) Co
 		CurrentRevisionID:         row.CurrentRevisionID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -901,7 +926,7 @@ func configuredModelRecordFromLockedConfiguredModelAndRevisionSQLC(
 		CurrentRevisionID:         configuredModel.CurrentRevisionID,
 		ProviderModelSlug:         revision.ProviderModelSlug,
 		ContextWindowTokens:       revision.ContextWindowTokens,
-		MaxOutputTokens:           revision.MaxOutputTokens,
+		MaxOutputTokens:           cloneIntPtr(revision.MaxOutputTokens),
 		DefaultMaxOutputTokens:    cloneIntPtr(revision.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     revision.DefaultCacheRetention,
 		SupportsTools:             revision.SupportsTools,
@@ -926,7 +951,7 @@ func configuredModelRevisionRecordFromSQLC(row dbsqlc.ConfiguredModelRevision) C
 		ModelProviderConfigID:     row.ModelProviderConfigID,
 		ProviderModelSlug:         row.ProviderModelSlug,
 		ContextWindowTokens:       int(row.ContextWindowTokens),
-		MaxOutputTokens:           int(row.MaxOutputTokens),
+		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 		SupportsTools:             row.SupportsTools,
@@ -951,7 +976,7 @@ func configuredModelRevisionDisplayRecordFromSQLC(
 			ModelProviderConfigID:     row.ModelProviderConfigID,
 			ProviderModelSlug:         row.ProviderModelSlug,
 			ContextWindowTokens:       int(row.ContextWindowTokens),
-			MaxOutputTokens:           int(row.MaxOutputTokens),
+			MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 			DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 			DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
 			SupportsTools:             row.SupportsTools,

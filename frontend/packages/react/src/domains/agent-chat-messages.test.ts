@@ -37,6 +37,28 @@ describe('projectAgentChat input lifecycle', () => {
     hasOlderEvents: false,
   }
 
+  it.each([true, false])(
+    'restores recovery status from durable history: continued=%s',
+    (continued) => {
+      const result = projectAgentChat({
+        ...base,
+        localInputs: [],
+        backlogInputs: [],
+        events: [
+          userInputEvent(),
+          event({
+            sequence: 12,
+            stop_reason: 'max_tokens',
+            continue_after_truncation: continued,
+            content_blocks: [{ type: 'error', text: 'Output limit reached.' }],
+          }),
+        ],
+      })
+      expect(result.isWorking).toBe(continued)
+      expect(result.status).toBe(continued ? 'streaming' : 'ready')
+    },
+  )
+
   it('keeps an idle send in the conversation while the server backlog copy waits for admission', () => {
     const result = projectAgentChat({
       ...base,

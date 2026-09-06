@@ -378,8 +378,8 @@ func (m *summaryModel) Capabilities() model.Capabilities {
 	if caps.ContextWindowTokens == 0 {
 		caps.ContextWindowTokens = 200_000
 	}
-	if caps.MaxOutputTokens == 0 {
-		caps.MaxOutputTokens = 4_096
+	if caps.MaxOutputTokens == nil {
+		caps.MaxOutputTokens = new(4_096)
 	}
 	if caps.DefaultMaxOutputTokens == 0 {
 		caps.DefaultMaxOutputTokens = 2_048

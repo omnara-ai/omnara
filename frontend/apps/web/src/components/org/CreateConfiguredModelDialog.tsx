@@ -229,7 +229,8 @@ export function CreateConfiguredModelDialog({
                       }}
                     />
                     <FieldDescription>
-                      Optional; Omnara chooses a conservative default when omitted.
+                      Optional; uses known capacity when available. Some providers require an
+                      allowance.
                     </FieldDescription>
                   </Field>
                 )}
@@ -249,7 +250,7 @@ export function CreateConfiguredModelDialog({
                       }}
                     />
                     <FieldDescription>
-                      Optional hard ceiling, including compaction.
+                      Known output capacity, including compaction. Leave blank if unknown.
                     </FieldDescription>
                   </Field>
                 )}

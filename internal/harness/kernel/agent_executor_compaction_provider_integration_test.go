@@ -98,7 +98,7 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 
 	capabilities := model.Capabilities{
 		ContextWindowTokens: 128_000,
-		MaxOutputTokens:     128,
+		MaxOutputTokens:     new(128),
 	}
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "replay-compaction-model",
@@ -299,7 +299,7 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{{
 			ID:         "resp_first",
@@ -338,7 +338,7 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{
@@ -571,7 +571,7 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{
@@ -1163,7 +1163,7 @@ func newManagedCompactionAdmissionJourney(
 		providerModelSlug: "managed-compaction-model",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{
@@ -1323,7 +1323,7 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     256,
+			MaxOutputTokens:     new(256),
 		},
 		responses: malformedResponses,
 	}
@@ -1473,7 +1473,7 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{{
 			ID:         "resp_seed_before_revoke_compaction",
@@ -1535,7 +1535,7 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{

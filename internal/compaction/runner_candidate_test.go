@@ -19,7 +19,7 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	store := &fakeStore{events: events}
 	client := &summaryModel{caps: model.Capabilities{
 		ContextWindowTokens: 8_000,
-		MaxOutputTokens:     1_024,
+		MaxOutputTokens:     new(1_024),
 	}}
 	result, err := testRunner(store, client).
 		Run(context.Background(), runInput(testPlan(1, 8, 8)))
@@ -45,7 +45,7 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 	const summaryOutputFloorTokens = 2_048
 	caps := model.Capabilities{
 		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputFloorTokens,
-		MaxOutputTokens:        preferredSummaryOutputTokens,
+		MaxOutputTokens:        new(preferredSummaryOutputTokens),
 		DefaultMaxOutputTokens: summaryOutputFloorTokens,
 	}
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
@@ -106,7 +106,7 @@ func TestRunnerReducesSummaryOutputToConfiguredFloor(t *testing.T) {
 	contextWindow := preferredSummaryOutputTokens + configuredOutputTokens
 	caps := model.Capabilities{
 		ContextWindowTokens:    contextWindow,
-		MaxOutputTokens:        preferredSummaryOutputTokens,
+		MaxOutputTokens:        new(preferredSummaryOutputTokens),
 		DefaultMaxOutputTokens: configuredOutputTokens,
 	}
 	inputTokens := model.UsableInputTokensForRequest(
@@ -160,7 +160,7 @@ func TestRunnerUsesExactOutputReductionBetweenPreferredAndFloor(t *testing.T) {
 		(preferredSummaryOutputTokens-configuredOutputTokens)/2
 	caps := model.Capabilities{
 		ContextWindowTokens:    64_000,
-		MaxOutputTokens:        preferredSummaryOutputTokens,
+		MaxOutputTokens:        new(preferredSummaryOutputTokens),
 		DefaultMaxOutputTokens: configuredOutputTokens,
 	}
 	inputTokens := model.UsableInputTokensForRequest(
@@ -271,7 +271,7 @@ func TestRunnerShrinksSourceWhenSerializedProviderRequestExceedsBudget(t *testin
 	client := &summaryModel{
 		caps: model.Capabilities{
 			ContextWindowTokens: 8_000,
-			MaxOutputTokens:     1_024,
+			MaxOutputTokens:     new(1_024),
 		},
 		preparedEstimate: func(input model.PrepareInput, body []byte) int {
 			if input.Context.ContextCheckpoint == nil &&
@@ -480,3 +480,70 @@ func TestRunnerDurablyRetriesOpenSourceRange(t *testing.T) {
 		t.Fatalf("open range result=%+v failures=%+v err=%v", result, store.retryFailures, err)
 	}
 }
+
+func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		capacity                        *int
+		allowance, minimum, input, want int
+	}{
+		{"explicit small normal allowance", new(9000), 1000, 1, 4000, 4976},
+		{"inherited large capacity", new(9000), 0, 1, 3000, 5000},
+		{"unknown capacity with large allowance", nil, 9000, 1, 3000, 5000},
+		{"thinking minimum above half window", new(9000), 0, 6000, 1000, 6000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{
+				events: []executionstore.CompactionSourceEventRecord{
+					textCompactionEvent(
+						1,
+						strings.Repeat(
+							"source detail ",
+							100,
+						),
+					),
+				},
+			}
+			client := &summaryModel{
+				caps: model.Capabilities{
+					ContextWindowTokens:    10000,
+					MaxOutputTokens:        tc.capacity,
+					DefaultMaxOutputTokens: tc.allowance,
+				},
+				sourceInputTokens: tc.input, outputTokenMinimum: tc.minimum,
+			}
+			result, err := testRunner(
+				store,
+				summaryModelWithExplicitCapabilities{
+					client,
+				},
+			).Run(
+				context.Background(),
+				runInput(testPlan(
+					1,
+					1,
+					1,
+				)),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != RunCompleted || len(client.requests) != 1 || len(store.terminalFailures) != 0 {
+				t.Fatalf("result=%+v requests=%d failures=%+v", result, len(client.requests), store.terminalFailures)
+			}
+			var sent struct {
+				MaxOutputTokens int `json:"max_output_tokens"`
+			}
+			if err := json.Unmarshal(client.requests[0].ProviderRequest, &sent); err != nil {
+				t.Fatal(err)
+			}
+			if sent.MaxOutputTokens != tc.want {
+				t.Fatalf("summary allowance=%d, want%d", sent.MaxOutputTokens, tc.want)
+			}
+		})
+	}
+}
+
+type summaryModelWithExplicitCapabilities struct{ *summaryModel }
+
+func (m summaryModelWithExplicitCapabilities) Capabilities() model.Capabilities { return m.caps }

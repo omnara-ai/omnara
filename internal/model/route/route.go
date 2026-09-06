@@ -151,13 +151,15 @@ func (c Chain) Apply(req *http.Request) error {
 
 type HTTPTransport struct {
 	Client                *http.Client
+	IdleTimeout           time.Duration
 	Method                string
 	MaxResponseBytes      int64
 	MaxErrorResponseBytes int64
 }
 
 const (
-	defaultProviderRequestTimeout = 10 * time.Minute
+	defaultProviderRequestTimeout = time.Hour
+	defaultProviderIdleTimeout    = 5 * time.Minute
 
 	defaultMaxProviderResponseBytes      int64 = 64 * 1024 * 1024
 	defaultMaxProviderErrorResponseBytes int64 = 64 * 1024
@@ -546,9 +548,13 @@ func enrichProviderErrorFromHeader(err error, header http.Header) error {
 		return err
 	}
 	changed := false
+	if providerErr.Code == "" && errors.Is(err, errProviderIdleTimeout) {
+		providerErr.Code = "provider_idle_timeout"
+		changed = true
+	}
 	if providerErr.RequestID == "" {
 		providerErr.RequestID = model.RequestIDFromHeader(header)
-		changed = providerErr.RequestID != ""
+		changed = changed || providerErr.RequestID != ""
 	}
 	if providerErr.RetryAfter == nil {
 		providerErr.RetryAfter = model.RetryAfterFromHeader(header)
@@ -572,7 +578,7 @@ func enrichProviderErrorFromHeader(err error, header http.Header) error {
 }
 
 func ambiguousTransportError(source string, statusCode int, header http.Header, cause error) error {
-	return model.AmbiguousProviderOutcome(model.ProviderError{
+	return enrichProviderErrorFromHeader(model.AmbiguousProviderOutcome(model.ProviderError{
 		Kind:       model.ErrorKindTransient,
 		Source:     source,
 		StatusCode: statusCode,
@@ -581,7 +587,7 @@ func ambiguousTransportError(source string, statusCode int, header http.Header, 
 		RetryAfter: model.RetryAfterFromHeader(header),
 		Retryable:  model.ShouldRetryFromHeader(header),
 		Cause:      cause,
-	})
+	}), header)
 }
 
 func MatchesMediaType(contentType, expected string) bool {

@@ -159,57 +159,67 @@ WHERE id = $1`, claim.Context.ID)
 
 func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "kernel_model_output_authority")
-	now := fixture.Now.Add(time.Minute)
-	turnID := testID("turn_kernel_model_output_authority")
-	inputID := testID("input_kernel_model_output_authority")
-	providerResponse := modelenvelope.ResponseEnvelope{
-		RequestedProviderModelSlug: "test",
-		ServedProviderModelSlug:    "test",
-		APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:                 modelprotocol.APIVariantDefault,
-		ProviderReportedCostUSD:    "0.0000125",
-		ProviderMetadata: modelenvelope.ProviderMetadata{
-			OpenRouter: modelenvelope.OpenRouterMetadata{Provider: "Moonshot AI"},
-		},
-		Normalized: modelenvelope.ResponseNormalized{
-			ID:         "resp_kernel_model_output_authority",
-			Content:    []modelenvelope.ResponsePart{{Type: "text", Text: "hello"}},
-			StopReason: modelenvelope.StopReasonEndTurn,
-			Usage:      modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
-		},
-	}
-	actorID := fixture.omnaraActorID(t, ctx)
-	if _, err := fixture.Store.pool.Exec(ctx, `
+	for _, name := range []string{"completed", "continued", "historical max_tokens"} {
+		t.Run(name, func(t *testing.T) {
+			continued := name == "continued"
+			ctx := context.Background()
+			fixture := newProcessDaemonFixture(t, ctx, "kernel_model_output_authority")
+			now := fixture.Now.Add(time.Minute)
+			turnID := testID("turn_kernel_model_output_authority")
+			inputID := testID("input_kernel_model_output_authority")
+			providerResponse := modelenvelope.ResponseEnvelope{
+				RequestedProviderModelSlug: "test",
+				ServedProviderModelSlug:    "test",
+				APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
+				APIVariant:                 modelprotocol.APIVariantDefault,
+				ProviderReportedCostUSD:    "0.0000125",
+				ProviderMetadata: modelenvelope.ProviderMetadata{
+					RequestMaxOutputTokens: 64000,
+					OpenRouter:             modelenvelope.OpenRouterMetadata{Provider: "test-provider", FinishReason: "tool_calls", NativeFinishReason: "length"},
+				},
+				Normalized: modelenvelope.ResponseNormalized{
+					ID:         "resp_kernel_model_output_authority",
+					Content:    []modelenvelope.ResponsePart{{Type: "text", Text: "hello"}},
+					StopReason: modelenvelope.StopReasonEndTurn,
+					Usage:      modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
+				},
+			}
+			if name != "completed" {
+				providerResponse.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
+			}
+			if continued {
+				providerResponse.Normalized.Content = append(providerResponse.Normalized.Content, modelenvelope.ResponsePart{Type: modelenvelope.ResponsePartTypeError, Text: "Continue with smaller tool calls."})
+			}
+			actorID := fixture.omnaraActorID(t, ctx)
+			if _, err := fixture.Store.pool.Exec(ctx, `
 		INSERT INTO agent_inputs(id, project_id, agent_id, state, delivery_mode, actor_id, input_kind, queued_at, metadata)
 		VALUES ($1, $2, $3, 'received', 'queued', $4, 'content', $5, '{}'::jsonb)
 	`, inputID, testProjectID, fixture.AgentID, actorID, now); err != nil {
-		t.Fatalf("insert model output fixture input: %v", err)
-	}
-	turnTx, err := fixture.Store.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin model output fixture turn: %v", err)
-	}
-	defer func() { _ = turnTx.Rollback(ctx) }()
-	inputEvent, err := executionstore.IntegrationAppendTypedAgentEventTx(
-		ctx,
-		notifications.NewTxNotifications(),
-		turnTx,
-		executionstore.AppendTypedAgentEventInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			TurnID:         turnID,
-			IsOpeningEvent: true,
-			Kind:           events.KindAgentInput,
-			IdempotencyKey: "agent_input:" + inputID.String(),
-			AgentInputID:   inputID,
-		},
-	)
-	if err != nil {
-		t.Fatalf("append model output fixture input event: %v", err)
-	}
-	if _, err := turnTx.Exec(ctx, `
+				t.Fatalf("insert model output fixture input: %v", err)
+			}
+			turnTx, err := fixture.Store.pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin model output fixture turn: %v", err)
+			}
+			defer func() { _ = turnTx.Rollback(ctx) }()
+			inputEvent, err := executionstore.IntegrationAppendTypedAgentEventTx(
+				ctx,
+				notifications.NewTxNotifications(),
+				turnTx,
+				executionstore.AppendTypedAgentEventInput{
+					ProjectID:      testProjectID,
+					AgentID:        fixture.AgentID,
+					TurnID:         turnID,
+					IsOpeningEvent: true,
+					Kind:           events.KindAgentInput,
+					IdempotencyKey: "agent_input:" + inputID.String(),
+					AgentInputID:   inputID,
+				},
+			)
+			if err != nil {
+				t.Fatalf("append model output fixture input event: %v", err)
+			}
+			if _, err := turnTx.Exec(ctx, `
 		UPDATE agent_inputs
 		SET state = 'resolved',
 		    admitted_event_id = $4,
@@ -217,138 +227,160 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 		    resolved_at = $5
 		WHERE id = $1 AND project_id = $2 AND agent_id = $3
 	`, inputID, testProjectID, fixture.AgentID, inputEvent.Event.ID, now); err != nil {
-		t.Fatalf("resolve model output fixture input: %v", err)
-	}
-	if _, err := turnTx.Exec(ctx, `
+				t.Fatalf("resolve model output fixture input: %v", err)
+			}
+			if _, err := turnTx.Exec(ctx, `
 		INSERT INTO agent_turns(id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id)
 		VALUES ($1, $2, 100, $3, $3)
 	`, turnID, fixture.AgentID, inputEvent.Event.ID); err != nil {
-		t.Fatalf("insert model output fixture turn: %v", err)
-	}
-	if err := turnTx.Commit(ctx); err != nil {
-		t.Fatalf("commit model output fixture turn: %v", err)
-	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-	if err != nil {
-		t.Fatalf("load agent for model output fixture context: %v", err)
-	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    []ID{inputID},
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: inputEvent.Event.Sequence,
-	})
-	if err != nil {
-		t.Fatalf("claim model output fixture context: %v", err)
-	}
-	recordInput := executionstore.RecordModelOutputAndCompleteContextInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		ModelCallContextID: modelClaim.Context.ID,
-		ProviderResponse:   providerResponse,
-	}
-	event, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, recordInput)
-	if err != nil {
-		t.Fatalf("record typed model output: %v", err)
-	}
-	if event.Kind != events.KindModelOutput {
-		t.Fatalf("event=%+v, want typed model output projection", event)
-	}
-	replayed, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, recordInput)
-	if err != nil {
-		t.Fatalf("replay typed model output: %v", err)
-	}
-	if replayed.ID != event.ID || replayed.Sequence != event.Sequence {
-		t.Fatalf("replayed event = %s/%d, want %s/%d", replayed.ID, replayed.Sequence, event.ID, event.Sequence)
-	}
-	conflictingInput := recordInput
-	conflictingInput.ProviderResponse.Normalized.Content = append(
-		[]modelenvelope.ResponsePart(nil),
-		recordInput.ProviderResponse.Normalized.Content...,
-	)
-	conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
-	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-	}
-	conflictingCostInput := recordInput
-	conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
-	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-	}
-	var modelOutputID ID
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).Scan(&modelOutputID); err != nil {
-		t.Fatalf("load model output event pointer: %v", err)
-	}
-	if isNilID(modelOutputID) {
-		t.Fatalf("model_output event missing model_output_id")
-	}
-	modelOutput, found, err := fixture.Store.Execution().GetModelOutputForContext(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		modelClaim.Context.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load model output authority: found=%v err=%v", found, err)
-	}
-	if modelOutput.ProviderResponseID != providerResponse.Normalized.ID {
-		t.Fatalf(
-			"model output provider response id = %q, want context-derived %q",
-			modelOutput.ProviderResponseID,
-			providerResponse.Normalized.ID,
-		)
-	}
-	completedContext, found, err := fixture.Store.Execution().GetModelCallContext(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		modelClaim.Context.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("load completed model call context: found=%v err=%v", found, err)
-	}
-	if completedContext.ProviderReportedCostUSD != providerResponse.ProviderReportedCostUSD {
-		t.Fatalf(
-			"model call provider-reported cost = %q, want %q",
-			completedContext.ProviderReportedCostUSD,
-			providerResponse.ProviderReportedCostUSD,
-		)
-	}
-	if completedContext.ProviderMetadata != providerResponse.ProviderMetadata {
-		t.Fatalf(
-			"model call provider metadata = %+v, want %+v",
-			completedContext.ProviderMetadata,
-			providerResponse.ProviderMetadata,
-		)
-	}
-	readEvents, err := fixture.Store.Execution().ListAgentEventsForRead(ctx, testProjectID, fixture.AgentID, 0, 100)
-	if err != nil {
-		t.Fatalf("list agent events for read: %v", err)
-	}
-	var readModelOutput *executionstore.AgentEventReadRecord
-	for index := range readEvents {
-		if readEvents[index].ID == event.ID {
-			readModelOutput = &readEvents[index]
-		}
-	}
-	if readModelOutput == nil {
-		t.Fatalf("model output event %s missing from read projection", event.ID)
-	}
-	if readModelOutput.ModelUsage != providerResponse.Normalized.Usage ||
-		readModelOutput.ProviderMetadata != providerResponse.ProviderMetadata {
-		t.Fatalf(
-			"read projection usage=%+v metadata=%+v, want %+v and %+v",
-			readModelOutput.ModelUsage,
-			readModelOutput.ProviderMetadata,
-			providerResponse.Normalized.Usage,
-			providerResponse.ProviderMetadata,
-		)
-	}
-	var inputTokens, outputTokens, contentBlocks int
-	if err := fixture.Store.pool.QueryRow(ctx, `
+				t.Fatalf("insert model output fixture turn: %v", err)
+			}
+			if err := turnTx.Commit(ctx); err != nil {
+				t.Fatalf("commit model output fixture turn: %v", err)
+			}
+			agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+			if err != nil {
+				t.Fatalf("load agent for model output fixture context: %v", err)
+			}
+			modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
+				ProjectID:          testProjectID,
+				AgentID:            fixture.AgentID,
+				RuntimeLockID:      fixture.Lock.ID,
+				OpeningInputIDs:    []ID{inputID},
+				AgentConfigID:      agent.CurrentConfigID,
+				InputEventSequence: inputEvent.Event.Sequence,
+			})
+			if err != nil {
+				t.Fatalf("claim model output fixture context: %v", err)
+			}
+			recordInput := executionstore.RecordModelOutputAndCompleteContextInput{
+				ProjectID:               testProjectID,
+				AgentID:                 fixture.AgentID,
+				RuntimeLockID:           fixture.Lock.ID,
+				ModelCallContextID:      modelClaim.Context.ID,
+				ProviderResponse:        providerResponse,
+				ContinueAfterTruncation: continued,
+			}
+			event, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, recordInput)
+			if err != nil {
+				t.Fatalf("record typed model output: %v", err)
+			}
+			if event.Kind != events.KindModelOutput {
+				t.Fatalf("event=%+v, want typed model output projection", event)
+			}
+			replayed, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, recordInput)
+			if err != nil {
+				t.Fatalf("replay typed model output: %v", err)
+			}
+			if replayed.ID != event.ID || replayed.Sequence != event.Sequence {
+				t.Fatalf("replayed event = %s/%d, want %s/%d", replayed.ID, replayed.Sequence, event.ID, event.Sequence)
+			}
+			if continued {
+				changedFlag := recordInput
+				changedFlag.ContinueAfterTruncation = false
+				if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedFlag); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+					t.Fatalf("changed continuation flag replay error = %v", err)
+				}
+			}
+			var pending int
+			if err := fixture.Store.pool.QueryRow(ctx, `SELECT count(*) FROM agent_next_model_work($1,$2)`, testProjectID, fixture.AgentID).Scan(&pending); err != nil {
+				t.Fatal(err)
+			}
+			wantPending := 0
+			if continued {
+				wantPending = 1
+			}
+			if pending != wantPending {
+				t.Fatalf("pending work=%d want=%d", pending, wantPending)
+			}
+			conflictingInput := recordInput
+			conflictingInput.ProviderResponse.Normalized.Content = append(
+				[]modelenvelope.ResponsePart(nil),
+				recordInput.ProviderResponse.Normalized.Content...,
+			)
+			conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
+			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+				t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
+			}
+			conflictingCostInput := recordInput
+			conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
+			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+				t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
+			}
+			var modelOutputID ID
+			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).Scan(&modelOutputID); err != nil {
+				t.Fatalf("load model output event pointer: %v", err)
+			}
+			if isNilID(modelOutputID) {
+				t.Fatalf("model_output event missing model_output_id")
+			}
+			modelOutput, found, err := fixture.Store.Execution().GetModelOutputForContext(
+				ctx,
+				testProjectID,
+				fixture.AgentID,
+				modelClaim.Context.ID,
+			)
+			if err != nil || !found {
+				t.Fatalf("load model output authority: found=%v err=%v", found, err)
+			}
+			if modelOutput.ProviderResponseID != providerResponse.Normalized.ID {
+				t.Fatalf(
+					"model output provider response id = %q, want context-derived %q",
+					modelOutput.ProviderResponseID,
+					providerResponse.Normalized.ID,
+				)
+			}
+			completedContext, found, err := fixture.Store.Execution().GetModelCallContext(
+				ctx,
+				testProjectID,
+				fixture.AgentID,
+				modelClaim.Context.ID,
+			)
+			if err != nil || !found {
+				t.Fatalf("load completed model call context: found=%v err=%v", found, err)
+			}
+			if completedContext.ProviderReportedCostUSD != providerResponse.ProviderReportedCostUSD {
+				t.Fatalf(
+					"model call provider-reported cost = %q, want %q",
+					completedContext.ProviderReportedCostUSD,
+					providerResponse.ProviderReportedCostUSD,
+				)
+			}
+			if completedContext.ProviderMetadata != providerResponse.ProviderMetadata {
+				t.Fatalf(
+					"model call provider metadata = %+v, want %+v",
+					completedContext.ProviderMetadata,
+					providerResponse.ProviderMetadata,
+				)
+			}
+			readEvents, err := fixture.Store.Execution().ListAgentEventsForRead(ctx, testProjectID, fixture.AgentID, 0, 100)
+			if err != nil {
+				t.Fatalf("list agent events for read: %v", err)
+			}
+			var readModelOutput *executionstore.AgentEventReadRecord
+			for index := range readEvents {
+				if readEvents[index].ID == event.ID {
+					readModelOutput = &readEvents[index]
+				}
+			}
+			if readModelOutput == nil {
+				t.Fatalf("model output event %s missing from read projection", event.ID)
+			}
+			if readModelOutput.ContinueAfterTruncation != continued {
+				t.Fatalf("read continuation=%v want=%v", readModelOutput.ContinueAfterTruncation, continued)
+			}
+			if readModelOutput.ModelUsage != providerResponse.Normalized.Usage ||
+				readModelOutput.ProviderMetadata != providerResponse.ProviderMetadata {
+				t.Fatalf(
+					"read projection usage=%+v metadata=%+v, want %+v and %+v",
+					readModelOutput.ModelUsage,
+					readModelOutput.ProviderMetadata,
+					providerResponse.Normalized.Usage,
+					providerResponse.ProviderMetadata,
+				)
+			}
+			var inputTokens, outputTokens, contentBlocks int
+			if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT coalesce(context.input_tokens_total, 0),
        coalesce(context.output_tokens_total, 0),
        (SELECT count(*) FROM content_blocks block
@@ -360,33 +392,37 @@ JOIN model_call_contexts context
  AND context.id = output.model_call_context_id
 WHERE context.project_id = $1 AND output.agent_id = $2 AND output.id = $3
 	`, testProjectID, fixture.AgentID, modelOutputID).Scan(&inputTokens, &outputTokens, &contentBlocks); err != nil {
-		t.Fatalf("load model output usage: %v", err)
-	}
-	if inputTokens != 1 || outputTokens != 1 || contentBlocks != 1 {
-		t.Fatalf(
-			"model output usage/content input=%d output=%d blocks=%d, want 1/1/1",
-			inputTokens,
-			outputTokens,
-			contentBlocks,
-		)
-	}
-	appendTx, err := fixture.Store.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin late model output append: %v", err)
-	}
-	_, err = appendTx.Exec(ctx, `
+				t.Fatalf("load model output usage: %v", err)
+			}
+			wantBlocks := 1
+			if continued {
+				wantBlocks++
+			}
+			if inputTokens != 1 || outputTokens != 1 || contentBlocks != wantBlocks {
+				t.Fatalf(
+					"model output usage/content input=%d output=%d blocks=%d, want 1/1/%d",
+					inputTokens,
+					outputTokens,
+					contentBlocks, wantBlocks,
+				)
+			}
+			appendTx, err := fixture.Store.pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin late model output append: %v", err)
+			}
+			_, err = appendTx.Exec(ctx, `
 INSERT INTO content_blocks(
   agent_id, owner_kind, owner_model_output_id,
   ordinal, block_kind, text_content, created_at
 )
 VALUES ($1, 'model_output', $2, 1, 'text', 'late append', $3)
 `, fixture.AgentID, modelOutputID, now.Add(2*time.Second))
-	_ = appendTx.Rollback(ctx)
-	if !isPgCheckViolation(err) {
-		t.Fatalf("late model output block error = %v, want check violation", err)
-	}
-	var matchingLineage int
-	if err := fixture.Store.pool.QueryRow(ctx, `
+			_ = appendTx.Rollback(ctx)
+			if !isPgCheckViolation(err) {
+				t.Fatalf("late model output block error = %v, want check violation", err)
+			}
+			var matchingLineage int
+			if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT count(*)
 FROM model_outputs output
 JOIN model_call_contexts context
@@ -398,10 +434,12 @@ WHERE context.project_id = $1
   AND output.model_call_context_id = $4
   AND context.state = 'succeeded'
 `, testProjectID, fixture.AgentID, modelOutputID, modelClaim.Context.ID).Scan(&matchingLineage); err != nil {
-		t.Fatalf("load model output context lineage: %v", err)
-	}
-	if matchingLineage != 1 {
-		t.Fatalf("model output lineage rows = %d, want 1", matchingLineage)
+				t.Fatalf("load model output context lineage: %v", err)
+			}
+			if matchingLineage != 1 {
+				t.Fatalf("model output lineage rows = %d, want 1", matchingLineage)
+			}
+		})
 	}
 }
 

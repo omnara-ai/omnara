@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
@@ -20,6 +21,7 @@ type Client struct {
 	EndpointPath          string
 	ProviderModelSlug     string
 	HTTPClient            *http.Client
+	IdleTimeout           time.Duration
 	ModelCapabilities     model.Capabilities
 	APIVariant            modelprotocol.APIVariant
 	APIVariantOptions     json.RawMessage

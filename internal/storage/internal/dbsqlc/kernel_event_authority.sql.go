@@ -24,7 +24,7 @@ SELECT output.id, agent.project_id, output.agent_id,
   ) AS turn_id,
   output.model_call_context_id,
   output.served_provider_model_slug,
-  output.stop_reason, context.provider_response_id,
+  output.stop_reason, output.continue_after_truncation, context.provider_response_id,
   output.provider_replay,
   context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
@@ -54,6 +54,7 @@ type GetModelOutputByModelContextRow struct {
 	ModelCallContextID      uuid.UUID
 	ServedProviderModelSlug string
 	StopReason              string
+	ContinueAfterTruncation bool
 	ProviderResponseID      string
 	ProviderReplay          *json.RawMessage
 	InputTokensTotal        *int32
@@ -76,6 +77,7 @@ func (q *Queries) GetModelOutputByModelContext(ctx context.Context, arg GetModel
 		&i.ModelCallContextID,
 		&i.ServedProviderModelSlug,
 		&i.StopReason,
+		&i.ContinueAfterTruncation,
 		&i.ProviderResponseID,
 		&i.ProviderReplay,
 		&i.InputTokensTotal,
@@ -611,20 +613,20 @@ const insertModelOutputAuthority = `-- name: InsertModelOutputAuthority :one
 WITH inserted AS (
   INSERT INTO model_outputs(
     agent_id, model_call_context_id,
-    served_provider_model_slug, stop_reason, provider_replay, created_at
+    served_provider_model_slug, stop_reason, continue_after_truncation, provider_replay, created_at
   )
   SELECT agent.id, context.id,
-    $1, $2,
-    $3::jsonb, statement_timestamp()
+    $1, $2, $3,
+    $4::jsonb, statement_timestamp()
   FROM agents agent
   JOIN model_call_contexts context ON context.project_id = agent.project_id
     AND context.agent_id = agent.id
-    AND context.id = $4::uuid
-  WHERE agent.project_id = $5
-    AND agent.id = $6
+    AND context.id = $5::uuid
+  WHERE agent.project_id = $6
+    AND agent.id = $7
   ON CONFLICT (agent_id, model_call_context_id) DO NOTHING
   RETURNING id, agent_id, model_call_context_id,
-    served_provider_model_slug, stop_reason, provider_replay, created_at
+    served_provider_model_slug, stop_reason, continue_after_truncation, provider_replay, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id,
   (
@@ -635,7 +637,7 @@ SELECT inserted.id, agent.project_id, inserted.agent_id,
       AND context_turn.model_call_context_id = inserted.model_call_context_id
   ) AS turn_id,
   inserted.model_call_context_id,
-  inserted.served_provider_model_slug, inserted.stop_reason,
+  inserted.served_provider_model_slug, inserted.stop_reason, inserted.continue_after_truncation,
   context.provider_response_id,
   inserted.provider_replay,
   context.input_tokens_total, context.uncached_input_tokens,
@@ -652,6 +654,7 @@ JOIN model_call_contexts context ON context.project_id = agent.project_id
 type InsertModelOutputAuthorityParams struct {
 	ServedProviderModelSlug string
 	StopReason              string
+	ContinueAfterTruncation bool
 	ProviderReplay          *json.RawMessage
 	ModelCallContextID      uuid.UUID
 	ProjectID               uuid.UUID
@@ -666,6 +669,7 @@ type InsertModelOutputAuthorityRow struct {
 	ModelCallContextID      uuid.UUID
 	ServedProviderModelSlug string
 	StopReason              string
+	ContinueAfterTruncation bool
 	ProviderResponseID      string
 	ProviderReplay          *json.RawMessage
 	InputTokensTotal        *int32
@@ -681,6 +685,7 @@ func (q *Queries) InsertModelOutputAuthority(ctx context.Context, arg InsertMode
 	row := q.db.QueryRow(ctx, insertModelOutputAuthority,
 		arg.ServedProviderModelSlug,
 		arg.StopReason,
+		arg.ContinueAfterTruncation,
 		arg.ProviderReplay,
 		arg.ModelCallContextID,
 		arg.ProjectID,
@@ -695,6 +700,7 @@ func (q *Queries) InsertModelOutputAuthority(ctx context.Context, arg InsertMode
 		&i.ModelCallContextID,
 		&i.ServedProviderModelSlug,
 		&i.StopReason,
+		&i.ContinueAfterTruncation,
 		&i.ProviderResponseID,
 		&i.ProviderReplay,
 		&i.InputTokensTotal,
@@ -1104,6 +1110,52 @@ func (q *Queries) ListToolCallResultContentBlocks(ctx context.Context, arg ListT
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recentOutputContinuationFlags = `-- name: RecentOutputContinuationFlags :many
+SELECT coalesce(output.continue_after_truncation, false)::boolean AS continue_after_truncation
+FROM agent_events event
+JOIN agents agent ON agent.id = event.agent_id
+LEFT JOIN model_outputs output ON output.agent_id = event.agent_id
+  AND output.id = event.model_output_id
+WHERE agent.project_id = $1
+  AND event.agent_id = $2
+  AND event.sequence <= $3
+  AND event.event_kind IN ('agent_input', 'model_output', 'tool_result')
+ORDER BY event.sequence DESC
+LIMIT $4
+`
+
+type RecentOutputContinuationFlagsParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	Watermark     int64
+	LookbackLimit int32
+}
+
+func (q *Queries) RecentOutputContinuationFlags(ctx context.Context, arg RecentOutputContinuationFlagsParams) ([]bool, error) {
+	rows, err := q.db.Query(ctx, recentOutputContinuationFlags,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.Watermark,
+		arg.LookbackLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []bool{}
+	for rows.Next() {
+		var continue_after_truncation bool
+		if err := rows.Scan(&continue_after_truncation); err != nil {
+			return nil, err
+		}
+		items = append(items, continue_after_truncation)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -150,7 +150,8 @@ func (a *chatStreamAccumulator) hasCompleteTerminalOutcome() bool {
 		return false
 	}
 	for _, choice := range a.choices {
-		if strings.TrimSpace(choice.finishReason) == "" {
+		if strings.TrimSpace(choice.finishReason) == "" &&
+			!a.protocol.client.compat().outputTruncated(choice.finishReason, string(choice.nativeFinishReason)) {
 			return false
 		}
 	}
@@ -174,11 +175,19 @@ type chatStreamAccumulator struct {
 }
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
+	var choices []chatChoice
+	for _, index := range sortedChoiceIndexes(a.choices) {
+		state := a.choices[index]
+		choices = append(choices, chatChoice{
+			Index: index, FinishReason: state.finishReason, NativeFinishReason: state.nativeFinishReason,
+		})
+	}
 	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
 		ID:       a.id,
 		Model:    a.servedModel,
 		Provider: a.provider,
 		Usage:    a.usage,
+		Choices:  choices,
 	})
 }
 
@@ -191,6 +200,7 @@ type chatStreamChoiceState struct {
 	reasoningDetails     map[string]*chatStreamReasoningDetailState
 	reasoningDetailOrder []string
 	finishReason         string
+	nativeFinishReason   lenientString
 	textBlockIndex       int
 	textBlockOpen        bool
 	reasoningBlockIndex  int
@@ -227,10 +237,11 @@ type chatStreamChunk struct {
 }
 
 type chatStreamChoice struct {
-	Index        int               `json:"index"`
-	Delta        chatStreamDelta   `json:"delta"`
-	FinishReason string            `json:"finish_reason"`
-	Error        chatProviderError `json:"error"`
+	Index              int               `json:"index"`
+	Delta              chatStreamDelta   `json:"delta"`
+	FinishReason       string            `json:"finish_reason"`
+	NativeFinishReason lenientString     `json:"native_finish_reason,omitempty"`
+	Error              chatProviderError `json:"error"`
 }
 
 type chatStreamDelta struct {
@@ -323,6 +334,12 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 
 func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStreamChoice) error {
 	state := a.choice(choice.Index)
+	if choice.FinishReason != "" {
+		state.finishReason = choice.FinishReason
+	}
+	if choice.NativeFinishReason != "" {
+		state.nativeFinishReason = choice.NativeFinishReason
+	}
 	text, err := optionalDeltaString(choice.Delta.Content, "content")
 	if err != nil {
 		return err
@@ -378,7 +395,6 @@ func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStr
 		return nil
 	}
 	if choice.FinishReason != "" {
-		state.finishReason = choice.FinishReason
 		state.closeOpenBlocks(ctx, a.emit)
 	}
 	return nil
@@ -574,14 +590,15 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 	choices := make([]chatChoice, 0, len(a.choices))
 	for _, index := range sortedChoiceIndexes(a.choices) {
 		state := a.choices[index]
-		message, err := state.responseMessage()
+		message, err := state.responseMessage(a.protocol.client.compat())
 		if err != nil {
 			return nil, err
 		}
 		choices = append(choices, chatChoice{
-			Index:        index,
-			Message:      message,
-			FinishReason: state.finishReason,
+			Index:              index,
+			Message:            message,
+			FinishReason:       state.finishReason,
+			NativeFinishReason: state.nativeFinishReason,
 		})
 	}
 	return json.Marshal(chatCompletionsResponse{
@@ -593,7 +610,7 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 	})
 }
 
-func (s *chatStreamChoiceState) responseMessage() (chatResponseMessage, error) {
+func (s *chatStreamChoiceState) responseMessage(compatibility compat) (chatResponseMessage, error) {
 	role := s.role
 	if role == "" {
 		role = chatRoleAssistant
@@ -607,7 +624,7 @@ func (s *chatStreamChoiceState) responseMessage() (chatResponseMessage, error) {
 		content = raw
 	}
 	var toolCalls []json.RawMessage
-	if s.finishReason != "length" {
+	if !compatibility.outputTruncated(s.finishReason, string(s.nativeFinishReason)) {
 		var err error
 		toolCalls, err = s.toolCallMessages()
 		if err != nil {

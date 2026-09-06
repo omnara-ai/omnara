@@ -419,19 +419,20 @@ func publicModelOutputEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ModelOutputEvent{
-		Id:                 id,
-		OrgId:              orgID,
-		ProjectId:          projectID,
-		AgentId:            agentID,
-		TurnId:             turnID,
-		TurnSequence:       record.TurnSequence,
-		IsOpeningEvent:     openapi.ModelOutputEventIsOpeningEventFalse,
-		Sequence:           record.Sequence,
-		ModelCallContextId: modelCallContextID,
-		StopReason:         stopReason,
-		ContentBlocks:      blocks,
-		Usage:              publicModelUsage(record.ModelUsage),
-		CreatedAt:          record.CreatedAt,
+		Id:                      id,
+		OrgId:                   orgID,
+		ProjectId:               projectID,
+		AgentId:                 agentID,
+		TurnId:                  turnID,
+		TurnSequence:            record.TurnSequence,
+		IsOpeningEvent:          openapi.ModelOutputEventIsOpeningEventFalse,
+		Sequence:                record.Sequence,
+		ModelCallContextId:      modelCallContextID,
+		StopReason:              stopReason,
+		ContinueAfterTruncation: record.ContinueAfterTruncation,
+		ContentBlocks:           blocks,
+		Usage:                   publicModelUsage(record.ModelUsage),
+		CreatedAt:               record.CreatedAt,
 	}
 	if record.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
 		providerMetadata, err := json.Marshal(record.ProviderMetadata)

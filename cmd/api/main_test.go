@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"io/fs"
 	"os"
 	"strings"
@@ -81,5 +83,32 @@ func TestParseDefaultReconciliationMode(t *testing.T) {
 		if (err != nil) != test.wantError || mode != test.wantMode {
 			t.Fatalf("parse reconciliation mode %v = mode %q, err %v", test.args, mode, err)
 		}
+	}
+}
+
+func TestDefaultReconciliationPrintsReviewableChanges(t *testing.T) {
+	var output bytes.Buffer
+	err := writeDefaultReconciliationResult(
+		&output,
+		"plan",
+		orglifecycle.ReconcileDefaultsResult{
+			Changes: []string{
+				"update model settings",
+				"clear request allowance",
+			},
+			Warnings: []string{
+				"configuration is referenced",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "plan: change: update model settings\n" +
+		"plan: change: clear request allowance\n" +
+		"plan: warning: configuration is referenced\n" +
+		"plan: changes=2 warnings=1\n"
+	if output.String() != want {
+		t.Fatalf("output=%q", output.String())
 	}
 }

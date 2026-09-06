@@ -72,6 +72,7 @@ type AgentEventReadProjection struct {
 	OutputTokensTotal              *int32
 	ReasoningOutputTokens          *int32
 	ProviderMetadata               *json.RawMessage
+	ContinueAfterTruncation        bool
 }
 
 type AgentInteractionReadProjection struct {
@@ -206,7 +207,7 @@ type ConfiguredModelRevision struct {
 	ModelProviderConfigID     uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -342,6 +343,7 @@ type ModelProviderConfig struct {
 	DeletedAt          *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
 }
 
 type OrgApiKey struct {

@@ -318,7 +318,7 @@ func validHostedCredentialTemplate() modelstore.DefaultModelProviderTemplate {
 			Name:                "model",
 			ProviderModelSlug:   "vendor/model",
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     8192,
+			MaxOutputTokens:     new(8192),
 		}},
 	})
 	if err != nil {

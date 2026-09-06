@@ -739,7 +739,7 @@ func TestParseResponseRecordsOpenRouterServedProvider(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Body:       malformed,
 	})
-	if err != nil || response.ProviderMetadata != (modelenvelope.ProviderMetadata{}) || response.Usage.InputTokens != 10 {
+	if err != nil || response.ProviderMetadata.OpenRouter.Provider != "" || response.Usage.InputTokens != 10 {
 		t.Fatalf("malformed provider field: err=%v metadata=%+v usage=%+v, want parsed without metadata", err,
 			response.ProviderMetadata, response.Usage)
 	}

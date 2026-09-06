@@ -50,6 +50,7 @@ type AgentEventReadRecord struct {
 	ToolOutcome                    ToolResultOutcome              `json:"tool_outcome,omitempty"`
 	ModelCallContextID             ID                             `json:"model_call_context_id,omitempty"`
 	ModelStopReason                modelenvelope.StopReason       `json:"model_stop_reason,omitempty"`
+	ContinueAfterTruncation        bool                           `json:"continue_after_truncation,omitempty"`
 	ContextCheckpointID            ID                             `json:"context_checkpoint_id,omitempty"`
 	SummarizedThroughEventSequence int64                          `json:"summarized_through_event_sequence,omitempty"`
 	CheckpointSummary              string                         `json:"checkpoint_summary,omitempty"`
@@ -484,24 +485,25 @@ func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentI
 
 func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEventReadRecord {
 	record := AgentEventReadRecord{
-		ID:                  row.ID,
-		OrgID:               row.OrgID,
-		ProjectID:           row.ProjectID,
-		AgentID:             row.AgentID,
-		TurnID:              row.TurnID,
-		TurnSequence:        row.TurnSequence,
-		IsOpeningEvent:      row.IsOpeningEvent,
-		Sequence:            row.Sequence,
-		EventKind:           row.EventKind,
-		InputKind:           stringFromSQLCText(row.InputKind),
-		ControlType:         stringFromSQLCText(row.ControlType),
-		ToolCallID:          idFromSQLCPtr(row.ToolCallID),
-		ToolOutcome:         ToolResultOutcome(stringFromSQLCText(row.ToolOutcome)),
-		ModelCallContextID:  idFromSQLCPtr(row.ModelCallContextID),
-		ModelStopReason:     modelenvelope.StopReason(stringFromSQLCText(row.ModelStopReason)),
-		ContextCheckpointID: idFromSQLCPtr(row.ContextCheckpointID),
-		CheckpointSummary:   stringFromSQLCText(row.CheckpointSummary),
-		ContentBlocks:       normalizedJSONArray(row.ContentBlocks),
+		ID:                      row.ID,
+		OrgID:                   row.OrgID,
+		ProjectID:               row.ProjectID,
+		AgentID:                 row.AgentID,
+		TurnID:                  row.TurnID,
+		TurnSequence:            row.TurnSequence,
+		IsOpeningEvent:          row.IsOpeningEvent,
+		Sequence:                row.Sequence,
+		EventKind:               row.EventKind,
+		InputKind:               stringFromSQLCText(row.InputKind),
+		ControlType:             stringFromSQLCText(row.ControlType),
+		ToolCallID:              idFromSQLCPtr(row.ToolCallID),
+		ToolOutcome:             ToolResultOutcome(stringFromSQLCText(row.ToolOutcome)),
+		ModelCallContextID:      idFromSQLCPtr(row.ModelCallContextID),
+		ModelStopReason:         modelenvelope.StopReason(stringFromSQLCText(row.ModelStopReason)),
+		ContinueAfterTruncation: row.ContinueAfterTruncation,
+		ContextCheckpointID:     idFromSQLCPtr(row.ContextCheckpointID),
+		CheckpointSummary:       stringFromSQLCText(row.CheckpointSummary),
+		ContentBlocks:           normalizedJSONArray(row.ContentBlocks),
 		ModelUsage: modelUsageFromSQLC(
 			row.InputTokensTotal,
 			row.UncachedInputTokens,

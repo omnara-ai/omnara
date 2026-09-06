@@ -263,6 +263,7 @@ func (r Runner) run(
 			ProviderRequest: prepared.Body,
 		},
 	)
+	response.ProviderMetadata.RequestMaxOutputTokens = prepared.MaxOutputTokens
 	providerAttempt.ProviderRequestStarted = true
 	providerAttempt.Response = response
 	if err != nil {

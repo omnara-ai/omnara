@@ -37,7 +37,7 @@ export function EditConfiguredModelDialog({
       name: model.name,
       slug: model.provider_model_slug,
       contextWindow: String(model.context_window_tokens),
-      maxOutput: String(model.max_output_tokens),
+      maxOutput: model.max_output_tokens == null ? '' : String(model.max_output_tokens),
       defaultOutput:
         model.default_max_output_tokens == null ? '' : String(model.default_max_output_tokens),
     },
@@ -49,7 +49,7 @@ export function EditConfiguredModelDialog({
           name: value.name === model.name ? undefined : value.name,
           provider_model_slug: value.slug.trim(),
           context_window_tokens: Number(value.contextWindow),
-          max_output_tokens: Number(value.maxOutput),
+          max_output_tokens: optionalNumber(value.maxOutput),
           default_max_output_tokens: optionalNumber(value.defaultOutput),
         })
         onOpenChange(false)
@@ -108,7 +108,7 @@ export function EditConfiguredModelDialog({
                   <FieldLabel>Context window</FieldLabel>
                   <Input
                     type="number"
-                    min="1"
+                    min="2"
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
@@ -125,7 +125,7 @@ export function EditConfiguredModelDialog({
                     <Input
                       type="number"
                       min="1"
-                      required
+                      placeholder="Unknown"
                       value={field.state.value}
                       onChange={(event) => {
                         field.handleChange(event.target.value)

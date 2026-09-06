@@ -23,7 +23,8 @@ type RecordModelOutputAndCompleteContextInput struct {
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
 	// the envelope shape is checked at compile time (no JSON re-parsing).
-	ProviderResponse modelenvelope.ResponseEnvelope
+	ProviderResponse        modelenvelope.ResponseEnvelope
+	ContinueAfterTruncation bool
 }
 
 type ToolCallBindingInput struct {
@@ -400,6 +401,15 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	}
 	if err := validateModelResponseEnvelope(input.ProviderResponse); err != nil {
 		return events.Event{}, err
+	}
+	if input.ContinueAfterTruncation {
+		hasFeedback := false
+		for _, part := range input.ProviderResponse.Normalized.Content {
+			hasFeedback = hasFeedback || (part.Type == modelenvelope.ResponsePartTypeError && part.Text != "")
+		}
+		if input.ProviderResponse.HasToolCalls() || !hasFeedback {
+			return events.Event{}, errors.New("output continuation requires feedback without tool calls")
+		}
 	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

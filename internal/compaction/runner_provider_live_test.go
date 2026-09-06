@@ -197,7 +197,7 @@ func runLiveCompactionProvider(t *testing.T, client model.Client) {
 func liveCompactionCapabilities() model.Capabilities {
 	return model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: 4096,
 	}
 }

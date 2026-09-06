@@ -95,6 +95,7 @@ export function configuredModelFormValid(
     values.defaultMaxOutputTokens === '' ||
     (Number.isInteger(defaultMaxOutputTokensValue) &&
       defaultMaxOutputTokensValue > 0 &&
+      defaultMaxOutputTokensValue < contextWindowTokensValue &&
       (values.maxOutputTokens === '' || defaultMaxOutputTokensValue <= maxOutputTokensValue))
   return (
     Boolean(provider) &&

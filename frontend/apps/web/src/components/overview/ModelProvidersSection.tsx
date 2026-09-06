@@ -129,7 +129,8 @@ export function ModelProvidersSection() {
                 { label: 'API variant', value: provider.api_variant },
                 { label: 'Endpoint path', value: provider.endpoint_path, mono: true },
                 { label: 'Auth', value: provider.auth_kind },
-                { label: 'Request timeout', value: `${provider.request_timeout_ms} ms` },
+                { label: 'Total request timeout', value: `${provider.request_timeout_ms} ms` },
+                { label: 'Idle timeout', value: `${provider.idle_timeout_ms} ms` },
                 { label: 'Created', value: formatDateTime(provider.created_at) },
                 { label: 'Updated', value: formatDateTime(provider.updated_at) },
               ]}

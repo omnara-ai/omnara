@@ -53,7 +53,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -75,7 +75,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -100,7 +100,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -126,7 +126,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id
@@ -216,6 +216,7 @@ SELECT event.id,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
        output.provider_replay,
+       coalesce(output.stop_reason = 'max_tokens' AND bool_or(block.block_kind = 'error'), false)::boolean AS has_output_limit_feedback,
        CASE
          WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -273,6 +274,6 @@ WHERE scoped_agent.project_id = sqlc.arg(project_id)
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, input.input_kind
+  output.provider_replay, output.stop_reason, input.input_kind
 ORDER BY event.sequence ASC
 LIMIT sqlc.arg(page_limit);

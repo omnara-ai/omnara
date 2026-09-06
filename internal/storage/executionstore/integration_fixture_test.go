@@ -360,7 +360,7 @@ func ensureTestConfiguredModel(
 		Name:                   configuredModelName,
 		ProviderModelSlug:      configuredModelName,
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 	})
 	if err != nil {

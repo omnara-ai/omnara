@@ -2,6 +2,8 @@ package modelcontext
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -150,24 +152,39 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 		if event.ModelProviderConfigID != storage.NilID {
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
-		out = append(
-			out,
-			Message{
-				ID:                 event.ID.String(),
-				AgentInputID:       event.AgentInputID.String(),
-				ModelCallContextID: modelCallContextID,
-				Role:               role,
-				Sequence:           event.Sequence,
-				Content:            event.ContentParts,
-				ProviderReplay:     event.ProviderReplay,
-				ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
-					ModelProviderConfigID:      modelProviderConfigID,
-					RequestedProviderModelSlug: event.RequestedModelSlug,
-					APIFormat:                  event.APIFormat,
-					APIVariant:                 event.APIVariant,
-				},
+		message := Message{
+			ID: event.ID.String(), AgentInputID: event.AgentInputID.String(), ModelCallContextID: modelCallContextID,
+			Role: role, Sequence: event.Sequence, Content: event.ContentParts, ProviderReplay: event.ProviderReplay,
+			ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
+				ModelProviderConfigID: modelProviderConfigID, RequestedProviderModelSlug: event.RequestedModelSlug,
+				APIFormat: event.APIFormat, APIVariant: event.APIVariant,
 			},
-		)
+		}
+		if !event.HasOutputLimitFeedback {
+			out = append(out, message)
+			continue
+		}
+		assistant, feedback, err := splitOutputLimitFeedback(message.Content)
+		if err != nil {
+			return nil, fmt.Errorf("output limit feedback %s: %w", event.ID, err)
+		}
+		if len(assistant) > 0 {
+			message.Content, err = json.Marshal(assistant)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, message)
+		}
+		feedbackContent, err := json.Marshal(feedback)
+		if err != nil {
+			return nil, err
+		}
+		// Harness feedback is separate from the partial assistant response. It has
+		// no model-context identity or provider replay and cannot become a prefill.
+		out = append(out, Message{
+			ID: message.ID + "/output-limit-feedback", Role: modelprotocol.RoleUser,
+			Sequence: message.Sequence, Content: feedbackContent,
+		})
 	}
 	return out, nil
 }
@@ -181,4 +198,31 @@ func contextEventRole(event executionstore.ContextEventRecord) (modelprotocol.Me
 	default:
 		return "", fmt.Errorf("context event %s has unsupported model role %q", event.ID, event.Role)
 	}
+}
+
+func splitOutputLimitFeedback(content json.RawMessage) ([]json.RawMessage, []modelenvelope.ResponsePart, error) {
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil, nil, err
+	}
+	var assistant []json.RawMessage
+	var feedback []modelenvelope.ResponsePart
+	for _, raw := range blocks {
+		var part struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &part); err != nil {
+			return nil, nil, err
+		}
+		if part.Type == "error" {
+			feedback = append(feedback, modelenvelope.ResponsePart{Type: modelenvelope.ResponsePartTypeText, Text: part.Text})
+		} else {
+			assistant = append(assistant, raw)
+		}
+	}
+	if len(feedback) == 0 {
+		return nil, nil, errors.New("missing harness feedback")
+	}
+	return assistant, feedback, nil
 }

@@ -7041,7 +7041,7 @@ components:
       enum: [none, short, long]
     CreateModelProviderConfigRequest:
       type: object
-      description: Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
+      description: Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format. Replaying creation by name with omitted timeouts preserves the existing timeout values.
       additionalProperties: false
       required: [name, credential_secret_id]
       properties:
@@ -7067,7 +7067,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Provider request timeout in milliseconds. Omitted value defaults to 600000.
+          description: Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Defaults to 3600000 (60 minutes). Retries have separate deadlines.
+        idle_timeout_ms:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Defaults to 300000 (5 minutes). Local response processing does not consume this idle budget.
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
         auth_options:
@@ -7100,7 +7105,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Provider request timeout in milliseconds.
+          description: Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Retries have separate deadlines.
+        idle_timeout_ms:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Local response processing does not consume this idle budget.
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
         auth_options:
@@ -7118,7 +7128,7 @@ components:
     ModelProviderConfig:
       type: object
       additionalProperties: false
-      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
+      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ModelProviderConfigID'
@@ -7138,6 +7148,8 @@ components:
         endpoint_path:
           type: string
         request_timeout_ms:
+          type: integer
+        idle_timeout_ms:
           type: integer
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
@@ -7238,12 +7250,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional configured output-token ceiling. When omitted, Omnara stores the smaller of 8,192 tokens and half the context window. It must not exceed the provider's supported limit. Omnara uses it for request validation and context budgeting.
+          description: Optional known output-token ceiling. When omitted, Omnara uses model catalog metadata consistent with explicit settings; otherwise capacity remains unknown. Repeating creation with an omitted ceiling preserves the existing model's capacity, including subsequent edits. Explicit values must not exceed the provider's supported limit.
         default_max_output_tokens:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional normal per-request output-token cap. When omitted, Omnara stores the smaller of 4,096 tokens and max_output_tokens.
+          description: Optional normal per-request output allowance. When omitted, requests use the known output ceiling, or the provider default when capacity is unknown and the API permits omission. Anthropic Messages requires an effective allowance from model, project, or agent configuration.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7295,15 +7307,15 @@ components:
           maximum: 2147483647
           description: Total token window for this model, including input and output.
         max_output_tokens:
-          type: integer
+          type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Configured output-token ceiling for this model. Omitted keeps the current value; it cannot be cleared.
+          description: Known output-token ceiling for this model. Omitted keeps the current value; null clears it to unknown.
         default_max_output_tokens:
           type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Default per-request output-token cap sent to the provider unless an agent config overrides it. Required for Anthropic Messages.
+          description: Default per-request output allowance unless a project or agent overrides it. Anthropic Messages requires a numeric effective allowance, which can also come from the known model ceiling.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7357,8 +7369,8 @@ components:
           type: integer
           description: Total token window for this model, including input and output.
         max_output_tokens:
-          type: integer
-          description: Configured output-token ceiling for this model.
+          type: [integer, "null"]
+          description: Known output-token ceiling for this model, or null when unknown.
         default_max_output_tokens:
           type: [integer, "null"]
           description: Default per-request output-token cap sent to the provider unless an agent config overrides it.
@@ -8484,8 +8496,8 @@ components:
           type: integer
           description: Effective token window after configured-model, project-grant, and agent-config settings are applied.
         max_output_tokens:
-          type: integer
-          description: Effective largest output-token cap Omnara allows for this agent config.
+          type: [integer, "null"]
+          description: Effective known output-token ceiling after model and project settings, or null when unknown.
         default_max_output_tokens:
           type: [integer, "null"]
           description: Effective per-request output-token cap sent to the provider.
@@ -9520,7 +9532,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, continue_after_truncation, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -9547,6 +9559,9 @@ components:
           $ref: '#/components/schemas/ModelCallContextID'
         stop_reason:
           $ref: '#/components/schemas/ModelOutputStopReason'
+        continue_after_truncation:
+          type: boolean
+          description: Whether this output requested automatic continuation after reaching its output limit. Cancellation or subsequent work can consume this intent.
         content_blocks:
           type: array
           items:
@@ -9556,10 +9571,10 @@ components:
         provider_metadata:
           type: object
           description: >-
-            Facts the provider reported about this call, keyed by provider
-            (for example `openrouter.provider` names the upstream that served
-            an OpenRouter request). Present only when the provider reported
-            something.
+            Sanitized request and response diagnostics. `request_max_output_tokens`
+            records the allowance sent when specified. Provider-specific facts
+            are keyed by provider; `openrouter` can include the serving provider
+            and normalized and native finish reasons. Omitted when empty.
           x-go-type: json.RawMessage
           x-go-type-skip-optional-pointer: true
         created_at:

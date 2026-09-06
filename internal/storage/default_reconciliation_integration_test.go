@@ -72,11 +72,11 @@ func TestReconcileDefaults(t *testing.T) {
 		EndpointPath:         "/chat/completions",
 		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
 		Models: []modelstore.DefaultConfiguredModelTemplate{
-			{Name: "update-model", ProviderModelSlug: "example/old", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-			{Name: "remove-model", ProviderModelSlug: "example/remove", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-			{Name: "retained-model", ProviderModelSlug: "example/retain", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-			{Name: "active-agent-model", ProviderModelSlug: "example/active", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-			{Name: "profile-model", ProviderModelSlug: "example/profile", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+			{Name: "update-model", ProviderModelSlug: "example/old", ContextWindowTokens: 8192, MaxOutputTokens: new(1024), DefaultMaxOutputTokens: new(512)},
+			{Name: "remove-model", ProviderModelSlug: "example/remove", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+			{Name: "retained-model", ProviderModelSlug: "example/retain", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+			{Name: "active-agent-model", ProviderModelSlug: "example/active", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+			{Name: "profile-model", ProviderModelSlug: "example/profile", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
 		},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
@@ -130,6 +130,22 @@ func TestReconcileDefaults(t *testing.T) {
 	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, initialProvider.Name)
 	if err != nil {
 		t.Fatalf("get provider: %v", err)
+	}
+
+	tenantCredential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: created.Org.ID, OwnerKind: secretstore.SecretOwnerOrg, Name: "tenant-timeout-key",
+		Material: secrets.GenericMaterial{Value: "tenant-test-key"}, Actor: userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantProvider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID: created.Org.ID, Name: "tenant-timeouts", APIFormat: modelprotocol.APIFormatOpenAIResponses,
+		BaseURL: "https://example.test", CredentialSecretID: tenantCredential.ID,
+		RequestTimeoutMS: 600000, IdleTimeoutMS: 700000,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	updateModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil {
@@ -207,7 +223,7 @@ model:
 		Name:                  "tenant-model",
 		ProviderModelSlug:     "example/tenant",
 		ContextWindowTokens:   8192,
-		MaxOutputTokens:       1024,
+		MaxOutputTokens:       new(1024),
 	})
 	if err != nil {
 		t.Fatalf("create tenant model under default provider: %v", err)
@@ -313,10 +329,11 @@ model:
 	desiredProvider := initialProvider
 	desiredProvider.BaseURL = "https://new.example.com/v1"
 	desiredProvider.RequestTimeoutMS = 120000
+	desiredProvider.IdleTimeoutMS = 45000
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
-		{Name: "update-model", ProviderModelSlug: "example/new", ContextWindowTokens: 16384, MaxOutputTokens: 2048},
-		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-		{Name: "tenant-model", ProviderModelSlug: "example/cluster-collision", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+		{Name: "update-model", ProviderModelSlug: "example/new", ContextWindowTokens: 16384, MaxOutputTokens: new(2048)},
+		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+		{Name: "tenant-model", ProviderModelSlug: "example/cluster-collision", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
 	}
 	input := orglifecycle.ReconcileDefaultsInput{
 		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
@@ -395,13 +412,17 @@ model:
 	if err != nil {
 		t.Fatalf("get reconciled provider: %v", err)
 	}
-	if reconciledProvider.BaseURL != desiredProvider.BaseURL || reconciledProvider.RequestTimeoutMS != 120000 ||
+	if reconciledProvider.BaseURL != desiredProvider.BaseURL || reconciledProvider.RequestTimeoutMS != 120000 || reconciledProvider.IdleTimeoutMS != 45000 ||
 		reconciledProvider.CredentialSecretID != provider.CredentialSecretID {
 		t.Fatalf("unexpected reconciled provider: %+v", reconciledProvider)
 	}
 	updatedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
-	if err != nil || updatedModel.ProviderModelSlug != "example/new" || updatedModel.MaxOutputTokens != 2048 {
+	if err != nil || updatedModel.DefaultMaxOutputTokens != nil || updatedModel.ProviderModelSlug != "example/new" || (updatedModel.MaxOutputTokens == nil || *updatedModel.MaxOutputTokens != 2048) {
 		t.Fatalf("unexpected updated model: %+v, err %v", updatedModel, err)
+	}
+	historicalRevision, err := store.Models().GetConfiguredModelRevisionForUse(ctx, created.Org.ID, updateModel.CurrentRevisionID)
+	if err != nil || historicalRevision.DefaultMaxOutputTokens == nil || *historicalRevision.DefaultMaxOutputTokens != 512 || updatedModel.CurrentRevisionID == updateModel.CurrentRevisionID {
+		t.Fatalf("default removal mutated history: %+v err=%v", historicalRevision, err)
 	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
 		ctx, created.Org.ID, created.Project.ID, updatedModel.ID,
@@ -491,6 +512,22 @@ model:
 		t.Fatalf("second apply changes = %v, want none", result.Changes)
 	}
 	assertRetainedModelWarnings("second apply", result)
+	// Restoring omitted template fields selects current defaults for managed
+	// providers while leaving organization-owned values intact.
+	desiredProvider.RequestTimeoutMS, desiredProvider.IdleTimeoutMS = 0, 0
+	result, err = store.Organizations().ReconcileDefaults(ctx, input)
+	if err != nil || len(result.Changes) != 1 {
+		t.Fatalf("reconcile timeout defaults=%+v error=%v", result, err)
+	}
+	managed, err := store.Models().GetModelProviderConfig(ctx, created.Org.ID, provider.ID)
+	if err != nil || managed.RequestTimeoutMS != 3600000 || managed.IdleTimeoutMS != 300000 {
+		t.Fatalf("managed timeouts=%+v error=%v", managed, err)
+	}
+	tenant, err := store.Models().GetModelProviderConfig(ctx, created.Org.ID, tenantProvider.ID)
+	if err != nil || tenant.RequestTimeoutMS != 600000 || tenant.IdleTimeoutMS != 700000 {
+		t.Fatalf("tenant timeouts=%+v error=%v", tenant, err)
+	}
+
 	if _, err := store.Organizations().DeleteProject(
 		ctx,
 		created.Org.ID,
@@ -501,8 +538,8 @@ model:
 	}
 	desiredPool.Description = "pool without default project"
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
-		{Name: "update-model", ProviderModelSlug: "example/without-project", ContextWindowTokens: 16384, MaxOutputTokens: 2048},
-		{Name: "missing-project-model", ProviderModelSlug: "example/missing-project", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+		{Name: "update-model", ProviderModelSlug: "example/without-project", ContextWindowTokens: 16384},
+		{Name: "missing-project-model", ProviderModelSlug: "example/missing-project", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
 	}
 	input.DefaultMachinePools = []executionstore.DefaultMachinePoolTemplate{desiredPool}
 	input.DefaultModelProvider = &desiredProvider
@@ -524,7 +561,7 @@ model:
 	}
 	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
 	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
-	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" {
+	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" || updatedModel.MaxOutputTokens != nil {
 		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)
 	}
 	if _, err := store.Models().GetConfiguredModelByName(
@@ -586,7 +623,7 @@ func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
 		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
 		Models: []modelstore.DefaultConfiguredModelTemplate{{
 			Name: "reconcile-lock-model", ProviderModelSlug: "example/lock",
-			ContextWindowTokens: 8192, MaxOutputTokens: 1024,
+			ContextWindowTokens: 8192, MaxOutputTokens: new(1024),
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{

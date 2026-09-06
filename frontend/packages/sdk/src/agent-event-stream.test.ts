@@ -28,6 +28,7 @@ function durableEvent(
     event_kind: eventKind,
     model_call_context_id: `mcc_${idSuffix}`,
     stop_reason: 'end_turn',
+    continue_after_truncation: false,
     content_blocks: [],
     created_at: '2026-08-25T00:00:00Z',
   }

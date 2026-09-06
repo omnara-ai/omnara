@@ -159,6 +159,28 @@ organization owners configure providers themselves.
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
 
+Templates also define model capacity and optional request defaults. Omit
+`default_max_output_tokens` to use the model's capacity; omit `max_output_tokens`
+when the capacity is unknown. See [model output limits](/organization/model-providers)
+for provider requirements and context budgeting.
+
+To reconcile configured defaults into existing organizations, run these commands
+with the same database and template environment as the API:
+
+```sh
+omnara-api reconcile-defaults plan
+omnara-api reconcile-defaults apply
+```
+
+Both commands print changes, warnings, and counts. Review the plan before applying.
+Reconciliation creates immutable model revisions, preserves organization-owned
+models and explicit grant overrides, and reports models that remain referenced
+when removed from a template. Provider templates accept `request_timeout_ms` and
+`idle_timeout_ms`, defaulting to 3600000 (60 minutes total) and 300000 (5 minutes
+idle). Reconciliation applies these values to managed providers; upgrades alone
+preserve existing total deadlines, and organization-owned providers retain their
+settings.
+
 The credential service contract has these invariants:
 
 - `POST /model-provider-credentials` receives the organization ID, creator user

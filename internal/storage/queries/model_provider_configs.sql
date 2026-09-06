@@ -1,12 +1,12 @@
 -- name: InsertModelProviderConfig :one
 INSERT INTO model_provider_configs(
   org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-  request_timeout_ms, auth_kind, auth_options, credential_secret_id,
+  request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id,
   created_at, updated_at
 )
 SELECT org.id, sqlc.arg(management_kind), sqlc.arg(name), sqlc.arg(api_format), sqlc.arg(api_variant),
        sqlc.arg(base_url), sqlc.arg(endpoint_path),
-       sqlc.arg(request_timeout_ms), sqlc.arg(auth_kind), sqlc.arg(auth_options),
+       sqlc.arg(request_timeout_ms), sqlc.arg(idle_timeout_ms), sqlc.arg(auth_kind), sqlc.arg(auth_options),
        sqlc.arg(credential_secret_id),
        transaction_timestamp(), transaction_timestamp()
 FROM orgs org
@@ -19,13 +19,13 @@ WHERE org.id = sqlc.arg(org_id)
 ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at;
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms;
 
 -- name: GetModelProviderConfig :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -43,7 +43,7 @@ FOR SHARE;
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND name = sqlc.arg(name)
@@ -53,7 +53,7 @@ WHERE org_id = sqlc.arg(org_id)
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -64,7 +64,7 @@ FOR UPDATE;
 WITH listed AS (
  SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
         request_timeout_ms, auth_kind, auth_options,
-        credential_secret_id, deleted_at, created_at, updated_at,
+        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms,
         CASE sqlc.arg(sort_field)::text
           WHEN 'name' THEN lower(name)
           WHEN 'created_at' THEN to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
@@ -78,7 +78,7 @@ WITH listed AS (
 )
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at,
+       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms,
        sort_key, sort_is_null
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
@@ -93,7 +93,7 @@ LIMIT sqlc.arg(row_limit)::bigint;
 -- name: ListClusterManagedModelProviderConfigsByName :many
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at
+       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE name = sqlc.arg(name)
   AND management_kind = 'cluster'
@@ -105,6 +105,7 @@ UPDATE model_provider_configs config
 SET base_url = sqlc.arg(base_url),
     endpoint_path = sqlc.arg(endpoint_path),
     request_timeout_ms = sqlc.arg(request_timeout_ms),
+    idle_timeout_ms = sqlc.arg(idle_timeout_ms),
     auth_kind = sqlc.arg(auth_kind),
     auth_options = sqlc.arg(auth_options),
     credential_secret_id = sqlc.arg(credential_secret_id),
@@ -124,7 +125,7 @@ RETURNING config.id, config.org_id, config.management_kind,
           config.api_variant, config.base_url, config.endpoint_path,
           config.request_timeout_ms, config.auth_kind,
           config.auth_options, config.credential_secret_id, config.deleted_at,
-          config.created_at, config.updated_at;
+          config.created_at, config.updated_at, config.idle_timeout_ms;
 
 -- name: DeleteModelProviderConfig :one
 -- Clearing the credential releases the secret for deletion.
@@ -145,7 +146,7 @@ WHERE model_provider_configs.org_id = sqlc.arg(org_id)
   )
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at;
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms;
 
 -- name: ModelProviderConfigHasActiveModels :one
 SELECT EXISTS (
@@ -191,7 +192,7 @@ revision AS (
   )
   SELECT configured_model.current_revision_id, configured_model.org_id, configured_model.id,
          configured_model.model_provider_config_id, sqlc.arg(provider_model_slug),
-         sqlc.arg(context_window_tokens), sqlc.arg(max_output_tokens),
+         sqlc.arg(context_window_tokens), sqlc.narg(max_output_tokens),
          sqlc.narg(default_max_output_tokens),
          sqlc.narg(default_cache_retention), sqlc.arg(supports_tools)::bool,
          sqlc.arg(supports_reasoning)::bool, sqlc.arg(default_reasoning_effort)::text,
@@ -381,7 +382,7 @@ revision AS (
   )
   SELECT target_configured_model.org_id, target_configured_model.id,
          target_configured_model.model_provider_config_id, sqlc.arg(provider_model_slug),
-         sqlc.arg(context_window_tokens), sqlc.arg(max_output_tokens),
+         sqlc.arg(context_window_tokens), sqlc.narg(max_output_tokens),
          sqlc.narg(default_max_output_tokens),
          sqlc.narg(default_cache_retention), sqlc.arg(supports_tools)::bool,
          sqlc.arg(supports_reasoning)::bool, sqlc.arg(default_reasoning_effort)::text,

@@ -200,9 +200,10 @@ func largestFittingCompactionRequest(
 			ctx,
 			client,
 			model.PrepareForSendInput{
-				Context:     bundle,
-				Policy:      candidatePolicy,
-				ErrorSource: errorSource,
+				Context:                    bundle,
+				Policy:                     candidatePolicy,
+				ReserveFullOutputAllowance: true,
+				ErrorSource:                errorSource,
 			},
 		)
 		if err != nil {

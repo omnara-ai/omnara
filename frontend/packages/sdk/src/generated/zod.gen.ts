@@ -239,7 +239,7 @@ export const zUpdateConfiguredModelRequest = z.object({
     name: zResourceName.optional(),
     provider_model_slug: z.string().min(1).optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    max_output_tokens: z.int().gte(1).lte(2147483647).nullish(),
     default_max_output_tokens: z.int().gte(1).lte(2147483647).nullish(),
     default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean().optional(),
@@ -303,7 +303,7 @@ export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 /**
- * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
+ * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format. Replaying creation by name with omitted timeouts preserves the existing timeout values.
  */
 export const zCreateModelProviderConfigRequest = z.object({
     name: zResourceName,
@@ -317,6 +317,7 @@ export const zCreateModelProviderConfigRequest = z.object({
     base_url: z.string().min(1).optional(),
     endpoint_path: z.string().min(1).regex(/^\//).optional(),
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
+    idle_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
         header_name: z.string().min(1).optional()
@@ -331,6 +332,7 @@ export const zUpdateModelProviderConfigRequest = z.object({
     base_url: z.string().min(1).optional(),
     endpoint_path: z.string().min(1).regex(/^\//).optional(),
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
+    idle_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
         header_name: z.string().min(1).optional()
@@ -362,6 +364,7 @@ export const zModelProviderConfig = z.object({
     base_url: z.string(),
     endpoint_path: z.string(),
     request_timeout_ms: z.int(),
+    idle_timeout_ms: z.int(),
     auth_kind: zModelProviderAuthKind,
     auth_options: z.object({
         header_name: z.string().min(1).optional()
@@ -390,7 +393,7 @@ export const zConfiguredModel = z.object({
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),
     context_window_tokens: z.int(),
-    max_output_tokens: z.int(),
+    max_output_tokens: z.int().nullable(),
     default_max_output_tokens: z.int().nullish(),
     default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
@@ -816,7 +819,7 @@ export const zAgentConfigModel = z.object({
     api_format: zModelApiFormat,
     api_variant: zModelProviderApiVariantResponse,
     context_window_tokens: z.int(),
-    max_output_tokens: z.int(),
+    max_output_tokens: z.int().nullable(),
     default_max_output_tokens: z.int().nullish(),
     default_cache_retention: zModelCacheRetention,
     supports_tools: z.boolean(),
@@ -1478,6 +1481,7 @@ export const zModelOutputEvent = z.object({
     event_kind: z.enum(['model_output']),
     model_call_context_id: zModelCallContextId,
     stop_reason: zModelOutputStopReason,
+    continue_after_truncation: z.boolean(),
     content_blocks: z.array(zModelOutputContentBlock),
     usage: zModelUsage.optional(),
     provider_metadata: z.record(z.string(), z.unknown()).optional(),

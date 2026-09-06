@@ -2111,7 +2111,7 @@ func ensureToolsModelSelection(
 		Name:                  configuredModelName,
 		ProviderModelSlug:     configuredModelName,
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)

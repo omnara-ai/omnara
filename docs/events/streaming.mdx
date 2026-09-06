@@ -46,7 +46,7 @@ Full schema and playground: [List events](/api-reference/endpoints/events/list-e
 Every event has an `id`, a `sequence` number, a turn, and an `event_kind`. There are four event kinds:
 
 - **`agent_input`** — something entered the conversation: a message, an interaction answer, a cancel, or a config change. [Sending input](/events/sending-input) covers each one.
-- **`model_output`** — one completed model response, with a `stop_reason` and any tool calls the model requested.
+- **`model_output`** — one completed model response, with a `stop_reason` and any tool calls the model requested. `continue_after_truncation: true` requests automatic continuation after an output limit; treat that output as ongoing work. Later output or cancellation determines when the turn ends.
 - **`tool_result`** — the outcome of one tool call (`succeeded`, `failed`, `denied`, or `canceled`). Its `tool_call_id` matches the call in the model output that requested it.
 - **`context_checkpoint`** — a summary Omnara uses to carry earlier context forward when a conversation grows long.
 

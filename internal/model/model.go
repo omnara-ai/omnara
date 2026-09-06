@@ -22,7 +22,7 @@ type Selection struct {
 
 type Capabilities struct {
 	ContextWindowTokens       int            `json:"context_window_tokens"`
-	MaxOutputTokens           int            `json:"max_output_tokens"`
+	MaxOutputTokens           *int           `json:"max_output_tokens"`
 	DefaultMaxOutputTokens    int            `json:"default_max_output_tokens"`
 	DefaultCacheRetention     CacheRetention `json:"default_cache_retention"`
 	SupportsTools             *bool          `json:"supports_tools,omitempty"`
@@ -48,7 +48,8 @@ type Client interface {
 }
 
 type OutputTokenLimits struct {
-	Minimum int
+	Minimum  int
+	Required bool
 }
 
 // OutputTokenLimitProvider reports constraints imposed by fixed provider
@@ -62,6 +63,7 @@ var ErrOutputTokenLimitIncompatible = errors.New("output token limit is incompat
 const (
 	OutputTokenLimitIncompatibleCode    = "output_token_limit_incompatible"
 	InvalidOutputTokenConfigurationCode = "invalid_output_token_configuration"
+	OutputTokenLimitRequiredCode        = "output_token_limit_required"
 )
 
 func APIFormatForClient(client Client) modelprotocol.APIFormat {
@@ -137,12 +139,16 @@ type PreparedRequest struct {
 	Body               json.RawMessage
 	InputTokenEstimate int
 	InputBudget        InputBudgetAssessment
+	MaxOutputTokens    int
 }
 
 type PrepareForSendInput struct {
 	Context     modelcontext.Bundle
 	Policy      RequestPolicy
 	ErrorSource string
+	// ReserveFullOutputAllowance preserves the complete summary allowance during compaction.
+	// Normal requests reserve independent generation headroom.
+	ReserveFullOutputAllowance bool
 }
 
 type InputBudgetAssessment struct {
@@ -181,32 +187,69 @@ func PrepareForSend(
 	); err != nil {
 		return PreparedRequest{}, err
 	}
+	capabilities := CapabilitiesForClient(client)
+	window := modelWindowForRequest(capabilities, input.Policy)
+	window.OutputReserveTokens = max(window.OutputReserveTokens, limits.Minimum)
+	if input.ReserveFullOutputAllowance {
+		window.OutputReserveTokens = input.Policy.MaxOutputTokens
+	}
+	if capabilities.ContextWindowTokens-window.SafetyMarginTokens-limits.Minimum <= 0 && limits.Minimum > 0 {
+		return PreparedRequest{}, ProviderError{
+			Kind: ErrorKindInvalidRequest, Source: input.ErrorSource, Code: InvalidOutputTokenConfigurationCode,
+			Message: "The configured context window cannot accommodate the provider's minimum output allowance. " +
+				"Increase the context window or reduce the configured thinking budget.",
+		}
+	}
+	prepared, err := prepareRequest(ctx, client, input)
+	if err != nil {
+		return PreparedRequest{}, err
+	}
+	usable := window.UsableInputTokens()
+	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
+		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
+		if remaining < input.Policy.MaxOutputTokens {
+			// The reduced allowance leaves exactly this much room for input. Check
+			// the final body too in case an adapter changes its input projection.
+			usable = prepared.InputTokenEstimate
+			input.Policy.MaxOutputTokens = remaining
+			prepared, err = prepareRequest(ctx, client, input)
+			if err != nil {
+				return PreparedRequest{}, err
+			}
+		}
+	}
+	prepared.MaxOutputTokens = input.Policy.MaxOutputTokens
+	prepared.InputBudget = InputBudgetAssessment{
+		EstimatedInputTokens: prepared.InputTokenEstimate, UsableInputTokens: usable,
+	}
+	return prepared, nil
+}
+
+func prepareRequest(ctx context.Context, client Client, input PrepareForSendInput) (PreparedRequest, error) {
 	prepared, err := client.Prepare(ctx, PrepareInput{Context: input.Context, Policy: input.Policy})
 	if err != nil {
 		return PreparedRequest{}, err
 	}
 	if len(prepared.Body) == 0 {
 		return PreparedRequest{}, ProviderError{
-			Kind:    ErrorKindInvalidRequest,
-			Source:  input.ErrorSource,
-			Code:    "empty_prepared_request",
+			Kind: ErrorKindInvalidRequest, Source: input.ErrorSource, Code: "empty_prepared_request",
 			Message: "The configured model produced an empty provider request.",
 		}
 	}
-	estimate := prepared.InputTokenEstimate
-	if estimate <= 0 {
-		estimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)
-	}
-	prepared.InputTokenEstimate = estimate
-	window := modelWindowForRequest(CapabilitiesForClient(client), input.Policy)
-	prepared.InputBudget = InputBudgetAssessment{
-		EstimatedInputTokens: estimate,
-		UsableInputTokens:    window.UsableInputTokens(),
+	if prepared.InputTokenEstimate <= 0 {
+		prepared.InputTokenEstimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)
 	}
 	return prepared, nil
 }
 
 func (l OutputTokenLimits) Validate(maxOutputTokens int, errorSource string) error {
+	if l.Required && maxOutputTokens == 0 {
+		return ProviderError{
+			Kind: ErrorKindInvalidRequest, Source: errorSource, Code: OutputTokenLimitRequiredCode,
+			Message: "This provider requires an output token allowance. Configure the model's output capacity, " +
+				"or set default_max_output_tokens on the model, project grant, or agent.",
+		}
+	}
 	if l.Minimum <= 0 || maxOutputTokens >= l.Minimum {
 		return nil
 	}
@@ -319,8 +362,8 @@ func (p RequestPolicy) AllowsProviderReplay(eventSequence int64) bool {
 func RequestPolicyFromCapabilities(capabilities Capabilities) RequestPolicy {
 	supportsReasoning := capabilities.SupportsReasoning
 	maxOutputTokens := capabilities.DefaultMaxOutputTokens
-	if maxOutputTokens == 0 {
-		maxOutputTokens = capabilities.MaxOutputTokens
+	if maxOutputTokens == 0 && capabilities.MaxOutputTokens != nil {
+		maxOutputTokens = *capabilities.MaxOutputTokens
 	}
 	return RequestPolicy{
 		MaxOutputTokens:   maxOutputTokens,
@@ -331,11 +374,19 @@ func RequestPolicyFromCapabilities(capabilities Capabilities) RequestPolicy {
 	}
 }
 
+// Normal admission reserves useful generation headroom independently of a
+// model's maximum output capacity. The wire allowance uses the remaining window.
+const normalOutputHeadroomTokens = 32_768
+
 func modelWindowForRequest(capabilities Capabilities, policy RequestPolicy) modelcontext.ModelWindow {
+	reserve := min(normalOutputHeadroomTokens, capabilities.ContextWindowTokens/2)
+	if policy.MaxOutputTokens > 0 {
+		reserve = min(reserve, policy.MaxOutputTokens)
+	}
 	return modelcontext.ModelWindow{
-		ContextTokens:          capabilities.ContextWindowTokens,
-		RequestMaxOutputTokens: policy.MaxOutputTokens,
-		SafetyMarginTokens:     modelcontext.DefaultSafetyMarginTokens(capabilities.ContextWindowTokens),
+		ContextTokens:       capabilities.ContextWindowTokens,
+		OutputReserveTokens: reserve,
+		SafetyMarginTokens:  modelcontext.DefaultSafetyMarginTokens(capabilities.ContextWindowTokens),
 	}
 }
 

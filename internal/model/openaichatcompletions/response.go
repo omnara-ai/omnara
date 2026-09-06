@@ -66,7 +66,8 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	}
 	out := p.chatResponseEvidence(ctx, decoded)
 	for _, choice := range decoded.Choices {
-		if !choice.hasError() && strings.TrimSpace(choice.FinishReason) == "" {
+		truncated := p.client.compat().outputTruncated(choice.FinishReason, string(choice.NativeFinishReason))
+		if !choice.hasError() && !truncated && strings.TrimSpace(choice.FinishReason) == "" {
 			return out, p.invalidResponseError(
 				resp,
 				decoded,
@@ -82,7 +83,6 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				choice,
 			)
 		}
-		truncated := choice.FinishReason == "length"
 		text, err := textFromChatContent(choice.Message.Content)
 		if err != nil {
 			return out, p.invalidResponseError(resp, decoded, err)
@@ -162,6 +162,10 @@ func (p protocol) chatResponseEvidence(
 			logent.ModelResponseProviderCostBYOKComponentMissing(ctx)
 		}
 	}
+	if p.client.compat().reportsNativeFinishReason && len(response.Choices) == 1 {
+		out.ProviderMetadata.OpenRouter.FinishReason = response.Choices[0].FinishReason
+		out.ProviderMetadata.OpenRouter.NativeFinishReason = string(response.Choices[0].NativeFinishReason)
+	}
 	return out
 }
 
@@ -175,10 +179,11 @@ type chatCompletionsResponse struct {
 }
 
 type chatChoice struct {
-	Index        int                 `json:"index"`
-	Message      chatResponseMessage `json:"message"`
-	FinishReason string              `json:"finish_reason"`
-	Error        chatProviderError   `json:"error"`
+	Index              int                 `json:"index"`
+	Message            chatResponseMessage `json:"message"`
+	FinishReason       string              `json:"finish_reason"`
+	NativeFinishReason lenientString       `json:"native_finish_reason,omitempty"`
+	Error              chatProviderError   `json:"error"`
 }
 
 func (c chatChoice) hasError() bool {

@@ -48,8 +48,10 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 		if message.Sequence <= 0 {
 			return fmt.Errorf("message %s event sequence is required", message.ID)
 		}
-		if lastSequence != 0 && message.Sequence <= lastSequence {
-			return fmt.Errorf("context events must be strictly ordered by sequence")
+		// One event can project to several messages, such as partial assistant
+		// output followed by harness feedback. Preserve their slice order.
+		if message.Sequence < lastSequence {
+			return fmt.Errorf("context messages must be ordered by event sequence")
 		}
 		if message.Sequence > bundle.InputEventSequence {
 			return fmt.Errorf("message %s exceeds event watermark", message.ID)

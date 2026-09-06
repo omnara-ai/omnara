@@ -284,15 +284,32 @@ func runDefaultReconciliation(
 		DefaultMachinePools:  cfg.DefaultMachinePools,
 		DefaultModelProvider: cfg.DefaultModelProvider,
 	})
-	for _, warning := range result.Warnings {
-		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
-			return err
-		}
+	if err := writeDefaultReconciliationResult(output, mode, result); err != nil {
+		return err
 	}
 	if reconcileErr != nil {
 		return reconcileErr
 	}
 	return nil
+}
+
+func writeDefaultReconciliationResult(
+	output io.Writer,
+	mode string,
+	result orglifecycle.ReconcileDefaultsResult,
+) error {
+	for _, change := range result.Changes {
+		if _, err := fmt.Fprintf(output, "%s: change: %s\n", mode, change); err != nil {
+			return err
+		}
+	}
+	for _, warning := range result.Warnings {
+		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(output, "%s: changes=%d warnings=%d\n", mode, len(result.Changes), len(result.Warnings))
+	return err
 }
 
 func bootstrapAuthConnectors(ctx context.Context, store *storage.Store, cfg config.Config) error {
@@ -385,7 +402,7 @@ func apiOptions(
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
-		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
+		httpapi.WithModelLimitsCatalog(modelprovider.NewLimitsCatalog()),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,
 			Token:      cfg.HostedAPIToken,

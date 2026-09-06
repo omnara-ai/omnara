@@ -165,7 +165,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -232,6 +232,7 @@ func (q *Queries) ListAgentEventsBeforeForRead(ctx context.Context, arg ListAgen
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
+			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -257,7 +258,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -321,6 +322,7 @@ func (q *Queries) ListAgentEventsForRead(ctx context.Context, arg ListAgentEvent
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
+			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -420,6 +422,7 @@ SELECT event.id,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
        output.provider_replay,
+       coalesce(output.stop_reason = 'max_tokens' AND bool_or(block.block_kind = 'error'), false)::boolean AS has_output_limit_feedback,
        CASE
          WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -477,7 +480,7 @@ WHERE scoped_agent.project_id = $1
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, input.input_kind
+  output.provider_replay, output.stop_reason, input.input_kind
 ORDER BY event.sequence ASC
 LIMIT $5
 `
@@ -503,6 +506,7 @@ type ListContextEventsRow struct {
 	ApiFormat                  string
 	ApiVariant                 string
 	ProviderReplay             *json.RawMessage
+	HasOutputLimitFeedback     bool
 	ContentParts               json.RawMessage
 }
 
@@ -534,6 +538,7 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.ApiFormat,
 			&i.ApiVariant,
 			&i.ProviderReplay,
+			&i.HasOutputLimitFeedback,
 			&i.ContentParts,
 		); err != nil {
 			return nil, err
@@ -560,7 +565,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id
@@ -625,6 +630,7 @@ func (q *Queries) ListTurnBoundaryEventsForRead(ctx context.Context, arg ListTur
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
+			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -650,7 +656,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.continue_after_truncation
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -720,6 +726,7 @@ func (q *Queries) ListTurnEventsForRead(ctx context.Context, arg ListTurnEventsF
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
+			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}

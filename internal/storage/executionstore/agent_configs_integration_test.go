@@ -144,7 +144,7 @@ func TestCreateAgentConfigAllowsProjectModelGrantModalityRestrictions(t *testing
 		Name:                  "image-only-runtime",
 		ProviderModelSlug:     "gpt-image-runtime",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 		InputModalities:       []string{"text", "image"},
 		OutputModalities:      []string{"text"},
 	})

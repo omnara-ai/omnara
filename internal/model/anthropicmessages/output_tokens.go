@@ -19,12 +19,12 @@ func (c Client) OutputTokenLimits() (model.OutputTokenLimits, error) {
 		return model.OutputTokenLimits{}, fmt.Errorf("invalid Anthropic thinking configuration: %w", err)
 	}
 	if !enabled {
-		return model.OutputTokenLimits{}, nil
+		return model.OutputTokenLimits{Minimum: 1, Required: true}, nil
 	}
 	// Manual thinking shares Anthropic's total output limit and, without the
 	// interleaved-thinking beta, budget_tokens must be less than max_tokens.
 	// https://platform.claude.com/docs/en/build-with-claude/extended-thinking#budget-rules-and-tuning
-	return model.OutputTokenLimits{Minimum: budget + 1}, nil
+	return model.OutputTokenLimits{Minimum: budget + 1, Required: true}, nil
 }
 
 func anthropicManualThinkingBudget(options json.RawMessage) (int, bool, error) {

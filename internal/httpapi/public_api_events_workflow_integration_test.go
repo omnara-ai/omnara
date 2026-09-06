@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -1707,14 +1708,16 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build max_tokens provider response: %v", err)
 	}
+	providerResponse.Normalized.Content = append(providerResponse.Normalized.Content, modelenvelope.ResponsePart{Type: "error", Text: "Continue with smaller tool calls."})
 	outputEvent, err := store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:          project.ProjectUUID,
-			AgentID:            agentID,
-			RuntimeLockID:      work.RuntimeLock.ID,
-			ModelCallContextID: modelCall.Context.ID,
-			ProviderResponse:   providerResponse,
+			ProjectID:               project.ProjectUUID,
+			AgentID:                 agentID,
+			RuntimeLockID:           work.RuntimeLock.ID,
+			ModelCallContextID:      modelCall.Context.ID,
+			ProviderResponse:        providerResponse,
+			ContinueAfterTruncation: true,
 		},
 	)
 	if err != nil {
@@ -1789,7 +1792,8 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") &&
-			strings.Contains(line, `"stop_reason":"max_tokens"`) {
+			strings.Contains(line, `"stop_reason":"max_tokens"`) &&
+			strings.Contains(line, `"continue_after_truncation":true`) {
 			return
 		}
 	}
@@ -2193,6 +2197,7 @@ func assertPublicMaxTokensEvent(t *testing.T, records []any) {
 		record := raw.(map[string]any)
 		if record["event_kind"] == "model_output" &&
 			record["stop_reason"] == "max_tokens" &&
+			record["continue_after_truncation"] == true &&
 			publicEventContainsText(record, "partial but durable output") {
 			return
 		}

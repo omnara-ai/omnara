@@ -20,7 +20,7 @@ import (
 func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *testing.T) {
 	highReasoning := model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        64_000,
+		MaxOutputTokens:        new(64_000),
 		DefaultMaxOutputTokens: 2_048,
 		SupportsReasoning:      true,
 		DefaultReasoningEffort: "high",
@@ -206,7 +206,7 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing.T) {
 	capabilities := model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        64_000,
+		MaxOutputTokens:        new(64_000),
 		DefaultMaxOutputTokens: 32_768,
 	}
 	tests := []struct {
@@ -227,7 +227,7 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 			},
 			outputField: "max_tokens",
 			optionField: "thinking",
-			wantOutput:  32_768,
+			wantOutput:  24_577,
 		},
 		{
 			name: "OpenRouter Chat Completions",
@@ -331,7 +331,7 @@ func TestCompactionPolicyDisablesPromptCacheControls(t *testing.T) {
 	agentID := uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
 	capabilities := model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        64_000,
+		MaxOutputTokens:        new(64_000),
 		DefaultMaxOutputTokens: 2_048,
 		DefaultCacheRetention:  model.CacheRetentionLong,
 	}

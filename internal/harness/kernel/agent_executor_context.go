@@ -291,6 +291,7 @@ func (e AgentExecutor) executeModelStep(
 		}
 	}
 	response, err := client.Respond(ctx, request)
+	response.ProviderMetadata.RequestMaxOutputTokens = prepared.MaxOutputTokens
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
@@ -393,7 +394,7 @@ func (e AgentExecutor) finishModelResponse(
 		step.State = modelStepToolUse
 		return step, nil
 	case model.StopReasonEndTurn:
-		return e.recordSuccessfulModelOutput(ctx, input, step)
+		return e.recordSuccessfulModelOutput(ctx, input, step, false)
 	case model.StopReasonRefusal, model.StopReasonContentFilter:
 		if len(calls) > 0 {
 			cause := model.MalformedProviderSuccess(
@@ -412,9 +413,9 @@ func (e AgentExecutor) finishModelResponse(
 				step.Response,
 			)
 		}
-		return e.recordSuccessfulModelOutput(ctx, input, step)
+		return e.recordSuccessfulModelOutput(ctx, input, step, false)
 	case model.StopReasonMaxTokens:
-		return e.recordSuccessfulModelOutput(ctx, input, step)
+		return e.recordTruncatedModelOutput(ctx, input, step)
 	case model.StopReasonContextWindow:
 		cause := model.ProviderError{
 			Kind:    model.ErrorKindContextWindow,
@@ -486,16 +487,18 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	ctx context.Context,
 	input ModelWorkExecution,
 	step modelStep,
+	continueAfterTruncation bool,
 ) (modelStep, error) {
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			RuntimeLockID:      input.RuntimeLockID,
-			ModelCallContextID: step.Context.ID,
-			ProviderRequestID:  step.Response.ProviderRequestID,
-			ProviderResponse:   step.Envelope,
+			ProjectID:               input.ProjectID,
+			AgentID:                 input.AgentID,
+			RuntimeLockID:           input.RuntimeLockID,
+			ModelCallContextID:      step.Context.ID,
+			ProviderRequestID:       step.Response.ProviderRequestID,
+			ProviderResponse:        step.Envelope,
+			ContinueAfterTruncation: continueAfterTruncation,
 		},
 	)
 	if err != nil {

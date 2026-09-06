@@ -81,7 +81,7 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	}
 	client := &summaryModel{caps: model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        64_000,
+		MaxOutputTokens:        new(64_000),
 		DefaultMaxOutputTokens: 2_048,
 		SupportsReasoning:      true,
 		SupportedReasoningEfforts: []string{

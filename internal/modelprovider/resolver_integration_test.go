@@ -64,6 +64,7 @@ func TestResolverUsesClusterManagedDefaultProvider(t *testing.T) {
 		Provisioner:          "openrouter",
 		Name:                 "omnara-openrouter",
 		CredentialSecretName: "omnara-openrouter-key",
+		IdleTimeoutMS:        19000,
 		APIFormat:            modelprotocol.APIFormatOpenAIChatCompletions,
 		APIVariant:           modelprotocol.APIVariantOpenRouter,
 		BaseURL:              "https://openrouter.ai/api/v1",
@@ -73,7 +74,7 @@ func TestResolverUsesClusterManagedDefaultProvider(t *testing.T) {
 			Name:                "cluster-default",
 			ProviderModelSlug:   "anthropic/claude-sonnet-4.5",
 			ContextWindowTokens: 200000,
-			MaxOutputTokens:     8192,
+			MaxOutputTokens:     new(8192),
 		}},
 	}
 	orgID := uuid.New()
@@ -133,7 +134,7 @@ func TestResolverUsesClusterManagedDefaultProvider(t *testing.T) {
 	}
 	if client.BaseURL != "https://openrouter.ai/api/v1" ||
 		client.EndpointPath != "/chat/completions" ||
-		client.RequestedProviderModelSlug() != "anthropic/claude-sonnet-4.5" {
+		client.RequestedProviderModelSlug() != "anthropic/claude-sonnet-4.5" || client.IdleTimeout != 19*time.Second {
 		t.Fatalf("resolved cluster client fields mismatch: %+v", client)
 	}
 	bearer, ok := client.Auth.(route.BearerToken)
@@ -182,6 +183,7 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 	providerConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              created.Org.ID,
 		Name:               "bedrock-anthropic",
+		IdleTimeoutMS:      23000,
 		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
 		APIVariant:         modelprotocol.APIVariantBedrock,
 		BaseURL:            "https://bedrock-mantle.us-west-2.api.aws/anthropic/v1",
@@ -196,7 +198,7 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 		Name:                  "claude-haiku",
 		ProviderModelSlug:     "anthropic.claude-haiku-4-5",
 		ContextWindowTokens:   200000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -224,7 +226,7 @@ func TestResolverMaterializesBedrockAnthropicClient(t *testing.T) {
 	if client.BaseURL != "https://bedrock-mantle.us-west-2.api.aws/anthropic/v1" ||
 		client.EndpointPath != "/messages" ||
 		client.RequestedProviderModelSlug() != "anthropic.claude-haiku-4-5" ||
-		client.ModelAPIVariant() != modelprotocol.APIVariantBedrock {
+		client.ModelAPIVariant() != modelprotocol.APIVariantBedrock || client.IdleTimeout != 23*time.Second {
 		t.Fatalf("resolved Bedrock Anthropic client mismatch: %+v", client)
 	}
 	headerAuth, ok := client.Auth.(route.HeaderAuth)
@@ -287,6 +289,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		BaseURL:            "https://proxy.example.test/v1",
 		EndpointPath:       "/custom-responses",
 		RequestTimeoutMS:   45000,
+		IdleTimeoutMS:      17000,
 		CredentialSecretID: credential.ID,
 	})
 	if err != nil {
@@ -298,7 +301,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		Name:                   "coding-default",
 		ProviderModelSlug:      "gpt-resolver",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultCacheRetention:  modelstore.ModelCacheRetentionLong,
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsReasoning:      true,
@@ -346,7 +349,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolved client type = %T, want openairesponses.Client", client)
 	}
 	if openAIClient.BaseURL != "https://proxy.example.test/v1" || openAIClient.EndpointPath != "/custom-responses" ||
-		openAIClient.RequestedProviderModelSlug() != "gpt-resolver" {
+		openAIClient.RequestedProviderModelSlug() != "gpt-resolver" || openAIClient.IdleTimeout != 17*time.Second {
 		t.Fatalf("resolved client fields mismatch: %+v", openAIClient)
 	}
 	if openAIClient.ModelProviderConfigID != providerConfig.ID.String() {
@@ -371,7 +374,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolved client timeout = %+v, want 45s", openAIClient.HTTPClient)
 	}
 	capabilities := openAIClient.Capabilities()
-	if capabilities.ContextWindowTokens != agentContextWindow || capabilities.MaxOutputTokens != grantMaxOutput ||
+	if capabilities.ContextWindowTokens != agentContextWindow || (capabilities.MaxOutputTokens == nil || *capabilities.MaxOutputTokens != grantMaxOutput) ||
 		capabilities.DefaultMaxOutputTokens != agentMaxOutput ||
 		capabilities.DefaultCacheRetention != model.CacheRetentionShort ||
 		capabilities.DefaultReasoningEffort != "high" ||
@@ -481,7 +484,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		ID:                     configuredModel.ID,
 		ProviderModelSlug:      &updatedProviderModelSlug,
 		ContextWindowTokens:    &updatedContextWindow,
-		MaxOutputTokens:        &updatedMaxOutput,
+		MaxOutputTokens:        patch.NullableInt{Set: true, Value: &updatedMaxOutput},
 		DefaultCacheRetention:  &updatedCacheRetention,
 		DefaultMaxOutputTokens: patch.NullableInt{Set: true, Value: &updatedDefaultMaxOutput},
 		SupportsReasoning:      &updatedSupportsReasoning,
@@ -509,7 +512,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	oldCapabilities := oldOpenAIClient.Capabilities()
 	if oldOpenAIClient.RequestedProviderModelSlug() != "gpt-resolver" ||
 		oldResolved.ConfiguredModelRevisionID != oldRevisionID.String() ||
-		oldCapabilities.MaxOutputTokens != grantMaxOutput ||
+		(oldCapabilities.MaxOutputTokens == nil || *oldCapabilities.MaxOutputTokens != grantMaxOutput) ||
 		oldCapabilities.DefaultMaxOutputTokens != grantDefaultMaxOutput ||
 		oldCapabilities.SupportsReasoning != true {
 		t.Fatalf(
@@ -535,7 +538,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	}
 	currentCapabilities := currentOpenAIClient.Capabilities()
 	if currentOpenAIClient.RequestedProviderModelSlug() != "gpt-resolver-v2" ||
-		currentCapabilities.MaxOutputTokens != grantMaxOutput ||
+		(currentCapabilities.MaxOutputTokens == nil || *currentCapabilities.MaxOutputTokens != grantMaxOutput) ||
 		currentCapabilities.DefaultMaxOutputTokens != grantDefaultMaxOutput ||
 		currentCapabilities.SupportsReasoning != false {
 		t.Fatalf("resolved current revision mismatch: client=%+v capabilities=%+v", currentOpenAIClient, currentCapabilities)
@@ -597,7 +600,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	}
 	replacedCapabilities := replacedClient.Capabilities()
 	if replacedClient.RequestedProviderModelSlug() != "gpt-resolver" ||
-		replacedCapabilities.MaxOutputTokens != replacementMaxOutput ||
+		(replacedCapabilities.MaxOutputTokens == nil || *replacedCapabilities.MaxOutputTokens != replacementMaxOutput) ||
 		replacedCapabilities.DefaultMaxOutputTokens != replacementDefaultMaxOutput {
 		t.Fatalf(
 			"replacement grant was not applied to pinned revision: resolved=%+v capabilities=%+v",
@@ -612,7 +615,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		Name:                  "other-grant-model",
 		ProviderModelSlug:     "gpt-other-grant",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create other configured model: %v", err)
@@ -634,7 +637,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolve pinned revision while another model is granted: %v", err)
 	}
 	resolvedWithOtherGrantClient, ok := resolvedWithOtherGrant.Client.(openairesponses.Client)
-	if !ok || resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens != replacementMaxOutput {
+	if !ok || (resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens == nil || *resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens != replacementMaxOutput) {
 		t.Fatalf("unrelated grant changed resolved capabilities: %+v", resolvedWithOtherGrant.Client)
 	}
 	if _, err := store.Models().DeleteProjectModelGrant(ctx, created.Org.ID, created.Project.ID, otherGrant.ID); err != nil {
@@ -655,7 +658,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		Name:                  "image-only-grant-model",
 		ProviderModelSlug:     "gpt-image-only-grant",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 		InputModalities:       []string{"text", "image"},
 		OutputModalities:      []string{"text"},
 	})
@@ -718,7 +721,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		Name:                  "provider-archived-model",
 		ProviderModelSlug:     "gpt-provider-archived",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create provider archive configured model: %v", err)

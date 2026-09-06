@@ -1202,7 +1202,7 @@ func (s *Server) agentConfigResponseFromRecord(
 		ApiFormat:              openapi.ModelAPIFormat(revision.APIFormat),
 		ApiVariant:             string(revision.APIVariant),
 		ContextWindowTokens:    effectiveModel.ContextWindowTokens,
-		MaxOutputTokens:        effectiveModel.MaxOutputTokens,
+		MaxOutputTokens:        nullableFromPtr(effectiveModel.MaxOutputTokens),
 		DefaultMaxOutputTokens: nullableFromPtr(effectiveModel.DefaultMaxOutputTokens),
 		DefaultCacheRetention: openapi.ModelCacheRetention(model.EffectiveCacheRetention(
 			model.CacheRetention(effectiveModel.DefaultCacheRetention),

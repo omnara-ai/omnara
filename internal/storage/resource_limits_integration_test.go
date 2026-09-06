@@ -926,7 +926,7 @@ WHERE config.id = $1
 			Name:                   fmt.Sprintf("limit-seed-model-%d", i),
 			ProviderModelSlug:      fmt.Sprintf("limit-seed-model-%d", i),
 			ContextWindowTokens:    128_000,
-			MaxOutputTokens:        8_192,
+			MaxOutputTokens:        new(8_192),
 			DefaultMaxOutputTokens: intPtr(4_096),
 		}); err != nil {
 			t.Fatalf("seed configured models to limit: %v", err)
@@ -938,7 +938,7 @@ WHERE config.id = $1
 		Name:                   "limited-model",
 		ProviderModelSlug:      "limited-model",
 		ContextWindowTokens:    128_000,
-		MaxOutputTokens:        8_192,
+		MaxOutputTokens:        new(8_192),
 		DefaultMaxOutputTokens: intPtr(4_096),
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("configured model over limit error = %v, want ErrConflict", err)

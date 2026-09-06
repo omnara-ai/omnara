@@ -426,7 +426,7 @@ func (f kernelFixture) ensureModelSelection(
 		Name:                  configuredModelName,
 		ProviderModelSlug:     configuredModelName,
 		ContextWindowTokens:   firstKernelTestInt(options.ContextWindowTokens, 128000),
-		MaxOutputTokens:       firstKernelTestInt(options.MaxOutputTokens, 8192),
+		MaxOutputTokens:       new(firstKernelTestInt(options.MaxOutputTokens, 8192)),
 	})
 	if err != nil {
 		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)
@@ -482,7 +482,7 @@ func (f kernelFixture) provisionClusterModel(
 				Name:                configuredModelName,
 				ProviderModelSlug:   configuredModelName,
 				ContextWindowTokens: 128000,
-				MaxOutputTokens:     8192,
+				MaxOutputTokens:     new(8192),
 			}},
 		},
 	); err != nil {
@@ -1022,8 +1022,8 @@ func (m *sequenceKernelModel) Capabilities() model.Capabilities {
 	if capabilities.ContextWindowTokens == 0 {
 		capabilities.ContextWindowTokens = 128000
 	}
-	if capabilities.MaxOutputTokens == 0 {
-		capabilities.MaxOutputTokens = 8192
+	if capabilities.MaxOutputTokens == nil {
+		capabilities.MaxOutputTokens = new(8192)
 	}
 	return capabilities
 }
@@ -1165,7 +1165,7 @@ func (r *selectionRecordingResolver) Resolve(
 	r.selections = append(r.selections, selection)
 	capabilities := model.Capabilities{
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: 4096,
 		DefaultCacheRetention:  model.CacheRetention(selection.Overrides.CacheRetention),
 		SupportsReasoning:      true,

@@ -763,7 +763,7 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 			Name:                "claude-sonnet-4.5",
 			ProviderModelSlug:   "anthropic/claude-sonnet-4.5",
 			ContextWindowTokens: 200000,
-			MaxOutputTokens:     64000,
+			MaxOutputTokens:     new(64000),
 			SupportsReasoning:   true,
 			InputModalities:     []string{"text", "image"},
 			OutputModalities:    []string{"text"},
@@ -898,7 +898,7 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 		Name:                  "tenant-added-model",
 		ProviderModelSlug:     "example/model",
 		ContextWindowTokens:   8192,
-		MaxOutputTokens:       1024,
+		MaxOutputTokens:       new(1024),
 	})
 	if err != nil {
 		t.Fatalf("create tenant model under cluster-managed provider: %v", err)
@@ -999,7 +999,7 @@ func TestConflictingProviderSupersedesDefaultProviderProvisioning(t *testing.T) 
 		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
 		Models: []modelstore.DefaultConfiguredModelTemplate{{
 			Name: "model-one", ProviderModelSlug: "example/model-one",
-			ContextWindowTokens: 8192, MaxOutputTokens: 1024,
+			ContextWindowTokens: 8192, MaxOutputTokens: new(1024),
 		}},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{

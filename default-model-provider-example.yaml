@@ -11,7 +11,6 @@ models:
     provider_model_slug: anthropic/claude-fable-5
     context_window_tokens: 1000000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -22,7 +21,6 @@ models:
     provider_model_slug: anthropic/claude-sonnet-5
     context_window_tokens: 1000000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -33,7 +31,6 @@ models:
     provider_model_slug: anthropic/claude-opus-5
     context_window_tokens: 1000000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -44,7 +41,6 @@ models:
     provider_model_slug: openai/gpt-5.6-sol
     context_window_tokens: 1050000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
@@ -55,7 +51,6 @@ models:
     provider_model_slug: openai/gpt-5.6-terra
     context_window_tokens: 1050000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
@@ -66,7 +61,6 @@ models:
     provider_model_slug: openai/gpt-5.6-luna
     context_window_tokens: 1050000
     max_output_tokens: 128000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
@@ -77,7 +71,6 @@ models:
     provider_model_slug: google/gemini-3.1-pro-preview
     context_window_tokens: 1048576
     max_output_tokens: 65536
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
@@ -88,7 +81,6 @@ models:
     provider_model_slug: google/gemini-3.6-flash
     context_window_tokens: 1048576
     max_output_tokens: 65536
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
@@ -99,7 +91,6 @@ models:
     provider_model_slug: google/gemini-3.5-flash-lite
     context_window_tokens: 1048576
     max_output_tokens: 65536
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: minimal
@@ -110,7 +101,6 @@ models:
     provider_model_slug: z-ai/glm-5.2
     context_window_tokens: 1048576
     max_output_tokens: 131072
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -121,7 +111,6 @@ models:
     provider_model_slug: deepseek/deepseek-v4-pro
     context_window_tokens: 1048576
     max_output_tokens: 384000
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -132,7 +121,6 @@ models:
     provider_model_slug: deepseek/deepseek-v4-flash-0731
     context_window_tokens: 1048576
     max_output_tokens: 65536
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -143,7 +131,6 @@ models:
     provider_model_slug: qwen/qwen3.8-max
     context_window_tokens: 1000000
     max_output_tokens: 131072
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: xhigh
@@ -154,7 +141,6 @@ models:
     provider_model_slug: qwen/qwen3.7-plus
     context_window_tokens: 1000000
     max_output_tokens: 131072
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     input_modalities: [text, image]
@@ -163,7 +149,6 @@ models:
     provider_model_slug: qwen/qwen3.7-flash
     context_window_tokens: 1000000
     max_output_tokens: 65536
-    default_max_output_tokens: 8192
     supports_tools: true
     supports_reasoning: true
     input_modalities: [text, image, video]
@@ -171,8 +156,7 @@ models:
   - name: x-ai/grok-4.5
     provider_model_slug: x-ai/grok-4.5
     context_window_tokens: 500000
-    max_output_tokens: 8192
-    default_max_output_tokens: 8192
+    max_output_tokens: 450000
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -182,8 +166,7 @@ models:
   - name: mistralai/mistral-large-2512
     provider_model_slug: mistralai/mistral-large-2512
     context_window_tokens: 262144
-    max_output_tokens: 8192
-    default_max_output_tokens: 8192
+    max_output_tokens: 209715
     supports_tools: true
     supports_reasoning: false
     input_modalities: [text, image, file]
@@ -191,8 +174,7 @@ models:
   - name: mistralai/mistral-medium-3-5
     provider_model_slug: mistralai/mistral-medium-3-5
     context_window_tokens: 262144
-    max_output_tokens: 8192
-    default_max_output_tokens: 8192
+    max_output_tokens: 209715
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -202,8 +184,7 @@ models:
   - name: mistralai/mistral-small-2603
     provider_model_slug: mistralai/mistral-small-2603
     context_window_tokens: 262144
-    max_output_tokens: 8192
-    default_max_output_tokens: 8192
+    max_output_tokens: 209715
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: high
@@ -213,8 +194,7 @@ models:
   - name: moonshotai/kimi-k3
     provider_model_slug: moonshotai/kimi-k3
     context_window_tokens: 1048576
-    max_output_tokens: 8192
-    default_max_output_tokens: 8192
+    max_output_tokens: 943718
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: max

@@ -18,7 +18,8 @@ const (
 	ModelCacheRetentionShort = "short"
 	ModelCacheRetentionLong  = "long"
 
-	DefaultModelProviderRequestTimeoutMS = int64((10 * time.Minute) / time.Millisecond)
+	DefaultModelProviderRequestTimeoutMS = int64(time.Hour / time.Millisecond)
+	DefaultModelProviderIdleTimeoutMS    = int64((5 * time.Minute) / time.Millisecond)
 )
 
 type CreateModelProviderConfigInput struct {
@@ -29,6 +30,7 @@ type CreateModelProviderConfigInput struct {
 	BaseURL            string
 	EndpointPath       string
 	RequestTimeoutMS   int
+	IdleTimeoutMS      int
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID ID
@@ -41,6 +43,7 @@ type modelProviderConfigUpdate struct {
 	BaseURL            string
 	EndpointPath       string
 	RequestTimeoutMS   int
+	IdleTimeoutMS      int
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID ID
@@ -54,6 +57,7 @@ type PatchModelProviderConfigInput struct {
 	BaseURL            *string
 	EndpointPath       *string
 	RequestTimeoutMS   *int
+	IdleTimeoutMS      *int
 	AuthKind           *string
 	AuthOptions        *json.RawMessage
 	CredentialSecretID *ID
@@ -69,6 +73,7 @@ type ModelProviderConfigRecord struct {
 	BaseURL            string                   `json:"base_url"`
 	EndpointPath       string                   `json:"endpoint_path"`
 	RequestTimeoutMS   int                      `json:"request_timeout_ms"`
+	IdleTimeoutMS      int                      `json:"idle_timeout_ms"`
 	AuthKind           string                   `json:"auth_kind"`
 	AuthOptions        json.RawMessage          `json:"auth_options"`
 	CredentialSecretID ID                       `json:"credential_secret_id"`
@@ -79,12 +84,14 @@ type ModelProviderConfigRecord struct {
 }
 
 type CreateConfiguredModelInput struct {
-	OrgID                     ID
-	ModelProviderConfigID     ID
-	Name                      string
-	ProviderModelSlug         string
-	ContextWindowTokens       int
-	MaxOutputTokens           int
+	OrgID                 ID
+	ModelProviderConfigID ID
+	Name                  string
+	ProviderModelSlug     string
+	ContextWindowTokens   int
+	MaxOutputTokens       *int
+	// DiscoveredMaxOutputTokens is a creation-only catalog hint, not caller intent.
+	DiscoveredMaxOutputTokens *int
 	DefaultMaxOutputTokens    *int
 	DefaultCacheRetention     string
 	SupportsTools             *bool
@@ -103,7 +110,7 @@ type configuredModelUpdate struct {
 	Name                      string
 	ProviderModelSlug         string
 	ContextWindowTokens       int
-	MaxOutputTokens           int
+	MaxOutputTokens           *int
 	DefaultMaxOutputTokens    *int
 	DefaultCacheRetention     string
 	SupportsTools             *bool
@@ -122,7 +129,7 @@ type PatchConfiguredModelInput struct {
 	Name                      *string
 	ProviderModelSlug         *string
 	ContextWindowTokens       *int
-	MaxOutputTokens           *int
+	MaxOutputTokens           patch.NullableInt
 	DefaultMaxOutputTokens    patch.NullableInt
 	DefaultCacheRetention     *string
 	SupportsTools             *bool
@@ -143,7 +150,7 @@ type ConfiguredModelRecord struct {
 	CurrentRevisionID         ID              `json:"current_revision_id"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`
 	ContextWindowTokens       int             `json:"context_window_tokens"`
-	MaxOutputTokens           int             `json:"max_output_tokens"`
+	MaxOutputTokens           *int            `json:"max_output_tokens"`
 	DefaultMaxOutputTokens    *int            `json:"default_max_output_tokens,omitempty"`
 	DefaultCacheRetention     string          `json:"default_cache_retention,omitempty"`
 	SupportsTools             bool            `json:"supports_tools"`
@@ -167,7 +174,7 @@ type ConfiguredModelRevisionRecord struct {
 	ModelProviderConfigID     ID              `json:"model_provider_config_id"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`
 	ContextWindowTokens       int             `json:"context_window_tokens"`
-	MaxOutputTokens           int             `json:"max_output_tokens"`
+	MaxOutputTokens           *int            `json:"max_output_tokens"`
 	DefaultMaxOutputTokens    *int            `json:"default_max_output_tokens,omitempty"`
 	DefaultCacheRetention     string          `json:"default_cache_retention,omitempty"`
 	SupportsTools             bool            `json:"supports_tools"`

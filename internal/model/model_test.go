@@ -17,12 +17,12 @@ import (
 func TestModelWindowForRequestUsesExactPolicy(t *testing.T) {
 	capabilities := Capabilities{
 		ContextWindowTokens:    200000,
-		MaxOutputTokens:        64000,
+		MaxOutputTokens:        new(64000),
 		DefaultMaxOutputTokens: 2048,
 	}
 	policy := RequestPolicy{MaxOutputTokens: 32_000}
 	window := modelWindowForRequest(capabilities, policy)
-	if window.RequestMaxOutputTokens != 32_000 || window.SafetyMarginTokens == 0 {
+	if window.OutputReserveTokens != 32_000 || window.SafetyMarginTokens == 0 {
 		t.Fatalf("request window = %+v, want exact policy max and safety margin", window)
 	}
 	if usable := UsableInputTokensForRequest(capabilities, policy); usable != 159_808 {
@@ -62,7 +62,7 @@ func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 }
 
 func TestRequestPolicyFromCapabilitiesFallsBackToOutputCeiling(t *testing.T) {
-	policy := RequestPolicyFromCapabilities(Capabilities{MaxOutputTokens: 64_000})
+	policy := RequestPolicyFromCapabilities(Capabilities{MaxOutputTokens: new(64_000)})
 	if policy.MaxOutputTokens != 64_000 {
 		t.Fatalf("request policy max output = %d, want ceiling 64000", policy.MaxOutputTokens)
 	}

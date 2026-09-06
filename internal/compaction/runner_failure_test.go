@@ -28,7 +28,8 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 		{
 			name: "summary cap changes only output policy",
 			caps: model.Capabilities{
-				MaxOutputTokens:           64_000,
+				ContextWindowTokens:       200000,
+				MaxOutputTokens:           new(64_000),
 				DefaultMaxOutputTokens:    2_048,
 				DefaultCacheRetention:     model.CacheRetentionShort,
 				SupportsTools:             &supportsTools,
@@ -42,7 +43,8 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 		{
 			name: "model output limit below summary cap is retained",
 			caps: model.Capabilities{
-				MaxOutputTokens:           8_192,
+				ContextWindowTokens:       200000,
+				MaxOutputTokens:           new(8_192),
 				DefaultMaxOutputTokens:    2_048,
 				SupportsReasoning:         true,
 				DefaultReasoningEffort:    "low",
@@ -54,6 +56,7 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 		{
 			name: "default output limit is used when model maximum is unavailable",
 			caps: model.Capabilities{
+				ContextWindowTokens:       200000,
 				DefaultMaxOutputTokens:    2_048,
 				SupportsReasoning:         true,
 				DefaultReasoningEffort:    "vendor-deep",
@@ -90,7 +93,7 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 	supportsTools := false
 	baseCapabilities := model.Capabilities{
 		ContextWindowTokens:       200_000,
-		MaxOutputTokens:           64_000,
+		MaxOutputTokens:           new(64_000),
 		DefaultMaxOutputTokens:    32_768,
 		DefaultCacheRetention:     model.CacheRetentionShort,
 		SupportsTools:             &supportsTools,
@@ -115,14 +118,14 @@ func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testin
 			wantFloor:  preferredSummaryOutputTokens,
 		},
 		{
-			name: "Anthropic falls back to normal allowance",
+			name: "Anthropic raises summary allowance to thinking minimum",
 			client: anthropicmessages.Client{
 				ProviderModelSlug: "claude-sonnet-4",
 				ModelCapabilities: baseCapabilities,
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 			},
-			wantOutput: 32_768,
-			wantFloor:  32_768,
+			wantOutput: 24_577,
+			wantFloor:  24_577,
 		},
 	}
 	for _, test := range tests {
@@ -167,7 +170,7 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 				ProviderModelSlug: "claude-sonnet-4",
 				ModelCapabilities: model.Capabilities{
 					ContextWindowTokens:    200_000,
-					MaxOutputTokens:        64_000,
+					MaxOutputTokens:        new(64_000),
 					DefaultMaxOutputTokens: test.normalOutput,
 				},
 				APIVariantOptions: test.options,
@@ -611,7 +614,7 @@ func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(
 		ProviderModelSlug: "claude-sonnet-4",
 		ModelCapabilities: model.Capabilities{
 			ContextWindowTokens:    200_000,
-			MaxOutputTokens:        64_000,
+			MaxOutputTokens:        new(64_000),
 			DefaultMaxOutputTokens: 16_384,
 		},
 		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),

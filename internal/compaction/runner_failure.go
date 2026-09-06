@@ -275,22 +275,26 @@ func compactionRequestPolicy(
 	if err != nil {
 		return model.RequestPolicy{}, 0, err
 	}
-	if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
-		return model.RequestPolicy{}, 0, err
+	if normalPolicy.MaxOutputTokens > 0 {
+		if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
+			return model.RequestPolicy{}, 0, err
+		}
 	}
 	policy := normalPolicy
 	policy.CacheRetention = model.CacheRetentionNone
-	policy.MaxOutputTokens = capabilities.MaxOutputTokens
-	if policy.MaxOutputTokens <= 0 {
-		policy.MaxOutputTokens = capabilities.DefaultMaxOutputTokens
-	}
-	if policy.MaxOutputTokens > preferredSummaryOutputTokens {
-		policy.MaxOutputTokens = preferredSummaryOutputTokens
+	policy.MaxOutputTokens = min(preferredSummaryOutputTokens, capabilities.ContextWindowTokens/2)
+	if capabilities.MaxOutputTokens != nil {
+		policy.MaxOutputTokens = min(policy.MaxOutputTokens, *capabilities.MaxOutputTokens)
+	} else if normalPolicy.MaxOutputTokens > 0 {
+		policy.MaxOutputTokens = min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
 	}
 	if policy.MaxOutputTokens < limits.Minimum {
-		policy.MaxOutputTokens = normalPolicy.MaxOutputTokens
+		policy.MaxOutputTokens = limits.Minimum
 	}
-	summaryOutputFloorTokens := min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
+	summaryOutputFloorTokens := policy.MaxOutputTokens
+	if normalPolicy.MaxOutputTokens > 0 {
+		summaryOutputFloorTokens = min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
+	}
 	return policy, summaryOutputFloorTokens, nil
 }
 

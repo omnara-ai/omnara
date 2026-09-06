@@ -166,6 +166,49 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if replayedConfig.ID != config.ID || replayedConfig.Created {
 		t.Fatalf("provider config replay mismatch: first=%+v replay=%+v", config, replayedConfig)
 	}
+
+	// Omission reuses stored timeouts, even after defaults or PATCH values change.
+	replayInput := modelstore.CreateModelProviderConfigInput{
+		OrgID: testOrgID, Name: "openai-lifecycle", APIFormat: modelprotocol.APIFormatOpenAIResponses,
+		BaseURL: "https://api.openai.com/v1", CredentialSecretID: credential.ID,
+	}
+	for _, idle := range []int{300000, 45000} {
+		if _, err := store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+			OrgID: testOrgID, ID: config.ID, IdleTimeoutMS: &idle,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		replay, err := store.Models().CreateModelProviderConfig(ctx, replayInput)
+		if err != nil || replay.ID != config.ID || replay.Created || replay.RequestTimeoutMS != 30000 || replay.IdleTimeoutMS != idle {
+			t.Fatalf("omitted timeout replay=%+v error=%v", replay, err)
+		}
+	}
+	for _, total := range []bool{false, true} {
+		conflicting := replayInput
+		if total {
+			conflicting.RequestTimeoutMS = 40000
+		} else {
+			conflicting.IdleTimeoutMS = 40000
+		}
+		if _, err := store.Models().CreateModelProviderConfig(ctx, conflicting); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+			t.Fatalf("explicit timeout conflict=%v", err)
+		}
+		for _, invalid := range []int{-1, 0, 2147483648} {
+			input := modelstore.PatchModelProviderConfigInput{OrgID: testOrgID, ID: config.ID}
+			if total {
+				input.RequestTimeoutMS = &invalid
+			} else {
+				input.IdleTimeoutMS = &invalid
+			}
+			if _, err := store.Models().PatchModelProviderConfig(ctx, input); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+				t.Fatalf("invalid timeout patch total=%t value=%d error=%v", total, invalid, err)
+			}
+		}
+	}
+	preserved, err := store.Models().GetModelProviderConfig(ctx, testOrgID, config.ID)
+	if err != nil || preserved.RequestTimeoutMS != 30000 || preserved.IdleTimeoutMS != 45000 {
+		t.Fatalf("invalid patch changed timeouts=%+v error=%v", preserved, err)
+	}
 	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
 		Name:               "openai-lifecycle",
@@ -300,7 +343,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "null-options-should-not-work",
 		ProviderModelSlug:     "null-options-should-not-work",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 		APIVariantOptions:     json.RawMessage(`null`),
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		t.Fatalf("null api_variant_options error = %v, want ErrInvalidModelProviderConfig", err)
@@ -311,7 +354,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "non-object-api-variant-options-should-not-work",
 		ProviderModelSlug:     "non-object-api-variant-options-should-not-work",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 		APIVariantOptions:     json.RawMessage(`["runtime","will","decide"]`),
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		t.Fatalf("non-object api_variant_options error = %v, want ErrInvalidModelProviderConfig", err)
@@ -322,7 +365,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                   "openrouter-model",
 		ProviderModelSlug:      "openrouter/model",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		APIVariantOptions: json.RawMessage(
 			`{"provider":{"only":["anthropic"],"data_collection":"deny"},"temperature":0.2}`,
@@ -343,8 +386,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "claude-missing-max-output",
 		ProviderModelSlug:     "claude-missing-max-output",
 		ContextWindowTokens:   200000,
-	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-		t.Fatalf("anthropic-messages configured model without max output error = %v, want ErrInvalidModelProviderConfig", err)
+	}); err != nil {
+		t.Fatalf("register unknown Anthropic output capacity: %v", err)
 	}
 	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 testOrgID,
@@ -352,7 +395,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "claude-inherits-max-output",
 		ProviderModelSlug:     "claude-inherits-max-output",
 		ContextWindowTokens:   200000,
-		MaxOutputTokens:       4096,
+		MaxOutputTokens:       new(4096),
 	}); err != nil {
 		t.Fatalf("create anthropic-messages model without format-specific default: %v", err)
 	}
@@ -362,7 +405,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                   "claude-thinking-not-yet",
 		ProviderModelSlug:      "claude-thinking-not-yet",
 		ContextWindowTokens:    200000,
-		MaxOutputTokens:        4096,
+		MaxOutputTokens:        new(4096),
 		SupportsReasoning:      true,
 		DefaultReasoningEffort: "high",
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
@@ -375,7 +418,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                      "gpt-5.4",
 		ProviderModelSlug:         "gpt-5.4",
 		ContextWindowTokens:       200000,
-		MaxOutputTokens:           64000,
+		MaxOutputTokens:           new(64000),
 		DefaultMaxOutputTokens:    intPtr(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
 		SupportsTools:             boolPtr(true),
@@ -404,7 +447,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ModelProviderConfigID: config.ID,
 		Name:                  "zero-context-window",
 		ProviderModelSlug:     "zero-context-window",
-		MaxOutputTokens:       4096,
+		MaxOutputTokens:       new(4096),
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		t.Fatalf("zero context_window_tokens error = %v, want ErrInvalidModelProviderConfig", err)
 	}
@@ -414,7 +457,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                      "bad-reasoning-default",
 		ProviderModelSlug:         "bad-reasoning-default",
 		ContextWindowTokens:       200000,
-		MaxOutputTokens:           8192,
+		MaxOutputTokens:           new(8192),
 		DefaultReasoningEffort:    "xhigh",
 		SupportsReasoning:         true,
 		SupportedReasoningEfforts: []string{"low", "medium", "high"},
@@ -427,14 +470,14 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                      "reasoning-metadata-without-support",
 		ProviderModelSlug:         "reasoning-metadata-without-support",
 		ContextWindowTokens:       200000,
-		MaxOutputTokens:           8192,
+		MaxOutputTokens:           new(8192),
 		DefaultReasoningEffort:    "high",
 		SupportedReasoningEfforts: []string{"high"},
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		t.Fatalf("reasoning metadata without supports_reasoning error = %v, want ErrInvalidModelProviderConfig", err)
 	}
 	if configuredModel.Name != "gpt-5.4" || configuredModel.ProviderModelSlug != "gpt-5.4" ||
-		configuredModel.MaxOutputTokens != 64000 ||
+		(configuredModel.MaxOutputTokens == nil || *configuredModel.MaxOutputTokens != 64000) ||
 		configuredModel.DefaultCacheRetention != modelstore.ModelCacheRetentionShort ||
 		!configuredModel.SupportsTools ||
 		!configuredModel.SupportsReasoning ||
@@ -450,7 +493,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                      "gpt-5.4",
 		ProviderModelSlug:         "gpt-5.4",
 		ContextWindowTokens:       200000,
-		MaxOutputTokens:           64000,
+		MaxOutputTokens:           new(64000),
 		DefaultMaxOutputTokens:    intPtr(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
 		SupportsTools:             boolPtr(true),
@@ -472,7 +515,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "gpt-5.4",
 		ProviderModelSlug:     "gpt-5.4",
 		ContextWindowTokens:   200000,
-		MaxOutputTokens:       1,
+		MaxOutputTokens:       new(1),
 	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting configured model replay error = %v, want ErrIdempotencyConflict", err)
 	}
@@ -500,7 +543,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ID:                        configuredModel.ID,
 		ProviderModelSlug:         &updatedProviderModelSlug,
 		ContextWindowTokens:       &updatedContextWindow,
-		MaxOutputTokens:           intPtr(96000),
+		MaxOutputTokens:           nullableInt(96000),
 		DefaultMaxOutputTokens:    nullableInt(48000),
 		DefaultCacheRetention:     &updatedDefaultCacheRetention,
 		SupportsTools:             &updatedSupportsTools,
@@ -516,7 +559,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if updatedModel.ID != configuredModel.ID || updatedModel.CurrentRevisionID == configuredModel.CurrentRevisionID ||
 		updatedModel.Name != "gpt-5.4" ||
 		updatedModel.ProviderModelSlug != "gpt-5.4" ||
-		updatedModel.MaxOutputTokens != 96000 ||
+		(updatedModel.MaxOutputTokens == nil || *updatedModel.MaxOutputTokens != 96000) ||
 		updatedModel.DefaultCacheRetention != modelstore.ModelCacheRetentionLong ||
 		updatedModel.DefaultReasoningEffort != "medium" {
 		t.Fatalf("unexpected updated configured model: %+v", updatedModel)
@@ -549,7 +592,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                   "gpt-rename-conflict",
 		ProviderModelSlug:      "gpt-rename-conflict",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 	})
 	if err != nil {
@@ -653,7 +696,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                   "gpt-referenced",
 		ProviderModelSlug:      "gpt-referenced",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 	})
 	if err != nil {
@@ -704,7 +747,7 @@ model:
 		ID:                    referencedModel.ID,
 		ProviderModelSlug:     &updatedReferencedProviderModelSlug,
 		ContextWindowTokens:   &updatedReferencedContextWindow,
-		MaxOutputTokens:       intPtr(16384),
+		MaxOutputTokens:       nullableInt(16384),
 	})
 	if err != nil {
 		t.Fatalf("update referenced configured model: %v", err)
@@ -1049,7 +1092,7 @@ func TestConfiguredModelUpdateSerializesWithAgentConfigCreation(t *testing.T) {
 		Name:                   "gpt-lock",
 		ProviderModelSlug:      "gpt-lock",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsTools:          boolPtr(true),
 	})
@@ -1143,7 +1186,7 @@ DROP FUNCTION IF EXISTS test_pause_agent_config_insert();
 			ID:                    configuredModel.ID,
 			ProviderModelSlug:     &updatedProviderModelSlug,
 			ContextWindowTokens:   &updatedContextWindow,
-			MaxOutputTokens:       intPtr(16384),
+			MaxOutputTokens:       nullableInt(16384),
 			SupportsTools:         &updatedSupportsTools,
 		})
 		updateDone <- updateErr
@@ -1211,7 +1254,7 @@ func TestCreateAgentConfigRejectsStaleToolRequirementAfterGrantChanges(t *testin
 		Name:                   "gpt-stale-grant",
 		ProviderModelSlug:      "gpt-stale-grant",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsTools:          boolPtr(true),
 	})
@@ -1307,7 +1350,7 @@ func TestPatchConfiguredModelMergesAgainstLockedCurrentRevision(t *testing.T) {
 		Name:                   "gpt-patch",
 		ProviderModelSlug:      "gpt-patch-v1",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsTools:          boolPtr(true),
 	})
@@ -1359,7 +1402,7 @@ DROP FUNCTION IF EXISTS test_pause_configured_model_revision_insert();
 			OrgID:                 testOrgID,
 			ModelProviderConfigID: config.ID,
 			ID:                    configuredModel.ID,
-			MaxOutputTokens:       &maxOutput,
+			MaxOutputTokens:       patch.NullableInt{Set: true, Value: &maxOutput},
 		})
 		firstDone <- patchErr
 	}()
@@ -1408,7 +1451,7 @@ DROP FUNCTION IF EXISTS test_pause_configured_model_revision_insert();
 	if err != nil {
 		t.Fatalf("load patched configured model: %v", err)
 	}
-	if current.ProviderModelSlug != "gpt-patch-v2" || current.MaxOutputTokens != 16384 {
+	if current.ProviderModelSlug != "gpt-patch-v2" || (current.MaxOutputTokens == nil || *current.MaxOutputTokens != 16384) {
 		t.Fatalf("concurrent patches did not merge against locked current revision: %+v", current)
 	}
 }
@@ -1572,7 +1615,7 @@ func TestDeleteConfiguredModelUsesLockedCurrentRevisionAfterConcurrentPatch(t *t
 		Name:                   "gpt-archive-race",
 		ProviderModelSlug:      "gpt-archive-race-v1",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsTools:          boolPtr(true),
 	})
@@ -1624,7 +1667,7 @@ DROP FUNCTION IF EXISTS test_pause_archive_race_revision_insert();
 			OrgID:                 testOrgID,
 			ModelProviderConfigID: config.ID,
 			ID:                    configuredModel.ID,
-			MaxOutputTokens:       &maxOutput,
+			MaxOutputTokens:       patch.NullableInt{Set: true, Value: &maxOutput},
 		})
 		patchDone <- patchErr
 	}()
@@ -1665,7 +1708,7 @@ DROP FUNCTION IF EXISTS test_pause_archive_race_revision_insert();
 		if result.err != nil {
 			t.Fatalf("archive configured model after concurrent patch: %v", result.err)
 		}
-		if result.record.DeletedAt == nil || result.record.MaxOutputTokens != 16384 {
+		if result.record.DeletedAt == nil || (result.record.MaxOutputTokens == nil || *result.record.MaxOutputTokens != 16384) {
 			t.Fatalf("archive did not use patched current revision facts: %+v", result.record)
 		}
 	case <-time.After(5 * time.Second):
@@ -1707,7 +1750,7 @@ func TestCreateAgentConfigUsesConfiguredModelAliasAfterRevisionUpdate(t *testing
 		Name:                   "gpt-stale",
 		ProviderModelSlug:      "gpt-stale-v1",
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: intPtr(4096),
 		SupportsTools:          boolPtr(true),
 	})
@@ -1744,7 +1787,7 @@ model:
 		ID:                     configuredModel.ID,
 		ProviderModelSlug:      &staleProviderModelSlug,
 		ContextWindowTokens:    &staleContextWindow,
-		MaxOutputTokens:        intPtr(16384),
+		MaxOutputTokens:        nullableInt(16384),
 		DefaultMaxOutputTokens: nullableInt(8192),
 		SupportsTools:          &staleSupportsTools,
 	})
@@ -1824,7 +1867,7 @@ func TestListProjectModelGrantsSearchSortAndEmbeddedModel(t *testing.T) {
 		Name:                  "gpt-beta",
 		ProviderModelSlug:     "gpt-beta",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create beta model: %v", err)
@@ -1835,7 +1878,7 @@ func TestListProjectModelGrantsSearchSortAndEmbeddedModel(t *testing.T) {
 		Name:                  "gpt-alpha",
 		ProviderModelSlug:     "gpt-alpha",
 		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
+		MaxOutputTokens:       new(8192),
 	})
 	if err != nil {
 		t.Fatalf("create alpha model: %v", err)
@@ -2007,7 +2050,7 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		Name:                      "gpt-grant-update",
 		ProviderModelSlug:         "gpt-grant-update",
 		ContextWindowTokens:       128000,
-		MaxOutputTokens:           8192,
+		MaxOutputTokens:           new(8192),
 		DefaultMaxOutputTokens:    intPtr(4096),
 		SupportsReasoning:         true,
 		DefaultReasoningEffort:    "medium",

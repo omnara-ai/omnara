@@ -13,23 +13,24 @@ import (
 )
 
 type ContextEventRecord struct {
-	ID                    ID
-	SourceEventID         ID
-	AgentInputID          ID
-	ProjectID             ID
-	AgentID               ID
-	TurnID                ID
-	ModelOutputID         ID
-	ModelCallContextID    ID
-	ModelProviderConfigID ID
-	Role                  modelprotocol.MessageRole
-	Sequence              int64
-	ContentParts          json.RawMessage
-	RequestedModelSlug    string
-	APIFormat             modelprotocol.APIFormat
-	APIVariant            modelprotocol.APIVariant
-	ProviderReplay        json.RawMessage
-	CreatedAt             time.Time
+	ID                     ID
+	SourceEventID          ID
+	AgentInputID           ID
+	ProjectID              ID
+	AgentID                ID
+	TurnID                 ID
+	ModelOutputID          ID
+	ModelCallContextID     ID
+	ModelProviderConfigID  ID
+	Role                   modelprotocol.MessageRole
+	Sequence               int64
+	ContentParts           json.RawMessage
+	RequestedModelSlug     string
+	APIFormat              modelprotocol.APIFormat
+	APIVariant             modelprotocol.APIVariant
+	ProviderReplay         json.RawMessage
+	HasOutputLimitFeedback bool
+	CreatedAt              time.Time
 }
 
 func (s *Store) ListContextEvents(
@@ -64,18 +65,19 @@ func (s *Store) ListContextEvents(
 	out := make([]ContextEventRecord, 0, len(rows))
 	for _, row := range rows {
 		record := ContextEventRecord{
-			SourceEventID:         row.ID,
-			AgentInputID:          idFromSQLCPtr(row.AgentInputID),
-			Sequence:              row.Sequence,
-			CreatedAt:             row.CreatedAt,
-			ContentParts:          row.ContentParts,
-			ModelOutputID:         idFromSQLCPtr(row.ModelOutputID),
-			ModelCallContextID:    idFromSQLCPtr(row.ModelCallContextID),
-			ModelProviderConfigID: idFromSQLCPtr(row.ModelProviderConfigID),
-			RequestedModelSlug:    row.RequestedProviderModelSlug,
-			APIFormat:             modelprotocol.APIFormat(row.ApiFormat),
-			APIVariant:            modelprotocol.APIVariant(row.ApiVariant),
-			ProviderReplay:        rawMessageFromSQLCPtr(row.ProviderReplay),
+			SourceEventID:          row.ID,
+			AgentInputID:           idFromSQLCPtr(row.AgentInputID),
+			Sequence:               row.Sequence,
+			CreatedAt:              row.CreatedAt,
+			ContentParts:           row.ContentParts,
+			ModelOutputID:          idFromSQLCPtr(row.ModelOutputID),
+			ModelCallContextID:     idFromSQLCPtr(row.ModelCallContextID),
+			ModelProviderConfigID:  idFromSQLCPtr(row.ModelProviderConfigID),
+			RequestedModelSlug:     row.RequestedProviderModelSlug,
+			APIFormat:              modelprotocol.APIFormat(row.ApiFormat),
+			APIVariant:             modelprotocol.APIVariant(row.ApiVariant),
+			ProviderReplay:         rawMessageFromSQLCPtr(row.ProviderReplay),
+			HasOutputLimitFeedback: row.HasOutputLimitFeedback,
 		}
 		record.ID = record.SourceEventID
 		record.ProjectID = projectID

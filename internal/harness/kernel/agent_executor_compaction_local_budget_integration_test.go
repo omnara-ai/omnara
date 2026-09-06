@@ -38,7 +38,7 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10_000,
-			MaxOutputTokens:     6_000,
+			MaxOutputTokens:     new(6_000),
 		},
 		responses: []model.Response{{
 			ID:                      "resp_large_hidden_reasoning",
@@ -86,7 +86,7 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		preparedInputTokenEstimator: func(modelcontext.Bundle) int { return 500 },
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10_000,
-			MaxOutputTokens:     6_000,
+			MaxOutputTokens:     new(6_000),
 		},
 		responses: []model.Response{{
 			ID:         "resp_current_request",
@@ -94,12 +94,12 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
-	currentTurn := fixture.admitContentInputTurn(
+	currentTurn := fixture.admitSteeringInputsTurn(
 		t,
 		ctx,
 		agentID,
 		userID,
-		"continue with the current fitting request",
+		[]string{"continue with the current fitting request"},
 		fixture.Now.Add(3*time.Second),
 	)
 	executor := AgentExecutor{
@@ -214,7 +214,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		Name:                   configuredModelName,
 		ProviderModelSlug:      configuredModelName,
 		ContextWindowTokens:    3500,
-		MaxOutputTokens:        64,
+		MaxOutputTokens:        new(64),
 		DefaultMaxOutputTokens: intPtrForKernelCompactionTest(64),
 	})
 	if err != nil {
@@ -278,7 +278,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		providerModelSlug: configuredModelName,
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{{
 			ID:         "resp_old_history",
@@ -310,7 +310,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		providerModelSlug: configuredModelName,
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{{
 			ID:         "resp_recent_tail",
@@ -347,7 +347,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 3500,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -470,7 +470,7 @@ func TestAgentExecutorCompactsMultiInputTurnAfterLocalBudgetOverflow(t *testing.
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1300,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -588,7 +588,7 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1600,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -764,7 +764,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens:    10_000,
-			MaxOutputTokens:        1_024,
+			MaxOutputTokens:        new(1_024),
 			DefaultMaxOutputTokens: 1_024,
 		},
 		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {

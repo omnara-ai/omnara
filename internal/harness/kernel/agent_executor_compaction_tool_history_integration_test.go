@@ -43,7 +43,7 @@ func TestAgentExecutorCompactionAbsorbsCompletedHistoricalToolGroup(t *testing.T
 		providerModelSlug: "kernel-tool-history",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -108,7 +108,7 @@ func TestAgentExecutorCompactionAbsorbsCompletedHistoricalToolGroup(t *testing.T
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1600,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{

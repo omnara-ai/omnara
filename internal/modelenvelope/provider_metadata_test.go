@@ -3,6 +3,7 @@ package modelenvelope
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -17,6 +18,20 @@ func TestProviderMetadataJSONShape(t *testing.T) {
 			name:     "openrouter",
 			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{Provider: "Moonshot AI"}},
 			want:     `{"openrouter":{"provider":"Moonshot AI"}}`,
+		},
+		{
+			name: "conflicting finish reasons",
+			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
+				FinishReason: "tool_calls", NativeFinishReason: "length",
+			}},
+			want: `{"openrouter":{"finish_reason":"tool_calls","native_finish_reason":"length"}}`,
+		},
+		{
+			name: "invalid diagnostics omitted independently",
+			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
+				Provider: "Moonshot AI", FinishReason: "bad\x00reason", NativeFinishReason: strings.Repeat("x", 257),
+			}},
+			want: `{"openrouter":{"provider":"Moonshot AI"}}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

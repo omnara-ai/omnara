@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -401,7 +402,7 @@ func TestAgentExecutorRecordsOutputLimitConflictBeforeProviderPreparation(t *tes
 	baseClient := &sequenceKernelModel{providerModelSlug: "output-limit-conflict"}
 	modelClient := &outputLimitKernelModel{
 		sequenceKernelModel: baseClient,
-		minimumOutputTokens: baseClient.Capabilities().MaxOutputTokens + 1,
+		minimumOutputTokens: *baseClient.Capabilities().MaxOutputTokens + 1,
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -894,10 +895,12 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgent(t, ctx, "openai/malformed-semantic-model", now)
+	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/malformed-semantic-model", now, kernelConfiguredModelOptions{ContextWindowTokens: new(100000), MaxOutputTokens: new(90000)})
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
-		providerModelSlug: "malformed-semantic-model",
+		providerModelSlug:          "malformed-semantic-model",
+		preparedInputTokenEstimate: 60000,
+		capabilities:               model.Capabilities{ContextWindowTokens: 100000, MaxOutputTokens: new(90000)},
 		responses: []model.Response{{
 			ID:                      "resp-malformed-semantic",
 			ServedProviderModelSlug: "served-malformed-semantic",
@@ -906,8 +909,9 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 				ProviderCallID: "call_1",
 				ToolInput:      json.RawMessage(`{}`),
 			}},
-			StopReason: model.StopReasonToolUse,
-			Usage:      model.Usage{InputTokens: 17, OutputTokens: 5},
+			StopReason:       model.StopReasonToolUse,
+			Usage:            model.Usage{InputTokens: 17, OutputTokens: 5},
+			ProviderMetadata: modelenvelope.ProviderMetadata{OpenRouter: modelenvelope.OpenRouterMetadata{FinishReason: "tool_calls", NativeFinishReason: "unrecognized"}},
 		}},
 	}
 	executor := AgentExecutor{
@@ -962,6 +966,18 @@ WHERE context.project_id = $1
 	if inputTokens != 17 || outputTokens != 5 {
 		t.Fatalf("malformed response usage = input %d output %d", inputTokens, outputTokens)
 	}
+	var metadata modelenvelope.ProviderMetadata
+	var raw json.RawMessage
+	if err := fixture.Pool.QueryRow(ctx, `SELECT provider_metadata FROM model_call_contexts WHERE agent_id=$1 AND state='failed'`, agentID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.RequestMaxOutputTokens != 35000 || metadata.OpenRouter.FinishReason != "tool_calls" || metadata.OpenRouter.NativeFinishReason != "unrecognized" {
+		t.Fatalf("persisted malformed-success diagnostics=%+v", metadata)
+	}
+
 }
 
 func TestAgentExecutorRetriesRefusalWithToolCallsAsMalformedSuccess(t *testing.T) {
