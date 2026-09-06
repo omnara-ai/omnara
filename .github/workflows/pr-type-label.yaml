@@ -1,0 +1,85 @@
+name: PR Type Label
+
+# Applies a label matching the conventional-commit type in the PR title
+# (feat, fix, docs, ...) so auto-generated release notes (.github/release.yml)
+# can group PRs by category. Titles are validated by pr-title-lint.yaml.
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pr-type-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No checkout: this job never runs PR code, it only reads the title.
+      - name: Apply type label from PR title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Dependabot PRs are already labeled `dependencies` by Dependabot and
+          # are categorized by that label alone in release notes.
+          if [[ "$PR_AUTHOR" == "dependabot[bot]" ]]; then
+            echo "Dependabot PR, skipping type label"
+            exit 0
+          fi
+
+          types="feat fix docs test refactor build chore ci perf security revert release style"
+
+          type=""
+          re='^([a-z]+)(\([a-z0-9._/-]+\))?!?: '
+          if [[ "$PR_TITLE" =~ $re ]]; then
+            candidate="${BASH_REMATCH[1]}"
+            for t in $types; do
+              if [[ "$candidate" == "$t" ]]; then
+                type="$t"
+                break
+              fi
+            done
+          fi
+
+          if [[ -z "$type" ]]; then
+            echo "No conventional type found in title, skipping: $PR_TITLE"
+            exit 0
+          fi
+
+          # Ensure the label exists (no-op if it already does).
+          gh label create "$type" \
+            --repo "$REPO" \
+            --description "PRs of type $type (auto-applied from title)" \
+            --color "ededed" 2>/dev/null || true
+
+          # Remove stale type labels if the title type changed.
+          for t in $types; do
+            if [[ "$t" != "$type" ]] && grep -qw "$t" <<< "$PR_LABELS"; then
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$t"
+            fi
+          done
+
+          if ! grep -qw "$type" <<< "$PR_LABELS"; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$type"
+            echo "Applied label: $type"
+          else
+            echo "Label already present: $type"
+          fi

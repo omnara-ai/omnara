@@ -217,7 +217,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ needs.metadata.outputs.release_sha }}
           VERSION: ${{ needs.metadata.outputs.version }}
-        run: if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then gh release upload "$GITHUB_REF_NAME" release/* --clobber && gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false --prerelease=false --notes "Canonical omnarad $VERSION binaries built from $RELEASE_SHA." --title "omnarad v$VERSION" --verify-tag; else gh release create "$GITHUB_REF_NAME" release/* --latest=false --notes "Canonical omnarad $VERSION binaries built from $RELEASE_SHA." --title "omnarad v$VERSION" --verify-tag; fi
+        run: |
+          set -euo pipefail
+
+          # Generate categorized release notes (.github/release.yml) against the
+          # previous omnarad tag. Tags from other release families (cluster-v*,
+          # cli-v*, sdk-v*) share this repo, so the baseline must be explicit.
+          prev_tag=$(gh api "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' | { grep '^omnarad-v' || true; } | { grep -Fxv "$GITHUB_REF_NAME" || true; } | head -n 1)
+          {
+            echo "Canonical omnarad $VERSION binaries built from $RELEASE_SHA."
+            echo
+            gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" ${prev_tag:+-f previous_tag_name="$prev_tag"} --jq .body
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false --prerelease=false --notes-file "$RUNNER_TEMP/release-notes.md" --title "omnarad v$VERSION" --verify-tag
+          else
+            gh release create "$GITHUB_REF_NAME" release/* --latest=false --notes-file "$RUNNER_TEMP/release-notes.md" --title "omnarad v$VERSION" --verify-tag
+          fi
 
   promote-stable:
     name: Promote stable channel
