@@ -1,4 +1,5 @@
 import { type Cookie, expect, type Page, test } from '@playwright/test'
+import { z } from 'zod'
 
 function requiredEnvironmentVariable(name: string): string {
   const value = process.env[name]
@@ -10,6 +11,7 @@ const projectID = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROJECT_ID')
 const orgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_ORG_NAME')
 const switchOrgName = requiredEnvironmentVariable('OMNARA_WEB_E2E_SWITCH_ORG_NAME')
 const createdOrgName = 'zz web created organization'
+const modelGrantRequest = z.object({ configured_model_id: z.string() })
 const adminEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_ADMIN_EMAIL')
 const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const inviteeEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_INVITEE_EMAIL')
@@ -277,7 +279,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
       await route.continue()
       return
     }
-    const body = route.request().postDataJSON() as { configured_model_id: string }
+    const body = modelGrantRequest.parse(route.request().postDataJSON())
     const timestamp = new Date().toISOString()
     await route.fulfill({
       status: 201,

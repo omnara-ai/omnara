@@ -9,7 +9,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 export type CronTriggerListFilters = ListFilters<ListCronTriggersData>
@@ -24,12 +24,13 @@ export function useCronTriggers(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListCronTriggersData>(options)
   return useInfiniteQuery({
-    ...listCronTriggersInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listCronTriggersInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

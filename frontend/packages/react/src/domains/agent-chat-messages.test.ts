@@ -49,6 +49,22 @@ describe('projectAgentChat input lifecycle', () => {
     expect(result.isWorking).toBe(false)
   })
 
+  it('keeps an idle first steering input in the conversation', () => {
+    const steering = {
+      ...backlogInput('input-1', 'Hello', 'key-1'),
+      delivery_mode: 'steering' as const,
+    }
+    const result = projectAgentChat({
+      ...base,
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'conversation' }],
+      backlogInputs: [steering],
+    })
+
+    expect(result.messages.flatMap(messageText)).toEqual(['Hello'])
+    expect(result.backlogInputs).toEqual([])
+    expect(result.isWorking).toBe(false)
+  })
+
   it('moves a stale conversation placement into the backlog when another turn starts', () => {
     const queued = backlogInput('input-1', 'Hello', 'key-1')
     const result = projectAgentChat({
@@ -62,6 +78,25 @@ describe('projectAgentChat input lifecycle', () => {
 
     expect(result.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
     expect(result.backlogInputs).toEqual([queued])
+    expect(result.isWorking).toBe(true)
+  })
+
+  it('keeps a promoted conversation placement in the backlog while another turn runs', () => {
+    const steering = {
+      ...backlogInput('input-1', 'Hello', 'key-1'),
+      delivery_mode: 'steering' as const,
+    }
+    const result = projectAgentChat({
+      ...base,
+      events: [
+        userInputEvent({ agent_input_id: 'other-input', input_idempotency_key: 'other-key' }),
+      ],
+      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'conversation' }],
+      backlogInputs: [steering],
+    })
+
+    expect(result.messages.some((message) => message.id.startsWith('local:'))).toBe(false)
+    expect(result.backlogInputs).toEqual([steering])
     expect(result.isWorking).toBe(true)
   })
 
@@ -95,13 +130,13 @@ describe('projectAgentChat input lifecycle', () => {
   it('keeps a busy send in the backlog while its server row is absent', () => {
     const result = projectAgentChat({
       ...base,
-      localInputs: [{ id: 'key-1', text: 'Hello', placement: 'backlog' }],
+      localInputs: [{ id: 'key-1', text: 'Hello', attachmentCount: 1, placement: 'backlog' }],
       backlogInputs: [],
     })
 
     expect(result.messages).toEqual([])
     expect(result.backlogInputs).toMatchObject([
-      { id: 'key-1', delivery_mode: 'optimistic', text: 'Hello' },
+      { id: 'key-1', delivery_mode: 'optimistic', text: 'Hello', attachmentCount: 1 },
     ])
   })
 

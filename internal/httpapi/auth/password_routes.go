@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/authn"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -49,9 +50,10 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		ReturnTo string `json:"return_to"`
 	}
-	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"email": true}, nil); err != nil {
+	if err := decodeAllowedJSONBody(r, &body, map[string]bool{"email": true, "return_to": true}, nil); err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return
 	}
@@ -85,12 +87,40 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 			return h.email.SendAccountExists(ctx, email, h.authURL("/login", nil))
 		})
 	} else {
-		verifyURL := h.authURL("/verify-email", url.Values{"token": []string{record.Token}})
+		returnTo := safeSignupReturnTo(body.ReturnTo)
+		verifyValues := url.Values{"token": []string{record.Token}}
+		if returnTo != "/" {
+			verifyValues.Set("return_to", returnTo)
+		}
+		verifyURL := h.authURL("/verify-email", verifyValues)
 		h.sendAuthEmail(r.Context(), func(ctx context.Context) error {
 			return h.email.SendEmailVerification(ctx, record.Email.Email, verifyURL)
 		})
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "ok"})
+}
+
+func safeSignupReturnTo(value string) string {
+	if len(value) > 256 {
+		return "/"
+	}
+	target, err := url.Parse(SafeReturnTo(value))
+	if err != nil || target.Path != "/device" || target.Fragment != "" {
+		return "/"
+	}
+	query, err := url.ParseQuery(target.RawQuery)
+	if err != nil {
+		return "/"
+	}
+	codes, ok := query["user_code"]
+	if !ok || len(query) != 1 || len(codes) != 1 {
+		return "/"
+	}
+	code, ok := identitystore.CanonicalDeviceUserCode(codes[0])
+	if !ok {
+		return "/"
+	}
+	return "/device?" + url.Values{"user_code": []string{code}}.Encode()
 }
 
 func (h *Handler) resendEmailVerificationRoute(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +162,7 @@ func (h *Handler) completeEmailVerificationRoute(w http.ResponseWriter, r *http.
 	) {
 		return
 	}
-	normalizedEmail, err := h.store.ActiveAuthTokenNormalizedEmail(
+	email, err := h.store.ActiveAuthTokenEmail(
 		r.Context(),
 		body.Token,
 		identitystore.UserAuthTokenPurposeEmailVerification,
@@ -141,7 +171,7 @@ func (h *Handler) completeEmailVerificationRoute(w http.ResponseWriter, r *http.
 		h.writeAuthTokenStorageError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.Password, normalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.Password, email)
 	if !ok {
 		return
 	}
@@ -303,7 +333,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 	) {
 		return
 	}
-	normalizedEmail, err := h.store.ActiveAuthTokenNormalizedEmail(
+	email, err := h.store.ActiveAuthTokenEmail(
 		r.Context(),
 		body.Token,
 		identitystore.UserAuthTokenPurposePasswordReset,
@@ -312,7 +342,7 @@ func (h *Handler) completePasswordResetRoute(w http.ResponseWriter, r *http.Requ
 		h.writeAuthTokenStorageError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.Password, normalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.Password, email)
 	if !ok {
 		return
 	}
@@ -385,7 +415,7 @@ func (h *Handler) changePasswordRoute(w http.ResponseWriter, r *http.Request) {
 		h.writeAuthServerError(w, r, err)
 		return
 	}
-	passwordHash, ok := passwordHashForNewPassword(w, body.NewPassword, email.NormalizedEmail)
+	passwordHash, ok := passwordHashForNewPassword(w, body.NewPassword, email.Email)
 	if !ok {
 		return
 	}
@@ -464,8 +494,8 @@ func (h *Handler) requirePublicAuthJSON(w http.ResponseWriter, r *http.Request) 
 	return true
 }
 
-func passwordHashForNewPassword(w http.ResponseWriter, password, normalizedEmail string) (string, bool) {
-	if err := authn.ValidateNewPassword(password, normalizedEmail); err != nil {
+func passwordHashForNewPassword(w http.ResponseWriter, password, email string) (string, bool) {
+	if err := authn.ValidateNewPassword(password, email); err != nil {
 		apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 		return "", false
 	}
@@ -481,9 +511,9 @@ func normalizeAuthEmail(email string) (string, string, bool) {
 	trimmed := strings.TrimSpace(email)
 	parsed, err := mail.ParseAddress(trimmed)
 	if err != nil || parsed.Address != trimmed {
-		return "", identitystore.NormalizeEmail(email), false
+		return "", emailaddr.Normalize(email), false
 	}
-	return parsed.Address, identitystore.NormalizeEmail(parsed.Address), true
+	return parsed.Address, emailaddr.Normalize(parsed.Address), true
 }
 
 func padPublicAuthResponse(ctx context.Context, start time.Time) {

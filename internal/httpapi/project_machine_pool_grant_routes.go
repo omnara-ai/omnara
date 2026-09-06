@@ -24,8 +24,8 @@ func (s strictOpenAPIServer) CreateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	if !s.server.orgManageAllowed(ctx, scope.org.ID) {
-		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	if err := s.server.authorizeOrgManage(ctx, scope.org.ID); err != nil {
+		return nil, err
 	}
 	poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, request.Body.MachinePoolId)
 	if !ok {
@@ -230,8 +230,8 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	if !s.server.orgManageAllowed(ctx, scope.org.ID) {
-		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	if err := s.server.authorizeOrgManage(ctx, scope.org.ID); err != nil {
+		return nil, err
 	}
 	poolGrantID, ok := parseOpenAPIPublicID(publicid.KindProjectMachinePoolGrant, request.PoolGrantID)
 	if !ok {
@@ -306,8 +306,8 @@ func (s strictOpenAPIServer) DeleteProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	if !s.server.orgManageAllowed(ctx, scope.org.ID) {
-		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	if err := s.server.authorizeOrgManage(ctx, scope.org.ID); err != nil {
+		return nil, err
 	}
 	poolGrantID, ok := parseOpenAPIPublicID(publicid.KindProjectMachinePoolGrant, request.PoolGrantID)
 	if !ok {

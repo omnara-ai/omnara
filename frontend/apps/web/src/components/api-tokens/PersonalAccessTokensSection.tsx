@@ -31,6 +31,7 @@ export function PersonalAccessTokensSection() {
           {
             id: 'name',
             header: 'Name',
+            className: 'w-40 md:w-auto',
             cell: (token) => <span className="font-medium">{token.name}</span>,
           },
           {

@@ -15,6 +15,7 @@ type Response struct {
 	ProviderRequestID       string                                `json:"-"`
 	ServedProviderModelSlug string                                `json:"served_provider_model_slug,omitempty"`
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
+	ProviderMetadata        modelenvelope.ProviderMetadata        `json:"provider_metadata,omitzero"`
 	ProviderReplay          json.RawMessage                       `json:"provider_replay,omitempty"`
 	Content                 []ResponsePart                        `json:"content_parts,omitempty"`
 	StopReason              modelenvelope.StopReason              `json:"stop_reason,omitempty"`
@@ -217,6 +218,7 @@ func NewResponseEnvelopeForStorage(
 		APIFormat:                  apiFormat,
 		APIVariant:                 apiVariant,
 		ProviderReportedCostUSD:    response.ProviderReportedCostUSD,
+		ProviderMetadata:           response.ProviderMetadata,
 		ProviderReplay:             providerReplay,
 		Normalized:                 normalized,
 	}

@@ -1,4 +1,8 @@
-import { useProjectAvailableSecret, useProjectAvailableSecrets } from '@omnara/react'
+import {
+  type ProjectAvailableSecretListFilters,
+  useProjectAvailableSecret,
+  useProjectAvailableSecrets,
+} from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
@@ -48,12 +52,10 @@ export function AgentConfigMcpSecretCombobox({
   const mcpUrl = server.url.trim()
   const matchesServer = (secret: Secret) =>
     secret.kind === secretKind && (!oauth || secret.metadata.mcp_url === mcpUrl)
+  const filters: ProjectAvailableSecretListFilters = { ...search.filters, kind: secretKind }
+  if (oauth) filters.metadata = { mcp_url: mcpUrl }
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
-    filters: {
-      ...search.filters,
-      kind: secretKind,
-      ...(oauth ? { metadata: { mcp_url: mcpUrl } } : {}),
-    },
+    filters,
     sort: 'name',
     pageSize: 25,
   })

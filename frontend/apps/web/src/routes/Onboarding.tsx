@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
+import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -28,6 +29,8 @@ export function Onboarding() {
   const { data } = usePendingInvitations()
   const pending = data.data
   const createOrganization = useCreateOrganization()
+  const returnTo = safeReturnTo(new URLSearchParams(window.location.search).get('return_to'))
+  const approvingDevice = isDeviceApprovalReturnTo(returnTo)
 
   const [state, setState] = useState<OnboardingState>(initialOnboardingState)
   const creating = state.action.kind === 'creating'
@@ -41,7 +44,7 @@ export function Onboarding() {
         body: { name: state.name },
         idempotencyKey: state.idempotencyKey,
       })
-      window.location.assign('/')
+      window.location.assign(returnTo)
     } catch (err) {
       setState((prev) => ({
         ...prev,
@@ -62,8 +65,11 @@ export function Onboarding() {
           <h1 className="text-2xl font-semibold tracking-tight">Welcome to Omnara</h1>
           <p className="text-muted-foreground text-sm">
             {pending.length > 0
-              ? 'Accept an invitation or create your own organization to get started.'
-              : 'Create your organization to get started.'}
+              ? 'Accept an invitation or create your own organization'
+              : 'Create your organization'}
+            {approvingDevice
+              ? ', then we will bring you back to approve the CLI login.'
+              : ' to get started.'}
           </p>
         </div>
 
@@ -73,7 +79,7 @@ export function Onboarding() {
           <PendingInvitationList
             invitations={pending}
             onAccepted={() => {
-              window.location.assign('/')
+              window.location.assign(returnTo)
             }}
           />
         )}

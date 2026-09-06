@@ -1,19 +1,19 @@
 -- name: InsertCronTrigger :one
 INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
-    cron_expression, timezone, message_template, enabled,
+    cron_expression, timezone, message_template, delivery_mode, enabled,
     next_fire_after, idempotency_key, created_at, updated_at
 )
 VALUES (
     uuidv7(), sqlc.arg(project_id), sqlc.arg(name),
     sqlc.narg(agent_profile_id), sqlc.narg(agent_id),
     sqlc.arg(cron_expression), sqlc.arg(timezone), sqlc.arg(message_template),
-    sqlc.arg(enabled), sqlc.narg(next_fire_after),
+    sqlc.arg(delivery_mode), sqlc.arg(enabled), sqlc.narg(next_fire_after),
     sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          cron_expression, timezone, message_template, enabled,
+          cron_expression, timezone, message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
@@ -22,7 +22,7 @@ RETURNING id, project_id, name, agent_profile_id, agent_id,
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -36,7 +36,7 @@ WHERE trigger.project_id = sqlc.arg(project_id)
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -51,7 +51,7 @@ WITH listed AS (
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
@@ -70,7 +70,7 @@ WHERE trigger.project_id = sqlc.arg(project_id)
   AND (sqlc.narg(agent_id)::uuid IS NULL OR trigger.agent_id = sqlc.narg(agent_id)::uuid)
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
-       cron_expression, timezone, message_template, enabled,
+       cron_expression, timezone, message_template, delivery_mode, enabled,
        last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
 FROM listed
@@ -87,7 +87,7 @@ LIMIT sqlc.arg(row_limit)::bigint;
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -104,6 +104,7 @@ SET name = sqlc.arg(name),
     cron_expression = sqlc.arg(cron_expression),
     timezone = sqlc.arg(timezone),
     message_template = sqlc.arg(message_template),
+    delivery_mode = sqlc.arg(delivery_mode),
     enabled = sqlc.arg(enabled),
     next_fire_after = sqlc.narg(next_fire_after),
     updated_at = statement_timestamp()
@@ -111,7 +112,7 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          cron_expression, timezone, message_template, enabled,
+          cron_expression, timezone, message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
@@ -150,7 +151,7 @@ WHERE project_id = sqlc.arg(project_id)
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.last_fired_at, trigger.next_fire_after
+       trigger.delivery_mode, trigger.last_fired_at, trigger.next_fire_after
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id AND project.deleted_at IS NULL
 WHERE trigger.enabled

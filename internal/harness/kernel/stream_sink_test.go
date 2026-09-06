@@ -16,7 +16,6 @@ import (
 type capturingStreamPublisher struct {
 	mu       sync.Mutex
 	payloads []json.RawMessage
-	block    chan struct{}
 	panicOn  bool
 }
 
@@ -27,13 +26,6 @@ func (p *capturingStreamPublisher) PublishAgentStreamDelta(
 ) error {
 	if p.panicOn {
 		panic("publisher failure")
-	}
-	if p.block != nil {
-		select {
-		case <-p.block:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -265,13 +257,13 @@ func TestHarnessStreamSinkEmitNeverBlocksAndDropsWhenQueueIsFull(t *testing.T) {
 }
 
 func TestHarnessStreamSinkCoalescesQueuedDeltas(t *testing.T) {
-	publisher := &capturingStreamPublisher{block: make(chan struct{})}
-	sink := newTestStreamSink(publisher)
+	publisher := &capturingStreamPublisher{}
+	sink := newUnstartedTestStreamSink(publisher)
 	ctx := context.Background()
 	sink.Emit(ctx, model.StreamEvent{Kind: model.StreamEventTextDelta, BlockIndex: 0, Delta: "a"})
 	sink.Emit(ctx, model.StreamEvent{Kind: model.StreamEventTextDelta, BlockIndex: 0, Delta: "b"})
 	sink.Emit(ctx, model.StreamEvent{Kind: model.StreamEventTextDelta, BlockIndex: 0, Delta: "c"})
-	close(publisher.block)
+	go sink.run(ctx)
 	sink.Close()
 	envelopes := publisher.envelopes(t)
 	var text string

@@ -1,10 +1,9 @@
 import type {
   AgentEvent,
-  AgentEventStreamData,
+  AgentEventStreamFrame,
   AgentInput,
   AgentInputEvent,
-  AgentInputKind,
-  Error as APIError,
+  ContentBlockMetadata,
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
@@ -12,21 +11,17 @@ import type {
   ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
+import { z } from 'zod'
 
+import type {
+  AgentChatData,
+  AgentChatStatus,
+  LocalAgentInput,
+  OmnaraMessageMetadata,
+} from './agent-chat-types'
 import type { AgentInputBacklogItem } from './agent-input-backlog'
 
 export type { ModelOutputDelta } from '@omnara/sdk'
-
-export interface OmnaraMessageMetadata {
-  eventId?: string
-  eventKind?: string
-  inputKind?: AgentInputKind
-  actorId?: string
-  sequence?: number
-  turnId?: string
-  turnSequence?: number
-  createdAt?: string
-}
 
 // A type alias preserves the finite data-part keys required for discriminated narrowing.
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -37,6 +32,10 @@ export type OmnaraUIData = {
   media: {
     artifactId?: string
     excludeFromModelContext?: MediaRefContentBlock['exclude_from_model_context']
+    data?: string
+    mediaType?: string
+    filename?: string
+    sizeBytes?: number
   }
 }
 
@@ -54,13 +53,11 @@ export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
   | { kind: 'tool_call_update' }
   | { kind: 'delta'; delta: ModelOutputDelta }
-  | { kind: 'error'; error: APIError }
 
-export function parseStreamData(data: AgentEventStreamData): AgentStreamFrame {
+export function parseStreamData(data: AgentEventStreamFrame): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
   if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
-  if ('model_call_context_id' in data) return { kind: 'delta', delta: data }
-  return { kind: 'error', error: data }
+  return { kind: 'delta', delta: data }
 }
 
 export function sequenceNumber(value: number | undefined): number {
@@ -92,22 +89,17 @@ function mediaPart(block: MediaRefContentBlock, id: string): OmnaraUIMessagePart
   }
 }
 
-function isHiddenContentBlock(block: { metadata?: Record<string, unknown> }): boolean {
+export function isHiddenContentBlock(block: { metadata?: ContentBlockMetadata }): boolean {
   return block.metadata?.omnara_hidden === 'true'
 }
 
+const structuredToolError = z.object({ error_code: z.string() })
+
 function structuredToolErrorCode(blocks: ToolResultContentBlock[]): string | undefined {
   for (const block of blocks) {
-    if (
-      block.type !== 'structured_data' ||
-      block.value == null ||
-      typeof block.value !== 'object'
-    ) {
-      continue
-    }
-    if (!('error_code' in block.value)) continue
-    const errorCode = block.value.error_code
-    if (typeof errorCode === 'string') return errorCode
+    if (block.type !== 'structured_data') continue
+    const parsed = structuredToolError.safeParse(block.value)
+    if (parsed.success) return parsed.data.error_code
   }
   return undefined
 }
@@ -118,11 +110,10 @@ function agentInputParts(event: AgentInputEvent): OmnaraUIMessage['parts'] {
     const id = `${event.id}:block:${String(blockIndex)}`
     if (isHiddenContentBlock(block)) continue
     if (block.type === 'text') {
-      const displayText = block.metadata?.omnara_display_text
       parts.push({
         type: 'text',
         id,
-        text: typeof displayText === 'string' ? displayText : block.text,
+        text: block.metadata?.omnara_display_text ?? block.text,
         state: 'done',
       })
     }
@@ -252,7 +243,6 @@ export function agentEventsToMessages(
       toolCallId: part.toolCallId,
       toolName: part.toolName,
       toolType: part.toolType,
-      ...(toolErrorCode == null ? {} : { toolErrorCode }),
       state: 'output-available',
       input: part.input,
       output: {
@@ -260,6 +250,7 @@ export function agentEventsToMessages(
         contentBlocks,
       },
     }
+    if (toolErrorCode != null) toolPart.toolErrorCode = toolErrorCode
     const mediaParts = contentBlocks.flatMap((block, blockIndex) =>
       block.type === 'media_ref'
         ? [mediaPart(block, `${event.id}:block:${String(blockIndex)}`)]
@@ -270,26 +261,6 @@ export function agentEventsToMessages(
   }
 
   return messages
-}
-
-export type AgentChatStatus = 'submitted' | 'streaming' | 'ready' | 'error'
-
-export interface LocalAgentInput {
-  id: string
-  text: string
-  placement: 'conversation' | 'backlog'
-  agentInputID?: string
-}
-
-/** The chat's raw state: durable events, live deltas, and local send state. */
-export interface AgentChatData {
-  events: AgentEvent[]
-  deltas: ModelOutputDelta[]
-  localInputs: LocalAgentInput[]
-  backlogInputs: AgentInput[]
-  error: Error | undefined
-  /** True while older history may still be unloaded (see agentEventsToMessages). */
-  hasOlderEvents: boolean
 }
 
 export function hasToolCalls(event: AgentEvent): boolean {
@@ -342,6 +313,12 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
   return undefined
 }
 
+function optimisticBacklogText(input: LocalAgentInput): string {
+  if (input.text !== '') return input.text
+  const filenames = input.attachments?.map((attachment) => attachment.filename).join(', ')
+  return filenames == null || filenames === '' ? 'Attachment' : filenames
+}
+
 /**
  * Projects the session's raw state into what the UI renders: the durable log
  * as messages, plus the optimistic pending input, plus delta previews merged
@@ -352,12 +329,14 @@ function lastStatusEvent(events: AgentEvent[]): AgentEvent | undefined {
  * does not stop the agent — so controls like cancel and interaction polling
  * must key off it rather than off `status`, which errors mask.
  */
-export function projectAgentChat(data: AgentChatData): {
+export interface AgentChatProjection {
   messages: OmnaraUIMessage[]
   backlogInputs: AgentInputBacklogItem[]
   status: AgentChatStatus
   isWorking: boolean
-} {
+}
+
+export function projectAgentChat(data: AgentChatData): AgentChatProjection {
   const messages = agentEventsToMessages(data.events, { hasOlderEvents: data.hasOlderEvents })
   const deltaPreviews = deltaPreviewsByTurn(data.deltas)
   const lastEvent = lastStatusEvent(data.events)
@@ -391,30 +370,39 @@ export function projectAgentChat(data: AgentChatData): {
       (localInput.agentInputID == null ? undefined : backlogByID.get(localInput.agentInputID)) ??
       backlogByKey.get(localInput.id)
     const serverRequiresBacklog =
-      backlogInput?.delivery_mode === 'queued' &&
-      (isWorking || firstBacklogInputID !== backlogInput.id)
+      backlogInput != null && (isWorking || firstBacklogInputID !== backlogInput.id)
     if (localInput.placement === 'backlog' || serverRequiresBacklog) {
       if (backlogInput == null) {
         optimisticBacklogInputs.push({
           id: localInput.id,
           delivery_mode: 'optimistic',
-          text: localInput.text,
+          text: optimisticBacklogText(localInput),
+          attachmentCount: localInput.attachmentCount ?? localInput.attachments?.length ?? 0,
         })
       }
       continue
     }
     if (backlogInput != null) hiddenBacklogInputIDs.add(backlogInput.id)
     localMessageCount += 1
+    const parts: OmnaraUIMessage['parts'] = []
+    if (localInput.text !== '') {
+      parts.push({
+        type: 'text',
+        id: `local:${localInput.id}:text`,
+        text: localInput.text,
+      })
+    }
+    for (const [index, attachment] of (localInput.attachments ?? []).entries()) {
+      parts.push({
+        type: 'data-media',
+        id: `local:${localInput.id}:media:${String(index)}`,
+        data: attachment,
+      })
+    }
     messages.push({
       id: `local:${localInput.id}`,
       role: 'user',
-      parts: [
-        {
-          type: 'text',
-          id: `local:${localInput.id}:text`,
-          text: localInput.text,
-        },
-      ],
+      parts,
     })
   }
   const backlogInputs: AgentInputBacklogItem[] = [
@@ -564,7 +552,8 @@ function modelCallPreviewParts(
       const part = parts[tool.partIndex]
       if (part?.type === 'dynamic-tool' && part.state === 'input-streaming') {
         try {
-          parts[tool.partIndex] = { ...part, input: JSON.parse(tool.inputText) as unknown }
+          const input: unknown = JSON.parse(tool.inputText)
+          parts[tool.partIndex] = { ...part, input }
         } catch {
           // Partial JSON; the part updates once the input parses or the
           // durable event provides it.

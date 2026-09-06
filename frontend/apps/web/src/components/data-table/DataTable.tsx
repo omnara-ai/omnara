@@ -69,6 +69,7 @@ export function DataTable<TData>({
   const [resizingColumn, setResizingColumn] = useState<number | null>(null)
   const columnResize = useRef<ColumnResizeState | null>(null)
   const columnCount = columns.length
+  const hasDataRows = !isPending && !isError && data.length > 0
 
   function beginColumnResize(index: number, event: PointerEvent<HTMLSpanElement>) {
     event.preventDefault()
@@ -119,17 +120,19 @@ export function DataTable<TData>({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border">
-        <Table className="table-fixed">
-          <colgroup>
-            {columns.map((column, index) => (
-              <col
-                key={column.id}
-                style={columnWidths ? { width: columnWidths[index] } : undefined}
-              />
-            ))}
-          </colgroup>
-          <TableHeader>
+      <div className="@container overflow-hidden rounded-xl border">
+        <Table className={cn('table-fixed lg:min-w-0', hasDataRows && 'min-w-[40rem]')}>
+          {hasDataRows && (
+            <colgroup>
+              {columns.map((column, index) => (
+                <col
+                  key={column.id}
+                  style={columnWidths ? { width: columnWidths[index] } : undefined}
+                />
+              ))}
+            </colgroup>
+          )}
+          <TableHeader className={cn(!hasDataRows && 'hidden md:table-header-group')}>
             <TableRow className="hover:bg-transparent">
               {columns.map((column, index) => (
                 <TableHead key={column.id} className={cn('relative px-4', column.className)}>
@@ -139,7 +142,7 @@ export function DataTable<TData>({
                       type="button"
                       aria-label={`Resize ${column.header || 'actions'} column`}
                       className={cn(
-                        'after:bg-border hover:after:bg-ring focus-visible:after:bg-ring absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 outline-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:transition-colors',
+                        'after:bg-border hover:after:bg-ring focus-visible:after:bg-ring absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 outline-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:transition-colors lg:block',
                         resizingColumn === index && 'after:bg-ring',
                       )}
                       onPointerDown={(event) => {
@@ -233,7 +236,7 @@ export function DataTable<TData>({
                               className={cn(
                                 'flex justify-end',
                                 column.revealOnHover !== false &&
-                                  'has-aria-expanded:opacity-100 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100',
+                                  'has-aria-expanded:opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover/row:opacity-100',
                               )}
                             >
                               {column.cell(item)}
@@ -247,7 +250,9 @@ export function DataTable<TData>({
                     {isExpanded && (
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
                         <TableCell colSpan={columnCount} className="whitespace-normal px-4 py-3">
-                          {rowExpanded?.(item)}
+                          <div className="sticky left-0 w-[calc(100cqw-2rem)] lg:static lg:w-auto">
+                            {rowExpanded?.(item)}
+                          </div>
                         </TableCell>
                       </TableRow>
                     )}
@@ -266,7 +271,7 @@ export function DataTable<TData>({
               type="button"
               size="sm"
               variant="ghost"
-              className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs"
+              className="text-muted-foreground hover:text-foreground h-9 px-2 text-xs sm:h-6 sm:px-1.5"
               disabled={!pagination.canPrev}
               onClick={pagination.onPrev}
             >
@@ -276,7 +281,7 @@ export function DataTable<TData>({
               type="button"
               size="sm"
               variant="ghost"
-              className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs"
+              className="text-muted-foreground hover:text-foreground h-9 px-2 text-xs sm:h-6 sm:px-1.5"
               disabled={!pagination.canNext}
               onClick={pagination.onNext}
             >

@@ -67,13 +67,13 @@ func AuthFailed(ctx context.Context, scheme AuthScheme, kind TokenKind, result A
 		"auth.token_kind": string(kind),
 		"auth.result":     string(result),
 	})
-	log.Level(ctx, log.WarnLevel)
 }
 
 func AuthFailedError(ctx context.Context, scheme AuthScheme, kind TokenKind, result AuthResult, err error) {
 	AuthFailed(ctx, scheme, kind, result)
 	if err != nil {
 		log.Attach(ctx, log.Fields{"auth.error": err.Error()})
+		log.Error(ctx, err)
 	}
 }
 
@@ -116,9 +116,9 @@ func AuthorizationCheckFailed(ctx context.Context, err error) {
 	fields := log.Fields{"authorization.result": "unavailable"}
 	if err != nil {
 		fields["authorization.error"] = err.Error()
+		log.Error(ctx, err)
 	}
 	log.Attach(ctx, fields)
-	log.Level(ctx, log.WarnLevel)
 }
 
 func principal(p identitystore.PrincipalRecord) log.Fields {

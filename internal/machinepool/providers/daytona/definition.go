@@ -71,8 +71,8 @@ func newProvider(
 		return nil, errors.New("daytona provider auth token is required")
 	}
 	return &provider{
-		api:             newRESTClient(config.APIBaseURL, runtimeConfig.ProviderAuthToken, nil),
-		omnaraPublicURL: runtimeConfig.PublicURL,
+		api:          newRESTClient(config.APIBaseURL, runtimeConfig.ProviderAuthToken, nil),
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
 

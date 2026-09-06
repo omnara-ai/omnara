@@ -28,19 +28,21 @@ export function SearchHeader({
     <div className="flex flex-col gap-3">
       <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
       {showToolbar && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {toolbar}
           {onChange && (
             <Input
               value={value}
               placeholder={placeholder}
-              className="h-8 w-full max-w-sm"
+              className="h-10 w-full max-w-sm sm:h-8"
               onChange={(event) => {
                 onChange(event.target.value)
               }}
             />
           )}
-          {children && <div className="ml-auto flex items-center gap-2">{children}</div>}
+          {children && (
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{children}</div>
+          )}
         </div>
       )}
     </div>

@@ -2,9 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"mime"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -110,20 +110,9 @@ func (response artifactContentResponse) write(w http.ResponseWriter) error {
 	return err
 }
 
-// contentDisposition restricts the filename to a conservative character
-// set so header injection is structurally impossible.
 func contentDisposition(filename string) string {
-	var b strings.Builder
-	for _, r := range filename {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '.', r == '-', r == '_', r == ' ', r == '(', r == ')':
-			b.WriteRune(r)
-		}
-	}
-	safe := strings.TrimSpace(b.String())
-	if safe == "" || safe == "." || safe == ".." {
+	if filename == "" || filename == "." || filename == ".." {
 		return "attachment"
 	}
-	return `attachment; filename="` + safe + `"`
+	return mime.FormatMediaType("attachment", map[string]string{"filename": filename})
 }

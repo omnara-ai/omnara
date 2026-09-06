@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -25,7 +26,7 @@ func (s *Store) CreateVerifiedUser(
 		return identitystore.UserRecord{}, errors.New("store is required")
 	}
 	email := strings.TrimSpace(input.Email)
-	normalizedEmail := identitystore.NormalizeEmail(email)
+	normalizedEmail := emailaddr.Normalize(email)
 	if normalizedEmail == "" {
 		return identitystore.UserRecord{}, errors.New("email is required")
 	}

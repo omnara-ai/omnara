@@ -176,7 +176,7 @@ func PrepareForSend(
 	}
 	if err := validateRequestModalities(
 		input.Context,
-		CapabilitiesForClient(client),
+		client,
 		input.ErrorSource,
 	); err != nil {
 		return PreparedRequest{}, err
@@ -252,9 +252,10 @@ func OutputTokenLimitsForClient(
 	}
 }
 
-func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabilities, errorSource string) error {
+func validateRequestModalities(bundle modelcontext.Bundle, client Client, errorSource string) error {
+	capabilities := CapabilitiesForClient(client)
 	if len(capabilities.InputModalities) > 0 {
-		if !containsModality(capabilities.InputModalities, "text") {
+		if !containsModality(capabilities.InputModalities, modelcontext.InputModalityText) {
 			return ProviderError{
 				Kind:    ErrorKindInvalidRequest,
 				Source:  errorSource,
@@ -263,29 +264,20 @@ func validateRequestModalities(bundle modelcontext.Bundle, capabilities Capabili
 			}
 		}
 		for _, media := range bundle.RenderedMedia {
-			requiredModality := ""
-			requiredDescription := ""
-			switch media.Media.Kind {
-			case modelcontext.AttachmentKindImage:
-				requiredModality = "image"
-				requiredDescription = "image"
-			case modelcontext.AttachmentKindDocument:
-				requiredModality = "file"
-				requiredDescription = "file"
-			}
-			if requiredModality != "" && !containsModality(capabilities.InputModalities, requiredModality) {
+			modality := media.InputModality()
+			if modality != "" && !containsModality(capabilities.InputModalities, modality) {
 				return ProviderError{
 					Kind:   ErrorKindInvalidRequest,
 					Source: errorSource,
 					Code:   "unsupported_input_modality",
-					Message: "The live model grant does not allow " + requiredDescription +
+					Message: "The live model grant does not allow " + modality +
 						" input required by this agent request.",
 				}
 			}
 		}
 	}
 	if len(capabilities.OutputModalities) > 0 &&
-		!containsModality(capabilities.OutputModalities, "text") {
+		!containsModality(capabilities.OutputModalities, modelcontext.InputModalityText) {
 		return ProviderError{
 			Kind:    ErrorKindInvalidRequest,
 			Source:  errorSource,
@@ -305,13 +297,9 @@ func containsModality(values []string, want string) bool {
 	return false
 }
 
-type CacheRetention string
-
-const (
-	CacheRetentionNone  CacheRetention = "none"
-	CacheRetentionShort CacheRetention = "short"
-	CacheRetentionLong  CacheRetention = "long"
-)
+func (c Capabilities) AllowsInputModality(modality string) bool {
+	return len(c.InputModalities) == 0 || containsModality(c.InputModalities, modality)
+}
 
 type RequestPolicy struct {
 	MaxOutputTokens                   int            `json:"max_output_tokens,omitempty"`

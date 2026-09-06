@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/benbjohnson/clock"
@@ -42,12 +43,14 @@ type Server struct {
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
 	publicURL                           string
-	publicOrigin                        configuredOrigin
+	publicAPIURL                        string
+	publicOrigins                       []configuredOrigin
 	billingURL                          string
 	daemonReleaseURL                    string
 	agentEventWakeupSubscriber          notifications.AgentEventWakeupSubscriber
 	agentToolCallUpdateSubscriber       notifications.AgentToolCallUpdateSubscriber
 	agentStreamDeltaSubscriber          notifications.AgentStreamDeltaSubscriber
+	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
@@ -71,12 +74,14 @@ type Server struct {
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	webAssets                           fs.FS
+	closeOnce                           sync.Once
 
 	machinePoolManager *machinepool.Manager
 
 	daemonRuntimeLeaseDuration        time.Duration
 	daemonSocketFallbackDrainInterval time.Duration
 	daemonSocketFallbackDrainJitter   time.Duration
+	agentEventReconciliationInterval  time.Duration
 	skillDownloadSigningKey           []byte
 	timer                             clock.Clock
 }
@@ -153,6 +158,12 @@ func WithTrustedProxyCIDRs(cidrs []string) Option {
 func WithPublicURL(publicURL string) Option {
 	return func(s *Server) {
 		s.publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	}
+}
+
+func WithPublicAPIURL(publicAPIURL string) Option {
+	return func(s *Server) {
+		s.publicAPIURL = strings.TrimRight(strings.TrimSpace(publicAPIURL), "/")
 	}
 }
 
@@ -343,6 +354,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonRuntimeLeaseDuration:        executionstore.DaemonRuntimeLeaseDuration,
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
+		agentEventReconciliationInterval:  defaultAgentEventReconciliationInterval,
 		modelDiscoverer:                   modelprovider.DiscoverModels,
 		timer:                             clock.New(),
 	}
@@ -371,7 +383,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	if err != nil {
 		return nil, err
 	}
-	server.publicOrigin = publicOrigin
+	publicAPIOrigin, err := parseConfiguredOrigin(server.publicAPIURL)
+	if err != nil {
+		return nil, err
+	}
+	if publicOrigin.host != "" {
+		server.publicOrigins = append(server.publicOrigins, publicOrigin)
+		if publicAPIOrigin.host != "" {
+			server.publicOrigins = append(server.publicOrigins, publicAPIOrigin)
+		}
+	}
 	server.authRoutes = httpauth.New(httpauth.Config{
 		Log:                  log,
 		Store:                authStore,
@@ -394,6 +415,15 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	if server.agentStreamDeltaSubscriber == nil {
 		return nil, fmt.Errorf("agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber")
+	}
+	if store != nil {
+		server.agentEventStreamReconciler = newAgentEventStreamReconciler(
+			log,
+			store.Execution(),
+			server.timer,
+			server.agentEventReconciliationInterval,
+			defaultAgentEventReconciliationBatchSize,
+		)
 	}
 	if config := server.daemonNotifications; config != nil {
 		if store == nil {
@@ -442,9 +472,16 @@ func (s *Server) Handler() http.Handler {
 	return chain(mux, middlewares...)
 }
 
-func (s *Server) CloseDaemonSockets() {
-	if s == nil || s.daemonHub == nil {
+func (s *Server) Close() {
+	if s == nil {
 		return
 	}
-	s.daemonHub.Close()
+	s.closeOnce.Do(func() {
+		if s.agentEventStreamReconciler != nil {
+			s.agentEventStreamReconciler.close()
+		}
+		if s.daemonHub != nil {
+			s.daemonHub.Close()
+		}
+	})
 }

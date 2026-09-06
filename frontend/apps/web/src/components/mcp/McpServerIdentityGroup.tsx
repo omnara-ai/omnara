@@ -15,7 +15,7 @@ import { useDebouncedValue } from '@/hooks/use-resource-list'
 import { cn } from '@/lib/utils'
 
 const inputClassName =
-  'placeholder:text-muted-foreground h-9 min-w-0 flex-1 bg-transparent px-3 text-base outline-none md:text-sm'
+  'placeholder:text-muted-foreground h-9 min-w-0 flex-1 bg-transparent px-3 text-base outline-none md:text-sm pointer-coarse:text-base'
 
 export function McpServerIdentityGroup({
   idPrefix,

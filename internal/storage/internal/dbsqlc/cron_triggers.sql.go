@@ -198,7 +198,7 @@ const getCronTrigger = `-- name: GetCronTrigger :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -224,6 +224,7 @@ type GetCronTriggerRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -246,6 +247,7 @@ func (q *Queries) GetCronTrigger(ctx context.Context, arg GetCronTriggerParams) 
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
+		&i.DeliveryMode,
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
@@ -261,7 +263,7 @@ const getCronTriggerByIdempotencyKey = `-- name: GetCronTriggerByIdempotencyKey 
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -287,6 +289,7 @@ type GetCronTriggerByIdempotencyKeyRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -309,6 +312,7 @@ func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCro
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
+		&i.DeliveryMode,
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
@@ -324,7 +328,7 @@ const getCronTriggerForUpdate = `-- name: GetCronTriggerForUpdate :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -351,6 +355,7 @@ type GetCronTriggerForUpdateRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -373,6 +378,7 @@ func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTrigge
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
+		&i.DeliveryMode,
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
@@ -387,19 +393,19 @@ func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTrigge
 const insertCronTrigger = `-- name: InsertCronTrigger :one
 INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
-    cron_expression, timezone, message_template, enabled,
+    cron_expression, timezone, message_template, delivery_mode, enabled,
     next_fire_after, idempotency_key, created_at, updated_at
 )
 VALUES (
     uuidv7(), $1, $2,
     $3, $4,
     $5, $6, $7,
-    $8, $9,
-    $10, transaction_timestamp(), transaction_timestamp()
+    $8, $9, $10,
+    $11, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          cron_expression, timezone, message_template, enabled,
+          cron_expression, timezone, message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
@@ -413,6 +419,7 @@ type InsertCronTriggerParams struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	NextFireAfter   *time.Time
 	IdempotencyKey  *string
@@ -427,6 +434,7 @@ type InsertCronTriggerRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -445,6 +453,7 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		arg.CronExpression,
 		arg.Timezone,
 		arg.MessageTemplate,
+		arg.DeliveryMode,
 		arg.Enabled,
 		arg.NextFireAfter,
 		arg.IdempotencyKey,
@@ -459,6 +468,7 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
+		&i.DeliveryMode,
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,
@@ -475,7 +485,7 @@ WITH listed AS (
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
+       trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
@@ -494,7 +504,7 @@ WHERE trigger.project_id = $7
   AND ($10::uuid IS NULL OR trigger.agent_id = $10::uuid)
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
-       cron_expression, timezone, message_template, enabled,
+       cron_expression, timezone, message_template, delivery_mode, enabled,
        last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
 FROM listed
@@ -531,6 +541,7 @@ type ListCronTriggersForProjectRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -572,6 +583,7 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 			&i.CronExpression,
 			&i.Timezone,
 			&i.MessageTemplate,
+			&i.DeliveryMode,
 			&i.Enabled,
 			&i.LastFiredAt,
 			&i.NextFireAfter,
@@ -632,7 +644,7 @@ const selectDueCronTriggers = `-- name: SelectDueCronTriggers :many
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
        trigger.cron_expression, trigger.timezone, trigger.message_template,
-       trigger.last_fired_at, trigger.next_fire_after
+       trigger.delivery_mode, trigger.last_fired_at, trigger.next_fire_after
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id AND project.deleted_at IS NULL
 WHERE trigger.enabled
@@ -658,6 +670,7 @@ type SelectDueCronTriggersRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
 }
@@ -681,6 +694,7 @@ func (q *Queries) SelectDueCronTriggers(ctx context.Context, arg SelectDueCronTr
 			&i.CronExpression,
 			&i.Timezone,
 			&i.MessageTemplate,
+			&i.DeliveryMode,
 			&i.LastFiredAt,
 			&i.NextFireAfter,
 		); err != nil {
@@ -700,14 +714,15 @@ SET name = $1,
     cron_expression = $2,
     timezone = $3,
     message_template = $4,
-    enabled = $5,
-    next_fire_after = $6,
+    delivery_mode = $5,
+    enabled = $6,
+    next_fire_after = $7,
     updated_at = statement_timestamp()
-WHERE project_id = $7
-  AND id = $8
+WHERE project_id = $8
+  AND id = $9
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          cron_expression, timezone, message_template, enabled,
+          cron_expression, timezone, message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
@@ -718,6 +733,7 @@ type UpdateCronTriggerParams struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	NextFireAfter   *time.Time
 	ProjectID       uuid.UUID
@@ -733,6 +749,7 @@ type UpdateCronTriggerRow struct {
 	CronExpression  string
 	Timezone        string
 	MessageTemplate string
+	DeliveryMode    string
 	Enabled         bool
 	LastFiredAt     *time.Time
 	NextFireAfter   *time.Time
@@ -748,6 +765,7 @@ func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerPa
 		arg.CronExpression,
 		arg.Timezone,
 		arg.MessageTemplate,
+		arg.DeliveryMode,
 		arg.Enabled,
 		arg.NextFireAfter,
 		arg.ProjectID,
@@ -763,6 +781,7 @@ func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerPa
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
+		&i.DeliveryMode,
 		&i.Enabled,
 		&i.LastFiredAt,
 		&i.NextFireAfter,

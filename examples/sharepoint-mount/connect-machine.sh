@@ -19,7 +19,7 @@ if [ -f "$script_dir/.env" ]; then
 fi
 
 : "${OMNARA_MACHINE_TOKEN:?OMNARA_MACHINE_TOKEN is required (from Connect machine in the web console)}"
-api_url=${OMNARA_API_URL:-https://app.omnara.com}
+api_url=${OMNARA_API_URL:-https://api.omnara.com/v1}
 
 if ! command -v docker > /dev/null 2>&1; then
   echo "docker is required: https://docs.docker.com/get-docker/" >&2
@@ -29,7 +29,7 @@ fi
 case "$api_url" in
 *localhost* | *127.0.0.1*)
   echo "OMNARA_API_URL points at localhost, which is unreachable from inside the container." >&2
-  echo "For a local API, use http://host.docker.internal:8080 instead." >&2
+  echo "For a local API, use http://host.docker.internal:8080/api/v1 instead." >&2
   exit 1
   ;;
 esac

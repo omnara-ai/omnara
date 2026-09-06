@@ -407,6 +407,7 @@ FROM generate_series(1, $3::integer) AS n
 		t.Fatalf("create browser session: %v", err)
 	}
 	flow, err := store.Identity().StartDeviceAuthFlow(ctx, identitystore.StartDeviceAuthFlowInput{
+		ClientID:   testDeviceOAuthClientID,
 		ClientName: "Resource limit test",
 		TokenName:  "Limited device token",
 	})
@@ -422,7 +423,7 @@ FROM generate_series(1, $3::integer) AS n
 	}
 	if _, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("device personal access token over limit error = %v, want ErrConflict", err)
 	}
@@ -435,7 +436,7 @@ FROM generate_series(1, $3::integer) AS n
 	}
 	approved, err := store.Identity().PollDeviceAuthFlow(
 		ctx,
-		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode},
+		identitystore.DeviceAuthFlowPollInput{DeviceCode: flow.DeviceCode, ClientID: testDeviceOAuthClientID},
 	)
 	if err != nil {
 		t.Fatalf("poll device auth flow after revoke: %v", err)

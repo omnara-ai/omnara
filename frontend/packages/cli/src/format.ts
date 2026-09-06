@@ -4,7 +4,7 @@ export interface FormattedOutput {
 }
 
 export interface FormatContext {
-  baseUrl: string
+  apiUrl: string
 }
 
 export type OutputFormat<Response> = (data: Response, context: FormatContext) => FormattedOutput
@@ -18,11 +18,11 @@ interface ListEnvelope<Item> {
 
 type FieldName<Value> = Extract<keyof Value, string>
 
-function pickFields<Value extends object>(
+function pickFields<Value extends object, Field extends FieldName<Value>>(
   source: Value,
-  fields: readonly FieldName<Value>[],
-): Record<string, unknown> {
-  const picked: Record<string, unknown> = {}
+  fields: readonly Field[],
+): Partial<Pick<Value, Field>> {
+  const picked: Partial<Pick<Value, Field>> = {}
   for (const field of fields) {
     const value = source[field]
     if (value !== undefined) picked[field] = value

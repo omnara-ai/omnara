@@ -86,6 +86,25 @@ func (q *Queries) DeleteSkillRevisions(ctx context.Context, arg DeleteSkillRevis
 	return err
 }
 
+const getLatestSkillRevisionID = `-- name: GetLatestSkillRevisionID :one
+SELECT id
+FROM skill_revisions
+WHERE skill_id = $1 AND deleted_at IS NULL
+ORDER BY revision DESC
+LIMIT 1
+`
+
+type GetLatestSkillRevisionIDParams struct {
+	SkillID uuid.UUID
+}
+
+func (q *Queries) GetLatestSkillRevisionID(ctx context.Context, arg GetLatestSkillRevisionIDParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getLatestSkillRevisionID, arg.SkillID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getSkillByID = `-- name: GetSkillByID :one
 SELECT s.id, s.org_id, s.owner_kind, s.owner_project_id, s.owner_user_id, s.name,
        s.created_at,

@@ -29,6 +29,7 @@ type RecordTerminalCompactionFailureInput struct {
 	ErrorDetails            json.RawMessage
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 func (s *Store) RecordTerminalCompactionFailure(
@@ -98,6 +99,7 @@ func recordTerminalCompactionFailureTx(
 	modelFailure.ErrorDetails = input.ErrorDetails
 	modelFailure.Usage = input.Usage
 	modelFailure.ProviderReportedCostUSD = input.ProviderReportedCostUSD
+	modelFailure.ProviderMetadata = input.ProviderMetadata
 	_, err := recordTerminalModelCallFailureTx(
 		ctx,
 		txNotifications,

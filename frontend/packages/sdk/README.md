@@ -14,7 +14,7 @@ npm install @omnara/sdk
 import { createOmnaraClient, bearerToken } from '@omnara/sdk'
 
 const client = createOmnaraClient({
-  baseUrl: 'https://api.omnara.com',
+  baseUrl: 'https://api.omnara.com/v1',
   auth: bearerToken('your-api-key'),
 })
 ```

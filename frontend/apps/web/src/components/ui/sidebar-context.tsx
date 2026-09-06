@@ -1,8 +1,9 @@
-import type { ComponentProps, CSSProperties } from 'react'
+import type { ComponentProps } from 'react'
 import { createContext, use, useEffect, useState } from 'react'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-mobile'
+import type { CssVariables } from '@/lib/css'
 import { cn } from '@/lib/utils'
 
 const SIDEBAR_COOKIE_NAME = 'sidebar_state'
@@ -45,6 +46,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  keyboardShortcut = true,
   className,
   style,
   children,
@@ -53,6 +55,7 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  keyboardShortcut?: boolean
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = useState(false)
@@ -72,6 +75,8 @@ function SidebarProvider({
   }
 
   useEffect(() => {
+    if (!keyboardShortcut) return
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
@@ -83,7 +88,7 @@ function SidebarProvider({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isMobile, open, setOpenProp])
+  }, [isMobile, keyboardShortcut, open, setOpenProp])
 
   const state = open ? 'expanded' : 'collapsed'
 
@@ -97,18 +102,18 @@ function SidebarProvider({
     toggleSidebar,
   }
 
+  const wrapperStyle: CssVariables = {
+    '--sidebar-width': SIDEBAR_WIDTH,
+    '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
+    ...style,
+  }
+
   return (
     <SidebarContext.Provider value={contextValue}>
       <TooltipProvider delayDuration={0}>
         <div
           data-slot="sidebar-wrapper"
-          style={
-            {
-              '--sidebar-width': SIDEBAR_WIDTH,
-              '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
-              ...style,
-            } as CSSProperties
-          }
+          style={wrapperStyle}
           className={cn(
             'group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full',
             className,

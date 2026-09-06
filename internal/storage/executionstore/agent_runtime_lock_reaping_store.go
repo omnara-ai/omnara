@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -39,6 +40,9 @@ func (s *Store) ReapExpiredAgentRuntimeLocks(ctx context.Context, batchSize int3
 			candidate.ID,
 		)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil && errutil.OnlyMatches(err, ctxErr) {
+				break
+			}
 			err = fmt.Errorf(
 				"reap runtime lock %s for agent %s in project %s: %w",
 				candidate.ID,
@@ -63,7 +67,10 @@ func (s *Store) ReapExpiredAgentRuntimeLocks(ctx context.Context, batchSize int3
 			suppressedErrors,
 		))
 	}
-	return total, errors.Join(errors.Join(reapErrs...), ctx.Err())
+	if len(reapErrs) > 0 {
+		return total, errors.Join(reapErrs...)
+	}
+	return total, ctx.Err()
 }
 
 func (s *Store) reapExpiredAgentRuntimeLock(

@@ -607,6 +607,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			RetryDelay:              decision.RetryDelay,
 			Usage:                   failureEvidence.Usage,
 			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
+			ProviderMetadata:        failureEvidence.ProviderMetadata,
 		}
 		contextRecord, err := e.Store.Execution().RecordRetryableModelCallFailure(ctx, failureInput)
 		if err != nil {
@@ -632,6 +633,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			ErrorDetails:            evidence.Details,
 			Usage:                   failureEvidence.Usage,
 			ProviderReportedCostUSD: failureEvidence.ProviderReportedCostUSD,
+			ProviderMetadata:        failureEvidence.ProviderMetadata,
 		},
 	)
 	if err != nil {

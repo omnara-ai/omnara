@@ -18,12 +18,12 @@ import (
 
 func TestOmnaradInstallRoute(t *testing.T) {
 	releaseURL := "https://releases.omnara.test/omnarad/latest"
-	apiURL := "https://app.omnara.test"
-	server := mustNewUnitServer(t, WithDaemonReleaseURL(releaseURL), WithPublicURL(apiURL))
+	apiURL := "https://api.omnara.test/v1"
+	server := mustNewUnitServer(t, WithDaemonReleaseURL(releaseURL), WithPublicAPIURL(apiURL))
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(
 		recorder,
-		httptest.NewRequest(http.MethodGet, apiURL+omnaradInstallPath, nil),
+		httptest.NewRequest(http.MethodGet, "https://app.omnara.test"+omnaradInstallPath, nil),
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("installer status = %d, want %d", recorder.Code, http.StatusOK)
@@ -77,7 +77,7 @@ func TestOmnaradInstallRouteUsesRequestOrigin(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("installer status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if !strings.Contains(recorder.Body.String(), "default_api_url='http://localhost:5173'") {
+	if !strings.Contains(recorder.Body.String(), "default_api_url='http://localhost:5173/api/v1'") {
 		t.Fatal("installer does not contain the request origin")
 	}
 }

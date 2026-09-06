@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
+    "test": "tsx --test src/chat-rendering.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

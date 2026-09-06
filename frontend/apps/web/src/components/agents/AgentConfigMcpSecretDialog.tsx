@@ -1,5 +1,5 @@
 import { useCreateSecret } from '@omnara/react'
-import type { Secret, SecretOwnerInput } from '@omnara/sdk'
+import type { AwsCredentialsSecretMaterial, Secret, SecretOwnerInput } from '@omnara/sdk'
 import { useState } from 'react'
 
 import {
@@ -43,7 +43,9 @@ function optionalField(value: string) {
   return trimmed === '' ? undefined : trimmed
 }
 
-function awsMaterial(aws: AWSCredentialsSecretFormSecret) {
+function awsMaterial(
+  aws: AWSCredentialsSecretFormSecret,
+): AwsCredentialsSecretMaterial | undefined {
   const accessKeyId = aws.accessKeyId.trim()
   const secretAccessKey = aws.secretAccessKey.trim()
   const roleArn = optionalField(aws.roleArn)
@@ -51,14 +53,15 @@ function awsMaterial(aws: AWSCredentialsSecretFormSecret) {
   if (accessKeyId === '' || secretAccessKey === '') return undefined
   if (externalId !== undefined && roleArn === undefined) return undefined
   const sessionToken = optionalField(aws.sessionToken)
-  return {
+  const material: AwsCredentialsSecretMaterial = {
     kind: 'aws_credentials',
     access_key_id: accessKeyId,
     secret_access_key: secretAccessKey,
-    ...(sessionToken === undefined ? {} : { session_token: sessionToken }),
-    ...(roleArn === undefined ? {} : { role_arn: roleArn }),
-    ...(externalId === undefined ? {} : { external_id: externalId }),
-  } as const
+  }
+  if (sessionToken !== undefined) material.session_token = sessionToken
+  if (roleArn !== undefined) material.role_arn = roleArn
+  if (externalId !== undefined) material.external_id = externalId
+  return material
 }
 
 export function AgentConfigMcpSecretDialog({

@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -67,14 +70,13 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	var payload struct {
-		Model                string `json:"model"`
-		Store                *bool  `json:"store"`
-		MaxCompletionTokens  int    `json:"max_completion_tokens"`
-		PromptCacheRetention string `json:"prompt_cache_retention"`
-		ReasoningEffort      string `json:"reasoning_effort"`
-		ToolChoice           string `json:"tool_choice"`
-		ParallelToolCalls    *bool  `json:"parallel_tool_calls"`
-		Messages             []struct {
+		Model               string `json:"model"`
+		Store               *bool  `json:"store"`
+		MaxCompletionTokens int    `json:"max_completion_tokens"`
+		ReasoningEffort     string `json:"reasoning_effort"`
+		ToolChoice          string `json:"tool_choice"`
+		ParallelToolCalls   *bool  `json:"parallel_tool_calls"`
+		Messages            []struct {
 			Role      string `json:"role"`
 			Content   any    `json:"content"`
 			ToolCalls []struct {
@@ -101,7 +103,6 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 		payload.Store == nil ||
 		*payload.Store ||
 		payload.MaxCompletionTokens != 1234 ||
-		payload.PromptCacheRetention != "24h" ||
 		payload.ReasoningEffort != "medium" {
 		t.Fatalf("unexpected payload header: %+v", payload)
 	}
@@ -307,14 +308,13 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 	if _, ok := payload["reasoning_effort"]; ok {
 		t.Fatalf("openrouter payload should use reasoning object, not reasoning_effort: %s", prepared.Body)
 	}
+	if _, ok := payload["cache_control"]; ok {
+		t.Fatalf("openrouter payload should mark content blocks instead of top-level cache_control: %s", prepared.Body)
+	}
 	var header struct {
 		Model               string `json:"model"`
 		MaxCompletionTokens int    `json:"max_completion_tokens"`
-		CacheControl        struct {
-			Type string `json:"type"`
-			TTL  string `json:"ttl"`
-		} `json:"cache_control"`
-		Reasoning struct {
+		Reasoning           struct {
 			Effort string `json:"effort"`
 		} `json:"reasoning"`
 		Provider struct {
@@ -326,12 +326,15 @@ func TestPrepareBuildsOpenRouterPayload(t *testing.T) {
 	}
 	if header.Model != "anthropic/claude-sonnet-4" ||
 		header.MaxCompletionTokens != 2048 ||
-		header.CacheControl.Type != "ephemeral" ||
-		header.CacheControl.TTL != "1h" ||
 		header.Reasoning.Effort != "high" ||
 		len(header.Provider.Only) != 1 ||
 		header.Provider.Only[0] != "anthropic" {
 		t.Fatalf("unexpected openrouter payload: %+v body=%s", header, prepared.Body)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 1 || marks[0].role != "user" || marks[0].index != 0 ||
+		marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "1h" {
+		t.Fatalf("cache_control marks = %+v, want ephemeral 1h on the last user block: %s", marks, prepared.Body)
 	}
 	var provider map[string]json.RawMessage
 	if err := json.Unmarshal(payload["provider"], &provider); err != nil {
@@ -574,11 +577,7 @@ func TestPrepareOmitsOpenRouterCacheControlForNonClaudeModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	if _, ok := payload["cache_control"]; ok {
+	if strings.Contains(string(prepared.Body), "cache_control") {
 		t.Fatalf("non-Claude OpenRouter payload should omit cache_control: %s", prepared.Body)
 	}
 }
@@ -983,5 +982,466 @@ func TestPrepareAppliesProviderReplayCutoffPerMessage(t *testing.T) {
 		!strings.Contains(body, "old answer") ||
 		!strings.Contains(body, "new-reasoning-replay") {
 		t.Fatalf("provider replay cutoff was not applied per message: %s", body)
+	}
+}
+
+type cacheControlMark struct {
+	role    string
+	index   int
+	control anthropicmessages.CacheControl
+}
+
+func cacheControlMarks(t *testing.T, body []byte) []cacheControlMark {
+	t.Helper()
+	var payload struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var marks []cacheControlMark
+	for index, message := range payload.Messages {
+		var blocks []struct {
+			Type         string                          `json:"type"`
+			CacheControl *anthropicmessages.CacheControl `json:"cache_control"`
+		}
+		if json.Unmarshal(message.Content, &blocks) != nil {
+			continue
+		}
+		for _, block := range blocks {
+			if block.CacheControl != nil {
+				marks = append(marks, cacheControlMark{
+					role:    message.Role,
+					index:   index,
+					control: *block.CacheControl,
+				})
+			}
+		}
+	}
+	return marks
+}
+
+func TestPrepareDefaultsOpenRouterCacheControlForClaudeModels(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		retention model.CacheRetention
+		wantCache bool
+	}{
+		{name: "unset", retention: model.CacheRetentionUnset, wantCache: true},
+		{name: "none", retention: model.CacheRetentionNone, wantCache: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := Client{EndpointPath: testEndpointPath,
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			}
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+						Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+					}},
+				},
+				Policy: model.RequestPolicy{CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			marks := cacheControlMarks(t, prepared.Body)
+			if !tc.wantCache {
+				if len(marks) != 0 {
+					t.Fatalf("cache_control should be omitted: %s", prepared.Body)
+				}
+				return
+			}
+			if len(marks) != 1 || marks[0].role != "user" ||
+				marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "" {
+				t.Fatalf("cache_control marks = %+v, want ephemeral without ttl on the user block: %s", marks, prepared.Body)
+			}
+		})
+	}
+}
+
+func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastMessage(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	replay := testProviderReplay(
+		"anthropic/claude-sonnet-4",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{
+			"role":"assistant",
+			"content":"replayed",
+			"tool_calls":[{"id":"call_1","type":"function","function":{"name":"run_command","arguments":"{}"}}]
+		}`),
+	)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			withToolCallLinks(modelcontext.Message{
+				Role:                 modelprotocol.RoleAssistant,
+				Sequence:             20,
+				ModelCallContextID:   "mcc_1",
+				Content:              json.RawMessage(`[{"type":"text","text":"replayed"}]`),
+				ProviderReplay:       replay.payload,
+				ProviderReplaySource: replay.source,
+			}, "tcl_1"),
+		},
+		ToolResults: []modelcontext.ToolResultRef{{
+			ToolCallID:          "tcl_1",
+			ModelCallContextID:  "mcc_1",
+			ProviderCallID:      "call_1",
+			Name:                "run_command",
+			Input:               json.RawMessage(`{}`),
+			ContentParts:        json.RawMessage(`[{"type":"text","text":"done"}]`),
+			SourceEventSequence: 20,
+			ResultEventSequence: 30,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "tool" || marks[1].index != 3 ||
+		marks[0].control.Type != "ephemeral" || marks[0].control.TTL != "" {
+		t.Fatalf("cache_control marks = %+v, want system and last tool message: %s", marks, prepared.Body)
+	}
+}
+
+func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *testing.T) {
+	client := Client{EndpointPath: testEndpointPath,
+		ProviderModelSlug: "anthropic/claude-sonnet-4",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+		ToolSpecs: []modelcontext.ToolSpec{
+			{Name: toolcatalog.ToolNameCreateMachine},
+			{Name: toolcatalog.ToolNameSendIntegrationMessage},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf("cache_control marks = %+v, want system prompt and last user turn: %s", marks, prepared.Body)
+	}
+}
+
+func TestPrepareWalksPastTrailingReplayedAssistantForOpenRouterCacheBreakpoint(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	replay := testProviderReplay(
+		"anthropic/claude-sonnet-4",
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIVariantOpenRouter,
+		json.RawMessage(`{"role":"assistant","content":"replayed"}`),
+	)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			{
+				Role:                 modelprotocol.RoleAssistant,
+				Sequence:             20,
+				Content:              json.RawMessage(`[{"type":"text","text":"replayed"}]`),
+				ProviderReplay:       replay.payload,
+				ProviderReplaySource: replay.source,
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if !strings.Contains(string(prepared.Body), `"content":"replayed"`) {
+		t.Fatalf("assistant turn was not replayed: %s", prepared.Body)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf(
+			"cache_control marks = %+v, want system and the user turn before the replayed assistant: %s",
+			marks,
+			prepared.Body,
+		)
+	}
+}
+
+func TestPrepareSendsConversationKeyByRoute(t *testing.T) {
+	agentID := uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+	for _, tc := range []struct {
+		name               string
+		client             Client
+		retention          model.CacheRetention
+		wantSessionID      bool
+		wantPromptCacheKey bool
+	}{
+		{
+			name: "openrouter automatic model",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "moonshotai/kimi-k3",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			wantSessionID: true,
+		},
+		{
+			name: "openrouter long keeps session id without retention field",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "deepseek/deepseek-v4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			retention:     model.CacheRetentionLong,
+			wantSessionID: true,
+		},
+		{
+			name: "openrouter none",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			retention: model.CacheRetentionNone,
+		},
+		{
+			name:               "openai default base url",
+			client:             Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			wantPromptCacheKey: true,
+		},
+		{
+			name:               "openai long",
+			client:             Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			retention:          model.CacheRetentionLong,
+			wantPromptCacheKey: true,
+		},
+		{
+			name: "openai-compatible host",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://api.deepseek.com/v1",
+				ProviderModelSlug: "deepseek-chat",
+			},
+			retention: model.CacheRetentionLong,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					AgentID: agentID,
+					Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+						Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+					}},
+				},
+				Policy: model.RequestPolicy{CacheRetention: tc.retention},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload struct {
+				SessionID      string `json:"session_id"`
+				PromptCacheKey string `json:"prompt_cache_key"`
+			}
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			wantSessionID, wantPromptCacheKey := "", ""
+			if tc.wantSessionID {
+				wantSessionID = agentID.String()
+			}
+			if tc.wantPromptCacheKey {
+				wantPromptCacheKey = agentID.String()
+			}
+			if payload.SessionID != wantSessionID {
+				t.Fatalf("session_id = %q, want %q: %s", payload.SessionID, wantSessionID, prepared.Body)
+			}
+			if payload.PromptCacheKey != wantPromptCacheKey {
+				t.Fatalf("prompt_cache_key = %q, want %q: %s", payload.PromptCacheKey, wantPromptCacheKey, prepared.Body)
+			}
+			if strings.Contains(string(prepared.Body), "prompt_cache_retention") {
+				t.Fatalf("prompt_cache_retention must never be sent: %s", prepared.Body)
+			}
+		})
+	}
+}
+
+func TestPrepareOmitsConversationKeyWithoutAgent(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if strings.Contains(string(prepared.Body), "session_id") {
+		t.Fatalf("session_id must be omitted without an agent: %s", prepared.Body)
+	}
+}
+
+func TestPrepareOpenRouterLongRetentionUsesOneHourTTL(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "anthropic/claude-sonnet-4",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt: "system prompt",
+			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 || marks[0].control.TTL != "1h" || marks[1].control.TTL != "1h" {
+		t.Fatalf("cache_control marks = %+v, want two 1h breakpoints: %s", marks, prepared.Body)
+	}
+}
+
+func TestPrepareFallsBackToLastMarkableMessageForOpenRouterCacheBreakpoint(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "anthropic/claude-sonnet-4",
+		APIVariant:            modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		SystemPrompt: "system prompt",
+		Messages: []modelcontext.Message{
+			{Role: modelprotocol.RoleUser, Sequence: 10, Content: json.RawMessage(`[{"type":"text","text":"start"}]`)},
+			messageAtSequence(assistantToolCallMessage("mcc_1", "tcl_1"), 20),
+		},
+		ToolResults: []modelcontext.ToolResultRef{{
+			ToolCallID:          "tcl_1",
+			ModelCallContextID:  "mcc_1",
+			ProviderCallID:      "call_1",
+			Name:                "run_command",
+			Input:               json.RawMessage(`{}`),
+			ContentParts:        json.RawMessage(`[]`),
+			SourceEventSequence: 20,
+			ResultEventSequence: 30,
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 ||
+		marks[0].role != "system" || marks[0].index != 0 ||
+		marks[1].role != "user" || marks[1].index != 1 {
+		t.Fatalf(
+			"cache_control marks = %+v, want system and the user turn before the empty tool result: %s",
+			marks,
+			prepared.Body,
+		)
+	}
+}
+
+func TestPrepareLetsAPIVariantOptionsOverrideConversationKey(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+		APIVariantOptions: json.RawMessage(`{"session_id":"pinned-by-operator"}`),
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.SessionID != "pinned-by-operator" {
+		t.Fatalf("session_id = %q, want the explicit provider option to win: %s", payload.SessionID, prepared.Body)
+	}
+}
+
+func TestPrepareSuppressesGeneratedAffinityWhenAnyNativeAffinityIsConfigured(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "moonshotai/kimi-k3",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+		APIVariantOptions: json.RawMessage(`{"prompt_cache_key":"pinned-by-operator"}`),
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+		AgentID: uuid.MustParse("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
+		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		SessionID      string `json:"session_id"`
+		PromptCacheKey string `json:"prompt_cache_key"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.SessionID != "" || payload.PromptCacheKey != "pinned-by-operator" {
+		t.Fatalf("payload = %+v, want only the operator's prompt_cache_key: %s", payload, prepared.Body)
+	}
+}
+
+func TestPrepareMarksOpenRouterExplicitFiveMinuteModelsWithoutTTL(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "qwen/qwen3-coder-plus",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+	}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			SystemPrompt: "system prompt",
+			Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+				Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+			}},
+		},
+		Policy: model.RequestPolicy{CacheRetention: model.CacheRetentionLong},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	marks := cacheControlMarks(t, prepared.Body)
+	if len(marks) != 2 || marks[0].control.TTL != "" || marks[1].control.TTL != "" {
+		t.Fatalf("cache_control marks = %+v, want two default-ttl breakpoints: %s", marks, prepared.Body)
 	}
 }

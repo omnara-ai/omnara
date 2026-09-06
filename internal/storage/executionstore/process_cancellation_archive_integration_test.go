@@ -132,15 +132,9 @@ WHERE agent.project_id = $1 AND turn.agent_id = $2 AND turn.id = $3
 	); err != nil {
 		t.Fatalf("release canceled runtime lock: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild wakeups after cancel: %v", err)
-	}
-	if rebuilt != 0 {
-		t.Fatalf("rebuild restored %d wakeups for stopped continuation, want 0", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
+		t.Fatalf("wakeups after canceled runtime release = %d, want 0", wakeups)
 	}
 }
 
@@ -634,15 +628,9 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	if steeringState != "canceled" {
 		t.Fatalf("steering state = %q, want canceled", steeringState)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild after canceling unstarted turn: %v", err)
-	}
-	if rebuilt != 0 {
-		t.Fatalf("rebuild restored %d wakeups after canceling unstarted turn, want 0", rebuilt)
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
+	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 0 {
+		t.Fatalf("wakeups after canceling unstarted turn = %d, want 0", wakeups)
 	}
 	if seed, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID); err != nil {
 		t.Fatalf("load continuation seed after cancel: %v", err)

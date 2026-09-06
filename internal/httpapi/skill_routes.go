@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -213,17 +214,9 @@ func readSkillUpload(body *multipart.Reader, principal identitystore.PrincipalRe
 				_ = part.Close()
 				return skillUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "archive must be provided once")
 			}
-			upload.filename = part.FileName()
-			upload.archive, err = io.ReadAll(io.LimitReader(part, skillMaxUploadBytes+1))
-			_ = part.Close()
+			upload.archive, upload.filename, err = readSkillArchivePart(part)
 			if err != nil {
-				return skillUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, fmt.Sprintf("read archive: %v", err))
-			}
-			if len(upload.archive) > skillMaxUploadBytes {
-				return skillUpload{}, apierror.FromCode(openapi.ErrorCodeRequestTooLarge,
-
-					fmt.Sprintf("archive exceeds %d bytes", skillMaxUploadBytes))
-
+				return skillUpload{}, err
 			}
 			archiveSet = true
 		default:
@@ -238,6 +231,176 @@ func readSkillUpload(body *multipart.Reader, principal identitystore.PrincipalRe
 		return skillUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "archive file is required")
 	}
 	return upload, nil
+}
+
+func readSkillArchivePart(part *multipart.Part) ([]byte, string, error) {
+	filename := part.FileName()
+	archive, err := io.ReadAll(io.LimitReader(part, skillMaxUploadBytes+1))
+	_ = part.Close()
+	if err != nil {
+		return nil, "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, fmt.Sprintf("read archive: %v", err))
+	}
+	if len(archive) > skillMaxUploadBytes {
+		return nil, "", apierror.FromCode(openapi.ErrorCodeRequestTooLarge,
+			fmt.Sprintf("archive exceeds %d bytes", skillMaxUploadBytes))
+	}
+	return archive, filename, nil
+}
+
+type skillUpdateUpload struct {
+	archive    []byte
+	filename   string
+	skillMd    string
+	hasArchive bool
+	hasSkillMd bool
+}
+
+func readSkillUpdateUpload(body *multipart.Reader) (skillUpdateUpload, error) {
+	if body == nil {
+		return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "multipart body is required")
+	}
+	var upload skillUpdateUpload
+	for {
+		part, err := body.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return skillUpdateUpload{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				fmt.Sprintf("parse multipart form: %v", err),
+			)
+		}
+		switch part.FormName() {
+		case "archive":
+			if upload.hasArchive {
+				_ = part.Close()
+				return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "archive must be provided once")
+			}
+			upload.archive, upload.filename, err = readSkillArchivePart(part)
+			if err != nil {
+				return skillUpdateUpload{}, err
+			}
+			upload.hasArchive = true
+		case "skill_md":
+			if upload.hasSkillMd {
+				_ = part.Close()
+				return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "skill_md must be provided once")
+			}
+			raw, readErr := io.ReadAll(io.LimitReader(part, skills.MaxSkillMdBytes+1))
+			_ = part.Close()
+			if readErr != nil {
+				return skillUpdateUpload{}, apierror.FromCode(
+					openapi.ErrorCodeInvalidRequest,
+					fmt.Sprintf("read skill_md: %v", readErr),
+				)
+			}
+			if len(raw) > skills.MaxSkillMdBytes {
+				return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeRequestTooLarge,
+					fmt.Sprintf("skill_md exceeds %d bytes", skills.MaxSkillMdBytes))
+			}
+			upload.skillMd = string(raw)
+			upload.hasSkillMd = true
+		default:
+			_ = part.Close()
+			return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported multipart field")
+		}
+	}
+	if upload.hasArchive == upload.hasSkillMd {
+		return skillUpdateUpload{}, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"provide exactly one of archive or skill_md",
+		)
+	}
+	if upload.hasArchive && len(upload.archive) == 0 {
+		return skillUpdateUpload{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "archive file is required")
+	}
+	return upload, nil
+}
+
+func (s strictOpenAPIServer) UpdateSkill(
+	ctx context.Context,
+	request openapi.UpdateSkillRequestObject,
+) (openapi.UpdateSkillResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	principal, principalErr := accountPrincipalFromContext(ctx)
+	if principalErr != nil {
+		return nil, *principalErr
+	}
+	skillID, ok := parseOpenAPIPublicID(publicid.KindSkill, request.SkillID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	upload, err := readSkillUpdateUpload(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	var archive []byte
+	var format skills.ArchiveFormat
+	var baseRevisionID uuid.UUID
+	if upload.hasArchive {
+		archive = upload.archive
+		var formatOK bool
+		format, formatOK = skills.DetectFormat(upload.filename, archive)
+		if !formatOK {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "archive must be .zip or .tar.gz")
+		}
+	} else {
+		record, recordErr := s.server.skills.GetVisibleSkill(ctx, org.ID, request.SkillID, principal)
+		if recordErr != nil {
+			return nil, skillAPIError(ctx, recordErr)
+		}
+		revisionID, revisionErr := publicID(publicid.KindSkillRevision, record.RevisionID)
+		if revisionErr != nil {
+			return nil, revisionErr
+		}
+		current, _, loadErr := s.server.skills.LoadSkillArchive(ctx, request.SkillID, revisionID)
+		if loadErr != nil {
+			return nil, skillAPIError(ctx, loadErr)
+		}
+		currentFormat, formatOK := skills.DetectFormat("", current)
+		if !formatOK {
+			return nil, skillAPIError(
+				ctx,
+				fmt.Errorf("skill %s revision %s archive format is unrecognized", request.SkillID, revisionID),
+			)
+		}
+		archive, err = skills.ReplaceSkillMd(currentFormat, current, upload.skillMd)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		}
+		format = skills.FormatZip
+		baseRevisionID = record.RevisionID
+	}
+	meta, err := skills.ExtractMetadata(format, archive)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	record, err := s.server.skills.CreateSkillRevisionForSkill(ctx, skillstore.CreateSkillRevisionForSkillInput{
+		OrgID: org.ID, SkillID: skillID, BaseRevisionID: baseRevisionID,
+		Name: meta.Name, Description: meta.Description, SkillMd: meta.SkillMd,
+		ArchiveBytes: archive, Actor: principal,
+	})
+	if err != nil {
+		return nil, skillAPIError(ctx, err)
+	}
+	response, err := skillResponseFromRecord(record, true)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := skills.ListFiles(format, archive)
+	if err != nil {
+		return nil, skillAPIError(ctx, fmt.Errorf("list skill %s files: %w", request.SkillID, err))
+	}
+	files := make([]openapi.SkillFile, 0, len(entries))
+	for _, entry := range entries {
+		files = append(files, openapi.SkillFile{Path: entry.Path, Size: entry.Size})
+	}
+	response.Files = &files
+	return openapi.UpdateSkill200JSONResponse(response), nil
 }
 
 func parseSkillOwner(raw []byte, principal identitystore.PrincipalRecord) (skillstore.SkillOwner, error) {
@@ -468,7 +631,43 @@ func (s strictOpenAPIServer) GetSkill(
 	if err != nil {
 		return nil, err
 	}
+	files, err := s.loadSkillFiles(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	response.Files = &files
 	return openapi.GetSkill200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) loadSkillFiles(
+	ctx context.Context,
+	record skillstore.SkillRecord,
+) ([]openapi.SkillFile, error) {
+	skillID, err := publicID(publicid.KindSkill, record.ID)
+	if err != nil {
+		return nil, err
+	}
+	revisionID, err := publicID(publicid.KindSkillRevision, record.RevisionID)
+	if err != nil {
+		return nil, err
+	}
+	archive, _, err := s.server.skills.LoadSkillArchive(ctx, skillID, revisionID)
+	if err != nil {
+		return nil, skillAPIError(ctx, err)
+	}
+	format, ok := skills.DetectFormat("", archive)
+	if !ok {
+		return nil, skillAPIError(ctx, fmt.Errorf("skill %s revision %s archive format is unrecognized", skillID, revisionID))
+	}
+	entries, err := skills.ListFiles(format, archive)
+	if err != nil {
+		return nil, skillAPIError(ctx, fmt.Errorf("list skill %s files: %w", skillID, err))
+	}
+	files := make([]openapi.SkillFile, 0, len(entries))
+	for _, entry := range entries {
+		files = append(files, openapi.SkillFile{Path: entry.Path, Size: entry.Size})
+	}
+	return files, nil
 }
 
 func (s strictOpenAPIServer) DeleteSkill(

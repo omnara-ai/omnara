@@ -52,13 +52,14 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
   }
 
   if (usesExistingApp) {
-    const result = zCreateIntegrationOAuthSetupRequest.safeParse({
+    const draft: Partial<z.input<typeof zCreateIntegrationOAuthSetupRequest>> = {
       provider: 'slack',
       client_id: body.client_id,
       client_secret: body.client_secret,
       signing_secret: body.signing_secret,
-      ...(body.return_to !== undefined ? { return_to: body.return_to } : {}),
-    })
+    }
+    if (body.return_to !== undefined) draft.return_to = body.return_to
+    const result = zCreateIntegrationOAuthSetupRequest.safeParse(draft)
     if (!result.success) {
       throw new CliInputError(
         `invalid existing Slack app parameters:\n${z.prettifyError(result.error)}`,
@@ -70,19 +71,16 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
   if (body.icon_filename !== undefined && body.icon_data_base64 === undefined) {
     throw new CliInputError('--icon-filename requires --icon-data-base64')
   }
-  const result = zCreateSlackSetupRequest.safeParse({
+  const draft: Partial<z.input<typeof zCreateSlackSetupRequest>> = {
     app_name: body.app_name,
     app_configuration_token: body.app_configuration_token,
-    ...(body.icon_data_base64 !== undefined
-      ? {
-          icon: {
-            data_base64: body.icon_data_base64,
-            ...(body.icon_filename !== undefined ? { filename: body.icon_filename } : {}),
-          },
-        }
-      : {}),
-    ...(body.return_to !== undefined ? { return_to: body.return_to } : {}),
-  })
+  }
+  if (body.icon_data_base64 !== undefined) {
+    draft.icon = { data_base64: body.icon_data_base64 }
+    if (body.icon_filename !== undefined) draft.icon.filename = body.icon_filename
+  }
+  if (body.return_to !== undefined) draft.return_to = body.return_to
+  const result = zCreateSlackSetupRequest.safeParse(draft)
   if (!result.success) {
     throw new CliInputError(
       `invalid Slack app parameters:\n${z.prettifyError(result.error)}\nPass --app-name and --app-configuration-token, or existing app credentials.`,

@@ -198,7 +198,8 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
   context.created_at, context.completed_at,
-  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd
+  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
+  context.provider_metadata
 FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
@@ -380,6 +381,7 @@ SET state = sqlc.arg(to_state),
     output_tokens_total = sqlc.narg(output_tokens_total)::integer,
     reasoning_output_tokens = sqlc.narg(reasoning_output_tokens)::integer,
     provider_reported_cost_usd = sqlc.narg(provider_reported_cost_usd)::text::numeric,
+    provider_metadata = sqlc.arg(provider_metadata),
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id

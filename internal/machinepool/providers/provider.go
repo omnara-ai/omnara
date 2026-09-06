@@ -21,7 +21,7 @@ const (
 )
 
 type RuntimeConfig struct {
-	PublicURL         string
+	OmnaraAPIURL      string
 	ProviderAuthToken string
 }
 

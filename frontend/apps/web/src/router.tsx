@@ -10,9 +10,14 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { Suspense } from 'react'
+import { z } from 'zod'
 
 import { FullPageSpinner } from '@/components/ui/spinner'
+import { safeReturnTo } from '@/lib/auth-return-to'
+import { queryClient } from '@/lib/query'
+import { requireOrganization } from '@/lib/require-organization'
 import { RootError } from '@/routes/RootError'
+import { omnaraClient } from '@/transport'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -44,34 +49,39 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   errorComponent: RootError,
 })
 
-const authedRoute = createRoute({
+const authenticatedRoute = createRoute({
   getParentRoute: () => rootRoute,
-  id: 'authed',
+  id: 'authenticated',
   beforeLoad: async ({ context, location }) => {
     const me = await ensureMe(context.queryClient, context.omnaraClient, location.href)
-    if (me.orgs.length === 0) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: '/onboarding' })
-    }
     return { me }
+  },
+  component: Outlet,
+})
+
+const onboardedRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  id: 'onboarded',
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
   },
   component: lazyRouteComponent(() => import('@/routes/AuthedLayout'), 'AuthedLayout'),
 })
 
 const overviewRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/',
   component: lazyRouteComponent(() => import('@/routes/Overview'), 'Overview'),
 })
 
 const membersRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/members',
   component: lazyRouteComponent(() => import('@/routes/Members'), 'Members'),
 })
 
 const organizationMachinesRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/machines',
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationMachinesPage'),
@@ -80,7 +90,7 @@ const organizationMachinesRoute = createRoute({
 })
 
 const organizationModelsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/models',
   component: lazyRouteComponent(
     () => import('@/routes/OrganizationModelsPage'),
@@ -89,25 +99,25 @@ const organizationModelsRoute = createRoute({
 })
 
 const secretsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/secrets',
   component: lazyRouteComponent(() => import('@/routes/SecretsPage'), 'SecretsPage'),
 })
 
 const skillsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/skills',
   component: lazyRouteComponent(() => import('@/routes/SkillsPage'), 'SkillsPage'),
 })
 
 const apiTokensRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/user/api-tokens',
   component: lazyRouteComponent(() => import('@/routes/ApiTokensPage'), 'ApiTokensPage'),
 })
 
 const projectRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId',
   beforeLoad: ({ params }) => {
     // The project root has no page of its own; land on the agents list.
@@ -117,74 +127,75 @@ const projectRoute = createRoute({
 })
 
 const projectAgentsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents',
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
 const projectGrantsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/grants',
   component: lazyRouteComponent(() => import('@/routes/ProjectGrantsPage'), 'ProjectGrantsPage'),
 })
 
 const projectSecretsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/secrets',
   component: lazyRouteComponent(() => import('@/routes/ProjectSecretsPage'), 'ProjectSecretsPage'),
 })
 
 const projectSkillsRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/skills',
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
 const agentProfileRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agent-profiles/$profileId',
   component: lazyRouteComponent(() => import('@/routes/AgentProfileView'), 'AgentProfileView'),
 })
 
+const createAgentSearch = z.object({ template: z.string().optional().catch(undefined) })
+
 const createAgentRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents/new',
-  validateSearch: (search: Record<string, unknown>): { template?: string } =>
-    typeof search.template === 'string' ? { template: search.template } : {},
+  validateSearch: createAgentSearch,
   component: lazyRouteComponent(() => import('@/routes/CreateAgentPage'), 'CreateAgentPage'),
 })
 
 const agentRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents/$agentId',
   component: lazyRouteComponent(() => import('@/routes/AgentView'), 'AgentView'),
 })
 
 const deviceAuthRoute = createRoute({
-  getParentRoute: () => authedRoute,
+  getParentRoute: () => authenticatedRoute,
   path: '/device',
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
+  },
   component: lazyRouteComponent(() => import('@/routes/DeviceAuth'), 'DeviceAuth'),
 })
 
 const onboardingRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => authenticatedRoute,
   path: '/onboarding',
-  beforeLoad: async ({ context, location }) => {
-    const me = await ensureMe(context.queryClient, context.omnaraClient, location.href)
-    if (me.orgs.length > 0) {
+  beforeLoad: ({ context, location }) => {
+    if (context.me.orgs.length > 0) {
+      const returnTo = new URL(location.href, window.location.origin).searchParams.get('return_to')
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: '/' })
+      throw redirect({ href: safeReturnTo(returnTo) })
     }
   },
   component: lazyRouteComponent(() => import('@/routes/Onboarding'), 'Onboarding'),
 })
 
 const invitationsRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => authenticatedRoute,
   path: '/invitations',
-  beforeLoad: async ({ context, location }) => {
-    await ensureMe(context.queryClient, context.omnaraClient, location.href)
-  },
   component: lazyRouteComponent(() => import('@/routes/Invitations'), 'Invitations'),
 })
 
@@ -224,34 +235,33 @@ const routeTree = rootRoute.addChildren([
   verifyEmailRoute,
   resetPasswordRoute,
   forgotPasswordRoute,
-  onboardingRoute,
-  invitationsRoute,
-  authedRoute.addChildren([
-    overviewRoute,
-    membersRoute,
-    organizationMachinesRoute,
-    organizationModelsRoute,
-    secretsRoute,
-    skillsRoute,
-    apiTokensRoute,
-    projectRoute,
-    projectAgentsRoute,
-    projectGrantsRoute,
-    projectSecretsRoute,
-    projectSkillsRoute,
-    agentProfileRoute,
-    createAgentRoute,
-    agentRoute,
+  authenticatedRoute.addChildren([
     deviceAuthRoute,
+    onboardingRoute,
+    invitationsRoute,
+    onboardedRoute.addChildren([
+      overviewRoute,
+      membersRoute,
+      organizationMachinesRoute,
+      organizationModelsRoute,
+      secretsRoute,
+      skillsRoute,
+      apiTokensRoute,
+      projectRoute,
+      projectAgentsRoute,
+      projectGrantsRoute,
+      projectSecretsRoute,
+      projectSkillsRoute,
+      agentProfileRoute,
+      createAgentRoute,
+      agentRoute,
+    ]),
   ]),
 ])
 
 export const router = createRouter({
   routeTree,
-  context: {
-    queryClient: undefined as unknown as QueryClient,
-    omnaraClient: undefined as unknown as OmnaraClient,
-  },
+  context: { queryClient, omnaraClient },
   defaultPreload: 'intent',
   defaultPendingComponent: FullPageSpinner,
   defaultErrorComponent: RootError,

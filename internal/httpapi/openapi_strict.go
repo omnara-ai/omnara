@@ -11,6 +11,8 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
 
+const openAPIBasePath = "/api/v1"
+
 type strictOpenAPIServer struct {
 	server *Server
 }

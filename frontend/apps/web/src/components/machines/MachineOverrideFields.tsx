@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { type ProviderOptions, providerOptionStrings } from '@/lib/provider-options'
 
 import { StartupScriptField } from './StartupScriptField'
 
@@ -54,9 +55,9 @@ export function OverridesCollapsible({
   )
 }
 
-function stringDefault(defaults: Record<string, unknown>, key: string) {
+function stringDefault(defaults: Partial<Record<string, string>>, key: string) {
   const value = defaults[key]
-  return typeof value === 'string' && value !== '' ? value : undefined
+  return value === '' ? undefined : value
 }
 
 export function ProviderOptionsOverrideFields({
@@ -73,17 +74,18 @@ export function ProviderOptionsOverrideFields({
    * only real pool values appear — no example placeholders that could read as
    * inherited values.
    */
-  defaults?: Record<string, unknown>
+  defaults?: ProviderOptions
   values: ProviderOptionsDraft
   onChange: (values: ProviderOptionsDraft) => void
 }) {
   if (!isMachinePoolProvider(pool.provider)) return null
   const definition = machinePoolProviderDefinitions[pool.provider]
-  const placeholders = defaults
+  const defaultStrings = defaults && providerOptionStrings(defaults)
+  const placeholders = defaultStrings
     ? {
-        resource: stringDefault(defaults, definition.resource.key),
-        location: stringDefault(defaults, definition.location.key),
-        startupScript: stringDefault(defaults, 'startup_script'),
+        resource: stringDefault(defaultStrings, definition.resource.key),
+        location: stringDefault(defaultStrings, definition.location.key),
+        startupScript: stringDefault(defaultStrings, 'startup_script'),
       }
     : {
         resource: definition.resource.placeholder,
@@ -173,7 +175,10 @@ export function CombinedEnvOverlayEditor({
           {combinedRows.map((row) => {
             const unset = row.kind === 'text' ? row.value === null : row.secretId === null
             return (
-              <div key={row.id} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+              <div
+                key={row.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[1fr_auto_1fr_auto]"
+              >
                 <Input
                   value={row.key}
                   autoComplete="off"

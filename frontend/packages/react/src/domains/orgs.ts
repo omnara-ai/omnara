@@ -20,7 +20,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 // createOrganization has no path params, so useScopedMutation doesn't apply.
@@ -82,12 +82,13 @@ export function useOrgInvitations(orgID: string, options?: OrgInvitationListOpti
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListOrgInvitationsData>(options)
   return useInfiniteQuery({
-    ...listOrgInvitationsInfiniteOptions({
-      path: { orgID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listOrgInvitationsInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -116,12 +117,13 @@ export function useOrgMembers(orgID: string, options?: OrgMemberListOptions) {
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListOrgMembersData>(options)
   return useInfiniteQuery({
-    ...listOrgMembersInfiniteOptions({
-      path: { orgID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listOrgMembersInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

@@ -8,11 +8,11 @@ export interface PaginationControls {
   onNext: () => void
 }
 
-interface CursorQuery<TItem> {
+interface CursorQuery<TItem, TFetchResult> {
   data?: { pages: { data: TItem[] }[] }
   hasNextPage: boolean
   isFetchingNextPage: boolean
-  fetchNextPage: () => Promise<unknown>
+  fetchNextPage: () => Promise<TFetchResult>
 }
 
 /**
@@ -20,7 +20,10 @@ interface CursorQuery<TItem> {
  * the following page on demand; already-fetched pages are revisited from
  * cache. There is no total — the API doesn't report one.
  */
-export function usePagedQuery<TItem>(query: CursorQuery<TItem>, resetKey?: unknown) {
+export function usePagedQuery<TItem, TFetchResult>(
+  query: CursorQuery<TItem, TFetchResult>,
+  resetKey?: string,
+) {
   const [pageIndex, setPageIndex] = useState(0)
   const [previousResetKey, setPreviousResetKey] = useState(resetKey)
   if (!Object.is(previousResetKey, resetKey)) {

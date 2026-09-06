@@ -4,7 +4,14 @@ import {
   classifyDaemonSupervision,
   ensureDaemonApiUrl,
   ensureSupportedPlatform,
+  installCommand,
 } from './machine-setup.ts'
+
+it('builds install instructions from the API origin', () => {
+  expect(installCommand('https://api.example.com/v1')).toBe(
+    "curl -fsSL 'https://api.example.com/install/omnarad.sh' | sh",
+  )
+})
 
 describe('machine create-local preflight', () => {
   it('accepts the platforms the omnarad installer supports', () => {
@@ -24,7 +31,7 @@ describe('machine create-local preflight', () => {
 
   it('accepts API URLs the daemon canonicalizes', () => {
     for (const url of [
-      'https://app.omnara.com',
+      'https://api.omnara.com/v1',
       'https://app.omnara.com/api',
       'http://localhost:8080',
       'http://127.0.0.1:8080',

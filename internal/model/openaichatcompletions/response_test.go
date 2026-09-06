@@ -711,7 +711,86 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 			CachedTokens:     2,
 			CacheWriteTokens: 9,
 		},
-	}); got != (model.Usage{}) {
-		t.Fatalf("impossible cache-write distribution produced usage: %+v", got)
+	}); got != (model.Usage{InputTokens: 10, UncachedInputTokens: 10}) {
+		t.Fatalf("impossible cache-write distribution = %+v, want totals kept and the breakdown dropped", got)
+	}
+}
+
+func TestParseResponseRecordsOpenRouterServedProvider(t *testing.T) {
+	body := json.RawMessage(`{"id":"chatcmpl_provider","model":"moonshotai/kimi-k3","provider":"Moonshot AI",` +
+		`"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+		`"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+
+	openRouter := protocol{client: Client{APIVariant: modelprotocol.APIVariantOpenRouter}}
+	response, err := openRouter.ParseResponse(context.Background(), route.Response{
+		StatusCode: http.StatusOK,
+		Body:       body,
+	})
+	if err != nil {
+		t.Fatalf("parse OpenRouter response: %v", err)
+	}
+	if response.ProviderMetadata.OpenRouter.Provider != "Moonshot AI" {
+		t.Fatalf("provider metadata = %+v, want Moonshot AI", response.ProviderMetadata)
+	}
+	malformed := json.RawMessage(`{"id":"chatcmpl_provider","model":"moonshotai/kimi-k3","provider":{"name":"Moonshot AI"},` +
+		`"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],` +
+		`"usage":{"prompt_tokens":10,"completion_tokens":2}}`)
+	response, err = openRouter.ParseResponse(context.Background(), route.Response{
+		StatusCode: http.StatusOK,
+		Body:       malformed,
+	})
+	if err != nil || response.ProviderMetadata != (modelenvelope.ProviderMetadata{}) || response.Usage.InputTokens != 10 {
+		t.Fatalf("malformed provider field: err=%v metadata=%+v usage=%+v, want parsed without metadata", err,
+			response.ProviderMetadata, response.Usage)
+	}
+
+	response, err = (protocol{}).ParseResponse(context.Background(), route.Response{
+		StatusCode: http.StatusOK,
+		Body:       body,
+	})
+	if err != nil {
+		t.Fatalf("parse default response: %v", err)
+	}
+	if response.ProviderMetadata != (modelenvelope.ProviderMetadata{}) {
+		t.Fatalf("default variant provider metadata = %+v, want none", response.ProviderMetadata)
+	}
+}
+
+func TestUsageFromResponseReadsProviderCacheSpellings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "openai details",
+			body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":256}}`,
+		},
+		{
+			name: "deepseek",
+			body: `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":27}`,
+		},
+		{name: "moonshot", body: `{"prompt_tokens":283,"completion_tokens":2,"cached_tokens":256}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var usage chatUsage
+			if err := json.Unmarshal([]byte(tc.body), &usage); err != nil {
+				t.Fatalf("decode usage: %v", err)
+			}
+			got := usageFromResponse(usage)
+			if got.InputTokens != 283 || got.CacheReadTokens != 256 || got.UncachedInputTokens != 27 {
+				t.Fatalf("usage = %+v, want 283 input with 256 cached", got)
+			}
+		})
+	}
+}
+
+func TestUsageFromResponseIgnoresMalformedCacheTelemetry(t *testing.T) {
+	var usage chatUsage
+	body := `{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":"unknown","cached_tokens":{"n":1}}`
+	if err := json.Unmarshal([]byte(body), &usage); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if got := usageFromResponse(usage); got.InputTokens != 283 || got.CacheReadTokens != 0 {
+		t.Fatalf("usage = %+v, want 283 input with no cache read", got)
 	}
 }

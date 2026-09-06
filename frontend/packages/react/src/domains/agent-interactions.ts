@@ -1,4 +1,4 @@
-import { type OmnaraClient, sdk } from '@omnara/sdk'
+import { type ListAgentInteractionsResponse, type OmnaraClient, sdk } from '@omnara/sdk'
 import {
   getAgentQueryKey,
   listAgentInteractionsOptions,
@@ -48,6 +48,7 @@ export function useAgentInteractions(
 export function useResolveAgentInteraction(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
+  const queryKey = openAgentInteractionsQueryKey(client, { orgID, projectID, agentID })
   return useMutation({
     mutationFn: async ({
       interactionID,
@@ -63,10 +64,21 @@ export function useResolveAgentInteraction(orgID: string, projectID: string, age
       })
       return data
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: openAgentInteractionsQueryKey(client, { orgID, projectID, agentID }),
-      })
+    onMutate: async ({ interactionID }) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ListAgentInteractionsResponse>(queryKey)
+      queryClient.setQueryData<ListAgentInteractionsResponse>(queryKey, (current) =>
+        current == null
+          ? current
+          : { ...current, data: current.data.filter((item) => item.id !== interactionID) },
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous != null) queryClient.setQueryData(queryKey, context.previous)
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey })
     },
   })
 }

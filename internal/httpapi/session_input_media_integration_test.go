@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -61,9 +62,10 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
+	filename := strings.Repeat("界", 100) + ".png"
 	body := `{"content_blocks":[` +
 		`{"type":"text","text":"what is in this image?"},` +
-		`{"type":"media","media_type":"image/png","filename":"pixel.png","data":"` + pngBase64 + `","metadata":{"omnara_hidden":"true"}}` +
+		`{"type":"media","media_type":"image/png","filename":"` + filename + `","data":"` + pngBase64 + `","metadata":{"omnara_hidden":"true"}}` +
 		`]}`
 	created := requestJSONWithHeaders(
 		t,
@@ -112,7 +114,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		t.Fatalf("artifact metadata must not expose kind: %+v", metadata)
 	}
 	if metadata["content_type"] != "image/png" ||
-		metadata["filename"] != "pixel.png" {
+		metadata["filename"] != filename {
 		t.Fatalf("unexpected artifact metadata: %+v", metadata)
 	}
 	if metadata["size_bytes"].(float64) != float64(len(testPNGBytes)) {
@@ -129,8 +131,9 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 	if rec.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("download content-type = %q", rec.Header().Get("Content-Type"))
 	}
-	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="pixel.png"` {
-		t.Fatalf("download content-disposition = %q", got)
+	disposition, params, err := mime.ParseMediaType(rec.Header().Get("Content-Disposition"))
+	if err != nil || disposition != "attachment" || params["filename"] != filename {
+		t.Fatalf("download content-disposition = %q", rec.Header().Get("Content-Disposition"))
 	}
 	if rec.Header().Get("ETag") == "" {
 		t.Fatal("download must include a digest ETag")
@@ -276,6 +279,20 @@ func TestSessionInputInlineMediaValidation(t *testing.T) {
 	)
 	if empty["code"] != "validation_failed" {
 		t.Fatalf("unexpected error: %+v", empty)
+	}
+
+	invalidText := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		inputsPath,
+		`{"content_blocks":[{"type":"media","media_type":"text/plain","data":"/w=="}]}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	if invalidText["code"] != "invalid_request" {
+		t.Fatalf("unexpected error: %+v", invalidText)
 	}
 }
 

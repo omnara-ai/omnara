@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentInputQueue } from '@/components/agents/AgentInputQueue'
+import { enableReactActEnvironment } from '@/test/react-act'
 
 const cancel = vi.fn()
 const promote = vi.fn()
@@ -61,17 +62,22 @@ describe('AgentInputQueue', () => {
     firstQueued.content_blocks = [
       { type: 'text', text: 'Hidden web context', metadata: { omnara_hidden: 'true' } },
       { type: 'text', text: 'Raw message', metadata: { omnara_display_text: 'First queued' } },
+      { type: 'media_ref', artifact_id: 'artifact-with-text' },
     ]
     const steering = input('input-2', 'Send me', 'steering')
     const attachment = input('input-3', '')
-    attachment.content_blocks = [{ type: 'media_ref', artifact_id: 'artifact' }]
+    attachment.content_blocks = [
+      { type: 'media_ref', artifact_id: 'artifact-1' },
+      { type: 'media_ref', artifact_id: 'artifact-2' },
+    ]
 
     const html = renderToStaticMarkup(
       <AgentInputQueue {...queueProps} backlog={backlog([steering, firstQueued, attachment])} />,
     )
 
     expect(html.indexOf('Send me')).toBeLessThan(html.indexOf('First queued'))
-    expect(html).toContain('Attachment')
+    expect(html).toContain('2 attachments')
+    expect(html.match(/lucide-file/g)).toHaveLength(2)
     expect(html).toContain('Now')
     expect(html).toContain('Next')
     expect(html).toContain('>2</span>')
@@ -103,13 +109,16 @@ describe('AgentInputQueue', () => {
     const html = renderToStaticMarkup(
       <AgentInputQueue
         {...queueProps}
-        backlog={backlog([{ id: 'key-1', delivery_mode: 'optimistic', text: 'Message' }])}
+        backlog={backlog([
+          { id: 'key-1', delivery_mode: 'optimistic', text: 'Message', attachmentCount: 1 },
+        ])}
       />,
     )
 
     expect(html).toContain('Sending…')
     expect(html).not.toContain('Send now')
     expect(html).toContain('disabled')
+    expect(html).toContain('lucide-file')
   })
 
   it('keeps multiple steering inputs in their authoritative FIFO order', () => {
@@ -183,11 +192,7 @@ describe('AgentInputQueue', () => {
           resolveMove = resolve
         }),
     )
-    const actEnvironment = globalThis as typeof globalThis & {
-      IS_REACT_ACT_ENVIRONMENT?: boolean
-    }
-    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    const restoreActEnvironment = enableReactActEnvironment()
 
     try {
       act(() => {
@@ -286,7 +291,7 @@ describe('AgentInputQueue', () => {
         root.unmount()
       })
       container.remove()
-      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
+      restoreActEnvironment()
     }
   })
 })

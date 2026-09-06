@@ -150,6 +150,7 @@ openapi-compat-fixture-check:
 openapi-compat-check:
 	@test -n "$(COMPAT_BASE_SHA)" || { printf 'COMPAT_BASE_SHA is required\n'; exit 2; }
 	$(OASDIFF_BREAKING) \
+		--strip-prefix-base /api/v1 \
 		--err-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--warn-ignore tools/ci/openapi-compat/approved-breaking-changes.txt \
 		--format $(OASDIFF_FORMAT) \
@@ -443,12 +444,14 @@ test-live-web:
 test-live-openai-responses:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Responses tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_responses$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIResponses(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint$$'
 
 test-live-openai-chat-completions:
 	@$(LOAD_DOTENV); \
 	: "$${OPENAI_API_KEY:?OPENAI_API_KEY is required for live OpenAI Chat Completions tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openai_chat$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenAIChatCompletionsText$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenAIChatCompletions(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint$$'
@@ -456,6 +459,7 @@ test-live-openai-chat-completions:
 test-live-openrouter:
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live OpenRouter tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openrouter_.*$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveOpenRouter(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveOpenRouterCompactionCreatesCheckpoint$$'
@@ -463,6 +467,7 @@ test-live-openrouter:
 test-live-anthropic:
 	@$(LOAD_DOTENV); \
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live Anthropic tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/anthropic$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveAnthropicCompactionCreatesCheckpoint$$'
 
@@ -495,22 +500,14 @@ test-blackbox:
 
 docs-openapi:
 	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
-	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
-	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
-	  echo "servers:"; \
-	  echo "  - url: https://api.omnara.com/v1"; \
-	  echo "    description: Hosted Omnara"; } > docs/api-reference/openapi.yaml
+	  cat api/openapi/openapi.yaml; } > docs/api-reference/openapi.yaml
 	@echo "docs-openapi: spec copied. Mintlify auto-generates the Endpoints pages from it at build time."
 
 docs-openapi-check:
 	@tmp="$$(mktemp)"; \
 	trap 'rm -f "$$tmp"' EXIT; \
 	{ echo "# Published documentation view of api/openapi/openapi.yaml. Do not edit by hand; run 'make docs-openapi' after changing the canonical spec."; \
-	  sed 's#^  /api/v1/#  /#' api/openapi/openapi.yaml; \
-	  echo "# The hosted API exposes canonical /api/v1 routes at https://api.omnara.com/v1."; \
-	  echo "servers:"; \
-	  echo "  - url: https://api.omnara.com/v1"; \
-	  echo "    description: Hosted Omnara"; } > "$$tmp"; \
+	  cat api/openapi/openapi.yaml; } > "$$tmp"; \
 	diff -u "$$tmp" docs/api-reference/openapi.yaml || { \
 		printf '\ndocs/api-reference/openapi.yaml is stale; run make docs-openapi\n'; \
 		exit 1; \

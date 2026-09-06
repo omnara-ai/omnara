@@ -18,12 +18,19 @@ const (
 	DeviceAuthFlowTTL      = 15 * time.Minute
 	DeviceAuthPollInterval = 5 * time.Second
 	deviceAuthCodeAttempts = 5
+	deviceAuthClientIDMax  = 256
 )
 
 func (s *Store) StartDeviceAuthFlow(
 	ctx context.Context,
 	input StartDeviceAuthFlowInput,
 ) (DeviceAuthFlowStartRecord, error) {
+	clientID := input.ClientID
+	if clientID == "" || len(clientID) > deviceAuthClientIDMax || strings.IndexFunc(clientID, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) >= 0 {
+		return DeviceAuthFlowStartRecord{}, storeerr.ErrInvalidDeviceAuthFlow
+	}
 	clientName := input.ClientName
 	if clientName == "" {
 		clientName = "Device"
@@ -56,6 +63,7 @@ func (s *Store) StartDeviceAuthFlow(
 		flow, err := s.q.CreateAuthDeviceFlow(ctx, dbsqlc.CreateAuthDeviceFlowParams{
 			DeviceCodeHash: HashBearerToken(deviceCode),
 			UserCodeHash:   HashBearerToken(NormalizeDeviceUserCode(userCode)),
+			ClientID:       clientID,
 			ClientName:     clientName,
 			TokenName:      tokenName,
 			TtlSeconds:     int64(DeviceAuthFlowTTL / time.Second),
@@ -202,7 +210,7 @@ func (s *Store) PollDeviceAuthFlow(
 	ctx context.Context,
 	input DeviceAuthFlowPollInput,
 ) (DeviceAuthFlowPollRecord, error) {
-	if input.DeviceCode == "" {
+	if input.DeviceCode == "" || input.ClientID == "" {
 		return DeviceAuthFlowPollRecord{}, storeerr.ErrUnauthorized
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -220,6 +228,9 @@ func (s *Store) PollDeviceAuthFlow(
 	}
 	if err != nil {
 		return DeviceAuthFlowPollRecord{}, fmt.Errorf("load device auth flow: %w", err)
+	}
+	if flow.ClientID != input.ClientID {
+		return DeviceAuthFlowPollRecord{Status: DeviceAuthFlowStatusInvalid, Interval: DeviceAuthPollInterval}, nil
 	}
 	pollState, err := qtx.GetAuthDeviceFlowPollState(
 		ctx,
@@ -312,11 +323,24 @@ func NormalizeDeviceUserCode(code string) string {
 	return code
 }
 
+func CanonicalDeviceUserCode(code string) (string, bool) {
+	code = NormalizeDeviceUserCode(code)
+	if len(code) != 10 || strings.IndexFunc(code, func(char rune) bool {
+		return (char < 'A' || char > 'F') && (char < '0' || char > '9')
+	}) >= 0 {
+		return "", false
+	}
+	return code[:5] + "-" + code[5:], true
+}
+
 func randomUserCode() (string, error) {
 	raw, err := randomTokenPart(5)
 	if err != nil {
 		return "", fmt.Errorf("generate user code: %w", err)
 	}
-	code := strings.ToUpper(raw)
-	return code[:5] + "-" + code[5:], nil
+	code, ok := CanonicalDeviceUserCode(raw)
+	if !ok {
+		return "", errors.New("generated invalid user code")
+	}
+	return code, nil
 }

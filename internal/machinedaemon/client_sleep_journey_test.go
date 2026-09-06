@@ -36,7 +36,7 @@ func TestDaemonSleepWakeJourney(t *testing.T) {
 	slept := make(chan int64, 8)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/daemon/bootstrap", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /daemon/bootstrap", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(t, w, map[string]any{
 			"installation_id":  "inst_journey",
 			"org_id":           "org_journey",
@@ -44,7 +44,7 @@ func TestDaemonSleepWakeJourney(t *testing.T) {
 			"daemon_base_path": "/daemon",
 		})
 	})
-	mux.HandleFunc("POST /api/v1/daemon/runtimes", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /daemon/runtimes", func(w http.ResponseWriter, _ *http.Request) {
 		count := registers.Add(1)
 		registered <- count
 		writeTestJSON(t, w, map[string]any{
@@ -52,7 +52,7 @@ func TestDaemonSleepWakeJourney(t *testing.T) {
 			"reconciliation": map[string]any{},
 		})
 	})
-	mux.HandleFunc("GET /api/v1/daemon/runtimes/rt_journey/socket", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /daemon/runtimes/rt_journey/socket", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -64,7 +64,7 @@ func TestDaemonSleepWakeJourney(t *testing.T) {
 			}
 		}
 	})
-	mux.HandleFunc("POST /api/v1/daemon/runtimes/rt_journey/sleep", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /daemon/runtimes/rt_journey/sleep", func(w http.ResponseWriter, _ *http.Request) {
 		count := sleeps.Add(1)
 		slept <- count
 		if count == 1 {
@@ -74,7 +74,7 @@ func TestDaemonSleepWakeJourney(t *testing.T) {
 		}
 		writeTestJSON(t, w, map[string]any{"id": "rt_journey", "state": "ended", "state_reason_code": "machine_asleep"})
 	})
-	mux.HandleFunc("POST /api/v1/daemon/runtimes/rt_journey/end", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /daemon/runtimes/rt_journey/end", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(t, w, map[string]any{"id": "rt_journey", "state": "ended"})
 	})
 	server := httptest.NewServer(mux)

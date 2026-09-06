@@ -4,12 +4,12 @@ import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
 const STORAGE_KEY = 'omnara:pending-mcp-builder-oauth'
 
-const draftShape = z.looseObject({
+const mcpServersDraft = z.looseObject({
   mcpServers: z.array(z.looseObject({ id: z.string(), secretId: z.string() })),
 })
 
 const basicConfig: z.ZodType<BasicConfig> = z.custom<BasicConfig>(
-  (value) => draftShape.safeParse(value).success,
+  (value) => mcpServersDraft.safeParse(value).success,
 )
 
 const pendingRecord = z.object({

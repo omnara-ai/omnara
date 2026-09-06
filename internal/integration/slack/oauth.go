@@ -27,6 +27,7 @@ var RequiredBotScopes = []string{
 	"channels:history",
 	"channels:read",
 	"files:read",
+	"files:write",
 	"groups:history",
 	"groups:read",
 	"im:history",

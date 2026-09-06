@@ -191,7 +191,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
       )}
       {tab === 'schedules' && (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
             {canManage && (
               <Button

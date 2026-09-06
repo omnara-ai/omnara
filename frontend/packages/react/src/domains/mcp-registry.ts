@@ -4,7 +4,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 
 import { useOmnaraClient } from '../omnara-client'
 import { DEFAULT_LIST_PAGE_SIZE, type ListFilters } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 
 export type ServerListFilters = ListFilters<ListMcpServersData>
 
@@ -18,8 +18,9 @@ export function useServers(options?: ServerListOptions) {
   const client = useOmnaraClient()
   const { filters, pageSize = DEFAULT_LIST_PAGE_SIZE, enabled = true } = options ?? {}
   return useInfiniteQuery({
-    ...listMcpServersInfiniteOptions({ query: { ...filters, limit: pageSize }, client }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listMcpServersInfiniteOptions({ query: { ...filters, limit: pageSize }, client }),
+    ),
     enabled,
   })
 }

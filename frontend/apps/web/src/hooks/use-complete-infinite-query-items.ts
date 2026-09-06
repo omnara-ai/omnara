@@ -2,13 +2,13 @@ import { useEffect } from 'react'
 
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
-interface CompleteInfiniteQuery<TItem> {
+interface CompleteInfiniteQuery<TItem, TFetchResult> {
   data?: { pages: { data: TItem[] }[] }
   hasNextPage: boolean
   isError: boolean
   isFetching: boolean
   isPending: boolean
-  fetchNextPage: () => Promise<unknown>
+  fetchNextPage: () => Promise<TFetchResult>
 }
 
 /**
@@ -16,8 +16,8 @@ interface CompleteInfiniteQuery<TItem> {
  * This is reserved for exclusion sets where partial data would make the UI
  * offer resources that are not actually eligible for an operation.
  */
-export function useCompleteInfiniteQueryItems<TItem>(
-  query: CompleteInfiniteQuery<TItem>,
+export function useCompleteInfiniteQueryItems<TItem, TFetchResult>(
+  query: CompleteInfiniteQuery<TItem, TFetchResult>,
   enabled: boolean,
 ) {
   const items = useInfiniteQueryItems(query)

@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func (s strictOpenAPIServer) ListAgentInteractions(
@@ -192,6 +193,10 @@ func agentInteractionResponseFromRecord(
 	if err != nil {
 		return openapi.AgentInteraction{}, err
 	}
+	toolCallID, err := publicID(publicid.KindToolCall, record.ToolCallID)
+	if err != nil {
+		return openapi.AgentInteraction{}, err
+	}
 	request, err := record.Form()
 	if err != nil {
 		return openapi.AgentInteraction{}, err
@@ -201,11 +206,19 @@ func agentInteractionResponseFromRecord(
 		OrgId:           orgID,
 		ProjectId:       projectID,
 		AgentId:         agentID,
+		ToolCallId:      toolCallID,
 		InteractionKind: openapi.AgentInteractionKind(record.InteractionKind),
 		State:           openapi.AgentInteractionState(record.State),
 		Request:         openAPIInteractionForm(request),
 		CreatedAt:       record.CreatedAt,
 		ResolvedAt:      timePtrFromZero(record.ResolvedAt),
+	}
+	if record.InteractionKind == executionstore.AgentInteractionKindPermission {
+		permissionRequest, err := toolpermission.ParseRequest(record.Request)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.ToolName = &permissionRequest.Authorization.ToolName
 	}
 	if record.State == executionstore.AgentInteractionStateResolved {
 		resolution, err := interactionform.ParseResolution(request, record.Resolution)

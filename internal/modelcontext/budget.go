@@ -80,6 +80,10 @@ func replaceInlineMediaFields(value any, encodedMedia map[string]struct{}) {
 			replaceDataURLField(typed, "image_url", encodedMedia)
 		case "input_file":
 			replaceDataURLField(typed, "file_data", encodedMedia)
+		case "file":
+			if file, ok := typed["file"].(map[string]any); ok {
+				replaceDataURLField(file, "file_data", encodedMedia)
+			}
 		case "image", "document":
 			if source, ok := typed["source"].(map[string]any); ok && source["type"] == "base64" {
 				replaceEncodedField(source, "data", encodedMedia)

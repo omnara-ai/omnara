@@ -20,6 +20,7 @@ import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
+import { providerOptionStrings } from '@/lib/provider-options'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 type ActiveDialog =
@@ -152,7 +153,8 @@ export function MachinePoolsSection() {
                   label: 'Startup script',
                   value: (
                     <span className="whitespace-pre-wrap">
-                      {stringValue(pool.default_machine_provider_options.startup_script) ?? 'None'}
+                      {providerOptionStrings(pool.default_machine_provider_options)
+                        .startup_script ?? 'None'}
                     </span>
                   ),
                   mono: true,
@@ -280,29 +282,25 @@ function formatResourceUsage(pool: MachinePool) {
 function providerDetails(pool: MachinePool): DetailItem[] {
   if (!isMachinePoolProvider(pool.provider)) return []
   const definition = machinePoolProviderDefinitions[pool.provider]
-  const options = pool.default_machine_provider_options
+  const options = providerOptionStrings(pool.default_machine_provider_options)
   const details: DetailItem[] = [
     {
       label: `${definition.label} ${definition.resource.label.toLowerCase()}`,
-      value: stringValue(options[definition.resource.key]),
+      value: options[definition.resource.key],
       mono: true,
     },
     {
       label: `${definition.label} ${definition.location.label.toLowerCase()}`,
-      value: stringValue(options[definition.location.key]),
+      value: options[definition.location.key],
     },
   ]
   if (definition.requiresWorkspace) {
     details.push({
       label: `${definition.label} workspace`,
-      value: stringValue(pool.provider_config.workspace),
+      value: providerOptionStrings(pool.provider_config).workspace,
     })
   }
   return details
-}
-
-function stringValue(value: unknown) {
-  return typeof value === 'string' ? value : undefined
 }
 
 function formatEntries(values: Record<string, string>) {

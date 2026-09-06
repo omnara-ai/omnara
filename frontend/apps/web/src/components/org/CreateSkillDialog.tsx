@@ -2,7 +2,7 @@ import { useCreateSkill } from '@omnara/react'
 import type { SkillOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useId, useState } from 'react'
 
-import { FileArchive } from '@/components/icons'
+import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { errorMessage } from '@/lib/submit-status'
 
 export function CreateSkillDialog({
@@ -73,21 +72,15 @@ export function CreateSkillDialog({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor={inputId}>Skill archive</FieldLabel>
-              <div className="border-border bg-muted/20 flex items-center gap-3 rounded-lg border border-dashed p-4">
-                <div className="bg-background flex size-9 shrink-0 items-center justify-center rounded-md border">
-                  <FileArchive className="text-muted-foreground size-4" />
-                </div>
-                <Input
-                  id={inputId}
-                  type="file"
-                  accept=".zip,.tar.gz,application/zip,application/gzip"
-                  disabled={createSkill.isPending}
-                  onChange={(event) => {
-                    setArchive(event.target.files?.[0])
-                    createSkill.reset()
-                  }}
-                />
-              </div>
+              <SkillArchivePicker
+                id={inputId}
+                file={archive}
+                disabled={createSkill.isPending}
+                onSelect={(file) => {
+                  setArchive(file)
+                  createSkill.reset()
+                }}
+              />
               <FieldDescription>
                 The skill name and description are read from SKILL.md.
               </FieldDescription>

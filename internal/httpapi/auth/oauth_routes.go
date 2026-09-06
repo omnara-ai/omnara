@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -284,7 +285,7 @@ func (h *Handler) oidcIdentity(
 			if userInfoClaims.Subject == "" || userInfoClaims.Subject != claims.Subject {
 				return externalIdentity{}, errors.New("oidc userinfo subject mismatch")
 			}
-			if claims.Email != "" && userInfoClaims.Email != "" && !strings.EqualFold(claims.Email, userInfoClaims.Email) {
+			if claims.Email != "" && userInfoClaims.Email != "" && !emailaddr.Equal(claims.Email, userInfoClaims.Email) {
 				return externalIdentity{}, errors.New("oidc userinfo email mismatch")
 			}
 			if claims.Email == "" {
@@ -292,7 +293,7 @@ func (h *Handler) oidcIdentity(
 				claims.EmailVerified = userInfoClaims.EmailVerified
 			} else if claims.EmailVerified == nil &&
 				userInfoClaims.Email != "" &&
-				strings.EqualFold(claims.Email, userInfoClaims.Email) {
+				emailaddr.Equal(claims.Email, userInfoClaims.Email) {
 				claims.EmailVerified = userInfoClaims.EmailVerified
 			}
 			if claims.Name == "" {

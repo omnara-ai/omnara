@@ -23,7 +23,7 @@ interface GrantToProjectState {
 
 const noExcludedProjectIds: string[] = []
 
-export function GrantToProjectDialog({
+export function GrantToProjectDialog<TGrant>({
   open,
   onOpenChange,
   orgId,
@@ -38,7 +38,7 @@ export function GrantToProjectDialog({
   onOpenChange: (open: boolean) => void
   orgId: string
   resourceName: string
-  onGrant: (projectId: string) => Promise<unknown>
+  onGrant: (projectId: string) => Promise<TGrant>
   isProjectEligible: (project: VisibleProject) => boolean
   excludedProjectIds?: string[]
   options?: ReactNode

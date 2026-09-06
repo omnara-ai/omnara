@@ -86,27 +86,52 @@ func TestProviderMediaProjectionMatchesSerializedRepresentations(t *testing.T) {
 		want   map[string]string
 	}{
 		{
-			name:   "chat sends only images",
+			name:   "chat sends only supported documents",
 			client: openaichatcompletions.Client{},
-			want:   map[string]string{imageID: modelcontext.MediaRepresentationInline},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline + "/image",
+				pdfID:   modelcontext.MediaRepresentationInline + "/file",
+				textID:  modelcontext.MediaRepresentationInlineText + "/",
+			},
+		},
+		{
+			name: "openrouter chat sends only supported documents",
+			client: openaichatcompletions.Client{
+				APIVariant: modelprotocol.APIVariantOpenRouter,
+			},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline + "/image",
+				pdfID:   modelcontext.MediaRepresentationInline + "/",
+				textID:  modelcontext.MediaRepresentationInlineText + "/",
+			},
+		},
+		{
+			name: "chat omits historical PDF excluded by grant",
+			client: openaichatcompletions.Client{
+				ModelCapabilities: model.Capabilities{InputModalities: []string{"text", "image"}},
+			},
+			want: map[string]string{
+				imageID: modelcontext.MediaRepresentationInline + "/image",
+				textID:  modelcontext.MediaRepresentationInlineText + "/",
+			},
 		},
 		{
 			name:   "anthropic sends supported media",
 			client: anthropicmessages.Client{},
 			want: map[string]string{
-				imageID: modelcontext.MediaRepresentationInline,
-				pdfID:   modelcontext.MediaRepresentationInline,
-				textID:  modelcontext.MediaRepresentationInlineText,
+				imageID: modelcontext.MediaRepresentationInline + "/image",
+				pdfID:   modelcontext.MediaRepresentationInline + "/file",
+				textID:  modelcontext.MediaRepresentationInlineText + "/",
 			},
 		},
 		{
 			name:   "responses sends images and documents",
 			client: openairesponses.Client{},
 			want: map[string]string{
-				imageID:  modelcontext.MediaRepresentationInline,
-				pdfID:    modelcontext.MediaRepresentationInline,
-				textID:   modelcontext.MediaRepresentationInline,
-				officeID: modelcontext.MediaRepresentationInline,
+				imageID:  modelcontext.MediaRepresentationInline + "/image",
+				pdfID:    modelcontext.MediaRepresentationInline + "/file",
+				textID:   modelcontext.MediaRepresentationInlineText + "/",
+				officeID: modelcontext.MediaRepresentationInline + "/file",
 			},
 		},
 	}
@@ -115,7 +140,7 @@ func TestProviderMediaProjectionMatchesSerializedRepresentations(t *testing.T) {
 			projected := model.MediaProjectorForClient(test.client).ProjectRenderedMedia(bundle)
 			got := make(map[string]string, len(projected))
 			for _, item := range projected {
-				got[item.Media.ArtifactID] = item.Representation
+				got[item.Media.ArtifactID] = item.Representation + "/" + item.InputModality()
 			}
 			if !maps.Equal(got, test.want) {
 				t.Fatalf("projected media = %+v, want %+v", got, test.want)

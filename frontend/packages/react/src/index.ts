@@ -1,12 +1,16 @@
 export { projectActorsQueryPredicate, useCurrentActorId } from './domains/actors'
-export { useDownloadAgentArtifact } from './domains/agent-artifacts'
 export {
+  type AgentChatAttachmentInput,
   type AgentChatData,
   type AgentChatHistoryStatus,
+  type AgentChatMessageInput,
+  type AgentChatOptions,
   type AgentChatScope,
   AgentChatSession,
   type AgentChatSessionOptions,
+  type AgentChatSource,
   type AgentChatStatus,
+  type AgentChatTransport,
   type OmnaraMessageMetadata,
   type OmnaraUIMessage,
   useAgentChat,
@@ -15,6 +19,8 @@ export {
 export {
   type AgentInputBacklogItem,
   type AgentInputBacklogMove,
+  type AgentInputBacklogPreview,
+  backlogInputPreview,
   reorderAgentInputBacklog,
   useAgentInputBacklog,
 } from './domains/agent-input-backlog'
@@ -159,7 +165,7 @@ export {
   useOrgMembers,
   useOrgOverview,
 } from './domains/orgs'
-export { cursorPagination } from './domains/pagination'
+export { cursorPaginated } from './domains/pagination'
 export {
   useCreatePersonalAccessToken,
   usePersonalAccessTokens,
@@ -227,8 +233,10 @@ export {
   useDeleteSkillGrant,
   useGrantSkillToProject,
   useProjectAvailableSkills,
+  useSkill,
   useSkillGrants,
   useSkills,
+  useUpdateSkill,
 } from './domains/skills'
 export { useToolCatalog } from './domains/tool-catalog'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

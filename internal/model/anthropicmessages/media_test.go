@@ -503,7 +503,7 @@ func TestPrepareRendersTextDocumentsAsPlainTextSource(t *testing.T) {
 				},
 			},
 		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
+		Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionNone},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)

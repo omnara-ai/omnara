@@ -7,6 +7,7 @@ import { CodeTabsBlock } from '@/components/overview/CodeBlock'
 import { chatCommands } from '@/components/overview/onboardingCli'
 import { type ChatRun, useCreateChat } from '@/components/overview/useCreateChat'
 import { Button } from '@/components/ui/button'
+import { useWebConfig } from '@/lib/web-config'
 
 export function CreateChat({
   orgId,
@@ -85,8 +86,10 @@ export function ChatOptions({
   profile: AgentProfile
   run?: ChatRun
 }) {
+  const { data: webConfig } = useWebConfig()
+  const apiUrl = webConfig?.apiURL ?? `${window.location.origin}/api/v1`
   const commands = chatCommands({
-    origin: window.location.origin,
+    apiUrl,
     orgId,
     projectId: project.id,
     profileId: profile.id,

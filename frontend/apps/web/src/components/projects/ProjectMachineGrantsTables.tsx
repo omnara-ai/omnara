@@ -28,12 +28,12 @@ import {
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
+import { type ProviderOptions, providerOptionSummaries } from '@/lib/provider-options'
 import { useActiveOrg } from '@/lib/use-active-org'
 
-function overlaySummary(overlay: Record<string, unknown>) {
-  const summary = Object.entries(overlay)
-    .map(([key, value]) => {
-      const text = typeof value === 'string' ? value : JSON.stringify(value)
+function overlaySummary(overlay: ProviderOptions) {
+  const summary = Object.entries(providerOptionSummaries(overlay))
+    .map(([key, text]) => {
       return text.length > 60 || text.includes('\n')
         ? `${key}: (${text.length} chars)`
         : `${key}: ${text}`

@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $20
-    AND agent.id = $21
+  WHERE agent.project_id = $21
+    AND agent.id = $22
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $22
+  WHERE runtime_lock.id = $23
     AND (
-      $23::boolean
+      $24::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -142,11 +142,12 @@ SET state = $1,
     output_tokens_total = $16::integer,
     reasoning_output_tokens = $17::integer,
     provider_reported_cost_usd = $18::text::numeric,
+    provider_metadata = $19,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $19
+  AND context.id = $20
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -171,6 +172,7 @@ type FinishModelCallContextParams struct {
 	OutputTokensTotal                   *int32
 	ReasoningOutputTokens               *int32
 	ProviderReportedCostUsd             *string
+	ProviderMetadata                    json.RawMessage
 	ID                                  uuid.UUID
 	ProjectID                           uuid.UUID
 	AgentID                             uuid.UUID
@@ -198,6 +200,7 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.OutputTokensTotal,
 		arg.ReasoningOutputTokens,
 		arg.ProviderReportedCostUsd,
+		arg.ProviderMetadata,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
@@ -275,7 +278,8 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
   context.output_tokens_total, context.reasoning_output_tokens,
   context.created_at, context.completed_at,
-  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd
+  coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
+  context.provider_metadata
 FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
@@ -320,6 +324,7 @@ type GetModelCallContextRow struct {
 	CreatedAt                 time.Time
 	CompletedAt               *time.Time
 	ProviderReportedCostUsd   string
+	ProviderMetadata          json.RawMessage
 }
 
 func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (GetModelCallContextRow, error) {
@@ -357,6 +362,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.CreatedAt,
 		&i.CompletedAt,
 		&i.ProviderReportedCostUsd,
+		&i.ProviderMetadata,
 	)
 	return i, err
 }

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -71,5 +73,30 @@ func TestConfiguredOriginRejectsMalformedPublicURL(t *testing.T) {
 	_, err := New(discardLogger(), nil, WithPublicURL("not-a-url"))
 	if err == nil || !strings.Contains(err.Error(), "invalid public URL") {
 		t.Fatalf("New error = %v, want invalid public URL", err)
+	}
+}
+
+func TestPublicHostGuardAcceptsConfiguredAppAndAPIHosts(t *testing.T) {
+	server := mustNewUnitServer(
+		t,
+		WithPublicURL("https://app.omnara.test"),
+		WithPublicAPIURL("https://api.omnara.test/v1"),
+	)
+	handler := server.publicHostGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for _, host := range []string{"app.omnara.test", "api.omnara.test"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "https://"+host+"/healthz", nil)
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("host %q status = %d, want %d", host, recorder.Code, http.StatusNoContent)
+		}
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://other.omnara.test/healthz", nil)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unconfigured host status = %d, want %d", recorder.Code, http.StatusNotFound)
 	}
 }

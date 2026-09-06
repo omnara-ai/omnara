@@ -1,5 +1,6 @@
-import type { MachinePool, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
+
+import { machinePool, projectMachinePoolGrant } from '@/test/fixtures'
 
 import {
   emptyPoolGrantDraft,
@@ -8,13 +9,9 @@ import {
   poolGrantUpdateRequest,
 } from './GrantMachinePoolDialogState'
 
-const pool = {
-  id: 'pool_1',
-  provider: 'unknown',
-  management_kind: 'tenant',
-} as MachinePool
+const pool = machinePool({ id: 'pool_1', provider: 'unknown', management_kind: 'tenant' })
 
-const grant = {
+const grant = projectMachinePoolGrant({
   description: '',
   default_machine_cpu: null,
   default_machine_memory_mb: 9000,
@@ -30,7 +27,7 @@ const grant = {
   max_machine_cpu: null,
   max_machine_memory_mb: 128,
   delete_after_idle_minutes: 45,
-} as ProjectMachinePoolGrant
+})
 
 describe('project grant memory inputs', () => {
   it('preserves untouched MB values, clears empty values, and converts changed GB values', () => {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authn"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -38,7 +39,7 @@ func (s *Store) StartPasswordSignup(
 	if input.Email == "" {
 		return PasswordSignupStartRecord{}, errors.New("email is required")
 	}
-	normalizedEmail := NormalizeEmail(input.Email)
+	normalizedEmail := emailaddr.Normalize(input.Email)
 	if _, err := s.q.GetVerifiedUserEmailByNormalizedEmail(
 		ctx,
 		dbsqlc.GetVerifiedUserEmailByNormalizedEmailParams{NormalizedEmail: normalizedEmail},
@@ -133,7 +134,7 @@ func (s *Store) CleanupInactiveAuthState(ctx context.Context) (AuthStateCleanupR
 	}, nil
 }
 
-func (s *Store) ActiveAuthTokenNormalizedEmail(
+func (s *Store) ActiveAuthTokenEmail(
 	ctx context.Context,
 	token, purpose string,
 ) (string, error) {
@@ -150,8 +151,8 @@ func (s *Store) ActiveAuthTokenNormalizedEmail(
 	if err != nil {
 		return "", fmt.Errorf("load active auth token: %w", err)
 	}
-	if row.NormalizedEmail != nil {
-		return *row.NormalizedEmail, nil
+	if row.Email != nil {
+		return *row.Email, nil
 	}
 	emails, err := s.q.ListVerifiedUserEmailsByUser(ctx, dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: row.UserID})
 	if err != nil {
@@ -160,7 +161,7 @@ func (s *Store) ActiveAuthTokenNormalizedEmail(
 	if len(emails) == 0 {
 		return "", nil
 	}
-	return emails[0].NormalizedEmail, nil
+	return emails[0].Email, nil
 }
 
 func (s *Store) CompletePasswordSignup(
@@ -289,7 +290,7 @@ func (s *Store) AuthenticatePasswordAndCreateSession(
 	ctx context.Context,
 	input PasswordLoginSessionInput,
 ) (UserRecord, error) {
-	normalizedEmail := NormalizeEmail(input.Email)
+	normalizedEmail := emailaddr.Normalize(input.Email)
 	if normalizedEmail == "" || input.Password == "" {
 		authn.EqualizePasswordVerifyTiming(input.Password)
 		return UserRecord{}, storeerr.ErrUnauthorized
@@ -387,7 +388,7 @@ func (s *Store) StartPasswordReset(
 	ctx context.Context,
 	input PasswordResetStartInput,
 ) (PasswordResetStartRecord, error) {
-	normalizedEmail := NormalizeEmail(input.Email)
+	normalizedEmail := emailaddr.Normalize(input.Email)
 	if normalizedEmail == "" {
 		return PasswordResetStartRecord{}, nil
 	}

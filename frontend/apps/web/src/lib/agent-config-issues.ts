@@ -53,9 +53,9 @@ export interface ConfigSubmitError {
 
 export const noConfigError: ConfigSubmitError = { message: '', issues: [] }
 
-export function configSubmitError(err: unknown, fallback: string): ConfigSubmitError {
-  const issues = err instanceof ApiError ? err.issues : []
-  if (issues.length === 0) return { message: errorMessage(err, fallback), issues }
+export function configSubmitError(cause: unknown, fallback: string): ConfigSubmitError {
+  const issues = cause instanceof ApiError ? cause.issues : []
+  if (issues.length === 0) return { message: errorMessage(cause, fallback), issues }
   const count = issues.length === 1 ? '1 problem' : `${issues.length} problems`
   return { message: `The configuration has ${count}.`, issues }
 }

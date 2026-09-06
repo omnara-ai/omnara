@@ -49,3 +49,16 @@ func MarshalWithAPIVariantOptions(
 	}
 	return json.Marshal(merged)
 }
+
+func Sets(apiVariantOptions json.RawMessage, keys ...string) bool {
+	var options map[string]json.RawMessage
+	if json.Unmarshal(apiVariantOptions, &options) != nil {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := options[key]; ok {
+			return true
+		}
+	}
+	return false
+}

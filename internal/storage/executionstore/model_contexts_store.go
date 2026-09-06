@@ -60,6 +60,7 @@ type ModelCallContextRecord struct {
 	RetryAt                   *time.Time                            `json:"retry_at,omitempty"`
 	Usage                     modelenvelope.Usage                   `json:"usage"`
 	ProviderReportedCostUSD   modelenvelope.ProviderReportedCostUSD `json:"provider_reported_cost_usd,omitempty"`
+	ProviderMetadata          modelenvelope.ProviderMetadata        `json:"provider_metadata,omitzero"`
 	CreatedAt                 time.Time                             `json:"created_at"`
 	CompletedAt               *time.Time                            `json:"completed_at,omitempty"`
 }
@@ -135,6 +136,7 @@ type ReplaceCompactionSourceInput struct {
 	ErrorDetails               json.RawMessage
 	Usage                      modelenvelope.Usage
 	ProviderReportedCostUSD    modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata           modelenvelope.ProviderMetadata
 	NextSourceEventSequenceEnd int64
 }
 
@@ -155,6 +157,7 @@ type RecordRecoverableModelCallFailureInput struct {
 	RetryDelay              time.Duration
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 type RecordModelCallFailureAndClaimCompactionInput struct {

@@ -1,21 +1,16 @@
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import { z } from 'zod'
 
 import YamlWorker from './yaml.worker.js?worker'
+
+const readyMessage = z.object({ type: z.literal('omnara-yaml-worker-ready') })
 
 function createReadyYamlWorker() {
   const worker = new YamlWorker()
 
   return new Promise<Worker>((resolve, reject) => {
     const handleMessage = (event: MessageEvent) => {
-      const data = event.data as unknown
-      if (
-        typeof data !== 'object' ||
-        data === null ||
-        !('type' in data) ||
-        data.type !== 'omnara-yaml-worker-ready'
-      ) {
-        return
-      }
+      if (!readyMessage.safeParse(event.data).success) return
 
       worker.removeEventListener('message', handleMessage)
       worker.removeEventListener('error', handleError)
@@ -44,9 +39,4 @@ const monacoEnvironment = {
   },
 }
 
-const monacoGlobal = globalThis as typeof globalThis & {
-  MonacoEnvironment?: typeof monacoEnvironment
-}
-
-monacoGlobal.MonacoEnvironment = monacoEnvironment
 self.MonacoEnvironment = monacoEnvironment

@@ -312,7 +312,7 @@ func TestBlaxelRESTClientListFitsMaximumManagedEnvironment(t *testing.T) {
 		executionstore.MaxResolvedEnvironmentBytes-usedBytes,
 	)
 	managedEnv, err := providers.BuildManagedMachineEnv(
-		"https://app.omnara.test",
+		"https://api.omnara.test/v1",
 		"machine-token",
 		strings.Repeat("x", 64*1024),
 		machineEnv,

@@ -1,65 +1,39 @@
-import type * as OmnaraSDK from '@omnara/sdk'
 import {
   type AgentEvent,
-  AgentEventStreamError,
+  type AgentEventStreamConnectionState,
+  type AgentEventStreamFrame,
   type AgentInputEvent,
+  createOmnaraClient,
   type ModelOutputEvent,
   type ModelOutputStreamDelta,
   type OmnaraClient,
   type ToolResultEvent,
 } from '@omnara/sdk'
-import { expect, vi } from 'vitest'
-
-const sdkMocks = vi.hoisted(() => ({
-  createAgentInput: vi.fn(),
-  openAgentEventStream: vi.fn(),
-}))
-
-vi.mock('@omnara/sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof OmnaraSDK>()
-  return {
-    ...actual,
-    openAgentEventStream: sdkMocks.openAgentEventStream,
-    sdk: {
-      ...actual.sdk,
-      createAgentInput: sdkMocks.createAgentInput,
-    },
-  }
-})
-
-export function chatSdkMocks() {
-  return sdkMocks
-}
-
 import { QueryClient } from '@tanstack/react-query'
+import { expect, vi } from 'vitest'
 
 import { AgentChatSession } from './agent-chat'
 import {
-  type AgentChatStatus,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   projectAgentChat,
   sequenceNumber,
 } from './agent-chat-messages'
+import type { AgentChatStatus, AgentChatTransport } from './agent-chat-types'
+
+const transport = {
+  createAgentInput: vi.fn<AgentChatTransport['createAgentInput']>(),
+  openAgentEventStream: vi.fn<AgentChatTransport['openAgentEventStream']>(),
+}
+
+export function chatTransport() {
+  return transport
+}
 
 export const scope = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 
-export function client(statuses: number[] = [200]): OmnaraClient {
-  let connection = 0
-  return {
-    getConfig: () => ({
-      fetch: () => {
-        const status = statuses[connection] ?? statuses.at(-1) ?? 200
-        connection += 1
-        return Promise.resolve(
-          new Response(': ok\n\n', {
-            status,
-            headers: { 'Content-Type': 'text/event-stream' },
-          }),
-        )
-      },
-    }),
-  } as unknown as OmnaraClient
+export function client(): OmnaraClient {
+  return createOmnaraClient({ baseUrl: 'http://localhost' })
 }
 
 export function event(overrides: Partial<ModelOutputEvent> = {}): ModelOutputEvent {
@@ -171,7 +145,7 @@ export function delta(
 
 interface Frame {
   event: string
-  data: unknown
+  data: AgentEventStreamFrame
 }
 
 export class FakeStream {
@@ -179,6 +153,11 @@ export class FakeStream {
   private wake: (() => void) | null = null
   private ended = false
   private failure: Error | undefined
+  private onConnectionStateChange: ((state: AgentEventStreamConnectionState) => void) | undefined
+
+  constructor(onConnectionStateChange?: (state: AgentEventStreamConnectionState) => void) {
+    this.onConnectionStateChange = onConnectionStateChange
+  }
 
   push(frame: Frame): void {
     this.queue.push(frame)
@@ -195,7 +174,11 @@ export class FakeStream {
     this.end()
   }
 
-  async *drive(open: () => Promise<boolean>): AsyncGenerator {
+  connectionState(state: AgentEventStreamConnectionState): void {
+    this.onConnectionStateChange?.(state)
+  }
+
+  async *drive(open: () => boolean | Promise<boolean>): AsyncGenerator<AgentEventStreamFrame> {
     if (!(await open())) return
     for (;;) {
       while (this.queue.length > 0) {
@@ -217,29 +200,17 @@ export class FakeStream {
 const connections: FakeStream[] = []
 
 function installStreaming(): void {
-  sdkMocks.openAgentEventStream.mockImplementation(async (options: Record<string, unknown>) => {
-    const stream = new FakeStream()
+  transport.openAgentEventStream.mockImplementation((options) => {
+    const stream = new FakeStream(options.onConnectionStateChange)
     connections.push(stream)
-    await Promise.resolve()
-    const signal = options.signal as AbortSignal | undefined
-    signal?.addEventListener('abort', () => {
+    options.signal?.addEventListener('abort', () => {
       stream.end()
     })
-    const open = async () => {
-      const configuredFetch = (options.client as OmnaraClient).getConfig().fetch ?? fetch
-      const response = await configuredFetch(new Request('https://example.test/events/stream'))
-      if (!response.ok) {
-        const status = response.status
-        throw new AgentEventStreamError({
-          kind: 'http',
-          message: `Agent event stream request failed with HTTP ${status}`,
-          retryable: status === 408 || status === 429 || status >= 500,
-          status,
-        })
-      }
+    const open = () => {
+      stream.connectionState({ state: 'connected', reconnected: false })
       return true
     }
-    return { stream: stream.drive(open) }
+    return stream.drive(open)
   })
 }
 
@@ -294,7 +265,8 @@ export function createChatTestSession(
     client: sessionClient,
     queryClient,
     ...scope,
-    reconnectDelayMs: 1,
+    inputReconciliationDelayMs: 1,
+    transport,
   })
 }
 
@@ -313,10 +285,7 @@ export function messageText(message: OmnaraUIMessage | undefined): string[] {
 }
 
 export function sentIdempotencyKey(call = 0): string {
-  const args = sdkMocks.createAgentInput.mock.calls[call]?.[0] as
-    | { headers?: { 'Idempotency-Key'?: string } }
-    | undefined
-  const key = args?.headers?.['Idempotency-Key']
+  const key = transport.createAgentInput.mock.calls[call]?.[0].headers?.['Idempotency-Key']
   if (key == null) throw new Error(`no createAgentInput call ${call} recorded`)
   return key
 }
@@ -325,7 +294,7 @@ export function resetChatTestHarness(): void {
   vi.clearAllMocks()
   connections.length = 0
   installStreaming()
-  sdkMocks.createAgentInput.mockResolvedValue({
+  transport.createAgentInput.mockResolvedValue({
     data: {
       agent_input: {
         id: 'input-1',

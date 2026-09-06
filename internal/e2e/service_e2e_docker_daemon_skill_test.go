@@ -186,7 +186,7 @@ func TestServiceE2EDockerDaemonSkillBroadcastDeterministic(t *testing.T) {
 	worker := env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
 		ProviderConfig: "openai-prod",
 		BaseURL:        openai.URL,
-		PublicURL:      env.containerAPIURL,
+		PublicURL:      env.publicURL,
 		LogLevel:       "info",
 	})
 

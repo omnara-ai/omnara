@@ -29,3 +29,7 @@ Resource-name policy: POST /api/v1/orgs/{orgID}/secrets the `name` request prope
 Resource-name policy: POST /api/v1/orgs/{orgID}/secrets/mcp-oauth the `name` request property's maxLength was set to `64`
 Resource-name policy: PATCH /api/v1/orgs/{orgID}/secrets/{secretID} the `name` request property's maxLength was set to `64`
 Resource-name policy: POST /api/v1/personal-access-tokens the `name` request property's maxLength was set to `64`
+Unset cache retention is reported as absent: GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models the response property `data/items/default_cache_retention` became optional for the status `200`
+Unset cache retention is reported as absent: POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models the response property `default_cache_retention` became optional for the status `200`
+Unset cache retention is reported as absent: POST /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models the response property `default_cache_retention` became optional for the status `201`
+Unset cache retention is reported as absent: PUT /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID} the response property `default_cache_retention` became optional for the status `200`

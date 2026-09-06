@@ -6,7 +6,7 @@ description: Install and set up Omnara. Use when the user asks to install Omnara
 Read https://docs.omnara.com/llms.txt and the Quickstart guide first. Fetch other
 documentation pages as you need them.
 
-Before doing anything, check if the user is logged in with `npx omnara whoami`. If they are not logged in, first instruct the user to login with `npx omnara login`.
+Before doing anything, check if the user is logged in with `npx omnara whoami`. If they are not logged in, run `npx omnara login` and direct the user to the login link.
 
 Then, ask the user questions on what type of agent they'd like to create:
 
@@ -24,4 +24,4 @@ Then, ask the user questions on what type of agent they'd like to create:
 
 4. (optional: interact via Slack) If the user wants to setup Omnara to interact via Slack, guide them through the setup process to connect their agent profile to a slack bot. Tell them how to fetch their app configuration token at the following URL: https://api.slack.com/apps . Then tell them to run `npx omnara profiles slack {agent_profile_id} ...` (use `-h` to fetch the help parameters you need) to execute the authentication flow.
 
-5. (optional: interact via SDK or REST API) Help the user setup their own custom application to interact with Omnara. Omnara can be used via a Typescript SDK, install the `@omnara/sdk` package to use it. Alternatively, in non-Typescript environments, Omnara can be used directly via the API, see the openapi specification at http://api.omnara.com/api/openapi.yaml. In the case of a frontend application, these APIs may need to be proxied through the user's API in order to avoid CORS errors. Help the user generate an organization-level API token to interact with the API through the CLI or API.
+5. (optional: interact via SDK or REST API) Help the user setup their own custom application to interact with Omnara. Omnara can be used via a Typescript SDK, install the `@omnara/sdk` package to use it. Alternatively, in non-Typescript environments, Omnara can be used directly via the API, see the openapi specification at https://docs.omnara.com/api-reference/openapi.yaml. In the case of a frontend application, these APIs may need to be proxied through the user's API in order to avoid CORS errors. Help the user generate an organization-level API token to interact with the API through the CLI or API.

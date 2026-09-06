@@ -46,19 +46,17 @@ func TestListOrgMembers(t *testing.T) {
 		t.Fatalf("create split member: %v", err)
 	}
 	if _, err := store.Identity().CreateUserEmail(ctx, identitystore.CreateUserEmailInput{
-		UserID:          split.ID,
-		Email:           "members-split-primary@example.com",
-		NormalizedEmail: identitystore.NormalizeEmail("members-split-primary@example.com"),
-		IsPrimary:       true,
+		UserID:    split.ID,
+		Email:     "members-split-primary@example.com",
+		IsPrimary: true,
 	}); err != nil {
 		t.Fatalf("create split unverified primary email: %v", err)
 	}
 	if _, err := store.Identity().CreateUserEmail(ctx, identitystore.CreateUserEmailInput{
-		UserID:          split.ID,
-		Email:           "members-split-secondary@example.com",
-		NormalizedEmail: identitystore.NormalizeEmail("members-split-secondary@example.com"),
-		Verified:        true,
-		IsPrimary:       false,
+		UserID:    split.ID,
+		Email:     "members-split-secondary@example.com",
+		Verified:  true,
+		IsPrimary: false,
 	}); err != nil {
 		t.Fatalf("create split verified secondary email: %v", err)
 	}

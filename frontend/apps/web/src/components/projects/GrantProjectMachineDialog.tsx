@@ -48,7 +48,9 @@ export function GrantProjectMachineDialog({
     label: 'machine grant',
     fallbackError: 'Could not grant machines',
     itemKey: (machine) => machine.id,
-    grant: (machine) => mutation.mutateAsync({ projectID: projectId, machineID: machine.id }),
+    grant: async (machine) => {
+      await mutation.mutateAsync({ projectID: projectId, machineID: machine.id })
+    },
     onGranted,
     onSuccess: () => {
       onOpenChange(false)

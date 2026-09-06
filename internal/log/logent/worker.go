@@ -14,10 +14,13 @@ func WorkerLoop(ctx context.Context, workerProcessID storage.ID) (context.Contex
 	return ctx, event
 }
 
-func WorkerLoopResult(ctx context.Context, worked bool) {
+func WorkerLoopResult(ctx context.Context, worked bool, err error) {
 	log.Attach(ctx, log.Fields{
 		"worker.loop.worked": worked,
 	})
+	if !worked && err == nil {
+		log.Level(ctx, log.DebugLevel)
+	}
 }
 
 func AgentWorkScope(ctx context.Context, orgID, projectID, agentID storage.ID) {

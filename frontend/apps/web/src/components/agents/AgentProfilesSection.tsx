@@ -134,7 +134,7 @@ export function AgentProfilesSection({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="text-primary hover:text-primary h-7 px-2"
+                      className="text-primary hover:text-primary h-9 px-2 sm:h-7"
                       disabled={launchingId !== null}
                       loading={launchingId === profile.id}
                       onClick={() => {

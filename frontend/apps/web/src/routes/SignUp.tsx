@@ -9,6 +9,7 @@ import { MailCheck } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting, success } from '@/lib/submit-status'
 
@@ -18,6 +19,8 @@ interface SignUpState {
 }
 
 export function SignUp() {
+  const returnTo = safeReturnTo(new URLSearchParams(window.location.search).get('return_to'))
+  const approvingDevice = isDeviceApprovalReturnTo(returnTo)
   const [state, setState] = useState<SignUpState>({ email: '', status: idle })
   const isSubmitting = state.status.phase === 'submitting'
   const errorMessage = statusError(state.status)
@@ -26,7 +29,7 @@ export function SignUp() {
     event.preventDefault()
     setState((prev) => ({ ...prev, status: submitting }))
     try {
-      await requestSignup(state.email)
+      await requestSignup(state.email, returnTo === '/' ? undefined : returnTo)
       setState((prev) => ({ ...prev, status: success }))
     } catch (err) {
       const status = submitError(err, 'Signup request failed')
@@ -46,10 +49,16 @@ export function SignUp() {
           </span>
           <AuthHeading
             title="Check your email"
-            subtitle={`We sent a verification link to ${state.email}.`}
+            subtitle={
+              approvingDevice
+                ? `We sent a verification link to ${state.email}. Finish setup within 15 minutes to approve the CLI login; otherwise run the CLI login again.`
+                : `We sent a verification link to ${state.email}.`
+            }
           />
           <Button asChild variant="outline" className="mt-2">
-            <Link to="/login">Back to sign in</Link>
+            <Link to="/login" search={returnTo === '/' ? {} : { return_to: returnTo }}>
+              Back to sign in
+            </Link>
           </Button>
         </div>
       </AuthLayout>
@@ -61,7 +70,11 @@ export function SignUp() {
       <div className="flex flex-col gap-6">
         <AuthHeading
           title="Create your Omnara account"
-          subtitle="Enter your email and we'll send a verification link."
+          subtitle={
+            approvingDevice
+              ? "Create an account to approve the CLI login you just started. Enter your email and we'll send a verification link that brings you back to the approval page."
+              : "Enter your email and we'll send a verification link."
+          }
         />
         <form
           onSubmit={(event) => {
@@ -69,7 +82,7 @@ export function SignUp() {
           }}
         >
           <FieldGroup>
-            <SocialButtons returnTo="/" />
+            <SocialButtons returnTo={returnTo} />
             <Field>
               <FieldLabel htmlFor="email">Email</FieldLabel>
               <Input
@@ -94,6 +107,7 @@ export function SignUp() {
           Already have an account?{' '}
           <Link
             to="/login"
+            search={returnTo === '/' ? {} : { return_to: returnTo }}
             className="text-foreground font-medium underline-offset-4 hover:underline"
           >
             Sign in

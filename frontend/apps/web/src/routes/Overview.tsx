@@ -38,7 +38,7 @@ export function Overview() {
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
       ) : showOnboarding ? (
-        <div className="flex min-h-0 flex-1 justify-center pb-16">
+        <div className="flex min-h-0 flex-1 justify-center pb-8 sm:pb-16">
           <AgentOnboarding
             key={`${activeOrg.id}:${manageableProject.id}`}
             orgId={activeOrg.id}

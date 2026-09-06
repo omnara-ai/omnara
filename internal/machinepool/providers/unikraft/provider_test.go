@@ -47,6 +47,7 @@ func TestUnikraftProviderProvisionCreatesDisposableInstance(t *testing.T) {
 	}
 	for _, key := range []string{
 		"OMNARA_API_URL",
+		"OMNARA_INSTALLER_URL",
 		"OMNARA_MACHINE_TOKEN",
 		providers.ManagedBootstrapScriptEnvVar,
 	} {
@@ -68,7 +69,7 @@ func TestUnikraftProviderProvisionCreatesDisposableInstance(t *testing.T) {
 		t.Fatalf("create args = %#v, want %#v", create.Args, providers.ManagedDaemonLauncherArgs())
 	}
 	bootstrapScript := decodeManagedBootstrapScript(t, create.Env[providers.ManagedBootstrapScriptEnvVar])
-	for _, value := range []string{"/install/omnarad.sh", "--install-only", "start --no-service"} {
+	for _, value := range []string{`"${OMNARA_INSTALLER_URL:?}"`, "--install-only", "start --no-service"} {
 		if !strings.Contains(bootstrapScript, value) {
 			t.Fatalf("bootstrap script missing %q", value)
 		}
@@ -147,7 +148,7 @@ func TestUnikraftProviderProvisionIncludesStartupScriptOrchestration(t *testing.
 	}
 	bootstrapScript := decodeManagedBootstrapScript(t, create.Env[providers.ManagedBootstrapScriptEnvVar])
 	if !strings.Contains(bootstrapScript, testStartupScriptEnvVar) ||
-		!strings.Contains(bootstrapScript, "/install/omnarad.sh") {
+		!strings.Contains(bootstrapScript, `"${OMNARA_INSTALLER_URL:?}"`) {
 		t.Fatalf("bootstrap script does not include startup orchestration and daemon launcher")
 	}
 	if size := unikraftApplicationCommandLineBytes(create.Args, create.Env); size > 2560 {
@@ -408,7 +409,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 	machineID := uuid.New()
 	name := mustInstanceName(t, machineID)
 	api := &fakeAPI{instancesByName: map[string]instance{name: {UUID: "uuid-1", Name: name}}}
-	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	machineProvisioning := testMachineProvisioning(t, nil)
 
 	byUUID, found, err := provider.InspectMachine(
@@ -443,7 +444,7 @@ func TestUnikraftProviderInspectMachineByUUIDAndMachineID(t *testing.T) {
 func TestUnikraftProviderInspectMachineByUUIDRejectsMissingUUID(t *testing.T) {
 	machineID := uuid.New()
 	api := &fakeAPI{instancesByUUID: map[string]instance{"uuid-1": {Name: "bad"}}}
-	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 
 	_, _, err := provider.InspectMachine(
 		context.Background(),
@@ -467,7 +468,7 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 		"uuid-1":       {UUID: "uuid-1", Name: name},
 		"uuid-foreign": {UUID: "uuid-foreign", Name: "other"},
 	}}
-	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	err = provider.DeleteMachine(
 		context.Background(),
 		testInstallationID(),
@@ -530,7 +531,7 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		"uuid-existing": {UUID: "uuid-existing", Name: name},
 	}}
-	provider := &provider{api: api, omnaraPublicURL: "https://app.omnara.test"}
+	provider := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
 	machineProvisioning := testMachineProvisioning(t, nil)
 	machineProvisioning.CPU = nil
 	machineProvisioning.MemoryMB = nil
@@ -554,8 +555,8 @@ func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *t
 
 func newTestProvider(api apiClient) *provider {
 	return &provider{
-		api:             api,
-		omnaraPublicURL: "https://app.omnara.test",
+		api:          api,
+		omnaraAPIURL: "https://api.omnara.test/v1",
 	}
 }
 

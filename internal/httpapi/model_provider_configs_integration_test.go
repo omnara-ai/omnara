@@ -244,6 +244,9 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		configuredModel["api_variant_options"].(map[string]any)["temperature"] != 0.2 {
 		t.Fatalf("configured model capability/options response mismatch: %+v", configuredModel)
 	}
+	if _, ok := configuredModel["default_cache_retention"]; ok {
+		t.Fatalf("unset cache retention must be omitted from the response: %+v", configuredModel)
+	}
 	openRouterModel := requestJSONWithHeaders(
 		t,
 		handler,

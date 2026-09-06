@@ -216,7 +216,7 @@ func installedDigestMatches(dir, digest string) bool {
 }
 
 func (m *Manager) download(ctx context.Context, offer daemonprotocol.SkillOffer) ([]byte, error) {
-	downloadURL := m.apiURL + "/api/v1/daemon/skills/" + url.PathEscape(offer.SkillID) +
+	downloadURL := m.apiURL + "/daemon/skills/" + url.PathEscape(offer.SkillID) +
 		"/archive?revision_id=" + url.QueryEscape(offer.RevisionID) +
 		"&expires_at=" + strconv.FormatInt(offer.DownloadExpiresAt, 10) +
 		"&download_token=" + url.QueryEscape(offer.DownloadToken)

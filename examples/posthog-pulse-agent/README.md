@@ -9,7 +9,7 @@ anything that moved more than ~30%. Reply in Slack (or the Omnara console)
 to drill into any number ("why did signups spike?"). It is read-only
 against PostHog.
 
-The whole example is one notebook, [demo.ipynb](demo.ipynb). The agent
+The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent
 itself is a single config object — no service to deploy, and no machine
 either: MCP calls are dispatched by Omnara's control plane, so the PostHog
 key never leaves Omnara's server side. (The sibling
@@ -23,27 +23,36 @@ environment variable.)
 - A PostHog personal API key created with the
   [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server)
   — MCP calls are free (rate-limited, not billed)
-- [Deno](https://docs.deno.com/runtime/getting_started/installation/)
+- A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
+  Node 22.18+, or [Bun](https://bun.sh)
 
 ## Run it
 
 ```sh
 brew install deno
-deno jupyter --install    # register the Deno kernel with Jupyter
 
 cd examples/posthog-pulse-agent
 cp .env.example .env      # set OMNARA_API_KEY and POSTHOG_API_KEY
+deno install              # fetch @omnara/sdk into node_modules
+deno run --env-file --allow-all demo.ts
 ```
 
-Deno is only needed to run the notebook (it provides the TypeScript Jupyter
-kernel and fetches `@omnara/sdk` with no install step). The SDK itself works
-on Node and Bun too — you can copy the cells into a plain script if you
-prefer.
+Nothing in `demo.ts` is Deno-specific — `.env` loading is native in every
+runtime and `@omnara/sdk` is a normal npm package, so Node and Bun run the
+same file:
 
-Open `demo.ipynb` (VS Code, Cursor, or `jupyter lab`), pick the **Deno**
-kernel, and run top to bottom. One cell holds the agent — the metrics, the
+```sh
+npm install && node --env-file=.env demo.ts   # Node 22.18+
+bun install && bun demo.ts                    # Bun (reads .env automatically)
+```
+
+Prefer notebook cells? `demo.ts` is in
+[jupytext](https://jupytext.readthedocs.io/) percent format — open it in
+Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
+
+One section holds the agent — the metrics, the
 call budget, and the report format are plain-English instruction you can
-edit. Every cell is idempotent: rerun after editing and the agent updates
+edit. Every section is idempotent: rerun after editing and the agent updates
 in place (and the secret rotates to the current `.env` value).
 
 The agent stays read-only by construction. Its MCP URL
@@ -57,18 +66,19 @@ filters PostHog's ~40+ tools down to the query surface (`query-*`,
 agent. The key lives in an Omnara project secret referenced from the config's
 `auth` block and is attached as the bearer header server-side; it never
 appears in the config or event log. EU cloud accounts: swap the host for
-`mcp-eu.posthog.com` in the agent cell. In the event stream, calls appear as
+`mcp-eu.posthog.com` in the agent section. In the event stream, calls appear as
 `mcp__posthog__query-trends` and so on.
 
 ## Slack and scheduling (optional)
 
-The notebook can create a Slack app for you (set
+The demo can create a Slack app for you (set
 `SLACK_APP_CONFIGURATION_TOKEN` in `.env`). Invite the bot to a channel and
 mention it — the agent delivers the pulse in that thread, and thread replies
 become instructions, so the team can drill into any number right there.
 Without Slack, pulses appear in the console.
 
-The last cell schedules a daily 9am pulse. Each firing launches a fresh
+The last section schedules a daily 9am pulse — opt-in: set
+`SCHEDULE_DAILY=1` in `.env`. Each firing launches a fresh
 agent that reports on "yesterday" in your PostHog project's timezone and
 recomputes the 7-day baseline from scratch — there is no state between
 runs. Disable or delete the trigger in the console to stop.

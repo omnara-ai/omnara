@@ -24,9 +24,17 @@ const (
 	CronTriggerTargetAgentProfile CronTriggerTargetKind = "profile"
 )
 
+type CronTriggerDeliveryMode string
+
+const (
+	CronTriggerDeliveryModeQueued   CronTriggerDeliveryMode = "queued"
+	CronTriggerDeliveryModeSteering CronTriggerDeliveryMode = "steering"
+)
+
 type CronTriggerTarget struct {
-	Kind CronTriggerTargetKind
-	ID   ID
+	Kind         CronTriggerTargetKind
+	ID           ID
+	DeliveryMode CronTriggerDeliveryMode
 }
 
 type CreateCronTriggerInput struct {
@@ -48,6 +56,7 @@ type UpdateCronTriggerInput struct {
 	CronExpression  *string
 	Timezone        *string
 	MessageTemplate *string
+	Target          *CronTriggerTarget
 	Enabled         *bool
 }
 
@@ -102,6 +111,12 @@ func (s *Store) CreateCronTrigger(
 	}
 	if input.Timezone == "" {
 		input.Timezone = "UTC"
+	}
+	if input.Target.Kind == CronTriggerTargetAgent && input.Target.DeliveryMode == "" {
+		input.Target.DeliveryMode = CronTriggerDeliveryModeQueued
+	}
+	if err := validateCronTriggerDeliveryMode(input.Target.Kind, input.Target.DeliveryMode); err != nil {
+		return CronTriggerRecord{}, err
 	}
 	if err := cronschedule.Validate(input.CronExpression, input.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
@@ -320,8 +335,22 @@ func (s *Store) UpdateCronTrigger(
 		}
 		record.MessageTemplate = *input.MessageTemplate
 	}
+	if input.Target != nil {
+		if input.Target.Kind != record.Target.Kind || input.Target.ID != record.Target.ID {
+			return CronTriggerRecord{}, fmt.Errorf(
+				"cron trigger target type and ID cannot change: %w",
+				storeerr.ErrInvalidRequest,
+			)
+		}
+		if input.Target.DeliveryMode != "" {
+			record.Target.DeliveryMode = input.Target.DeliveryMode
+		}
+	}
 	if input.Enabled != nil {
 		record.Enabled = *input.Enabled
+	}
+	if err := validateCronTriggerDeliveryMode(record.Target.Kind, record.Target.DeliveryMode); err != nil {
+		return CronTriggerRecord{}, err
 	}
 	if err := cronschedule.Validate(record.CronExpression, record.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
@@ -347,6 +376,7 @@ func (s *Store) UpdateCronTrigger(
 		CronExpression:  record.CronExpression,
 		Timezone:        record.Timezone,
 		MessageTemplate: record.MessageTemplate,
+		DeliveryMode:    cronTriggerDeliveryModeColumn(record.Target),
 		Enabled:         record.Enabled,
 		NextFireAfter:   nextFireAfter,
 		ProjectID:       input.ProjectID,
@@ -410,6 +440,7 @@ func insertCronTriggerTx(
 		CronExpression:  input.CronExpression,
 		Timezone:        input.Timezone,
 		MessageTemplate: input.MessageTemplate,
+		DeliveryMode:    cronTriggerDeliveryModeColumn(input.Target),
 		Enabled:         input.Enabled,
 		NextFireAfter:   nextFireAfter,
 		IdempotencyKey:  sqlcTextFromEmpty(input.IdempotencyKey),
@@ -571,7 +602,7 @@ func (s *Store) ClaimDueCronTriggers(
 			OrgID:           row.OrgID,
 			ProjectID:       row.ProjectID,
 			Name:            row.Name,
-			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID),
+			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID, row.DeliveryMode),
 			MessageTemplate: row.MessageTemplate,
 			DueAt:           nullableTimeToZero(row.NextFireAfter),
 			FiredAt:         now,
@@ -604,13 +635,29 @@ func (s *Store) CompleteCronTriggerFiring(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	qtx := s.q.WithTx(tx)
+	if err := completeCronTriggerFiringTx(ctx, s.q.WithTx(tx), input); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit complete cron trigger firing: %w", err)
+	}
+	return nil
+}
+
+func completeCronTriggerFiringTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CompleteCronTriggerFiringInput,
+) error {
 	row, err := qtx.GetCronTriggerForUpdate(
 		ctx,
 		dbsqlc.GetCronTriggerForUpdateParams{ProjectID: input.ProjectID, ID: input.TriggerID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return storeerr.ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("lock cron trigger for completion: %w", err)
@@ -639,9 +686,6 @@ func (s *Store) CompleteCronTriggerFiring(
 	}
 	if rows == 0 {
 		return fmt.Errorf("cron trigger claim was taken over: %w", storeerr.ErrConflict)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit complete cron trigger firing: %w", err)
 	}
 	return nil
 }
@@ -702,11 +746,31 @@ func cronTriggerNextFireTx(
 	return next, nil
 }
 
-func cronTriggerTargetFromColumns(agentProfileID, agentID *ID) CronTriggerTarget {
+func cronTriggerTargetFromColumns(agentProfileID, agentID *ID, deliveryMode string) CronTriggerTarget {
 	if agentProfileID != nil {
 		return CronTriggerTarget{Kind: CronTriggerTargetAgentProfile, ID: *agentProfileID}
 	}
-	return CronTriggerTarget{Kind: CronTriggerTargetAgent, ID: idFromSQLCPtr(agentID)}
+	return CronTriggerTarget{
+		Kind:         CronTriggerTargetAgent,
+		ID:           idFromSQLCPtr(agentID),
+		DeliveryMode: CronTriggerDeliveryMode(deliveryMode),
+	}
+}
+
+func validateCronTriggerDeliveryMode(kind CronTriggerTargetKind, mode CronTriggerDeliveryMode) error {
+	if kind == CronTriggerTargetAgentProfile {
+		if mode != "" {
+			return fmt.Errorf("delivery mode is only supported for agent targets: %w", storeerr.ErrInvalidRequest)
+		}
+		return nil
+	}
+	if mode != CronTriggerDeliveryModeQueued && mode != CronTriggerDeliveryModeSteering {
+		return fmt.Errorf(
+			"cron trigger delivery mode must be queued or steering: %w",
+			storeerr.ErrInvalidRequest,
+		)
+	}
+	return nil
 }
 
 func cronTriggerCreateIdempotencyKey(key string) string {
@@ -714,4 +778,11 @@ func cronTriggerCreateIdempotencyKey(key string) string {
 		return ""
 	}
 	return "cron_trigger.create:" + key
+}
+
+func cronTriggerDeliveryModeColumn(target CronTriggerTarget) string {
+	if target.Kind == CronTriggerTargetAgentProfile {
+		return string(CronTriggerDeliveryModeQueued)
+	}
+	return string(target.DeliveryMode)
 }

@@ -105,11 +105,10 @@ export function InviteMemberDialog({
               <FieldLabel htmlFor="invite-role">Role</FieldLabel>
               <Select
                 value={state.role}
-                onValueChange={(role) => {
-                  setState((prev) => ({
-                    ...prev,
-                    role: role as InviteMemberState['role'],
-                  }))
+                onValueChange={(value) => {
+                  const role = roles.find((candidate) => candidate === value)
+                  if (role === undefined) return
+                  setState((prev) => ({ ...prev, role }))
                 }}
               >
                 <SelectTrigger id="invite-role" className="w-full capitalize">

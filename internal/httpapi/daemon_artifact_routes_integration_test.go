@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -326,9 +327,10 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		artifactID,
 		http.StatusOK,
 	)
+	disposition, params, err := mime.ParseMediaType(recorder.Header().Get("Content-Disposition"))
 	if recorder.Body.String() != "pdf bytes" ||
 		recorder.Header().Get("Content-Type") != "application/pdf" ||
-		recorder.Header().Get("Content-Disposition") != `attachment; filename="report.pdf"` {
+		err != nil || disposition != "attachment" || params["filename"] != "report.pdf" {
 		t.Fatalf("download response headers=%v body=%q", recorder.Header(), recorder.Body.String())
 	}
 

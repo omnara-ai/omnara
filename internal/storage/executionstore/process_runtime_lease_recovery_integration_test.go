@@ -21,7 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
-func TestMaintenanceRecoveryCrossesWakeupAndRuntimeLockBatchBoundaries(t *testing.T) {
+func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
@@ -92,31 +92,17 @@ WHERE project_id = $1
 	if reaped != agentCount {
 		t.Fatalf("reaped stale locks = %d, want %d", reaped, agentCount)
 	}
-	assertMaintenanceCursorCounts(t, ctx, pool, agentCount, 0, "runtime_lock_reap")
-
-	if tag, err := pool.Exec(ctx, `DELETE FROM agent_wakeups wake USING agents agent WHERE agent.id = wake.agent_id AND agent.project_id = $1`, testProjectID); err != nil {
-		t.Fatalf("delete reaper wakeups before rebuild: %v", err)
-	} else if tag.RowsAffected() != agentCount {
-		t.Fatalf("deleted reaper wakeups = %d, want %d", tag.RowsAffected(), agentCount)
-	}
-	rebuilt, err := store.Execution().RebuildMissingAgentWakeupsForAllProjects(ctx)
-	if err != nil {
-		t.Fatalf("rebuild wakeups across maintenance cursor: %v", err)
-	}
-	if rebuilt != agentCount {
-		t.Fatalf("rebuilt wakeups = %d, want %d", rebuilt, agentCount)
-	}
-	assertMaintenanceCursorCounts(t, ctx, pool, agentCount, 0, "maintenance_rebuild")
+	assertRuntimeLockReapCounts(t, ctx, pool, testProjectID, agentCount, 0)
 }
 
-func assertMaintenanceCursorCounts(
+func assertRuntimeLockReapCounts(
 	t *testing.T,
 	ctx context.Context,
 	pool interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
 	},
+	projectID ID,
 	wantWakeups, wantLocks int,
-	wakeupReason string,
 ) {
 	t.Helper()
 	var wakeups, locks int
@@ -128,12 +114,12 @@ SELECT count(*) FILTER (WHERE wake.metadata->>'reason' = $2),
 FROM agent_wakeups wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1
-`, testProjectID, wakeupReason).Scan(&wakeups, &locks); err != nil {
-		t.Fatalf("count maintenance cursor state: %v", err)
+`, projectID, "runtime_lock_reap").Scan(&wakeups, &locks); err != nil {
+		t.Fatalf("count runtime-lock reap state: %v", err)
 	}
 	if wakeups != wantWakeups || locks != wantLocks {
 		t.Fatalf(
-			"maintenance cursor wakeups/locks = %d/%d, want %d/%d",
+			"runtime-lock reap wakeups/locks = %d/%d, want %d/%d",
 			wakeups,
 			locks,
 			wantWakeups,
@@ -180,18 +166,9 @@ func TestClaimNextAgentWorkRecoversUnstartedTurnAfterRuntimeRelease(t *testing.T
 	); err != nil {
 		t.Fatalf("release runtime before model context: %v", err)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild unstarted turn wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups for unstarted turn, want 1", rebuilt)
-	}
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("rebuilt unstarted-turn wakeups = %d, want 1", wakeups)
+		t.Fatalf("unstarted-turn wakeups = %d, want 1", wakeups)
 	}
 	recoveredClaim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
 		ctx,
@@ -340,16 +317,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if !wakeupAt.Equal(*contextRecord.RetryAt) {
 		t.Fatalf("interrupted wakeup = %s, want retry_at %s", wakeupAt, contextRecord.RetryAt)
 	}
-	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
-		t.Fatalf("delete wakeup before rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, testProjectID)
-	if err != nil {
-		t.Fatalf("rebuild failed abandoned context wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuild restored %d wakeups for failed abandoned context, want 1", rebuilt)
-	}
+	requireAgentWakeupCoverage(t, ctx, fixture.Store, testProjectID, fixture.AgentID)
 	if turn, err := fixture.Store.q.CurrentContinuableAgentTurn(
 		ctx,
 		dbsqlc.CurrentContinuableAgentTurnParams{ProjectID: testProjectID, AgentID: fixture.AgentID},
@@ -359,7 +327,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("recoverable failed context current turn = %+v, want turn %s", turn, claim.Model.TurnID)
 	}
 	if wakeups := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); wakeups != 1 {
-		t.Fatalf("rebuilt recoverable-context wakeups = %d, want 1", wakeups)
+		t.Fatalf("recoverable-context wakeups = %d, want 1", wakeups)
 	}
 	if _, err := fixture.Store.pool.Exec(
 		ctx,

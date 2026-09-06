@@ -25,7 +25,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 import { useScopedMutation } from './scoped-mutation'
 
 export type ProjectMachinePoolGrantListFilters = ListFilters<ListProjectMachinePoolGrantsData>
@@ -41,12 +41,13 @@ export function useProjectMachinePoolGrants(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListProjectMachinePoolGrantsData>(options)
   return useInfiniteQuery({
-    ...listProjectMachinePoolGrantsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listProjectMachinePoolGrantsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -63,12 +64,13 @@ export function useProjectMachineGrants(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListProjectMachineGrantsData>(options)
   return useInfiniteQuery({
-    ...listProjectMachineGrantsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listProjectMachineGrantsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -188,12 +190,13 @@ export function useProjectModelGrants(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListProjectModelGrantsData>(options)
   return useInfiniteQuery({
-    ...listProjectModelGrantsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listProjectModelGrantsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

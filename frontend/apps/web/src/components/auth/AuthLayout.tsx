@@ -36,13 +36,12 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         <div className="relative z-10">
           <Wordmark />
         </div>
-        <blockquote className="relative z-10 space-y-3">
-          <p className="text-foreground text-balance text-2xl font-medium leading-snug">
-            Mission control for your AI agents — launch them, steer them, and review their work from
-            anywhere.
+        <div className="relative z-10 space-y-3">
+          <p className="text-foreground text-3xl font-semibold tracking-tight">
+            The API for production-grade agents.
           </p>
-          <footer className="text-muted-foreground text-sm">The Omnara console</footer>
-        </blockquote>
+          <p className="text-muted-foreground text-base">Omnara console</p>
+        </div>
       </aside>
 
       <main className="flex flex-col p-6 sm:p-10">

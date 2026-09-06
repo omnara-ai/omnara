@@ -44,6 +44,18 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 	}{
 		{name: "skill upload", method: http.MethodPost, path: "/v1/orgs/o/skills", want: want},
 		{
+			name:   "skill update",
+			method: http.MethodPost,
+			path:   "/api/v1/orgs/o/skills/skl_abc",
+			want:   want,
+		},
+		{
+			name:   "skill grants use the default POST limit",
+			method: http.MethodPost,
+			path:   "/api/v1/orgs/o/skills/skl_abc/grants",
+			want:   maxRequestBodyBytes,
+		},
+		{
 			name:   "skill list is the default GET path",
 			method: http.MethodGet,
 			path:   "/api/v1/orgs/o/skills",

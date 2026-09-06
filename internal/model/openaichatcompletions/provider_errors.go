@@ -40,7 +40,7 @@ func (p protocol) invalidResponseError(
 
 func classifyHTTPError(
 	source string,
-	apiVariant modelprotocol.APIVariant,
+	compat compat,
 	statusCode int,
 	header http.Header,
 	body []byte,
@@ -53,19 +53,19 @@ func classifyHTTPError(
 		}
 		return classifyProviderError(
 			source,
-			apiVariant,
+			compat,
 			statusCode,
 			header,
 			envelope.Error,
 			message,
 		)
 	}
-	return classifyProviderError(source, apiVariant, statusCode, header, chatProviderError{}, message)
+	return classifyProviderError(source, compat, statusCode, header, chatProviderError{}, message)
 }
 
 func classifyChoiceError(
 	source string,
-	apiVariant modelprotocol.APIVariant,
+	compat compat,
 	httpStatusCode int,
 	header http.Header,
 	choice chatChoice,
@@ -78,12 +78,12 @@ func classifyChoiceError(
 			Code:    "finish_reason_error",
 		}
 	}
-	return classifyProviderError(source, apiVariant, httpStatusCode, header, providerErr, "")
+	return classifyProviderError(source, compat, httpStatusCode, header, providerErr, "")
 }
 
 func classifyProviderError(
 	source string,
-	apiVariant modelprotocol.APIVariant,
+	compat compat,
 	statusCode int,
 	header http.Header,
 	providerErr chatProviderError,
@@ -97,7 +97,7 @@ func classifyProviderError(
 	providerStatus := providererrors.StatusCode(providerErr.Code)
 	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
 	classificationValues := providerErr.classificationValues()
-	refineFromRaw := apiVariant == modelprotocol.APIVariantOpenRouter &&
+	refineFromRaw := compat.refinesErrorsFromRawDetails &&
 		genericProviderErrorMessage(message) &&
 		rawErrorCanRefine(effectiveStatus, classificationValues)
 	if refineFromRaw {

@@ -60,6 +60,64 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
+func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 27); err != nil {
+		t.Fatalf("apply migrations through version 27: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'pre-migration-device', 'pre-migration-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+`); err != nil {
+		t.Fatalf("insert pre-migration device flow: %v", err)
+	}
+
+	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
+		t.Fatalf("apply device OAuth migration: %v", err)
+	}
+
+	var backfilledClientID string
+	if err := db.QueryRowContext(ctx, `
+SELECT client_id
+FROM auth_device_flows
+WHERE device_code_hash = 'pre-migration-device'
+`).Scan(&backfilledClientID); err != nil {
+		t.Fatalf("read backfilled device flow: %v", err)
+	}
+	if backfilledClientID != "omnara-cli" {
+		t.Fatalf("backfilled client_id = %q, want omnara-cli", backfilledClientID)
+	}
+
+	var previousWriterClientID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO auth_device_flows(
+    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
+)
+VALUES (
+    'previous-writer-device', 'previous-writer-user', 'Omnara CLI', 'CLI token',
+    statement_timestamp(), statement_timestamp() + interval '15 minutes'
+)
+RETURNING client_id
+`).Scan(&previousWriterClientID); err != nil {
+		t.Fatalf("insert device flow with previous writer shape: %v", err)
+	}
+	if previousWriterClientID != "omnara-cli" {
+		t.Fatalf("previous writer client_id = %q, want omnara-cli", previousWriterClientID)
+	}
+}
+
 func TestPostgresNameStoragePolicies(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -644,7 +702,7 @@ func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	latestVersion := latestPostgresMigrationVersion(t)
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 14)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 14); err != nil {
 		t.Fatalf("apply migrations through version 14: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 14 {
@@ -797,7 +855,7 @@ func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *tes
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
-	if err := dbmigrate.ApplyPostgres(ctx, db, migrationFilesThrough(t, 20)); err != nil {
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 20); err != nil {
 		t.Fatalf("apply migrations through version 20: %v", err)
 	}
 	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
@@ -1233,6 +1291,28 @@ func applyProductionPostgresMigrations(ctx context.Context, db *sql.DB) error {
 	)
 }
 
+func applyProductionPostgresMigrationsThrough(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	maximum int64,
+) error {
+	t.Helper()
+	goMigrations := schemamigrations.GoMigrations()
+	selectedGoMigrations := goMigrations[:0]
+	for _, migration := range goMigrations {
+		if migration.Version <= maximum {
+			selectedGoMigrations = append(selectedGoMigrations, migration)
+		}
+	}
+	return dbmigrate.ApplyPostgres(
+		ctx,
+		db,
+		migrationFilesThrough(t, maximum),
+		selectedGoMigrations...,
+	)
+}
+
 func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
 	t.Helper()
 	var version int64
@@ -1274,7 +1354,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 	return latest
 }
 
-func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
+func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
 	if err != nil {
@@ -1289,7 +1369,7 @@ func migrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 		if !ok {
 			t.Fatalf("migration file lacks version prefix: %s", entry.Name())
 		}
-		version, err := strconv.Atoi(prefix)
+		version, err := strconv.ParseInt(prefix, 10, 64)
 		if err != nil {
 			t.Fatalf("parse migration version %s: %v", entry.Name(), err)
 		}

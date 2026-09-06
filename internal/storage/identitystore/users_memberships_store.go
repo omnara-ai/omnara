@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
@@ -35,13 +36,14 @@ func (s *Store) CreateUserEmail(
 	if input.Email == "" {
 		return UserEmailRecord{}, errors.New("email is required")
 	}
-	if input.NormalizedEmail == "" {
+	normalizedEmail := emailaddr.Normalize(input.Email)
+	if normalizedEmail == "" {
 		return UserEmailRecord{}, errors.New("normalized email is required")
 	}
 	row, err := s.q.CreateUserEmail(ctx, dbsqlc.CreateUserEmailParams{
 		UserID:          input.UserID,
 		Email:           input.Email,
-		NormalizedEmail: input.NormalizedEmail,
+		NormalizedEmail: normalizedEmail,
 		Verified:        input.Verified,
 		IsPrimary:       input.IsPrimary,
 	})
@@ -52,10 +54,6 @@ func (s *Store) CreateUserEmail(
 		return UserEmailRecord{}, fmt.Errorf("create user email: %w", err)
 	}
 	return userEmailRecordFromSQLC(row), nil
-}
-
-func NormalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func isValidProjectRole(role string) bool {
@@ -156,7 +154,7 @@ func (s *Store) resolveAuthIdentityUser(
 	) {
 		return UserRecord{}, fmt.Errorf("load auth identity: %w", err)
 	}
-	normalizedEmail := NormalizeEmail(input.Email)
+	normalizedEmail := emailaddr.Normalize(input.Email)
 	if !input.EmailVerified || normalizedEmail == "" {
 		return UserRecord{}, storeerr.ErrUnauthorized
 	}

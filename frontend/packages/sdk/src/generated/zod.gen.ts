@@ -187,12 +187,12 @@ export const zModelProviderApiVariant = z.enum([
 export const zModelProviderApiVariantResponse = z.string();
 
 /**
- * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters.
+ * Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
  */
 export const zModelApiVariantOptions = z.record(z.string(), z.unknown());
 
 /**
- * Default prompt-cache hint for model requests. `none` means Omnara does not send a cache hint; providers may still apply their own automatic caching. `short` and `long` are translated to the closest supported control for the selected API.
+ * Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
  */
 export const zModelCacheRetention = z.enum([
     'none',
@@ -392,7 +392,7 @@ export const zConfiguredModel = z.object({
     context_window_tokens: z.int(),
     max_output_tokens: z.int(),
     default_max_output_tokens: z.int().nullish(),
-    default_cache_retention: zModelCacheRetention,
+    default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
     supports_reasoning: z.boolean(),
     default_reasoning_effort: z.string(),
@@ -497,6 +497,23 @@ export const zCreateSkillRequest = z.object({
     archive: z.string()
 });
 
+export const zUpdateSkillRequest = z.intersection(z.union([
+    z.object({
+        archive: z.string()
+    }),
+    z.object({
+        skill_md: z.string()
+    })
+]), z.object({
+    archive: z.string().optional(),
+    skill_md: z.string().optional()
+}));
+
+export const zSkillFile = z.object({
+    path: z.string(),
+    size: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zSkill = z.object({
     id: zSkillId,
     org_id: zOrganizationId,
@@ -506,6 +523,7 @@ export const zSkill = z.object({
     revision: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     description: z.string(),
     skill_md: z.string().optional(),
+    files: z.array(zSkillFile).optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -854,20 +872,10 @@ export const zListAgentProfilesResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
-export const zAgentCronTriggerTarget = z.object({
-    type: z.enum(['agent']),
-    agent_id: zAgentId
-});
-
 export const zAgentProfileCronTriggerTarget = z.object({
     type: z.enum(['profile']),
     agent_profile_id: zAgentProfileId
 });
-
-export const zCronTriggerTarget = z.discriminatedUnion('type', [
-    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
-    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
-]);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -883,6 +891,22 @@ export const zCronTimezone = z.string().max(64).default('UTC');
  * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
+
+/**
+ * Each firing sends a queued or steering message to the agent. Defaults to `queued` on creation; omitted updates preserve the current mode.
+ */
+export const zCronTriggerDeliveryMode = z.enum(['queued', 'steering']);
+
+export const zAgentCronTriggerTarget = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId,
+    delivery_mode: zCronTriggerDeliveryMode.optional()
+});
+
+export const zCronTriggerTarget = z.discriminatedUnion('type', [
+    zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
+    zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') })
+]);
 
 export const zCronTriggerFailureReport = z.object({
     message: z.string(),
@@ -900,6 +924,7 @@ export const zCreateCronTriggerRequest = z.object({
 });
 
 export const zUpdateCronTriggerRequest = z.object({
+    target: zCronTriggerTarget.optional(),
     name: zResourceName.optional(),
     cron: zCronExpression.optional(),
     timezone: zCronTimezone.optional(),
@@ -1114,6 +1139,9 @@ export const zTextContentBlock = z.object({
     metadata: zContentBlockMetadata.optional()
 });
 
+/**
+ * Files that pass validation are stored as artifacts. Model input always includes the artifact ID, whether or not the file contents can be sent directly. Text media must contain valid UTF-8 and is sent as text. Images and PDFs are sent directly when supported by the configured provider and model; unsupported combinations are rejected. Other binary documents are sent directly only to OpenAI Responses models with file input support. Chat Completions and Anthropic Messages receive the artifact ID and the filename, if provided, instead of the contents of those documents.
+ */
 export const zInlineMediaContentBlock = z.object({
     type: z.enum(['media']),
     media_type: z.enum([
@@ -1126,6 +1154,15 @@ export const zInlineMediaContentBlock = z.object({
         'text/markdown',
         'text/csv',
         'text/tab-separated-values',
+        'text/x-iif',
+        'application/msword',
+        'application/rtf',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.keynote',
+        'application/vnd.apple.iwork',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -1336,22 +1373,6 @@ export const zAgentInputEvent = z.object({
     created_at: zTimestamp
 });
 
-export const zModelOutputEvent = z.object({
-    id: zAgentEventId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    agent_id: zAgentId,
-    turn_id: zAgentTurnId,
-    turn_sequence: zAgentSequence,
-    is_opening_event: z.literal(false),
-    sequence: zAgentSequence,
-    event_kind: z.enum(['model_output']),
-    model_call_context_id: zModelCallContextId,
-    stop_reason: zModelOutputStopReason,
-    content_blocks: z.array(zModelOutputContentBlock),
-    created_at: zTimestamp
-});
-
 export const zToolResultEvent = z.object({
     id: zAgentEventId,
     org_id: zOrganizationId,
@@ -1383,13 +1404,6 @@ export const zContextCheckpointEvent = z.object({
     summary: z.string(),
     created_at: zTimestamp
 });
-
-export const zAgentEvent = z.discriminatedUnion('event_kind', [
-    zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
-    zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
-    zToolResultEvent.extend({ event_kind: z.literal('tool_result') }),
-    zContextCheckpointEvent.extend({ event_kind: z.literal('context_checkpoint') })
-]);
 
 export const zModelOutputTextStreamBlock = z.object({
     kind: z.enum(['text'])
@@ -1440,6 +1454,9 @@ export const zModelOutputBlockStopDelta = z.object({
     block_index: z.int().gte(0)
 });
 
+/**
+ * Token counts the provider reported for one model call. Cache and reasoning counts are omitted when the provider reported none.
+ */
 export const zModelUsage = z.object({
     input_tokens_total: z.int().gte(0).optional(),
     uncached_input_tokens: z.int().gte(0).optional(),
@@ -1448,6 +1465,31 @@ export const zModelUsage = z.object({
     cache_read_input_tokens: z.int().gte(0).optional(),
     cache_write_input_tokens: z.int().gte(0).optional()
 });
+
+export const zModelOutputEvent = z.object({
+    id: zAgentEventId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    agent_id: zAgentId,
+    turn_id: zAgentTurnId,
+    turn_sequence: zAgentSequence,
+    is_opening_event: z.literal(false),
+    sequence: zAgentSequence,
+    event_kind: z.enum(['model_output']),
+    model_call_context_id: zModelCallContextId,
+    stop_reason: zModelOutputStopReason,
+    content_blocks: z.array(zModelOutputContentBlock),
+    usage: zModelUsage.optional(),
+    provider_metadata: z.record(z.string(), z.unknown()).optional(),
+    created_at: zTimestamp
+});
+
+export const zAgentEvent = z.discriminatedUnion('event_kind', [
+    zAgentInputEvent.extend({ event_kind: z.literal('agent_input') }),
+    zModelOutputEvent.extend({ event_kind: z.literal('model_output') }),
+    zToolResultEvent.extend({ event_kind: z.literal('tool_result') }),
+    zContextCheckpointEvent.extend({ event_kind: z.literal('context_checkpoint') })
+]);
 
 export const zModelOutputMessageStopDelta = z.object({
     kind: z.enum(['message_stop']),
@@ -1485,7 +1527,7 @@ export const zModelOutputDelta = z.object({
 });
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a terminal stream error.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
  */
 export const zAgentEventStreamData = z.union([
     zAgentEvent,
@@ -1597,6 +1639,8 @@ export const zAgentInteraction = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    tool_call_id: zToolCallId,
+    tool_name: z.string().optional(),
     interaction_kind: zAgentInteractionKind,
     state: zAgentInteractionState,
     request: zInteractionForm,
@@ -3047,9 +3091,21 @@ export const zGetSkillPath = z.object({
 });
 
 /**
- * Visible skill metadata and instructions.
+ * Visible skill metadata, instructions, and archive file listing.
  */
 export const zGetSkillResponse = zSkill;
+
+export const zUpdateSkillBody = zUpdateSkillRequest;
+
+export const zUpdateSkillPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)
+});
+
+/**
+ * Skill updated with a new revision.
+ */
+export const zUpdateSkillResponse = zSkill;
 
 export const zListSkillGrantsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -3696,7 +3752,7 @@ export const zStreamEventsQuery = z.object({
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and terminal stream errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 

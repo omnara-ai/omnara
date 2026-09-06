@@ -135,6 +135,7 @@ const (
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
 	operationGetSkill                      operationID = "GetSkill"
+	operationUpdateSkill                   operationID = "UpdateSkill"
 	operationGetToolCatalog                operationID = "GetToolCatalog"
 	operationListMCPServers                operationID = "ListMCPServers"
 	operationListMCPServerTools            operationID = "ListMCPServerTools"
@@ -304,6 +305,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteSkill:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationDeleteSkillGrant:           accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationGetSkill:                   accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationUpdateSkill:                accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListSkills:                 accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListSkillGrants:            accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListProjectAvailableSkills: accountPolicy(projectScope(identitystore.ProjectActionRead)),

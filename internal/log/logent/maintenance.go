@@ -23,22 +23,20 @@ func MaintenanceLoopResult(
 	ctx context.Context,
 	reapedRuntimeLocks int64,
 	reapRuntimeLocksErr error,
-	rebuiltAgentWakeups int64,
-	rebuildErr error,
+	worked bool,
+	err error,
 ) {
 	fields := log.Fields{
-		"maintenance.reap_runtime_locks.count":    reapedRuntimeLocks,
-		"maintenance.rebuild_agent_wakeups.count": rebuiltAgentWakeups,
-		"maintenance.loop.worked": reapedRuntimeLocks > 0 ||
-			rebuiltAgentWakeups > 0,
+		"maintenance.reap_runtime_locks.count": reapedRuntimeLocks,
+		"maintenance.loop.worked":              worked,
 	}
 	if reapRuntimeLocksErr != nil {
 		fields["maintenance.reap_runtime_locks.error"] = reapRuntimeLocksErr.Error()
-		log.Error(ctx, reapRuntimeLocksErr)
 	}
-	if rebuildErr != nil {
-		fields["maintenance.rebuild_agent_wakeups.error"] = rebuildErr.Error()
-		log.Error(ctx, rebuildErr)
+	if err != nil {
+		log.Error(ctx, err)
+	} else if !worked {
+		log.Level(ctx, log.DebugLevel)
 	}
 	log.Attach(ctx, fields)
 }

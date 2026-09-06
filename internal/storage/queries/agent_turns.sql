@@ -49,7 +49,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -67,7 +71,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -88,7 +96,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -110,7 +122,11 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.tool_call_id, projection.tool_outcome, projection.model_call_context_id,
        projection.model_stop_reason, projection.context_checkpoint_id,
        projection.summarized_through_event_sequence, projection.checkpoint_summary,
-       projection.content_blocks, projection.created_at
+       projection.content_blocks, projection.created_at,
+       projection.input_tokens_total, projection.uncached_input_tokens,
+       projection.cache_read_input_tokens, projection.cache_write_input_tokens,
+       projection.output_tokens_total, projection.reasoning_output_tokens,
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id

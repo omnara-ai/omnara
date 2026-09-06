@@ -156,7 +156,10 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	defer cancel()
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
 	if err != nil {
-		apiErr := apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp authorization discovery failed: "+err.Error())
+		apiErr := apierror.FromCode(
+			openapi.ErrorCodeUpstreamError,
+			"mcp authorization discovery failed: "+err.Error(),
+		).WithCause(err)
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
 	if !requirement.Required {
@@ -274,7 +277,10 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			s.mcpOAuthHTTPClient,
 		)
 		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp client registration failed: "+err.Error())
+			apiErr := apierror.FromCode(
+				openapi.ErrorCodeUpstreamError,
+				"mcp client registration failed: "+err.Error(),
+			).WithCause(err)
 			return "", "", &apiErr
 		}
 		return registered.ClientID, registered.ClientSecret, nil

@@ -65,6 +65,13 @@ type AgentEventReadProjection struct {
 	CheckpointSummary              *string
 	ContentBlocks                  json.RawMessage
 	CreatedAt                      time.Time
+	InputTokensTotal               *int32
+	UncachedInputTokens            *int32
+	CacheReadInputTokens           *int32
+	CacheWriteInputTokens          *int32
+	OutputTokensTotal              *int32
+	ReasoningOutputTokens          *int32
+	ProviderMetadata               *json.RawMessage
 }
 
 type AgentInteractionReadProjection struct {
@@ -166,6 +173,7 @@ type AuthDeviceFlow struct {
 	DeniedAt                 *time.Time
 	ConsumedAt               *time.Time
 	LastPolledAt             *time.Time
+	ClientID                 string
 }
 
 type BrowserSession struct {

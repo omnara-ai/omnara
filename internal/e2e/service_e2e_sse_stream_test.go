@@ -43,18 +43,8 @@ func TestServiceE2ESSEStreamDeliversLiveWakeup(t *testing.T) {
 	if !scanner.Scan() || !strings.HasPrefix(scanner.Text(), ":") {
 		t.Fatalf("sse stream missing preamble: %q", scanner.Text())
 	}
-
-	postStart := time.Now()
-	project.createInput(t, ctx, agentID, "service-e2e live wakeup payload")
-	env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
-		ProviderConfig: "openai-prod",
-		BaseURL:        "http://127.0.0.1:1",
-	})
-
 	frames := make(chan string, 16)
-	scanDone := make(chan struct{})
 	go func() {
-		defer close(scanDone)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
@@ -67,6 +57,22 @@ func TestServiceE2ESSEStreamDeliversLiveWakeup(t *testing.T) {
 			}
 		}
 	}()
+
+	select {
+	case line := <-frames:
+		if line != ": heartbeat" {
+			t.Fatalf("first idle stream frame=%q, want heartbeat comment", line)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("sse stream did not deliver a heartbeat through the real API service")
+	}
+
+	postStart := time.Now()
+	project.createInput(t, ctx, agentID, "service-e2e live wakeup payload")
+	env.startWorker(t, ctx, project.projectID, serviceWorkerOptions{
+		ProviderConfig: "openai-prod",
+		BaseURL:        "http://127.0.0.1:1",
+	})
 
 	deadline := time.After(10 * time.Second)
 	sawWakeupFrame := false

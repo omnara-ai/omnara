@@ -57,6 +57,9 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	agentTriggerID := agentTrigger["id"].(string)
+	if agentTrigger["target"].(map[string]any)["delivery_mode"] != "queued" {
+		t.Fatalf("expected default agent delivery_mode queued: %+v", agentTrigger)
+	}
 
 	idleStats, err := service.FireDueTriggers(ctx)
 	if err != nil {
@@ -368,6 +371,64 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 	)
 }
 
+func TestCronTriggerFiringSteeringDelivery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(integrationKeyWrapper()))
+	service := crontrigger.NewService(store.Execution(), nil, testLogger())
+
+	project := bootstrapPublicHTTPProject(t, handler, "cron-steer")
+	launch := launchPublicHTTPAgent(t, handler, project, "cron-steer-agent", project.AdminToken, http.StatusCreated)
+	agentID := launch["agent"].(map[string]any)["id"].(string)
+	triggersPath := project.ProjectPath + "/cron-triggers"
+
+	trigger := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		triggersPath,
+		`{"name":"steer-nudge","target":{"type":"agent","agent_id":"`+agentID+`","delivery_mode":"steering"},`+
+			`"cron":"0 9 * * *","message_template":"Steer {{ .trigger.name }}."}`,
+		"idem-cron-steer-trigger",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, trigger["id"].(string))
+	if _, err := pool.Exec(
+		ctx,
+		"UPDATE cron_triggers SET next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",
+		triggerUUID,
+	); err != nil {
+		t.Fatalf("backdate cron trigger: %v", err)
+	}
+
+	stats, err := service.FireDueTriggers(ctx)
+	if err != nil {
+		t.Fatalf("fire due triggers: %v", err)
+	}
+	if stats.Claimed != 1 || stats.Inputs != 1 || stats.Failures != 0 {
+		t.Fatalf("unexpected fire stats: %+v", stats)
+	}
+
+	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
+	var deliveryMode, text string
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT input.delivery_mode, block.text_content FROM agent_inputs input"+
+			" JOIN content_blocks block ON block.owner_agent_input_id = input.id AND block.block_kind = 'text'"+
+			" WHERE input.agent_id = $1 AND input.input_kind = 'content'",
+		agentUUID,
+	).Scan(&deliveryMode, &text); err != nil {
+		t.Fatalf("load cron input: %v", err)
+	}
+	if deliveryMode != "steering" || text != "Steer steer-nudge." {
+		t.Fatalf("cron input = (%q, %q), want steering delivery of the rendered message", deliveryMode, text)
+	}
+}
+
 func TestCronTriggerClaimFencing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -426,6 +487,24 @@ func TestCronTriggerClaimFencing(t *testing.T) {
 	current := secondClaim.Claimed[0]
 	if current.ClaimToken == stale.ClaimToken {
 		t.Fatal("reclaim must mint a fresh claim token")
+	}
+
+	staleDelivery := store.Execution().CreateCronTriggerAgentInput(ctx, executionstore.CreateCronTriggerAgentInputInput{
+		Trigger:        stale,
+		ContentBlocks:  []byte(`[{"type":"text","text":"Stale delivery."}]`),
+		IdempotencyKey: "cron-fence-stale-input",
+	})
+	if !errors.Is(staleDelivery, storeerr.ErrConflict) {
+		t.Fatalf("stale delivery must conflict, got %v", staleDelivery)
+	}
+	var inputCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM agent_inputs WHERE agent_id = $1 AND input_kind = 'content'", stale.Target.ID,
+	).Scan(&inputCount); err != nil {
+		t.Fatalf("count inputs after stale delivery: %v", err)
+	}
+	if inputCount != 0 {
+		t.Fatalf("stale claim must not deliver an input, got %d", inputCount)
 	}
 
 	staleComplete := store.Execution().CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{

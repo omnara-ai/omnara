@@ -27,6 +27,7 @@ type PublishContextCheckpointInput struct {
 	ProviderResponseID      string
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
+	ProviderMetadata        modelenvelope.ProviderMetadata
 }
 
 func (s *Store) PublishContextCheckpoint(
@@ -168,6 +169,7 @@ func (s *Store) PublishContextCheckpoint(
 		ProviderResponseID:      input.ProviderResponseID,
 		Usage:                   input.Usage,
 		ProviderReportedCostUSD: input.ProviderReportedCostUSD,
+		ProviderMetadata:        input.ProviderMetadata,
 	}); err != nil {
 		return ContextCheckpointRecord{}, err
 	}

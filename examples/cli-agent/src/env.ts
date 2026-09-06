@@ -32,7 +32,7 @@ export function loadEnv(): CliEnv {
     throw new Error('OMNARA_API_KEY is required; copy .env.example to .env and set a personal access token')
   }
   const orgId = process.env.OMNARA_ORG_ID?.trim() || undefined
-  const apiUrl = (process.env.OMNARA_API_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '')
+  const apiUrl = (process.env.OMNARA_API_URL?.trim() || 'http://localhost:8080/api/v1').replace(/\/+$/, '')
   const omnaradBinary = process.env.OMNARAD_BINARY?.trim() || undefined
   const daemonHome = expandHome(process.env.OMNARA_DAEMON_HOME?.trim() || path.join(os.homedir(), '.omnara-cli-agent'))
   return {

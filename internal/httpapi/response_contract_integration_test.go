@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
@@ -45,7 +46,7 @@ func loadResponseContract() (*responseContract, error) {
 			responseContractErr = err
 			return
 		}
-		spec.Servers = nil
+		spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
 		router, err := gorillamux.NewRouter(spec)
 		if err != nil {
 			responseContractErr = err

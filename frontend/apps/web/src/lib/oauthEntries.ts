@@ -78,23 +78,22 @@ export function oauthTokenSetMaterial(
       refresh_token: refreshValues.refreshToken,
       token_endpoint: refreshValues.tokenEndpoint,
       client_id: refreshValues.clientID,
-      ...(refreshValues.clientSecret === undefined
-        ? {}
-        : { client_secret: refreshValues.clientSecret }),
       resource: refreshValues.resource,
     }
+    if (refreshValues.clientSecret !== undefined) refresh.client_secret = refreshValues.clientSecret
   }
 
-  return {
+  const material: OAuthTokenSetSecretMaterial = {
     kind: 'oauth_token_set',
     access_token: values.access_token,
-    ...(accessTokenExpiresInSeconds === undefined
-      ? {}
-      : { access_token_expires_in_seconds: accessTokenExpiresInSeconds }),
-    ...(refresh === undefined ? {} : { refresh }),
-    ...(values.id_token === undefined ? {} : { id_token: values.id_token }),
-    ...(values.mcp_url === undefined ? {} : { mcp_url: values.mcp_url }),
-    ...(values.scopes === undefined ? {} : { scopes: values.scopes }),
-    ...(values.token_type === undefined ? {} : { token_type: values.token_type }),
   }
+  if (accessTokenExpiresInSeconds !== undefined) {
+    material.access_token_expires_in_seconds = accessTokenExpiresInSeconds
+  }
+  if (refresh !== undefined) material.refresh = refresh
+  if (values.id_token !== undefined) material.id_token = values.id_token
+  if (values.mcp_url !== undefined) material.mcp_url = values.mcp_url
+  if (values.scopes !== undefined) material.scopes = values.scopes
+  if (values.token_type !== undefined) material.token_type = values.token_type
+  return material
 }

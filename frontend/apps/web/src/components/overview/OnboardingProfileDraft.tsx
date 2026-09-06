@@ -87,7 +87,11 @@ export function ProfileDraftStep({
 
   return (
     <div className="flex flex-col gap-6">
-      <div role="radiogroup" aria-label="Agent template" className="grid gap-4 sm:grid-cols-3">
+      <div
+        role="radiogroup"
+        aria-label="Agent template"
+        className="grid gap-3 sm:grid-cols-3 sm:gap-4"
+      >
         {agentTemplates.map((candidate) => {
           const selected = candidate.id === templateId
           return (
@@ -99,7 +103,7 @@ export function ProfileDraftStep({
               data-template={candidate.id}
               disabled={submitting}
               className={cn(
-                'flex min-h-36 flex-col gap-2 rounded-xl border p-6 text-left transition-all',
+                'flex flex-col gap-2 rounded-xl border p-4 text-left transition-all sm:min-h-36 sm:p-6',
                 'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-[3px]',
                 selected
                   ? 'border-blue-500/40 bg-gradient-to-br from-blue-500/[0.06] via-blue-500/[0.02] to-transparent'

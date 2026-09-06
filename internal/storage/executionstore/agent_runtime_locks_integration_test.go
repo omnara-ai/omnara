@@ -25,6 +25,12 @@ type runtimeLockLeaseFixture struct {
 	AgentID ID
 }
 
+type postCommitPublisherFunc func()
+
+func (publish postCommitPublisherFunc) PublishPostCommit(context.Context, notifications.PostCommitIntent) {
+	publish()
+}
+
 func newRuntimeLockLeaseFixture(t *testing.T, ctx context.Context, seed string) runtimeLockLeaseFixture {
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
@@ -275,9 +281,18 @@ FOR EACH ROW EXECUTE FUNCTION fail_runtime_lock_reap_commit();
 		t.Fatalf("seed runtime-lock reap commit failure: %v", err)
 	}
 
-	reaped, reapErr := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
+	reapCtx, cancelReap := context.WithCancel(ctx)
+	defer cancelReap()
+	fixture.Store = newIntegrationStore(
+		fixture.Pool,
+		WithPostCommitPublisher(postCommitPublisherFunc(cancelReap)),
+	)
+	reaped, reapErr := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(reapCtx, 100)
 	if reapErr == nil || !strings.Contains(reapErr.Error(), "injected runtime lock reap commit failure") {
 		t.Fatalf("runtime-lock reap error = %v, want injected commit failure", reapErr)
+	}
+	if errors.Is(reapErr, context.Canceled) {
+		t.Fatalf("runtime-lock reap error includes shutdown cancellation: %v", reapErr)
 	}
 	if reaped != 1 {
 		t.Fatalf("reaped runtime locks = %d, want later candidate to succeed", reaped)

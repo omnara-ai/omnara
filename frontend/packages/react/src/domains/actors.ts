@@ -2,6 +2,7 @@ import { listActorsOptions } from '@omnara/sdk/tanstack'
 import { type Query, useSuspenseQuery } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
+import { generatedQueryKey } from './query-keys'
 
 export function useCurrentActorId(
   orgID: string,
@@ -21,9 +22,7 @@ export function useCurrentActorId(
 
 export function projectActorsQueryPredicate(orgID: string, projectID: string) {
   return (query: Query): boolean => {
-    const key = query.queryKey[0] as
-      | { _id?: string; path?: { orgID?: string; projectID?: string } }
-      | undefined
+    const key = generatedQueryKey(query)
     return (
       key?._id === 'listActors' && key.path?.orgID === orgID && key.path.projectID === projectID
     )

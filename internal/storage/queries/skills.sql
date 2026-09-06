@@ -45,6 +45,13 @@ INSERT INTO skill_revisions(
 )
 RETURNING revision;
 
+-- name: GetLatestSkillRevisionID :one
+SELECT id
+FROM skill_revisions
+WHERE skill_id = sqlc.arg(skill_id) AND deleted_at IS NULL
+ORDER BY revision DESC
+LIMIT 1;
+
 -- name: ListSkillRevisionIDs :many
 -- @sqlc-vet-disable skill-revisions-deleted-at
 -- Archive purge enumeration: retries must see revisions soft deleted by a prior attempt.

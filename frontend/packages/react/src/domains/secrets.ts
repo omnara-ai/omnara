@@ -28,7 +28,8 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
+import { generatedQueryKey } from './query-keys'
 import { useScopedMutation } from './scoped-mutation'
 
 /**
@@ -70,12 +71,13 @@ export function useSecrets(orgID: string, owner?: SecretOwnerScope, options?: Se
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListSecretsData>(options)
   return useInfiniteQuery({
-    ...listSecretsInfiniteOptions({
-      path: { orgID },
-      query: { ...ownerFilterQuery(owner), ...list.query },
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listSecretsInfiniteOptions({
+        path: { orgID },
+        query: { ...ownerFilterQuery(owner), ...list.query },
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -92,12 +94,13 @@ export function useProjectAvailableSecrets(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListProjectAvailableSecretsData>(options)
   return useInfiniteQuery({
-    ...listProjectAvailableSecretsInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listProjectAvailableSecretsInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -127,12 +130,13 @@ export function useSecretGrants(orgID: string, secretID: string, options?: Secre
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListSecretGrantsData>(options)
   return useInfiniteQuery({
-    ...listSecretGrantsInfiniteOptions({
-      path: { orgID, secretID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listSecretGrantsInfiniteOptions({
+        path: { orgID, secretID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -148,11 +152,9 @@ const SECRET_QUERY_OPERATIONS = new Set([
 function invalidateSecretQueries(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const entry = query.queryKey[0] as { _id?: string; path?: { orgID?: string } } | undefined
+      const entry = generatedQueryKey(query)
       return (
-        entry?._id !== undefined &&
-        SECRET_QUERY_OPERATIONS.has(entry._id) &&
-        entry.path?.orgID === orgID
+        entry !== undefined && SECRET_QUERY_OPERATIONS.has(entry._id) && entry.path?.orgID === orgID
       )
     },
   })

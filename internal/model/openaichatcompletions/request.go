@@ -18,7 +18,6 @@ import (
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
 	_ = ctx
 	c := p.client
-	apiVariant := c.ModelAPIVariant()
 	providerModelSlug := c.RequestedProviderModelSlug()
 	if providerModelSlug == "" {
 		return nil, errors.New("openai-chat-completions provider model slug is required")
@@ -47,7 +46,8 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		Tools:    buildTools(input.Context.ToolSpecs),
 		N:        1,
 	}
-	if apiVariant != modelprotocol.APIVariantOpenRouter {
+	compat := c.compat()
+	if compat.sendsStoreFalse {
 		store := false
 		payload.Store = &store
 	}
@@ -56,7 +56,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	reasoningOwned := chatCompletionsOwnsReasoning(c.ModelCapabilities, input.Policy)
 	if reasoningOwned {
-		if apiVariant == modelprotocol.APIVariantOpenRouter {
+		if compat.reasoningFormat == reasoningFormatOpenRouter {
 			payload.Reasoning = &chatReasoning{Effort: input.Policy.ReasoningEffort}
 		} else {
 			payload.ReasoningEffort = input.Policy.ReasoningEffort
@@ -65,11 +65,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if input.Policy.MaxOutputTokens > 0 {
 		payload.MaxCompletionTokens = input.Policy.MaxOutputTokens
 	}
-	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		payload.CacheControl = openRouterCacheControl(input.Policy.CacheRetention, providerModelSlug)
-	} else if retention := promptCacheRetention(input.Policy.CacheRetention); retention != "" {
-		payload.PromptCacheRetention = retention
+	plan := model.PlanPromptCache(c.providerRoute(), input.Context, input.Policy.CacheRetention)
+	if apivariantbody.Sets(c.APIVariantOptions, "session_id", "prompt_cache_key") {
+		plan.ConversationKey = ""
 	}
+	applyPromptCachePlan(&payload, plan, compat)
 	return apivariantbody.MarshalWithAPIVariantOptions(
 		c.APIVariantOptions,
 		payload,
@@ -102,15 +102,6 @@ func chatCompletionsOwnsReasoning(capabilities model.Capabilities, policy model.
 	return supportsReasoning && policy.ReasoningEffort != ""
 }
 
-func promptCacheRetention(retention model.CacheRetention) string {
-	switch retention {
-	case model.CacheRetentionLong:
-		return "24h"
-	default:
-		return ""
-	}
-}
-
 func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) error {
 	for _, result := range results {
 		if result.ProviderCallID == "" {
@@ -121,18 +112,18 @@ func validateToolResultProviderCallIDs(results []modelcontext.ToolResultRef) err
 }
 
 type chatCompletionsRequest struct {
-	Model                string               `json:"model"`
-	Stream               bool                 `json:"stream"`
-	Messages             []chatMessage        `json:"messages"`
-	Tools                []chatToolDefinition `json:"tools,omitempty"`
-	ToolChoice           string               `json:"tool_choice,omitempty"`
-	MaxCompletionTokens  int                  `json:"max_completion_tokens,omitempty"`
-	N                    int                  `json:"n"`
-	PromptCacheRetention string               `json:"prompt_cache_retention,omitempty"`
-	CacheControl         *chatCacheControl    `json:"cache_control,omitempty"`
-	ReasoningEffort      string               `json:"reasoning_effort,omitempty"`
-	Reasoning            *chatReasoning       `json:"reasoning,omitempty"`
-	Store                *bool                `json:"store,omitempty"`
+	Model               string               `json:"model"`
+	Stream              bool                 `json:"stream"`
+	Messages            []chatMessage        `json:"messages"`
+	Tools               []chatToolDefinition `json:"tools,omitempty"`
+	ToolChoice          string               `json:"tool_choice,omitempty"`
+	MaxCompletionTokens int                  `json:"max_completion_tokens,omitempty"`
+	N                   int                  `json:"n"`
+	PromptCacheKey      string               `json:"prompt_cache_key,omitempty"`
+	SessionID           string               `json:"session_id,omitempty"`
+	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`
+	Reasoning           *chatReasoning       `json:"reasoning,omitempty"`
+	Store               *bool                `json:"store,omitempty"`
 }
 
 type chatReasoning struct {
@@ -218,6 +209,7 @@ func buildMessages(
 				entry.Message,
 				entry.AssistantContent,
 				entry.ToolResults,
+				bundle.ResolvedMedia,
 				replayIdentity,
 				policy,
 			)
@@ -255,7 +247,10 @@ func buildMessages(
 	}
 }
 
-func messageFromContext(message modelcontext.Message, media map[string]modelcontext.ResolvedMedia) (chatMessage, bool) {
+func messageFromContext(
+	message modelcontext.Message,
+	media map[string]modelcontext.ResolvedMedia,
+) (chatMessage, bool) {
 	switch message.Role {
 	case modelprotocol.RoleAssistant:
 		text := textContentFromParts(message.Content, nil)
@@ -297,12 +292,13 @@ func assistantMessagesForEntry(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
 ) ([]chatMessage, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
 		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
-			return appendToolResultMessages([]chatMessage{replay}, group), nil
+			return appendToolResultMessages([]chatMessage{replay}, group, media), nil
 		}
 	}
 	contentParts := make([]json.RawMessage, 0, len(content))
@@ -338,19 +334,25 @@ func assistantMessagesForEntry(
 	if assistant.Content == "" && len(assistant.ToolCalls) == 0 {
 		return nil, nil
 	}
-	return appendToolResultMessages([]chatMessage{assistant}, group), nil
+	return appendToolResultMessages([]chatMessage{assistant}, group, media), nil
 }
 
 func appendToolResultMessages(
 	messages []chatMessage,
 	results []modelcontext.ToolResultRef,
+	media map[string]modelcontext.ResolvedMedia,
 ) []chatMessage {
+	var mediaContent []any
 	for _, result := range results {
 		messages = append(messages, chatMessage{
 			Role:       chatRoleTool,
 			ToolCallID: result.ProviderCallID,
-			Content:    toolResultOutput(result),
+			Content:    toolResultOutput(result, media),
 		})
+		mediaContent = append(mediaContent, toolResultMediaContent(result, media)...)
+	}
+	if len(mediaContent) > 0 {
+		messages = append(messages, chatMessage{Role: chatRoleUser, Content: mediaContent})
 	}
 	return messages
 }
@@ -379,7 +381,7 @@ func completeChatReplay(
 	if err != nil {
 		return chatMessage{}, false
 	}
-	return chatMessage{ProviderReplay: normalized}, true
+	return chatMessage{Role: chatRoleAssistant, ProviderReplay: normalized}, true
 }
 
 type chatReplaySemantic struct {

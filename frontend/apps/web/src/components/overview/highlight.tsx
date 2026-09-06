@@ -3,11 +3,11 @@ import type { DecorationItem, HighlighterCore } from 'shiki/core'
 
 export type CodeLanguage = 'shell' | 'typescript' | 'json' | 'text'
 
-const shikiLanguage: Record<Exclude<CodeLanguage, 'text'>, string> = {
+const shikiLanguage = {
   shell: 'bash',
   typescript: 'typescript',
   json: 'json',
-}
+} satisfies Record<Exclude<CodeLanguage, 'text'>, string>
 
 let highlighterPromise: Promise<HighlighterCore> | undefined
 

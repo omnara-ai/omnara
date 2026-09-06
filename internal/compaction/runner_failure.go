@@ -136,6 +136,7 @@ func (r Runner) recordFailure(
 				RetryDelay:              decision.RetryDelay,
 				Usage:                   usageAfter(providerAttempt),
 				ProviderReportedCostUSD: providerReportedCostUSDAfter(providerAttempt),
+				ProviderMetadata:        providerMetadataAfter(providerAttempt),
 			},
 		)
 		if err != nil {
@@ -168,6 +169,7 @@ func (r Runner) recordFailure(
 			ErrorDetails:            evidence.Details,
 			Usage:                   usageAfter(providerAttempt),
 			ProviderReportedCostUSD: providerReportedCostUSDAfter(providerAttempt),
+			ProviderMetadata:        providerMetadataAfter(providerAttempt),
 		},
 	); err != nil {
 		return RunResult{}, errors.Join(cause, err)
@@ -206,6 +208,7 @@ func (r Runner) replaceCompactionSource(
 			ErrorDetails:               evidence.Details,
 			Usage:                      usageAfter(providerAttempt),
 			ProviderReportedCostUSD:    providerReportedCostUSDAfter(providerAttempt),
+			ProviderMetadata:           providerMetadataAfter(providerAttempt),
 			NextSourceEventSequenceEnd: nextEnd,
 		},
 	)
@@ -276,6 +279,7 @@ func compactionRequestPolicy(
 		return model.RequestPolicy{}, 0, err
 	}
 	policy := normalPolicy
+	policy.CacheRetention = model.CacheRetentionNone
 	policy.MaxOutputTokens = capabilities.MaxOutputTokens
 	if policy.MaxOutputTokens <= 0 {
 		policy.MaxOutputTokens = capabilities.DefaultMaxOutputTokens
@@ -464,4 +468,11 @@ func providerReportedCostUSDAfter(
 		return ""
 	}
 	return providerAttempt.Response.ProviderReportedCostUSD
+}
+
+func providerMetadataAfter(providerAttempt providerAttemptEvidence) modelenvelope.ProviderMetadata {
+	if !providerAttempt.ProviderRequestStarted {
+		return modelenvelope.ProviderMetadata{}
+	}
+	return providerAttempt.Response.ProviderMetadata
 }

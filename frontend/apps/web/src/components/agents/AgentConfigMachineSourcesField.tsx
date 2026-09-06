@@ -70,7 +70,7 @@ export function AgentConfigMachineSourcesField({
               type="button"
               size="icon"
               variant="ghost"
-              className="text-muted-foreground size-8"
+              className="text-muted-foreground size-10 sm:size-8"
               aria-label="Add source"
             >
               <PlusIcon />

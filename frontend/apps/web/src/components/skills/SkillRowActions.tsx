@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Ellipsis } from '@/components/icons'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
+import { UpdateSkillDialog } from '@/components/skills/UpdateSkillDialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,6 +19,7 @@ export function SkillRowActions({
   availability,
   projectName,
   canDelete,
+  canUpdate = false,
   canGrant = false,
 }: {
   orgId: string
@@ -25,15 +27,17 @@ export function SkillRowActions({
   availability?: ProjectSkillAccess['availability']
   projectName?: string
   canDelete: boolean
+  canUpdate?: boolean
   canGrant?: boolean
 }) {
   const deleteSkill = useDeleteSkill(orgId)
   const deleteGrant = useDeleteSkillGrant(orgId)
   const grantSkill = useGrantSkillToProject(orgId)
   const [grantOpen, setGrantOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
   const isGrant = availability?.source === 'grant'
 
-  if (!canDelete && !canGrant) return null
+  if (!canDelete && !canUpdate && !canGrant) return null
 
   async function remove() {
     if (!window.confirm(isGrant ? 'Remove this skill grant?' : 'Delete this skill?')) return
@@ -57,6 +61,15 @@ export function SkillRowActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {canUpdate && (
+            <DropdownMenuItem
+              onSelect={() => {
+                setUpdateOpen(true)
+              }}
+            >
+              Edit
+            </DropdownMenuItem>
+          )}
           {canGrant && (
             <DropdownMenuItem
               onSelect={() => {
@@ -88,6 +101,16 @@ export function SkillRowActions({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {canUpdate && updateOpen && (
+        <UpdateSkillDialog
+          open
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setUpdateOpen(false)
+          }}
+          orgId={orgId}
+          skill={skill}
+        />
+      )}
       {canGrant && grantOpen && (
         <GrantToProjectDialog
           open

@@ -175,7 +175,7 @@ main().catch((error: unknown) => {
     console.error(`  message: ${error.message}`)
     if (error.status === 404 && error.code == null) {
       console.error('  hint:    a 404 without an API error code usually means OMNARA_API_URL does not point')
-      console.error('           at the Omnara API (use the API origin, e.g. http://localhost:8080)')
+      console.error('           at the Omnara API (use the API base URL, e.g. http://localhost:8080/api/v1)')
     }
     if (error.status === 401) {
       console.error('  hint:    check that OMNARA_API_KEY is a valid, unrevoked personal access token')

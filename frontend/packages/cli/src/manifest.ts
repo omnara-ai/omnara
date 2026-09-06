@@ -2,6 +2,8 @@ import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
+import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
+import { formatAgentEventList } from './agent-rendering.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
@@ -102,6 +104,80 @@ export const commandGroups: CommandGroup[] = [
         body: zMcpAddBody,
         run: runAgentMcpAdd,
       }),
+      agentChatOp,
+      op({
+        verb: 'input',
+        summary: 'Send input to an agent',
+        fn: sdk.createAgentInput,
+        format: (response) => formatRecord()(response.agent_input),
+        path: schemas.zCreateAgentInputPath,
+        body: schemas.zCreateAgentInputBody
+          .partial({ content_blocks: true })
+          .extend({
+            message: z.string().optional().describe('plain text to send as a single text block'),
+          })
+          .transform(({ message, content_blocks, ...rest }, ctx) => {
+            if (content_blocks !== undefined && message === undefined) {
+              return { ...rest, content_blocks }
+            }
+            if (message !== undefined && content_blocks === undefined) {
+              return { ...rest, content_blocks: [{ type: 'text' as const, text: message }] }
+            }
+            ctx.addIssue('pass exactly one of --message or --content-blocks')
+            return z.NEVER
+          }),
+      }),
+    ],
+    groups: [
+      {
+        name: 'events',
+        aliases: ['event'],
+        summary: "Inspect an agent's event log",
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List an agent's events",
+            fn: sdk.listEvents,
+            format: formatAgentEventList,
+            path: schemas.zListEventsPath,
+            query: schemas.zListEventsQuery.extend({
+              before_sequence: z.int().gte(0).optional(),
+              after_sequence: z.int().gte(0).optional(),
+            }),
+          }),
+          agentEventsStreamOp,
+        ],
+      },
+      {
+        name: 'interactions',
+        aliases: ['interaction'],
+        summary: "Manage an agent's interactions",
+        operations: [
+          op({
+            verb: 'list',
+            summary: "List an agent's interactions",
+            fn: sdk.listAgentInteractions,
+            format: (response) =>
+              formatTable(['id', 'interaction_kind', 'state', 'title', 'created_at'])({
+                data: response.data.map((interaction) => ({
+                  ...interaction,
+                  title: interaction.request.title,
+                })),
+                next_cursor: response.next_cursor,
+              }),
+            path: schemas.zListAgentInteractionsPath,
+            query: schemas.zListAgentInteractionsQuery,
+          }),
+          op({
+            verb: 'resolve',
+            summary: 'Resolve an open interaction',
+            fn: sdk.resolveAgentInteraction,
+            format: formatRecord(),
+            path: schemas.zResolveAgentInteractionPath,
+            body: schemas.zResolveAgentInteractionBody,
+          }),
+        ],
+      },
     ],
   },
   {

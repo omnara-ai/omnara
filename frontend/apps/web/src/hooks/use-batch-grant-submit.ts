@@ -19,7 +19,7 @@ export function useBatchGrantSubmit<TItem>({
   label: string
   fallbackError: string
   itemKey: (item: TItem) => string
-  grant: (item: TItem) => Promise<unknown>
+  grant: (item: TItem) => Promise<void>
   onGranted?: (granted: TItem[]) => void
   onSuccess: () => void
 }) {

@@ -80,14 +80,13 @@ export function configuredModelRequestForDiscoveredModel(
   if (model.context_window_tokens === undefined || model.context_window_tokens < 2) {
     throw new Error(`No context window was reported for ${model.slug}`)
   }
-  return {
+  const request: CreateConfiguredModelRequest = {
     name: configuredModelSuggestedName(model.slug),
     provider_model_slug: model.slug,
     context_window_tokens: model.context_window_tokens,
-    ...(model.max_output_tokens === undefined
-      ? {}
-      : { max_output_tokens: model.max_output_tokens }),
     supports_tools: true,
     supports_reasoning: false,
   }
+  if (model.max_output_tokens !== undefined) request.max_output_tokens = model.max_output_tokens
+  return request
 }

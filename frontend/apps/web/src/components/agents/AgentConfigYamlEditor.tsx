@@ -5,6 +5,7 @@ import type { AgentConfigErrorIssue } from '@omnara/sdk'
 import * as monaco from 'monaco-editor'
 import { configureMonacoYaml, type MonacoYaml, type MonacoYamlOptions } from 'monaco-yaml'
 import { useEffect, useRef, useState } from 'react'
+import { z } from 'zod'
 
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { issueMarkers } from '@/lib/agent-config-issues'
@@ -12,7 +13,7 @@ import { cn } from '@/lib/utils'
 
 import agentConfigSchemaSource from '../../../../../../internal/agentconfig/generated/agent_config.schema.json?raw'
 
-const agentConfigSchema = JSON.parse(agentConfigSchemaSource) as Record<string, unknown>
+const agentConfigSchema = z.record(z.string(), z.json()).parse(JSON.parse(agentConfigSchemaSource))
 const agentConfigSchemaUri = 'https://omnara.local/schemas/agent-config.schema.json'
 const agentConfigYamlFileMatches = ['*.yaml', '*.yml']
 let yamlConfiguration: MonacoYaml | undefined

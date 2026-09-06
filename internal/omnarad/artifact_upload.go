@@ -61,7 +61,7 @@ func runUploadArtifactCommand(
 		return fmt.Errorf("load daemon config: %w", err)
 	}
 	endpoint := strings.TrimRight(config.APIURL, "/") +
-		"/api/v1/daemon/tool-calls/" + url.PathEscape(toolCallID) +
+		"/daemon/tool-calls/" + url.PathEscape(toolCallID) +
 		"/artifact?filename=" + url.QueryEscape(filepath.Base(path))
 	body := io.NewSectionReader(file, 0, info.Size())
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)

@@ -1,4 +1,4 @@
-import type { ToolPermissionSelection } from '@omnara/sdk'
+import type { PermissionSelection } from '@/components/agents/agentConfigBasicExtract'
 
 export const recommendedMachineToolNames = [
   'run_command',
@@ -19,7 +19,7 @@ interface MachineSourceSelection {
 
 interface ToolSelection {
   name: string
-  permission: ToolPermissionSelection | null
+  permission: PermissionSelection | null
 }
 
 export function hasMissingMachineTools(tools: ToolSelection[]): boolean {

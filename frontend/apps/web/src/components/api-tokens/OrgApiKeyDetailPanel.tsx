@@ -33,12 +33,12 @@ export function OrgApiKeyDetailPanel({ orgId, apiKey }: { orgId: string; apiKey:
 
   return (
     <div className="flex flex-col gap-3">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-8 gap-y-2 text-sm">
-        <div className="col-span-2 grid grid-cols-subgrid">
+      <dl className="grid gap-y-3 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-2">
+        <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">Key ID</dt>
           <dd className="break-all font-mono text-xs leading-5">{apiKey.id}</dd>
         </div>
-        <div className="col-span-2 grid grid-cols-subgrid">
+        <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
           <dt className="text-muted-foreground">Created by</dt>
           <dd className="break-all font-mono text-xs leading-5">{apiKey.created_by_user_id}</dd>
         </div>
@@ -46,11 +46,11 @@ export function OrgApiKeyDetailPanel({ orgId, apiKey }: { orgId: string; apiKey:
       {!isRevoked && (
         <>
           <Separator />
-          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-8 gap-y-2 text-sm">
-            <div className="col-span-2 grid grid-cols-subgrid items-center">
+          <dl className="grid gap-y-3 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-8 sm:gap-y-2">
+            <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:items-center sm:gap-0">
               <dt className="text-muted-foreground">Org role</dt>
-              <dd className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
+              <dd className="flex min-w-0 flex-col gap-2">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="flex gap-2">
                     {ORG_ROLES.map((role) => (
                       <Button
@@ -91,20 +91,20 @@ export function OrgApiKeyDetailPanel({ orgId, apiKey }: { orgId: string; apiKey:
                   </Button>
                 </div>
                 {updateError && (
-                  <p role="alert" className="text-destructive text-right text-xs">
+                  <p role="alert" className="text-destructive text-xs sm:text-right">
                     {updateError}
                   </p>
                 )}
                 {revokeError && (
-                  <p role="alert" className="text-destructive text-right text-xs">
+                  <p role="alert" className="text-destructive text-xs sm:text-right">
                     {revokeError}
                   </p>
                 )}
               </dd>
             </div>
-            <div className="col-span-2 grid grid-cols-subgrid">
+            <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:gap-0">
               <dt className="text-muted-foreground">Project access</dt>
-              <dd className="break-words">
+              <dd className="min-w-0 break-words">
                 {isImplicitProjectAdmin ? (
                   <p className="text-muted-foreground">
                     Admin tokens have admin access to every project.

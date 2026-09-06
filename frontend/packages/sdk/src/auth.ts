@@ -2,8 +2,14 @@ export interface AuthStrategy {
   authenticate(request: Request): void | Promise<void>
 }
 
-export function bearerToken(token: string | (() => string | Promise<string>)): AuthStrategy {
-  const resolve = typeof token === 'function' ? token : () => token
+type TokenResolver = () => string | Promise<string>
+
+function isTokenResolver(token: string | TokenResolver): token is TokenResolver {
+  return typeof token === 'function'
+}
+
+export function bearerToken(token: string | TokenResolver): AuthStrategy {
+  const resolve = isTokenResolver(token) ? token : () => token
   return {
     async authenticate(request) {
       const value = await resolve()

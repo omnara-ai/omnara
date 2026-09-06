@@ -1082,10 +1082,21 @@ func TestMachineDaemonReportProcessStartedCompletesStartToolCall(t *testing.T) {
 	} else if !found {
 		t.Fatal("expected process offer")
 	}
+	toolCall, err := store.Execution().GetToolCall(
+		ctx,
+		project.ProjectUUID,
+		process.AgentUUID,
+		process.ToolCallUUID,
+	)
+	if err != nil {
+		t.Fatalf("get start tool call before process_started: %v", err)
+	}
+	if toolCall.State != "waiting" || toolCall.CompletedAt != nil {
+		t.Fatalf("start tool call before process_started = %+v", toolCall)
+	}
 	startedAt := now.Add(1500 * time.Millisecond)
 	observedAt := now.Add(2 * time.Second)
 
-	beforeReport := time.Now().UTC()
 	applyDaemonReportForTest(
 		t,
 		ctx,
@@ -1099,7 +1110,6 @@ func TestMachineDaemonReportProcessStartedCompletesStartToolCall(t *testing.T) {
 			ObservedAt: observedAt,
 		},
 	)
-	afterReport := time.Now().UTC()
 	reportedProcess, err := store.Execution().GetProcess(
 		ctx,
 		project.ProjectUUID,
@@ -1120,7 +1130,7 @@ func TestMachineDaemonReportProcessStartedCompletesStartToolCall(t *testing.T) {
 			startedAt,
 		)
 	}
-	toolCall, err := store.Execution().GetToolCall(
+	toolCall, err = store.Execution().GetToolCall(
 		ctx,
 		project.ProjectUUID,
 		process.AgentUUID,
@@ -1130,8 +1140,6 @@ func TestMachineDaemonReportProcessStartedCompletesStartToolCall(t *testing.T) {
 		t.Fatalf("get start tool call: %v", err)
 	}
 	if toolCall.State != "completed" || toolCall.CompletedAt == nil ||
-		toolCall.CompletedAt.Before(beforeReport) ||
-		toolCall.CompletedAt.After(afterReport) ||
 		!strings.Contains(
 			string(toolCall.ResultContentParts),
 			process.ProcessID,

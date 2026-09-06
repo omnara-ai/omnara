@@ -21,7 +21,7 @@ import {
   type PaginatedListOptions,
   paginatedListOptions,
 } from './list-options'
-import { cursorPagination } from './pagination'
+import { cursorPaginated } from './pagination'
 
 export type MachineListFilters = ListFilters<ListVisibleMachinesData>
 export type MachineListSort = ListSort<ListVisibleMachinesData>
@@ -34,12 +34,13 @@ export function useMachines(orgID: string, options?: MachineListOptions) {
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListVisibleMachinesData>(options)
   return useInfiniteQuery({
-    ...listVisibleMachinesInfiniteOptions({
-      path: { orgID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listVisibleMachinesInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }
@@ -66,12 +67,13 @@ export function useProjectMachines(
   const client = useOmnaraClient()
   const list = paginatedListOptions<ListVisibleProjectMachinesData>(options)
   return useInfiniteQuery({
-    ...listVisibleProjectMachinesInfiniteOptions({
-      path: { orgID, projectID },
-      query: list.query,
-      client,
-    }),
-    ...cursorPagination,
+    ...cursorPaginated(
+      listVisibleProjectMachinesInfiniteOptions({
+        path: { orgID, projectID },
+        query: list.query,
+        client,
+      }),
+    ),
     enabled: list.enabled,
   })
 }

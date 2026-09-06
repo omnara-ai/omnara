@@ -17,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
@@ -158,16 +157,6 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 		t.Fatalf("load interrupted compaction retry: attempt=%+v found=%v err=%v", interrupted, found, err)
 	}
 	recoveryNow := interrupted.RetryAt.Add(time.Second)
-	if err := storagetest.DeleteAgentWakeup(ctx, fixture.Pool, kernelTestProjectID, agentID); err != nil {
-		t.Fatalf("delete wakeup before interrupted compaction rebuild: %v", err)
-	}
-	rebuilt, err := fixture.Store.Execution().RebuildMissingAgentWakeups(ctx, kernelTestProjectID)
-	if err != nil {
-		t.Fatalf("rebuild interrupted compaction wakeup: %v", err)
-	}
-	if rebuilt != 1 {
-		t.Fatalf("rebuilt wakeups = %d, want 1 for interrupted compaction", rebuilt)
-	}
 	claim, found, err := fixture.Store.Execution().ClaimNextAgentWork(
 		ctx,
 		kernelTestClaimInput(recoveryNow),

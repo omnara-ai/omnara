@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -23,7 +24,7 @@ func CreateVerifiedUser(
 		return identitystore.UserRecord{}, errors.New("pool is required")
 	}
 	email := strings.TrimSpace(input.Email)
-	normalizedEmail := identitystore.NormalizeEmail(email)
+	normalizedEmail := emailaddr.Normalize(email)
 	if normalizedEmail == "" {
 		return identitystore.UserRecord{}, errors.New("email is required")
 	}

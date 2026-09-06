@@ -16,6 +16,7 @@ type ResponseEnvelope struct {
 	APIFormat                  modelprotocol.APIFormat  `json:"api_format"`
 	APIVariant                 modelprotocol.APIVariant `json:"api_variant"`
 	ProviderReportedCostUSD    ProviderReportedCostUSD  `json:"provider_reported_cost_usd,omitempty"`
+	ProviderMetadata           ProviderMetadata         `json:"provider_metadata,omitzero"`
 	ProviderReplay             json.RawMessage          `json:"provider_replay,omitempty"`
 	Normalized                 ResponseNormalized       `json:"normalized"`
 }
@@ -247,6 +248,13 @@ type Usage struct {
 	ReasoningTokens  int `json:"reasoning_output_tokens,omitempty"`
 	CacheReadTokens  int `json:"cache_read_input_tokens,omitempty"`
 	CacheWriteTokens int `json:"cache_write_input_tokens,omitempty"`
+}
+
+func OptionalCount(value int) *int {
+	if value <= 0 {
+		return nil
+	}
+	return &value
 }
 
 // NormalizeUsage rejects usage that violates the token-accounting

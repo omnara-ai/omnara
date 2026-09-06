@@ -1,30 +1,25 @@
 import {
   type AgentEvent,
-  AgentEventStreamError,
+  type AgentEventStreamConnectionState,
   type AgentInput,
-  type Error as APIErrorBody,
   type OmnaraClient,
-  openAgentEventStream,
-  sdk,
 } from '@omnara/sdk'
+import { getAgentOptions } from '@omnara/sdk/tanstack'
 import {
   type InfiniteData,
   type QueryClient,
   type QueryStatus,
-  useInfiniteQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
+import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
 import {
-  type AgentChatData,
-  type AgentChatStatus,
   hasToolCalls,
   isControlEvent,
   isTerminalEvent,
-  type LocalAgentInput,
   type ModelOutputDelta,
   type OmnaraUIMessage,
   parseStreamData,
@@ -32,11 +27,22 @@ import {
   sequenceNumber,
 } from './agent-chat-messages'
 import {
-  abortableDelay,
   createAgentChatInput,
   isDefiniteSendFailure,
-  reconnectBackoff,
+  sameMessage,
+  sdkAgentChatTransport,
+  sourceHint,
 } from './agent-chat-transport'
+import type {
+  AgentChatData,
+  AgentChatMessageInput,
+  AgentChatOptions,
+  AgentChatScope,
+  AgentChatSessionOptions,
+  AgentChatStatus,
+  AgentChatTransport,
+  LocalAgentInput,
+} from './agent-chat-types'
 import {
   type AgentInputBacklogControls,
   agentInputBacklogQueryKey,
@@ -45,20 +51,21 @@ import {
 } from './agent-input-backlog'
 import { openAgentInteractionsQueryKey } from './agent-interactions'
 
+export type { OmnaraUIMessage } from './agent-chat-messages'
 export type {
+  AgentChatAttachmentInput,
   AgentChatData,
+  AgentChatMessageInput,
+  AgentChatOptions,
+  AgentChatScope,
+  AgentChatSessionOptions,
+  AgentChatSource,
   AgentChatStatus,
+  AgentChatTransport,
   OmnaraMessageMetadata,
-  OmnaraUIMessage,
-} from './agent-chat-messages'
+} from './agent-chat-types'
 
 export type AgentChatHistoryStatus = QueryStatus
-
-export interface AgentChatScope {
-  orgID: string
-  projectID: string
-  agentID: string
-}
 
 export interface UseAgentChatResult {
   messages: OmnaraUIMessage[]
@@ -66,31 +73,22 @@ export interface UseAgentChatResult {
   isWorking: boolean
   error: Error | undefined
   historyStatus: AgentChatHistoryStatus
+  historyError: Error | null
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
-  sendMessage: (message: { text: string }) => Promise<void>
+  sendMessage: (message: AgentChatMessageInput) => Promise<void>
   inputBacklog: AgentInputBacklogControls
 }
 
-const historyPageSize = 100
 const emptyBacklogInputs: AgentInput[] = []
-
-function agentChatHistoryQueryKey(scope: AgentChatScope) {
-  return ['agent-chat-history', scope.orgID, scope.projectID, scope.agentID]
-}
-
-export interface AgentChatSessionOptions extends AgentChatScope {
-  client: OmnaraClient
-  queryClient: QueryClient
-  reconnectDelayMs?: number
-}
 
 export class AgentChatSession {
   private readonly client: OmnaraClient
+  private readonly transport: AgentChatTransport
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
-  private readonly reconnectDelayMs: number
+  private readonly inputReconciliationDelayMs: number
 
   private listeners: (() => void)[] = []
   private runController: AbortController | null = null
@@ -100,7 +98,7 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
-  private lastFailedSend: { id: string; text: string } | null = null
+  private lastFailedSend: LocalAgentInput | null = null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
 
@@ -119,12 +117,14 @@ export class AgentChatSession {
     orgID,
     projectID,
     agentID,
-    reconnectDelayMs = 1000,
+    inputReconciliationDelayMs = 1000,
+    transport = sdkAgentChatTransport,
   }: AgentChatSessionOptions) {
     this.client = client
+    this.transport = transport
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
-    this.reconnectDelayMs = reconnectDelayMs
+    this.inputReconciliationDelayMs = inputReconciliationDelayMs
   }
 
   getData = (): AgentChatData => this.data
@@ -145,20 +145,35 @@ export class AgentChatSession {
   }
 
   sendMessage = async (
-    message: { text: string },
+    message: AgentChatMessageInput,
     placement: LocalAgentInput['placement'] = 'conversation',
+    resolveHint?: () => Promise<string | undefined>,
   ): Promise<void> => {
     const text = message.text.trim()
-    if (text === '') throw new Error('Agent messages must contain text')
+    const attachments = message.attachments ?? []
+    if (text === '' && attachments.length === 0) {
+      throw new Error('Agent messages must contain text or an attachment')
+    }
     this.connect()
-    const id = this.lastFailedSend?.text === text ? this.lastFailedSend.id : crypto.randomUUID()
+    const normalized = { text, attachments, attachmentCount: attachments.length }
+    const previous = this.lastFailedSend
+    const id =
+      previous != null && sameMessage(previous, normalized) ? previous.id : crypto.randomUUID()
     this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
-    this.localInputs.set(id, { id, text, placement })
+    this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      const input = await createAgentChatInput(this.client, this.scope, id, text)
+      const hint = resolveHint == null ? undefined : await resolveHint()
+      const input = await createAgentChatInput(
+        this.transport,
+        this.client,
+        this.scope,
+        id,
+        normalized,
+        hint,
+      )
       this.acceptAgentInput(id, input)
     } catch (error) {
       if (this.inputEchoLoaded(id)) {
@@ -166,19 +181,21 @@ export class AgentChatSession {
         return
       }
       const sendError = error instanceof Error ? error : new Error('Could not send message')
-      if (!isDefiniteSendFailure(error)) {
+      if (!isDefiniteSendFailure(sendError)) {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
         const signal = this.runController?.signal
-        await new Promise((resolve) => globalThis.setTimeout(resolve, this.reconnectDelayMs))
+        await new Promise((resolve) =>
+          globalThis.setTimeout(resolve, this.inputReconciliationDelayMs),
+        )
         if (signal?.aborted && this.listeners.length === 0) return
         if (this.inputEchoLoaded(id)) {
           this.clearLocalInput(id)
           return
         }
         if (this.localInputs.get(id)?.agentInputID != null) return
-        this.lastFailedSend = { id, text }
+        this.lastFailedSend = { id, ...normalized, placement }
       }
       this.localInputs.delete(id)
       this.error = sendError
@@ -194,7 +211,12 @@ export class AgentChatSession {
     } else {
       const localInput = this.localInputs.get(id)
       if (localInput != null) {
-        this.localInputs.set(id, { ...localInput, agentInputID: input.id })
+        const retainAttachments =
+          input.state !== 'received' ||
+          input.delivery_mode === 'immediate' ||
+          localInput.placement === 'conversation'
+        const attachments = retainAttachments ? localInput.attachments : undefined
+        this.localInputs.set(id, { ...localInput, attachments, agentInputID: input.id })
         cacheAgentInputBacklog(this.queryClient, this.client, this.scope, input)
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
@@ -233,12 +255,11 @@ export class AgentChatSession {
     )
     let changed = false
     for (const [id, localInput] of this.localInputs) {
-      const backlogInput =
-        (localInput.agentInputID == null ? undefined : byID.get(localInput.agentInputID)) ??
-        byKey.get(id)
+      const backlogInput = byID.get(localInput.agentInputID ?? '') ?? byKey.get(id)
       if (backlogInput == null) continue
       if (localInput.agentInputID !== backlogInput.id) {
-        this.localInputs.set(id, { ...localInput, agentInputID: backlogInput.id })
+        const attachments = localInput.placement === 'backlog' ? undefined : localInput.attachments
+        this.localInputs.set(id, { ...localInput, attachments, agentInputID: backlogInput.id })
         changed = true
       }
     }
@@ -347,6 +368,19 @@ export class AgentChatSession {
     this.notify()
   }
 
+  private handleConnectionState(state: AgentEventStreamConnectionState): void {
+    if (state.state === 'reconnecting') {
+      this.deltas = []
+      this.notify()
+      return
+    }
+    if (state.reconnected) {
+      void this.queryClient.invalidateQueries({
+        queryKey: openAgentInteractionsQueryKey(this.client, this.scope),
+      })
+    }
+  }
+
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
@@ -359,89 +393,46 @@ export class AgentChatSession {
   }
 
   private async run(signal: AbortSignal): Promise<void> {
-    let consecutiveFailures = 0
-    while (!signal.aborted) {
-      const cursor = this.cursor
-      if (cursor == null) return
-      try {
-        let streamError: APIErrorBody | undefined
-        const { stream } = await openAgentEventStream({
-          client: this.client,
-          path: this.scope,
-          query: { after_sequence: cursor, stream_deltas: true },
-          signal,
-        })
-        for await (const data of stream) {
-          const parsed = parseStreamData(data)
-          if (parsed.kind === 'error') {
-            streamError = parsed.error
-            break
-          }
-          consecutiveFailures = 0
-          if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
-          else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        }
-        if (streamError != null) {
-          if (streamError.code !== 'service_unavailable') {
-            this.handleStreamError(streamError.error)
-            this.disconnect()
-            return
-          }
-          consecutiveFailures += 1
-          await abortableDelay(reconnectBackoff(this.reconnectDelayMs, consecutiveFailures), signal)
-          continue
-        }
-      } catch (error) {
-        if (error instanceof AgentEventStreamError) {
-          if (error.kind === 'aborted') return
-          if (error.retryable) {
-            consecutiveFailures += 1
-            await abortableDelay(
-              reconnectBackoff(this.reconnectDelayMs, consecutiveFailures),
-              signal,
-            )
-            continue
-          }
-        }
-        const message = error instanceof Error ? error.message : 'Agent event stream failed'
-        this.handleStreamError(message)
-        this.disconnect()
-        return
+    const cursor = this.cursor
+    if (cursor == null) return
+    try {
+      const stream = this.transport.openAgentEventStream({
+        client: this.client,
+        path: this.scope,
+        query: { after_sequence: cursor, stream_deltas: true },
+        signal,
+        onConnectionStateChange: (state) => {
+          this.handleConnectionState(state)
+        },
+      })
+      for await (const data of stream) {
+        const parsed = parseStreamData(data)
+        if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
+        else if (parsed.kind === 'event') this.handleEvent(parsed.event)
       }
-      consecutiveFailures += 1
-      await abortableDelay(reconnectBackoff(this.reconnectDelayMs, consecutiveFailures), signal)
+    } catch (error) {
+      if (signal.aborted) return
+      const message = error instanceof Error ? error.message : 'Agent event stream failed'
+      this.handleStreamError(message)
+      this.disconnect()
     }
   }
 }
 
-export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
+export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): UseAgentChatResult {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
+  const { source } = options
+  const resolveHint = useCallback(async () => {
+    const { agent } = await queryClient.ensureQueryData(
+      getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+    )
+    return agent.integration_target == null ? undefined : sourceHint(source)
+  }, [agentID, client, orgID, projectID, queryClient, source])
 
-  const history = useInfiniteQuery({
-    queryKey: agentChatHistoryQueryKey({ orgID, projectID, agentID }),
-    initialPageParam: 0,
-    queryFn: async ({ pageParam, signal }) => {
-      const { data: page } = await sdk.listEvents({
-        client,
-        path: { orgID, projectID, agentID },
-        query: { before_sequence: pageParam, limit: historyPageSize },
-        signal,
-      })
-      return page
-    },
-    getNextPageParam: (lastPage) => {
-      const nextBeforeSequence = lastPage.next_before_sequence
-      return nextBeforeSequence == null ? undefined : sequenceNumber(nextBeforeSequence)
-    },
-    select: (data) => ({
-      ...data,
-      events: [...data.pages].reverse().flatMap((page) => page.data),
-    }),
-    staleTime: Infinity,
-  })
+  const history = useAgentChatHistory(client, scope)
 
   const newestLoadedSequence = sequenceNumber(
     history.data?.pages[0]?.data.at(-1)?.sequence ?? undefined,
@@ -487,10 +478,11 @@ export function useAgentChat(scope: AgentChatScope): UseAgentChatResult {
     isWorking: projected.isWorking,
     error: data.error,
     historyStatus: history.status,
+    historyError: history.error,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),
-    sendMessage: (message) => session.sendMessage(message, inputPlacement),
+    sendMessage: (message) => session.sendMessage(message, inputPlacement, resolveHint),
     inputBacklog: {
       inputs: projected.backlogInputs,
       actionPending:
