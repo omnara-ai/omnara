@@ -141,14 +141,9 @@ func (s *Store) createArtifactRecord(
 	if agent.State != "active" {
 		return ArtifactRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	record, inserted, err := insertArtifactTx(ctx, tx, artifactID, input)
+	record, err := insertArtifactTx(ctx, tx, artifactID, input)
 	if err != nil {
 		return ArtifactRecord{}, err
-	}
-	if !inserted {
-		if err := validateArtifactReplay(record, input); err != nil {
-			return ArtifactRecord{}, err
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
@@ -248,7 +243,7 @@ func insertArtifactTx(
 	tx pgx.Tx,
 	artifactID ID,
 	input CreateArtifactInput,
-) (ArtifactRecord, bool, error) {
+) (ArtifactRecord, error) {
 	row, err := dbsqlc.New(tx).InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
 		ID:             artifactID,
 		ProjectID:      input.ProjectID,
@@ -259,28 +254,15 @@ func insertArtifactTx(
 		SizeBytes:      input.SizeBytes,
 		IdempotencyKey: sqlcTextFromEmpty(input.IdempotencyKey),
 	})
-	if err == nil {
-		record := artifactRecordFromInsertSQLC(row)
-		record.Created = true
-		return record, true, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
-			return ArtifactRecord{}, false, storeerr.ErrIdempotencyConflict
+			return ArtifactRecord{}, storeerr.ErrIdempotencyConflict
 		}
-		return ArtifactRecord{}, false, fmt.Errorf("insert artifact: %w", err)
+		return ArtifactRecord{}, fmt.Errorf("insert artifact: %w", err)
 	}
-	if input.IdempotencyKey == "" {
-		return ArtifactRecord{}, false, fmt.Errorf("insert artifact: %w", err)
-	}
-	record, err := loadArtifactForReplayTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.IdempotencyKey,
-	)
-	return record, false, err
+	record := artifactRecordFromInsertSQLC(row)
+	record.Created = true
+	return record, nil
 }
 
 func loadArtifact(
@@ -299,24 +281,6 @@ func loadArtifact(
 		return ArtifactRecord{}, fmt.Errorf("get artifact: %w", err)
 	}
 	return artifactRecordFromGetSQLC(row), nil
-}
-
-func loadArtifactForReplayTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID ID,
-	idempotencyKey string,
-) (ArtifactRecord, error) {
-	row, err := dbsqlc.New(tx).
-		GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
-			ProjectID:      projectID,
-			AgentID:        agentID,
-			IdempotencyKey: idempotencyKey,
-		})
-	if err != nil {
-		return ArtifactRecord{}, err
-	}
-	return artifactRecordFromIdempotencySQLC(row), nil
 }
 
 func validateArtifactReplay(record ArtifactRecord, input CreateArtifactInput) error {

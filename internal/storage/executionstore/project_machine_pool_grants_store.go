@@ -781,6 +781,9 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 		ctx,
 		dbsqlc.GetProjectMachinePoolGrantParams{OrgID: orgID, ProjectID: projectID, ID: id},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeleteProjectMachinePoolGrantResult{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf("get project machine pool grant for delete: %w", err)
 	}
@@ -788,6 +791,9 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 		ctx,
 		dbsqlc.LockMachinePoolForUpdateParams{OrgID: orgID, ID: existing.MachinePoolID},
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return DeleteProjectMachinePoolGrantResult{}, storeerr.ErrNotFound
+		}
 		return DeleteProjectMachinePoolGrantResult{}, fmt.Errorf(
 			"lock machine pool for project machine pool grant delete: %w",
 			err,

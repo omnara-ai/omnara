@@ -390,9 +390,6 @@ func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id 
 		}
 		return fmt.Errorf("lock integration install for deletion: %w", err)
 	}
-	if _, err := getIntegrationInstall(ctx, q, projectID, id); err != nil {
-		return err
-	}
 	if err := s.access.ClearInstallTargetsFromAgents(ctx, tx, projectID, id); err != nil {
 		return err
 	}

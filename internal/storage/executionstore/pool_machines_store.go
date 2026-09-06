@@ -114,7 +114,7 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err := lifecyclelock.AgentSources(
 		ctx,
 		t.tx,
-		[]ID{agentID},
+		agentID,
 	); err != nil {
 		return CreatePoolMachineResult{}, err
 	}
@@ -303,7 +303,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	if err := lifecyclelock.AgentSources(
 		ctx,
 		t.tx,
-		[]ID{agentID},
+		agentID,
 	); err != nil {
 		return PoolMachineRecord{}, err
 	}

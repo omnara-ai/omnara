@@ -436,7 +436,7 @@ func (s *Service) deleteProjectOnce(
 	if err := lifecyclelock.OrganizationShared(ctx, tx, orgID); err != nil {
 		return nil, err
 	}
-	if err := lifecyclelock.ProjectsExclusive(ctx, tx, []ID{projectID}); err != nil {
+	if err := lifecyclelock.ProjectExclusive(ctx, tx, projectID); err != nil {
 		return nil, err
 	}
 	if _, err := q.GetProject(ctx, dbsqlc.GetProjectParams{OrgID: orgID, ID: projectID}); err != nil {

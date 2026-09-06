@@ -664,8 +664,11 @@ func (s *Store) UpdateMachinePool(
 		ctx,
 		dbsqlc.GetMachinePoolParams{OrgID: input.OrgID, ID: input.ID},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MachinePoolRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
-		return MachinePoolRecord{}, fmt.Errorf("lock machine pool for update: %w", err)
+		return MachinePoolRecord{}, fmt.Errorf("load machine pool for update: %w", err)
 	}
 	if management.Kind(locked.ManagementKind) == management.Cluster {
 		if err := validateClusterMachinePoolUpdate(input); err != nil {
@@ -1017,6 +1020,9 @@ func (s *Store) DeleteMachinePoolTx(
 		ctx,
 		dbsqlc.LockMachinePoolForUpdateParams{OrgID: orgID, ID: id},
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, storeerr.ErrNotFound
+		}
 		return nil, fmt.Errorf("lock machine pool for delete: %w", err)
 	}
 	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(

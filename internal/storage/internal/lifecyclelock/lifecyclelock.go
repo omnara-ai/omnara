@@ -19,8 +19,11 @@ import (
 // lock users before organization rows and memberships; organization teardown
 // locks memberships before their project memberships and user-owned resources.
 // A transaction may enter at the earliest class shared with competing work, such
-// as an agent child serializing at the agent, but it must never acquire an earlier
-// class afterward. IDs in the same class are locked in stable UUID order.
+// as an agent child serializing at the agent. Re-entering an earlier class is
+// safe only when an already-held lock excludes every competing path; exclusive
+// scope teardown can therefore re-enter agent-source locks during archival.
+// IDs in the same class use stable UUID order unless earlier locks already
+// exclude competing multi-row lockers, as pool locks do for their grants.
 // A lock outside this ladder must have a fixed class or be reachable only behind
 // the same earlier serialization lock.
 
@@ -135,15 +138,12 @@ func EnterActiveProjects(
 	return nil
 }
 
-func ProjectsExclusive(ctx context.Context, tx pgx.Tx, projectIDs []uuid.UUID) error {
-	q := dbsqlc.New(tx)
-	for _, projectID := range orderedIDs(projectIDs) {
-		if err := q.LockProjectLifecycleExclusive(
-			ctx,
-			dbsqlc.LockProjectLifecycleExclusiveParams{ProjectID: projectID},
-		); err != nil {
-			return fmt.Errorf("lock project lifecycle exclusive: %w", err)
-		}
+func ProjectExclusive(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) error {
+	if err := dbsqlc.New(tx).LockProjectLifecycleExclusive(
+		ctx,
+		dbsqlc.LockProjectLifecycleExclusiveParams{ProjectID: projectID},
+	); err != nil {
+		return fmt.Errorf("lock project lifecycle exclusive: %w", err)
 	}
 	return nil
 }
@@ -165,15 +165,12 @@ func orderedIDs(ids []uuid.UUID) []uuid.UUID {
 	return deduped
 }
 
-func AgentSources(ctx context.Context, tx pgx.Tx, agentIDs []uuid.UUID) error {
-	q := dbsqlc.New(tx)
-	for _, agentID := range orderedIDs(agentIDs) {
-		if err := q.LockAgentMachineSources(
-			ctx,
-			dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-		); err != nil {
-			return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
-		}
+func AgentSources(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) error {
+	if err := dbsqlc.New(tx).LockAgentMachineSources(
+		ctx,
+		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+	); err != nil {
+		return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
 	}
 	return nil
 }

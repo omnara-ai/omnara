@@ -1,6 +1,7 @@
 package executionstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -127,7 +128,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 	sort.Slice(poolIndexes, func(i, j int) bool {
 		left := sources[poolIndexes[i]]
 		right := sources[poolIndexes[j]]
-		return left.MachinePoolID.String() < right.MachinePoolID.String()
+		return bytes.Compare(left.MachinePoolID[:], right.MachinePoolID[:]) < 0
 	})
 	for _, index := range poolIndexes {
 		poolGrant, err := qtx.GetActiveProjectMachinePoolGrantForLaunch(
@@ -201,7 +202,7 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 		}
 	}
 	sort.Slice(machineIDs, func(i, j int) bool {
-		return machineIDs[i].String() < machineIDs[j].String()
+		return bytes.Compare(machineIDs[i][:], machineIDs[j][:]) < 0
 	})
 	for _, machineID := range machineIDs {
 		if err := qtx.LockMachineEnvironmentKey(

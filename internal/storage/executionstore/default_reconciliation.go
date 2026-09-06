@@ -75,8 +75,8 @@ func (s *Store) ReconcileDefaultMachinePoolsTx(
 	var machineRefs []lifecyclelock.MachineRef
 	for i := range targets {
 		current := targets[i].current
-		name := targets[i].template.createInput(NilID).Name
 		desired := targets[i].template.createInput(current.OrgID)
+		name := desired.Name
 		if current.Provider != desired.Provider || current.ProviderAuthEnvVar != desired.ProviderAuthEnvVar {
 			return nil, fmt.Errorf(
 				"default machine pool %q cannot change provider or provider_auth_env_var",
