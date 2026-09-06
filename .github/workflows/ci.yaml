@@ -54,6 +54,14 @@ jobs:
           COMPAT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: make compatibility-check
 
+      - name: Lint changed integration and service E2E code
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          LINT_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$LINT_BASE_SHA"
+          make golangci-lint-tagged-diff
+
       - run: make govulncheck
 
   go-tests:

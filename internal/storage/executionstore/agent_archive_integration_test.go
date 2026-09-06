@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArchiveAgentCancelsCurrentTurnOpenWork(t *testing.T) {
@@ -50,9 +51,7 @@ tools:
 		LaunchedBy:     userPrincipal(user.ID),
 		IdempotencyKey: "archive-open-work",
 	})
-	if err != nil {
-		t.Fatalf("launch agent: %v", err)
-	}
+	require.NoError(t, err, "launch agent")
 	runtimeLock, err := store.Execution().AcquireAgentRuntimeLock(
 		ctx,
 		testProjectID,
@@ -60,9 +59,7 @@ tools:
 		testWorkerProcessID,
 		testAgentRuntimeLockLeaseDuration,
 	)
-	if err != nil {
-		t.Fatalf("acquire runtime lock: %v", err)
-	}
+	require.NoError(t, err, "acquire runtime lock")
 	toolCallIDs := createReadyToolCallsForTest(
 		t,
 		ctx,
@@ -87,9 +84,7 @@ tools:
 			Options: []interactionform.Option{{Label: "Yes"}},
 		}},
 	)
-	if err != nil {
-		t.Fatalf("create question form: %v", err)
-	}
+	require.NoError(t, err, "create question form")
 	execution, err := store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{
@@ -104,9 +99,7 @@ tools:
 			), nil
 		},
 	)
-	if err != nil {
-		t.Fatalf("create open interaction: %v", err)
-	}
+	require.NoError(t, err, "create open interaction")
 	interaction, ok := execution.CommandResult.(executionstore.AgentInteractionRecord)
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
@@ -124,9 +117,7 @@ tools:
 	}
 
 	lockTx, err := store.pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin archive agent blocker: %v", err)
-	}
+	require.NoError(t, err, "begin archive agent blocker")
 	defer func() { _ = lockTx.Rollback(ctx) }()
 	var blockingPID int32
 	if err := lockTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockingPID); err != nil {
@@ -155,12 +146,8 @@ tools:
 	if err := lockTx.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&releaseFloor); err != nil {
 		t.Fatalf("read archive lock release floor: %v", err)
 	}
-	if err := lockTx.Commit(ctx); err != nil {
-		t.Fatalf("release archived agent lock: %v", err)
-	}
-	if err := <-done; err != nil {
-		t.Fatalf("archive agent: %v", err)
-	}
+	require.NoError(t, lockTx.Commit(ctx), "release archived agent lock")
+	require.NoError(t, <-done, "archive agent")
 	var archivedAt time.Time
 	if err := store.pool.QueryRow(
 		ctx,
@@ -192,9 +179,7 @@ tools:
 		launch.Agent.ID,
 		questionToolCallID,
 	)
-	if err != nil {
-		t.Fatalf("get archived tool execution: %v", err)
-	}
+	require.NoError(t, err, "get archived tool execution")
 	if toolCall.State != executionstore.ToolCallStateCompleted ||
 		toolCall.Outcome != executionstore.ToolResultOutcomeCanceled ||
 		toolCall.CompletedAt == nil ||
@@ -207,9 +192,7 @@ tools:
 		launch.Agent.ID,
 		questionToolCallID,
 	)
-	if err != nil {
-		t.Fatalf("get archived tool result: %v", err)
-	}
+	require.NoError(t, err, "get archived tool result")
 	if !found || result.Outcome != executionstore.ToolResultOutcomeCanceled {
 		t.Fatalf("archived tool result = %+v found=%v", result, found)
 	}

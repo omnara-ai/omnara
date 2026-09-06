@@ -1593,7 +1593,7 @@ machine_sources:
 tools:
   run_command: {}
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(1500*time.Millisecond))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,

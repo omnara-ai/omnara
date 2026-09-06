@@ -298,7 +298,6 @@ func TestDeleteSkillBlockedWhileActiveAgentReferencesIt(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	admin := createSecretTestUser(t, ctx, store, "Skill Delete Admin", "admin")
 
 	skill := createIntegrationSkill(t, ctx, store, skillstore.CreateSkillInput{
@@ -317,7 +316,7 @@ model:
 skills:
   - ` + skillPublicID + `
 `
-	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML, now)
+	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil

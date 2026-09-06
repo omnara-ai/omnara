@@ -175,12 +175,6 @@ func cookieValue(cookies []*http.Cookie, name string) string {
 	return ""
 }
 
-func performRequest(handler http.Handler, req *http.Request) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	return rec
-}
-
 func assertAuthNoSessionCookies(t *testing.T, rec *httptest.ResponseRecorder) {
 	t.Helper()
 	if got := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); got != "" {

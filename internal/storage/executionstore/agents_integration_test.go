@@ -887,7 +887,7 @@ model:
   provider_config: openai-prod
   name: config-change
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -949,7 +949,7 @@ model:
   provider_config: openai-prod
   name: config-change
 `
-	secondCompiled := mustCompileAgentYAMLResolved(t, ctx, store, secondYAML, now.Add(4*time.Second))
+	secondCompiled := mustCompileAgentYAMLResolved(t, ctx, store, secondYAML)
 	secondChange, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1053,7 +1053,7 @@ model:
   provider_config: openai-prod
   name: config-expected
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	updatedInput := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -1081,7 +1081,7 @@ model:
   provider_config: openai-prod
   name: config-expected
 `
-	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML, now.Add(4*time.Second))
+	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML)
 	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1386,7 +1386,7 @@ mcp:
   docs:
     url: https://mcp.example.com
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, yaml, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, yaml)
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1891,8 +1891,8 @@ model:
   name: equivalent
 instruction: test
 `
-	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA, now.Add(time.Second))
-	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB, now.Add(time.Second))
+	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA)
+	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB)
 	if compiledA.Hash != compiledB.Hash || string(compiledA.CanonicalJSON) != string(compiledB.CanonicalJSON) {
 		t.Fatalf(
 			"test sources should compile to equivalent config: hash %q/%q json %s/%s",
@@ -1966,7 +1966,7 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	config := mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
@@ -1988,7 +1988,7 @@ func mustCreateAgentConfigFromYAML(
 	now time.Time,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	return mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
 }
 
@@ -2032,7 +2032,7 @@ func mustCompileAgentYAMLWithMachineSourceResolvers(
 	sourceYAML string,
 ) agentconfig.Result {
 	t.Helper()
-	return mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, time.Date(2026, 5, 21, 8, 0, 0, 0, time.UTC))
+	return mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 }
 
 func changeInputFromRecord(record executionstore.AgentConfigRecord) executionstore.CreateAgentConfigInput {

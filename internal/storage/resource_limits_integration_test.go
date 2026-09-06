@@ -616,7 +616,7 @@ model:
   provider_config: openai-prod
   name: test
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now.Add(4*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),

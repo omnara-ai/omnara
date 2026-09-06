@@ -72,6 +72,12 @@ func (p publicHTTPProject) adminBrowserAuthHeaders() map[string]string {
 	return browserAuthHeaders(p.AdminSession, p.AdminCSRF)
 }
 
+func performRequest(handler http.Handler, req *http.Request) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func requestJSONWithHeaders(
 	t *testing.T,
 	handler http.Handler,
@@ -94,8 +100,7 @@ func requestJSONWithHeaders(
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	rec := performRequest(handler, req)
 	if rec.Code != wantStatus {
 		t.Fatalf(
 			"%s %s status=%d want=%d body=%s",
@@ -350,43 +355,6 @@ func mustNewServer(t testing.TB, store *storage.Store, opts ...Option) *Server {
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-func requestJSONArrayWithHeaders(
-	t *testing.T,
-	handler http.Handler,
-	method, path string,
-	wantStatus int,
-	headers map[string]string,
-) []map[string]any {
-	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != wantStatus {
-		t.Fatalf(
-			"%s %s status=%d want=%d body=%s",
-			method,
-			path,
-			rec.Code,
-			wantStatus,
-			rec.Body.String(),
-		)
-	}
-	var out []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf(
-			"decode array response for %s %s: %v body=%s",
-			method,
-			path,
-			err,
-			rec.Body.String(),
-		)
-	}
-	return out
 }
 
 func bootstrapPublicHTTPProject(

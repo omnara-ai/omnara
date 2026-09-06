@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -42,10 +41,9 @@ func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 10, 9, 0, 0, 0, time.UTC)
 	sourceYAML := testAgentConfigYAML()
 	compiled := mustCompileAgentYAML(t, sourceYAML)
-	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML, now)
+	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -67,14 +65,13 @@ func TestCreateAgentConfigRequiresActiveProjectModelGrant(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 10, 9, 30, 0, 0, time.UTC)
 	sourceYAML := `
 instruction: test
 model:
   provider_config: openai-prod
   name: grant-required
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	configuredModelID := parseConfiguredModelID(t, compiled)
 	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(ctx, testOrgID, testProjectID, configuredModelID)
 	if err != nil {
@@ -104,7 +101,6 @@ func TestCreateAgentConfigValidatesRuntimeModelOverridesAgainstGrant(t *testing.
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 10, 10, 0, 0, 0, time.UTC)
 	sourceYAML := `
 instruction: test
 model:
@@ -112,7 +108,7 @@ model:
   name: runtime-bounds
   default_max_output_tokens: 9000
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	_, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),

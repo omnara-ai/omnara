@@ -2,8 +2,10 @@ package executionstore
 
 import (
 	"encoding/json"
-	"maps"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func testMachineProvisioning(
@@ -51,11 +53,11 @@ func requireMachineProvisioningForTest(
 	want MachineProvisioningConfig,
 ) {
 	t.Helper()
-	if !sameIntPtr(got.CPU, want.CPU) {
-		t.Fatalf("machine provisioning cpu = %v, want %v", got.CPU, want.CPU)
+	if diff := cmp.Diff(want.CPU, got.CPU); diff != "" {
+		t.Fatalf("machine provisioning cpu (-want +got):\n%s", diff)
 	}
-	if !sameIntPtr(got.MemoryMB, want.MemoryMB) {
-		t.Fatalf("machine provisioning memory_mb = %v, want %v", got.MemoryMB, want.MemoryMB)
+	if diff := cmp.Diff(want.MemoryMB, got.MemoryMB); diff != "" {
+		t.Fatalf("machine provisioning memory_mb (-want +got):\n%s", diff)
 	}
 	if len(got.ProviderOptions) != len(want.ProviderOptions) {
 		t.Fatalf("machine provisioning provider_options = %+v, want %+v", got.ProviderOptions, want.ProviderOptions)
@@ -74,11 +76,9 @@ func requireMachineProvisioningForTest(
 
 func requireMachineEnvironmentForTest(t *testing.T, got, want MachineEnvironment) {
 	t.Helper()
-	if !maps.Equal(got.Env, want.Env) {
-		t.Fatalf("machine environment env = %+v, want %+v", got.Env, want.Env)
-	}
-	if !maps.Equal(got.SecretEnv, want.SecretEnv) {
-		t.Fatalf("machine environment secret_env = %+v, want %+v", got.SecretEnv, want.SecretEnv)
+	// Empty and nil environment maps both mean no entries, as with maps.Equal.
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Fatalf("machine environment (-want +got):\n%s", diff)
 	}
 }
 

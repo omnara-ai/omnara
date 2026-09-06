@@ -60,7 +60,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 
 .PHONY: \
 	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
-	go-modules-check integration-packages-check tagged-packages-check \
+	go-modules-check integration-packages-check tagged-packages-check golangci-lint-tagged golangci-lint-tagged-diff \
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
@@ -115,6 +115,16 @@ golangci-lint: $(GOLANGCI_LINT)
 		printf 'golangci-lint (%s)\n' "$$module"; \
 		(cd "$$module" && "$(GOLANGCI_LINT)" run --config "$(REPO_ROOT)/.golangci.yml" ./...); \
 	done
+
+# The full tagged backlog is tracked separately from the untagged gate.
+# CI checks changed lines until that backlog is resolved; see internal/testutil/README.md.
+golangci-lint-tagged: $(GOLANGCI_LINT) ## Lint all integration and service E2E code (includes existing findings)
+	$(GOLANGCI_LINT) run --config "$(REPO_ROOT)/.golangci.yml" --timeout=10m --build-tags=integration,servicee2e --max-issues-per-linter=0 --max-same-issues=0 ./...
+
+golangci-lint-tagged-diff: $(GOLANGCI_LINT) ## Lint changed integration/service E2E lines against LINT_BASE_SHA
+	@test -n "$(LINT_BASE_SHA)" || { printf 'LINT_BASE_SHA is required\n'; exit 2; }
+	@git cat-file -e "$(LINT_BASE_SHA)^{commit}"
+	$(GOLANGCI_LINT) run --config "$(REPO_ROOT)/.golangci.yml" --timeout=10m --build-tags=integration,servicee2e --new-from-rev="$(LINT_BASE_SHA)" ./...
 
 govulncheck:
 	@set -e; for module in $(GO_MODULE_DIRS); do \

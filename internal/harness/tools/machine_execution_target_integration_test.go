@@ -389,7 +389,7 @@ tools:
 
 	if _, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
 		ctx,
-		fixture.Store,
+		fixture.Store.Execution(),
 		executionstore.ExecuteToolCallInput{
 			ProjectID:     toolsTestProjectID,
 			AgentID:       launch.Agent.ID,
@@ -1413,7 +1413,7 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 	)
 	created, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
 		ctx,
-		store,
+		store.Execution(),
 		executionstore.ExecuteToolCallInput{
 			ProjectID:     toolsTestProjectID,
 			AgentID:       launch.Agent.ID,
