@@ -3,6 +3,7 @@ package storeutil_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestRetryTransactionRetriesPostgresTransactionConflicts(t *testing.T) {
 			result, err := storeutil.RetryTransaction(context.Background(), func() (string, error) {
 				attempts++
 				if attempts < 3 {
-					return "", &pgconn.PgError{Code: code}
+					return "uncommitted", fmt.Errorf("attempt failed: %w", &pgconn.PgError{Code: code})
 				}
 				return "committed", nil
 			})
@@ -40,14 +41,27 @@ func TestRetryTransactionRetriesPostgresTransactionConflicts(t *testing.T) {
 }
 
 func TestRetryTransactionStopsOnNonRetryableError(t *testing.T) {
-	wantErr := errors.New("invalid input")
+	for _, wantErr := range []error{errors.New("invalid input"), &pgconn.PgError{Code: "23505"}} {
+		attempts := 0
+		_, err := storeutil.RetryTransaction(context.Background(), func() (struct{}, error) {
+			attempts++
+			return struct{}{}, wantErr
+		})
+		if !errors.Is(err, wantErr) || attempts != 1 {
+			t.Fatalf("error=%v attempts=%d", err, attempts)
+		}
+	}
+}
+
+func TestRetryTransactionExhaustionDiscardsUncommittedResult(t *testing.T) {
+	wantErr := &pgconn.PgError{Code: "40001"}
 	attempts := 0
-	_, err := storeutil.RetryTransaction(context.Background(), func() (struct{}, error) {
+	result, err := storeutil.RetryTransaction(context.Background(), func() (string, error) {
 		attempts++
-		return struct{}{}, wantErr
+		return "uncommitted", wantErr
 	})
-	if !errors.Is(err, wantErr) || attempts != 1 {
-		t.Fatalf("error=%v attempts=%d", err, attempts)
+	if !errors.Is(err, wantErr) || attempts != 3 || result != "" {
+		t.Fatalf("result=%q error=%v attempts=%d", result, err, attempts)
 	}
 }
 

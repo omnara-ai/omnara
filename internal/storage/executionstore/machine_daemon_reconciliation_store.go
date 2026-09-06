@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 )
 
 func reconcileRegisteredRuntimeTx(
@@ -25,6 +26,7 @@ func reconcileRegisteredRuntimeTx(
 	}
 	processes, err := lockAndLoadReconciliationProcesses(
 		ctx,
+		tx,
 		qtx,
 		input.OrgID,
 		input.MachineID,
@@ -209,6 +211,7 @@ func validateProcessReconciliationClaims(
 
 func lockAndLoadReconciliationProcesses(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	orgID, machineID ID,
 	claims map[ID]ProcessReconciliationClaim,
@@ -225,14 +228,13 @@ func lockAndLoadReconciliationProcesses(
 			err,
 		)
 	}
-	keys := make([]agentLockKey, 0, len(rows)+len(claims))
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(rows)+len(claims))
 	seen := make(map[ID]struct{}, len(rows)+len(claims))
 	for _, row := range rows {
 		record := processRecordFromSQLC(row)
-		keys = append(keys, agentLockKey{
-			projectID: record.ProjectID,
-			agentID:   record.AgentID,
-			id:        record.ID,
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
+			ProjectID: record.ProjectID,
+			AgentID:   record.AgentID,
 		})
 		seen[record.ID] = struct{}{}
 	}
@@ -259,13 +261,12 @@ func lockAndLoadReconciliationProcesses(
 			)
 		}
 		record := processRecordFromSQLC(row)
-		keys = append(keys, agentLockKey{
-			projectID: record.ProjectID,
-			agentID:   record.AgentID,
-			id:        record.ID,
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
+			ProjectID: record.ProjectID,
+			AgentID:   record.AgentID,
 		})
 	}
-	if err := lockAgentsForKeysTx(ctx, qtx, keys); err != nil {
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
 		return nil, err
 	}
 	return loadReconciliationProcesses(
@@ -819,49 +820,10 @@ func lockAgentForProcessRecordTx(ctx context.Context, qtx *dbsqlc.Queries, recor
 	return nil
 }
 
-type agentLockKey struct {
-	projectID ID
-	agentID   ID
-	id        ID
-}
-
-func lockAgentsForKeysTx(ctx context.Context, qtx *dbsqlc.Queries, keys []agentLockKey) error {
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].projectID != keys[j].projectID {
-			return keys[i].projectID.String() < keys[j].projectID.String()
-		}
-		if keys[i].agentID != keys[j].agentID {
-			return keys[i].agentID.String() < keys[j].agentID.String()
-		}
-		return keys[i].id.String() < keys[j].id.String()
-	})
-	locked := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		if isNilID(key.projectID) || isNilID(key.agentID) {
-			continue
-		}
-		mapKey := key.projectID.String() + ":" + key.agentID.String()
-		if _, ok := locked[mapKey]; ok {
-			continue
-		}
-		if _, err := qtx.LockAgentInProject(
-			ctx,
-			dbsqlc.LockAgentInProjectParams{
-				ProjectID: key.projectID,
-				ID:        key.agentID,
-			},
-		); err != nil {
-			return fmt.Errorf("lock agent for process action authority mutation: %w", err)
-		}
-		locked[mapKey] = struct{}{}
-	}
-	return nil
-}
-
-func lockAgentsForProcessesTx(ctx context.Context, qtx *dbsqlc.Queries, rows []dbsqlc.Process) error {
-	keys := make([]agentLockKey, 0, len(rows))
+func lockAgentsForProcessesTx(ctx context.Context, tx pgx.Tx, rows []dbsqlc.Process) error {
+	refs := make([]lifecyclelock.AgentRef, 0, len(rows))
 	for _, row := range rows {
-		keys = append(keys, agentLockKey{projectID: row.ProjectID, agentID: row.AgentID, id: row.ID})
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: row.ProjectID, AgentID: row.AgentID})
 	}
-	return lockAgentsForKeysTx(ctx, qtx, keys)
+	return lifecyclelock.Agents(ctx, tx, refs)
 }

@@ -86,19 +86,27 @@ func (s *Store) CreateArtifact(
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
-	cleanupCtx := context.WithoutCancel(ctx)
-	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(cleanupCtx, artifactKey); err != nil {
-			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
-		}
-		return cause
-	}
 	input.Digest = metadata.Digest
 	input.SizeBytes = &metadata.SizeBytes
+	record, err := s.createArtifactRecord(ctx, artifactID, input)
+	// The transaction has committed or rolled back before external cleanup starts.
+	if err != nil || !record.Created {
+		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
+		if err != nil && cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
+		}
+	}
+	return record, err
+}
 
+func (s *Store) createArtifactRecord(
+	ctx context.Context,
+	artifactID ID,
+	input CreateArtifactInput,
+) (ArtifactRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("begin create artifact: %w", err))
+		return ArtifactRecord{}, fmt.Errorf("begin create artifact: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
@@ -106,20 +114,17 @@ func (s *Store) CreateArtifact(
 		ProjectID: input.ProjectID,
 		AgentID:   input.AgentID,
 	}}); err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(err)
+		return ArtifactRecord{}, err
 	}
 	if input.IdempotencyKey != "" {
 		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
 		if err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(err)
+			return ArtifactRecord{}, err
 		}
 		if found {
 			if err := tx.Commit(ctx); err != nil {
-				return ArtifactRecord{}, cleanupUploadedBlob(
-					fmt.Errorf("commit idempotent create artifact: %w", err),
-				)
+				return ArtifactRecord{}, fmt.Errorf("commit idempotent create artifact: %w", err)
 			}
-			_ = cleanupUploadedBlob(nil)
 			return replay, nil
 		}
 	}
@@ -128,32 +133,25 @@ func (s *Store) CreateArtifact(
 		ID:        input.AgentID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ArtifactRecord{}, cleanupUploadedBlob(storeerr.ErrNotFound)
+		return ArtifactRecord{}, storeerr.ErrNotFound
 	}
 	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("revalidate artifact agent: %w", err))
+		return ArtifactRecord{}, fmt.Errorf("revalidate artifact agent: %w", err)
 	}
 	if agent.State != "active" {
-		return ArtifactRecord{}, cleanupUploadedBlob(storeerr.ErrStateTransitionConflict)
+		return ArtifactRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	record, inserted, err := insertArtifactTx(ctx, tx, artifactID, input)
 	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(err)
+		return ArtifactRecord{}, err
 	}
 	if !inserted {
 		if err := validateArtifactReplay(record, input); err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(err)
+			return ArtifactRecord{}, err
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(
-				fmt.Errorf("commit idempotent create artifact: %w", err),
-			)
-		}
-		_ = cleanupUploadedBlob(nil)
-		return record, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
+		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, nil
 }

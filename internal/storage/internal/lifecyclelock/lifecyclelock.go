@@ -13,9 +13,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// Canonical order: scope gates, account principals, agent profiles, agent
-// sources, configured models, pools and grants, machines, existing agents,
-// environment keys, then child state. A transaction may enter at the earliest
+// Canonical order: organization, project, and integration-install gates; account
+// principals; agent profiles; agent sources; configured models; pools and grants;
+// machines; existing agents; environment keys; then child state. Account mutations
+// lock users before organization rows and memberships. A transaction may enter at the earliest
 // class shared with competing work, such as an agent child serializing at the
 // agent, but it must never acquire an earlier class afterward. IDs in the same
 // class are locked in stable UUID order. A lock outside this ladder must have a

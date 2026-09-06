@@ -638,12 +638,13 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 				startTarget()
 				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 				startDelete()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallLifecycleExclusive", 1)
 			} else {
 				startDelete()
 				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 1)
 				startTarget()
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallLifecycleShared", 1)
 			}
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallForMutation", 2)
 			if err := blockingTx.Commit(ctx); err != nil {
 				t.Fatalf("release integration install blocker: %v", err)
 			}
@@ -672,6 +673,86 @@ func TestIntegrationTargetSerializesWithInstallDeletion(t *testing.T) {
 				t.Fatalf("active targets after install deletion = %d, want 0", activeTargets)
 			}
 		})
+	}
+}
+
+func TestIntegrationInstallDeletionFreezesTargetAgents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newSecretIntegrationStore(pool)
+	admin := createIntegrationProjectAdmin(t, ctx, store, "install-growth@example.com")
+	profile := createIntegrationTestProfile(t, ctx, store, "install-growth")
+	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "install-growth")
+	install := mustCreateIntegrationInstall(t, ctx, store, slackIntegrationInstallInput(
+		profile.ID, NilID, admin.ID, credentialID, "A_GROWTH", "T_GROWTH",
+	))
+	targetService := integration.New(store.Execution(), store.Integrations())
+	first, _, err := targetService.GetOrCreateTarget(ctx, integration.GetOrCreateTargetInput{
+		IntegrationInstallID: install.ID, ProviderRef: "C_FIRST", ProviderRefKind: "thread",
+	})
+	if err != nil {
+		t.Fatalf("create first target: %v", err)
+	}
+	mustCreateIntegrationInput(t, ctx, store, install, first, "U_GROWTH", "Ev-first", "select first target")
+	secondAgent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "install-growth-second")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: testProjectID, ID: first.AgentID,
+	}); err != nil {
+		t.Fatalf("block existing target agent: %v", err)
+	}
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		return store.Integrations().DeleteIntegrationInstallOnceForIntegration(ctx, testProjectID, install.ID)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	targetDone := integrationdb.RunAsync(func() (integrationstore.IntegrationTargetRecord, error) {
+		return store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
+			ProjectID: testProjectID, AgentID: secondAgent.ID, IntegrationInstallID: install.ID,
+			ProviderRef: "C_SECOND", ProviderRefKind: "thread",
+		})
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationInstallLifecycleShared", 1)
+
+	// Deleting one install must not block a different install or lock the late
+	// target's agent while waiting. Exercise both through normal admission paths.
+	otherInstall := mustCreateIntegrationInstall(t, ctx, store, slackIntegrationInstallInput(
+		profile.ID, NilID, admin.ID, credentialID, "A_OTHER", "T_GROWTH",
+	))
+	otherCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	otherTarget, err := store.Integrations().CreateIntegrationTarget(otherCtx, integrationstore.CreateIntegrationTargetInput{
+		ProjectID: testProjectID, AgentID: secondAgent.ID, IntegrationInstallID: otherInstall.ID,
+		ProviderRef: "C_OTHER", ProviderRefKind: "thread",
+	})
+	if err != nil {
+		t.Fatalf("create unrelated install target during deletion: %v", err)
+	}
+	mustCreateIntegrationInput(t, otherCtx, store, otherInstall, otherTarget, "U_GROWTH", "Ev-other", "other install")
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release existing target agent: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "install deletion"); err != nil {
+		t.Fatalf("delete install in one transaction attempt: %v", err)
+	}
+	if outcome := integrationdb.Await(t, targetDone, "late target creation"); !storeerr.IsNotFound(outcome.Err) {
+		t.Fatalf("late target creation error = %v, want not found", outcome.Err)
+	}
+	var activeTargets, selectedTargets int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM integration_targets WHERE integration_install_id = $1 AND deleted_at IS NULL),
+		(SELECT count(*) FROM agents WHERE integration_target_id = $2)`,
+		install.ID, first.ID,
+	).Scan(&activeTargets, &selectedTargets); err != nil {
+		t.Fatalf("read deleted install state: %v", err)
+	}
+	if activeTargets != 0 || selectedTargets != 0 {
+		t.Fatalf("deleted install retains targets=%d selections=%d", activeTargets, selectedTargets)
+	}
+	if _, err := store.Integrations().GetIntegrationTarget(ctx, testProjectID, otherTarget.ID); err != nil {
+		t.Fatalf("unrelated install target after deletion: %v", err)
 	}
 }
 

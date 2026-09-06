@@ -82,6 +82,16 @@ WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
 FOR UPDATE;
 
+-- name: LockIntegrationInstallLifecycleShared :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('integration_install_lifecycle:' || sqlc.arg(install_id)::uuid::text, 0)
+);
+
+-- name: LockIntegrationInstallLifecycleExclusive :exec
+SELECT pg_advisory_xact_lock(
+  hashtextextended('integration_install_lifecycle:' || sqlc.arg(install_id)::uuid::text, 0)
+);
+
 -- name: GetIntegrationInstallByID :one
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
@@ -158,6 +168,7 @@ WHERE project_id = sqlc.arg(project_id) AND integration_install_id = sqlc.arg(in
 
 -- name: ListIntegrationInstallAgentIDsForLifecycle :many
 -- @sqlc-vet-disable integration-targets-deleted-at
+-- Include historical targets whose agents may still hold references to clear.
 SELECT DISTINCT agent_id
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id)
@@ -166,7 +177,7 @@ ORDER BY agent_id;
 
 -- name: ClearDeletedIntegrationTargetsFromAgents :exec
 -- @sqlc-vet-disable integration-targets-deleted-at
--- Clears agent references to targets that were just soft deleted.
+-- Clears agent references before soft deleting the install's targets.
 UPDATE agents agent SET integration_target_id = NULL, updated_at = statement_timestamp()
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.integration_target_id IN (

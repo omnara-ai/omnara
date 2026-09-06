@@ -39,6 +39,12 @@ func (s *Store) CreateIntegrationTarget(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, input.ProjectID); err != nil {
 		return IntegrationTargetRecord{}, err
 	}
+	if err := qtx.LockIntegrationInstallLifecycleShared(
+		ctx,
+		dbsqlc.LockIntegrationInstallLifecycleSharedParams{InstallID: input.IntegrationInstallID},
+	); err != nil {
+		return IntegrationTargetRecord{}, fmt.Errorf("lock integration install lifecycle for target: %w", err)
+	}
 	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
 		ProjectID: input.ProjectID,
 		AgentID:   input.AgentID,

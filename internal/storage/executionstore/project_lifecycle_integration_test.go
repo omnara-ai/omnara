@@ -589,7 +589,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			ctx,
 			`SELECT count(*)::integer FROM org_invitations WHERE org_id = $1 AND normalized_email = $2`,
 			testOrgID,
-			identitystore.NormalizeEmail("rejected-org-child@example.com"),
+			"rejected-org-child@example.com",
 		).Scan(&invitationCount); err != nil {
 			t.Fatalf("count rejected organization child: %v", err)
 		}

@@ -357,6 +357,13 @@ func (s *Store) deleteIntegrationInstallOnce(ctx context.Context, projectID, id 
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, projectID); err != nil {
 		return err
 	}
+	// Freeze target admission before enumerating the agents that deletion will lock.
+	if err := q.LockIntegrationInstallLifecycleExclusive(
+		ctx,
+		dbsqlc.LockIntegrationInstallLifecycleExclusiveParams{InstallID: id},
+	); err != nil {
+		return fmt.Errorf("lock integration install lifecycle for deletion: %w", err)
+	}
 	agentIDs, err := q.ListIntegrationInstallAgentIDsForLifecycle(
 		ctx,
 		dbsqlc.ListIntegrationInstallAgentIDsForLifecycleParams{

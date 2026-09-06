@@ -97,7 +97,7 @@ func completeExecutionRevokedProcessesTx(
 	if err != nil {
 		return fmt.Errorf("list processes for execution revoke: %w", err)
 	}
-	if err := lockAgentsForProcessesTx(ctx, qtx, rows); err != nil {
+	if err := lockAgentsForProcessesTx(ctx, tx, rows); err != nil {
 		return err
 	}
 	for _, row := range rows {

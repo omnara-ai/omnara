@@ -25,6 +25,7 @@ type recordingBlobStore struct {
 	deleteErr           error
 	content             map[string][]byte
 	afterPut            func()
+	beforeDelete        func()
 }
 
 func newRecordingBlobStore() *recordingBlobStore {
@@ -56,6 +57,9 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 }
 
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
+	if s.beforeDelete != nil {
+		s.beforeDelete()
+	}
 	s.deleteKeys = append(s.deleteKeys, key)
 	s.deleteContextErrors = append(s.deleteContextErrors, ctx.Err())
 	if s.deleteErr != nil {
@@ -339,6 +343,61 @@ func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
 	}
 	if _, ok := blobs.content[blobs.putKeys[1]]; !ok {
 		t.Fatal("failed cleanup unexpectedly removed the duplicate blob")
+	}
+}
+
+func TestCreateArtifactReleasesAgentBeforeBlobCleanup(t *testing.T) {
+	t.Parallel()
+	for _, archived := range []bool{false, true} {
+		name := "idempotency conflict"
+		if archived {
+			name = "archived agent"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			blobs := newRecordingBlobStore()
+			store := newIntegrationStore(pool, WithBlobStore(blobs))
+			agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+			input := artifactstore.CreateArtifactInput{
+				ProjectID: testProjectID, AgentID: agentID, ContentType: "text/plain",
+				Content: []byte("original"), IdempotencyKey: "cleanup-lock",
+			}
+			if _, err := store.Artifacts().CreateArtifact(ctx, input); err != nil {
+				t.Fatalf("create original artifact: %v", err)
+			}
+			wantErr := storeerr.ErrIdempotencyConflict
+			if archived {
+				user := mustCreateProjectOperatorUser(t, ctx, store, "cleanup-lock@example.com", "Cleanup Lock")
+				if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, agentID, userPrincipal(user.ID)); err != nil {
+					t.Fatalf("archive agent: %v", err)
+				}
+				input.IdempotencyKey = "cleanup-lock-new"
+				wantErr = storeerr.ErrStateTransitionConflict
+			} else {
+				input.Content = []byte("conflicting")
+			}
+			// Probe from another transaction synchronously inside the blob callback:
+			// any retained agent lock would keep external cleanup from progressing.
+			var probeErr error
+			blobs.beforeDelete = func() {
+				probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				probeTx := integrationdb.BeginTx(t, probeCtx, pool)
+				_, probeErr = dbsqlc.New(probeTx).LockAgentInProject(probeCtx, dbsqlc.LockAgentInProjectParams{
+					ProjectID: testProjectID, ID: agentID,
+				})
+				_ = probeTx.Rollback(ctx)
+			}
+			_, err := store.Artifacts().CreateArtifact(ctx, input)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("create artifact error = %v, want %v", err, wantErr)
+			}
+			if len(blobs.deleteKeys) != 1 || probeErr != nil {
+				t.Fatalf("cleanup deletes=%v agent lock error=%v, want released lock", blobs.deleteKeys, probeErr)
+			}
+		})
 	}
 }
 
