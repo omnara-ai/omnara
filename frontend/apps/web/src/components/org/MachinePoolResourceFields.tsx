@@ -25,9 +25,12 @@ export function MachinePoolResourceFields({
   onMaxMachinesChange: (value: string) => void
 }) {
   const definition = machinePoolProviderDefinitions[provider]
+  const hasSizeControls =
+    (definition.resources.showSizeControls ?? true) &&
+    (definition.resources.cpu !== 'unsupported' || definition.resources.memoryMb !== 'unsupported')
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={hasSizeControls ? 'grid gap-4 sm:grid-cols-2' : 'grid gap-4'}>
         {!clusterManaged && definition.location && (
           <MachinePoolInputField
             id="mpool-location"
@@ -39,7 +42,8 @@ export function MachinePoolResourceFields({
             onValueChange={onLocationChange}
           />
         )}
-        {definition.resources.cpu !== 'unsupported' && (
+        {(definition.resources.showSizeControls ?? true) &&
+          definition.resources.cpu !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-cpu"
             label={
@@ -55,22 +59,23 @@ export function MachinePoolResourceFields({
             onValueChange={onCpuChange}
           />
         )}
-        {definition.resources.memoryMb !== 'unsupported' && (
-          <MachinePoolInputField
-            id="mpool-memory"
-            label={
-              definition.resources.memoryMb === 'provider-resolved'
-                ? 'Max memory (GB) per machine'
-                : 'Memory (GB) per machine'
-            }
-            type="number"
-            min="0"
-            step="any"
-            required
-            value={memoryGb}
-            onValueChange={onMemoryGbChange}
-          />
-        )}
+        {(definition.resources.showSizeControls ?? true) &&
+          definition.resources.memoryMb !== 'unsupported' && (
+            <MachinePoolInputField
+              id="mpool-memory"
+              label={
+                definition.resources.memoryMb === 'provider-resolved'
+                  ? 'Max memory (GB) per machine'
+                  : 'Memory (GB) per machine'
+              }
+              type="number"
+              min="0"
+              step="any"
+              required
+              value={memoryGb}
+              onValueChange={onMemoryGbChange}
+            />
+          )}
       </div>
       {!clusterManaged && (
         <MachinePoolInputField

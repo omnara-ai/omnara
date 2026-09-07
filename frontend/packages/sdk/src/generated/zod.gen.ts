@@ -2310,6 +2310,28 @@ export const zArtifact = z.object({
     created_at: zTimestamp
 });
 
+export const zCreateOsShape = z.object({
+    id: z.string().min(1),
+    vcpu: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    memory_mb: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
+});
+
+export const zListCreateOsShapesResponse = z.object({
+    data: z.array(zCreateOsShape)
+});
+
+export const zCreateOsRootFs = z.object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    deprecated: z.boolean(),
+    successor: z.string().optional()
+});
+
+export const zListCreateOsRootFsResponse = z.object({
+    data: z.array(zCreateOsRootFs),
+    default: z.string()
+});
+
 export const zCreateMachinePoolRequestBase = z.object({
     name: zResourceName,
     description: z.string().optional(),
@@ -2352,6 +2374,13 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
     }),
     z.object({
         provider: z.enum(['daytona', 'boxd']),
+        max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+        max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+        max_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+        max_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
+    }),
+    z.object({
+        provider: z.enum(['createos']),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -4979,6 +5008,32 @@ export const zCreateMachinePoolPath = z.object({
  * Existing machine pool returned.
  */
 export const zCreateMachinePoolResponse = zMachinePool;
+
+export const zListCreateOsShapesPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+export const zListCreateOsShapesQuery = z.object({
+    provider_auth_secret_id: zSecretId
+});
+
+/**
+ * Available CreateOS shapes.
+ */
+export const zListCreateOsShapesResponse2 = zListCreateOsShapesResponse;
+
+export const zListCreateOsRootFsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
+});
+
+export const zListCreateOsRootFsQuery = z.object({
+    provider_auth_secret_id: zSecretId
+});
+
+/**
+ * Available CreateOS root filesystems.
+ */
+export const zListCreateOsRootFsResponse2 = zListCreateOsRootFsResponse;
 
 export const zDeleteMachinePoolPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

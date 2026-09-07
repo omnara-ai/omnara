@@ -8,6 +8,8 @@ import {
   type MachinePoolFormValues,
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
+import { CreateOSRootFSField } from './CreateOSRootFSField'
+import { CreateOSShapeField } from './CreateOSShapeField'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
@@ -84,19 +86,44 @@ export function MachinePoolFields({
               setValue('description', description)
             }}
           />
-          <MachinePoolInputField
-            id="mpool-image"
-            label={definition.resource.label}
-            required={!definition.resource.optional}
-            value={values.image}
-            placeholder={definition.resource.placeholder}
-            autoComplete="off"
-            onValueChange={(image) => {
-              setValue('image', image)
-            }}
-            description={definition.resource.description}
-            descriptionHref={definition.resource.descriptionHref}
-          />
+          {values.provider === 'createos' ? (
+            <>
+              <CreateOSShapeField
+                orgId={orgId}
+                enabled={enabled}
+                secretId={values.secretId}
+                value={values.image}
+                onSelect={(shape) => {
+                  setValue('image', shape.id)
+                  setValue('cpu', String(shape.vcpu))
+                  setValue('memoryGb', String(shape.memory_mb / 1024))
+                }}
+              />
+              <CreateOSRootFSField
+                orgId={orgId}
+                enabled={enabled}
+                secretId={values.secretId}
+                value={values.rootfs}
+                onChange={(rootfs) => {
+                  setValue('rootfs', rootfs)
+                }}
+              />
+            </>
+          ) : (
+            <MachinePoolInputField
+              id="mpool-image"
+              label={definition.resource.label}
+              required={!definition.resource.optional}
+              value={values.image}
+              placeholder={definition.resource.placeholder}
+              autoComplete="off"
+              onValueChange={(image) => {
+                setValue('image', image)
+              }}
+              description={definition.resource.description}
+              descriptionHref={definition.resource.descriptionHref}
+            />
+          )}
           {definition.scope && (
             <MachinePoolInputField
               id="mpool-provider-scope"

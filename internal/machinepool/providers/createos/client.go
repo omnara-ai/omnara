@@ -13,7 +13,8 @@ import (
 )
 
 type apiClient interface {
-	ListShapes(context.Context) ([]shape, error)
+	ListShapes(context.Context) ([]Shape, error)
+	ListRootFS(context.Context) (RootFSCatalog, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	ListSandboxes(context.Context, int, int) ([]sandbox, int, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
@@ -23,10 +24,23 @@ type apiClient interface {
 	CreateProcess(context.Context, string, createProcessRequest) (process, error)
 }
 
-type shape struct {
+type Shape struct {
 	ID     string `json:"id"`
 	VCPU   int    `json:"vcpu"`
 	MemMiB int    `json:"mem_mib"`
+}
+
+type RootFS struct {
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	Deprecated  bool    `json:"deprecated,omitempty"`
+	Successor   *string `json:"successor,omitempty"`
+}
+
+type RootFSCatalog struct {
+	Names   []string `json:"rootfs"`
+	Default string   `json:"default"`
+	Entries []RootFS `json:"entries,omitempty"`
 }
 
 type sandboxStatus string
@@ -45,12 +59,12 @@ const (
 )
 
 type sandbox struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
 	Status sandboxStatus `json:"status"`
-	Shape  string `json:"shape"`
-	RootFS string `json:"rootfs"`
-	Region string `json:"region"`
+	Shape  string        `json:"shape"`
+	RootFS string        `json:"rootfs"`
+	Region string        `json:"region"`
 }
 
 type createSandboxRequest struct {
@@ -85,12 +99,26 @@ func newRESTClient(baseURL, token string, client *http.Client) *restClient {
 	return &restClient{baseURL: baseURL, token: token, httpClient: client}
 }
 
-func (c *restClient) ListShapes(ctx context.Context) ([]shape, error) {
+func (c *restClient) ListShapes(ctx context.Context) ([]Shape, error) {
 	var out struct {
-		Data []shape `json:"data"`
+		Data []Shape `json:"data"`
 	}
 	err := c.do(ctx, http.MethodGet, "/v1/shapes", nil, &out)
 	return out.Data, err
+}
+
+func ListShapes(ctx context.Context, token string) ([]Shape, error) {
+	return newRESTClient(defaultAPIBaseURL, token, nil).ListShapes(ctx)
+}
+
+func (c *restClient) ListRootFS(ctx context.Context) (RootFSCatalog, error) {
+	var out RootFSCatalog
+	err := c.do(ctx, http.MethodGet, "/v1/rootfs", nil, &out)
+	return out, err
+}
+
+func ListRootFS(ctx context.Context, token string) (RootFSCatalog, error) {
+	return newRESTClient(defaultAPIBaseURL, token, nil).ListRootFS(ctx)
 }
 
 func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxRequest) (sandbox, error) {
