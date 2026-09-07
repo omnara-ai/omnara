@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -59,8 +58,7 @@ func TestCreateArtifactContentRoundTrip(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	record, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -102,8 +100,7 @@ func TestCreateArtifactRequiresBlobStore(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -123,8 +120,7 @@ func TestCreateArtifactMaxBytesRejectsBeforeUpload(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -146,9 +142,8 @@ func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	store := newIntegrationStore(pool)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	for _, test := range []struct {
 		name        string
@@ -216,8 +211,7 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	input := artifactstore.CreateArtifactInput{
 		ProjectID:      testProjectID,
@@ -255,8 +249,7 @@ func TestGetArtifactBlobMissingContentFails(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := integrationblob.MustOpen(t, ctx)
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	record, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -281,9 +274,8 @@ func TestListAgentArtifactsByIDsScopesToAgent(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
-	otherAgentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
+	otherAgentID := mustCreateAgent(t, ctx, store)
 
 	mine, err := store.Artifacts().CreateArtifact(
 		ctx,

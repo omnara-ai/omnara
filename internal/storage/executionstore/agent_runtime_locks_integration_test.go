@@ -31,13 +31,12 @@ func (publish postCommitPublisherFunc) PublishPostCommit(context.Context, notifi
 	publish()
 }
 
-func newRuntimeLockLeaseFixture(t *testing.T, ctx context.Context, seed string) runtimeLockLeaseFixture {
+func newRuntimeLockLeaseFixture(t *testing.T, ctx context.Context) runtimeLockLeaseFixture {
 	t.Helper()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "runtime-lock-lease-"+seed, now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: configID},
@@ -81,7 +80,7 @@ func (f runtimeLockLeaseFixture) acquireForAgent(
 func TestAgentRuntimeLockAcquisitionStoresDatabaseOwnedLease(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "acquisition")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	leaseDuration := 37 * time.Second
 
 	var databaseBefore time.Time
@@ -116,7 +115,7 @@ func TestAgentRuntimeLockAcquisitionStoresDatabaseOwnedLease(t *testing.T) {
 func TestAgentRuntimeLockMutationsRejectWrongProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "wrong-project-mutations")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	wrongProjectID := seedAdditionalProjectForTest(
 		t,
 		ctx,
@@ -185,7 +184,7 @@ func TestAgentRuntimeLockMutationsRejectWrongProject(t *testing.T) {
 func TestAgentRuntimeLockReaperReconcilesIdleAgentWithoutWakeup(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "reap-wakeup")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
 	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {
@@ -219,9 +218,9 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2`,
 func TestAgentRuntimeLockReaperContinuesAfterCandidateFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "reap-error-isolation")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	failedLock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
-	laterAgentID := mustCreateAgent(t, ctx, fixture.Store, time.Now().UTC())
+	laterAgentID := mustCreateAgent(t, ctx, fixture.Store)
 	laterLock := fixture.acquireForAgent(
 		t,
 		ctx,
@@ -315,7 +314,7 @@ FOR EACH ROW EXECUTE FUNCTION fail_runtime_lock_reap_commit();
 func TestAgentRuntimeLockRenewalAdvancesLeaseTogether(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "renewal")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	if _, err := fixture.Pool.Exec(
 		ctx,
@@ -363,7 +362,7 @@ WHERE id = $1`,
 func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "stored-deadline")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, executionstore.MaximumAgentRuntimeLockLeaseDuration)
 
 	reaped, err := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
@@ -403,7 +402,7 @@ func TestAgentRuntimeLockReaperUsesStoredDeadline(t *testing.T) {
 func TestAgentRuntimeLockAcquisitionWaitGrantsFullLeaseAfterAgentUnlock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "acquisition-lock-wait")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lockTx, err := fixture.Pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin agent lock holder: %v", err)
@@ -458,7 +457,7 @@ func TestAgentRuntimeLockAcquisitionWaitGrantsFullLeaseAfterAgentUnlock(t *testi
 func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "renewal-lock-wait")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	leaseDuration := 47 * time.Second
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, leaseDuration)
 	lockTx, err := fixture.Pool.Begin(ctx)
@@ -522,7 +521,7 @@ func TestAgentRuntimeLockRenewalWaitGrantsFullLeaseAfterRuntimeUnlock(t *testing
 func TestAgentRuntimeLockReaperSkipsContendedAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "reap-skip-contended-agent")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
 
@@ -576,9 +575,9 @@ func TestAgentRuntimeLockReaperSkipsContendedAgent(t *testing.T) {
 func TestAgentRuntimeLockReaperSkipsContendedRuntimeAndContinues(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "reap-skip-contended-runtime")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	firstLock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
-	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, time.Now().UTC())
+	secondAgentID := mustCreateAgent(t, ctx, fixture.Store)
 	secondLock := fixture.acquireForAgent(
 		t,
 		ctx,
@@ -652,7 +651,7 @@ WHERE id IN ($1, $2)`,
 func TestAgentRuntimeLockRenewalWinningReaperRacePreservesLease(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "renewal-wins")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
 
@@ -701,7 +700,7 @@ func TestAgentRuntimeLockRenewalWinningReaperRacePreservesLease(t *testing.T) {
 func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "reaper-wins")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	oldWorkerID := testID("runtime_lock_reaper_old_worker")
 	lock := fixture.acquire(t, ctx, oldWorkerID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
@@ -789,7 +788,7 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 func TestConcurrentRuntimeLockReapersApplyRecoveryOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newRuntimeLockLeaseFixture(t, ctx, "concurrent-reapers")
+	fixture := newRuntimeLockLeaseFixture(t, ctx)
 	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, lock.ID)
 	if err := fixture.Store.Execution().DeleteAgentWakeup(ctx, testProjectID, fixture.AgentID); err != nil {

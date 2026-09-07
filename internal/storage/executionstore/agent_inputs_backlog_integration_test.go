@@ -103,7 +103,7 @@ func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	var agentID ID
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-mutation@example.com", "Backlog Mutation")
 
-	agentID = mustCreateAgent(t, ctx, store, now)
+	agentID = mustCreateAgent(t, ctx, store)
 	queuedInput, _, _, err := store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
@@ -232,7 +232,7 @@ func TestCancelQueuedBacklogInputReconcilesWakeupAndResetsEmptyQueueRank(t *test
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-cancel@example.com", "Backlog Cancel")
-	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC))
+	agentID := mustCreateAgent(t, ctx, store)
 	createQueued := func(label string) executionstore.AgentInputRecord {
 		input, _, _, err := store.Execution().CreateAgentContentInput(
 			ctx,
@@ -293,9 +293,8 @@ func TestListQueuedBacklogInputsPaginatesSteeringBeforeQueueOrder(t *testing.T) 
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-pagination@example.com", "Backlog Pagination")
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	createInput := func(label string, mode executionstore.AgentInputDeliveryMode) executionstore.AgentInputRecord {
 		input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
@@ -422,7 +421,7 @@ func TestMoveQueuedBacklogInputRebalancesExhaustedRankGap(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "backlog-rebalance@example.com", "Backlog Rebalance")
-	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC))
+	agentID := mustCreateAgent(t, ctx, store)
 	createQueued := func(label string) executionstore.AgentInputRecord {
 		input, _, _, err := store.Execution().CreateAgentContentInput(
 			ctx,
@@ -499,7 +498,7 @@ func TestConcurrentQueuedBacklogMovesSerializePerAgent(t *testing.T) {
 		"backlog-concurrent-moves@example.com",
 		"Backlog Concurrent Moves",
 	)
-	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC))
+	agentID := mustCreateAgent(t, ctx, store)
 	createQueued := func(label string) executionstore.AgentInputRecord {
 		input, _, _, err := store.Execution().CreateAgentContentInput(
 			ctx,
@@ -619,7 +618,6 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 7, 28, 13, 0, 0, 0, time.UTC)
 	user := mustCreateProjectOperatorUser(
 		t,
 		ctx,
@@ -627,7 +625,7 @@ func TestCreateAgentContentInputOrdersQueueTimeAfterAgentLock(t *testing.T) {
 		"backlog-lock-order@example.com",
 		"Backlog Lock Order")
 
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	actor := mustOmnaraActorParams(t, user.ID)
 
 	waitingTx, err := pool.Begin(ctx)

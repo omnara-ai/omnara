@@ -226,7 +226,6 @@ func TestIntegrationInstallAuthorizationAndGlobalIdentityScope(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newSecretIntegrationStore(pool)
-	now := time.Date(2026, 7, 15, 9, 30, 0, 0, time.UTC)
 	admin := createIntegrationProjectAdmin(t, ctx, store, "install-scope-admin@example.com")
 	profile := createIntegrationTestProfile(t, ctx, store, "install-scope-profile")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "install-scope")
@@ -276,8 +275,6 @@ func TestIntegrationInstallAuthorizationAndGlobalIdentityScope(t *testing.T) {
 		ctx,
 		store,
 		otherProject.ID,
-		"integration-identity-other-project",
-		now.Add(5*time.Second),
 	)
 	otherProfile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       otherProject.ID,
@@ -1345,7 +1342,7 @@ model:
   name: gpt-test
 tools:
   run_command: {}
-`, time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC))
+`)
 }
 
 func createIntegrationBoundAgent(

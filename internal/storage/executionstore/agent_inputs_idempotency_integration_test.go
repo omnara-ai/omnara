@@ -8,7 +8,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -21,8 +20,7 @@ func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 18, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "input-idempotency@example.com", "Input Idempotency")
 
 	create := executionstore.CreateAgentContentInputInput{
@@ -69,8 +67,7 @@ func TestCreateAgentContentInputIdempotencyIgnoresTransientInteractionCancellati
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 18, 10, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(
 		t,
 		ctx,
@@ -120,8 +117,7 @@ func TestCreateAgentContentInputRejectsArchivedAgentButReplaysExisting(t *testin
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 18, 15, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "input-archived@example.com", "Input Archived")
 
 	create := executionstore.CreateAgentContentInputInput{
@@ -180,8 +176,7 @@ func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 18, 30, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "input-concurrent@example.com", "Input Concurrent")
 
 	create := executionstore.CreateAgentContentInputInput{
@@ -257,8 +252,7 @@ func TestAgentWriteActorParamsMaterializeActorsInTx(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 20, 30, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "producer-arms@example.com", "Producer Arms")
 
 	omnaraParams := mustOmnaraActorParams(t, user.ID)
@@ -345,8 +339,7 @@ func TestCreateAgentContentInputConflictRollsBackExternalActor(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 21, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "actor-rollback@example.com", "Actor Rollback")
 
 	create := executionstore.CreateAgentContentInputInput{
@@ -388,8 +381,7 @@ func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 21, 30, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	originalName := "Replay Original"
 	create := executionstore.CreateAgentContentInputInput{
@@ -456,8 +448,7 @@ func TestCreateAgentContentInputAllowsUnattributedInput(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 20, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	input, _, created, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID:     testProjectID,

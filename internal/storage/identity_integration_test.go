@@ -2542,14 +2542,13 @@ func TestDeleteProjectArchivesActiveAgents(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 40, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "delete-project-agent@example.com", "Delete Project")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-project-agent", "Delete Project Agent", `
 instruction: Deletable project agent.
 model:
   provider_config: openai-prod
   name: delete-project-agent
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{

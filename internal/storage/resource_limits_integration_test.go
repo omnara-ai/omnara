@@ -502,7 +502,7 @@ func TestAgentResourceLimitsPreserveReplays(t *testing.T) {
 		"max_active_agents_per_project":         agentLimit,
 	})
 	now := time.Date(2026, 7, 24, 14, 0, 0, 0, time.UTC)
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "resource-limit", now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 
 	profileInput := executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,

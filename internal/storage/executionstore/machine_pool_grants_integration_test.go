@@ -1071,7 +1071,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	}
 
 	machineRef := "mchr-secr3t"
-	agentID := mustCreateAgent(t, ctx, store, now.Add(6*time.Second))
+	agentID := mustCreateAgent(t, ctx, store)
 	poolGrant, err := store.q.GetActiveProjectMachinePoolGrantForLaunch(
 		ctx,
 		dbsqlc.GetActiveProjectMachinePoolGrantForLaunchParams{

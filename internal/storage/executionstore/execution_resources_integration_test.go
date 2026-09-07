@@ -60,7 +60,7 @@ func TestInsertAgentMachineBindingRejectsDuplicateBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	machine := createContextMachine(t, ctx, store, testID("agent_machine_binding_replay"), user.ID, now)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
@@ -149,7 +149,7 @@ func TestAgentMachineObservationsTrackAttachedBYOGrantAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	machine := createContextMachine(
 		t,
 		ctx,
@@ -328,8 +328,8 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	firstAgentID := mustCreateAgent(t, ctx, store, now)
-	secondAgentID := mustCreateAgent(t, ctx, store, now.Add(time.Millisecond))
+	firstAgentID := mustCreateAgent(t, ctx, store)
+	secondAgentID := mustCreateAgent(t, ctx, store)
 	machine := createContextMachine(t, ctx, store, testID("agent_machine_binding_history"), user.ID, now)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, store.q, executionstore.IntegrationInsertAgentMachineBindingInput{
 		ProjectID:             testProjectID,
@@ -405,7 +405,6 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 12, 46, 30, 0, time.UTC)
 	secretID := createMachinePoolProviderAuthSecretForTest(
 		t,
 		ctx,
@@ -429,7 +428,7 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grant machine: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	bindingTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin binding transaction: %v", err)
@@ -517,7 +516,7 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	machine := createContextMachine(t, ctx, store, testID("agent_machine_binding_released_replay"), user.ID, now)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
@@ -626,14 +625,12 @@ func TestCreateProjectMachineGrantDoesNotMutateExistingBindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create other project: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now.Add(2*time.Millisecond))
+	agentID := mustCreateAgent(t, ctx, store)
 	otherConfigID := mustCreateAgentConfig(
 		t,
 		ctx,
 		store,
 		otherProject.ID,
-		"retarget-scope-other",
-		now.Add(3*time.Millisecond),
 	)
 	otherAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -755,7 +752,7 @@ func TestInsertAgentMachineBindingMapsUniqueConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	first := createContextMachine(t, ctx, store, testID("agent_machine_binding_conflict_first"), user.ID, now)
 	second := createContextMachine(t, ctx, store, testID("agent_machine_binding_conflict_second"), user.ID, now)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(

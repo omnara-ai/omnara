@@ -1585,7 +1585,7 @@ func (f providerRuntimeStorageFixture) createProcessFixture(
 		"runtime-protection-"+uuid.NewString()+"@example.com",
 		"Runtime Protection Tester",
 	)
-	agentID := mustCreateAgent(t, ctx, f.store, time.Now().UTC())
+	agentID := mustCreateAgent(t, ctx, f.store)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		f.store.q,

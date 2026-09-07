@@ -20,7 +20,6 @@ func TestArchiveAgentCancelsCurrentTurnOpenWork(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -42,7 +41,6 @@ model:
 tools:
   ask_question: {}
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,

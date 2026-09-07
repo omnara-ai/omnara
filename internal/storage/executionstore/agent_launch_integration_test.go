@@ -248,7 +248,6 @@ func launchPoolAgentForTest(
 	userID ID,
 	machinePool executionstore.MachinePoolRecord,
 	profileKey, profileName, idempotencyKey string,
-	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, profileKey, profileName, `
@@ -261,7 +260,7 @@ machine_sources:
     cwd: /workspace
 tools:
   run_command: {}
-`, now)
+`)
 	result, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -333,7 +332,7 @@ machine_sources:
     initial_num_machines: 1
 tools:
   run_command: {}
-`, now.Add(2*time.Second))
+`)
 
 	providers.reject = true
 	_, err := store.Execution().LaunchAgent(
@@ -378,7 +377,6 @@ model:
   name: gpt-test
 tools: {}
 `,
-		time.Date(2026, 6, 16, 10, 10, 0, 0, time.UTC),
 	)
 
 	const idempotencyKey = "idem-concurrent-same-key-launch"
@@ -502,7 +500,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now.Add(2*time.Second),
 	)
 	result, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -531,7 +528,6 @@ func TestLaunchAgentWithDefaultPool(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	now := time.Date(2026, 5, 21, 8, 30, 0, 0, time.UTC)
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	defaultPool := createDefaultMachinePoolForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
@@ -611,7 +607,7 @@ machine_sources:
       APP_ENV: test
 tools:
   run_command: {}
-`, now)
+`)
 	result, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -751,7 +747,6 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 		"archive-agent-pool",
 		"Archive Agent Pool Agent",
 		"idem-archive-agent",
-		now.Add(2*time.Second),
 	)
 
 	backlogInput, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
@@ -1012,7 +1007,6 @@ tools:
 		"live-pool-sources",
 		"Live Pool Sources",
 		emptyYAML,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -1047,7 +1041,6 @@ tools:
 		"live-pool-added",
 		addedYAML,
 		"idem-live-pool-added",
-		now.Add(2*time.Second),
 	)
 	if len(added.DeleteMachines) != 0 {
 		t.Fatalf("added pool source deleted machines: %+v", added.DeleteMachines)
@@ -1122,7 +1115,6 @@ tools:
 		"live-pool-changed",
 		changedYAML,
 		"idem-live-pool-changed",
-		now.Add(3*time.Second),
 	)
 	if len(changed.DeleteMachines) != 0 {
 		t.Fatalf("changed pool source deleted machines: %+v", changed.DeleteMachines)
@@ -1173,9 +1165,7 @@ tools:
 		t,
 		ctx,
 		store,
-		"live-pool-lowered",
 		loweredYAML,
-		now.Add(4*time.Second),
 	)
 	type configChangeResult struct {
 		result executionstore.ChangeAgentConfigResult
@@ -1254,9 +1244,7 @@ tools:
 		t,
 		ctx,
 		store,
-		"live-pool-removed",
 		emptyYAML,
-		now.Add(5*time.Second),
 	)
 	seedProviderRuntimeMismatchForTest(
 		t,
@@ -1464,7 +1452,6 @@ func TestLaunchAgentCreatesMachineBindingsInputAndConfigChange(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "launch@example.com", "Launch User")
 	machine, err := store.Execution().CreateDaemonMachine(
 		ctx,
@@ -1502,7 +1489,7 @@ machine_sources:
       APP_MODE: initial
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -1748,7 +1735,6 @@ func TestLaunchAgentCreatesMultipleMachineBindings(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 10, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "launch-multi@example.com", DisplayName: "Launch Multi User"},
@@ -1816,7 +1802,7 @@ machine_sources:
     description: Second machine
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -1984,7 +1970,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	result, err := store.Execution().LaunchAgent(
@@ -2137,7 +2122,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	firstLaunch, err := store.Execution().LaunchAgent(
@@ -2352,7 +2336,7 @@ machine_sources:
     description: Second pool machine
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2470,7 +2454,7 @@ machine_sources:
     max_machines: 0
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2554,7 +2538,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 	if _, err := store.Execution().DeleteProjectMachinePoolGrant(
 		ctx,
@@ -2635,7 +2618,6 @@ func TestLaunchAgentZeroInitialPoolSkipsCapacityCheck(t *testing.T) {
 		"launch-zero-capacity-fill",
 		"Launch Zero Capacity Fill Agent",
 		"idem-launch-zero-capacity-fill-agent",
-		now,
 	); len(
 		result.MachineBindings,
 	) != 1 {
@@ -2659,7 +2641,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	result, err := store.Execution().LaunchAgent(
@@ -2742,7 +2723,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	if _, err := store.Execution().LaunchAgent(
@@ -2795,7 +2775,6 @@ func TestLaunchAgentPoolCPUCapacityRollsBackAllRows(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 45, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -2886,7 +2865,6 @@ tools:
 		"launch-cpu-capacity-pool",
 		"Launch CPU Capacity Pool Agent",
 		sourceYAML,
-		now.Add(2*time.Second),
 	)
 
 	if _, err := store.Execution().LaunchAgent(
@@ -2939,7 +2917,6 @@ func TestLaunchAgentProjectPoolGrantCapacityIgnoresRevokedGrantDeletingUsage(t *
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 47, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -3004,7 +2981,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	firstLaunch, err := store.Execution().LaunchAgent(
@@ -3084,7 +3060,6 @@ func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 50, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -3183,7 +3158,6 @@ machine_sources:
 tools:
   run_command: {}
 `, machinePool.Name, test.machineCPU, test.machineMemory),
-				now,
 			)
 
 			if _, err := store.Execution().LaunchAgent(
@@ -3284,7 +3258,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	start := make(chan struct{})
@@ -3398,7 +3371,6 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 		"launch-runtime-pool",
 		"Launch Runtime Pool Agent",
 		"idem-launch-runtime-pool-agent",
-		now,
 	)
 	initialMachine, err := store.Execution().GetMachine(ctx, testOrgID, result.MachineBindings[0].MachineID)
 	if err != nil {
@@ -3714,7 +3686,6 @@ func TestPoolProvisionMaxAttemptsCleanupOnlyClaimsStaleProvisioning(t *testing.T
 		"launch-max-attempts-pool",
 		"Launch Max Attempts Pool Agent",
 		"idem-launch-max-attempts-agent",
-		now,
 	)
 	if _, err := pool.Exec(ctx, `
 		UPDATE machines
@@ -3843,7 +3814,6 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 		"launch-stale-attempt-pool",
 		"Launch Stale Attempt Pool Agent",
 		"idem-launch-stale-attempt-agent",
-		now,
 	)
 	firstClaim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4079,7 +4049,6 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		"launch-stale-delete-pool",
 		"Launch Stale Delete Pool Agent",
 		"idem-launch-stale-delete-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4288,7 +4257,6 @@ func TestOfflinePoolMachineWithoutRuntimeHistoryMovesToCleanupQueueAfterBootstra
 		"launch-bootstrap-timeout-pool",
 		"Launch Bootstrap Timeout Pool Agent",
 		"idem-launch-bootstrap-timeout-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4438,7 +4406,6 @@ func TestOfflinePoolMachineWithRuntimeHistoryDoesNotBootstrapTimeoutCleanup(t *t
 		"launch-bootstrap-history-pool",
 		"Launch Bootstrap History Pool Agent",
 		"idem-launch-bootstrap-history-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4565,7 +4532,6 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 		"launch-token-retry-pool",
 		"Launch Token Retry Pool Agent",
 		"idem-launch-token-retry-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4756,7 +4722,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 	if _, err := store.Execution().LaunchAgent(
 		ctx,
@@ -4820,7 +4785,6 @@ func TestClaimNormalModelCallValidatesActiveAgentConfigAtWatermark(t *testing.T)
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -4840,7 +4804,6 @@ model:
   provider_config: openai-prod
   name: model-context-config
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -4896,12 +4859,12 @@ model:
 	if snapshot.AgentConfig.ID != config.ID {
 		t.Fatalf("config at frontier = %s, want %s", snapshot.AgentConfig.ID, config.ID)
 	}
-	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "model-context-config-changed", `
+	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Keep changed config typed.
 model:
   provider_config: openai-prod
   name: model-context-config
-`, now.Add(8*time.Second))
+`)
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(newConfig),
 		AgentID:                launch.Agent.ID,
@@ -4977,7 +4940,6 @@ func TestModelCallRetryUsesCurrentConfiguredModelRevision(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 10, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -4997,7 +4959,6 @@ model:
   provider_config: openai-prod
   name: model-context-revision
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -5198,7 +5159,6 @@ func TestClaimNormalModelCallDoesNotPinProjectModelGrant(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -5218,7 +5178,6 @@ model:
   provider_config: openai-prod
   name: model-grant-context
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -5306,7 +5265,6 @@ func TestRetargetAgentProfileAndLaunchLineage(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "retarget@example.com", DisplayName: "Retarget User"},
@@ -5319,7 +5277,7 @@ instruction: First instruction.
 model:
   provider_config: openai-prod
   name: gpt-test
-`, now)
+`)
 	originalConfigID := profile.CurrentConfigID
 	if profile.CurrentGeneration != 1 {
 		t.Fatalf("expected initial generation 1, got %d", profile.CurrentGeneration)
@@ -5330,9 +5288,7 @@ model:
 			t,
 			ctx,
 			store,
-			"retarget-"+expectedCurrentConfigID.String()+sourceYAML,
 			sourceYAML,
-			now.Add(time.Second),
 		)
 		return executionstore.RetargetAgentProfileInput{
 			ProjectID:               testProjectID,
@@ -5527,7 +5483,7 @@ instruction: Unrelated profile.
 model:
   provider_config: openai-prod
   name: gpt-test
-`, now)
+`)
 	if _, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{

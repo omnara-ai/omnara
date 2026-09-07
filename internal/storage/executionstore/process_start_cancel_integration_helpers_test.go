@@ -502,7 +502,6 @@ func injectModelReadyFrontier(
 	kind, key string,
 ) ID {
 	t.Helper()
-	now := time.Now().UTC()
 	if kind == "steering" {
 		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
@@ -517,12 +516,12 @@ func injectModelReadyFrontier(
 		}
 		return input.ID
 	}
-	config := mustCreateAgentConfigFromYAML(t, ctx, fixture.Store, key+"-config", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, fixture.Store, `
 instruction: Follow the newly configured direction.
 model:
   provider_config: openai-prod
   name: test
-`, now)
+`)
 	if _, err := fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(config),
 		AgentID:                fixture.AgentID,

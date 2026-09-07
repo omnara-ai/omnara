@@ -34,7 +34,7 @@ func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 		"maintenance-cursor@example.com",
 		"Maintenance Cursor",
 	)
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "maintenance-cursor", now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 
 	const agentCount = 501
 	for index := 0; index < agentCount; index++ {

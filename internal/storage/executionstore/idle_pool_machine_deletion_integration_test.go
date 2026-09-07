@@ -101,7 +101,7 @@ machine_sources:
 `+machineSource+`tools:
   run_command: {}
   write_process: {}
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		ProfileID:      profile.ID,
@@ -308,7 +308,7 @@ func TestAttachedPoolMachineBindingIsExclusive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive", idlePoolMachinePolicy{})
-	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, fixture.Now.Add(time.Millisecond))
+	secondAgentID := mustCreateAgent(t, ctx, fixture.Store)
 	var machineGrantID ID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT id

@@ -58,7 +58,6 @@ func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-name-swap-config",
 		fmt.Sprintf(`
 instruction: Use pool machines.
 model:
@@ -75,7 +74,6 @@ tools:
   create_machine:
     type: built_in
 `, firstPool.Name, secondPool.Name),
-		now.Add(4*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,
@@ -148,35 +146,29 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-captured-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(capturedPool.Name, 2, `
     cwd: /captured
     description: Captured source
     machine_provider_options_overlay:
       startup_script: captured
 `),
-		now.Add(3*time.Second),
 	)
 	currentConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-current-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(capturedPool.Name, 1, `
     cwd: /current
     description: Current source
     machine_provider_options_overlay:
       startup_script: current
 `),
-		now.Add(4*time.Second),
 	)
 	removedConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-removed-config",
 		testAgentConfigYAML(),
-		now.Add(4500*time.Millisecond),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -339,7 +331,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -397,7 +388,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-resolved-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(machinePool.Name, 2, `
     machine_cpu: 2
     env_overlay:
@@ -407,7 +397,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
       image: agent
       agent_only: agent
 `),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -516,7 +505,6 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 
 	providers := &externalMachinePoolProviders{}
 	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
-	now := time.Date(2026, 6, 15, 9, 40, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -568,9 +556,7 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-intent-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -663,7 +649,6 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 40, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -693,7 +678,7 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 	); err != nil {
 		t.Fatalf("create default pool grant: %v", err)
 	}
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "agent-pool-machine-default-config", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Use default pool machines.
 model:
   provider_config: openai-prod
@@ -712,7 +697,7 @@ machine_sources:
       startup_script: echo ready
 tools:
   create_machine: {}
-`, now.Add(2*time.Second))
+`)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: config.ID},
@@ -803,7 +788,6 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 45, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -844,9 +828,7 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-capacity-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 2),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -911,7 +893,6 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -990,7 +971,6 @@ tools:
 		"zero-cap-initial-machines",
 		"Zero Cap Initial Machines",
 		initialMachinesYAML,
-		now.Add(2*time.Second),
 	)
 
 	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
@@ -1022,7 +1002,6 @@ tools:
 		"zero-cap-tool-machines",
 		"Zero Cap Tool Machines",
 		agentPoolMachineConfigYAML(machinePool.Name, 2),
-		now.Add(4*time.Second),
 	)
 	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -1141,9 +1120,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-lifecycle-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1425,9 +1402,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-provisioning-delete-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1560,9 +1535,7 @@ func TestListMachinePoolSourcesIncludesZeroMaxPool(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-zero-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 0),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1619,9 +1592,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-explicit-pool-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	poolAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1915,9 +1886,7 @@ func TestCreatePoolMachineValidatesProviderPoolConfig(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-provider-validation-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	poolAgent, err := store.Execution().CreateAgentFixture(
 		ctx,

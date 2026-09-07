@@ -345,7 +345,6 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 10, 30, 0, 0, time.UTC)
 	_, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "runtime-bindings@example.com", DisplayName: "Runtime Bindings Tester"},
@@ -376,8 +375,8 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	if err != nil {
 		t.Fatalf("create project machine grant: %v", err)
 	}
-	firstAgent := mustCreateAgent(t, ctx, store, now.Add(time.Second))
-	secondAgent := mustCreateAgent(t, ctx, store, now.Add(2*time.Second))
+	firstAgent := mustCreateAgent(t, ctx, store)
+	secondAgent := mustCreateAgent(t, ctx, store)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,

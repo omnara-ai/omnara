@@ -231,9 +231,9 @@ func assertMachineAllowed(
 	}
 }
 
-func mustCreateAgent(t *testing.T, ctx context.Context, store *Store, now time.Time) ID {
+func mustCreateAgent(t *testing.T, ctx context.Context, store *Store) ID {
 	t.Helper()
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "default", now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,
 		CurrentConfigID: configID,
@@ -249,8 +249,6 @@ func mustCreateAgentConfig(
 	ctx context.Context,
 	store *Store,
 	projectID ID,
-	key string,
-	now time.Time,
 ) ID {
 	t.Helper()
 	config := storagefixture.SeedAgentConfig(
@@ -470,7 +468,6 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	ctx context.Context,
 	store *Store,
 	key, name, sourceYAML string,
-	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
 	config := storagefixture.SeedAgentConfig(
@@ -492,8 +489,7 @@ func mustCreateAgentConfigFromYAML(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	key, sourceYAML string,
-	now time.Time,
+	sourceYAML string,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
 	return storagefixture.SeedAgentConfig(

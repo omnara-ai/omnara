@@ -923,7 +923,6 @@ func TestDeleteConfiguredModelAllowsHistoricalAgentConfigReferences(t *testing.T
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 
 	sourceYAML := `
 instruction: test
@@ -931,7 +930,7 @@ model:
   provider_config: openai-prod
   name: archive-test
 `
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "archived-model", sourceYAML, now)
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, sourceYAML)
 	configuredModel, err := store.Models().GetConfiguredModel(ctx, testOrgID, config.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("load configured model before archive: %v", err)
@@ -975,12 +974,12 @@ func TestDeleteConfiguredModelDoesNotRequireActiveProviderConfig(t *testing.T) {
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "archive-model-parent-archived", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: test
 model:
   provider_config: openai-prod
   name: archive-parent-test
-`, now)
+`)
 	configuredModel, err := store.Models().GetConfiguredModel(ctx, testOrgID, config.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("load configured model before archive: %v", err)

@@ -456,7 +456,7 @@ func newProcessDaemonFixtureInStore(
 	if err != nil {
 		t.Fatalf("register daemon runtime: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,
@@ -532,7 +532,7 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 	if err != nil {
 		t.Fatalf("create project machine grant: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,

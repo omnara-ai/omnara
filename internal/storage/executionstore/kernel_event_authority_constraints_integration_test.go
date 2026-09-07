@@ -886,8 +886,7 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "wakeup-idem@example.com", "Wakeup Idempotency")
 	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID:      testProjectID,
@@ -964,8 +963,7 @@ func TestKernelTypedFrontierRejectsMismatchedPointer(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 24, 13, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -991,8 +989,7 @@ func TestKernelTypedFrontierRequiresTurnMembership(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 24, 13, 30, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "orphan-event@example.com", "Orphan Event")
 	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID:      testProjectID,
