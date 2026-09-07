@@ -79,7 +79,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("unexpected pool default_machine_env: %+v", machinePool)
 	}
 	defaultMachineSecretEnv := testutil.RequireType[map[string]any](t, machinePool["default_machine_secret_env"])
-	if defaultMachineSecretEnv["API_TOKEN"] != providerAuthSecretID || defaultMachineSecretEnv["storage_key"] != providerAuthSecretID {
+	if defaultMachineSecretEnv["API_TOKEN"] != providerAuthSecretID ||
+		defaultMachineSecretEnv["storage_key"] != providerAuthSecretID {
 		t.Fatalf("unexpected pool default_machine_secret_env: %+v", machinePool)
 	}
 	providerConfig := testutil.RequireType[map[string]any](t, machinePool["provider_config"])
@@ -290,7 +291,15 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("listed pools = %d, want 1: %+v", got, pools)
 	}
 	providerAuthSecretUUID := mustPublicHTTPID(t, publicid.KindSecret, providerAuthSecretID)
-	if _, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{OrgID: project.OrgUUID, SecretID: providerAuthSecretUUID, TargetProjectID: project.ProjectUUID, Actor: httpUserPrincipal(project.AdminUserUUID)}); err != nil {
+	if _, err := store.Secrets().CreateSecretGrant(
+		ctx,
+		secretstore.CreateSecretGrantInput{
+			OrgID:           project.OrgUUID,
+			SecretID:        providerAuthSecretUUID,
+			TargetProjectID: project.ProjectUUID,
+			Actor:           httpUserPrincipal(project.AdminUserUUID),
+		},
+	); err != nil {
 		t.Fatalf("grant pool secret env to project: %v", err)
 	}
 	updatePoolBody := `{"name":"update-target","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{},"default_machine_provider_options":{"image":"update-initial","metro":"sfo"},"default_cwd":"/workspace"` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":false}`
@@ -364,7 +373,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if patchedPool["id"] != updatePoolID || patchedPool["description"] != "patched pool" ||
-		patchedPool["default_cwd"] != "/pool-updated" || testutil.RequireType[float64](t, patchedPool["max_total_cpu"]) != 4 ||
+		patchedPool["default_cwd"] != "/pool-updated" ||
+		testutil.RequireType[float64](t, patchedPool["max_total_cpu"]) != 4 ||
 		testutil.RequireType[float64](t, patchedPool["min_machine_cpu"]) != 1 ||
 		testutil.RequireType[float64](t, patchedPool["min_machine_memory_mb"]) != 1024 ||
 		patchedPool["runtime_protection_enabled"] != true {
@@ -533,7 +543,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		)
 	}
 
-	ungrantedPoolSource := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\ntools:\n  run_command: {}\n"
+	ungrantedPoolSource := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -614,7 +626,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(testutil.RequireType[string](t, badProjectImageGrant["error"]), "provider_config.allowed_images") {
+	if !strings.Contains(
+		testutil.RequireType[string](t, badProjectImageGrant["error"]), "provider_config.allowed_images",
+	) {
 		t.Fatalf("bad project image grant error = %+v, want allowed_images context", badProjectImageGrant)
 	}
 
@@ -633,7 +647,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if poolGrant["machine_pool_id"] != poolID {
 		t.Fatalf("unexpected pool grant response: %+v", poolGrant)
 	}
-	if poolGrant["default_cwd"] != "/project" || testutil.RequireType[float64](t, poolGrant["default_machine_memory_mb"]) != 2048 ||
+	if poolGrant["default_cwd"] != "/project" ||
+		testutil.RequireType[float64](t, poolGrant["default_machine_memory_mb"]) != 2048 ||
 		testutil.RequireType[float64](t, poolGrant["max_total_cpu"]) != 4 ||
 		testutil.RequireType[float64](t, poolGrant["max_total_memory_mb"]) != 4096 ||
 		testutil.RequireType[float64](t, poolGrant["min_machine_cpu"]) != 1 ||
@@ -770,13 +785,17 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(projectAdminToken),
 	)
-	projectAdminPoolGrantEnv := testutil.RequireType[map[string]any](t, projectAdminPoolGrant["default_machine_env_overlay"])
+	projectAdminPoolGrantEnv := testutil.RequireType[map[string]any](
+		t, projectAdminPoolGrant["default_machine_env_overlay"],
+	)
 	if projectAdminPoolGrantEnv["SECRET_THING"] != "project-value" ||
 		projectAdminPoolGrantEnv["PROJECT_ONLY"] != "yes" ||
 		projectAdminPoolGrantEnv["uri"] != "project-uri" {
 		t.Fatalf("project admin pool grant env = %+v, want plaintext env", projectAdminPoolGrant)
 	}
-	projectAdminPoolGrantSecretEnv := testutil.RequireType[map[string]any](t, projectAdminPoolGrant["default_machine_secret_env_overlay"])
+	projectAdminPoolGrantSecretEnv := testutil.RequireType[map[string]any](
+		t, projectAdminPoolGrant["default_machine_secret_env_overlay"],
+	)
 	if projectAdminPoolGrantSecretEnv["process_id"] != providerAuthSecretID {
 		t.Fatalf("project admin pool grant secret_env = %+v, want secret_env", projectAdminPoolGrant)
 	}
@@ -828,7 +847,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if patchedPoolGrantEnv["PATCHED_ONLY"] != "yes" || len(patchedPoolGrantEnv) != 1 {
 		t.Fatalf("patched pool grant env overlay should be replaced whole: %+v", patchedPoolGrant)
 	}
-	patchedPoolGrantSecretEnv := testutil.RequireType[map[string]any](t, patchedPoolGrant["default_machine_secret_env_overlay"])
+	patchedPoolGrantSecretEnv := testutil.RequireType[map[string]any](
+		t, patchedPoolGrant["default_machine_secret_env_overlay"],
+	)
 	if patchedPoolGrantSecretEnv["process_id"] != providerAuthSecretID {
 		t.Fatalf("patched pool grant secret env overlay should be kept: %+v", patchedPoolGrant)
 	}
@@ -866,7 +887,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t,
 		handler,
 		http.MethodPatch,
-		project.ProjectPath+"/machine-pool-grants/"+testPublicID(t, publicid.KindProjectMachinePoolGrant, httpTestID("missing-pool-grant")),
+		project.ProjectPath+"/machine-pool-grants/"+
+			testPublicID(t, publicid.KindProjectMachinePoolGrant, httpTestID("missing-pool-grant")),
 		`{"description":"missing"}`,
 		"",
 		http.StatusNotFound,
@@ -888,7 +910,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("restored pool grant mismatch: %+v", restoredPoolGrant)
 	}
 
-	overCountSourceYAML := "instruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
+	overCountSourceYAML := "instruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: " +
+		"gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -953,7 +977,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
-	deletedPoolGrantID := mustPublicHTTPID(t, publicid.KindProjectMachinePoolGrant, testutil.RequireType[string](t, archivedGrant["id"]))
+	deletedPoolGrantID := mustPublicHTTPID(
+		t, publicid.KindProjectMachinePoolGrant, testutil.RequireType[string](t, archivedGrant["id"]),
+	)
 	if _, err := store.Execution().GetProjectMachinePoolGrant(
 		ctx,
 		project.OrgUUID,
@@ -963,7 +989,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
 
-	badSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
+	badSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -974,7 +1002,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	badMetroSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
+	badMetroSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
 	badMetroConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -989,7 +1019,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("bad metro config response = %+v, want allowed_metros error", badMetroConfig)
 	}
 
-	sourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
+	sourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1426,7 +1458,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		authHeaders(project.AdminToken),
 	)
 
-	sourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	sourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1438,7 +1472,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusCreated,
 	)
 
-	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
+	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
 	response := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1453,7 +1489,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		t.Fatalf("bad default pool image overlay error = %+v, want allowed_images", response)
 	}
 
-	badSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
+	badSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
 	response = createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1492,7 +1530,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 	)
 	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 
-	updateSourceYAML := "instruction: Updated instruction, same machine source.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	updateSourceYAML := "instruction: Updated instruction, same machine source.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	updated := requestJSONWithHeaders(
 		t,
 		handler,

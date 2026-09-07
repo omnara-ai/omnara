@@ -2320,7 +2320,12 @@ func createMachineToolCallForDirectStoreTest(
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
-) (storage.ID, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	storage.ID,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	call := model.ToolCall{ID: "call_" + label, Name: name, Input: inputJSON}
 	toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
@@ -2345,7 +2350,12 @@ func createMachineToolCallsForDirectStoreTest(
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
-) ([]executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	[]executionstore.ToolCallRecord,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
 		t,
@@ -2384,7 +2394,12 @@ func recordMachineToolCallForDirectStoreTest(
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
-) (storage.ID, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	storage.ID,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	call := model.ToolCall{ID: "call_" + label, Name: name, Input: inputJSON}
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
@@ -2409,7 +2424,12 @@ func recordMachineToolCallsForDirectStoreTest(
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
-) ([]executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	[]executionstore.ToolCallRecord,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	if len(calls) == 0 {
 		t.Fatal("machine tool fixture requires at least one tool proposal")

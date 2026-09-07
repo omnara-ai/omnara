@@ -796,7 +796,9 @@ func assertIntegrationToolCallState(
 ) {
 	t.Helper()
 	var state string
-	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
+	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(
+		&state,
+	); err != nil {
 		t.Fatalf("load MCP tool call state: %v", err)
 	}
 	if state != want {

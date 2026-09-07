@@ -136,7 +136,9 @@ func TestProjectScopedAgentStorageHidesCrossProjectResources(t *testing.T) {
 	agentID := mustCreateAgent(t, ctx, store)
 	otherProjectID := testID("cross_project_agent_storage")
 
-	if _, err := store.Execution().ListAgentEventsForRead(ctx, otherProjectID, agentID, 0, 10); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, err := store.Execution().ListAgentEventsForRead(
+		ctx, otherProjectID, agentID, 0, 10,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("list cross-project events error = %v, want ErrNotFound", err)
 	}
 	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
@@ -477,7 +479,9 @@ WHERE project_id = $1 AND profile_id = $2
 	if _, err := store.Execution().GetAgentInProject(ctx, testProjectID, launch.Agent.ID); err != nil {
 		t.Fatalf("launched agent should survive profile deletion: %v", err)
 	}
-	if _, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, profile.CurrentConfigID); err != nil || !found {
+	if _, found, err := store.Execution().GetAgentConfig(
+		ctx, testProjectID, profile.CurrentConfigID,
+	); err != nil || !found {
 		t.Fatalf("profile config should survive profile deletion: %v", err)
 	}
 	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); !storeerr.IsNotFound(err) {
@@ -579,12 +583,19 @@ func TestAgentLaunchSerializesWithProfileDeletion(t *testing.T) {
 		"launch-profile-delete@example.com",
 		"Launch Profile Delete",
 	)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-profile-delete", "Launch Profile Delete", `
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"launch-profile-delete",
+		"Launch Profile Delete",
+		`
 instruction: Launch only from a live profile.
 model:
   provider_config: openai-prod
   name: launch-profile-delete
-`)
+`,
+	)
 
 	blockingTx, err := pool.Begin(ctx)
 	if err != nil {
@@ -1202,9 +1213,12 @@ RETURNING id`, testProjectID, launch.Agent.ID, actorID, eventAt).Scan(&inputID);
 	}
 	var eventID ID
 	if err := tx.QueryRow(ctx, `
-INSERT INTO agent_events(id, agent_id, turn_id, sequence, event_kind, idempotency_key, agent_input_id, is_opening_event, created_at)
+INSERT INTO agent_events(id, agent_id, turn_id, sequence, event_kind, idempotency_key, agent_input_id,
+    is_opening_event, created_at)
 VALUES (uuidv7(), $1, $2, $3, 'agent_input', $4, $5, true, $6)
-RETURNING id`, launch.Agent.ID, turnID, sequence, "agent_input:"+inputID.String(), inputID, eventAt).Scan(&eventID); err != nil {
+RETURNING id`, launch.Agent.ID, turnID, sequence, "agent_input:"+inputID.String(), inputID, eventAt).Scan(
+		&eventID,
+	); err != nil {
 		t.Fatalf("insert blocked event: %v", err)
 	}
 	if _, err := tx.Exec(
@@ -1223,7 +1237,11 @@ WHERE project_id = $3 AND agent_id = $4 AND id = $5
 		t.Fatalf("resolve blocked input: %v", err)
 	}
 	var turnSequence int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`, testProjectID, launch.Agent.ID).
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`,
+		testProjectID, launch.Agent.ID,
+	).
 		Scan(&turnSequence); err != nil {
 		t.Fatalf("next blocked turn sequence: %v", err)
 	}
@@ -1710,7 +1728,11 @@ tools:
 	if err != nil {
 		t.Fatalf("acquire shared live source removal runtime lock: %v", err)
 	}
-	startRunningProcess := func(testName string, agentID, bindingID ID, lock executionstore.AgentRuntimeLockRecord) executionstore.ProcessRecord {
+	startRunningProcess := func(
+		testName string,
+		agentID, bindingID ID,
+		lock executionstore.AgentRuntimeLockRecord,
+	) executionstore.ProcessRecord {
 		t.Helper()
 		processAt := now.Add(5500 * time.Millisecond)
 		fixture := processDaemonFixture{

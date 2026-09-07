@@ -186,7 +186,14 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission,org_memberships,org_resource_limit_overrides,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
+	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
+		"configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens," +
+		"machine_online_intervals,machine_pools,machines,model_call_contexts," +
+		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
+		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
+		"project_machine_grants,project_machine_pool_grants,project_memberships," +
+		"project_model_grants,projects,secret_grants,secret_oauth_refresh_leases," +
+		"secret_versions,secrets,skill_grants,skills"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
@@ -209,7 +216,10 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,cron_triggers,integration_installs,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
+	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
+		"agent_profiles,agents,cron_triggers,integration_installs,integration_targets," +
+		"model_call_contexts,process_actions,processes,project_machine_grants," +
+		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `
 	SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
@@ -252,7 +262,9 @@ RETURNING id::text
 		t.Fatal("project organization update succeeded")
 	}
 	var retainedOrgID string
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID))
+	require.NoError(
+		t, db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID),
+	)
 	if retainedOrgID != originalOrgID {
 		t.Fatalf("project org_id = %s, want %s", retainedOrgID, originalOrgID)
 	}
@@ -326,7 +338,9 @@ func TestPostgresExplicitConstraintNamesStayBelowTruncationLimit(t *testing.T) {
 			`REFERENCES\b|NOT\s+NULL\b|NULL\b|DEFAULT\b|GENERATED\b)`,
 	)
 	columnReference := `owner_id uuid CONSTRAINT owner_reference_contract REFERENCES owners(id)`
-	if match := constraintNamePattern.FindStringSubmatch(columnReference); len(match) != 2 || match[1] != "owner_reference_contract" {
+	if match := constraintNamePattern.FindStringSubmatch(
+		columnReference,
+	); len(match) != 2 || match[1] != "owner_reference_contract" {
 		t.Fatalf("explicit constraint matcher missed column-level reference: %q", match)
 	}
 	for _, migrationFile := range migrationFiles {
@@ -420,7 +434,10 @@ WITH primary_keys AS (
         AND foreign_key.confkey = unique_constraint.conkey
     )
 )
-SELECT coalesce(string_agg(conrelid::regclass::text || '.' || conname, ',' ORDER BY conrelid::regclass::text, conname), '')
+SELECT coalesce(string_agg(
+  conrelid::regclass::text || '.' || conname, ','
+  ORDER BY conrelid::regclass::text, conname
+), '')
 FROM redundant_unique_constraints
 `).Scan(&redundant))
 	if redundant != "" {
@@ -481,7 +498,10 @@ WITH mutating_foreign_keys AS (
       )
   )
 )
-SELECT coalesce(string_agg(conrelid::regclass::text || '.' || conname, ',' ORDER BY conrelid::regclass::text, conname), '')
+SELECT coalesce(string_agg(
+  conrelid::regclass::text || '.' || conname, ','
+  ORDER BY conrelid::regclass::text, conname
+), '')
 FROM unsupported_foreign_keys
 `
 

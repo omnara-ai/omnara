@@ -289,7 +289,9 @@ func createLaunchTestAgent(
 	return profile
 }
 
-func completeMachinePoolInputForTest(input executionstore.CreateMachinePoolInput) executionstore.CreateMachinePoolInput {
+func completeMachinePoolInputForTest(
+	input executionstore.CreateMachinePoolInput,
+) executionstore.CreateMachinePoolInput {
 	if input.DefaultMachineCPU == nil {
 		input.DefaultMachineCPU = intPtrForMachinePoolTest(1)
 	}

@@ -161,7 +161,11 @@ func TestCreateAgentContentInputRejectsArchivedAgentButReplaysExisting(t *testin
 		t.Fatalf("archived agent input error = %v, want ErrStateTransitionConflict", err)
 	}
 	var afterArchiveInputs int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND input_idempotency_key = $3`, testProjectID, agentID, "idem-agent-input-after-archive").
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND input_idempotency_key = $3`,
+		testProjectID, agentID, "idem-agent-input-after-archive",
+	).
 		Scan(&afterArchiveInputs); err != nil {
 		t.Fatalf("count post-archive inputs: %v", err)
 	}
@@ -359,7 +363,9 @@ func TestCreateAgentContentInputConflictRollsBackExternalActor(t *testing.T) {
 		ProviderTenantID: "rollback-tenant",
 		ProviderUserID:   "rollback-external",
 	}
-	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, stolen); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx, stolen,
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("stolen idempotency key error = %v, want ErrIdempotencyConflict", err)
 	}
 	leaked, err := store.Execution().ListActors(ctx, executionstore.ListActorsInput{

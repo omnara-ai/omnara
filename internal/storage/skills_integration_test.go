@@ -187,7 +187,10 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 		userSkill.ID: skillstore.SkillAvailabilityGrant,
 	}
 	if len(available.Accesses) != len(wantAvailability) {
-		t.Fatalf("project available skill count = %d, want %d: %+v", len(available.Accesses), len(wantAvailability), available.Accesses)
+		t.Fatalf(
+			"project available skill count = %d, want %d: %+v", len(available.Accesses), len(wantAvailability),
+			available.Accesses,
+		)
 	}
 	for _, access := range available.Accesses {
 		if got, ok := wantAvailability[access.Skill.ID]; !ok || got != access.Availability {
@@ -200,10 +203,14 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 			t.Fatalf("organization skill grant id = %s, want %s", access.GrantID, orgGrant.ID)
 		}
 	}
-	if dispatched, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, orgSkillPublicID); err != nil || dispatched.ID != orgSkill.ID {
+	if dispatched, err := store.Skills().GetSkillForDispatch(
+		ctx, testProjectID, orgSkillPublicID,
+	); err != nil || dispatched.ID != orgSkill.ID {
 		t.Fatalf("dispatch granted organization skill = %+v, err=%v", dispatched, err)
 	}
-	if dispatched, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, userSkillPublicID); err != nil || dispatched.ID != userSkill.ID {
+	if dispatched, err := store.Skills().GetSkillForDispatch(
+		ctx, testProjectID, userSkillPublicID,
+	); err != nil || dispatched.ID != userSkill.ID {
 		t.Fatalf("dispatch granted user skill = %+v, err=%v", dispatched, err)
 	}
 	grantPage, err := store.Skills().ListSkillGrants(ctx, skillstore.ListSkillGrantsInput{
@@ -261,7 +268,9 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode project skill id: %v", err)
 	}
-	if _, err := store.Skills().GetVisibleSkill(ctx, testOrgID, projectPublicID, userPrincipal(other.ID)); !storeerr.IsNotFound(err) {
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, projectPublicID, userPrincipal(other.ID),
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("get project skill as non-member error = %v, want not found", err)
 	}
 	if err := store.Skills().DeleteSkill(ctx, skillstore.DeleteSkillInput{
@@ -318,7 +327,10 @@ skills:
 `
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 		ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
@@ -519,7 +531,10 @@ func TestProjectDeletionSoftDeletesSkillRevisionSet(t *testing.T) {
 	admin := createSecretTestUser(t, ctx, store, "Project skill deletion admin", "admin")
 	skill := createIntegrationSkill(t, ctx, store, skillstore.CreateSkillInput{
 		OrgID: testOrgID, OwnerKind: skillstore.SkillOwnerProject, OwnerProjectID: testProjectID,
-		Name: "project-deletion-skill", Actor: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: admin.ID},
+		Name: "project-deletion-skill", Actor: identitystore.PrincipalRecord{
+			Type: identitystore.PrincipalTypeUser,
+			ID:   admin.ID,
+		},
 	})
 
 	if _, err := store.Organizations().DeleteProject(
@@ -800,7 +815,12 @@ GROUP BY skill.deleted_at
 	}
 }
 
-func createIntegrationSkill(t *testing.T, ctx context.Context, store *Store, input skillstore.CreateSkillInput) skillstore.SkillRecord {
+func createIntegrationSkill(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	input skillstore.CreateSkillInput,
+) skillstore.SkillRecord {
 	t.Helper()
 	input.Description = "integration skill"
 	input.SkillMd = "# Integration skill"

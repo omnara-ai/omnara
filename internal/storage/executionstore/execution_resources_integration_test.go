@@ -331,32 +331,44 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 	firstAgentID := mustCreateAgent(t, ctx, store)
 	secondAgentID := mustCreateAgent(t, ctx, store)
 	machine := createContextMachine(t, ctx, store, testID("agent_machine_binding_history"), user.ID, now)
-	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, store.q, executionstore.IntegrationInsertAgentMachineBindingInput{
-		ProjectID:             testProjectID,
-		AgentID:               firstAgentID,
-		ProjectMachineGrantID: machine.GrantID,
-		MachineRef:            "mchr-hist00",
-		BindingKind:           "pool",
-	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               firstAgentID,
+			ProjectMachineGrantID: machine.GrantID,
+			MachineRef:            "mchr-hist00",
+			BindingKind:           "pool",
+		},
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("pool binding to BYO machine error = %v, want ErrIdempotencyConflict", err)
 	}
-	first, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, store.q, executionstore.IntegrationInsertAgentMachineBindingInput{
-		ProjectID:             testProjectID,
-		AgentID:               firstAgentID,
-		ProjectMachineGrantID: machine.GrantID,
-		MachineRef:            "mchr-hist01",
-		BindingKind:           "explicit",
-	})
+	first, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               firstAgentID,
+			ProjectMachineGrantID: machine.GrantID,
+			MachineRef:            "mchr-hist01",
+			BindingKind:           "explicit",
+		},
+	)
 	if err != nil {
 		t.Fatalf("bind first agent: %v", err)
 	}
-	second, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, store.q, executionstore.IntegrationInsertAgentMachineBindingInput{
-		ProjectID:             testProjectID,
-		AgentID:               secondAgentID,
-		ProjectMachineGrantID: machine.GrantID,
-		MachineRef:            "mchr-hist02",
-		BindingKind:           "explicit",
-	})
+	second, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               secondAgentID,
+			ProjectMachineGrantID: machine.GrantID,
+			MachineRef:            "mchr-hist02",
+			BindingKind:           "explicit",
+		},
+	)
 	if err != nil {
 		t.Fatalf("bind second agent to shared machine: %v", err)
 	}
@@ -368,13 +380,17 @@ func TestReleasedAgentMachineBindingCanReattach(t *testing.T) {
 	if err != nil || updated != 1 {
 		t.Fatalf("release first binding: updated=%d err=%v", updated, err)
 	}
-	rebound, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, store.q, executionstore.IntegrationInsertAgentMachineBindingInput{
-		ProjectID:             testProjectID,
-		AgentID:               firstAgentID,
-		ProjectMachineGrantID: machine.GrantID,
-		MachineRef:            "mchr-hist03",
-		BindingKind:           "explicit",
-	})
+	rebound, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               firstAgentID,
+			ProjectMachineGrantID: machine.GrantID,
+			MachineRef:            "mchr-hist03",
+			BindingKind:           "explicit",
+		},
+	)
 	if err != nil {
 		t.Fatalf("reattach first agent: %v", err)
 	}
@@ -443,7 +459,9 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 			EnvOverlay: map[string]*string{"TOKEN": &literal},
 		},
 	}}
-	if err := store.Execution().IntegrationResolveLaunchMachineSourcesTx(ctx, qtx, testOrgID, testProjectID, sources); err != nil {
+	if err := store.Execution().IntegrationResolveLaunchMachineSourcesTx(
+		ctx, qtx, testOrgID, testProjectID, sources,
+	); err != nil {
 		t.Fatalf("resolve binding environment: %v", err)
 	}
 	envOverlay, secretEnvOverlay, err := executionstore.MachineEnvironmentOverlayToColumns(
@@ -452,15 +470,19 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare binding environment: %v", err)
 	}
-	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(ctx, qtx, executionstore.IntegrationInsertAgentMachineBindingInput{
-		ProjectID:             testProjectID,
-		AgentID:               agentID,
-		ProjectMachineGrantID: sources[0].GrantID,
-		MachineRef:            "mchr-env001",
-		BindingKind:           executionstore.MachineBindingKindExplicit,
-		EnvOverlay:            envOverlay,
-		SecretEnvOverlay:      secretEnvOverlay,
-	}); err != nil {
+	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
+		ctx,
+		qtx,
+		executionstore.IntegrationInsertAgentMachineBindingInput{
+			ProjectID:             testProjectID,
+			AgentID:               agentID,
+			ProjectMachineGrantID: sources[0].GrantID,
+			MachineRef:            "mchr-env001",
+			BindingKind:           executionstore.MachineBindingKindExplicit,
+			EnvOverlay:            envOverlay,
+			SecretEnvOverlay:      secretEnvOverlay,
+		},
+	); err != nil {
 		t.Fatalf("bind machine: %v", err)
 	}
 	secretEnv := json.RawMessage(`{"token":"` + secretPublicIDForTest(t, secretID) + `"}`)

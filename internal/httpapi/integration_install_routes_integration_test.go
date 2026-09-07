@@ -120,7 +120,13 @@ func TestListIntegrationInstalls(t *testing.T) {
 	if _, ok := first["agent_id"]; ok {
 		t.Fatalf("profile-bound install should omit agent_id: %+v", first)
 	}
-	for _, hidden := range []string{"credential_secret_id", "provider_config", "provider_identity", "provider_metadata", "installed_by_user_id"} {
+	for _, hidden := range []string{
+		"credential_secret_id",
+		"provider_config",
+		"provider_identity",
+		"provider_metadata",
+		"installed_by_user_id",
+	} {
 		if _, ok := first[hidden]; ok {
 			t.Fatalf("install response should not expose %s: %+v", hidden, first)
 		}

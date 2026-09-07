@@ -130,7 +130,10 @@ func compileHTTPAgentYAMLResolved(
 		source.Model.Name,
 	)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedHTTPAgentConfigModel(configuredModel), nil
 		},
 		ResolveMachineName: func(machineName string) (string, error) {
@@ -214,7 +217,9 @@ func ensureHTTPProviderCredential(
 ) (secretstore.SecretRecord, error) {
 	t.Helper()
 	name := "http-provider-" + providerConfigName
-	secret, err := store.Secrets().GetSecretByOwnerName(ctx, orgID, secretstore.SecretOwnerOrg, storage.NilID, storage.NilID, name)
+	secret, err := store.Secrets().GetSecretByOwnerName(
+		ctx, orgID, secretstore.SecretOwnerOrg, storage.NilID, storage.NilID, name,
+	)
 	if err == nil {
 		return secret, nil
 	}

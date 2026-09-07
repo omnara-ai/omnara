@@ -179,7 +179,11 @@ func TestServiceE2ELiveAPIFormatSwitchingPreservesHistory(t *testing.T) {
 
 	for index, stage := range stages {
 		var beforeSequence int64
-		if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&beforeSequence); err != nil {
 			t.Fatalf("query event sequence before stage %d: %v", index+1, err)
 		}
@@ -612,7 +616,11 @@ func runLiveServiceModelTurn(t *testing.T, ctx context.Context, opts liveService
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`, projectUUID, agentUUID, nonce).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`,
+			projectUUID, agentUUID, nonce,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -844,14 +852,22 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		"Additional current-turn padding: " + strings.Repeat("fresh continuation detail ", 1100),
 	}, "\n")
 	var beforeBridgeSequence int64
-	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`,
+		projectUUID, agentUUID,
+	).
 		Scan(&beforeBridgeSequence); err != nil {
 		t.Fatalf("query pre-bridge event sequence: %v", err)
 	}
 	project.createInput(t, ctx, agentID, secondPrompt)
 	waitForServiceE2EConditionUntil(t, ctx, time.Now().Add(5*time.Minute), func() (bool, string) {
 		var checkpoints, compactedContexts, failedBudgetContexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`, projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND strpos(checkpoint.summary, $3) > 0 AND strpos(checkpoint.summary, $4) > 0 AND strpos(checkpoint.summary, $5) = 0`,
+			projectUUID, agentUUID, projectLabel, sampleID, rawPaddingToken,
+		).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -867,7 +883,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		if err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'configured_input_budget_exceeded'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'configured_input_budget_exceeded'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&failedBudgetContexts); err != nil {
 			return false, err.Error()
 		}
@@ -892,7 +912,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -927,7 +951,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 	assertLiveToolResultSummarized(t, ctx, env, projectUUID, agentUUID, toolName, sampleID)
 
 	var beforeRecallSequence int64
-	if err := env.db.QueryRow(ctx, `SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT coalesce(max(event.sequence), 0) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2`,
+		projectUUID, agentUUID,
+	).
 		Scan(&beforeRecallSequence); err != nil {
 		t.Fatalf("query pre-recall event sequence: %v", err)
 	}
@@ -955,7 +983,11 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -1141,7 +1173,11 @@ func waitForLiveAgentIdle(
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}

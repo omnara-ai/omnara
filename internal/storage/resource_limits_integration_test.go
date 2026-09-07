@@ -384,7 +384,9 @@ FROM generate_series(1, $3::integer) AS n
 		UserID: testDefaultProviderAdminUserID,
 		Name:   "Second limited token",
 	}
-	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, secondInput); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx, secondInput,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("personal access token over limit error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Identity().RevokePersonalAccessToken(
@@ -839,7 +841,9 @@ FROM generate_series(1, $4::integer) AS n
 	secondTokenInput := executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "Second daemon token",
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(ctx, secondTokenInput); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx, secondTokenInput,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("daemon token over limit error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Execution().RevokeBYOMachineDaemonToken(

@@ -349,10 +349,20 @@ func mustCreateProjectRoleUser(
 	if err != nil {
 		t.Fatalf("create user %s: %v", email, err)
 	}
-	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: user.ID, Role: "member"}); err != nil {
+	if _, err := store.Identity().AddOrgMembership(
+		ctx, identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: user.ID, Role: "member"},
+	); err != nil {
 		t.Fatalf("add org membership for %s: %v", email, err)
 	}
-	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: user.ID, Role: projectRole}); err != nil {
+	if _, err := store.Identity().AddProjectMembership(
+		ctx,
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    user.ID,
+			Role:      projectRole,
+		},
+	); err != nil {
 		t.Fatalf("add project %s membership for %s: %v", projectRole, email, err)
 	}
 	return user
@@ -1341,7 +1351,9 @@ WHERE agent.project_id = $1
 	if err != nil {
 		t.Fatalf("marshal forced tool result wakeup metadata: %v", err)
 	}
-	if err := dbsqlc.New(tx).MarkAgentWakeup(ctx, dbsqlc.MarkAgentWakeupParams{ProjectID: projectID, AgentID: agentID, Metadata: metadata}); err != nil {
+	if err := dbsqlc.New(tx).MarkAgentWakeup(
+		ctx, dbsqlc.MarkAgentWakeupParams{ProjectID: projectID, AgentID: agentID, Metadata: metadata},
+	); err != nil {
 		t.Fatalf("mark forced tool result wakeup: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

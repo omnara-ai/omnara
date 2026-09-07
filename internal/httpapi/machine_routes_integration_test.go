@@ -85,7 +85,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(adminKeyToken),
 	)
-	if err := bearertoken.Validate(testutil.RequireType[string](t, orgKeyMint["token"]), bearertoken.KindDaemon); err != nil {
+	if err := bearertoken.Validate(
+		testutil.RequireType[string](t, orgKeyMint["token"]), bearertoken.KindDaemon,
+	); err != nil {
 		t.Fatalf("org-key-minted daemon token is not canonical: %v", err)
 	}
 	tokenResponse := requestJSONWithHeaders(
@@ -473,10 +475,13 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add second org admin: %v", err)
 	}
-	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: orgAdmin.ID,
-		Name:   "machine-defaults-admin",
-	})
+	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: orgAdmin.ID,
+			Name:   "machine-defaults-admin",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create second org admin token: %v", err)
 	}
@@ -522,10 +527,13 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add org member: %v", err)
 	}
-	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: member.ID,
-		Name:   "machine-defaults-member",
-	})
+	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: member.ID,
+			Name:   "machine-defaults-member",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create org member token: %v", err)
 	}

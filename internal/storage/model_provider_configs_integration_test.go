@@ -107,23 +107,46 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		query string
 		value any
 	}{
-		{name: "id", query: `UPDATE model_provider_configs SET id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-provider-config-id")},
-		{name: "organization", query: `UPDATE model_provider_configs SET org_id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-provider-config-org")},
-		{name: "management kind", query: `UPDATE model_provider_configs SET management_kind = $1 WHERE org_id = $2 AND id = $3`, value: "cluster"},
-		{name: "API format", query: `UPDATE model_provider_configs SET api_format = $1 WHERE org_id = $2 AND id = $3`, value: "anthropic-messages"},
-		{name: "API variant", query: `UPDATE model_provider_configs SET api_variant = $1 WHERE org_id = $2 AND id = $3`, value: "openrouter"},
+		{
+			name:  "id",
+			query: `UPDATE model_provider_configs SET id = $1 WHERE org_id = $2 AND id = $3`,
+			value: testID("changed-provider-config-id"),
+		},
+		{
+			name:  "organization",
+			query: `UPDATE model_provider_configs SET org_id = $1 WHERE org_id = $2 AND id = $3`,
+			value: testID("changed-provider-config-org"),
+		},
+		{
+			name:  "management kind",
+			query: `UPDATE model_provider_configs SET management_kind = $1 WHERE org_id = $2 AND id = $3`,
+			value: "cluster",
+		},
+		{
+			name:  "API format",
+			query: `UPDATE model_provider_configs SET api_format = $1 WHERE org_id = $2 AND id = $3`,
+			value: "anthropic-messages",
+		},
+		{
+			name:  "API variant",
+			query: `UPDATE model_provider_configs SET api_variant = $1 WHERE org_id = $2 AND id = $3`,
+			value: "openrouter",
+		},
 	} {
 		if _, err := pool.Exec(ctx, test.query, test.value, config.OrgID, config.ID); !isPgCode(err, "25006") {
 			t.Fatalf("update model provider config %s error = %v, want SQLSTATE 25006", test.name, err)
 		}
 	}
-	normalizedBaseURLConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              testOrgID,
-		Name:               "openai-normalized-base-url",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		BaseURL:            "https://api.openai.com/v1/",
-		CredentialSecretID: credential.ID,
-	})
+	normalizedBaseURLConfig, err := store.Models().CreateModelProviderConfig(
+		ctx,
+		modelstore.CreateModelProviderConfigInput{
+			OrgID:              testOrgID,
+			Name:               "openai-normalized-base-url",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			BaseURL:            "https://api.openai.com/v1/",
+			CredentialSecretID: credential.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create provider config with trailing base_url slash: %v", err)
 	}
@@ -279,7 +302,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create anthropic provider config: %v", err)
 	}
-	if anthropicConfig.EndpointPath != "/messages" || anthropicConfig.AuthKind != modelstore.ModelProviderAuthKindAPIKeyHeader ||
+	if anthropicConfig.EndpointPath != "/messages" ||
+		anthropicConfig.AuthKind != modelstore.ModelProviderAuthKindAPIKeyHeader ||
 		!sameJSON(anthropicConfig.AuthOptions, json.RawMessage(`{"header_name":"x-api-key"}`)) {
 		t.Fatalf("unexpected anthropic provider defaults: %+v", anthropicConfig)
 	}
@@ -585,7 +609,9 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if renamedModel.Name != renamedName || renamedModel.CurrentRevisionID != updatedModel.CurrentRevisionID {
 		t.Fatalf("pure configured model rename should not create revision: before=%+v after=%+v", updatedModel, renamedModel)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, testOrgID, config.ID, updatedModel.Name); !storeerr.IsNotFound(err) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, testOrgID, config.ID, updatedModel.Name,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("old configured model name lookup error = %v, want not found", err)
 	}
 	if resolvedRenamed, err := store.Models().GetConfiguredModelByName(
@@ -668,7 +694,10 @@ model:
 		agentconfig.SourceFormatYAML,
 		[]byte(referencedSource),
 		agentconfig.CompileOptions{
-			ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+			ResolveModelSelection: func(
+				providerConfigName string,
+				configuredModelName string,
+			) (agentconfig.ResolvedModelSelection, error) {
 				return resolvedTestModelSelection(referencedModel), nil
 			},
 		},
@@ -1069,7 +1098,10 @@ model:
   name: gpt-lock
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})
@@ -1238,7 +1270,10 @@ tools:
       parameters: {}
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})
@@ -1727,7 +1762,10 @@ model:
   name: gpt-stale
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})

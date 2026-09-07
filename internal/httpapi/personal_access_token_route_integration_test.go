@@ -22,7 +22,9 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := integrationStoreForHandler(t, handler)
 
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "pat@example.com", DisplayName: "Pat"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "pat@example.com", DisplayName: "Pat"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -57,7 +59,9 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	if data := testutil.RequireType[[]any](t, list["data"]); len(data) != 1 || testutil.RequireType[map[string]any](t, data[0])["name"] != "bootstrap" {
+	if data := testutil.RequireType[[]any](
+		t, list["data"],
+	); len(data) != 1 || testutil.RequireType[map[string]any](t, data[0])["name"] != "bootstrap" {
 		t.Fatalf("unexpected initial token list: %+v", list)
 	}
 	if _, ok := list["next_cursor"]; !ok {
@@ -135,10 +139,13 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 
 	const extraTokens = 4
 	for i := range extraTokens {
-		if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-			UserID: user.ID,
-			Name:   "page-" + string(rune('a'+i)),
-		}); err != nil {
+		if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+			ctx,
+			identitystore.CreatePersonalAccessTokenInput{
+				UserID: user.ID,
+				Name:   "page-" + string(rune('a'+i)),
+			},
+		); err != nil {
 			t.Fatalf("seed paging token %d: %v", i, err)
 		}
 	}
@@ -218,7 +225,9 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		authHeaders(token),
 	)
 
-	other, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-pat@example.com", DisplayName: "Other"})
+	other, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-pat@example.com", DisplayName: "Other"},
+	)
 	if err != nil {
 		t.Fatalf("create other user: %v", err)
 	}
@@ -239,7 +248,9 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusOK,
 		authHeaders(otherPAT.Token),
 	)
-	if d := testutil.RequireType[[]any](t, otherList["data"]); len(d) != 1 || testutil.RequireType[map[string]any](t, d[0])["name"] != "other" {
+	if d := testutil.RequireType[[]any](
+		t, otherList["data"],
+	); len(d) != 1 || testutil.RequireType[map[string]any](t, d[0])["name"] != "other" {
 		t.Fatalf("token list leaked across users: %+v", otherList)
 	}
 

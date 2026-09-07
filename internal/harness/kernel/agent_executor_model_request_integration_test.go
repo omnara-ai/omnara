@@ -262,7 +262,10 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("execute reopened managed model work: %v", err)
 	}
 	if len(resolver.selections) != 1 || modelClient.respondedCount() != 1 {
-		t.Fatalf("reopened model resolver/responses = %d/%d, want 1/1", len(resolver.selections), modelClient.respondedCount())
+		t.Fatalf(
+			"reopened model resolver/responses = %d/%d, want 1/1", len(resolver.selections),
+			modelClient.respondedCount(),
+		)
 	}
 }
 
@@ -519,7 +522,13 @@ model:
 	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "request-options-model",
-		responses:         []model.Response{{ID: "resp-options", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn}},
+		responses: []model.Response{
+			{
+				ID:         "resp-options",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	resolver := &selectionRecordingResolver{
 		client: modelClient,
@@ -1022,8 +1031,10 @@ WHERE context.project_id = $1
 	}
 	var toolCalls, modelOutputs int
 	if err := fixture.Pool.QueryRow(ctx, `
-	SELECT (SELECT count(*) FROM tool_calls call JOIN agents agent ON agent.id = call.agent_id WHERE agent.project_id = $1 AND call.agent_id = $2),
-	       (SELECT count(*) FROM model_outputs output JOIN agents agent ON agent.id = output.agent_id WHERE agent.project_id = $1 AND output.agent_id = $2)
+	SELECT (SELECT count(*) FROM tool_calls call JOIN agents agent ON agent.id = call.agent_id WHERE agent.project_id =
+	    $1 AND call.agent_id = $2),
+	       (SELECT count(*) FROM model_outputs output JOIN agents agent ON agent.id = output.agent_id WHERE
+	           agent.project_id = $1 AND output.agent_id = $2)
 `, kernelTestProjectID, agentID).Scan(&toolCalls, &modelOutputs); err != nil {
 		t.Fatalf("count durable output from contradictory refusal: %v", err)
 	}

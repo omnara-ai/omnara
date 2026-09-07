@@ -58,7 +58,9 @@ func TestPublicSecretKindFiltersBeforePagination(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	availableData := testutil.RequireType[[]any](t, available["data"])
 	if len(availableData) != 1 ||
-		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, availableData[0])["secret"])["id"] != aws["id"] {
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, availableData[0])["secret"],
+		)["id"] != aws["id"] {
 		t.Fatalf("project kind filter = %+v, want AWS secret", available)
 	}
 	if available["next_cursor"] != nil {
@@ -70,7 +72,9 @@ func TestPublicSecretKindFiltersBeforePagination(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	genericData := testutil.RequireType[[]any](t, genericPage["data"])
 	if len(genericData) != 1 ||
-		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, genericData[0])["secret"])["id"] != firstGeneric["id"] {
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, genericData[0])["secret"],
+		)["id"] != firstGeneric["id"] {
 		t.Fatalf("first generic page = %+v, want first generic secret", genericPage)
 	}
 	nextCursor, ok := genericPage["next_cursor"].(string)
@@ -180,8 +184,11 @@ func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 		t.Fatalf("project owner filter mismatch: %+v", filtered)
 	}
 
-	direct := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/secrets",
-		"", "", http.StatusOK, authHeaders(project.AdminToken))["data"])
+	direct := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/secrets",
+			"", "", http.StatusOK, authHeaders(project.AdminToken))["data"],
+	)
 	if len(direct) != 1 {
 		t.Fatalf("direct inventory = %+v", direct)
 	}
@@ -342,7 +349,9 @@ func TestPublicSecretErrorsDoNotEchoPayloads(t *testing.T) {
 		`{"owner":{"kind":"org"},"name":"duplicate","material":{"kind":"generic","value":"original-private-value"}}`,
 		"", http.StatusCreated, authHeaders(project.AdminToken))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/secrets",
-		strings.NewReader(`{"owner":{"kind":"org"},"name":"duplicate","material":{"kind":"generic","value":"new-private-value"}}`))
+		strings.NewReader(
+			`{"owner":{"kind":"org"},"name":"duplicate","material":{"kind":"generic","value":"new-private-value"}}`,
+		))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+project.AdminToken)
 	rec := httptest.NewRecorder()
@@ -417,21 +426,33 @@ func createHTTPOrgMemberToken(
 	seed string,
 ) (identitystore.UserRecord, string) {
 	t.Helper()
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: seed + "@example.com", DisplayName: seed})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: seed + "@example.com", DisplayName: seed},
+	)
 	if err != nil {
 		t.Fatalf("create %s user: %v", seed, err)
 	}
-	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{OrgID: orgID, UserID: user.ID, Role: authz.OrgRoleMember}); err != nil {
+	if _, err := store.Identity().AddOrgMembership(
+		ctx, identitystore.AddOrgMembershipInput{OrgID: orgID, UserID: user.ID, Role: authz.OrgRoleMember},
+	); err != nil {
 		t.Fatalf("add %s org membership: %v", seed, err)
 	}
-	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: seed})
+	pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: seed},
+	)
 	if err != nil {
 		t.Fatalf("create %s pat: %v", seed, err)
 	}
 	return user, pat.Token
 }
 
-func requestRawWithHeaders(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, headers map[string]string) string {
+func requestRawWithHeaders(
+	t *testing.T,
+	handler http.Handler,
+	method, path, body string,
+	wantStatus int,
+	headers map[string]string,
+) string {
 	t.Helper()
 	req := newJSONRequest(method, path, body)
 	for key, value := range headers {

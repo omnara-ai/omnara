@@ -20,14 +20,17 @@ func TestReplaceCompactionSourceRejectsLargerRange(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "compaction_source_monotone_shrink")
 	inputs := make([]executionstore.AgentInputRecord, 0, 2)
 	for index, text := range []string{"first opening input", "second opening input"} {
-		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + text + `"}]`),
-			DeliveryMode:   executionstore.DeliveryModeSteering,
-			IdempotencyKey: fmt.Sprintf("compaction-source-monotone-%d", index),
-		})
+		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+			ctx,
+			executionstore.CreateAgentContentInputInput{
+				ProjectID:      testProjectID,
+				AgentID:        fixture.AgentID,
+				Actor:          mustOmnaraActorParams(t, fixture.UserID),
+				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"` + text + `"}]`),
+				DeliveryMode:   executionstore.DeliveryModeSteering,
+				IdempotencyKey: fmt.Sprintf("compaction-source-monotone-%d", index),
+			},
+		)
 		if err != nil {
 			t.Fatalf("create steering input %d: %v", index, err)
 		}

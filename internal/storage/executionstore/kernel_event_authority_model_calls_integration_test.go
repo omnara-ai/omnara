@@ -270,16 +270,26 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 		recordInput.ProviderResponse.Normalized.Content...,
 	)
 	conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
-	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+		ctx, conflictingInput,
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 	}
 	conflictingCostInput := recordInput
 	conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
-	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+		ctx, conflictingCostInput,
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 	}
 	var modelOutputID ID
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).Scan(&modelOutputID); err != nil {
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`,
+		testProjectID,
+		fixture.AgentID,
+		event.ID,
+	).Scan(&modelOutputID); err != nil {
 		t.Fatalf("load model output event pointer: %v", err)
 	}
 	if isNilID(modelOutputID) {
@@ -521,13 +531,17 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
 	); err != nil {
 		t.Fatalf("stage succeeded typed-event context: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreateModelOutputAuthorityTx(ctx, tx, executionstore.CreateModelOutputAuthorityInput{
-		ProjectID:               testProjectID,
-		AgentID:                 fixture.AgentID,
-		ModelCallContextID:      contextID,
-		ServedProviderModelSlug: providerModelSlug,
-		StopReason:              "end_turn",
-	}); err != nil {
+	if _, err := executionstore.IntegrationCreateModelOutputAuthorityTx(
+		ctx,
+		tx,
+		executionstore.CreateModelOutputAuthorityInput{
+			ProjectID:               testProjectID,
+			AgentID:                 fixture.AgentID,
+			ModelCallContextID:      contextID,
+			ServedProviderModelSlug: providerModelSlug,
+			StopReason:              "end_turn",
+		},
+	); err != nil {
 		t.Fatalf("create orphan model output fixture: %v", err)
 	}
 	if err := tx.Commit(ctx); !isPgCheckViolation(err) {

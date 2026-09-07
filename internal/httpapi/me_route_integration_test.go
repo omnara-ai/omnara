@@ -22,7 +22,9 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := storage.NewStore(pool)
 
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "me@example.com", DisplayName: "Me Myself"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "me@example.com", DisplayName: "Me Myself"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -77,7 +79,9 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 		authHeaders(token),
 	)
 
-	other, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other@example.com", DisplayName: "Other"})
+	other, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other@example.com", DisplayName: "Other"},
+	)
 	if err != nil {
 		t.Fatalf("create other user: %v", err)
 	}

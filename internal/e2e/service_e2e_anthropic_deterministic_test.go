@@ -66,7 +66,11 @@ func TestServiceE2EDeterministicAnthropicWorkerRunsModelTurn(t *testing.T) {
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, modelText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -79,7 +83,11 @@ func TestServiceE2EDeterministicAnthropicWorkerRunsModelTurn(t *testing.T) {
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -188,7 +196,11 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'anthropic history before compaction'`, projectUUID, agentUUID).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'anthropic history before compaction'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -208,11 +220,19 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var outputs, checkpoints int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'anthropic final answer after compact retry'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'anthropic final answer after compact retry'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&outputs); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
@@ -227,15 +247,27 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var failedContextWindow, checkpointProducer, retryContexts, locks, wakeups int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&failedContextWindow); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.id = checkpoint.producer_model_call_context_id WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary <> '' AND mcc.operation_kind = 'compaction' AND mcc.state = 'succeeded'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.id = checkpoint.producer_model_call_context_id WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary <> '' AND mcc.operation_kind = 'compaction' AND mcc.state = 'succeeded'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&checkpointProducer); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agent_events checkpoint_event ON checkpoint_event.agent_id = checkpoint.agent_id AND checkpoint_event.context_checkpoint_id = checkpoint.id JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.operation_kind = 'normal' AND mcc.input_event_sequence >= checkpoint_event.sequence WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND mcc.state = 'succeeded'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agent_events checkpoint_event ON checkpoint_event.agent_id = checkpoint.agent_id AND checkpoint_event.context_checkpoint_id = checkpoint.id JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.operation_kind = 'normal' AND mcc.input_event_sequence >= checkpoint_event.sequence WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND mcc.state = 'succeeded'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&retryContexts); err != nil {
 			return false, err.Error()
 		}
@@ -243,7 +275,11 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}

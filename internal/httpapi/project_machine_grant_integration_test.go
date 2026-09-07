@@ -24,7 +24,10 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "machine-grant-lifecycle")
 
 	// A project viewer can read the project but cannot manage access.
-	viewer, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-grant-viewer@example.com", DisplayName: "Grant Viewer"})
+	viewer, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-grant-viewer@example.com", DisplayName: "Grant Viewer"},
+	)
 	if err != nil {
 		t.Fatalf("create viewer: %v", err)
 	}
@@ -55,7 +58,10 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	viewerToken := viewerPAT.Token
 
 	// An org member without project access cannot even see the project.
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-grant-member@example.com", DisplayName: "Grant Member"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-grant-member@example.com", DisplayName: "Grant Member"},
+	)
 	if err != nil {
 		t.Fatalf("create member: %v", err)
 	}
@@ -75,7 +81,10 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	memberToken := memberPAT.Token
 
 	// An outsider belongs to no org.
-	outsider, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-grant-outsider@example.com", DisplayName: "Grant Outsider"})
+	outsider, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-grant-outsider@example.com", DisplayName: "Grant Outsider"},
+	)
 	if err != nil {
 		t.Fatalf("create outsider: %v", err)
 	}
@@ -319,7 +328,9 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	)
 	listedData := testutil.RequireType[[]any](t, listed["data"])
 	if len(listedData) != 1 ||
-		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, listedData[0])["grant"])["id"] != grantID {
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, listedData[0])["grant"],
+		)["id"] != grantID {
 		t.Fatalf("unexpected machine grant list: %+v", listed)
 	}
 

@@ -522,7 +522,10 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 	}
 	if iconRequest.filename != defaultIcon.Filename || iconRequest.contentType != defaultIcon.ContentType ||
 		!bytes.Equal(iconRequest.content, defaultIcon.Content) {
-		t.Fatalf("unexpected icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename, iconRequest.contentType, len(iconRequest.content))
+		t.Fatalf(
+			"unexpected icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename, iconRequest.contentType,
+			len(iconRequest.content),
+		)
 	}
 	settings := testutil.RequireType[map[string]any](t, manifest["settings"])
 	events := testutil.RequireType[map[string]any](t, settings["event_subscriptions"])
@@ -708,7 +711,10 @@ func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
 	)
 	if iconRequest.filename != "custom.png" || iconRequest.contentType != customIcon.ContentType ||
 		!bytes.Equal(iconRequest.content, customIcon.Content) {
-		t.Fatalf("unexpected custom icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename, iconRequest.contentType, len(iconRequest.content))
+		t.Fatalf(
+			"unexpected custom icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename,
+			iconRequest.contentType, len(iconRequest.content),
+		)
 	}
 }
 
@@ -1009,7 +1015,9 @@ func TestSlackSetupRejectsProfileWhoseEffectiveModelDoesNotSupportTools(t *testi
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "agent profile model does not support tools") {
+	if !strings.Contains(
+		testutil.RequireType[string](t, response["error"]), "agent profile model does not support tools",
+	) {
 		t.Fatalf("unexpected setup error: %v", response)
 	}
 	if manifestCalled {

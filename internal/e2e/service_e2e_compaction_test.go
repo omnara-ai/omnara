@@ -134,7 +134,11 @@ func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *t
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'history before compaction'`, projectUUID, agentUUID).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'history before compaction'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -149,15 +153,26 @@ func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *t
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var outputs, checkpoints, contexts int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'final answer after compact retry'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'final answer after compact retry'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&outputs); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`, projectUUID,
+			agentUUID,
+		).
 			Scan(&contexts); err != nil {
 			return false, err.Error()
 		}
@@ -171,11 +186,19 @@ func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *t
 	})
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var failedContextWindow, checkpointProducer, retryContexts, locks, wakeups int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'provider_unavailable'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind = 'compact' AND error_kind = 'context_window' AND error_code = 'provider_unavailable'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&failedContextWindow); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.id = checkpoint.producer_model_call_context_id WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary <> '' AND mcc.operation_kind = 'compaction' AND mcc.state = 'succeeded'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN model_call_contexts mcc ON mcc.agent_id = checkpoint.agent_id AND mcc.id = checkpoint.producer_model_call_context_id WHERE mcc.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summary <> '' AND mcc.operation_kind = 'compaction' AND mcc.state = 'succeeded'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&checkpointProducer); err != nil {
 			return false, err.Error()
 		}
@@ -195,7 +218,11 @@ func TestServiceE2EOpenRouterWrappedContextOverflowCompactsAndContinuesTurn(t *t
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -431,11 +458,19 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 		default:
 		}
 		var outputs, checkpoints int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = $3`, projectUUID, agentUUID, finalText).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = $3`,
+			projectUUID, agentUUID, finalText,
+		).
 			Scan(&outputs); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summarized_through_event_sequence = 2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2 AND checkpoint.summarized_through_event_sequence = 2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&checkpoints); err != nil {
 			return false, err.Error()
 		}

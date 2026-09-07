@@ -55,7 +55,11 @@ func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 			t.Fatalf("create maintenance cursor input %d: %v", index, err)
 		}
 	}
-	if tag, err := pool.Exec(ctx, `DELETE FROM agent_wakeups wake USING agents agent WHERE agent.id = wake.agent_id AND agent.project_id = $1`, testProjectID); err != nil {
+	if tag, err := pool.Exec(
+		ctx,
+		`DELETE FROM agent_wakeups wake USING agents agent WHERE agent.id = wake.agent_id AND agent.project_id = $1`,
+		testProjectID,
+	); err != nil {
 		t.Fatalf("delete initial maintenance cursor wakeups: %v", err)
 	} else if tag.RowsAffected() != agentCount {
 		t.Fatalf("deleted initial wakeups = %d, want %d", tag.RowsAffected(), agentCount)
@@ -369,12 +373,15 @@ WHERE agent.id = wake.agent_id AND agent.project_id = $1 AND wake.agent_id = $2`
 		!claimedOpeningInputIDsEqual(recovered, input.ID) {
 		t.Fatalf("failed abandoned context recovery claim = %+v found=%v, want same executable turn/input", recovered, found)
 	}
-	retryClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     testProjectID,
-		AgentID:                       fixture.AgentID,
-		PredecessorModelCallContextID: modelClaim.Context.ID,
-		RuntimeLockID:                 recovered.RuntimeLock.ID,
-	})
+	retryClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
+		ctx,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     testProjectID,
+			AgentID:                       fixture.AgentID,
+			PredecessorModelCallContextID: modelClaim.Context.ID,
+			RuntimeLockID:                 recovered.RuntimeLock.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("claim second durable model context: %v", err)
 	}
@@ -479,12 +486,15 @@ func TestClaimNextAgentWorkRecoversAmbiguousAbandonedContext(t *testing.T) {
 		!claimedOpeningInputIDsEqual(recovered, input.ID) {
 		t.Fatalf("ambiguous recovery claim = %+v found=%v, want same executable turn/input", recovered, found)
 	}
-	retryClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     testProjectID,
-		AgentID:                       fixture.AgentID,
-		PredecessorModelCallContextID: modelClaim.Context.ID,
-		RuntimeLockID:                 recovered.RuntimeLock.ID,
-	})
+	retryClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
+		ctx,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     testProjectID,
+			AgentID:                       fixture.AgentID,
+			PredecessorModelCallContextID: modelClaim.Context.ID,
+			RuntimeLockID:                 recovered.RuntimeLock.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("claim retry after ambiguous interruption: %v", err)
 	}
@@ -637,16 +647,19 @@ func TestReapedModelCallWorkerCannotPublishAfterReplacementClaim(t *testing.T) {
 		}
 		assertModelCallContextState(t, ctx, fixture, oldClaim.Context.ID, executionstore.ModelCallContextFailed)
 		assertReplacementModelCallContextUnchanged(t, ctx, fixture, replacementClaim)
-		checkpoint, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, executionstore.PublishContextCheckpointInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
-			RuntimeLockID:      replacementWork.RuntimeLock.ID,
-			ModelCallContextID: replacementClaim.Context.ID,
-			Summary:            "replacement checkpoint",
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         modelprotocol.APIVariantDefault,
-			ProviderResponseID: "resp_replacement_checkpoint",
-		})
+		checkpoint, err := fixture.Store.Execution().PublishContextCheckpoint(
+			ctx,
+			executionstore.PublishContextCheckpointInput{
+				ProjectID:          testProjectID,
+				AgentID:            fixture.AgentID,
+				RuntimeLockID:      replacementWork.RuntimeLock.ID,
+				ModelCallContextID: replacementClaim.Context.ID,
+				Summary:            "replacement checkpoint",
+				APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+				APIVariant:         modelprotocol.APIVariantDefault,
+				ProviderResponseID: "resp_replacement_checkpoint",
+			},
+		)
 		if err != nil {
 			t.Fatalf("replacement checkpoint publication: %v", err)
 		}
@@ -929,7 +942,8 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 	if err != nil {
 		t.Fatalf("load reaped question interaction: %v", err)
 	}
-	if !found || storedInteraction.State != executionstore.AgentInteractionStateOpen || !storedInteraction.ResolvedAt.IsZero() {
+	if !found || storedInteraction.State != executionstore.AgentInteractionStateOpen ||
+		!storedInteraction.ResolvedAt.IsZero() {
 		t.Fatalf(
 			"reaped question interaction = %+v found=%v, want unresolved open interaction",
 			storedInteraction,

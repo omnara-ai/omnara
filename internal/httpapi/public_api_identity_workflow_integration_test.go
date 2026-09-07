@@ -184,7 +184,9 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "owner@example.com", DisplayName: "Owner"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "owner@example.com", DisplayName: "Owner"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -276,7 +278,9 @@ func TestPublicInvitationFlow(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "invite-flow")
-	invitee, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "invitee@example.com", DisplayName: "Invitee"})
+	invitee, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "invitee@example.com", DisplayName: "Invitee"},
+	)
 	if err != nil {
 		t.Fatalf("create invitee: %v", err)
 	}
@@ -401,7 +405,10 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "member-mgmt")
 
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "member-mgmt-member@example.com", DisplayName: "Member"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "member-mgmt-member@example.com", DisplayName: "Member"},
+	)
 	if err != nil {
 		t.Fatalf("create member user: %v", err)
 	}
@@ -410,9 +417,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add org membership: %v", err)
 	}
-	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: member.ID, Name: "member",
-	})
+	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: member.ID, Name: "member",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create member token: %v", err)
 	}
@@ -499,9 +509,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add project admin project membership: %v", err)
 	}
-	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: projectAdmin.ID, Name: "project-admin",
-	})
+	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: projectAdmin.ID, Name: "project-admin",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create project admin token: %v", err)
 	}
@@ -522,9 +535,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add developer project membership: %v", err)
 	}
-	developerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: developer.ID, Name: "developer",
-	})
+	developerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: developer.ID, Name: "developer",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create developer token: %v", err)
 	}
@@ -571,11 +587,15 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "developer-project")
 
-	creator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "creator@example.com", DisplayName: "Creator"})
+	creator, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "creator@example.com", DisplayName: "Creator"},
+	)
 	if err != nil {
 		t.Fatalf("create creator: %v", err)
 	}
-	other, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-dev@example.com", DisplayName: "Other Dev"})
+	other, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-dev@example.com", DisplayName: "Other Dev"},
+	)
 	if err != nil {
 		t.Fatalf("create other developer: %v", err)
 	}
@@ -670,7 +690,9 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "operator-project")
 
-	operator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "operator@example.com", DisplayName: "Operator"})
+	operator, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "operator@example.com", DisplayName: "Operator"},
+	)
 	if err != nil {
 		t.Fatalf("create operator: %v", err)
 	}
@@ -765,7 +787,10 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "visibility-lists")
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "visibility-member@example.com", DisplayName: "Visibility Member"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "visibility-member@example.com", DisplayName: "Visibility Member"},
+	)
 	if err != nil {
 		t.Fatalf("create member: %v", err)
 	}
@@ -818,7 +843,13 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	secondProjectID := testutil.RequireType[string](t, createdProject["id"])
-	adminProjects := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(project.AdminToken))["data"])
+	adminProjects := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["data"],
+	)
 	if len(adminProjects) != 2 {
 		t.Fatalf("admin should see both projects, got %+v", adminProjects)
 	}
@@ -830,7 +861,13 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 			t.Fatalf("unexpected admin project access: %+v", access)
 		}
 	}
-	memberProjects := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(memberToken))["data"])
+	memberProjects := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
 	if len(memberProjects) != 0 {
 		t.Fatalf(
 			"member without project grants should see no projects, got %+v",
@@ -856,7 +893,13 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add viewer project membership: %v", err)
 	}
-	memberProjects = testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(memberToken))["data"])
+	memberProjects = testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
 	if len(memberProjects) != 1 || testutil.RequireType[map[string]any](t, memberProjects[0])["id"] != project.ProjectID {
 		t.Fatalf("viewer should see only granted project, got %+v", memberProjects)
 	}
@@ -888,8 +931,20 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	grantedMachineID := testutil.RequireType[string](t, grantedMachine["id"])
-	grant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/machine-grants", `{"machine_id":"`+grantedMachineID+`"}`, "idem-visibility-machine-grant", http.StatusCreated, authHeaders(project.AdminToken))["grant"])
-	memberMachines := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK, authHeaders(memberToken))["data"])
+	grant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/machine-grants", `{"machine_id":"`+grantedMachineID+`"}`,
+			"idem-visibility-machine-grant", http.StatusCreated, authHeaders(project.AdminToken),
+		)["grant"],
+	)
+	memberMachines := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
 	if len(memberMachines) != 1 || testutil.RequireType[map[string]any](t, memberMachines[0])["id"] != grantedMachineID {
 		t.Fatalf("viewer should see only project-granted machine, got %+v", memberMachines)
 	}
@@ -945,7 +1000,9 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 			projectMachines,
 		)
 	}
-	projectMachineAccess := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, projectMachines[0])["access"])
+	projectMachineAccess := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, projectMachines[0])["access"],
+	)
 	projectSources := testutil.RequireType[[]any](t, projectMachineAccess["sources"])
 	if len(projectSources) != 1 {
 		t.Fatalf("unexpected project machine source: %+v", projectSources)
@@ -995,7 +1052,13 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		authHeaders(memberToken),
 	)
 
-	adminMachines := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK, authHeaders(project.AdminToken))["data"])
+	adminMachines := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["data"],
+	)
 	if len(adminMachines) != 2 {
 		t.Fatalf("admin should see every machine, got %+v", adminMachines)
 	}
@@ -1008,7 +1071,9 @@ func TestBrowserSessionRequiresCSRFForMutations(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "browser@example.com", DisplayName: "Browser"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "browser@example.com", DisplayName: "Browser"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -1475,7 +1540,9 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 	now := time.Now().UTC()
 	runKey := identitystore.HashBearerToken(t.Name() + now.Format(time.RFC3339Nano))[:12]
 	email := "known-" + runKey + "@example.com"
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: "Known"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: "Known"},
+	)
 	if err != nil {
 		t.Fatalf("create verified user: %v", err)
 	}
@@ -2089,7 +2156,10 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	)
 	if metadataRec.Code != http.StatusOK ||
 		!strings.Contains(metadataRec.Header().Get("Cache-Control"), "public") {
-		t.Fatalf("authorization server metadata status=%d headers=%v body=%s", metadataRec.Code, metadataRec.Header(), metadataRec.Body.String())
+		t.Fatalf(
+			"authorization server metadata status=%d headers=%v body=%s", metadataRec.Code, metadataRec.Header(),
+			metadataRec.Body.String(),
+		)
 	}
 	var metadata struct {
 		Issuer                      string   `json:"issuer"`
@@ -2109,7 +2179,9 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		t.Fatalf("authorization server metadata = %+v", metadata)
 	}
 	store := integrationStoreForHandler(t, handler)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-http@example.com", DisplayName: "Device HTTP"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-http@example.com", DisplayName: "Device HTTP"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -2472,7 +2544,9 @@ func TestDeviceAuthApprovalRateLimitsUserCodeGuesses(t *testing.T) {
 	runKey := identitystore.HashBearerToken(t.Name() + now.Format(time.RFC3339Nano))[:12]
 	guessCode := strings.ToUpper(runKey[:5] + "-" + runKey[5:10])
 	clientBucket := "device-rate-client-" + runKey
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-rate@example.com", DisplayName: "Device Rate"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-rate@example.com", DisplayName: "Device Rate"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -2808,7 +2882,10 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 		t.Fatalf("oauth principal = %+v", principal)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = $2`, connector.ID, strconv.FormatInt(12345, 10)).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = $2`, connector.ID,
+		strconv.FormatInt(12345, 10),
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -3124,7 +3201,10 @@ func TestSSOOIDCConnectorValidatesIDTokenAndNonce(t *testing.T) {
 		t.Fatalf("oidc principal = %+v", principal)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count oidc linked identity: %v", err)
 	}
@@ -3279,7 +3359,10 @@ func TestSSOOIDCConnectorUsesVerifiedIDTokenEmailWithoutUserInfo(t *testing.T) {
 		t.Fatal("userinfo endpoint was called despite verified ID-token email")
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -3629,7 +3712,10 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 		t.Fatalf("verified email count = %d, want 0", verifiedEmailCount)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -3724,7 +3810,10 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "org-machine-auth")
 
-	viewer, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-viewer@example.com", DisplayName: "Machine Viewer"})
+	viewer, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-viewer@example.com", DisplayName: "Machine Viewer"},
+	)
 	if err != nil {
 		t.Fatalf("create viewer user: %v", err)
 	}
@@ -3746,7 +3835,10 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		t.Fatalf("create viewer token: %v", err)
 	}
 	viewerToken := viewerPAT.Token
-	creator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-creator@example.com", DisplayName: "Machine Creator"})
+	creator, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-creator@example.com", DisplayName: "Machine Creator"},
+	)
 	if err != nil {
 		t.Fatalf("create creator user: %v", err)
 	}
@@ -3905,7 +3997,9 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 	)
 	otherDaemonToken := testutil.RequireType[string](t, otherToken["token"])
 	var installationUUID storage.ID
-	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(&installationUUID); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(
+		&installationUUID,
+	); err != nil {
 		t.Fatalf("get installation: %v", err)
 	}
 	installationID := testPublicID(t, publicid.KindInstallation, installationUUID)

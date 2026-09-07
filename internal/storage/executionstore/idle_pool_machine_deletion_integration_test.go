@@ -347,9 +347,21 @@ func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 		{name: "pool", policy: idlePoolMachinePolicy{PoolMinutes: &five}, want: true},
 		{name: "grant_override", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &twenty}, want: false},
 		{name: "grant_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero}, want: false},
-		{name: "binding_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &five, BindingMinutes: &zero}, want: false},
-		{name: "binding_override", policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five}, want: true},
-		{name: "binding_reenables", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero, BindingMinutes: &five}, want: true},
+		{
+			name:   "binding_disabled",
+			policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &five, BindingMinutes: &zero},
+			want:   false,
+		},
+		{
+			name:   "binding_override",
+			policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five},
+			want:   true,
+		},
+		{
+			name:   "binding_reenables",
+			policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero, BindingMinutes: &five},
+			want:   true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -518,7 +530,10 @@ SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 				t.Fatalf("process activity after %s action = %s, want after %s", test.state, after, before)
 			}
 			if !updatedAtAfter.Equal(updatedAtBefore) {
-				t.Fatalf("process updated_at after %s action = %s, want unchanged at %s", test.state, updatedAtAfter, updatedAtBefore)
+				t.Fatalf(
+					"process updated_at after %s action = %s, want unchanged at %s", test.state, updatedAtAfter,
+					updatedAtBefore,
+				)
 			}
 			if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes

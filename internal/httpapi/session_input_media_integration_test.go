@@ -166,7 +166,9 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 			input["id"],
 		)
 	}
-	replayedBlock := testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, replayedInput["content_blocks"])[1])
+	replayedBlock := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[[]any](t, replayedInput["content_blocks"])[1],
+	)
 	if replayedBlock["artifact_id"] != artifactID {
 		t.Fatalf(
 			"replay minted a new artifact: %v vs %v",
@@ -217,7 +219,9 @@ func TestSessionInputInlineMediaMatchesJSONUTF8Decoding(t *testing.T) {
 	)
 
 	for _, response := range []map[string]any{withoutMedia, withMedia} {
-		blocks := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, response["agent_input"])["content_blocks"])
+		blocks := testutil.RequireType[[]any](
+			t, testutil.RequireType[map[string]any](t, response["agent_input"])["content_blocks"],
+		)
 		if testutil.RequireType[map[string]any](t, blocks[0])["text"] != "before\uFFFDafter" {
 			t.Fatalf("decoded content blocks = %+v, want replacement character", blocks)
 		}

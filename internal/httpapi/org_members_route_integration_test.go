@@ -24,7 +24,9 @@ func TestListOrgMembers(t *testing.T) {
 
 	project := bootstrapPublicHTTPProject(t, handler, "members")
 
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "members-second@example.com", DisplayName: "Second"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "members-second@example.com", DisplayName: "Second"},
+	)
 	if err != nil {
 		t.Fatalf("create member: %v", err)
 	}
@@ -218,7 +220,10 @@ func assertMembersNewestFirst(t *testing.T, data []any) {
 	t.Helper()
 	var prev time.Time
 	for i, raw := range data {
-		ts, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]))
+		ts, err := time.Parse(
+			time.RFC3339Nano,
+			testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]),
+		)
 		if err != nil {
 			t.Fatalf("parse created_at for member %d: %v", i, err)
 		}

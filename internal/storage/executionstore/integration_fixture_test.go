@@ -94,7 +94,10 @@ func openIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 }
 
-func machineProvisioningFromRecordForTest(t *testing.T, machine executionstore.MachineRecord) executionstore.MachineProvisioningConfig {
+func machineProvisioningFromRecordForTest(
+	t *testing.T,
+	machine executionstore.MachineRecord,
+) executionstore.MachineProvisioningConfig {
 	t.Helper()
 	machineProvisioning, err := executionstore.MachineProvisioningFromRecord(machine)
 	if err != nil {

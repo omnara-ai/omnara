@@ -175,7 +175,9 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	grantData, ok := grants["data"].([]any)
 	if !ok || len(grantData) != 1 ||
-		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, grantData[0])["grant"])["id"] != grantID {
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, grantData[0])["grant"],
+		)["id"] != grantID {
 		t.Fatalf("skill grants = %+v", grants)
 	}
 	available := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/skills",

@@ -1660,11 +1660,14 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 		t.Fatalf("get revoked-grant tool call: %v", err)
 	}
 	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, "project_machine_grant_revoked")
-	newGrant, _, err := fixture.Store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
-		OrgID:     testOrgID,
-		ProjectID: testProjectID,
-		MachineID: fixture.MachineID,
-	})
+	newGrant, _, err := fixture.Store.Execution().CreateProjectMachineGrant(
+		ctx,
+		executionstore.CreateProjectMachineGrantInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			MachineID: fixture.MachineID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create replacement grant: %v", err)
 	}

@@ -241,7 +241,11 @@ func TestAgentExecutorWebSearchRemovesRunningToolCallFromToolWork(t *testing.T) 
 					{ID: "call_gated_search", Name: "web_search", Input: json.RawMessage(`{"query":"gated"}`)},
 				}),
 			},
-			{ID: "resp_gated_final", Content: []model.ResponsePart{{Type: "text", Text: "gated search finished"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp_gated_final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "gated search finished"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	executor := AgentExecutor{

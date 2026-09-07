@@ -245,7 +245,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		if !rolledBackResult.Created {
 			t.Fatalf("pool machine mutation result = %+v, want created before rollback", rolledBackResult)
 		}
-		if _, err := store.Execution().GetMachine(ctx, testOrgID, rolledBackResult.Machine.Machine.ID); !storeerr.IsNotFound(err) {
+		if _, err := store.Execution().GetMachine(
+			ctx, testOrgID, rolledBackResult.Machine.Machine.ID,
+		); !storeerr.IsNotFound(err) {
 			t.Fatalf("load rolled-back pool machine error = %v, want not found", err)
 		}
 		rolledBackToolCall, err := store.Execution().GetToolCall(
@@ -307,7 +309,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	staleInput := executionstore.CreatePoolMachineInput{
 		MachinePoolID: capturedPool.ID,
 	}
-	if _, err := createPoolMachineForTest(ctx, store, staleTransaction, staleInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
+	if _, err := createPoolMachineForTest(
+		ctx, store, staleTransaction, staleInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
 		!strings.Contains(err.Error(), "machine pool limit reached") {
 		t.Fatalf("stale create after lower max_machines error = %v, want machine pool limit conflict", err)
 	}
@@ -319,7 +323,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		removedConfig.ID,
 		"pool-machine-removed-config-change",
 	)
-	if _, err := createPoolMachineForTest(ctx, store, staleTransaction, staleInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
+	if _, err := createPoolMachineForTest(
+		ctx, store, staleTransaction, staleInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
 		!strings.Contains(err.Error(), "machine pool is no longer configured") {
 		t.Fatalf("stale create after pool source removal error = %v, want source removal conflict", err)
 	}
@@ -350,21 +356,24 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pool machine update secret: %v", err)
 	}
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Resolved Pool",
-			Provider:         "test.provider",
-			DefaultCwd:       "/pool",
-			MaxTotalMachines: 3,
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             4,
-			DefaultMachineMemoryMB:        8192,
-			DefaultMachineEnv:             json.RawMessage(`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`),
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"pool","pool_only":"pool"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Resolved Pool",
+				Provider:         "test.provider",
+				DefaultCwd:       "/pool",
+				MaxTotalMachines: 3,
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             4,
+				DefaultMachineMemoryMB:        8192,
+				DefaultMachineEnv:             json.RawMessage(`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`),
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"pool","pool_only":"pool"}`),
+			},
+		)),
+	)
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -797,20 +806,23 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 		"Agent Pool Machine Capacity")
 
 	maxCPU := 2
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Capacity Pool",
-			Provider:         "test.provider",
-			MaxTotalMachines: 5,
-			MaxTotalCPU:      intPtrForMachinePoolTest(maxCPU),
-			MaxMachineCPU:    intPtrForMachinePoolTest(maxCPU),
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             2,
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"capacity"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Capacity Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 5,
+				MaxTotalCPU:      intPtrForMachinePoolTest(maxCPU),
+				MaxMachineCPU:    intPtrForMachinePoolTest(maxCPU),
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             2,
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"capacity"}`),
+			},
+		)),
+	)
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -901,19 +913,22 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 		"zero-cap-pool-lifecycle@example.com",
 		"Zero Cap Pool Lifecycle")
 
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Zero Cap Lifecycle Pool",
-			Provider:         "test.provider",
-			MaxTotalMachines: 0,
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             1,
-			DefaultMachineMemoryMB:        1024,
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-cap"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Zero Cap Lifecycle Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 0,
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             1,
+				DefaultMachineMemoryMB:        1024,
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-cap"}`),
+			},
+		)),
+	)
 	if err != nil {
 		t.Fatalf("create zero-cap machine pool: %v", err)
 	}
@@ -1195,8 +1210,14 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	}
 	var generatedGrantIdempotencyKey string
 	var generatedGrantMetadata json.RawMessage
-	generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID)
-	if err := pool.QueryRow(ctx, `SELECT coalesce(idempotency_key, ''), metadata FROM project_machine_grants WHERE project_id = $1 AND id = $2`, testProjectID, generatedGrant.ID).
+	generatedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID,
+	)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT coalesce(idempotency_key, ''), metadata FROM project_machine_grants WHERE project_id = $1 AND id = $2`,
+		testProjectID, generatedGrant.ID,
+	).
 		Scan(&generatedGrantIdempotencyKey, &generatedGrantMetadata); err != nil {
 		t.Fatalf("load generated grant fields: %v", err)
 	}
@@ -1311,7 +1332,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 			toolCalls["delete"],
 		)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list cleanup: %v", err)
 	}
@@ -1328,7 +1351,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	replacementInput := executionstore.CreatePoolMachineInput{
 		MachinePoolID: machinePool.ID,
 	}
-	if _, err := createPoolMachineForTest(ctx, store, replacementTransaction, replacementInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := createPoolMachineForTest(
+		ctx, store, replacementTransaction, replacementInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("replacement pool machine while deleting error = %v, want state transition conflict", err)
 	}
 
@@ -1359,7 +1384,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	if deleteFailed.LifecycleState != "delete_failed" {
 		t.Fatalf("delete failed machine state = %s, want delete_failed", deleteFailed.LifecycleState)
 	}
-	if _, err := createPoolMachineForTest(ctx, store, replacementTransaction, replacementInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := createPoolMachineForTest(
+		ctx, store, replacementTransaction, replacementInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("replacement pool machine while delete_failed error = %v, want state transition conflict", err)
 	}
 }
@@ -1493,7 +1520,9 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 	if current.LifecycleState != "deleting" || current.ProviderResourceID != "" {
 		t.Fatalf("machine after rejected provisioning completion = %+v", current)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list cleanup after provisioning delete request: %v", err)
 	}
@@ -1664,7 +1693,9 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete generated machine provisioning: %v", err)
 	}
-	generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID)
+	generatedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID,
+	)
 	explicitAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: poolConfig.ID},
@@ -1768,7 +1799,9 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("delete generated pool machine: %v", err)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list generated pool machine cleanup: %v", err)
 	}
@@ -1972,14 +2005,20 @@ func activateAgentConfigForPoolMachineTest(
 		t.Fatalf("begin activate pool machine config: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := executionstore.IntegrationActivateAgentConfigTx(ctx, notifications.NewTxNotifications(), tx, store.q.WithTx(tx), executionstore.ActivateAgentConfigInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		AgentConfigID:  configID,
-		ActorType:      identitystore.PrincipalTypeSystem,
-		Reason:         "test",
-		IdempotencyKey: idempotencyKey,
-	}); err != nil {
+	if _, err := executionstore.IntegrationActivateAgentConfigTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		store.q.WithTx(tx),
+		executionstore.ActivateAgentConfigInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			AgentConfigID:  configID,
+			ActorType:      identitystore.PrincipalTypeSystem,
+			Reason:         "test",
+			IdempotencyKey: idempotencyKey,
+		},
+	); err != nil {
 		t.Fatalf("activate pool machine config: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

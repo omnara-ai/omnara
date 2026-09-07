@@ -176,7 +176,8 @@ func TestCronTriggerRoutes(t *testing.T) {
 	agentTriggerID := testutil.RequireType[string](t, agentTrigger["id"])
 	agentReplay := requestJSONWithHeaders(t, handler, http.MethodPost, triggersPath,
 		agentCreateBody, "idem-cron-trigger-agent", http.StatusOK, authHeaders(project.AdminToken))
-	if agentReplay["id"] != agentTriggerID || testutil.RequireType[map[string]any](t, agentReplay["target"])["delivery_mode"] != "steering" {
+	if agentReplay["id"] != agentTriggerID ||
+		testutil.RequireType[map[string]any](t, agentReplay["target"])["delivery_mode"] != "steering" {
 		t.Fatalf("idempotent replay must preserve target delivery mode: %+v", agentReplay)
 	}
 	requestJSONWithHeaders(t, handler, http.MethodPost, triggersPath,
@@ -342,7 +343,9 @@ func TestCronTriggerRoutes(t *testing.T) {
 	if updated["enabled"] != false || updated["next_fire_at"] != nil {
 		t.Fatalf("disabling should clear next_fire_at: %+v", updated)
 	}
-	if updatedTarget := testutil.RequireType[map[string]any](t, updated["target"]); updatedTarget["agent_profile_id"] != profileID {
+	if updatedTarget := testutil.RequireType[map[string]any](
+		t, updated["target"],
+	); updatedTarget["agent_profile_id"] != profileID {
 		t.Fatalf("update must not change the target: %+v", updatedTarget)
 	}
 

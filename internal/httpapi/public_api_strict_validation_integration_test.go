@@ -29,7 +29,9 @@ func TestStrictBodyValidationThroughRoutes(t *testing.T) {
 
 	t.Run("path-owned field rejected as unknown", func(t *testing.T) {
 		t.Parallel()
-		resp := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath, `{"org_id":"x"}`, "", http.StatusBadRequest, auth)
+		resp := requestJSONWithHeaders(
+			t, handler, http.MethodPost, secretsPath, `{"org_id":"x"}`, "", http.StatusBadRequest, auth,
+		)
 		if resp["error"] == "" {
 			t.Fatalf("path-owned body field should be rejected as unknown, got response=%v", resp)
 		}

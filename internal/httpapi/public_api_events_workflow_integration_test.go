@@ -526,15 +526,21 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	store := newIntegrationStore(pool)
 	handler := newIntegrationHTTPHandler(mustNewServer(t, store).Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "input-flow")
-	author, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-author@example.com", DisplayName: "Author"})
+	author, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-author@example.com", DisplayName: "Author"},
+	)
 	if err != nil {
 		t.Fatalf("create author: %v", err)
 	}
-	other, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-other@example.com", DisplayName: "Other"})
+	other, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-other@example.com", DisplayName: "Other"},
+	)
 	if err != nil {
 		t.Fatalf("create other user: %v", err)
 	}
-	viewer, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-viewer@example.com", DisplayName: "Viewer"})
+	viewer, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "input-viewer@example.com", DisplayName: "Viewer"},
+	)
 	if err != nil {
 		t.Fatalf("create viewer: %v", err)
 	}
@@ -771,7 +777,9 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	if testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, reordered["data"])[1])["id"] != secondInputID {
+	if testutil.RequireType[map[string]any](
+		t, testutil.RequireType[[]any](t, reordered["data"])[1],
+	)["id"] != secondInputID {
 		t.Fatalf("expected moved input at front, got %+v", reordered)
 	}
 	requestJSONWithHeaders(
@@ -1110,8 +1118,16 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 	)
 	turnData := testutil.RequireType[[]any](t, turns["data"])
 	if len(turnData) != 2 ||
-		!publicEventTextEquals(testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[0])["opening_events"])[0]), "second queued") ||
-		testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[1])["opening_events"])[0])["input_kind"] != "config_change" {
+		!publicEventTextEquals(
+			testutil.RequireType[map[string]any](
+				t,
+				testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[0])["opening_events"])[0],
+			),
+			"second queued",
+		) ||
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[1])["opening_events"])[0],
+		)["input_kind"] != "config_change" {
 		t.Fatalf("turn opening event should be reordered input, got %+v", turnData)
 	}
 	if turns["next_before_turn_sequence"] != nil {
@@ -1150,7 +1166,8 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if len(testutil.RequireType[[]any](t, secondTurnPage["data"])) != 1 || secondTurnPage["next_before_turn_sequence"] != nil {
+	if len(testutil.RequireType[[]any](t, secondTurnPage["data"])) != 1 ||
+		secondTurnPage["next_before_turn_sequence"] != nil {
 		t.Fatalf("second turn page should drain the sequence, got %+v", secondTurnPage)
 	}
 
@@ -1398,10 +1415,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 	)
 	secondEventData := testutil.RequireType[[]any](t, secondEventPage["data"])
 	if len(secondEventData) != 2 || secondEventPage["has_more"] != false ||
-		jsonInt64(
-			t,
-			secondEventPage["next_after_sequence"],
-		) != eventSequence(secondEventData[1]) {
+		jsonInt64(t, secondEventPage["next_after_sequence"]) != eventSequence(secondEventData[1]) {
 		t.Fatalf("second event page should drain forward continuation, got %+v", secondEventPage)
 	}
 	latestEventPage := requestJSONWithHeaders(
@@ -1445,11 +1459,23 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		!publicEventTextEquals(testutil.RequireType[map[string]any](t, eventData[3]), "visible tool result") {
 		t.Fatalf("events should expose canonical content blocks: %+v", eventData)
 	}
-	inputMetadata := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[1])["content_blocks"])[0])["metadata"])
+	inputMetadata := testutil.RequireType[map[string]any](
+		t,
+		testutil.RequireType[map[string]any](
+			t,
+			testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[1])["content_blocks"])[0],
+		)["metadata"],
+	)
 	if inputMetadata["omnara_hidden"] != "true" || inputMetadata["source"] != "test" {
 		t.Fatalf("input content block metadata = %+v", inputMetadata)
 	}
-	toolResultMetadata := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[3])["content_blocks"])[0])["metadata"])
+	toolResultMetadata := testutil.RequireType[map[string]any](
+		t,
+		testutil.RequireType[map[string]any](
+			t,
+			testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[3])["content_blocks"])[0],
+		)["metadata"],
+	)
 	if toolResultMetadata["tool_result"] != "true" {
 		t.Fatalf("tool result content block metadata = %+v", toolResultMetadata)
 	}
@@ -1546,7 +1572,9 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	otherAgentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, otherLaunch["agent"])["id"])
+	otherAgentPublicID := testutil.RequireType[string](
+		t, testutil.RequireType[map[string]any](t, otherLaunch["agent"])["id"],
+	)
 	otherTurns := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1848,7 +1876,10 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 	launch := launchPublicHTTPAgent(t, handler, project, "sse-live-wakeup", project.AdminToken, http.StatusCreated)
 	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
-	initial := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/agents/"+agentPublicID+"/events", "", "", http.StatusOK, authHeaders(project.AdminToken))
+	initial := requestJSONWithHeaders(
+		t, handler, http.MethodGet, project.ProjectPath+"/agents/"+agentPublicID+"/events", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
 	initialData := testutil.RequireType[[]any](t, initial["data"])
 	if len(initialData) != 1 {
 		t.Fatalf("expected one initial config change event, got %d", len(initialData))
@@ -1857,7 +1888,9 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+project.ProjectPath+"/agents/"+agentPublicID+"/events/stream", nil)
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, httpServer.URL+project.ProjectPath+"/agents/"+agentPublicID+"/events/stream", nil,
+	)
 	if err != nil {
 		t.Fatalf("build sse request: %v", err)
 	}
@@ -1880,7 +1913,11 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 	}
 
 	postStart := time.Now()
-	createInputResp := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/agents/"+agentPublicID+"/inputs", `{"content_blocks":[{"type":"text","text":"live wakeup payload"}]}`, "idem-sse-live", http.StatusCreated, authHeaders(project.AdminToken))
+	createInputResp := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/agents/"+agentPublicID+"/inputs",
+		`{"content_blocks":[{"type":"text","text":"live wakeup payload"}]}`, "idem-sse-live", http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
 	_ = createInputResp
 
 	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())

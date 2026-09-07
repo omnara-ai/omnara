@@ -293,7 +293,9 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "single active worker", now.Add(time.Second))
 
 	firstExecutor := newCaptureTurnExecutor(true)
-	firstWorker := NewWorker(store.Execution(), firstExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1})
+	firstWorker := NewWorker(
+		store.Execution(), firstExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1},
+	)
 	firstCtx, cancelFirst := context.WithCancel(context.Background())
 	defer cancelFirst()
 	firstDone := make(chan error, 1)
@@ -317,7 +319,9 @@ func TestWorkerRunOnceDoesNotDoubleClaimActiveAgent(t *testing.T) {
 	}
 
 	secondExecutor := newCaptureTurnExecutor(false)
-	secondWorker := NewWorker(store.Execution(), secondExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1})
+	secondWorker := NewWorker(
+		store.Execution(), secondExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1},
+	)
 	worked, err := secondWorker.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("second worker run once while runtime is active: %v", err)
@@ -370,7 +374,10 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "cancel me", now.Add(time.Second))
 
 	executor := newCaptureTurnExecutor(true)
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus})
+	worker := NewWorker(
+		store.Execution(), executor,
+		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+	)
 	errs := make(chan error, 1)
 	go func() {
 		err := worker.Run(ctx)
@@ -660,7 +667,10 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "cancel unexpectedly", now.Add(time.Second))
 
 	executor := &cancelOnceTurnExecutor{started: make(chan kernel.ModelWorkExecution, 2)}
-	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus})
+	worker := NewWorker(
+		store.Execution(), executor,
+		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+	)
 	runDone := make(chan error, 1)
 	go func() { runDone <- worker.Run(ctx) }()
 
@@ -777,7 +787,10 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	createWorkerInput(t, ctx, store, agentID, userID, "cancel me", now.Add(time.Second))
 
 	blockingExecutor := newCaptureTurnExecutor(true)
-	runningWorker := NewWorker(store.Execution(), blockingExecutor, Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus})
+	runningWorker := NewWorker(
+		store.Execution(), blockingExecutor,
+		Options{RuntimeLockLeaseDuration: 30 * time.Second, Capacity: 1, ControlSubscriber: bus},
+	)
 	errs := make(chan error, 1)
 	go func() {
 		err := runningWorker.Run(ctx)
@@ -826,7 +839,9 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 		now.Add(3*time.Second),
 	)
 	nextExecutor := newCaptureTurnExecutor(false)
-	nextWorker := NewWorker(store.Execution(), nextExecutor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+	nextWorker := NewWorker(
+		store.Execution(), nextExecutor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1},
+	)
 	worked, err := nextWorker.RunOnce(context.Background())
 	if err != nil {
 		t.Fatalf("worker run after cancel: %v", err)
@@ -867,10 +882,12 @@ func TestWorkerRunOnceUsesRealKernelExecutor(t *testing.T) {
 		},
 	}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	worked, err := worker.RunOnce(ctx)
@@ -920,10 +937,12 @@ func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) 
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist question tool output")
@@ -947,7 +966,9 @@ func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) 
 		t.Fatalf("resolve structured question: %v", err)
 	}
 	requireWorkerClaim(t, ctx, worker, "continue after question result")
-	toolCalls, err := storagetest.ListCompletedToolCallsForTurn(ctx, store, workerTestProjectID, agentID, interaction.TurnID)
+	toolCalls, err := storagetest.ListCompletedToolCallsForTurn(
+		ctx, store, workerTestProjectID, agentID, interaction.TurnID,
+	)
 	if err != nil {
 		t.Fatalf("list completed tool calls: %v", err)
 	}
@@ -1000,10 +1021,12 @@ func TestWorkerKernelStructuredQuestionUsesCatalogAllowPolicy(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist catalog-allowed question output")
@@ -1078,10 +1101,12 @@ func TestWorkerKernelPermissionApprovalUnlocksStructuredQuestionTool(t *testing.
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist permission-gated question output")
@@ -1172,10 +1197,12 @@ func TestWorkerKernelPermissionDenialCompletesToolResult(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist permission-denied question output")
@@ -1231,10 +1258,12 @@ func TestWorkerKernelMachineToolWithoutBindingFailsBeforeApproval(t *testing.T) 
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist no-machine command output")
@@ -1276,10 +1305,12 @@ func TestWorkerKernelDeniedMachineToolDoesNotRequireBinding(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist denied command output")
@@ -1327,10 +1358,12 @@ func TestWorkerKernelPermissionApprovalStartsMachineRunCommand(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist permission-gated command output")
@@ -1394,10 +1427,12 @@ func TestWorkerKernelStructuredInteractionFormResolvesAtomically(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist multi-question output")
@@ -1470,10 +1505,12 @@ func TestWorkerKernelMultipleToolCallsWaitForAllInteractions(t *testing.T) {
 		},
 	}}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
-		Now:            func() time.Time { return now.Add(2 * time.Second) },
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+		Now:           func() time.Time { return now.Add(2 * time.Second) },
 	}
 	worker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
 	requireWorkerClaim(t, ctx, worker, "persist sibling question outputs")
@@ -1762,7 +1799,9 @@ func createWorkerAgentWithToolPermissionsAndMachine(
 	machineName string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /work\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: worker-kernel-test\nmachine_sources:\n  - machine_name: " + machineName +
+		"\n    cwd: /work\n"
 	if len(permissionModes) > 0 {
 		sourceYAML += "tools:\n"
 		names := make([]string, 0, len(permissionModes))
@@ -1928,7 +1967,9 @@ func compileWorkerAgentYAMLResolved(
 	return compiled
 }
 
-func resolvedWorkerAgentConfigModel(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
+func resolvedWorkerAgentConfigModel(
+	configuredModel modelstore.ConfiguredModelRecord,
+) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
 		ConfiguredModelID: configuredModel.ID.String(),

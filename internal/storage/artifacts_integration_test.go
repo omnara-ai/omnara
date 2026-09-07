@@ -264,7 +264,9 @@ func TestGetArtifactBlobMissingContentFails(t *testing.T) {
 	if err := blobs.DeleteBlob(ctx, artifactObjectKey(record.AgentID, record.ID)); err != nil {
 		t.Fatalf("delete blob: %v", err)
 	}
-	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, agentID, record.ID); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, _, err := store.Artifacts().GetArtifactBlob(
+		ctx, testProjectID, agentID, record.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -311,7 +313,9 @@ func TestListAgentArtifactsByIDsScopesToAgent(t *testing.T) {
 		t.Fatalf("expected only the agent's artifact, got %+v", records)
 	}
 
-	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, otherAgentID, mine.ID); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, _, err := store.Artifacts().GetArtifactBlob(
+		ctx, testProjectID, otherAgentID, mine.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("cross-agent artifact blob load error = %v, want not found", err)
 	}
 }

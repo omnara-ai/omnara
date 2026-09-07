@@ -722,7 +722,9 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 		Name:               "read_process",
 		Input:              json.RawMessage(`{}`),
 	}
-	if _, err := insertToolCallForTest(ctx, fixture.Store, oldOwnedWrite); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+	if _, err := insertToolCallForTest(
+		ctx, fixture.Store, oldOwnedWrite,
+	); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		t.Fatalf("expired runtime-lock write before reap = %v, want inactive runtime lock", err)
 	}
 
@@ -780,7 +782,9 @@ func TestAgentRuntimeLockReaperWinningRaceFencesOldWorker(t *testing.T) {
 	if replacement.WorkerProcessID != replacementWorkerID {
 		t.Fatalf("replacement routing id = %s, want %s", replacement.WorkerProcessID, replacementWorkerID)
 	}
-	if _, err := insertToolCallForTest(ctx, fixture.Store, oldOwnedWrite); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+	if _, err := insertToolCallForTest(
+		ctx, fixture.Store, oldOwnedWrite,
+	); !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		t.Fatalf("old worker tool-call write after replacement = %v, want inactive runtime lock", err)
 	}
 }

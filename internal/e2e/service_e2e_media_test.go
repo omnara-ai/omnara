@@ -63,7 +63,9 @@ func TestServiceE2EMediaAttachmentRoundTrip(t *testing.T) {
 			{"type": "media", "media_type": "image/png", "filename": "upload.png", "data": uploadedBase64},
 		},
 	}, "idem-"+agentID+"-media-input", project.adminToken, http.StatusCreated)
-	inputBlocks := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, created["agent_input"])["content_blocks"])
+	inputBlocks := testutil.RequireType[[]any](
+		t, testutil.RequireType[map[string]any](t, created["agent_input"])["content_blocks"],
+	)
 	if len(inputBlocks) != 2 {
 		t.Fatalf("expected 2 content blocks, got %+v", inputBlocks)
 	}
@@ -88,7 +90,8 @@ func TestServiceE2EMediaAttachmentRoundTrip(t *testing.T) {
 			FROM agent_events event
 			JOIN agents agent ON agent.id = event.agent_id
 			JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id
-			WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text'
+			WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind =
+			    'text'
 		`, projectUUID, agentUUID).Scan(&text)
 		if err != nil {
 			return false, "model output not recorded yet: " + err.Error()

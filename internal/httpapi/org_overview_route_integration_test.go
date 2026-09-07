@@ -148,7 +148,9 @@ func TestGetOrgOverview(t *testing.T) {
 	if agentRow["project_id"] != secondProject.ProjectID {
 		t.Fatalf("recent agent project_id = %v, want %s", agentRow["project_id"], secondProject.ProjectID)
 	}
-	if model := testutil.RequireType[map[string]any](t, agentRow["model"]); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {
+	if model := testutil.RequireType[map[string]any](
+		t, agentRow["model"],
+	); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {
 		t.Fatalf("recent agent model = %+v, want openai-prod/gpt-test", model)
 	}
 	profileRows := testutil.RequireType[[]any](t, overview["recent_agent_profiles"])
@@ -161,7 +163,9 @@ func TestGetOrgOverview(t *testing.T) {
 	if got := testutil.RequireType[map[string]any](t, profileRows[1])["id"]; got != firstProfileID {
 		t.Fatalf("recent profile order[1] = %v, want %s", got, firstProfileID)
 	}
-	if got := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, profileRows[0])["current_config"])["id"]; got != secondConfigID {
+	if got := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, profileRows[0])["current_config"],
+	)["id"]; got != secondConfigID {
 		t.Fatalf("recent profile current_config id = %v, want %s", got, secondConfigID)
 	}
 
@@ -258,7 +262,9 @@ func TestGetOrgOverview(t *testing.T) {
 	if viewerProject["id"] != secondProject.ProjectID {
 		t.Fatalf("viewer project id = %v, want %s", viewerProject["id"], secondProject.ProjectID)
 	}
-	if access := testutil.RequireType[map[string]any](t, viewerProject["access"]); access["can_manage"] != false || access["can_read"] != true {
+	if access := testutil.RequireType[map[string]any](
+		t, viewerProject["access"],
+	); access["can_manage"] != false || access["can_read"] != true {
 		t.Fatalf("viewer project access = %+v, want read-only", access)
 	}
 	viewerAgents := testutil.RequireType[[]any](t, viewerOverview["recent_agents"])

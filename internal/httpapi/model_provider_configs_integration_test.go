@@ -258,7 +258,9 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, openRouterModel["api_variant_options"])["provider"])["require_parameters"] != true {
+	if testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, openRouterModel["api_variant_options"])["provider"],
+	)["require_parameters"] != true {
 		t.Fatalf("openrouter configured model api_variant_options create mismatch: %+v", openRouterModel)
 	}
 	updatedOpenRouterModel := requestJSONWithHeaders(
@@ -284,7 +286,12 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, updatedOptionsModel["api_variant_options"])["provider"])["only"])[0] != "openai" {
+	if testutil.RequireType[[]any](
+		t,
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, updatedOptionsModel["api_variant_options"])["provider"],
+		)["only"],
+	)[0] != "openai" {
 		t.Fatalf("configured model should accept provider passthrough options: %+v", updatedOptionsModel)
 	}
 	updatedConfiguredModel := requestJSONWithHeaders(
@@ -301,7 +308,12 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		updatedConfiguredModel["provider_model_slug"] != "gpt-test" ||
 		updatedConfiguredModel["default_max_output_tokens"] != float64(2048) ||
 		updatedConfiguredModel["default_reasoning_effort"] != "medium" ||
-		testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, updatedConfiguredModel["api_variant_options"])["provider"])["only"])[0] != "openai" {
+		testutil.RequireType[[]any](
+			t,
+			testutil.RequireType[map[string]any](
+				t, testutil.RequireType[map[string]any](t, updatedConfiguredModel["api_variant_options"])["provider"],
+			)["only"],
+		)[0] != "openai" {
 		t.Fatalf("configured model update mismatch: %+v", updatedConfiguredModel)
 	}
 	patchedConfiguredModel := requestJSONWithHeaders(
@@ -373,7 +385,13 @@ model:
 	)
 
 	grantBody := `{"configured_model_id":"` + configuredModelID + `","context_window_tokens":64000,"max_output_tokens":4096,"default_max_output_tokens":2048,"supports_tools":true,"supports_reasoning":true,"default_reasoning_effort":"medium","supported_reasoning_efforts":["low","medium"],"input_modalities":["text"],"output_modalities":["text"]}`
-	grant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusCreated, authHeaders(project.AdminToken))["grant"])
+	grant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusCreated,
+			authHeaders(project.AdminToken),
+		)["grant"],
+	)
 	if grant["configured_model_id"] != configuredModelID {
 		t.Fatalf("unexpected model grant response: %+v", grant)
 	}
@@ -390,7 +408,13 @@ model:
 	if _, ok := grant["metadata"]; ok {
 		t.Fatalf("model grant response should not include metadata: %+v", grant)
 	}
-	replayedGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK, authHeaders(project.AdminToken))["grant"])
+	replayedGrant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["grant"],
+	)
 	if replayedGrant["id"] != grant["id"] {
 		t.Fatalf("model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
 	}
@@ -461,7 +485,8 @@ model:
 		t,
 		handler,
 		http.MethodPatch,
-		project.ProjectPath+"/model-grants/"+testPublicID(t, publicid.KindProjectModelGrant, httpTestID("missing-model-grant")),
+		project.ProjectPath+"/model-grants/"+
+			testPublicID(t, publicid.KindProjectModelGrant, httpTestID("missing-model-grant")),
 		`{"max_output_tokens":1024}`,
 		"",
 		http.StatusNotFound,

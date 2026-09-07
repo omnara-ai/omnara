@@ -35,16 +35,19 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim initial model call: %v", err)
 	}
-	if _, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, executionstore.RecordRecoverableModelCallFailureInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		ModelCallContextID: claim.Context.ID,
-		RuntimeLockID:      fixture.Lock.ID,
-		ErrorKind:          "transient",
-		ErrorCode:          "provider_unavailable",
-		ErrorMessage:       "provider is temporarily unavailable",
-		RetryDelay:         0,
-	}); err != nil {
+	if _, err := fixture.Store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			ModelCallContextID: claim.Context.ID,
+			RuntimeLockID:      fixture.Lock.ID,
+			ErrorKind:          "transient",
+			ErrorCode:          "provider_unavailable",
+			ErrorMessage:       "provider is temporarily unavailable",
+			RetryDelay:         0,
+		},
+	); err != nil {
 		t.Fatalf("record retryable failure: %v", err)
 	}
 
@@ -73,12 +76,15 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			result, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-				ProjectID:                     testProjectID,
-				AgentID:                       fixture.AgentID,
-				PredecessorModelCallContextID: claim.Context.ID,
-				RuntimeLockID:                 fixture.Lock.ID,
-			})
+			result, err := fixture.Store.Execution().ClaimNextModelCallContext(
+				ctx,
+				executionstore.ClaimNextModelCallContextInput{
+					ProjectID:                     testProjectID,
+					AgentID:                       fixture.AgentID,
+					PredecessorModelCallContextID: claim.Context.ID,
+					RuntimeLockID:                 fixture.Lock.ID,
+				},
+			)
 			results <- claimResult{claim: result, err: err}
 		}()
 	}
@@ -362,7 +368,10 @@ func TestParentRetryWaitsWhileCompactionContextIsLive(t *testing.T) {
 
 func TestTerminalModelCallFailureSettlesBeforeNewModelReadyFrontier(t *testing.T) {
 	t.Parallel()
-	for _, operation := range []string{string(executionstore.ModelCallOperationNormal), string(executionstore.ModelCallOperationCompaction)} {
+	for _, operation := range []string{
+		string(executionstore.ModelCallOperationNormal),
+		string(executionstore.ModelCallOperationCompaction),
+	} {
 		for _, frontier := range []string{"steering", "config"} {
 			t.Run(operation+"_"+frontier, func(t *testing.T) {
 				t.Parallel()
@@ -431,7 +440,10 @@ func TestTerminalModelCallFailureSettlesBeforeNewModelReadyFrontier(t *testing.T
 func TestExhaustedRuntimeRecoverySettlesBeforeNewModelReadyFrontier(t *testing.T) {
 	t.Parallel()
 	for _, recovery := range []string{"release", "reap"} {
-		for _, operation := range []string{string(executionstore.ModelCallOperationNormal), string(executionstore.ModelCallOperationCompaction)} {
+		for _, operation := range []string{
+			string(executionstore.ModelCallOperationNormal),
+			string(executionstore.ModelCallOperationCompaction),
+		} {
 			for _, frontier := range []string{"steering", "config"} {
 				t.Run(recovery+"_"+operation+"_"+frontier, func(t *testing.T) {
 					t.Parallel()
@@ -631,13 +643,16 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	} else if found {
 		t.Fatalf("terminal model error continuation seed = %+v, want none", seed)
 	}
-	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"try again now"}]`),
-		IdempotencyKey: "after-terminal-model-error",
-	})
+	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"try again now"}]`),
+			IdempotencyKey: "after-terminal-model-error",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create input after terminal model error: %v", err)
 	}

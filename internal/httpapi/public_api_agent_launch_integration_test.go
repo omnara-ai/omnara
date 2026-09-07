@@ -108,7 +108,9 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	}
 	profileID := testutil.RequireType[string](t, profile["id"])
 	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
-	retargetYAML := "instruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_name: " + machineName + "\n    cwd: /workspace\ntools:\n  run_command: {}\n"
+	retargetYAML := "instruction: Updated default.\nmodel:\n  provider_config: openai-prod\n  name: " +
+		"gpt-test\nmachine_sources:\n  - machine_name: " + machineName +
+		"\n    cwd: /workspace\ntools:\n  run_command: {}\n"
 	retargetConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -150,7 +152,9 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	retargetedConfigID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, retargeted["current_config"])["id"])
+	retargetedConfigID := testutil.RequireType[string](
+		t, testutil.RequireType[map[string]any](t, retargeted["current_config"])["id"],
+	)
 	if retargetedConfigID == configID {
 		t.Fatalf("retarget should create a new current config: %+v", retargeted)
 	}
@@ -279,7 +283,9 @@ func TestPublicAgentLaunchFlow(t *testing.T) {
 	if diff := cmp.Diff(warnings, launchWarnings); diff != "" {
 		t.Fatalf("launch warnings mismatch (-want +got):\n%s", diff)
 	}
-	retargetedAgentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, retargetedLaunch["agent"])["id"])
+	retargetedAgentID := testutil.RequireType[string](
+		t, testutil.RequireType[map[string]any](t, retargetedLaunch["agent"])["id"],
+	)
 	archivedResponse := requestJSONWithHeaders(
 		t,
 		handler,

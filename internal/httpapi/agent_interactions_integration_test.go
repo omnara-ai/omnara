@@ -141,8 +141,13 @@ func TestPublicAgentInteractionResolveMarksWakeup(t *testing.T) {
 	}
 	var state string
 	var wakeups int
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 `+
-		`AND id = $3`, project.ProjectUUID, agentID, interactionID).Scan(&state); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		project.ProjectUUID,
+		agentID,
+		interactionID,
+	).Scan(&state); err != nil {
 		t.Fatalf("query resolved interaction: %v", err)
 	}
 	if state != "resolved" {
@@ -218,7 +223,9 @@ func TestListAgentInteractionsPaginatesAllInteractions(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "interaction-pages")
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
-	agentID, firstID := createHTTPStructuredQuestionInteraction(t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, now)
+	agentID, firstID := createHTTPStructuredQuestionInteraction(
+		t, ctx, pool, store, project.OrgUUID, project.ProjectUUID, now,
+	)
 	permissionID := copyHTTPInteractionForTest(
 		t,
 		ctx,
@@ -483,7 +490,8 @@ func TestPublicPromotionCanCancelOpenInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode promoted input ID: %v", err)
 	}
-	if !found || interaction.State != executionstore.AgentInteractionStateCanceled || interaction.ResolvedByInputID != wantInputID {
+	if !found || interaction.State != executionstore.AgentInteractionStateCanceled ||
+		interaction.ResolvedByInputID != wantInputID {
 		t.Fatalf("interaction after queued input promotion = %+v found=%v", interaction, found)
 	}
 }
@@ -642,8 +650,7 @@ func TestPublicCancelAgentTerminalizesOpenInteractionToolCall(t *testing.T) {
 	var interactionState string
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT state FROM `+
-			`agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
 		project.ProjectUUID,
 		agentID,
 		interactionID,
@@ -702,7 +709,9 @@ SELECT tool_call.state, result.outcome
  AND result.tool_call_id = tool_call.id
 WHERE tool_call.project_id = $1
   AND tool_call.agent_id = $2
-  AND tool_call.id = $3`, project.ProjectUUID, agentID, interaction.ToolCallID).Scan(&toolState, &toolOutcome); err != nil {
+  AND tool_call.id = $3`, project.ProjectUUID, agentID, interaction.ToolCallID).Scan(
+		&toolState, &toolOutcome,
+	); err != nil {
 		t.Fatalf("query canceled tool call: %v", err)
 	}
 	if toolState != "completed" || toolOutcome != "canceled" {
@@ -798,14 +807,20 @@ func TestPublicArchiveAgentCancelsOpenInteractionToolCall(t *testing.T) {
 	)
 
 	var agentState, interactionState string
-	if err := pool.QueryRow(ctx, `SELECT state FROM agents WHERE project_id = $1 AND id = $2`, project.ProjectUUID, agentID).
+	if err := pool.QueryRow(
+		ctx, `SELECT state FROM agents WHERE project_id = $1 AND id = $2`, project.ProjectUUID, agentID,
+	).
 		Scan(&agentState); err != nil {
 		t.Fatalf("query archived agent: %v", err)
 	}
 	if agentState != "archived" {
 		t.Fatalf("agent state after delete = %s, want archived", agentState)
 	}
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`, project.ProjectUUID, agentID, interactionID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		project.ProjectUUID, agentID, interactionID,
+	).
 		Scan(&interactionState); err != nil {
 		t.Fatalf("query canceled interaction state: %v", err)
 	}
@@ -858,7 +873,9 @@ SELECT tool_call.state, result.outcome
  AND result.tool_call_id = tool_call.id
 WHERE tool_call.project_id = $1
   AND tool_call.agent_id = $2
-  AND tool_call.id = $3`, project.ProjectUUID, agentID, interaction.ToolCallID).Scan(&toolState, &toolOutcome); err != nil {
+  AND tool_call.id = $3`, project.ProjectUUID, agentID, interaction.ToolCallID).Scan(
+		&toolState, &toolOutcome,
+	); err != nil {
 		t.Fatalf("query canceled tool call: %v", err)
 	}
 	if toolState != "completed" || toolOutcome != "canceled" {
@@ -869,7 +886,11 @@ WHERE tool_call.project_id = $1
 		)
 	}
 	var wakeups int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, project.ProjectUUID, agentID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+		project.ProjectUUID, agentID,
+	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("query delete wakeups: %v", err)
 	}
@@ -1031,8 +1052,13 @@ func TestAgentInteractionCancelAndResolveRaceSerializes(t *testing.T) {
 	}
 
 	var state string
-	if scanErr := pool.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 `+
-		`AND id = $3`, project.ProjectUUID, agentID, interactionID).Scan(&state); scanErr != nil {
+	if scanErr := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		project.ProjectUUID,
+		agentID,
+		interactionID,
+	).Scan(&state); scanErr != nil {
 		t.Fatalf("query raced interaction: %v", scanErr)
 	}
 	var responseInputs int
@@ -1232,8 +1258,13 @@ func TestPublicAgentInteractionResolvePermissionApproval(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	var state string
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 `+
-		`AND id = $3`, project.ProjectUUID, agentID, interactionID).Scan(&state); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		project.ProjectUUID,
+		agentID,
+		interactionID,
+	).Scan(&state); err != nil {
 		t.Fatalf("query permission interaction: %v", err)
 	}
 	if state != "resolved" {
@@ -1322,8 +1353,14 @@ func TestPublicAgentInteractionResolvePermissionDenial(t *testing.T) {
 	}
 	var state string
 	var resolution json.RawMessage
-	if err := pool.QueryRow(ctx, `SELECT state, resolution FROM agent_interaction_read_projection WHERE project_id = $1 AND `+
-		`agent_id = $2 AND id = $3`, project.ProjectUUID, agentID, interactionID).Scan(&state, &resolution); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state, resolution FROM agent_interaction_read_projection WHERE project_id = $1 AND `+
+			`agent_id = $2 AND id = $3`,
+		project.ProjectUUID,
+		agentID,
+		interactionID,
+	).Scan(&state, &resolution); err != nil {
 		t.Fatalf("query denied permission interaction: %v", err)
 	}
 	var decodedResolution interactionform.Resolution
@@ -1429,8 +1466,13 @@ func TestPublicAgentInteractionRejectsUnknownPermissionOption(
 		authHeaders(project.AdminToken),
 	)
 	var state string
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id `+
-		`= $2 AND id = $3`, project.ProjectUUID, agentID, interactionID).Scan(&state); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		project.ProjectUUID,
+		agentID,
+		interactionID,
+	).Scan(&state); err != nil {
 		t.Fatalf("query invalid permission option: %v", err)
 	}
 	if state != "open" {
@@ -1986,7 +2028,9 @@ func createHTTPInteractionAuthority(
 	}
 	runtime := claim.RuntimeLock
 	admitted := claim.Model.AdmittedInputTurn
-	snapshot, err := store.Execution().CaptureAgentConfigForEventWatermark(ctx, projectID, agentID, admitted.Events[0].Sequence)
+	snapshot, err := store.Execution().CaptureAgentConfigForEventWatermark(
+		ctx, projectID, agentID, admitted.Events[0].Sequence,
+	)
 	if err != nil {
 		t.Fatalf("capture config snapshot: %v", err)
 	}

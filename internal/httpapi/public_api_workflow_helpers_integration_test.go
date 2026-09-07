@@ -366,7 +366,10 @@ func bootstrapPublicHTTPProject(
 	t.Helper()
 	store := integrationStoreForHandler(t, handler)
 	pool := integrationPoolForHandler(t, handler)
-	admin, err := storagetest.CreateVerifiedUser(context.Background(), pool, storagetest.CreateVerifiedUserInput{Email: seed + "-owner@example.com", DisplayName: "Owner"})
+	admin, err := storagetest.CreateVerifiedUser(
+		context.Background(), pool,
+		storagetest.CreateVerifiedUserInput{Email: seed + "-owner@example.com", DisplayName: "Owner"},
+	)
 	if err != nil {
 		t.Fatalf("create owner user: %v", err)
 	}
@@ -536,7 +539,8 @@ func createPublicHTTPAgent(
 	token string,
 ) map[string]any {
 	t.Helper()
-	sourceYAML := "instruction: Help the user make progress (" + seed + ").\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
+	sourceYAML := "instruction: Help the user make progress (" + seed +
+		").\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
 	config := createPublicHTTPAgentConfig(t, handler, project, seed, "yaml", sourceYAML, token, http.StatusCreated)
 	return createPublicHTTPAgentProfile(
 		t,

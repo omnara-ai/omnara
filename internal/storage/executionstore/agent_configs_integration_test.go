@@ -73,7 +73,9 @@ model:
 `
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	configuredModelID := parseConfiguredModelID(t, compiled)
-	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(ctx, testOrgID, testProjectID, configuredModelID)
+	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx, testOrgID, testProjectID, configuredModelID,
+	)
 	if err != nil {
 		t.Fatalf("load active model grant: %v", err)
 	}
@@ -163,7 +165,10 @@ model:
   name: image-only-runtime
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})

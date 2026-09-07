@@ -49,7 +49,9 @@ func admitNextAgentInputAndOpenTurnForTestErr(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID}); err != nil {
+	if _, err := qtx.LockAgentInProject(
+		ctx, dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
+	); err != nil {
 		return executionstore.AdmittedAgentInputTurn{}, false, fmt.Errorf("lock agent for input admission: %w", err)
 	}
 	if err := executionstore.IntegrationEnsureRuntimeLockActiveTx(ctx, tx, projectID, agentID, runtimeLockID); err != nil {

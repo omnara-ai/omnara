@@ -140,7 +140,11 @@ func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaWakeups(
 	}}, nil
 }
 
-func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaInbox(context.Context, uuid.UUID, func(context.Context, []byte)) (notifications.Subscription, error) {
+func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaInbox(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, []byte),
+) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
 
@@ -180,7 +184,11 @@ func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaWakeups(
 ) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
-func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaInbox(context.Context, uuid.UUID, func(context.Context, []byte)) (notifications.Subscription, error) {
+func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaInbox(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, []byte),
+) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
 

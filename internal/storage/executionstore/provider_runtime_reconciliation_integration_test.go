@@ -927,7 +927,12 @@ func TestProviderRuntimeMismatchDeletionClaimHandlesConcurrentChanges(t *testing
 		},
 		{
 			name: "daemon reconnect",
-			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, machine providerRuntimeMachine) {
+			mutate: func(
+				ctx context.Context,
+				t *testing.T,
+				fixture providerRuntimeStorageFixture,
+				machine providerRuntimeMachine,
+			) {
 				t.Helper()
 				if _, err := fixture.store.Execution().RegisterDaemonRuntimeWithReconciliation(
 					ctx,
@@ -946,7 +951,12 @@ func TestProviderRuntimeMismatchDeletionClaimHandlesConcurrentChanges(t *testing
 		},
 		{
 			name: "new inactivity period",
-			mutate: func(ctx context.Context, t *testing.T, fixture providerRuntimeStorageFixture, machine providerRuntimeMachine) {
+			mutate: func(
+				ctx context.Context,
+				t *testing.T,
+				fixture providerRuntimeStorageFixture,
+				machine providerRuntimeMachine,
+			) {
 				t.Helper()
 				if _, err := fixture.pool.Exec(ctx, `
 UPDATE machines

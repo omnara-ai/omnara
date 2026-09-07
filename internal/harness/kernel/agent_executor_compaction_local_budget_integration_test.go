@@ -171,10 +171,16 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		SELECT count(*)
 		FROM context_checkpoints checkpoint
 		JOIN agents agent ON agent.id = checkpoint.agent_id
-		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(
+		&checkpoints,
+	); err != nil {
 		t.Fatalf("count unexpected checkpoints: %v", err)
 	}
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'current fitting request was sent'`, kernelTestProjectID, agentID, currentTurn.TurnID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'current fitting request was sent'`,
+		kernelTestProjectID, agentID, currentTurn.TurnID,
+	).
 		Scan(&finalOutputs); err != nil {
 		t.Fatalf("count current output: %v", err)
 	}
@@ -227,9 +233,14 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("grant keep-recent configured model: %v", err)
 	}
-	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " + configuredModelName + "\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " +
+		configuredModelName +
+		"\n"
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, selectedModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			selectedModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil
 		},
 	})
@@ -380,7 +391,10 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		t.Fatalf("execute keep-recent retry turn: %v", err)
 	}
 	if retryModel.respondedCount() != 1 {
-		t.Fatalf("keep-recent retry prepared %d requests on first lease, want compaction summary", retryModel.respondedCount())
+		t.Fatalf(
+			"keep-recent retry prepared %d requests on first lease, want compaction summary",
+			retryModel.respondedCount(),
+		)
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,
@@ -416,11 +430,19 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	}
 
 	var summarizedThrough, recentInputSequence int64
-	if err := fixture.Pool.QueryRow(ctx, `SELECT checkpoint.summarized_through_event_sequence FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT checkpoint.summarized_through_event_sequence FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+		kernelTestProjectID, agentID,
+	).
 		Scan(&summarizedThrough); err != nil {
 		t.Fatalf("load keep-recent checkpoint: %v", err)
 	}
-	if err := fixture.Pool.QueryRow(ctx, `SELECT event.sequence FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = $3`, kernelTestProjectID, agentID, recentTurn.InputIDs[0]).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT event.sequence FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = $3`,
+		kernelTestProjectID, agentID, recentTurn.InputIDs[0],
+	).
 		Scan(&recentInputSequence); err != nil {
 		t.Fatalf("load recent input sequence: %v", err)
 	}
@@ -474,8 +496,10 @@ func TestAgentExecutorCompactsMultiInputTurnAfterLocalBudgetOverflow(t *testing.
 		},
 		responses: []model.Response{
 			{
-				ID:         "resp_multi_budget_summary",
-				Content:    []model.ResponsePart{{Type: "text", Text: "The earlier oversized history has been compacted for a multi-input turn."}},
+				ID: "resp_multi_budget_summary",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "The earlier oversized history has been compacted for a multi-input turn."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
@@ -506,7 +530,10 @@ func TestAgentExecutorCompactsMultiInputTurnAfterLocalBudgetOverflow(t *testing.
 		t.Fatalf("execute multi-input budget retry turn: %v", err)
 	}
 	if retryModel.respondedCount() != 1 {
-		t.Fatalf("multi-input budget retry prepared %d requests on first lease, want compaction summary", retryModel.respondedCount())
+		t.Fatalf(
+			"multi-input budget retry prepared %d requests on first lease, want compaction summary",
+			retryModel.respondedCount(),
+		)
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,
@@ -542,14 +569,20 @@ func TestAgentExecutorCompactsMultiInputTurnAfterLocalBudgetOverflow(t *testing.
 		) context_turn ON true
 			WHERE mcc.project_id = $1
 			  AND checkpoint.agent_id = $2
-		  AND context_turn.turn_id = $3`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(&compactionWatermark); err != nil {
+		  AND context_turn.turn_id = $3`, kernelTestProjectID, agentID, retryTurn.TurnID).Scan(
+		&compactionWatermark,
+	); err != nil {
 		t.Fatalf("load compaction model context watermark: %v", err)
 	}
 	if compactionWatermark <= 0 {
 		t.Fatalf("compaction model context watermark = %d, want positive", compactionWatermark)
 	}
 	var finalOutputs int
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after multi-input budget compaction'`, kernelTestProjectID, agentID, retryTurn.TurnID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after multi-input budget compaction'`,
+		kernelTestProjectID, agentID, retryTurn.TurnID,
+	).
 		Scan(&finalOutputs); err != nil {
 		t.Fatalf("count final multi-input budget output: %v", err)
 	}
@@ -601,13 +634,17 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 				}}),
 			},
 			{
-				ID:         "resp_split_turn_summary",
-				Content:    []model.ResponsePart{{Type: "text", Text: "The compacted user instruction asked the agent to continue after tool execution."}},
+				ID: "resp_split_turn_summary",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "The compacted user instruction asked the agent to continue after tool execution."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp_after_split_turn_compaction",
-				Content:    []model.ResponsePart{{Type: "text", Text: "continued after preserving the raw tool call and result group"}},
+				ID: "resp_after_split_turn_compaction",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "continued after preserving the raw tool call and result group"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},
@@ -636,7 +673,10 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 	}
 	compactionTurn := executeNextModelWork(t, ctx, fixture, executor, turn)
 	if modelClient.respondedCount() != 2 {
-		t.Fatalf("prepared %d requests across two leases, want tool call and compaction summary", modelClient.respondedCount())
+		t.Fatalf(
+			"prepared %d requests across two leases, want tool call and compaction summary",
+			modelClient.respondedCount(),
+		)
 	}
 	finalTurn := continueTurnOnNewLeaseForKernelTest(
 		t,
@@ -649,7 +689,10 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 		t.Fatalf("execute split-turn post-compaction call: %v", err)
 	}
 	if modelClient.respondedCount() != 3 {
-		t.Fatalf("prepared %d requests across leases, want initial tool call, compaction summary, retry", modelClient.respondedCount())
+		t.Fatalf(
+			"prepared %d requests across leases, want initial tool call, compaction summary, retry",
+			modelClient.respondedCount(),
+		)
 	}
 	summaryRequest := string(modelClient.responded[1].ProviderRequest)
 	if !strings.Contains(summaryRequest, "compactable user history") {
@@ -693,7 +736,11 @@ SELECT min(CASE WHEN event.event_kind = 'model_output' THEN event.sequence END),
 		)
 	}
 	var finalOutputs int
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after preserving the raw tool call and result group'`, kernelTestProjectID, agentID, turn.TurnID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after preserving the raw tool call and result group'`,
+		kernelTestProjectID, agentID, turn.TurnID,
+	).
 		Scan(&finalOutputs); err != nil {
 		t.Fatalf("count split-turn final output: %v", err)
 	}
@@ -812,7 +859,9 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 		SELECT count(*)
 			FROM context_checkpoints checkpoint
 			JOIN agents agent ON agent.id = checkpoint.agent_id
-			WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+			WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(
+		&checkpoints,
+	); err != nil {
 		t.Fatalf("count serialized-candidate checkpoints: %v", err)
 	}
 	if checkpoints != 0 {

@@ -175,10 +175,35 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 		wantCompletionRequests int
 	}{
 		{name: "success", artifactCount: 2, wantCode: "delivered", wantUploadRequests: 2, wantCompletionRequests: 1},
-		{name: "upload URL transient failure", uploadURLFailures: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 1},
-		{name: "upload retries do not consume completion retry budget", uploadURLFailures: 2, completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
-		{name: "completion rate limit", completionRateLimits: 1, wantCode: "delivered", wantUploadRequests: 1, wantCompletionRequests: 2},
-		{name: "completion failure", completionStatus: http.StatusInternalServerError, wantCode: "delivery_unknown", wantUploadRequests: 1, wantCompletionRequests: 1},
+		{
+			name:                   "upload URL transient failure",
+			uploadURLFailures:      1,
+			wantCode:               "delivered",
+			wantUploadRequests:     1,
+			wantCompletionRequests: 1,
+		},
+		{
+			name:                   "upload retries do not consume completion retry budget",
+			uploadURLFailures:      2,
+			completionRateLimits:   1,
+			wantCode:               "delivered",
+			wantUploadRequests:     1,
+			wantCompletionRequests: 2,
+		},
+		{
+			name:                   "completion rate limit",
+			completionRateLimits:   1,
+			wantCode:               "delivered",
+			wantUploadRequests:     1,
+			wantCompletionRequests: 2,
+		},
+		{
+			name:                   "completion failure",
+			completionStatus:       http.StatusInternalServerError,
+			wantCode:               "delivery_unknown",
+			wantUploadRequests:     1,
+			wantCompletionRequests: 1,
+		},
 		{name: "ownership lost before content upload", loseAfterPath: "/files.getUploadURLExternal"},
 		{name: "ownership lost before completion", loseAfterPath: "/upload/v1/artifact", wantUploadRequests: 1},
 	}
@@ -401,7 +426,10 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				}
 			}
 			if requests["/files.getUploadURLExternal"] != artifactCount+tt.uploadURLFailures {
-				t.Fatalf("upload URL requests = %d, want %d", requests["/files.getUploadURLExternal"], artifactCount+tt.uploadURLFailures)
+				t.Fatalf(
+					"upload URL requests = %d, want %d", requests["/files.getUploadURLExternal"],
+					artifactCount+tt.uploadURLFailures,
+				)
 			}
 			uploadRequests := requests["/upload/v1/artifact"] + requests["/upload/v1/chart"]
 			if uploadRequests != tt.wantUploadRequests {
@@ -758,13 +786,16 @@ func TestIntegrationSendToolUnknownPostRetriesAfterReadbackMiss(t *testing.T) {
 func TestIntegrationSetTargetToolDispatchUpdatesTarget(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "set-target")
-	secondTarget, err := fixture.Store.Integrations().CreateIntegrationTarget(ctx, integrationstore.CreateIntegrationTargetInput{
-		ProjectID:            toolsTestProjectID,
-		AgentID:              fixture.Agent.ID,
-		IntegrationInstallID: fixture.Install.ID,
-		ProviderRef:          "D456",
-		ProviderRefKind:      "dm",
-	})
+	secondTarget, err := fixture.Store.Integrations().CreateIntegrationTarget(
+		ctx,
+		integrationstore.CreateIntegrationTargetInput{
+			ProjectID:            toolsTestProjectID,
+			AgentID:              fixture.Agent.ID,
+			IntegrationInstallID: fixture.Install.ID,
+			ProviderRef:          "D456",
+			ProviderRefKind:      "dm",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create second target: %v", err)
 	}
@@ -2150,7 +2181,9 @@ func compileToolsAgentYAMLResolved(
 	return compiled
 }
 
-func resolvedToolsAgentConfigModel(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
+func resolvedToolsAgentConfigModel(
+	configuredModel modelstore.ConfiguredModelRecord,
+) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
 		ConfiguredModelID: configuredModel.ID.String(),

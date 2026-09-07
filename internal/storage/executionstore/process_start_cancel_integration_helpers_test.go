@@ -19,7 +19,12 @@ func claimReplacementAfterReapedNormalModelCall(
 	t *testing.T,
 	ctx context.Context,
 	fixtureName string,
-) (processDaemonFixture, executionstore.ClaimedAgentWork, executionstore.ModelCallClaim, executionstore.ModelCallClaim) {
+) (
+	processDaemonFixture,
+	executionstore.ClaimedAgentWork,
+	executionstore.ModelCallClaim,
+	executionstore.ModelCallClaim,
+) {
 	t.Helper()
 	fixture, oldWork, oldClaim, _ :=
 		claimReplacementAfterReapedNormalModelCallSetup(t, ctx, fixtureName)
@@ -58,7 +63,8 @@ func claimReplacementAfterReapedNormalModelCallSetup(
 		ctx,
 		testClaimNextAgentWorkInput(),
 	)
-	if err != nil || !found || oldWork.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(oldWork, input.ID) {
+	if err != nil || !found || oldWork.Kind != executionstore.AgentWorkModel ||
+		!claimedOpeningInputIDsEqual(oldWork, input.ID) {
 		t.Fatalf("claim stale-worker input = %+v found=%v err=%v", oldWork, found, err)
 	}
 	oldClaim := claimTestNormalModelCallForWork(t, ctx, fixture, oldWork, now.Add(2*time.Second))
@@ -69,7 +75,13 @@ func claimReplacementAfterReapedCompaction(
 	t *testing.T,
 	ctx context.Context,
 	fixtureName string,
-) (processDaemonFixture, executionstore.ClaimedAgentWork, executionstore.ModelCallClaim, executionstore.ClaimedAgentWork, executionstore.ModelCallClaim) {
+) (
+	processDaemonFixture,
+	executionstore.ClaimedAgentWork,
+	executionstore.ModelCallClaim,
+	executionstore.ClaimedAgentWork,
+	executionstore.ModelCallClaim,
+) {
 	t.Helper()
 	fixture, oldWork, parentClaim, _ :=
 		claimReplacementAfterReapedNormalModelCallSetup(t, ctx, fixtureName)
@@ -213,7 +225,12 @@ func claimExhaustedCompactionModelContext(
 	t *testing.T,
 	ctx context.Context,
 	fixtureName string,
-) (processDaemonFixture, executionstore.ClaimedAgentWork, executionstore.ModelCallClaim, executionstore.ModelCallClaim) {
+) (
+	processDaemonFixture,
+	executionstore.ClaimedAgentWork,
+	executionstore.ModelCallClaim,
+	executionstore.ModelCallClaim,
+) {
 	t.Helper()
 	fixture := newProcessDaemonFixture(t, ctx, fixtureName)
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
@@ -503,14 +520,17 @@ func injectModelReadyFrontier(
 ) ID {
 	t.Helper()
 	if kind == "steering" {
-		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-			ProjectID:      testProjectID,
-			AgentID:        fixture.AgentID,
-			Actor:          mustOmnaraActorParams(t, fixture.UserID),
-			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"use the new direction"}]`),
-			DeliveryMode:   executionstore.DeliveryModeSteering,
-			IdempotencyKey: key + "-steering",
-		})
+		input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+			ctx,
+			executionstore.CreateAgentContentInputInput{
+				ProjectID:      testProjectID,
+				AgentID:        fixture.AgentID,
+				Actor:          mustOmnaraActorParams(t, fixture.UserID),
+				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"use the new direction"}]`),
+				DeliveryMode:   executionstore.DeliveryModeSteering,
+				IdempotencyKey: key + "-steering",
+			},
+		)
 		if err != nil {
 			t.Fatalf("create steering frontier: %v", err)
 		}
@@ -639,7 +659,11 @@ func claimTestNormalModelCallForWork(
 		t.Fatalf("load agent for model context: %v", err)
 	}
 	var openingEventSequence int64
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT max(event.sequence) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = ANY($3::uuid[])`, testProjectID, fixture.AgentID, claim.Model.InputIDs).
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT max(event.sequence) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = ANY($3::uuid[])`,
+		testProjectID, fixture.AgentID, claim.Model.InputIDs,
+	).
 		Scan(&openingEventSequence); err != nil {
 		t.Fatalf("load opening event sequence: %v", err)
 	}
@@ -660,7 +684,11 @@ func claimTestNormalModelCallForWork(
 func countAgentWakeups(t *testing.T, ctx context.Context, store *Store, agentID ID) int {
 	t.Helper()
 	var wakeups int
-	if err := store.pool.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, testProjectID, agentID).
+	if err := store.pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+		testProjectID, agentID,
+	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("count agent wakeups: %v", err)
 	}

@@ -316,7 +316,12 @@ model:
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
 		{Name: "update-model", ProviderModelSlug: "example/new", ContextWindowTokens: 16384, MaxOutputTokens: 2048},
 		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
-		{Name: "tenant-model", ProviderModelSlug: "example/cluster-collision", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+		{
+			Name:                "tenant-model",
+			ProviderModelSlug:   "example/cluster-collision",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     1024,
+		},
 	}
 	input := orglifecycle.ReconcileDefaultsInput{
 		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
@@ -417,7 +422,9 @@ model:
 	); err != nil {
 		t.Fatalf("get added model default grant: %v", err)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "remove-model"); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "remove-model",
+	); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("get removed model error = %v, want no rows", err)
 	}
 	if _, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
@@ -447,7 +454,9 @@ model:
 	}); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("launch agent from deleted model config error = %v, want ErrNotFound", err)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model"); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "retained-model",
+	); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("get manually granted removed model error = %v, want no rows", err)
 	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
@@ -501,8 +510,18 @@ model:
 	}
 	desiredPool.Description = "pool without default project"
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
-		{Name: "update-model", ProviderModelSlug: "example/without-project", ContextWindowTokens: 16384, MaxOutputTokens: 2048},
-		{Name: "missing-project-model", ProviderModelSlug: "example/missing-project", ContextWindowTokens: 8192, MaxOutputTokens: 1024},
+		{
+			Name:                "update-model",
+			ProviderModelSlug:   "example/without-project",
+			ContextWindowTokens: 16384,
+			MaxOutputTokens:     2048,
+		},
+		{
+			Name:                "missing-project-model",
+			ProviderModelSlug:   "example/missing-project",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     1024,
+		},
 	}
 	input.DefaultMachinePools = []executionstore.DefaultMachinePoolTemplate{desiredPool}
 	input.DefaultModelProvider = &desiredProvider

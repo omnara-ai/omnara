@@ -153,7 +153,9 @@ func TestCanonicalBearerCredentialsPersistOnlyFullTokenDigests(t *testing.T) {
 	assertStoredToken("machine_daemon_tokens", daemon.Record.ID, daemon.Token, "")
 
 	pool.Close()
-	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, pat.Token); err == nil || errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, err := store.Identity().AuthenticatePersonalAccessToken(
+		ctx, pat.Token,
+	); err == nil || errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("valid PAT against closed pool error = %v, want storage error", err)
 	}
 	for name, authenticate := range map[string]func() error{
@@ -273,7 +275,9 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		principal.OrgID != NilID {
 		t.Fatalf("unexpected principal: %+v", principal)
 	}
-	if _, err := store.Identity().AuthenticatePersonalAccessToken(ctx, "missing-token"); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, err := store.Identity().AuthenticatePersonalAccessToken(
+		ctx, "missing-token",
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("expected unauthorized for missing token, got %v", err)
 	}
 
@@ -663,7 +667,11 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 		t.Fatalf("create manual project: %v", err)
 	}
 	var manualProjectGrantCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_pool_grants pool_grant JOIN machine_pools pool ON pool.org_id = pool_grant.org_id AND pool.id = pool_grant.machine_pool_id WHERE pool_grant.project_id = $1 AND pool.management_kind = 'cluster'`, createdProject.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_pool_grants pool_grant JOIN machine_pools pool ON pool.org_id = pool_grant.org_id AND pool.id = pool_grant.machine_pool_id WHERE pool_grant.project_id = $1 AND pool.management_kind = 'cluster'`,
+		createdProject.ID,
+	).
 		Scan(&manualProjectGrantCount); err != nil {
 		t.Fatalf("count manual project default pool grants: %v", err)
 	}
@@ -749,7 +757,9 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	defer pool.Close()
 
 	store := newSecretIntegrationStore(pool)
-	user := mustCreateIdentityUser(t, ctx, store, "default-model-provider-owner@example.com", "Default Model Provider Owner")
+	user := mustCreateIdentityUser(
+		t, ctx, store, "default-model-provider-owner@example.com", "Default Model Provider Owner",
+	)
 	template := modelstore.DefaultModelProviderTemplate{
 		Provisioner:          "openrouter",
 		Name:                 "omnara-openrouter",
@@ -780,7 +790,9 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	if err != nil {
 		t.Fatalf("create org for user: %v", err)
 	}
-	if _, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, template.Name); !storeerr.IsNotFound(err) {
+	if _, err := store.Models().GetModelProviderConfigByName(
+		ctx, created.Org.ID, template.Name,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("get provider before post-commit provisioning error = %v, want not found", err)
 	}
 	mustCompleteDefaultModelProviderProvisioning(
@@ -814,13 +826,16 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	}); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("tenant provider with cluster credential error = %v, want invalid secret request", err)
 	}
-	if _, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolInputForTest(executionstore.CreateMachinePoolInput{
-		OrgID:                created.Org.ID,
-		Name:                 "tenant-pool-with-cluster-secret",
-		Provider:             "unikraft",
-		ProviderAuthSecretID: credential.ID,
-		MaxTotalMachines:     1,
-	})); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolInputForTest(executionstore.CreateMachinePoolInput{
+			OrgID:                created.Org.ID,
+			Name:                 "tenant-pool-with-cluster-secret",
+			Provider:             "unikraft",
+			ProviderAuthSecretID: credential.ID,
+			MaxTotalMachines:     1,
+		}),
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("tenant machine pool with cluster credential error = %v, want not found", err)
 	}
 	credentialPublicID, err := publicid.Encode(publicid.KindSecret, credential.ID)
@@ -1143,7 +1158,12 @@ func TestUserOrgMembershipRowReusedAcrossMembershipWrites(t *testing.T) {
 	}
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: user.ID, Role: "developer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    user.ID,
+			Role:      "developer",
+		},
 	); err != nil {
 		t.Fatalf("add project membership: %v", err)
 	}
@@ -1208,7 +1228,9 @@ func TestCreateProjectForPrincipalRejectsNonOrgMemberCreator(t *testing.T) {
 		t.Fatalf("expected unauthorized for non-org-member creator, got %v", err)
 	}
 	var projectCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM projects WHERE org_id = $1 AND idempotency_key = 'rejected-project'`, orgID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM projects WHERE org_id = $1 AND idempotency_key = 'rejected-project'`, orgID,
+	).
 		Scan(&projectCount); err != nil {
 		t.Fatalf("count rejected projects: %v", err)
 	}
@@ -1395,7 +1417,11 @@ func TestVisibleProjectsForUser(t *testing.T) {
 	}
 	operatorPage, err := store.Identity().ListVisibleProjectsForPrincipal(
 		ctx,
-		identitystore.ListVisibleProjectsForPrincipalInput{OrgID: testOrgID, Principal: userPrincipal(operator.ID), Limit: 10},
+		identitystore.ListVisibleProjectsForPrincipalInput{
+			OrgID:     testOrgID,
+			Principal: userPrincipal(operator.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list operator visible projects: %v", err)
@@ -1444,7 +1470,12 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	}
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID, Role: "viewer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    viewer.ID,
+			Role:      "viewer",
+		},
 	); err != nil {
 		t.Fatalf("add viewer project membership: %v", err)
 	}
@@ -1607,7 +1638,9 @@ func TestVisibleMachinesForUser(t *testing.T) {
 		ctx,
 		executionstore.ListVisibleMachinesForPrincipalInput{
 			OrgID: testOrgID, Principal: userPrincipal(admin.ID),
-			Filters: executionstore.MachineListFilters{SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindBYO}}, Limit: 10,
+			Filters: executionstore.MachineListFilters{
+				SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindBYO},
+			}, Limit: 10,
 		},
 	)
 	if err != nil {
@@ -1621,7 +1654,9 @@ func TestVisibleMachinesForUser(t *testing.T) {
 		ctx,
 		executionstore.ListVisibleMachinesForPrincipalInput{
 			OrgID: testOrgID, Principal: userPrincipal(admin.ID),
-			Filters: executionstore.MachineListFilters{SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindPool}}, Limit: 10,
+			Filters: executionstore.MachineListFilters{
+				SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindPool},
+			}, Limit: 10,
 		},
 	)
 	if err != nil {
@@ -1767,7 +1802,11 @@ func TestVisibleMachinesForUser(t *testing.T) {
 
 	creatorPage, err := store.Execution().ListVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListVisibleMachinesForPrincipalInput{OrgID: testOrgID, Principal: userPrincipal(creator.ID), Limit: 10},
+		executionstore.ListVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			Principal: userPrincipal(creator.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list creator visible machines: %v", err)
@@ -1785,7 +1824,11 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	assertVisibleMachineManageMatchesAuthorize(t, ctx, store, creator.ID, creatorMachines)
 	removedPage, err := store.Execution().ListVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListVisibleMachinesForPrincipalInput{OrgID: testOrgID, Principal: userPrincipal(removedCreator.ID), Limit: 10},
+		executionstore.ListVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			Principal: userPrincipal(removedCreator.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list removed creator visible machines: %v", err)
@@ -1796,7 +1839,12 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	}
 	projectPage, err := store.Execution().ListProjectVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListProjectVisibleMachinesForPrincipalInput{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(viewer.ID), Limit: 10},
+		executionstore.ListProjectVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			Principal: userPrincipal(viewer.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list project visible machines: %v", err)
@@ -1814,7 +1862,12 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	}
 	nonActiveProjectPage, err := store.Execution().ListProjectVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListProjectVisibleMachinesForPrincipalInput{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(viewer.ID), Limit: 10},
+		executionstore.ListProjectVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			Principal: userPrincipal(viewer.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list project visible machines with non-active grant: %v", err)
@@ -1835,8 +1888,10 @@ func TestVisibleMachinesForUser(t *testing.T) {
 			OrgID:     testOrgID,
 			ProjectID: testProjectID,
 			Principal: userPrincipal(viewer.ID),
-			Filters:   executionstore.MachineListFilters{SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindBYO}},
-			Limit:     10,
+			Filters: executionstore.MachineListFilters{
+				SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindBYO},
+			},
+			Limit: 10,
 		},
 	)
 	if err != nil {
@@ -1852,8 +1907,10 @@ func TestVisibleMachinesForUser(t *testing.T) {
 			OrgID:     testOrgID,
 			ProjectID: testProjectID,
 			Principal: userPrincipal(viewer.ID),
-			Filters:   executionstore.MachineListFilters{SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindPool}},
-			Limit:     10,
+			Filters: executionstore.MachineListFilters{
+				SourceKinds: []executionstore.MachineSourceKind{executionstore.MachineSourceKindPool},
+			},
+			Limit: 10,
 		},
 	)
 	if err != nil {
@@ -1893,7 +1950,12 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	}
 	adminProjectPage, err := store.Execution().ListProjectVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListProjectVisibleMachinesForPrincipalInput{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID), Limit: 10},
+		executionstore.ListProjectVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			Principal: userPrincipal(admin.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list admin project visible machines: %v", err)
@@ -1926,7 +1988,12 @@ func TestVisibleMachinesForUser(t *testing.T) {
 	}
 	projectPage, err = store.Execution().ListProjectVisibleMachinesForPrincipal(
 		ctx,
-		executionstore.ListProjectVisibleMachinesForPrincipalInput{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(viewer.ID), Limit: 10},
+		executionstore.ListProjectVisibleMachinesForPrincipalInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			Principal: userPrincipal(viewer.ID),
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list project visible machines after delete: %v", err)
@@ -2193,7 +2260,10 @@ func TestDeleteOrganizationDeletesInvitationsAndSecrets(t *testing.T) {
 		t.Fatalf("count secrets after org deletion: %v", err)
 	}
 	if liveSecrets != 0 || versionRows != 0 {
-		t.Fatalf("org secrets after deletion: live=%d versions=%d, want soft-deleted rows with destroyed ciphertext", liveSecrets, versionRows)
+		t.Fatalf(
+			"org secrets after deletion: live=%d versions=%d, want soft-deleted rows with destroyed ciphertext",
+			liveSecrets, versionRows,
+		)
 	}
 }
 
@@ -2531,7 +2601,10 @@ func TestDeleteUserAccountDeletesOwnedSkillsAndSecrets(t *testing.T) {
 		t.Fatalf("load owned secret after account deletion: %v", err)
 	}
 	if !secretSoftDeleted || secretVersions != 0 {
-		t.Fatalf("user-owned secret after account deletion: softDeleted=%v versions=%d, want soft-deleted row with destroyed ciphertext", secretSoftDeleted, secretVersions)
+		t.Fatalf(
+			"user-owned secret after account deletion: softDeleted=%v versions=%d, want soft-deleted row with destroyed ciphertext",
+			secretSoftDeleted, secretVersions,
+		)
 	}
 }
 
@@ -2578,12 +2651,17 @@ model:
 		t.Fatalf("load agent after project deletion: %v", err)
 	}
 	if agentState != "archived" || !agentArchivedAt {
-		t.Fatalf("agent after project deletion: state=%s archived=%v, want archived in the same commit", agentState, agentArchivedAt)
+		t.Fatalf(
+			"agent after project deletion: state=%s archived=%v, want archived in the same commit", agentState,
+			agentArchivedAt,
+		)
 	}
 	if _, err := store.Identity().GetProject(ctx, testOrgID, testProjectID); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted project lookup error = %v, want not found", err)
 	}
-	if _, err := store.Organizations().DeleteProject(ctx, testOrgID, testProjectID, userPrincipal(user.ID)); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, err := store.Organizations().DeleteProject(
+		ctx, testOrgID, testProjectID, userPrincipal(user.ID),
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("second delete project error = %v, want not found", err)
 	}
 }
@@ -2672,7 +2750,9 @@ func TestBrowserSessionIdleLifetime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("age browser session: %v", err)
 	}
-	if _, _, err := store.Identity().AuthenticateBrowserSession(ctx, "idle-session"); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, _, err := store.Identity().AuthenticateBrowserSession(
+		ctx, "idle-session",
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("expected idle browser session to be unauthorized, got %v", err)
 	}
 }
@@ -2867,7 +2947,12 @@ func TestAuthUsageTimestampTouchesAreThrottled(t *testing.T) {
 			t,
 			ctx,
 			store,
-			executionstore.CreateMachinePoolInput{OrgID: testOrgID, Name: "Touch Pool", Provider: "test.provider", MaxTotalMachines: 1},
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Touch Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 1,
+			},
 		))
 
 	if err != nil {
@@ -2875,8 +2960,11 @@ func TestAuthUsageTimestampTouchesAreThrottled(t *testing.T) {
 	}
 	var machineID ID
 	if err := pool.QueryRow(ctx, `
-			INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state, lifecycle_changed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, metadata, next_reconcile_after, provision_attempts, created_at, updated_at)
-			VALUES ($1, $2, 'pool', 'Touch Machine', $3, 'provisioning', $4, 1, 1024, '', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $4, 1, $4, $4)
+			INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
+			    lifecycle_changed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, metadata, next_reconcile_after,
+			    provision_attempts, created_at, updated_at)
+			VALUES ($1, $2, 'pool', 'Touch Machine', $3, 'provisioning', $4, 1, 1024, '', '{}'::jsonb, '{}'::jsonb, '{}'
+			    ::jsonb, '{}'::jsonb, $4, 1, $4, $4)
 			RETURNING id
 		`, testOrgID, machinePool.ID, machinePool.Provider, now).Scan(&machineID); err != nil {
 		t.Fatalf("insert machine: %v", err)
@@ -3086,7 +3174,9 @@ func TestOrgInvitationAcceptDoesNotChangeExistingMembership(t *testing.T) {
 		t.Fatalf("expected consumed invite %s, got %+v", invite.ID, accepted)
 	}
 	var inviteRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM org_invitations WHERE id = $1`, invite.ID).Scan(&inviteRows); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM org_invitations WHERE id = $1`, invite.ID).Scan(
+		&inviteRows,
+	); err != nil {
 		t.Fatalf("count invitation after accept: %v", err)
 	}
 	if inviteRows != 0 {
@@ -3401,7 +3491,9 @@ func TestRemoveOrgMemberCascadesAccessGrants(t *testing.T) {
 		t.Fatalf("create member-owned secret: %v", err)
 	}
 
-	if err := store.Identity().RemoveOrgMember(ctx, identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID}); err != nil {
+	if err := store.Identity().RemoveOrgMember(
+		ctx, identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: member.ID},
+	); err != nil {
 		t.Fatalf("remove org member: %v", err)
 	}
 
@@ -3428,7 +3520,10 @@ func TestRemoveOrgMemberCascadesAccessGrants(t *testing.T) {
 		t.Fatalf("load member-owned secret: %v", err)
 	}
 	if !memberSecretSoftDeleted || memberSecretVersions != 0 {
-		t.Fatalf("member-owned secret should leave with the member: softDeleted=%v versions=%d", memberSecretSoftDeleted, memberSecretVersions)
+		t.Fatalf(
+			"member-owned secret should leave with the member: softDeleted=%v versions=%d", memberSecretSoftDeleted,
+			memberSecretVersions,
+		)
 	}
 
 	if err := store.Identity().RemoveOrgMember(
@@ -3914,8 +4009,22 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	results := make(chan result, 2)
 	start := make(chan struct{})
 	for _, input := range []identitystore.ResolveAuthIdentityInput{
-		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@bücher.example", EmailVerified: true, DisplayName: "Race A"},
-		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@xn--bcher-kva.example", EmailVerified: true, DisplayName: "Race B"},
+		{
+			AuthConnectorID: firstConnector.ID,
+			Issuer:          firstConnector.Issuer,
+			Subject:         "race-a",
+			Email:           "race@bücher.example",
+			EmailVerified:   true,
+			DisplayName:     "Race A",
+		},
+		{
+			AuthConnectorID: secondConnector.ID,
+			Issuer:          secondConnector.Issuer,
+			Subject:         "race-b",
+			Email:           "race@xn--bcher-kva.example",
+			EmailVerified:   true,
+			DisplayName:     "Race B",
+		},
 	} {
 
 		go func() {
@@ -3937,7 +4046,10 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&userCount); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'race@xn--bcher-kva.example' AND verified_at IS NOT NULL`).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM user_emails WHERE normalized_email = 'race@xn--bcher-kva.example' AND verified_at IS NOT NULL`,
+	).
 		Scan(&emailCount); err != nil {
 		t.Fatalf("count verified race emails: %v", err)
 	}
@@ -4008,11 +4120,17 @@ func TestResolveTrustedAuthIdentityConcurrentSameSubjectIsIdempotent(t *testing.
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&userCount); err != nil {
 		t.Fatalf("count users: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_emails WHERE normalized_email = 'same-subject@example.com' AND verified_at IS NOT NULL`).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM user_emails WHERE normalized_email = 'same-subject@example.com' AND verified_at IS NOT NULL`,
+	).
 		Scan(&emailCount); err != nil {
 		t.Fatalf("count same-subject emails: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'same-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'same-subject'`,
+		connector.ID,
+	).
 		Scan(&identityCount); err != nil {
 		t.Fatalf("count same-subject identities: %v", err)
 	}
@@ -4256,21 +4374,29 @@ func TestAuthConnectorSchemaEnforcesIdentityNamespace(t *testing.T) {
 		{name: "id", query: `UPDATE auth_connectors SET id = $1 WHERE id = $2`, value: testID("changed-auth-connector-id")},
 		{name: "slug", query: `UPDATE auth_connectors SET slug = $1 WHERE id = $2`, value: "changed-schema-oidc"},
 		{name: "kind", query: `UPDATE auth_connectors SET kind = $1 WHERE id = $2`, value: "github"},
-		{name: "issuer", query: `UPDATE auth_connectors SET issuer = $1 WHERE id = $2`, value: "https://changed-idp.example.com"},
+		{
+			name:  "issuer",
+			query: `UPDATE auth_connectors SET issuer = $1 WHERE id = $2`,
+			value: "https://changed-idp.example.com",
+		},
 	} {
 		if _, err := pool.Exec(ctx, test.query, test.value, connector.ID); !isPgCode(err, "25006") {
 			t.Fatalf("update auth connector %s error = %v, want SQLSTATE 25006", test.name, err)
 		}
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_connectors(slug, kind, display_name, issuer, authorization_url, token_url, userinfo_url, client_id, encrypted_client_secret, created_at, updated_at)
-		VALUES ('invalid-oidc', 'oidc', 'Invalid OIDC', 'https://invalid-oidc.example.com', 'https://invalid-oidc.example.com/auth', '', '', 'client', '{}'::jsonb, $1, $1)
+		INSERT INTO auth_connectors(slug, kind, display_name, issuer, authorization_url, token_url, userinfo_url,
+		    client_id, encrypted_client_secret, created_at, updated_at)
+		VALUES ('invalid-oidc', 'oidc', 'Invalid OIDC', 'https://invalid-oidc.example.com',
+		    'https://invalid-oidc.example.com/auth', '', '', 'client', '{}'::jsonb, $1, $1)
 	`, now); !isCheckViolation(err) {
 		t.Fatalf("invalid oidc connector error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_connectors(slug, kind, display_name, issuer, authorization_url, token_url, userinfo_url, client_id, encrypted_client_secret, created_at, updated_at)
-		VALUES ('invalid-github', 'github', 'Invalid GitHub', 'https://github.com', 'https://github.com/login/oauth/authorize', '', 'https://api.github.com/user', 'client', '{}'::jsonb, $1, $1)
+		INSERT INTO auth_connectors(slug, kind, display_name, issuer, authorization_url, token_url, userinfo_url,
+		    client_id, encrypted_client_secret, created_at, updated_at)
+		VALUES ('invalid-github', 'github', 'Invalid GitHub', 'https://github.com',
+		    'https://github.com/login/oauth/authorize', '', 'https://api.github.com/user', 'client', '{}'::jsonb, $1, $1)
 	`, now); !isCheckViolation(err) {
 		t.Fatalf("invalid github connector error = %v, want check violation", err)
 	}
@@ -4328,43 +4454,53 @@ func TestDeviceAuthFlowSchemaEnforcesApprovalIntegrity(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at)
-		VALUES ('device-schema-wrong-session', 'device-schema-wrong-user', 'test-client', 'client', 'token', $1, $2, $3, $4, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at, approved_by_user_id, approved_browser_session_id, approved_at)
+		VALUES ('device-schema-wrong-session', 'device-schema-wrong-user', 'test-client', 'client', 'token', $1, $2, $3,
+		    $4, $1)
 	`, now, now.Add(time.Hour), user.ID, otherSession.ID); !isForeignKeyViolation(err) {
 		t.Fatalf("cross-user approved session error = %v, want foreign key violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, consumed_at)
-		VALUES ('device-schema-consumed-unapproved', 'device-schema-consumed-user', 'test-client', 'client', 'token', $1, $2, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at, consumed_at)
+		VALUES ('device-schema-consumed-unapproved', 'device-schema-consumed-user', 'test-client', 'client', 'token', $1,
+		    $2, $1)
 	`, now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("consumed unapproved flow error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at)
-		VALUES ('device-schema-denied-consumed', 'device-schema-denied-consumed-user', 'test-client', 'client', 'token', $1, $2, $3, $4, $1, $1, $1)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at, approved_by_user_id, approved_browser_session_id, approved_at, denied_at, consumed_at)
+		VALUES ('device-schema-denied-consumed', 'device-schema-denied-consumed-user', 'test-client', 'client', 'token',
+		    $1, $2, $3, $4, $1, $1, $1)
 	`, now, now.Add(time.Hour), user.ID, session.ID); !isCheckViolation(err) {
 		t.Fatalf("denied consumed flow error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at)
 		VALUES ('device-schema-long-client', 'device-schema-long-client-user', 'test-client', $1, 'token', $2, $3)
 	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long client name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at)
 		VALUES ('device-schema-long-token', 'device-schema-long-token-user', 'test-client', 'client', $1, $2, $3)
 	`, strings.Repeat("a", resourcename.MaxCodePoints+1), now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long token name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at)
 		VALUES ('device-schema-control-client', 'device-schema-control-client-user', 'test-client', $1, 'token', $2, $3)
 	`, "bad\nclient", now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("control character client name error = %v, want check violation", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at)
 		VALUES ('device-schema-control-client-id', 'device-schema-control-client-id-user', $1, 'client', 'token', $2, $3)
 	`, "bad\nclient", now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("control character client id error = %v, want check violation", err)
@@ -4387,7 +4523,8 @@ func TestDeviceAuthClientIDValidationMatchesSchema(t *testing.T) {
 	}
 	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at, expires_at)
+		INSERT INTO auth_device_flows(device_code_hash, user_code_hash, client_id, client_name, token_name, created_at,
+		    expires_at)
 		VALUES ('device-schema-long-client-id', 'device-schema-long-client-id-user', $1, 'client', 'token', $2, $3)
 	`, clientID, now, now.Add(time.Hour)); !isCheckViolation(err) {
 		t.Fatalf("long client id error = %v, want check violation", err)
@@ -4477,7 +4614,10 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 		t.Fatalf("pending poll = %+v, want pending without token", pending)
 	}
 	var lastPolledAt *time.Time
-	if err := pool.QueryRow(ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`, identitystore.HashBearerToken(flow.DeviceCode)).
+	if err := pool.QueryRow(
+		ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`,
+		identitystore.HashBearerToken(flow.DeviceCode),
+	).
 		Scan(&lastPolledAt); err != nil {
 		t.Fatalf("load pending device poll timestamp: %v", err)
 	}
@@ -4495,7 +4635,10 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if slow.Status != identitystore.DeviceAuthFlowStatusSlowDown {
 		t.Fatalf("second poll status = %s, want slow_down", slow.Status)
 	}
-	if err := pool.QueryRow(ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`, identitystore.HashBearerToken(flow.DeviceCode)).
+	if err := pool.QueryRow(
+		ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`,
+		identitystore.HashBearerToken(flow.DeviceCode),
+	).
 		Scan(&lastPolledAt); err != nil {
 		t.Fatalf("load slow device poll timestamp: %v", err)
 	}
@@ -4519,7 +4662,10 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if boundaryPending.Status != identitystore.DeviceAuthFlowStatusPending || boundaryPending.Token != "" {
 		t.Fatalf("boundary poll = %+v, want pending without token", boundaryPending)
 	}
-	if err := pool.QueryRow(ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`, identitystore.HashBearerToken(flow.DeviceCode)).
+	if err := pool.QueryRow(
+		ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`,
+		identitystore.HashBearerToken(flow.DeviceCode),
+	).
 		Scan(&lastPolledAt); err != nil {
 		t.Fatalf("load boundary device poll timestamp: %v", err)
 	}
@@ -4537,7 +4683,10 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if nextPending.Status != identitystore.DeviceAuthFlowStatusSlowDown || nextPending.Token != "" {
 		t.Fatalf("next poll = %+v, want slow_down without token", nextPending)
 	}
-	if err := pool.QueryRow(ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`, identitystore.HashBearerToken(flow.DeviceCode)).
+	if err := pool.QueryRow(
+		ctx, `SELECT last_polled_at FROM auth_device_flows WHERE device_code_hash = $1`,
+		identitystore.HashBearerToken(flow.DeviceCode),
+	).
 		Scan(&lastPolledAt); err != nil {
 		t.Fatalf("load next device poll timestamp: %v", err)
 	}
@@ -4660,7 +4809,8 @@ func TestDeviceAuthFlowMintsSingleUsePersonalAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticate minted device token: %v", err)
 	}
-	if principal.Type != identitystore.PrincipalTypeUser || principal.ID != user.ID || principal.PersonalAccessTokenID == NilID {
+	if principal.Type != identitystore.PrincipalTypeUser || principal.ID != user.ID ||
+		principal.PersonalAccessTokenID == NilID {
 		t.Fatalf("minted token principal = %+v, want user PAT principal", principal)
 	}
 	var deviceTokenHash string
@@ -4881,7 +5031,9 @@ func TestPasswordSignupAllowsDuplicateUnverifiedAndFirstVerificationWins(t *test
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 
-	first, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "Signup@Example.com"})
+	first, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "Signup@Example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start first signup: %v", err)
 	}
@@ -4989,7 +5141,9 @@ func TestPasswordSignupRejectsExpiryAfterTokenLockWait(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
-	start, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "signup-lock-expiry@example.com"})
+	start, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "signup-lock-expiry@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start signup: %v", err)
 	}
@@ -5060,7 +5214,9 @@ func TestUserAuthTokenSchemaEnforcesEmailOwnership(t *testing.T) {
 	now := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
 	owner := mustCreateIdentityUser(t, ctx, store, "token-owner@example.com", "Token Owner")
 	other := mustCreateIdentityUser(t, ctx, store, "token-other@example.com", "Token Other")
-	emails, err := testQueries(store).ListVerifiedUserEmailsByUser(ctx, dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: owner.ID})
+	emails, err := testQueries(store).ListVerifiedUserEmailsByUser(
+		ctx, dbsqlc.ListVerifiedUserEmailsByUserParams{UserID: owner.ID},
+	)
 	if err != nil {
 		t.Fatalf("list owner email: %v", err)
 	}
@@ -5149,7 +5305,9 @@ func TestPasswordSignupConcurrentVerificationFirstCommitWins(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
 
-	first, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "race-signup@bu\u0308cher.example"})
+	first, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "race-signup@bu\u0308cher.example"},
+	)
 	if err != nil {
 		t.Fatalf("start first signup: %v", err)
 	}
@@ -5264,7 +5422,9 @@ func TestPasswordResetConsumesTokenAndRevokesSessions(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
-	start, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "reset@example.com"})
+	start, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "reset@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start signup: %v", err)
 	}
@@ -5340,7 +5500,8 @@ func TestPasswordResetConsumesTokenAndRevokesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new reset session: %v", err)
 	}
-	if principal.ID != completed.User.ID || principal.Type != identitystore.PrincipalTypeUser || isNilID(principal.BrowserSessionID) {
+	if principal.ID != completed.User.ID || principal.Type != identitystore.PrincipalTypeUser ||
+		isNilID(principal.BrowserSessionID) {
 		t.Fatalf("new reset principal=%+v", principal)
 	}
 	if _, err := authenticatePasswordForTest(
@@ -5551,7 +5712,9 @@ func TestPasswordResetRejectsExpiryAfterTokenLockWait(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	store := newIntegrationStore(pool)
-	start, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "reset-lock-expiry@example.com"})
+	start, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "reset-lock-expiry@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start signup: %v", err)
 	}
@@ -5565,7 +5728,9 @@ func TestPasswordResetRejectsExpiryAfterTokenLockWait(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete signup: %v", err)
 	}
-	reset, err := store.Identity().StartPasswordReset(ctx, identitystore.PasswordResetStartInput{Email: "reset-lock-expiry@example.com"})
+	reset, err := store.Identity().StartPasswordReset(
+		ctx, identitystore.PasswordResetStartInput{Email: "reset-lock-expiry@example.com"},
+	)
 	if err != nil || !reset.Found {
 		t.Fatalf("start password reset: record=%+v err=%v", reset, err)
 	}
@@ -5647,7 +5812,9 @@ func TestPasswordLoginAndResetSerializeSessionCreation(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 
-	start, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "login-reset-race@example.com"})
+	start, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "login-reset-race@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start signup: %v", err)
 	}
@@ -5910,7 +6077,9 @@ func TestPasswordAuthTokenLifecycleRejectsExpiredReusedAndWrongPurpose(t *testin
 		t.Fatalf("expired verification token error=%v, want unauthorized", err)
 	}
 
-	signup, err := store.Identity().StartPasswordSignup(ctx, identitystore.PasswordSignupStartInput{Email: "reuse-verify@example.com"})
+	signup, err := store.Identity().StartPasswordSignup(
+		ctx, identitystore.PasswordSignupStartInput{Email: "reuse-verify@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("start signup: %v", err)
 	}
@@ -6334,9 +6503,21 @@ func TestCompromiseRevocationBlocksStalePersonalAccessTokenCreation(t *testing.T
 	if err != nil {
 		t.Fatalf("create pat: %v", err)
 	}
-	sessionPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, BrowserSessionID: session.ID}
-	idleSessionPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, BrowserSessionID: idleSession.ID}
-	patPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, PersonalAccessTokenID: pat.Record.ID}
+	sessionPrincipal := identitystore.PrincipalRecord{
+		Type:             identitystore.PrincipalTypeUser,
+		ID:               user.ID,
+		BrowserSessionID: session.ID,
+	}
+	idleSessionPrincipal := identitystore.PrincipalRecord{
+		Type:             identitystore.PrincipalTypeUser,
+		ID:               user.ID,
+		BrowserSessionID: idleSession.ID,
+	}
+	patPrincipal := identitystore.PrincipalRecord{
+		Type:                  identitystore.PrincipalTypeUser,
+		ID:                    user.ID,
+		PersonalAccessTokenID: pat.Record.ID,
+	}
 	unboundUserPrincipal := userPrincipal(user.ID)
 	nonUserPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeMachineDaemon, ID: machine.ID}
 	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
@@ -6492,8 +6673,11 @@ func TestMachineDaemonTokenRequiresEligibleMachineLifecycle(t *testing.T) {
 	}
 	var machineID ID
 	if err := pool.QueryRow(ctx, `
-			INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state, lifecycle_changed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, metadata, next_reconcile_after, provision_attempts, created_at, updated_at)
-			VALUES ($1, $2, 'pool', 'Lifecycle Machine', $3, 'provisioning', $4, 1, 1024, '', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $4, 1, $4, $4)
+			INSERT INTO machines(org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
+			    lifecycle_changed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, metadata, next_reconcile_after,
+			    provision_attempts, created_at, updated_at)
+			VALUES ($1, $2, 'pool', 'Lifecycle Machine', $3, 'provisioning', $4, 1, 1024, '', '{}'::jsonb, '{}'::jsonb, '{}'
+			    ::jsonb, '{}'::jsonb, $4, 1, $4, $4)
 			RETURNING id
 		`, testOrgID, machinePool.ID, machinePool.Provider, now).Scan(&machineID); err != nil {
 		t.Fatalf("insert pool machine: %v", err)
@@ -6611,7 +6795,11 @@ func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create browser session: %v", err)
 	}
-	principal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, BrowserSessionID: session.ID}
+	principal := identitystore.PrincipalRecord{
+		Type:             identitystore.PrincipalTypeUser,
+		ID:               user.ID,
+		BrowserSessionID: session.ID,
+	}
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -6771,7 +6959,9 @@ func assertUserRowCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, u
 func assertAuthTokenRowCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token string, want int64) {
 	t.Helper()
 	var got int64
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_tokens WHERE token_hash = $1`, identitystore.HashBearerToken(token)).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_tokens WHERE token_hash = $1`, identitystore.HashBearerToken(token),
+	).
 		Scan(&got); err != nil {
 		t.Fatalf("count auth tokens: %v", err)
 	}
@@ -6789,7 +6979,9 @@ func assertBrowserSessionRowCountByToken(
 ) {
 	t.Helper()
 	var got int64
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM browser_sessions WHERE token_hash = $1`, identitystore.HashBearerToken(token)).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM browser_sessions WHERE token_hash = $1`, identitystore.HashBearerToken(token),
+	).
 		Scan(&got); err != nil {
 		t.Fatalf("count browser sessions: %v", err)
 	}
@@ -6807,7 +6999,10 @@ func assertAuthDeviceFlowRowCountByDeviceCode(
 ) {
 	t.Helper()
 	var got int64
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM auth_device_flows WHERE device_code_hash = $1`, identitystore.HashBearerToken(deviceCode)).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM auth_device_flows WHERE device_code_hash = $1`,
+		identitystore.HashBearerToken(deviceCode),
+	).
 		Scan(&got); err != nil {
 		t.Fatalf("count device flows: %v", err)
 	}

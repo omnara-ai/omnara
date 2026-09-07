@@ -79,7 +79,11 @@ func TestServiceE2EDeterministicWorkerRunsModelTurn(t *testing.T) {
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, modelText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -283,7 +287,11 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, modelText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -390,7 +398,11 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 1'`, projectUUID, agentUUID).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 1'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -417,7 +429,11 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 	)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 2'`, projectUUID, agentUUID).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.text_content = 'config change response 2'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -443,7 +459,11 @@ func TestServiceE2EConfigChangeAffectsNextModelContext(t *testing.T) {
 		t.Fatalf("second request did not use updated config: %+v", gotRequests[1])
 	}
 	var contexts, configIDs int
-	if err := env.db.QueryRow(ctx, `SELECT count(*), count(DISTINCT agent_config_id) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'succeeded'`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT count(*), count(DISTINCT agent_config_id) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'succeeded'`,
+		projectUUID, agentUUID,
+	).
 		Scan(&contexts, &configIDs); err != nil {
 		t.Fatalf("query model contexts: %v", err)
 	}
@@ -526,7 +546,11 @@ func TestServiceE2EDeterministicConfigChangeWaitsForOpenToolInteraction(t *testi
 			return
 		}
 		var interactionState string
-		if err := env.db.QueryRow(ctx, `SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`, identity[0], identity[1], identity[2]).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT state FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+			identity[0], identity[1], identity[2],
+		).
 			Scan(&interactionState); err != nil {
 			t.Errorf("query interaction state from Anthropic request: %v", err)
 			http.Error(w, "interaction unavailable", http.StatusServiceUnavailable)
@@ -628,11 +652,18 @@ WHERE input.project_id = $1
 			Scan(&configEvents); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND state = 'open'`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND state = 'open'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&openInteractions); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`, projectUUID,
+			agentUUID,
+		).
 			Scan(&modelContexts); err != nil {
 			return false, err.Error()
 		}
@@ -640,7 +671,11 @@ WHERE input.project_id = $1
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -686,7 +721,11 @@ WHERE input.project_id = $1
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, finalText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, finalText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -717,7 +756,11 @@ WHERE call.project_id = $1
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -831,7 +874,9 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 	canceledInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued canceled message", "")
 	secondInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued second message", "")
 	thirdInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "queued third message", "")
-	steeringInputID := project.createInputWithDeliveryMode(t, ctx, agentID, "steering priority message", executionstore.DeliveryModeSteering)
+	steeringInputID := project.createInputWithDeliveryMode(
+		t, ctx, agentID, "steering priority message", executionstore.DeliveryModeSteering,
+	)
 	project.env.requestJSON(
 		t,
 		ctx,
@@ -865,8 +910,12 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 	)
 	backlogData := testutil.RequireType[[]any](t, backlog["data"])
 	if len(backlogData) != 3 || testutil.RequireType[map[string]any](t, backlogData[0])["id"] != steeringInputID ||
-		testutil.RequireType[map[string]any](t, backlogData[1])["id"] != thirdInputID || testutil.RequireType[map[string]any](t, backlogData[2])["id"] != secondInputID {
-		t.Fatalf("backlog before worker = %+v, want steering then reordered third and second without canceled input", backlogData)
+		testutil.RequireType[map[string]any](t, backlogData[1])["id"] != thirdInputID ||
+		testutil.RequireType[map[string]any](t, backlogData[2])["id"] != secondInputID {
+		t.Fatalf(
+			"backlog before worker = %+v, want steering then reordered third and second without canceled input",
+			backlogData,
+		)
 	}
 
 	env.startWorker(
@@ -879,12 +928,20 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var outputs, canceledInputs int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content IN ('steering turn complete', 'queued third turn complete', 'queued second turn complete')`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content IN ('steering turn complete', 'queued third turn complete', 'queued second turn complete')`,
+			projectUUID, agentUUID,
+		).
 			Scan(&outputs); err != nil {
 			return false, err.Error()
 		}
 		canceledUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgentInput, canceledInputID)
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3 AND state = 'canceled'`, projectUUID, agentUUID, canceledUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3 AND state = 'canceled'`,
+			projectUUID, agentUUID, canceledUUID,
+		).
 			Scan(&canceledInputs); err != nil {
 			return false, err.Error()
 		}
@@ -1081,7 +1138,9 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		adminUserID:  adminUserID,
 		projectPath:  projectPath,
 		agentID:      testutil.RequireType[string](t, profile["id"]),
-		configID:     testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"]),
+		configID: testutil.RequireType[string](
+			t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"],
+		),
 	}
 }
 

@@ -50,7 +50,8 @@ func TestIntegrationInstallBindingsIdentityAndOAuthReplay(t *testing.T) {
 	}
 	if !profileInstall.Created || profileInstall.AgentProfileID != profile.ID ||
 		profileInstall.AgentID != NilID || profileInstall.ProviderAccountRef != "A_PROFILE" ||
-		profileInstall.State != integrationstore.IntegrationInstallStateActive || profileInstall.CredentialSecretID != credentialID ||
+		profileInstall.State != integrationstore.IntegrationInstallStateActive ||
+		profileInstall.CredentialSecretID != credentialID ||
 		profileInstall.LastOAuthFlowID != profileInput.OAuthFlowID {
 		t.Fatalf("unexpected profile-bound install: %+v", profileInstall)
 	}
@@ -158,12 +159,16 @@ func TestIntegrationInstallBindingsIdentityAndOAuthReplay(t *testing.T) {
 		t.Fatalf("unexpected install after non-oauth update: %+v", preserved)
 	}
 
-	if _, err := store.Integrations().UpsertIntegrationInstall(ctx, rotated); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
+	if _, err := store.Integrations().UpsertIntegrationInstall(
+		ctx, rotated,
+	); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
 		t.Fatalf("same-flow reinstall error = %v, want ErrIntegrationOAuthFlowConsumed", err)
 	}
 	olderFlow := rotated
 	olderFlow.OAuthFlowID = profileInput.OAuthFlowID
-	if _, err := store.Integrations().UpsertIntegrationInstall(ctx, olderFlow); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
+	if _, err := store.Integrations().UpsertIntegrationInstall(
+		ctx, olderFlow,
+	); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
 		t.Fatalf("older-flow reinstall error = %v, want ErrIntegrationOAuthFlowConsumed", err)
 	}
 	reusedFlow := slackIntegrationInstallInput(
@@ -175,7 +180,9 @@ func TestIntegrationInstallBindingsIdentityAndOAuthReplay(t *testing.T) {
 		"T_SHARED",
 	)
 	reusedFlow.OAuthFlowID = rotated.OAuthFlowID
-	if _, err := store.Integrations().UpsertIntegrationInstall(ctx, reusedFlow); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
+	if _, err := store.Integrations().UpsertIntegrationInstall(
+		ctx, reusedFlow,
+	); !errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed) {
 		t.Fatalf("cross-install oauth flow reuse error = %v, want ErrIntegrationOAuthFlowConsumed", err)
 	}
 
@@ -245,7 +252,9 @@ func TestIntegrationInstallAuthorizationAndGlobalIdentityScope(t *testing.T) {
 		"A_UNAUTHORIZED",
 		"T_SCOPE",
 	)
-	if _, err := store.Integrations().UpsertIntegrationInstall(ctx, unauthorized); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, err := store.Integrations().UpsertIntegrationInstall(
+		ctx, unauthorized,
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("unauthorized installer error = %v, want ErrUnauthorized", err)
 	}
 
@@ -1082,14 +1091,17 @@ func TestIntegrationInputDedupeTargetProgressionAndDisable(t *testing.T) {
 	if firstTarget.AgentID != agent.ID || secondTarget.AgentID != agent.ID {
 		t.Fatalf("fixed-agent targets diverged: first=%+v second=%+v", firstTarget, secondTarget)
 	}
-	_, _, err = store.Execution().CreateIntegrationTargetContentInput(ctx, executionstore.CreateIntegrationTargetContentInput{
-		IntegrationInstallID: install.ID,
-		IntegrationTargetID:  firstTarget.ID,
-		ProviderTenantID:     "T_WRONG",
-		ProviderUserID:       "U_SHARED",
-		ContentBlocks:        json.RawMessage(`[{"type":"text","text":"wrong tenant"}]`),
-		IdempotencyKey:       "Ev-wrong-tenant",
-	})
+	_, _, err = store.Execution().CreateIntegrationTargetContentInput(
+		ctx,
+		executionstore.CreateIntegrationTargetContentInput{
+			IntegrationInstallID: install.ID,
+			IntegrationTargetID:  firstTarget.ID,
+			ProviderTenantID:     "T_WRONG",
+			ProviderUserID:       "U_SHARED",
+			ContentBlocks:        json.RawMessage(`[{"type":"text","text":"wrong tenant"}]`),
+			IdempotencyKey:       "Ev-wrong-tenant",
+		},
+	)
 	if err == nil {
 		t.Fatal("integration input with the wrong provider tenant succeeded")
 	}
@@ -1188,14 +1200,17 @@ func TestIntegrationInputDedupeTargetProgressionAndDisable(t *testing.T) {
 	if disabledReplay.ID != firstInput.ID {
 		t.Fatalf("disabled replay id = %s, want %s", disabledReplay.ID, firstInput.ID)
 	}
-	_, _, err = store.Execution().CreateIntegrationTargetContentInput(ctx, executionstore.CreateIntegrationTargetContentInput{
-		IntegrationInstallID: install.ID,
-		IntegrationTargetID:  firstTarget.ID,
-		ProviderTenantID:     install.ProviderTenantID,
-		ProviderUserID:       "U_SHARED",
-		ContentBlocks:        json.RawMessage(`[{"type":"text","text":"new"}]`),
-		IdempotencyKey:       "Ev-disabled-new",
-	})
+	_, _, err = store.Execution().CreateIntegrationTargetContentInput(
+		ctx,
+		executionstore.CreateIntegrationTargetContentInput{
+			IntegrationInstallID: install.ID,
+			IntegrationTargetID:  firstTarget.ID,
+			ProviderTenantID:     install.ProviderTenantID,
+			ProviderUserID:       "U_SHARED",
+			ContentBlocks:        json.RawMessage(`[{"type":"text","text":"new"}]`),
+			IdempotencyKey:       "Ev-disabled-new",
+		},
+	)
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("new input on disabled install error = %v, want ErrUnauthorized", err)
 	}
@@ -1231,13 +1246,17 @@ func TestIntegrationTargetExternalProducerValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create producer target: %v", err)
 	}
-	externalActor, err := executionstore.IntegrationUpsertActorIdentityTx(ctx, store.q, executionstore.UpsertActorIdentityInput{
-		ProjectID:        testProjectID,
-		Provider:         integrationstore.IntegrationProviderSlack,
-		ProviderTenantID: install.ProviderTenantID,
-		ProviderUserID:   "U_PRODUCER",
-		DisplayName:      "Producer User",
-	})
+	externalActor, err := executionstore.IntegrationUpsertActorIdentityTx(
+		ctx,
+		store.q,
+		executionstore.UpsertActorIdentityInput{
+			ProjectID:        testProjectID,
+			Provider:         integrationstore.IntegrationProviderSlack,
+			ProviderTenantID: install.ProviderTenantID,
+			ProviderUserID:   "U_PRODUCER",
+			DisplayName:      "Producer User",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create producer actor: %v", err)
 	}
@@ -1264,7 +1283,9 @@ func TestIntegrationTargetExternalProducerValidation(t *testing.T) {
 	}
 	metadataMismatch := input
 	metadataMismatch.Metadata = json.RawMessage(`{"changed":true}`)
-	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, metadataMismatch); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx, metadataMismatch,
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("metadata-mismatched replay error = %v, want ErrIdempotencyConflict", err)
 	}
 
@@ -1283,13 +1304,17 @@ func TestIntegrationTargetExternalProducerValidation(t *testing.T) {
 		ProviderUserID:   "U_OTHER",
 	}
 	wrongTenant.IdempotencyKey = "Ev-wrong-producer-tenant"
-	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, wrongTenant); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx, wrongTenant,
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("wrong-tenant producer actor error = %v, want ErrUnauthorized", err)
 	}
 	omnaraWithTarget := input
 	omnaraWithTarget.Actor = mustOmnaraActorParams(t, admin.ID)
 	omnaraWithTarget.IdempotencyKey = "Ev-omnara-with-target"
-	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, omnaraWithTarget); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if _, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx, omnaraWithTarget,
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("omnara producer with integration target error = %v, want ErrUnauthorized", err)
 	}
 }
@@ -1451,14 +1476,17 @@ func mustCreateIntegrationInput(
 	providerUserID, idempotencyKey, text string,
 ) executionstore.AgentInputRecord {
 	t.Helper()
-	input, _, err := store.Execution().CreateIntegrationTargetContentInput(ctx, executionstore.CreateIntegrationTargetContentInput{
-		IntegrationInstallID: install.ID,
-		IntegrationTargetID:  target.ID,
-		ProviderTenantID:     install.ProviderTenantID,
-		ProviderUserID:       providerUserID,
-		ContentBlocks:        json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text)),
-		IdempotencyKey:       idempotencyKey,
-	})
+	input, _, err := store.Execution().CreateIntegrationTargetContentInput(
+		ctx,
+		executionstore.CreateIntegrationTargetContentInput{
+			IntegrationInstallID: install.ID,
+			IntegrationTargetID:  target.ID,
+			ProviderTenantID:     install.ProviderTenantID,
+			ProviderUserID:       providerUserID,
+			ContentBlocks:        json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text)),
+			IdempotencyKey:       idempotencyKey,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create integration input: %v", err)
 	}

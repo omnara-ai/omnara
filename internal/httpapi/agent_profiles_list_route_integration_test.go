@@ -276,7 +276,10 @@ func assertProfilesNewestFirst(t *testing.T, data []any) {
 	t.Helper()
 	var prev time.Time
 	for i, raw := range data {
-		ts, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]))
+		ts, err := time.Parse(
+			time.RFC3339Nano,
+			testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]),
+		)
 		if err != nil {
 			t.Fatalf("parse created_at for profile %d: %v", i, err)
 		}

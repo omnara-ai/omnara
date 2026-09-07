@@ -429,15 +429,20 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 		t.Fatalf("begin synthetic latest turn: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	event, err := executionstore.IntegrationAppendTypedAgentEventTx(ctx, notifications.NewTxNotifications(), tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		TurnID:         turnID,
-		IsOpeningEvent: true,
-		Kind:           events.KindAgentInput,
-		IdempotencyKey: "agent_input:" + inputID.String(),
-		AgentInputID:   inputID,
-	})
+	event, err := executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			TurnID:         turnID,
+			IsOpeningEvent: true,
+			Kind:           events.KindAgentInput,
+			IdempotencyKey: "agent_input:" + inputID.String(),
+			AgentInputID:   inputID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("append synthetic latest input event: %v", err)
 	}
@@ -452,7 +457,12 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 		t.Fatalf("resolve synthetic latest input: %v", err)
 	}
 	var turnSequence int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`, testProjectID, fixture.AgentID).Scan(&turnSequence); err != nil {
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`,
+		testProjectID,
+		fixture.AgentID,
+	).Scan(&turnSequence); err != nil {
 		t.Fatalf("load next turn sequence: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -467,7 +477,14 @@ func appendSyntheticLatestContentTurnForFrontierTest(
 	return turnID
 }
 
-func assertFrontierCountTest(t *testing.T, ctx context.Context, store *Store, label, query string, agentID, id ID, want int) {
+func assertFrontierCountTest(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	label, query string,
+	agentID, id ID,
+	want int,
+) {
 	t.Helper()
 	var got int
 	if err := store.pool.QueryRow(ctx, query, testProjectID, agentID, id).Scan(&got); err != nil {
@@ -762,7 +779,13 @@ func publishCheckpointForRangeTest(
 	})
 }
 
-func appendCancelStopEventForContinuationSeedTest(t *testing.T, ctx context.Context, fixture processDaemonFixture, turnID ID, now time.Time) events.Event {
+func appendCancelStopEventForContinuationSeedTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	turnID ID,
+	now time.Time,
+) events.Event {
 	t.Helper()
 	actorID := fixture.omnaraActorID(t, ctx)
 	tx, err := fixture.Store.pool.Begin(ctx)
@@ -784,21 +807,37 @@ func appendCancelStopEventForContinuationSeedTest(t *testing.T, ctx context.Cont
 	if err != nil {
 		t.Fatalf("insert cancel control input: %v", err)
 	}
-	eventRecord, err := executionstore.IntegrationAppendTypedAgentEventTx(ctx, notifications.NewTxNotifications(), tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		TurnID:         turnID,
-		Kind:           events.KindAgentInput,
-		IdempotencyKey: "agent_input:" + controlInput.ID.String(),
-		AgentInputID:   controlInput.ID,
-	})
+	eventRecord, err := executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			TurnID:         turnID,
+			Kind:           events.KindAgentInput,
+			IdempotencyKey: "agent_input:" + controlInput.ID.String(),
+			AgentInputID:   controlInput.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("append cancel stop event: %v", err)
 	}
-	if err := executionstore.IntegrationUpdateAgentTurnLatestEventQuery(ctx, qtx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, NilID); err != nil {
+	if err := executionstore.IntegrationUpdateAgentTurnLatestEventQuery(
+		ctx, qtx, testProjectID, fixture.AgentID, turnID, eventRecord.Event.ID, NilID,
+	); err != nil {
 		t.Fatalf("update turn latest cancel event: %v", err)
 	}
-	if err := qtx.ResolveControlAgentInput(ctx, dbsqlc.ResolveControlAgentInputParams{ProjectID: testProjectID, AgentID: fixture.AgentID, ID: controlInput.ID, ControlType: &controlType, EventID: &eventRecord.Event.ID}); err != nil {
+	if err := qtx.ResolveControlAgentInput(
+		ctx,
+		dbsqlc.ResolveControlAgentInputParams{
+			ProjectID:   testProjectID,
+			AgentID:     fixture.AgentID,
+			ID:          controlInput.ID,
+			ControlType: &controlType,
+			EventID:     &eventRecord.Event.ID,
+		},
+	); err != nil {
 		t.Fatalf("resolve cancel control input: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

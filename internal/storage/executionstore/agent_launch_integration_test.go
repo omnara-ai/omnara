@@ -321,7 +321,13 @@ func TestLaunchAgentValidatesProviderPoolConfigAtLaunch(t *testing.T) {
 		}); err != nil {
 		t.Fatalf("create pool grant: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-provider-validation", "Launch Provider Validation Agent", `
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"launch-provider-validation",
+		"Launch Provider Validation Agent",
+		`
 instruction: Trigger provider validation at launch.
 model:
   provider_config: openai-prod
@@ -332,7 +338,8 @@ machine_sources:
     initial_num_machines: 1
 tools:
   run_command: {}
-`)
+`,
+	)
 
 	providers.reject = true
 	_, err := store.Execution().LaunchAgent(
@@ -519,7 +526,10 @@ tools:
 		t.Fatalf("get provider intent machine: %v", err)
 	}
 	if machine.CPU != nil || machine.MemoryMB != nil {
-		t.Fatalf("provider-owned resources were persisted before preparation: cpu %v memory %v", machine.CPU, machine.MemoryMB)
+		t.Fatalf(
+			"provider-owned resources were persisted before preparation: cpu %v memory %v", machine.CPU,
+			machine.MemoryMB,
+		)
 	}
 }
 func TestLaunchAgentWithDefaultPool(t *testing.T) {
@@ -625,7 +635,9 @@ tools:
 		t.Fatalf("default pool launch should create two bindings and provisioning requests: %+v", result)
 	}
 	var poolGrantCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_pool_grants WHERE project_id = $1`, testProjectID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM project_machine_pool_grants WHERE project_id = $1`, testProjectID,
+	).
 		Scan(&poolGrantCount); err != nil {
 		t.Fatalf("count project machine pool grants: %v", err)
 	}
@@ -675,7 +687,9 @@ tools:
 	); err != nil {
 		t.Fatalf("delete default project machine pool grant: %v", err)
 	}
-	if _, err := store.Execution().GetProjectMachinePoolGrant(ctx, testOrgID, testProjectID, defaultPoolGrantID); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().GetProjectMachinePoolGrant(
+		ctx, testOrgID, testProjectID, defaultPoolGrantID,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
 	replayedAfterRevoke, err := store.Execution().LaunchAgent(
@@ -923,7 +937,10 @@ WHERE agent.project_id = $1
 	}
 	var backlogState string
 	var backlogCanceledAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT state, canceled_at FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`, testProjectID, result.Agent.ID, backlogInput.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT state, canceled_at FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		testProjectID, result.Agent.ID, backlogInput.ID,
+	).
 		Scan(&backlogState, &backlogCanceledAt); err != nil {
 		t.Fatalf("query archived backlog input: %v", err)
 	}
@@ -944,7 +961,11 @@ WHERE agent.project_id = $1
 		t.Fatalf("mark archived wakeup: %v", err)
 	}
 	var wakeups int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, testProjectID, result.Agent.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+		testProjectID, result.Agent.ID,
+	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("count archived wakeups: %v", err)
 	}
@@ -1719,7 +1740,11 @@ tools:
 		t.Fatalf("expected fresh launch after grant revoke to fail, got %v", err)
 	}
 	var failedAgents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-after-revoke'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-after-revoke'`,
+		testProjectID,
+	).
 		Scan(&failedAgents); err != nil {
 		t.Fatalf("count failed launch agents: %v", err)
 	}
@@ -2208,7 +2233,9 @@ tools:
 	if len(secondLaunch.MachineBindings) != 1 {
 		t.Fatalf("second launch bindings = %+v, want one", secondLaunch.MachineBindings)
 	}
-	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID)
+	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID,
+	)
 	if secondGeneratedGrant.ProjectMachinePoolGrantID != secondGrant.ID {
 		t.Fatalf(
 			"second generated grant pool grant = %s, want %s",
@@ -2562,7 +2589,11 @@ tools:
 		t.Fatalf("expected zero-initial ungranted pool to fail, got %v", err)
 	}
 	var failedAgents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-zero-ungranted-pool-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-zero-ungranted-pool-agent'`,
+		testProjectID,
+	).
 		Scan(&failedAgents); err != nil {
 		t.Fatalf("count failed zero-initial agents: %v", err)
 	}
@@ -2741,15 +2772,26 @@ tools:
 		t.Fatalf("launch initial capacity error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-initial-capacity-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-initial-capacity-agent'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -2883,15 +2925,26 @@ tools:
 		t.Fatalf("launch cpu capacity error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-cpu-capacity-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-cpu-capacity-agent'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -3043,7 +3096,9 @@ tools:
 	if len(secondLaunch.MachineBindings) != 1 {
 		t.Fatalf("second launch bindings = %+v, want one", secondLaunch.MachineBindings)
 	}
-	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID)
+	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID,
+	)
 	if secondGeneratedGrant.ProjectMachinePoolGrantID != secondGrant.ID {
 		t.Fatalf(
 			"second generated grant pool grant = %s, want %s",
@@ -3174,19 +3229,31 @@ tools:
 				t.Fatalf("launch per-machine limit error = %v, want ErrStateTransitionConflict", err)
 			}
 			var agents, machines, grants, bindings int
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = $2`, testProjectID, test.idempotencyKey).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = $2`, testProjectID,
+				test.idempotencyKey,
+			).
 				Scan(&agents); err != nil {
 				t.Fatalf("count rolled back agents: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+				machinePool.ID,
+			).
 				Scan(&machines); err != nil {
 				t.Fatalf("count pool machines: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+				testProjectID, poolGrant.ID,
+			).
 				Scan(&grants); err != nil {
 				t.Fatalf("count generated grants: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID,
+			).
 				Scan(&bindings); err != nil {
 				t.Fatalf("count machine bindings: %v", err)
 			}
@@ -3313,7 +3380,10 @@ tools:
 		)
 	}
 	var machines, agents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL`,
+		testOrgID, machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count concurrent pool machines: %v", err)
 	}
@@ -3518,7 +3588,9 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if binding.State != "attached" {
 		t.Fatalf("binding after runtime registration = %+v, want attached", binding)
 	}
-	if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID)); err != nil {
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID),
+	); err != nil {
 		t.Fatalf("archive agent: %v", err)
 	}
 	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -3633,7 +3705,9 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if binding.State != "released" {
 		t.Fatalf("binding after cleanup = %+v, want released", binding)
 	}
-	if count := countProjectMachineGrantsForMachineForTest(t, ctx, store, testOrgID, testProjectID, result.MachineBindings[0].MachineID); count != 0 {
+	if count := countProjectMachineGrantsForMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, result.MachineBindings[0].MachineID,
+	); count != 0 {
 		t.Fatalf("generated grants after cleanup = %d, want 0", count)
 	}
 }
@@ -4078,7 +4152,9 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete pool machine provisioning: %v", err)
 	}
-	if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID)); err != nil {
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID),
+	); err != nil {
 		t.Fatalf("archive agent: %v", err)
 	}
 	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -4585,7 +4661,11 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 	}
 	byoTokenPage, err := store.Execution().ListBYOMachineDaemonTokens(
 		ctx,
-		executionstore.ListBYOMachineDaemonTokensInput{OrgID: testOrgID, MachineID: result.MachineBindings[0].MachineID, Limit: 10},
+		executionstore.ListBYOMachineDaemonTokensInput{
+			OrgID:     testOrgID,
+			MachineID: result.MachineBindings[0].MachineID,
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list BYO machine daemon tokens: %v", err)
@@ -4752,15 +4832,26 @@ tools:
 		t.Fatalf("second pool launch error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-capacity-second'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-capacity-second'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -5028,17 +5119,23 @@ model:
 	}
 	if !initialClaim.Created || !initialClaim.Claimed || initialClaim.Context.AttemptNumber != 1 ||
 		initialClaim.Context.ConfiguredModelRevisionID != configuredModel.CurrentRevisionID {
-		t.Fatalf("initial model context = %+v, want attempt 1 on revision %s", initialClaim, configuredModel.CurrentRevisionID)
+		t.Fatalf(
+			"initial model context = %+v, want attempt 1 on revision %s", initialClaim,
+			configuredModel.CurrentRevisionID,
+		)
 	}
-	if _, err := store.Execution().RecordRetryableModelCallFailure(ctx, executionstore.RecordRecoverableModelCallFailureInput{
-		ProjectID:          testProjectID,
-		AgentID:            launch.Agent.ID,
-		ModelCallContextID: initialClaim.Context.ID,
-		RuntimeLockID:      lock.ID,
-		ErrorKind:          "transient",
-		ErrorCode:          "test_retry_before_revision_change",
-		ErrorMessage:       "retry after configured model revision changes",
-	}); err != nil {
+	if _, err := store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID:          testProjectID,
+			AgentID:            launch.Agent.ID,
+			ModelCallContextID: initialClaim.Context.ID,
+			RuntimeLockID:      lock.ID,
+			ErrorKind:          "transient",
+			ErrorCode:          "test_retry_before_revision_change",
+			ErrorMessage:       "retry after configured model revision changes",
+		},
+	); err != nil {
 		t.Fatalf("record retryable model failure: %v", err)
 	}
 
@@ -5083,7 +5180,10 @@ model:
 		modelenvelope.ResponseEnvelope{RequestedProviderModelSlug: configuredModel.ProviderModelSlug},
 		retryClaim.Context,
 	); err == nil {
-		t.Fatalf("same-frontier retry accepted stale provider slug %q instead of current slug %q", configuredModel.ProviderModelSlug, updated.ProviderModelSlug)
+		t.Fatalf(
+			"same-frontier retry accepted stale provider slug %q instead of current slug %q",
+			configuredModel.ProviderModelSlug, updated.ProviderModelSlug,
+		)
 	}
 	if _, err := store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
 		ProjectID: testProjectID,

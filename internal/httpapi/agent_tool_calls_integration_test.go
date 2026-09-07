@@ -170,14 +170,17 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		ProviderCallID: "call_mcp_greet",
 		Type:           toolcatalog.ToolTypeMCP,
 	}}
-	sourceEvent, calls, err := store.Execution().RecordToolCallSourceAndCompleteContext(ctx, executionstore.RecordToolCallSourceAndCompleteContextInput{
-		ProjectID:          project.ProjectUUID,
-		AgentID:            agent.ID,
-		RuntimeLockID:      lock.ID,
-		ModelCallContextID: contextRow.ID,
-		ProviderResponse:   providerResponse,
-		ToolCallBindings:   toolCallBindings,
-	})
+	sourceEvent, calls, err := store.Execution().RecordToolCallSourceAndCompleteContext(
+		ctx,
+		executionstore.RecordToolCallSourceAndCompleteContextInput{
+			ProjectID:          project.ProjectUUID,
+			AgentID:            agent.ID,
+			RuntimeLockID:      lock.ID,
+			ModelCallContextID: contextRow.ID,
+			ProviderResponse:   providerResponse,
+			ToolCallBindings:   toolCallBindings,
+		},
+	)
 	if err != nil {
 		t.Fatalf("record tool call source: %v", err)
 	}
@@ -612,7 +615,9 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		!publicEventTextEquals(toolResult, "Customer found.") {
 		t.Fatalf("submitted tool_result = %+v", toolResult)
 	}
-	if testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, toolResult["content_blocks"])[0])["type"] != "text" {
+	if testutil.RequireType[map[string]any](
+		t, testutil.RequireType[[]any](t, toolResult["content_blocks"])[0],
+	)["type"] != "text" {
 		t.Fatalf(
 			"submitted tool_result content was not canonicalized: %+v",
 			toolResult,
@@ -703,7 +708,9 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	mediaBlocks := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, mediaSubmitted["tool_result"])["content_blocks"])
+	mediaBlocks := testutil.RequireType[[]any](
+		t, testutil.RequireType[map[string]any](t, mediaSubmitted["tool_result"])["content_blocks"],
+	)
 	if len(mediaBlocks) != 1 {
 		t.Fatalf("media tool_result content_blocks = %+v, want one media_ref", mediaBlocks)
 	}

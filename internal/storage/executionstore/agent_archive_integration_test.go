@@ -167,7 +167,8 @@ tools:
 	if err != nil || !found {
 		t.Fatalf("get archived interaction: found=%v err=%v", found, err)
 	}
-	if archivedInteraction.State != executionstore.AgentInteractionStateCanceled || archivedInteraction.ResolvedAt.IsZero() ||
+	if archivedInteraction.State != executionstore.AgentInteractionStateCanceled ||
+		archivedInteraction.ResolvedAt.IsZero() ||
 		archivedInteraction.ResolvedAt.Before(archivedAt) {
 		t.Fatalf("archived interaction = %+v, want canceled", archivedInteraction)
 	}
