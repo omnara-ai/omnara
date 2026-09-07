@@ -35,6 +35,9 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+    // Both default to true when omitted.
+    showSizeControls?: boolean
+    showLimitControls?: boolean
   }
 }
 
@@ -153,15 +156,27 @@ const createos: MachinePoolProviderDefinition = {
     key: 'shape',
     label: 'Shape',
     placeholder: 's-1vcpu-1gb',
+    description: 'CPU and memory come from the selected shape.',
   },
   location: {
     key: 'region',
     label: 'Region',
     placeholder: 'us',
     defaultValue: 'us',
+    required: false,
   },
-  requiresWorkspace: false,
-  resources: { cpu: 'provider-resolved', memoryMb: 'provider-resolved' },
+  credential: {
+    label: 'CreateOS API token',
+    placeholder: 'Search secrets for your CreateOS token…',
+    emptyDescription: 'No secrets yet — use New secret to store your CreateOS API token.',
+    defaultSecretName: 'createos-api-token',
+    secretValuePlaceholder: 'Provider API token',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    showSizeControls: false,
+  },
 }
 
 export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal, createos } satisfies Record<
