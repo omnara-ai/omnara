@@ -147,7 +147,24 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-1vcpu-1gb',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'us',
+    defaultValue: 'us',
+  },
+  requiresWorkspace: false,
+  resources: { cpu: 'provider-resolved', memoryMb: 'provider-resolved' },
+}
+
+export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal, createos } satisfies Record<
   MachinePoolProvider,
   MachinePoolProviderDefinition
 >

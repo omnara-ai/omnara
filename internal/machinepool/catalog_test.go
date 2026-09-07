@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
@@ -25,6 +26,7 @@ func TestDefaultCatalogProviders(t *testing.T) {
 		definition any
 	}{
 		{name: "blaxel", definition: blaxel.Definition{}},
+		{name: "createos", definition: createos.Definition{}},
 		{name: "daytona", definition: daytona.Definition{}},
 		{name: "modal", definition: modal.Definition{}},
 		{name: "unikraft", definition: unikraft.Definition{}},
