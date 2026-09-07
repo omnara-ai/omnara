@@ -285,6 +285,22 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+    case 'createos':
+      return {
+        ...common,
+        provider: 'createos',
+        default_machine_provider_options: {
+          shape: values.image.trim(),
+          region: values.location.trim(),
+          ...startupScript,
+        },
+        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
+        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
+        min_machine_cpu: optionalInt(values.minMachineCpu),
+        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
+        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
+        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
+      }
   }
 }
 
@@ -445,6 +461,25 @@ export function machinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'createos':
+      return {
+        ...common,
+        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
+        max_total_memory_mb:
+          optionalMemoryMbPreservingOriginal(values.maxTotalMemoryGb, pool.max_total_memory_mb) ??
+          memoryMb * maxMachines,
+        min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
+        min_machine_memory_mb: optionalMemoryMbOrNull(
+          values.minMachineMemoryGb,
+          pool.min_machine_memory_mb,
+        ),
+        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
+        max_machine_memory_mb:
+          optionalMemoryMbPreservingOriginal(
+            values.maxMachineMemoryGb,
+            pool.max_machine_memory_mb,
+          ) ?? memoryMb,
+      }
   }
 }
 
@@ -501,6 +536,17 @@ function clusterMachinePoolUpdateRequest(
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
+        max_machine_cpu: cpu,
+        max_machine_memory_mb: memoryMb,
+      }
+    case 'createos':
+      return {
+        ...common,
+        min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
+        min_machine_memory_mb: optionalMemoryMbOrNull(
+          values.minMachineMemoryGb,
+          pool.min_machine_memory_mb,
+        ),
         max_machine_cpu: cpu,
         max_machine_memory_mb: memoryMb,
       }

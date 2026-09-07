@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
@@ -21,8 +22,8 @@ import (
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 8 {
-		t.Fatalf("default catalog providers = %d, want 8", len(catalog.definitions))
+	if len(catalog.definitions) != 9 {
+		t.Fatalf("default catalog providers = %d, want 9", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
@@ -31,6 +32,7 @@ func TestDefaultCatalogProviders(t *testing.T) {
 		{name: "arker", definition: arker.Definition{}},
 		{name: "blaxel", definition: blaxel.Definition{}},
 		{name: "boxd", definition: boxd.Definition{}},
+		{name: "createos", definition: createos.Definition{}},
 		{name: "daytona", definition: daytona.Definition{}},
 		{name: "freestyle", definition: freestyle.Definition{}},
 		{name: "modal", definition: modal.Definition{}},

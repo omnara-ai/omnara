@@ -235,6 +235,23 @@ const boxd: MachinePoolProviderDefinition = {
   },
 }
 
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-1vcpu-1gb',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'us',
+    defaultValue: 'us',
+  },
+  requiresWorkspace: false,
+  resources: { cpu: 'provider-resolved', memoryMb: 'provider-resolved' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -244,6 +261,7 @@ export const machinePoolProviderDefinitions = {
   tenki,
   arker,
   boxd,
+  createos,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
