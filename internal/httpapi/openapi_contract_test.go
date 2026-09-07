@@ -1278,6 +1278,7 @@ func (*trackingReadCloser) Close() error {
 }
 
 func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+	t.Parallel()
 	validator, err := newOpenAPIRequestValidator()
 	if err != nil {
 		t.Fatalf("create openapi request validator: %v", err)
@@ -1318,6 +1319,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 }
 
 func TestOpenAPIValidationErrorsOmitRequestValues(t *testing.T) {
+	t.Parallel()
 	handler := newOpenAPIValidatorTestHandler(t)
 	orgID := "org_" + strings.Repeat("a", 26)
 	const sentinel = "sentinel-value-must-not-leak"

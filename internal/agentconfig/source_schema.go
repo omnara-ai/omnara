@@ -106,13 +106,12 @@ func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node
 	if err != nil {
 		return AgentConfigSource{}, nil, validationErrorFrom(err, root)
 	}
-	schema, err := compiledSourceSchema()
+	validator, err := compiledSourceSchema()
 	if err != nil {
 		return AgentConfigSource{}, nil, err
 	}
-	result := schema.Validate(jsonSource)
-	if !result.IsValid() {
-		return AgentConfigSource{}, nil, newValidationError(schemaIssues(result, schema), root)
+	if err := validator.validate(jsonSource, root); err != nil {
+		return AgentConfigSource{}, nil, err
 	}
 	var parsed AgentConfigSource
 	if err := json.Unmarshal(jsonSource, &parsed); err != nil {
@@ -270,7 +269,14 @@ func normalizeYAMLValue(value any) (any, error) {
 	}
 }
 
-var compiledSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
+var compiledSourceSchema = sync.OnceValues(newSourceSchemaValidator)
+
+type sourceSchemaValidator struct {
+	schema *kjsonschema.Schema
+	mu     sync.Mutex
+}
+
+func newSourceSchemaValidator() (*sourceSchemaValidator, error) {
 	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
 	if err != nil {
 		return nil, err
@@ -279,8 +285,20 @@ var compiledSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile agent config JSON schema: %w", err)
 	}
-	return compiled, nil
-})
+	return &sourceSchemaValidator{schema: compiled}, nil
+}
+
+func (v *sourceSchemaValidator) validate(jsonSource []byte, root *yaml.Node) error {
+	// jsonschema v0.9.8 mutates regex caches during validation. Remove this
+	// guard after adopting the concurrent-validation fix in v0.9.9 or later.
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	result := v.schema.Validate(jsonSource)
+	if !result.IsValid() {
+		return newValidationError(schemaIssues(result, v.schema), root)
+	}
+	return nil
+}
 
 func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
 	schemaJSON, err := json.Marshal(agentConfigSourceSchema())

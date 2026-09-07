@@ -40,6 +40,9 @@ HTTP server handlers should report with `t.Errorf`, send an error response, and
 return. Helpers called from them must propagate errors so the handler cannot
 continue with a success response. The enabled `testifylint/go-require` check catches
 common misuses of fatal Testify assertions, but does not prove callback ownership.
+`make race-unit` runs all internal unit packages under the race detector in CI,
+including daemon concurrency and shared-validator initialization. Use
+`make race-machinedaemon` for the narrower daemon check during development.
 
 Use `testutil.RequireType[T](t, value)` when extracting an ID, object or array for
 subsequent operations. It uses Go's checked type assertion, including named-type
