@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -194,20 +195,7 @@ func (mergingMachinePoolProviders) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{
-		defaultOptions,
-		projectOptions,
-		agentOptions,
-	} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged, nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (mergingMachinePoolProviders) ValidatePool(

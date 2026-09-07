@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -2052,7 +2053,7 @@ func (machinePoolProviderTestResolvers) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	return mergeTestProviderOptions(defaultOptions, projectOptions, agentOptions), nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (machinePoolProviderTestResolvers) ValidatePool(
@@ -2071,19 +2072,6 @@ func (resolvers machinePoolProviderTestResolvers) BuildMachineProvisioningIntent
 		return executionstore.MachineProvisioningConfig{}, err
 	}
 	return machineProvisioning, nil
-}
-
-func mergeTestProviderOptions(overlays ...map[string]json.RawMessage) map[string]json.RawMessage {
-	var merged map[string]json.RawMessage
-	for _, overlay := range overlays {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged
 }
 
 type testProviderDefinition struct {
@@ -2110,7 +2098,7 @@ func (d *testProviderDefinition) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	return mergeTestProviderOptions(defaultOptions, projectOptions, agentOptions)
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
 func (d *testProviderDefinition) ValidatePool(

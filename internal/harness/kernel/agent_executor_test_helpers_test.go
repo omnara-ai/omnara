@@ -19,6 +19,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -1372,16 +1373,7 @@ func (kernelTestMachinePoolProviders) ResolveMachineProviderOptions(
 	_ string,
 	defaultOptions, projectOptions, agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{defaultOptions, projectOptions, agentOptions} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged, nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (kernelTestMachinePoolProviders) ValidatePool(string, executionstore.MachinePoolProviderPolicy) error {

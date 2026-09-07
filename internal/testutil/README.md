@@ -28,6 +28,10 @@ visible when the test exercises those transitions. For new lock helpers,
 distinguish strict release assertions from cleanup that tolerates an inactive
 lock.
 
+Provider test adapters can call `provideroptions.Merge` for the same option
+precedence and copy behavior used by real providers. That domain package imports
+only the standard library, so same-package storage tests can use it without a cycle.
+
 ## Assertions and diagnostics
 
 Use `require.NoError(t, err, "operation")` for prerequisites where continuing

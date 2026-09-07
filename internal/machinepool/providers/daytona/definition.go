@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -81,7 +82,7 @@ func (Definition) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	return providers.MergeOptions(defaultOptions, projectOptions, agentOptions)
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
 func (Definition) ValidatePool(
