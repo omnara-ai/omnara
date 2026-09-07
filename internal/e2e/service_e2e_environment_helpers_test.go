@@ -64,8 +64,8 @@ func newServiceE2EEnvironmentWithOptions(
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	uniqueSeed := fmt.Sprintf("%s-%d", seed, time.Now().UnixNano())
-	// Docker writes root-owned files under this bind mount; removal is deliberately permissive.
-	root, err := os.MkdirTemp("/tmp", "omnara-service-e2e-"+uniqueSeed+"-") //nolint:usetesting // see above
+	//nolint:usetesting // t.TempDir cleanup fails on Docker's root-owned files.
+	root, err := os.MkdirTemp("/tmp", "omnara-service-e2e-"+uniqueSeed+"-")
 	if err != nil {
 		t.Fatalf("create service e2e root: %v", err)
 	}

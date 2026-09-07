@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SeedAgentConfig provisions the model and grant, compiles YAML, and persists the
-// config in the supplied project. The caller chooses when to activate it or
-// create a profile pointing to it.
 func SeedAgentConfig(
 	t testing.TB,
 	ctx context.Context,

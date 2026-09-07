@@ -31,7 +31,6 @@ func TestSourceSchemaValidatorConcurrentFirstUse(t *testing.T) {
 		}},
 		"skills": ["skl_aaaaaaaaaaaaaaaaaaaaaaaaaa"]
 	}`
-	// Exercise invalid nested patterns while retaining valid JSON and field types.
 	sources := [][]byte{
 		[]byte(validSource),
 		[]byte(strings.ReplaceAll(validSource, "aaaaaaaaaaaaaaaaaaaaaaaaaa", "invalid")),

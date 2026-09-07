@@ -81,7 +81,6 @@ func requireMachineProvisioningForTest(
 
 func requireMachineEnvironmentForTest(t *testing.T, got, want MachineEnvironment) {
 	t.Helper()
-	// Empty and nil environment maps both mean no entries, as with maps.Equal.
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Fatalf("machine environment (-want +got):\n%s", diff)
 	}

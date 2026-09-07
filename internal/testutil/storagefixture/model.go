@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SeedModelForAgentYAML creates or reuses the configured model and grants it to the project.
 func SeedModelForAgentYAML(
 	t testing.TB,
 	ctx context.Context,
@@ -51,7 +50,6 @@ func SeedModelForAgentYAML(
 	return configuredModel
 }
 
-// SeedModelAndCompileAgentYAML provisions the model/grant before resolving storage names.
 func SeedModelAndCompileAgentYAML(
 	t testing.TB,
 	ctx context.Context,

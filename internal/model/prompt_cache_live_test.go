@@ -131,8 +131,7 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 					break
 				}
 				if attempt < 2 {
-					// Provider cache propagation has no notification API; retry its observable usage.
-					time.Sleep(3 * time.Second) //nolint:omnaralint // external cache propagation, not goroutine synchronization
+					time.Sleep(3 * time.Second) //nolint:omnaralint // provider cache propagation has no notification API
 				}
 			}
 			if r.writesCache && first.Usage.CacheWriteTokens == 0 {

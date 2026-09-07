@@ -1,5 +1,5 @@
-// Package storagefixture provides seed operations for storage tests. It imports
-// leaf stores, never the storage facade, so same-package facade tests can use it.
+// Package storagefixture uses leaf stores so same-package storage tests can
+// import it without a cycle.
 package storagefixture
 
 import (
@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ProjectIDs are supplied by the caller so seeds do not impose shared identities.
 type ProjectIDs struct {
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
@@ -22,9 +21,7 @@ type ProjectIDs struct {
 	ProviderConfigID        uuid.UUID
 }
 
-// SeedProject inserts the organization, project and placeholder provider rows.
-// The caller owns the pool and its cleanup. Statements retain separate commits;
-// the placeholder secret is for storage tests, not credential decryption.
+// SeedProject uses a placeholder secret that cannot be decrypted.
 func SeedProject(t testing.TB, ctx context.Context, pool *pgxpool.Pool, ids ProjectIDs, now time.Time) {
 	t.Helper()
 	_, err := pool.Exec(
@@ -86,7 +83,6 @@ ON CONFLICT (id) DO NOTHING`,
 	require.NoError(t, err, "seed default model provider config")
 }
 
-// InsertProject adds one project to an existing organization using the caller's pool.
 func InsertProject(
 	t testing.TB,
 	ctx context.Context,

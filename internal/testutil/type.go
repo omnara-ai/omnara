@@ -1,4 +1,3 @@
-// Package testutil provides small operations for test prerequisites.
 package testutil
 
 import (
@@ -6,9 +5,6 @@ import (
 	"testing"
 )
 
-// RequireType extracts a value using Go's type assertion semantics and reports
-// a failed prerequisite at the caller. It does not require non-nil or nonempty
-// values. Like t.Fatal, it must run in the goroutine running the test.
 func RequireType[T any](t testing.TB, value any) T {
 	t.Helper()
 	typed, ok := value.(T)
