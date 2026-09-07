@@ -39,6 +39,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 type integrationToolFixture struct {
@@ -106,7 +107,9 @@ func TestIntegrationSendToolDispatchDeliversDistinctCalls(t *testing.T) {
 			postCount++
 			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 		default:
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -225,15 +228,13 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				artifactIDs = append(artifactIDs, artifactID)
 			}
 			requests := make(map[string]int)
-			loseOwnership := func() {
-				if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+			loseOwnership := func() error {
+				return fixture.Store.Execution().ReleaseAgentRuntimeLock(
 					ctx,
 					toolsTestProjectID,
 					fixture.Agent.ID,
 					fixture.Lock.ID,
-				); err != nil {
-					t.Fatalf("release runtime lock: %v", err)
-				}
+				)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests[r.URL.Path]++
@@ -244,18 +245,28 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 						return
 					}
 					if err := r.ParseForm(); err != nil {
-						t.Fatalf("parse upload URL request: %v", err)
+						t.Errorf("parse upload URL request: %v", err)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					artifactIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
 					if artifactIndex >= len(artifactFiles) {
-						t.Fatalf("unexpected upload URL request %d", requests[r.URL.Path])
+						t.Errorf("unexpected upload URL request %d", requests[r.URL.Path])
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					file := artifactFiles[artifactIndex]
 					if r.Form.Get("filename") != file.filename || r.Form.Get("length") != strconv.Itoa(len(file.content)) {
-						t.Fatalf("upload URL form = %v", r.Form)
+						t.Errorf("upload URL form = %v", r.Form)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					if tt.loseAfterPath == r.URL.Path {
-						loseOwnership()
+						if err := loseOwnership(); err != nil {
+							t.Errorf("release runtime lock: %v", err)
+							http.Error(w, "test ownership change failed", http.StatusInternalServerError)
+							return
+						}
 					}
 					writeToolTestJSON(w, map[string]any{
 						"ok":         true,
@@ -264,25 +275,37 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					})
 				case "/upload/v1/artifact", "/upload/v1/chart":
 					if r.Header.Get("Authorization") != "" {
-						t.Fatalf("file upload included authorization")
+						t.Errorf("file upload included authorization")
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					artifactIndex := 0
 					if r.URL.Path == "/upload/v1/chart" {
 						artifactIndex = 1
 					}
 					if artifactIndex >= len(artifactFiles) {
-						t.Fatalf("unexpected artifact upload path %s", r.URL.Path)
+						t.Errorf("unexpected artifact upload path %s", r.URL.Path)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					file := artifactFiles[artifactIndex]
 					body, err := io.ReadAll(r.Body)
 					if err != nil {
-						t.Fatalf("read uploaded artifact: %v", err)
+						t.Errorf("read uploaded artifact: %v", err)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					if string(body) != string(file.content) {
-						t.Fatalf("uploaded artifact = %q", body)
+						t.Errorf("uploaded artifact = %q", body)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					if tt.loseAfterPath == r.URL.Path {
-						loseOwnership()
+						if err := loseOwnership(); err != nil {
+							t.Errorf("release runtime lock: %v", err)
+							http.Error(w, "test ownership change failed", http.StatusInternalServerError)
+							return
+						}
 					}
 					w.WriteHeader(http.StatusOK)
 				case "/files.completeUploadExternal":
@@ -296,15 +319,21 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 						InitialComment string `json:"initial_comment"`
 					}
 					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-						t.Fatalf("decode completion payload: %v", err)
+						t.Errorf("decode completion payload: %v", err)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					if len(payload.Files) != len(artifactFiles) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 						payload.InitialComment != "here is the report" {
-						t.Fatalf("completion payload = %+v", payload)
+						t.Errorf("completion payload = %+v", payload)
+						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						return
 					}
 					for artifactIndex, file := range artifactFiles {
 						if payload.Files[artifactIndex].ID != file.fileID || payload.Files[artifactIndex].Title != file.filename {
-							t.Fatalf("completion payload = %+v", payload)
+							t.Errorf("completion payload = %+v", payload)
+							http.Error(w, "test handler failed", http.StatusInternalServerError)
+							return
 						}
 					}
 					if requests[r.URL.Path] <= tt.completionRateLimits {
@@ -318,7 +347,9 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					writeToolTestJSON(w, map[string]any{"ok": true})
 				default:
-					t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+					t.Errorf("unexpected integration provider path %s", r.URL.Path)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 			}))
 			defer server.Close()
@@ -351,9 +382,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					"text":         "here is the report",
 					"artifact_ids": artifactIDs,
 				})
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				call := fixture.recordToolCall(
 					t,
 					ctx,
@@ -395,7 +424,9 @@ func TestPostIntegrationRuntimeMessageUsesCurrentTarget(t *testing.T) {
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		var payload struct {
@@ -408,17 +439,23 @@ func TestPostIntegrationRuntimeMessageUsesCurrentTarget(t *testing.T) {
 			} `json:"metadata"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode runtime message payload: %v", err)
+			t.Errorf("decode runtime message payload: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if payload.Channel != "C123" || payload.ThreadTS != "111.222" ||
 			payload.Text != "I couldn't complete this request: model unavailable" {
-			t.Fatalf("unexpected runtime message payload: %+v", payload)
+			t.Errorf("unexpected runtime message payload: %+v", payload)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if payload.Metadata.EventType != slack.MessageMarkerEventType ||
 			payload.Metadata.EventPayload["agent_id"] != agentPublicID ||
 			payload.Metadata.EventPayload["provider_call_id"] != "runtime_error:"+fixture.Lock.ID.String() ||
 			payload.Metadata.EventPayload["target_ref"] != fixture.Target.TargetRef {
-			t.Fatalf("unexpected runtime message metadata: %+v", payload.Metadata)
+			t.Errorf("unexpected runtime message metadata: %+v", payload.Metadata)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
@@ -447,7 +484,9 @@ func TestIntegrationSendToolRetriesShortRateLimit(t *testing.T) {
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		if postCount == 1 {
@@ -497,7 +536,9 @@ func TestIntegrationSendToolReadbackFailureAfterUnknownPost(t *testing.T) {
 			postCount++
 			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123"})
 		default:
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -569,7 +610,9 @@ func TestIntegrationSendToolTransientPostUsesReadback(t *testing.T) {
 			postCount++
 			w.WriteHeader(http.StatusInternalServerError)
 		default:
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -603,7 +646,9 @@ func TestIntegrationSendToolTokenRevokedReturnsIntegrationDisabled(t *testing.T)
 		case "/chat.postMessage":
 			writeToolTestJSON(w, map[string]any{"ok": false, "error": "token_revoked"})
 		default:
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -642,7 +687,9 @@ func TestIntegrationSendToolUnknownPostRetriesAfterReadbackMiss(t *testing.T) {
 		case "/conversations.replies":
 			readbackCount++
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse readback form: %v", err)
+				t.Errorf("parse readback form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			readbackForms = append(readbackForms, r.Form)
 			writeToolTestJSON(w, map[string]any{"ok": true, "messages": []map[string]any{}})
@@ -654,7 +701,9 @@ func TestIntegrationSendToolUnknownPostRetriesAfterReadbackMiss(t *testing.T) {
 			}
 			writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 		default:
-			t.Fatalf("unexpected integration provider path %s", r.URL.Path)
+			t.Errorf("unexpected integration provider path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -857,7 +906,8 @@ func TestIntegrationQuestionPromptDisabledTargetFallsBackToOmnara(t *testing.T) 
 		if r.URL.Path == "/chat.postMessage" {
 			postCount++
 		}
-		t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+		t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+		http.Error(w, "test handler failed", http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
@@ -906,7 +956,9 @@ func TestQuestionDispatchCommitsBeforePromptAndReleasesAsyncOwnership(t *testing
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		requestStarted <- struct{}{}
@@ -1018,7 +1070,9 @@ func TestIntegrationQuestionPromptRetriesShortRateLimit(t *testing.T) {
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		if postCount == 1 {
@@ -1077,7 +1131,9 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 		case "/chat.postMessage":
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode question prompt payload: %v", err)
+				t.Errorf("decode question prompt payload: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			mu.Lock()
 			postCount++
@@ -1087,10 +1143,14 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 			writeToolTestJSON(w, map[string]any{"ok": false})
 		case "/conversations.replies":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse prompt readback form: %v", err)
+				t.Errorf("parse prompt readback form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if r.Form.Get("oldest") != "" || r.Form.Get("limit") != "100" {
-				t.Fatalf("prompt readback bounds = %+v", r.Form)
+				t.Errorf("prompt readback bounds = %+v", r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			mu.Lock()
 			readbackCount++
@@ -1099,7 +1159,9 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 			mu.Unlock()
 			if readback == 1 {
 				if r.Form.Get("cursor") != "" {
-					t.Fatalf("first prompt readback cursor = %q", r.Form.Get("cursor"))
+					t.Errorf("first prompt readback cursor = %q", r.Form.Get("cursor"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				writeToolTestJSON(w, map[string]any{
 					"ok": true,
@@ -1112,7 +1174,9 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 				return
 			}
 			if r.Form.Get("cursor") != "page-2" {
-				t.Fatalf("second prompt readback cursor = %q", r.Form.Get("cursor"))
+				t.Errorf("second prompt readback cursor = %q", r.Form.Get("cursor"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeToolTestJSON(w, map[string]any{
 				"ok": true,
@@ -1122,7 +1186,9 @@ func TestIntegrationQuestionPromptUnknownPostUsesReadback(t *testing.T) {
 				}},
 			})
 		default:
-			t.Fatalf("unexpected integration provider request to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider request to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -1183,7 +1249,9 @@ func TestIntegrationQuestionPromptUnknownOutcomeFailsTool(t *testing.T) {
 			readbackCount++
 			writeToolTestJSON(w, map[string]any{"ok": true, "messages": []any{}})
 		default:
-			t.Fatalf("unexpected integration provider request to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider request to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -1239,7 +1307,9 @@ func TestIntegrationQuestionPromptDeliveryFailureFailsTool(t *testing.T) {
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		writeToolTestJSON(w, map[string]any{"ok": false, "error": "channel_not_found"})
@@ -1313,7 +1383,9 @@ func TestIntegrationSetTargetPermissionUsesResolvedAuthorizationInput(t *testing
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		var payload struct {
@@ -1321,14 +1393,20 @@ func TestIntegrationSetTargetPermissionUsesResolvedAuthorizationInput(t *testing
 			Text    string `json:"text"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode set-target permission prompt: %v", err)
+			t.Errorf("decode set-target permission prompt: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if payload.Channel != "D456" {
-			t.Fatalf("permission prompt channel = %q, want current target D456", payload.Channel)
+			t.Errorf("permission prompt channel = %q, want current target D456", payload.Channel)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if !strings.Contains(payload.Text, "set_integration_target") ||
 			!strings.Contains(payload.Text, fixture.Target.TargetRef) {
-			t.Fatalf("set-target permission prompt text = %q", payload.Text)
+			t.Errorf("set-target permission prompt text = %q", payload.Text)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "D456", "ts": "222.333"})
 	}))
@@ -1442,7 +1520,8 @@ func TestIntegrationPermissionPromptDisabledTargetFallsBackToOmnara(t *testing.T
 		if r.URL.Path == "/chat.postMessage" {
 			postCount++
 		}
-		t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+		t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+		http.Error(w, "test handler failed", http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
@@ -1503,7 +1582,9 @@ func TestIntegrationPermissionPromptDeliveryDoesNotBlockOmnaraPrompt(t *testing.
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		close(postStarted)
 		<-releasePost
@@ -1576,7 +1657,9 @@ func TestIntegrationExistingPermissionPromptDoesNotRedeliver(t *testing.T) {
 	postCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected integration provider post to %s", r.URL.Path)
+			t.Errorf("unexpected integration provider post to %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		postCount++
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
@@ -1788,7 +1871,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 }
 
-func (f integrationToolFixture) turn() Turn {
+func (f *integrationToolFixture) turn() Turn {
 	turn := Turn{
 		ProjectID:          toolsTestProjectID,
 		AgentID:            f.Agent.ID,
@@ -1920,7 +2003,7 @@ func (f *integrationToolFixture) recordPendingToolCalls(
 	f.ModelOutputEventID = modelOutputEvent.ID
 }
 
-func (f integrationToolFixture) toolCallID(t *testing.T, ctx context.Context, providerCallID string) storage.ID {
+func (f *integrationToolFixture) toolCallID(t *testing.T, ctx context.Context, providerCallID string) storage.ID {
 	t.Helper()
 	record, found, err := f.Store.Execution().GetToolCallByProviderCall(
 		ctx,
@@ -2259,15 +2342,6 @@ func integrationToolKeyWrapper(t *testing.T) secrets.KeyWrapper {
 		t.Fatalf("create test key wrapper: %v", err)
 	}
 	return wrapper
-}
-
-func integrationToolMustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal json: %v", err)
-	}
-	return raw
 }
 
 func dispatchToolAndDrainAsync(

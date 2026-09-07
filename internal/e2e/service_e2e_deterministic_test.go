@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
@@ -211,9 +212,9 @@ func TestServiceE2EDeterministicOpenRouterRunsChatCompletionsModelTurn(t *testin
 			http.Error(w, "bad auth", http.StatusUnauthorized)
 			return
 		}
-		if r.Header.Get("HTTP-Referer") == "" ||
-			r.Header.Get("X-OpenRouter-Title") == "" ||
-			r.Header.Get("X-OpenRouter-Categories") == "" {
+		if r.Header.Get("Http-Referer") == "" ||
+			r.Header.Get("X-Openrouter-Title") == "" ||
+			r.Header.Get("X-Openrouter-Categories") == "" {
 			t.Errorf("missing OpenRouter attribution headers: %+v", r.Header)
 			http.Error(w, "missing attribution", http.StatusBadRequest)
 			return
@@ -502,7 +503,7 @@ func TestServiceE2EDeterministicConfigChangeWaitsForOpenToolInteraction(t *testi
 			return
 		}
 		anthropicRequestCount.Add(1)
-		if auth := r.Header.Get("x-api-key"); auth != "service-e2e-test-key" {
+		if auth := r.Header.Get("X-Api-Key"); auth != "service-e2e-test-key" {
 			t.Errorf("unexpected Anthropic auth header %q", auth)
 			http.Error(w, "bad auth", http.StatusUnauthorized)
 			return
@@ -597,7 +598,7 @@ func TestServiceE2EDeterministicConfigChangeWaitsForOpenToolInteraction(t *testi
 		if item["interaction_kind"] != "question" || item["state"] != "open" {
 			return false, "unexpected interaction: " + mustJSONString(item)
 		}
-		interactionID = item["id"].(string)
+		interactionID = testutil.RequireType[string](t, item["id"])
 		return true, ""
 	})
 	interactionUUID = mustDecodeServiceE2EPublicID(t, publicid.KindAgentInteraction, interactionID)
@@ -862,9 +863,9 @@ func TestServiceE2EDeterministicBacklogSteeringCancelAndQueuedContinuation(t *te
 		project.adminToken,
 		http.StatusOK,
 	)
-	backlogData := backlog["data"].([]any)
-	if len(backlogData) != 3 || backlogData[0].(map[string]any)["id"] != steeringInputID ||
-		backlogData[1].(map[string]any)["id"] != thirdInputID || backlogData[2].(map[string]any)["id"] != secondInputID {
+	backlogData := testutil.RequireType[[]any](t, backlog["data"])
+	if len(backlogData) != 3 || testutil.RequireType[map[string]any](t, backlogData[0])["id"] != steeringInputID ||
+		testutil.RequireType[map[string]any](t, backlogData[1])["id"] != thirdInputID || testutil.RequireType[map[string]any](t, backlogData[2])["id"] != secondInputID {
 		t.Fatalf("backlog before worker = %+v, want steering then reordered third and second without canceled input", backlogData)
 	}
 
@@ -1040,10 +1041,10 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		adminToken,
 		http.StatusCreated,
 	)
-	org := created["org"].(map[string]any)
-	project := created["project"].(map[string]any)
-	orgID := org["id"].(string)
-	projectID := project["id"].(string)
+	org := testutil.RequireType[map[string]any](t, created["org"])
+	project := testutil.RequireType[map[string]any](t, created["project"])
+	orgID := testutil.RequireType[string](t, org["id"])
+	projectID := testutil.RequireType[string](t, project["id"])
 	projectPath := "/api/v1/orgs/" + orgID + "/projects/" + projectID
 	e.bootstrapServiceE2EModelProviders(t, ctx, orgID, projectPath, adminToken, modelOptions)
 	config := e.requestJSON(
@@ -1061,7 +1062,7 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		ctx,
 		http.MethodPost,
 		projectPath+"/agent-profiles",
-		map[string]any{"name": "Deterministic Service E2E", "config": config["id"].(string)},
+		map[string]any{"name": "Deterministic Service E2E", "config": testutil.RequireType[string](t, config["id"])},
 		"idem-"+seed+"-agent-profile",
 		adminToken,
 		http.StatusCreated,
@@ -1079,8 +1080,8 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		adminCSRF:    adminCSRF,
 		adminUserID:  adminUserID,
 		projectPath:  projectPath,
-		agentID:      profile["id"].(string),
-		configID:     profile["current_config"].(map[string]any)["id"].(string),
+		agentID:      testutil.RequireType[string](t, profile["id"]),
+		configID:     testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"]),
 	}
 }
 
@@ -1124,7 +1125,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		map[string]any{
 			"name":                 "openai-prod",
 			"preset":               "openai",
-			"credential_secret_id": openAISecret["id"].(string),
+			"credential_secret_id": testutil.RequireType[string](t, openAISecret["id"]),
 		},
 		"",
 		adminToken,
@@ -1151,7 +1152,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 			"name":                 "openai-chat-prod",
 			"api_format":           "openai-chat-completions",
 			"base_url":             "https://api.openai.com/v1",
-			"credential_secret_id": openAISecret["id"].(string),
+			"credential_secret_id": testutil.RequireType[string](t, openAISecret["id"]),
 		},
 		"",
 		adminToken,
@@ -1191,7 +1192,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		map[string]any{
 			"name":                 "openrouter-prod",
 			"preset":               "openrouter",
-			"credential_secret_id": openRouterSecret["id"].(string),
+			"credential_secret_id": testutil.RequireType[string](t, openRouterSecret["id"]),
 		},
 		"",
 		adminToken,
@@ -1232,7 +1233,7 @@ func (e *serviceE2EEnvironment) bootstrapServiceE2EModelProviders(
 		map[string]any{
 			"name":                 "anthropic-prod",
 			"preset":               "anthropic",
-			"credential_secret_id": anthropicSecret["id"].(string),
+			"credential_secret_id": testutil.RequireType[string](t, anthropicSecret["id"]),
 		},
 		"",
 		adminToken,
@@ -1257,7 +1258,7 @@ func serviceE2EProviderConfigID(t *testing.T, response map[string]any) string {
 	if !ok {
 		t.Fatalf("create model provider response has no config: %+v", response)
 	}
-	return config["id"].(string)
+	return testutil.RequireType[string](t, config["id"])
 }
 
 func (e *serviceE2EEnvironment) createServiceE2EConfiguredModels(
@@ -1342,14 +1343,14 @@ func (e *serviceE2EEnvironment) createServiceE2EConfiguredModel(
 		ctx,
 		http.MethodPost,
 		projectPath+"/model-grants",
-		map[string]any{"configured_model_id": configuredModel["id"].(string)},
+		map[string]any{"configured_model_id": testutil.RequireType[string](t, configuredModel["id"])},
 		"",
 		adminToken,
 		http.StatusCreated,
 	)
 }
 
-func (p deterministicProject) createAgent(t *testing.T, ctx context.Context) string {
+func (p *deterministicProject) createAgent(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	launched := p.env.requestJSON(
 		t,
@@ -1361,15 +1362,15 @@ func (p deterministicProject) createAgent(t *testing.T, ctx context.Context) str
 		p.adminToken,
 		http.StatusCreated,
 	)
-	return launched["agent"].(map[string]any)["id"].(string)
+	return testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 }
 
-func (p deterministicProject) createInput(t *testing.T, ctx context.Context, agentID, text string) {
+func (p *deterministicProject) createInput(t *testing.T, ctx context.Context, agentID, text string) {
 	t.Helper()
 	p.createInputWithDeliveryMode(t, ctx, agentID, text, "")
 }
 
-func (p deterministicProject) updateConfig(t *testing.T, ctx context.Context, agentID, sourceYAML string) {
+func (p *deterministicProject) updateConfig(t *testing.T, ctx context.Context, agentID, sourceYAML string) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(sourceYAML))
 	p.env.requestJSON(
@@ -1384,7 +1385,7 @@ func (p deterministicProject) updateConfig(t *testing.T, ctx context.Context, ag
 	)
 }
 
-func (p deterministicProject) createInputWithDeliveryMode(
+func (p *deterministicProject) createInputWithDeliveryMode(
 	t *testing.T,
 	ctx context.Context,
 	agentID, text string,
@@ -1406,7 +1407,7 @@ func (p deterministicProject) createInputWithDeliveryMode(
 		p.adminToken,
 		http.StatusCreated,
 	)
-	return created["agent_input"].(map[string]any)["id"].(string)
+	return testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["agent_input"])["id"])
 }
 
 func waitForServiceE2ECondition(t *testing.T, ctx context.Context, ready func() (bool, string)) {

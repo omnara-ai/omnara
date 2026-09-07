@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanonicalAPIURL(t *testing.T) {
@@ -302,9 +303,7 @@ func TestWriteDaemonConfigRejectsInvalidNoUpdateBeforeRequest(t *testing.T) {
 func TestWriteDaemonConfigRequiresAPIURLBeforeDurableRecovery(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	machine, err := localstore.Machine(home, "inst-a", "mch-a")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := os.MkdirAll(machine.MachineDir(), 0o700); err != nil {
 		t.Fatalf("create durable state: %v", err)
 	}
@@ -332,9 +331,7 @@ func TestWriteDaemonConfigRecoversOnlyMatchingDurableState(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			home := filepath.Join(t.TempDir(), "home")
 			machine, err := localstore.Machine(home, "inst-a", testCase.machine)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if err := os.MkdirAll(machine.MachineDir(), 0o700); err != nil {
 				t.Fatalf("create durable state: %v", err)
 			}
@@ -376,16 +373,10 @@ func TestWriteDaemonConfigTreatsCompleteStateDeletionAsFreshBootstrap(
 	}
 	oldServer.Close()
 	oldMachine, err := localstore.Machine(home, "inst-old", "mch-old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(oldMachine.MachineDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(oldMachine.MachineDir(), 0o700))
 	oldArtifact := filepath.Join(oldMachine.MachineDir(), "old-state")
-	if err := os.WriteFile(oldArtifact, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(oldArtifact, []byte("old"), 0o600))
 
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatalf("remove complete daemon state: %v", err)
@@ -402,9 +393,7 @@ func TestWriteDaemonConfigTreatsCompleteStateDeletionAsFreshBootstrap(
 		t.Fatalf("configure fresh daemon after state deletion: %v", err)
 	}
 	config, err := loadDaemonConfig(home)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if config.InstallationID != "inst-new" ||
 		config.MachineID != "mch-new" ||
 		config.MachineToken != "new-token" {

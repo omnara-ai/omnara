@@ -3,6 +3,8 @@ package resourcename
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanonicalizeAllowEmpty(t *testing.T) {
@@ -65,9 +67,7 @@ func TestCanonicalizeRequiredRejectsEmpty(t *testing.T) {
 
 func TestCanonicalizeRequiredNormalizesBeforeValidation(t *testing.T) {
 	got, err := CanonicalizeRequired("name", "Cafe\u0301")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if got != "Café" {
 		t.Fatalf("CanonicalizeRequired() = %q, want NFC Café", got)
 	}

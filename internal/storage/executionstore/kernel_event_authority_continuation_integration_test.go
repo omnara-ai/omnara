@@ -240,6 +240,7 @@ func TestLatestTurnFrontierHelpersIgnoreHistoricalTurn(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("active model context", func(t *testing.T) {
+		t.Parallel()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_active_context")
 		contextRecord := createContextForAdmittedTurnTest(t, ctx, fixture, admitted, agent, "latest-frontier-active-context", fixture.Now.Add(4*time.Second))
 		assertFrontierCountTest(t, ctx, fixture.Store, "active context before newer turn", `SELECT count(*) FROM agent_continuable_model_contexts($1, $2) WHERE model_call_context_id = $3 AND NOT has_later_semantic_event`, fixture.AgentID, contextRecord.ID, 1)
@@ -250,6 +251,7 @@ func TestLatestTurnFrontierHelpersIgnoreHistoricalTurn(t *testing.T) {
 	})
 
 	t.Run("pending built-in tool", func(t *testing.T) {
+		t.Parallel()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_pending_tool")
 		contextRecord := createContextForAdmittedTurnTest(t, ctx, fixture, admitted, agent, "latest-frontier-pending-tool", fixture.Now.Add(4*time.Second))
 		recordToolCallBatchForContextTest(
@@ -273,6 +275,7 @@ func TestLatestTurnFrontierHelpersIgnoreHistoricalTurn(t *testing.T) {
 	})
 
 	t.Run("completed tool result", func(t *testing.T) {
+		t.Parallel()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "latest_frontier_completed_tool")
 		contextRecord := createContextForAdmittedTurnTest(t, ctx, fixture, admitted, agent, "latest-frontier-completed-tool", fixture.Now.Add(4*time.Second))
 		completeToolCallForContinuationSeedTest(t, ctx, fixture, admitted.Turn.ID, contextRecord.ID, "latest_frontier_completed_tool", fixture.Now.Add(5*time.Second))
@@ -284,6 +287,7 @@ func TestLatestTurnFrontierHelpersIgnoreHistoricalTurn(t *testing.T) {
 	})
 
 	t.Run("incomplete tool batch", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "latest_frontier_running_barrier")
 		toolCallID := createToolCallForProcessTest(t, ctx, fixture, "latest_frontier_running_barrier", "read_process")
 		claimToolCallForTest(
@@ -468,6 +472,7 @@ func TestContinuationSeedKeepsLaterToolResultAfterEarlierResultConsumed(t *testi
 func TestNextAgentContinuationSeedUsesOpeningInputsAtContextWatermark(t *testing.T) {
 	t.Parallel()
 	t.Run("orders multi-input opening events", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_multi_input")
 		contextRecord := claimNormalContextAtFrontierTest(
@@ -497,6 +502,7 @@ func TestNextAgentContinuationSeedUsesOpeningInputsAtContextWatermark(t *testing
 	})
 
 	t.Run("rejects stale opening frontier", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "continuation_seed_watermark")
 		_, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{

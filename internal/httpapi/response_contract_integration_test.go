@@ -36,30 +36,30 @@ type responseContract struct {
 var (
 	responseContractOnce  sync.Once
 	responseContractValue *responseContract
-	responseContractErr   error
+	errResponseContract   error
 )
 
 func loadResponseContract() (*responseContract, error) {
 	responseContractOnce.Do(func() {
 		spec, err := openapi.GetSpec()
 		if err != nil {
-			responseContractErr = err
+			errResponseContract = err
 			return
 		}
 		spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
 		router, err := gorillamux.NewRouter(spec)
 		if err != nil {
-			responseContractErr = err
+			errResponseContract = err
 			return
 		}
 		body, err := newDocumentBodyValidator()
 		if err != nil {
-			responseContractErr = err
+			errResponseContract = err
 			return
 		}
 		responseContractValue = &responseContract{router: router, body: body}
 	})
-	return responseContractValue, responseContractErr
+	return responseContractValue, errResponseContract
 }
 
 const openapiDocumentResource = "urn:omnara:openapi-document"

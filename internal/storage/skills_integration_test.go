@@ -415,7 +415,7 @@ func TestConcurrentInitialSkillUploadsShareIdentity(t *testing.T) {
 	}
 	results := make(chan uploadResult, 2)
 	for revision := 1; revision <= 2; revision++ {
-		revision := revision
+
 		go func() {
 			record, err := store.Skills().CreateSkillRevision(context.Background(), skillstore.CreateSkillInput{
 				OrgID: testOrgID, OwnerKind: skillstore.SkillOwnerOrg, Name: "concurrent-first-upload",

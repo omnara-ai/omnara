@@ -27,7 +27,7 @@ func TestServiceE2EDeterministicAnthropicWorkerRunsModelTurn(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		if auth := r.Header.Get("x-api-key"); auth != "service-e2e-test-key" {
+		if auth := r.Header.Get("X-Api-Key"); auth != "service-e2e-test-key" {
 			t.Errorf("unexpected Anthropic auth header %q", auth)
 			http.Error(w, "bad auth", http.StatusUnauthorized)
 			return
@@ -101,7 +101,7 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 			http.NotFound(w, r)
 			return
 		}
-		if auth := r.Header.Get("x-api-key"); auth != "service-e2e-test-key" {
+		if auth := r.Header.Get("X-Api-Key"); auth != "service-e2e-test-key" {
 			t.Errorf("unexpected Anthropic auth header %q", auth)
 			http.Error(w, "bad auth", http.StatusUnauthorized)
 			return

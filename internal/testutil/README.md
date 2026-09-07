@@ -36,6 +36,17 @@ existing contextual checks can remain when a conversion adds little clarity.
 Keep independent result checks nonfatal when useful.
 Fatal assertions, including `require`, belong in the goroutine running the test.
 Send errors from worker goroutines to that goroutine before asserting them.
+HTTP server handlers should report with `t.Errorf`, send an error response, and
+return. Helpers called from them must propagate errors so the handler cannot
+continue with a success response. The enabled `testifylint/go-require` check catches
+common misuses of fatal Testify assertions, but does not prove callback ownership.
+
+Use `testutil.RequireType[T](t, value)` when extracting an ID, object or array for
+subsequent operations. It uses Go's checked type assertion, including named-type
+and typed-nil semantics, and reports the expected and actual types at the caller.
+It does not coerce values or assert nonempty/non-nil results. Keep presence, null,
+negative type checks and ordinary scalar comparisons explicit. For JSON numbers,
+compare to the decoder's numeric type deliberately (for example `float64(2)`).
 
 Use `cmp.Diff(want, got)` with a `(-want +got)` label for structural failures.
 Inspect the compared type: cmp honors Equal methods, distinguishes nil from
@@ -62,20 +73,20 @@ unused helpers and repeated provisioning, not distinct behavioral coverage.
 
 ## Tagged lint
 
-`make golangci-lint` retains the untagged all-module gate. Use
-`make golangci-lint-tagged` to lint the root module with `integration,servicee2e`.
-The full tagged command currently reports an existing backlog, especially long
-lines and unchecked type assertions. It is not a clean baseline.
+`make golangci-lint` checks all Go modules with their normal build configuration,
+then checks the root module with `integration,servicee2e,webe2e,live,blackbox`.
+CI runs this full gate through `make verify-static` for every workflow event.
+Use `make golangci-lint-tagged` to run just the optional-tag pass. Lint compiles
+and analyzes the code; it does not execute live tests or require their credentials.
+Keep the normal pass as well: build tags change which declarations and callers
+are visible. The existing tag-specific compile checks protect those combinations.
 
-PR and push CI additionally run `make golangci-lint-tagged-diff LINT_BASE_SHA=...`
-against the fetched event base. This rejects reported issues on added/changed
-lines; it does not certify untouched lines or detect every effect that a change
-has on other files. The event base is a branch tip, not necessarily a merge
-base; choose the base carefully for local runs. Manual workflow dispatch has
-no event diff and retains the
-regular gate. To finish the rollout, remediate the tagged backlog in focused
-changes, then promote full tagged lint to the required gate. Live/blackbox tags
-remain compile-checked separately and are outside this tagged-lint target.
+Keep parallelism intentional. Independent cases can run in parallel with cleanup
+owned by their test. A parallel parent may need sequential children when cases
+share mutable state or must finish before later parent assertions. Document that
+ordering with a specific `nolint:tparallel` on the function; do not rearrange the
+workflow solely to satisfy the analyzer. Other exceptions must likewise explain
+the actual constraint at the affected operation, rather than exclude test files.
 
 ## Further reading
 

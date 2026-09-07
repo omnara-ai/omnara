@@ -18,12 +18,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
+//nolint:tparallel // rejected results must precede rollback checks and successful completion of the shared tool calls
 func TestPublicCustomToolCallLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -66,7 +68,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		t.Fatalf("claim input work: %v", err)
 	}
 	if !found || claim.Kind != executionstore.AgentWorkModel {
-		t.Fatalf("input was not admitted")
+		t.Fatalf("input work: found=%v kind=%q, want model work", found, claim.Kind)
 	}
 	lock := claim.RuntimeLock
 	admitted := claim.Model.AdmittedInputTurn
@@ -266,12 +268,12 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			http.StatusOK,
 			authHeaders(project.AdminToken),
 		)
-		items := page["data"].([]any)
+		items := testutil.RequireType[[]any](t, page["data"])
 		if len(items) != expectedCount {
 			t.Fatalf("tool call page %d has %d items, want %d", pageIndex+1, len(items), expectedCount)
 		}
 		for _, rawItem := range items {
-			id := rawItem.(map[string]any)["id"].(string)
+			id := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, rawItem)["id"])
 			if _, exists := seenPageIDs[id]; exists {
 				t.Fatalf("tool call %s appeared on multiple pages", id)
 			}
@@ -599,18 +601,18 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	completedCall := submitted["tool_call"].(map[string]any)
+	completedCall := testutil.RequireType[map[string]any](t, submitted["tool_call"])
 	if completedCall["state"] != "completed" || completedCall["outcome"] != "succeeded" {
 		t.Fatalf("completed tool call = %+v", completedCall)
 	}
-	toolResult := submitted["tool_result"].(map[string]any)
+	toolResult := testutil.RequireType[map[string]any](t, submitted["tool_result"])
 	if toolResult["tool_call_id"] != toolCallID ||
 		toolResult["agent_id"] != agentPublicID ||
 		toolResult["outcome"] != "succeeded" ||
 		!publicEventTextEquals(toolResult, "Customer found.") {
 		t.Fatalf("submitted tool_result = %+v", toolResult)
 	}
-	if toolResult["content_blocks"].([]any)[0].(map[string]any)["type"] != "text" {
+	if testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, toolResult["content_blocks"])[0])["type"] != "text" {
 		t.Fatalf(
 			"submitted tool_result content was not canonicalized: %+v",
 			toolResult,
@@ -647,11 +649,11 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	failedCall := failedSubmitted["tool_call"].(map[string]any)
+	failedCall := testutil.RequireType[map[string]any](t, failedSubmitted["tool_call"])
 	if failedCall["state"] != "completed" || failedCall["outcome"] != "failed" {
 		t.Fatalf("failed tool call = %+v", failedCall)
 	}
-	failedToolResult := failedSubmitted["tool_result"].(map[string]any)
+	failedToolResult := testutil.RequireType[map[string]any](t, failedSubmitted["tool_result"])
 	expectedFailedContentBlocks := []any{map[string]any{
 		"type": "structured_data",
 		"value": map[string]any{
@@ -701,11 +703,11 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	mediaBlocks := mediaSubmitted["tool_result"].(map[string]any)["content_blocks"].([]any)
+	mediaBlocks := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, mediaSubmitted["tool_result"])["content_blocks"])
 	if len(mediaBlocks) != 1 {
 		t.Fatalf("media tool_result content_blocks = %+v, want one media_ref", mediaBlocks)
 	}
-	mediaBlock := mediaBlocks[0].(map[string]any)
+	mediaBlock := testutil.RequireType[map[string]any](t, mediaBlocks[0])
 	artifactPublicID, ok := mediaBlock["artifact_id"].(string)
 	if !ok || mediaBlock["type"] != "media_ref" {
 		t.Fatalf("media tool_result block = %+v, want media_ref with public artifact id", mediaBlock)
@@ -723,9 +725,9 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	emptyResult := emptySubmitted["tool_result"].(map[string]any)
+	emptyResult := testutil.RequireType[map[string]any](t, emptySubmitted["tool_result"])
 	if emptyResult["outcome"] != "succeeded" ||
-		len(emptyResult["content_blocks"].([]any)) != 0 {
+		len(testutil.RequireType[[]any](t, emptyResult["content_blocks"])) != 0 {
 		t.Fatalf("empty tool result = %+v", emptyResult)
 	}
 
@@ -745,8 +747,8 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		mediaToolCallID:  "succeeded",
 		emptyToolCallID:  "succeeded",
 	}
-	for _, rawEvent := range finalEvents["data"].([]any) {
-		event := rawEvent.(map[string]any)
+	for _, rawEvent := range testutil.RequireType[[]any](t, finalEvents["data"]) {
+		event := testutil.RequireType[map[string]any](t, rawEvent)
 		if event["event_kind"] != "tool_result" {
 			continue
 		}
@@ -781,10 +783,10 @@ func publicCustomToolCallsByID(
 ) map[string]map[string]any {
 	t.Helper()
 	calls := make(map[string]map[string]any)
-	for _, rawEvent := range response["data"].([]any) {
-		event := rawEvent.(map[string]any)
-		for _, rawBlock := range event["content_blocks"].([]any) {
-			block := rawBlock.(map[string]any)
+	for _, rawEvent := range testutil.RequireType[[]any](t, response["data"]) {
+		event := testutil.RequireType[map[string]any](t, rawEvent)
+		for _, rawBlock := range testutil.RequireType[[]any](t, event["content_blocks"]) {
+			block := testutil.RequireType[map[string]any](t, rawBlock)
 			if block["type"] == "tool_call" {
 				if block["tool_type"] != toolcatalog.ToolTypeCustom {
 					continue
@@ -812,9 +814,9 @@ func publicToolCallsByProviderID(
 ) map[string]map[string]any {
 	t.Helper()
 	calls := make(map[string]map[string]any)
-	for _, rawCall := range response["data"].([]any) {
-		call := rawCall.(map[string]any)
-		calls[call["provider_call_id"].(string)] = call
+	for _, rawCall := range testutil.RequireType[[]any](t, response["data"]) {
+		call := testutil.RequireType[map[string]any](t, rawCall)
+		calls[testutil.RequireType[string](t, call["provider_call_id"])] = call
 	}
 	return calls
 }

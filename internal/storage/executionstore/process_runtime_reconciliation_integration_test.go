@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func liveProcessReconciliationClaimForTest(
@@ -977,6 +978,7 @@ func TestRuntimeRegistrationReoffersTerminalRead(t *testing.T) {
 			name = "accepted"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(
 				t,
@@ -1839,9 +1841,7 @@ func TestReplacementDaemonRuntimeReleasesServerResolvedTerminate(
 			Payload:    json.RawMessage(`{"data":"before exit\n"}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
 		fixture.Store,
@@ -1868,9 +1868,7 @@ func TestReplacementDaemonRuntimeReleasesServerResolvedTerminate(
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	exitCode := 0
 	if _, err := fixture.Store.Execution().CompleteDaemonProcess(
 		ctx,

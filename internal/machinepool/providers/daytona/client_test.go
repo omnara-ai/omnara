@@ -11,48 +11,68 @@ import (
 func TestDaytonaRESTClientUsesMainAndToolboxAPIs(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		switch r.URL.Path {
 		case "/snapshots/team-snapshot":
 			_ = json.NewEncoder(w).Encode(snapshot{Name: "team-snapshot", State: "active", CPU: 1, Memory: 1})
 		case "/sandbox":
 			if r.Method != http.MethodPost {
-				t.Fatalf("create sandbox method = %s", r.Method)
+				t.Errorf("create sandbox method = %s", r.Method)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			var body map[string]json.RawMessage
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode create sandbox request: %v", err)
+				t.Errorf("decode create sandbox request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			raw, err := json.Marshal(body)
 			if err != nil {
-				t.Fatalf("marshal create sandbox request: %v", err)
+				t.Errorf("marshal create sandbox request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			var request createSandboxRequest
 			if err := json.Unmarshal(raw, &request); err != nil {
-				t.Fatalf("parse create sandbox request: %v", err)
+				t.Errorf("parse create sandbox request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if request.Name != "machine-1" || request.Snapshot != "team-snapshot" || request.Target != "us" ||
 				request.Env["TEST"] != "value" || request.Labels["omnara-machine"] != "machine-1" ||
 				request.AutoStopInterval != 0 || request.AutoDeleteInterval != -1 {
-				t.Fatalf("create sandbox request = %+v", request)
+				t.Errorf("create sandbox request = %+v", request)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if _, ok := body["autoStopInterval"]; !ok {
-				t.Fatal("create sandbox request omitted autoStopInterval")
+				t.Error("create sandbox request omitted autoStopInterval")
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			_ = json.NewEncoder(w).Encode(sandbox{ID: "sandbox-1"})
 		case "/toolbox/sandbox-1/process/session/session-1":
 			_ = json.NewEncoder(w).Encode(map[string]any{"sessionId": "session-1", "commands": []any{}})
 		case "/toolbox/sandbox-1/process/session/session-1/exec":
 			if r.Method != http.MethodPost {
-				t.Fatalf("execute session method = %s", r.Method)
+				t.Errorf("execute session method = %s", r.Method)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			var request sessionExecuteRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				t.Fatalf("decode execute session request: %v", err)
+				t.Errorf("decode execute session request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if request.Command != "run daemon" || !request.RunAsync {
-				t.Fatalf("execute session request = %+v", request)
+				t.Errorf("execute session request = %+v", request)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(sessionExecuteResponse{CommandID: "command-1"})
@@ -100,18 +120,26 @@ func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) 
 	nextCursor := "next-page"
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/sandbox" {
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		query := r.URL.Query()
 		if query.Get("cursor") != "current-page" || query.Get("limit") != "200" {
-			t.Fatalf("pagination query = %q", r.URL.RawQuery)
+			t.Errorf("pagination query = %q", r.URL.RawQuery)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		states := query["states"]
 		if len(states) != 2 || states[0] != "started" || states[1] != "stopped" {
-			t.Fatalf("state filters = %#v", states)
+			t.Errorf("state filters = %#v", states)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write([]byte(`{
 			"items":[{

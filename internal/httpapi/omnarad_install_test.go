@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOmnaradInstallRoute(t *testing.T) {
@@ -200,9 +202,7 @@ func TestOmnaradInstallerConfiguresPath(t *testing.T) {
 			},
 			prepare: func(t *testing.T, home string) {
 				t.Helper()
-				if err := os.WriteFile(filepath.Join(home, ".profile"), nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.WriteFile(filepath.Join(home, ".profile"), nil, 0o600))
 			},
 			wantLine: bashPathLine,
 		},
@@ -275,9 +275,7 @@ func TestOmnaradInstallerUsesLocalBinAndManualPathFallback(t *testing.T) {
 	userHome := t.TempDir()
 	daemonHome := filepath.Join(userHome, ".omnarad")
 	localBin := filepath.Join(userHome, ".local", "bin")
-	if err := os.MkdirAll(localBin, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(localBin, 0o700))
 	marker := filepath.Join(t.TempDir(), "args")
 	seed := filepath.Join(t.TempDir(), "omnarad")
 	writeDelegatingSeed(t, seed, marker)
@@ -347,9 +345,7 @@ func TestOmnaradInstallerUsesDefaultHomeForRestart(t *testing.T) {
 	writeDelegatingSeed(t, seed, marker)
 	script := writeInstaller(t, "https://releases.omnara.test/omnarad")
 	shell, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	cmd := exec.Command(shell, script)
 	cmd.Env = []string{
 		"HOME=" + userHome,
@@ -378,9 +374,7 @@ func TestOmnaradInstallerWithoutHomeStillRestarts(t *testing.T) {
 	seed := filepath.Join(t.TempDir(), "omnarad")
 	writeDelegatingSeed(t, seed, marker)
 	shell, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	cmd := exec.Command(shell, writeInstaller(t, "https://releases.omnara.test/omnarad"))
 	cmd.Env = []string{
 		"OMNARA_HOME=" + daemonHome,

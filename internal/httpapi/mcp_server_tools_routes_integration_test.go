@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestListMCPServerToolsUsesProjectSecretForBearerAuth(t *testing.T) {
@@ -33,22 +34,22 @@ func TestListMCPServerToolsUsesProjectSecretForBearerAuth(t *testing.T) {
 		"/api/v1/orgs/"+project.OrgID+"/secrets",
 		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"mcp-token","material":{"kind":"generic","value":"mcp-token"}}`,
 		"", http.StatusCreated, authHeaders(project.AdminToken))
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 	awsSecret := requestJSONWithHeaders(t, handler, http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/secrets",
 		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"aws","material":{"kind":"aws_credentials","access_key_id":"AKIAEXAMPLE","secret_access_key":"secret"}}`,
 		"", http.StatusCreated, authHeaders(project.AdminToken))
-	awsSecretID := awsSecret["id"].(string)
+	awsSecretID := testutil.RequireType[string](t, awsSecret["id"])
 
 	response := requestJSONWithHeaders(t, handler, http.MethodPost,
 		project.ProjectPath+"/mcp-servers/tools",
 		`{"url":"`+upstream.URL+`/mcp","auth":{"type":"bearer","secret_id":"`+secretID+`"}}`,
 		"", http.StatusOK, authHeaders(project.AdminToken))
-	tools := response["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "search" {
+	tools := testutil.RequireType[[]any](t, response["tools"])
+	if len(tools) != 1 || testutil.RequireType[map[string]any](t, tools[0])["name"] != "search" {
 		t.Fatalf("tools = %+v", response)
 	}
-	if response["server_info"].(map[string]any)["name"] != "weather" {
+	if testutil.RequireType[map[string]any](t, response["server_info"])["name"] != "weather" {
 		t.Fatalf("server_info = %+v", response["server_info"])
 	}
 
@@ -57,7 +58,7 @@ func TestListMCPServerToolsUsesProjectSecretForBearerAuth(t *testing.T) {
 		`{"url":"`+upstream.URL+`/mcp","auth":{"type":"none"}}`,
 		"", http.StatusUnprocessableEntity, authHeaders(project.AdminToken))
 	if unauthenticated["code"] != "unprocessable" ||
-		unauthenticated["auth"].(map[string]any)["type"] != "bearer" {
+		testutil.RequireType[map[string]any](t, unauthenticated["auth"])["type"] != "bearer" {
 		t.Fatalf("unauthenticated response = %+v", unauthenticated)
 	}
 
@@ -99,14 +100,14 @@ func TestListMCPServerToolsUsesProjectSecretForOAuthAuth(t *testing.T) {
 		"/api/v1/orgs/"+project.OrgID+"/secrets",
 		`{"owner":{"kind":"project","project_id":"`+project.ProjectID+`"},"name":"mcp-oauth","material":{"kind":"oauth_token_set","access_token":"oauth-access","mcp_url":"`+upstream.URL+`/mcp"}}`,
 		"", http.StatusCreated, authHeaders(project.AdminToken))
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 
 	response := requestJSONWithHeaders(t, handler, http.MethodPost,
 		project.ProjectPath+"/mcp-servers/tools",
 		`{"url":"`+upstream.URL+`/mcp","auth":{"type":"oauth","secret_id":"`+secretID+`"}}`,
 		"", http.StatusOK, authHeaders(project.AdminToken))
-	tools := response["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "search" {
+	tools := testutil.RequireType[[]any](t, response["tools"])
+	if len(tools) != 1 || testutil.RequireType[map[string]any](t, tools[0])["name"] != "search" {
 		t.Fatalf("tools = %+v", response)
 	}
 }

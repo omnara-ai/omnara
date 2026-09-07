@@ -364,7 +364,6 @@ func TestTerminalModelCallFailureSettlesBeforeNewModelReadyFrontier(t *testing.T
 	t.Parallel()
 	for _, operation := range []string{string(executionstore.ModelCallOperationNormal), string(executionstore.ModelCallOperationCompaction)} {
 		for _, frontier := range []string{"steering", "config"} {
-			operation, frontier := operation, frontier
 			t.Run(operation+"_"+frontier, func(t *testing.T) {
 				t.Parallel()
 				ctx := context.Background()
@@ -434,7 +433,6 @@ func TestExhaustedRuntimeRecoverySettlesBeforeNewModelReadyFrontier(t *testing.T
 	for _, recovery := range []string{"release", "reap"} {
 		for _, operation := range []string{string(executionstore.ModelCallOperationNormal), string(executionstore.ModelCallOperationCompaction)} {
 			for _, frontier := range []string{"steering", "config"} {
-				recovery, operation, frontier := recovery, operation, frontier
 				t.Run(recovery+"_"+operation+"_"+frontier, func(t *testing.T) {
 					t.Parallel()
 					ctx := context.Background()

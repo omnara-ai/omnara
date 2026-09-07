@@ -943,6 +943,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("process completion only touches built-in calls", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "running_tool_authority_process")
 		toolCallIDs := createToolCallBatchForProcessTest(
 			t,
@@ -999,6 +1000,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 	})
 
 	t.Run("process completion rejects a linked custom call", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "running_tool_authority_mislinked")
 		toolCallIDs := createToolCallBatchForProcessTest(
 			t,
@@ -1170,6 +1172,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 }
 
 func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name           string
 		createArtifact bool

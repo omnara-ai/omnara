@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/testutil"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -178,7 +179,7 @@ func TestPublicEventStreamHeartbeatsWaitForDurableWakeup(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
 	if err != nil {
 		t.Fatalf("decode agent id: %v", err)
@@ -429,7 +430,7 @@ func TestPublicEventStreamReconcilesDroppedRedisWakeup(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
 	if err != nil {
 		t.Fatalf("decode agent id: %v", err)
@@ -591,7 +592,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		authorPAT.Token,
 		http.StatusCreated,
 	)
-	agentID := launch["agent"].(map[string]any)["id"].(string)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
 	first := requestJSONWithHeaders(
 		t,
@@ -603,7 +604,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(authorPAT.Token),
 	)
-	firstInput := first["agent_input"].(map[string]any)
+	firstInput := testutil.RequireType[map[string]any](t, first["agent_input"])
 	if firstInput["state"] != "received" ||
 		firstInput["delivery_mode"] != string(executionstore.DeliveryModeQueued) ||
 		!publicEventTextEquals(firstInput, "first") {
@@ -622,7 +623,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 			firstInput,
 		)
 	}
-	firstInputID := firstInput["id"].(string)
+	firstInputID := testutil.RequireType[string](t, firstInput["id"])
 	second := requestJSONWithHeaders(
 		t,
 		handler,
@@ -633,7 +634,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(authorPAT.Token),
 	)
-	secondInputID := second["agent_input"].(map[string]any)["id"].(string)
+	secondInputID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, second["agent_input"])["id"])
 	third := requestJSONWithHeaders(
 		t,
 		handler,
@@ -644,7 +645,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(authorPAT.Token),
 	)
-	thirdInputID := third["agent_input"].(map[string]any)["id"].(string)
+	thirdInputID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, third["agent_input"])["id"])
 	preAdmissionEvents := requestJSONWithHeaders(
 		t,
 		handler,
@@ -655,9 +656,9 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	preAdmissionData := preAdmissionEvents["data"].([]any)
+	preAdmissionData := testutil.RequireType[[]any](t, preAdmissionEvents["data"])
 	if len(preAdmissionData) != 1 ||
-		preAdmissionData[0].(map[string]any)["input_kind"] != "config_change" {
+		testutil.RequireType[map[string]any](t, preAdmissionData[0])["input_kind"] != "config_change" {
 		t.Fatalf(
 			"received inputs must not appear in event history before admission except initial config change: %+v",
 			preAdmissionEvents,
@@ -677,18 +678,18 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	backlogData := backlog["data"].([]any)
+	backlogData := testutil.RequireType[[]any](t, backlog["data"])
 	if len(backlogData) != 3 ||
-		backlogData[0].(map[string]any)["id"] != thirdInputID ||
-		backlogData[1].(map[string]any)["id"] != firstInput["id"] ||
-		backlogData[2].(map[string]any)["id"] != secondInputID {
+		testutil.RequireType[map[string]any](t, backlogData[0])["id"] != thirdInputID ||
+		testutil.RequireType[map[string]any](t, backlogData[1])["id"] != firstInput["id"] ||
+		testutil.RequireType[map[string]any](t, backlogData[2])["id"] != secondInputID {
 		t.Fatalf(
 			"backlog should list steering before queued inputs, got %+v",
 			backlogData,
 		)
 	}
 	for index, wantKey := range []string{"idem-input-third", "idem-input-first", "idem-input-second"} {
-		if backlogData[index].(map[string]any)["input_idempotency_key"] != wantKey {
+		if testutil.RequireType[map[string]any](t, backlogData[index])["input_idempotency_key"] != wantKey {
 			t.Fatalf("backlog input %d idempotency key = %+v, want %q", index, backlogData[index], wantKey)
 		}
 	}
@@ -702,9 +703,9 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(viewerPAT.Token),
 	)
-	viewerBacklogData := viewerBacklog["data"].([]any)
+	viewerBacklogData := testutil.RequireType[[]any](t, viewerBacklog["data"])
 	if len(viewerBacklogData) != 3 ||
-		!publicEventTextEquals(viewerBacklogData[0].(map[string]any), "third") {
+		!publicEventTextEquals(testutil.RequireType[map[string]any](t, viewerBacklogData[0]), "third") {
 		t.Fatalf(
 			"viewer should be able to read waiting backlog content, got %+v",
 			viewerBacklog,
@@ -770,7 +771,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	if reordered["data"].([]any)[1].(map[string]any)["id"] != secondInputID {
+	if testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, reordered["data"])[1])["id"] != secondInputID {
 		t.Fatalf("expected moved input at front, got %+v", reordered)
 	}
 	requestJSONWithHeaders(
@@ -793,11 +794,11 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	promotedData := promoted["data"].([]any)
+	promotedData := testutil.RequireType[[]any](t, promoted["data"])
 	if len(promotedData) != 3 ||
-		promotedData[0].(map[string]any)["id"] != thirdInputID ||
-		promotedData[1].(map[string]any)["id"] != secondInputID ||
-		promotedData[1].(map[string]any)["delivery_mode"] != "steering" {
+		testutil.RequireType[map[string]any](t, promotedData[0])["id"] != thirdInputID ||
+		testutil.RequireType[map[string]any](t, promotedData[1])["id"] != secondInputID ||
+		testutil.RequireType[map[string]any](t, promotedData[1])["delivery_mode"] != "steering" {
 		t.Fatalf("promoted input should remain in the steering backlog: %+v", promoted)
 	}
 	requestJSONWithHeaders(
@@ -850,8 +851,8 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	for _, item := range afterCancelBacklog["data"].([]any) {
-		if item.(map[string]any)["id"] == firstInputID {
+	for _, item := range testutil.RequireType[[]any](t, afterCancelBacklog["data"]) {
+		if testutil.RequireType[map[string]any](t, item)["id"] == firstInputID {
 			t.Fatalf(
 				"canceled input must leave backlog: %+v",
 				afterCancelBacklog,
@@ -926,7 +927,7 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(authorPAT.Token),
 	)
-	if replayed["agent_input"].(map[string]any)["id"] != firstInputID {
+	if testutil.RequireType[map[string]any](t, replayed["agent_input"])["id"] != firstInputID {
 		t.Fatalf("expected idempotent replay, got %+v", replayed)
 	}
 	requestJSONWithHeaders(
@@ -988,7 +989,7 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
 	first := requestJSONWithHeaders(
 		t,
@@ -1010,8 +1011,8 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	firstID := first["agent_input"].(map[string]any)["id"].(string)
-	secondID := second["agent_input"].(map[string]any)["id"].(string)
+	firstID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, first["agent_input"])["id"])
+	secondID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, second["agent_input"])["id"])
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -1055,10 +1056,10 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	eventData := events["data"].([]any)
+	eventData := testutil.RequireType[[]any](t, events["data"])
 	if len(eventData) != 2 ||
-		eventData[0].(map[string]any)["input_kind"] != "config_change" ||
-		!publicEventTextEquals(eventData[1].(map[string]any), "second queued") {
+		testutil.RequireType[map[string]any](t, eventData[0])["input_kind"] != "config_change" ||
+		!publicEventTextEquals(testutil.RequireType[map[string]any](t, eventData[1]), "second queued") {
 		t.Fatalf(
 			"static events should expose reordered input first, got %+v",
 			eventData,
@@ -1072,26 +1073,26 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		project.ProjectUUID,
 		project.AdminUserUUID,
 	)
-	if eventData[1].(map[string]any)["actor_id"] != adminActorPublicID {
+	if testutil.RequireType[map[string]any](t, eventData[1])["actor_id"] != adminActorPublicID {
 		t.Fatalf(
 			"admitted input event should be attributed to the authenticated user's actor, got %+v",
 			eventData[1],
 		)
 	}
-	if eventData[1].(map[string]any)["agent_input_id"] != secondID {
+	if testutil.RequireType[map[string]any](t, eventData[1])["agent_input_id"] != secondID {
 		t.Fatalf(
 			"admitted input event should correlate back to input %s, got %+v",
 			secondID,
 			eventData[1],
 		)
 	}
-	if eventData[1].(map[string]any)["input_idempotency_key"] != "idem-queued-order-second" {
+	if testutil.RequireType[map[string]any](t, eventData[1])["input_idempotency_key"] != "idem-queued-order-second" {
 		t.Fatalf(
 			"admitted input event should echo the sender's idempotency key, got %+v",
 			eventData[1],
 		)
 	}
-	if _, hasKey := eventData[0].(map[string]any)["input_idempotency_key"]; hasKey {
+	if _, hasKey := testutil.RequireType[map[string]any](t, eventData[0])["input_idempotency_key"]; hasKey {
 		t.Fatalf(
 			"config change event must not echo an idempotency key, got %+v",
 			eventData[0],
@@ -1107,10 +1108,10 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	turnData := turns["data"].([]any)
+	turnData := testutil.RequireType[[]any](t, turns["data"])
 	if len(turnData) != 2 ||
-		!publicEventTextEquals(turnData[0].(map[string]any)["opening_events"].([]any)[0].(map[string]any), "second queued") ||
-		turnData[1].(map[string]any)["opening_events"].([]any)[0].(map[string]any)["input_kind"] != "config_change" {
+		!publicEventTextEquals(testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[0])["opening_events"])[0]), "second queued") ||
+		testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[1])["opening_events"])[0])["input_kind"] != "config_change" {
 		t.Fatalf("turn opening event should be reordered input, got %+v", turnData)
 	}
 	if turns["next_before_turn_sequence"] != nil {
@@ -1126,14 +1127,14 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	firstTurnData := firstTurnPage["data"].([]any)
+	firstTurnData := testutil.RequireType[[]any](t, firstTurnPage["data"])
 	if len(firstTurnData) != 1 ||
 		jsonInt64(
 			t,
 			firstTurnPage["next_before_turn_sequence"],
 		) != jsonInt64(
 			t,
-			firstTurnData[0].(map[string]any)["turn_sequence"],
+			testutil.RequireType[map[string]any](t, firstTurnData[0])["turn_sequence"],
 		) {
 		t.Fatalf("single turn page should expose older continuation, got %+v", firstTurnPage)
 	}
@@ -1149,7 +1150,7 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if len(secondTurnPage["data"].([]any)) != 1 || secondTurnPage["next_before_turn_sequence"] != nil {
+	if len(testutil.RequireType[[]any](t, secondTurnPage["data"])) != 1 || secondTurnPage["next_before_turn_sequence"] != nil {
 		t.Fatalf("second turn page should drain the sequence, got %+v", secondTurnPage)
 	}
 
@@ -1200,6 +1201,11 @@ func TestPublicQueuedInputReorderControlsAdmittedEventOrder(t *testing.T) {
 
 func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 	t.Parallel()
+	eventSequence := func(raw any) int64 {
+		t.Helper()
+		event := testutil.RequireType[map[string]any](t, raw)
+		return jsonInt64(t, event["sequence"])
+	}
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 
@@ -1215,7 +1221,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
 	if err != nil {
 		t.Fatalf("decode agent id: %v", err)
@@ -1231,7 +1237,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	inputPublicID := created["agent_input"].(map[string]any)["id"].(string)
+	inputPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["agent_input"])["id"])
 	inputID, err := publicid.Decode(publicid.KindAgentInput, inputPublicID)
 	if err != nil {
 		t.Fatalf("decode agent input id: %v", err)
@@ -1351,16 +1357,16 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	eventData := events["data"].([]any)
+	eventData := testutil.RequireType[[]any](t, events["data"])
 	if len(eventData) != 4 ||
-		eventData[0].(map[string]any)["input_kind"] != "config_change" {
+		testutil.RequireType[map[string]any](t, eventData[0])["input_kind"] != "config_change" {
 		t.Fatalf(
 			"expected user input, model output, and tool result events, got %+v",
 			eventData,
 		)
 	}
 	if events["has_more"] != false ||
-		jsonInt64(t, events["next_after_sequence"]) != jsonInt64(t, eventData[3].(map[string]any)["sequence"]) {
+		jsonInt64(t, events["next_after_sequence"]) != eventSequence(eventData[3]) {
 		t.Fatalf("full event page should expose terminal sequence metadata, got %+v", events)
 	}
 	firstEventPage := requestJSONWithHeaders(
@@ -1373,9 +1379,9 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	firstEventData := firstEventPage["data"].([]any)
+	firstEventData := testutil.RequireType[[]any](t, firstEventPage["data"])
 	if len(firstEventData) != 2 || firstEventPage["has_more"] != true ||
-		jsonInt64(t, firstEventPage["next_after_sequence"]) != jsonInt64(t, firstEventData[1].(map[string]any)["sequence"]) {
+		jsonInt64(t, firstEventPage["next_after_sequence"]) != eventSequence(firstEventData[1]) {
 		t.Fatalf("first event page should expose forward continuation, got %+v", firstEventPage)
 	}
 	secondEventPage := requestJSONWithHeaders(
@@ -1390,15 +1396,12 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	secondEventData := secondEventPage["data"].([]any)
+	secondEventData := testutil.RequireType[[]any](t, secondEventPage["data"])
 	if len(secondEventData) != 2 || secondEventPage["has_more"] != false ||
 		jsonInt64(
 			t,
 			secondEventPage["next_after_sequence"],
-		) != jsonInt64(
-			t,
-			secondEventData[1].(map[string]any)["sequence"],
-		) {
+		) != eventSequence(secondEventData[1]) {
 		t.Fatalf("second event page should drain forward continuation, got %+v", secondEventPage)
 	}
 	latestEventPage := requestJSONWithHeaders(
@@ -1411,11 +1414,11 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	latestEventData := latestEventPage["data"].([]any)
+	latestEventData := testutil.RequireType[[]any](t, latestEventPage["data"])
 	if len(latestEventData) != 2 || latestEventPage["has_more"] != true ||
-		jsonInt64(t, latestEventData[0].(map[string]any)["sequence"]) != jsonInt64(t, eventData[2].(map[string]any)["sequence"]) ||
-		jsonInt64(t, latestEventData[1].(map[string]any)["sequence"]) != jsonInt64(t, eventData[3].(map[string]any)["sequence"]) ||
-		jsonInt64(t, latestEventPage["next_before_sequence"]) != jsonInt64(t, eventData[2].(map[string]any)["sequence"]) {
+		eventSequence(latestEventData[0]) != eventSequence(eventData[2]) ||
+		eventSequence(latestEventData[1]) != eventSequence(eventData[3]) ||
+		jsonInt64(t, latestEventPage["next_before_sequence"]) != eventSequence(eventData[2]) {
 		t.Fatalf("latest event page should expose backward continuation, got %+v", latestEventPage)
 	}
 	olderEventPage := requestJSONWithHeaders(
@@ -1430,23 +1433,23 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	olderEventData := olderEventPage["data"].([]any)
+	olderEventData := testutil.RequireType[[]any](t, olderEventPage["data"])
 	if len(olderEventData) != 2 || olderEventPage["has_more"] != false ||
 		olderEventPage["next_before_sequence"] != nil ||
-		jsonInt64(t, olderEventData[0].(map[string]any)["sequence"]) != jsonInt64(t, eventData[0].(map[string]any)["sequence"]) ||
-		jsonInt64(t, olderEventData[1].(map[string]any)["sequence"]) != jsonInt64(t, eventData[1].(map[string]any)["sequence"]) {
+		eventSequence(olderEventData[0]) != eventSequence(eventData[0]) ||
+		eventSequence(olderEventData[1]) != eventSequence(eventData[1]) {
 		t.Fatalf("older event page should drain backward continuation, got %+v", olderEventPage)
 	}
-	if !publicEventTextEquals(eventData[1].(map[string]any), "visible user input") ||
-		!publicEventContainsText(eventData[2].(map[string]any), "visible assistant output") ||
-		!publicEventTextEquals(eventData[3].(map[string]any), "visible tool result") {
+	if !publicEventTextEquals(testutil.RequireType[map[string]any](t, eventData[1]), "visible user input") ||
+		!publicEventContainsText(testutil.RequireType[map[string]any](t, eventData[2]), "visible assistant output") ||
+		!publicEventTextEquals(testutil.RequireType[map[string]any](t, eventData[3]), "visible tool result") {
 		t.Fatalf("events should expose canonical content blocks: %+v", eventData)
 	}
-	inputMetadata := eventData[1].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
+	inputMetadata := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[1])["content_blocks"])[0])["metadata"])
 	if inputMetadata["omnara_hidden"] != "true" || inputMetadata["source"] != "test" {
 		t.Fatalf("input content block metadata = %+v", inputMetadata)
 	}
-	toolResultMetadata := eventData[3].(map[string]any)["content_blocks"].([]any)[0].(map[string]any)["metadata"].(map[string]any)
+	toolResultMetadata := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, eventData[3])["content_blocks"])[0])["metadata"])
 	if toolResultMetadata["tool_result"] != "true" {
 		t.Fatalf("tool result content block metadata = %+v", toolResultMetadata)
 	}
@@ -1455,7 +1458,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.ProjectUUID,
 		agentID,
 		0,
-		jsonInt64(t, eventData[3].(map[string]any)["sequence"]),
+		eventSequence(eventData[3]),
 		100,
 	)
 	if err != nil {
@@ -1480,7 +1483,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		t.Fatalf("encode tool call id: %v", err)
 	}
 	if !publicEventContainsToolCall(
-		eventData[2].(map[string]any),
+		testutil.RequireType[map[string]any](t, eventData[2]),
 		toolCallPublicID,
 	) {
 		t.Fatalf(
@@ -1488,10 +1491,10 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 			eventData[2],
 		)
 	}
-	if eventData[2].(map[string]any)["stop_reason"] != "tool_use" {
+	if testutil.RequireType[map[string]any](t, eventData[2])["stop_reason"] != "tool_use" {
 		t.Fatalf("model output should expose its stop reason, got %+v", eventData[2])
 	}
-	toolResultEvent := eventData[3].(map[string]any)
+	toolResultEvent := testutil.RequireType[map[string]any](t, eventData[3])
 	if toolResultEvent["event_kind"] != "tool_result" ||
 		toolResultEvent["tool_call_id"] != toolCallPublicID ||
 		toolResultEvent["outcome"] != "succeeded" {
@@ -1513,15 +1516,15 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	turnData := turns["data"].([]any)
+	turnData := testutil.RequireType[[]any](t, turns["data"])
 	if len(turnData) != 2 {
 		t.Fatalf("expected config and content turns, got %+v", turnData)
 	}
 	if turns["next_before_turn_sequence"] != nil {
 		t.Fatalf("full turn page should not advertise older turns, got %+v", turns)
 	}
-	turnID := turnData[0].(map[string]any)["id"].(string)
-	if len(turnData[0].(map[string]any)["opening_events"].([]any)) != 1 {
+	turnID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, turnData[0])["id"])
+	if len(testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, turnData[0])["opening_events"])) != 1 {
 		t.Fatalf("turn should include opening events: %+v", turnData[0])
 	}
 	missingTurnID := testPublicID(t, publicid.KindAgentTurn, httpTestID("missing-turn-events"))
@@ -1543,7 +1546,7 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	otherAgentPublicID := otherLaunch["agent"].(map[string]any)["id"].(string)
+	otherAgentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, otherLaunch["agent"])["id"])
 	otherTurns := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1554,11 +1557,11 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	otherTurnData := otherTurns["data"].([]any)
+	otherTurnData := testutil.RequireType[[]any](t, otherTurns["data"])
 	if len(otherTurnData) == 0 {
 		t.Fatalf("other agent should have a config-change turn, got %+v", otherTurns)
 	}
-	foreignTurnID := otherTurnData[0].(map[string]any)["id"].(string)
+	foreignTurnID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, otherTurnData[0])["id"])
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -1582,9 +1585,9 @@ func TestPublicTurnsEventsAndSSEUseCanonicalEvents(t *testing.T) {
 	turnEventsPath := project.ProjectPath + "/agents/" + agentPublicID + "/turns/" + turnID + "/events"
 	gotTurnEventSequences := pageThroughTurnEventSequences(t, handler, turnEventsPath, project.AdminToken, 1)
 	wantTurnEventSequences := []int64{
-		jsonInt64(t, eventData[3].(map[string]any)["sequence"]),
-		jsonInt64(t, eventData[2].(map[string]any)["sequence"]),
-		jsonInt64(t, eventData[1].(map[string]any)["sequence"]),
+		eventSequence(eventData[3]),
+		eventSequence(eventData[2]),
+		eventSequence(eventData[1]),
 	}
 	assertInt64SliceEqual(t, gotTurnEventSequences, wantTurnEventSequences)
 
@@ -1640,7 +1643,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
 	if err != nil {
 		t.Fatalf("decode agent id: %v", err)
@@ -1656,7 +1659,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	inputPublicID := created["agent_input"].(map[string]any)["id"].(string)
+	inputPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["agent_input"])["id"])
 	inputID, err := publicid.Decode(publicid.KindAgentInput, inputPublicID)
 	if err != nil {
 		t.Fatalf("decode input id: %v", err)
@@ -1731,7 +1734,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	assertPublicMaxTokensEvent(t, events["data"].([]any))
+	assertPublicMaxTokensEvent(t, testutil.RequireType[[]any](t, events["data"]))
 
 	turns := requestJSONWithHeaders(
 		t,
@@ -1743,11 +1746,11 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	turnData := turns["data"].([]any)
+	turnData := testutil.RequireType[[]any](t, turns["data"])
 	if len(turnData) < 1 {
 		t.Fatalf("max_tokens output turn missing: %+v", turns)
 	}
-	turnID := turnData[0].(map[string]any)["id"].(string)
+	turnID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, turnData[0])["id"])
 	turnEvents := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1758,7 +1761,7 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	assertPublicMaxTokensEvent(t, turnEvents["data"].([]any))
+	assertPublicMaxTokensEvent(t, testutil.RequireType[[]any](t, turnEvents["data"]))
 
 	streamCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1843,10 +1846,10 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "sse-live-wakeup")
 	launch := launchPublicHTTPAgent(t, handler, project, "sse-live-wakeup", project.AdminToken, http.StatusCreated)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
 	initial := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/agents/"+agentPublicID+"/events", "", "", http.StatusOK, authHeaders(project.AdminToken))
-	initialData := initial["data"].([]any)
+	initialData := testutil.RequireType[[]any](t, initial["data"])
 	if len(initialData) != 1 {
 		t.Fatalf("expected one initial config change event, got %d", len(initialData))
 	}
@@ -2009,7 +2012,7 @@ func TestPublicEventStreamDeliversStreamDeltasViaRedis(t *testing.T) {
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "sse-stream-delta")
 	launch := launchPublicHTTPAgent(t, handler, project, "sse-stream-delta", project.AdminToken, http.StatusCreated)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentID, err := publicid.Decode(publicid.KindAgent, agentPublicID)
 	if err != nil {
 		t.Fatalf("decode agent public id: %v", err)
@@ -2115,12 +2118,12 @@ func pageThroughTurnEventSequences(t *testing.T, handler http.Handler, path, tok
 			pagePath += "&before_sequence=" + before
 		}
 		page := requestJSONWithHeaders(t, handler, http.MethodGet, pagePath, "", "", http.StatusOK, authHeaders(token))
-		rows := page["data"].([]any)
+		rows := testutil.RequireType[[]any](t, page["data"])
 		if len(rows) > limit {
 			t.Fatalf("turn event page returned %d rows, want <= %d: %+v", len(rows), limit, page)
 		}
 		for _, raw := range rows {
-			sequence := jsonInt64(t, raw.(map[string]any)["sequence"])
+			sequence := jsonInt64(t, testutil.RequireType[map[string]any](t, raw)["sequence"])
 			if seen[sequence] {
 				t.Fatalf("turn event pagination returned duplicate sequence %d; got=%v", sequence, got)
 			}
@@ -2190,7 +2193,7 @@ func publicEventContainsToolCall(record map[string]any, wantID string) bool {
 func assertPublicMaxTokensEvent(t *testing.T, records []any) {
 	t.Helper()
 	for _, raw := range records {
-		record := raw.(map[string]any)
+		record := testutil.RequireType[map[string]any](t, raw)
 		if record["event_kind"] == "model_output" &&
 			record["stop_reason"] == "max_tokens" &&
 			publicEventContainsText(record, "partial but durable output") {

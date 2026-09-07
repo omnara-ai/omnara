@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -102,7 +103,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	machineID := machine["id"].(string)
+	machineID := testutil.RequireType[string](t, machine["id"])
 
 	// Strict request validation rejects unknown fields, malformed ids, and non-object metadata.
 	requestJSONWithHeaders(
@@ -202,8 +203,8 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	grant := created["grant"].(map[string]any)
-	grantID := grant["id"].(string)
+	grant := testutil.RequireType[map[string]any](t, created["grant"])
+	grantID := testutil.RequireType[string](t, grant["id"])
 	if grant["machine_id"] != machineID || grant["source_kind"] != "explicit" ||
 		grant["description"] != "primary access" {
 		t.Fatalf("unexpected created grant: %+v", grant)
@@ -211,7 +212,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	if meta, ok := grant["metadata"].(map[string]any); !ok || meta["team"] != "infra" {
 		t.Fatalf("unexpected created grant metadata: %+v", grant["metadata"])
 	}
-	if created["machine"].(map[string]any)["id"] != machineID {
+	if testutil.RequireType[map[string]any](t, created["machine"])["id"] != machineID {
 		t.Fatalf("unexpected created grant machine echo: %+v", created["machine"])
 	}
 
@@ -226,7 +227,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if replayed["grant"].(map[string]any)["id"] != grantID {
+	if testutil.RequireType[map[string]any](t, replayed["grant"])["id"] != grantID {
 		t.Fatalf("machine grant replay changed grant: original=%+v replay=%+v", grant, replayed["grant"])
 	}
 	requestJSONWithHeaders(
@@ -316,9 +317,9 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	listedData := listed["data"].([]any)
+	listedData := testutil.RequireType[[]any](t, listed["data"])
 	if len(listedData) != 1 ||
-		listedData[0].(map[string]any)["grant"].(map[string]any)["id"] != grantID {
+		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, listedData[0])["grant"])["id"] != grantID {
 		t.Fatalf("unexpected machine grant list: %+v", listed)
 	}
 
@@ -378,7 +379,7 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	afterData := afterList["data"].([]any)
+	afterData := testutil.RequireType[[]any](t, afterList["data"])
 	if len(afterData) != 0 {
 		t.Fatalf("deleted grant should leave listings: %+v", afterList)
 	}

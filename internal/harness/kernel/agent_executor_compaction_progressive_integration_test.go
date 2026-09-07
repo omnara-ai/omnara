@@ -343,7 +343,7 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
 
 	seedModel := &sequenceKernelModel{providerModelSlug: "kernel-test"}
-	for index := 0; index < 4; index++ {
+	for index := range 4 {
 		suffix := strconv.Itoa(index + 1)
 		seedModel.responses = append(seedModel.responses, model.Response{
 			ID: "resp_progressive_exhaustion_seed_" + suffix,

@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStructuredQuestionAnsweredResultUsesPublicInteractionID(t *testing.T) {
@@ -109,20 +110,14 @@ func TestAlreadyStoppedProcessResult(t *testing.T) {
 		"prc_stopped",
 		executionstore.ProcessActionKindTerminate,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	contentParts, err := result.contentParts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var parts []struct {
 		Type  string          `json:"type"`
 		Value json.RawMessage `json:"value"`
 	}
-	if err := json.Unmarshal(contentParts, &parts); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(contentParts, &parts))
 	if len(parts) != 1 || parts[0].Type != "structured_data" {
 		t.Fatalf("already-stopped content parts = %s", contentParts)
 	}
@@ -132,9 +127,7 @@ func TestAlreadyStoppedProcessResult(t *testing.T) {
 		State           string `json:"state"`
 		StateReasonCode string `json:"state_reason_code"`
 	}
-	if err := json.Unmarshal(parts[0].Value, &body); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(parts[0].Value, &body))
 	if body.ProcessID != "prc_stopped" ||
 		body.Mode != "terminate" ||
 		body.State != "applied" ||
@@ -230,9 +223,7 @@ func TestProcessObservationActionPayloadOmitsAbsentFields(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := processObservationActionPayload(test.request)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if string(got) != test.want {
 				t.Fatalf("process observation payload = %s, want %s", got, test.want)
 			}

@@ -352,7 +352,7 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			wantErrorCode:    "provider_unavailable",
 		},
 	} {
-		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()

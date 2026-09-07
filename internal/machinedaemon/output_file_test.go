@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTerminalResultMakesOutputReadFailureExplicit(t *testing.T) {
@@ -20,12 +21,8 @@ func TestTerminalResultMakesOutputReadFailureExplicit(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "output.buf")
 	data := []byte("captured")
-	if err := writeProcessOutputFile(path, data, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeProcessOutputFile(path, data, 0))
+	require.NoError(t, os.Remove(path))
 	exitCode := 0
 	result, exit := captureTerminalResult(
 		&localProcessRunner{output: processOutput{
@@ -49,9 +46,7 @@ func TestTerminalResultMakesOutputReadFailureExplicit(t *testing.T) {
 		Error     string `json:"error"`
 		Truncated bool   `json:"truncated"`
 	}
-	if err := json.Unmarshal(result, &observation); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(result, &observation))
 	if observation.Output != "" ||
 		observation.Error == "" ||
 		!observation.Truncated {
@@ -82,9 +77,7 @@ func TestTerminalResultRetainsPrimaryReasonAndOutputFailure(t *testing.T) {
 		Error     string `json:"error"`
 		Truncated bool   `json:"truncated"`
 	}
-	if err := json.Unmarshal(result, &observation); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(result, &observation))
 	if observation.Error != exit.StateReasonMessage ||
 		!observation.Truncated {
 		t.Fatalf("terminal result lost one failure: %s", result)
@@ -99,9 +92,7 @@ func TestProcessOutputSliceCannotOverflowAtProtocolBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, start, next, truncated, err := output.Slice(0, math.MaxInt)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if got != "bounded" ||
 		start != 0 ||
 		next != int64(len("bounded")) ||
@@ -126,9 +117,7 @@ func TestProcessOutputReplacesInvalidUTF8WithoutChangingByteCursors(
 		t.Fatalf("write partial UTF-8: %v", err)
 	}
 	got, start, next, truncated, err := output.Slice(1, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if got != "?" || start != 1 || next != 3 || truncated {
 		t.Fatalf(
 			"slice=%q start=%d next=%d truncated=%v, want replacement at byte cursors 1..3",
@@ -154,13 +143,9 @@ func TestProcessOutputCompactionPublishesOneAtomicGeneration(t *testing.T) {
 		30,
 		int64(len(newData)),
 		func(candidate *os.File) error {
-			if err := writeFull(candidate, newData); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, writeFull(candidate, newData))
 			info, err := candidate.Stat()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if info.Mode().Perm() != 0o600 {
 				t.Fatalf(
 					"replacement mode = %o, want 600",
@@ -309,22 +294,16 @@ func TestReadProcessOutputSnapshotUsesDurableCursorRange(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, localstore.OutputBufferFileName)
-	if err := writeProcessOutputFile(path, []byte("retained"), 17); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeProcessOutputFile(path, []byte("retained"), 17))
 	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = root.Close() }()
 	output, start, next, truncated, err := readProcessOutputSnapshot(
 		root,
 		0,
 		64,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if output != "retained" ||
 		start != 17 ||
 		next != 25 ||
@@ -342,9 +321,7 @@ func TestReadProcessOutputSnapshotUsesDurableCursorRange(t *testing.T) {
 func TestProcessOutputSnapshotRacingAppendSeesAStablePrefix(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.buf")
-	if err := writeProcessOutputFile(path, nil, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
 	output := processOutput{
 		path:         path,
 		limit:        64 * 1024,
@@ -353,9 +330,7 @@ func TestProcessOutputSnapshotRacingAppendSeesAStablePrefix(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = output.Close() })
 	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = root.Close() })
 
 	var expected []byte
@@ -379,9 +354,7 @@ func TestProcessOutputSnapshotRacingAppendSeesAStablePrefix(t *testing.T) {
 			0,
 			len(expected),
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if start != 0 ||
 			next != int64(len(got)) ||
 			truncated ||
@@ -397,9 +370,7 @@ func TestProcessOutputSnapshotRacingAppendSeesAStablePrefix(t *testing.T) {
 		}
 		select {
 		case err := <-writeDone:
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			return
 		default:
 		}
@@ -411,13 +382,9 @@ func TestProcessOutputSnapshotRacingReplacementSeesOneGeneration(t *testing.T) {
 	path := filepath.Join(dir, "output.buf")
 	oldData := []byte("complete-old-generation")
 	newData := []byte("complete-new-generation")
-	if err := writeProcessOutputFile(path, oldData, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeProcessOutputFile(path, oldData, 0))
 	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = root.Close() })
 
 	writeDone := make(chan error, 1)
@@ -441,9 +408,7 @@ func TestProcessOutputSnapshotRacingReplacementSeesOneGeneration(t *testing.T) {
 			0,
 			1024,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		oldGeneration := got == string(oldData) &&
 			start == 0 &&
 			next == int64(len(oldData)) &&
@@ -463,9 +428,7 @@ func TestProcessOutputSnapshotRacingReplacementSeesOneGeneration(t *testing.T) {
 		}
 		select {
 		case err := <-writeDone:
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			return
 		default:
 		}
@@ -828,9 +791,7 @@ func TestProcessOutputCloseJoinsInFlightTimerSync(t *testing.T) {
 func newTestProcessOutput(t *testing.T) *processOutput {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "output.buf")
-	if err := writeProcessOutputFile(path, nil, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
 	output := &processOutput{path: path}
 	t.Cleanup(func() { _ = output.Close() })
 	return output

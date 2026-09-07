@@ -125,12 +125,15 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 			}
 			client := r.client(apiKey)
 			var first, second model.Response
-			for attempt := 0; attempt < 3; attempt++ {
+			for attempt := range 3 {
 				first, second = liveConversationPair(t, client)
 				if second.Usage.CacheReadTokens > 0 {
 					break
 				}
-				time.Sleep(3 * time.Second)
+				if attempt < 2 {
+					// Provider cache propagation has no notification API; retry its observable usage.
+					time.Sleep(3 * time.Second) //nolint:omnaralint // external cache propagation, not goroutine synchronization
+				}
 			}
 			if r.writesCache && first.Usage.CacheWriteTokens == 0 {
 				t.Fatalf("first turn wrote nothing to the cache: %+v", first.Usage)
@@ -188,13 +191,16 @@ func liveRespond(t *testing.T, client model.Client, bundle modelcontext.Bundle) 
 func liveStableSystemPrompt() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Run %s. You are a terse assistant that answers with exactly one word.\n", uuid.NewString())
-	for index := 0; index < 160; index++ {
+	for index := range 160 {
 		fmt.Fprintf(&b, "Rule %d: keep every answer to a single word and never explain your reasoning.\n", index)
 	}
 	return b.String()
 }
 
 func liveTextMessage(role modelprotocol.MessageRole, sequence int64, text string) modelcontext.Message {
-	content, _ := json.Marshal([]map[string]string{{"type": "text", "text": text}})
+	content, err := json.Marshal([]map[string]string{{"type": "text", "text": text}})
+	if err != nil {
+		panic(err)
+	}
 	return modelcontext.Message{Role: role, Sequence: sequence, Content: content}
 }

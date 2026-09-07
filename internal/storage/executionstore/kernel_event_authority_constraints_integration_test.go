@@ -120,6 +120,7 @@ WHERE agent_id = $1 AND id = $2
 	}
 }
 
+//nolint:tparallel // transitions must finish before the parent releases their shared runtime lock
 func TestKernelToolCallTransitionGraph(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -589,6 +590,7 @@ func TestKernelContentBlockOwnerAndOrdinalConstraints(t *testing.T) {
 		},
 	} {
 		t.Run("database unsafe "+test.name, func(t *testing.T) {
+			t.Parallel()
 			test.input.ProjectID = testProjectID
 			test.input.AgentID = fixture.AgentID
 			test.input.OwnerKind = executionstore.ContentBlockOwnerModelOutput

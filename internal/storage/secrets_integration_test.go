@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -376,7 +378,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	for _, projectListed := range projectSecrets {
 		if projectListed.ID == orgSecret.ID {
-			assertJSONRawEqual(t, projectListed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
+			assertDecodedJSONEqual(t, projectListed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
 		}
 	}
 	for _, access := range projectSecretPage.Accesses {
@@ -440,7 +442,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	for _, listed := range orgSecrets {
 		if listed.ID == orgSecret.ID {
-			assertJSONRawEqual(t, listed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
+			assertDecodedJSONEqual(t, listed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
 		}
 	}
 	filteredOrgSecretPage, err := store.Secrets().ListSecrets(
@@ -603,7 +605,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("sub-millisecond oauth refresh lease error = %v, want ErrInvalidSecretRequest", err)
 	}
-	maximumTTL := time.Duration(1<<63 - 1)
+	maximumTTL := time.Duration(math.MaxInt64)
 	maximumLease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
 		ctx,
 		secretstore.AcquireProjectOAuthRefreshLeaseInput{
@@ -1250,6 +1252,7 @@ func TestSecretVersionSchemaRejectsInvalidEncryptionEnvelope(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := store.pool.Exec(ctx, `
 				INSERT INTO secret_versions(
 				    id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by,
@@ -1405,7 +1408,7 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 	if renamed.Name != "shared-renamed" {
 		t.Fatalf("updated secret metadata = %+v", renamed)
 	}
-	assertJSONRawEqual(t, renamed.Metadata, `{"label":"renamed"}`)
+	assertDecodedJSONEqual(t, renamed.Metadata, `{"label":"renamed"}`)
 	if _, err := store.Secrets().UpdateSecretMetadata(
 		ctx,
 		secretstore.UpdateSecretMetadataInput{
@@ -2101,7 +2104,7 @@ func assertSecretRowsDeleted(t *testing.T, ctx context.Context, store *Store, se
 	}
 }
 
-func assertJSONRawEqual(t *testing.T, got json.RawMessage, want string) {
+func assertDecodedJSONEqual(t *testing.T, got json.RawMessage, want string) {
 	t.Helper()
 	var gotValue any
 	if err := json.Unmarshal(got, &gotValue); err != nil {
@@ -2111,8 +2114,8 @@ func assertJSONRawEqual(t *testing.T, got json.RawMessage, want string) {
 	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
 		t.Fatalf("unmarshal want json %q: %v", want, err)
 	}
-	if !reflect.DeepEqual(gotValue, wantValue) {
-		t.Fatalf("json = %s, want %s", string(got), want)
+	if diff := cmp.Diff(wantValue, gotValue); diff != "" {
+		t.Fatalf("JSON value mismatch (-want +got):\n%s", diff)
 	}
 }
 

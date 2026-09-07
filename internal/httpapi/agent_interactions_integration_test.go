@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -65,7 +66,7 @@ func TestPublicAgentInteractionResolveMarksWakeup(t *testing.T) {
 	if !ok || len(data) != 1 {
 		t.Fatalf("expected one public open interaction, got %+v", listed)
 	}
-	item := data[0].(map[string]any)
+	item := testutil.RequireType[map[string]any](t, data[0])
 	if item["id"] != interactionPublicID ||
 		item["interaction_kind"] != "question" ||
 		item["state"] != "open" {
@@ -321,10 +322,10 @@ func TestPublicCreateAgentInputPreservesOrExplicitlyCancelsOpenInteraction(t *te
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if preserved["agent_input"].(map[string]any)["state"] != "received" {
+	if testutil.RequireType[map[string]any](t, preserved["agent_input"])["state"] != "received" {
 		t.Fatalf("queued input should remain received: %+v", preserved)
 	}
-	if _, exists := preserved["agent_input"].(map[string]any)["cancel_open_interactions"]; exists {
+	if _, exists := testutil.RequireType[map[string]any](t, preserved["agent_input"])["cancel_open_interactions"]; exists {
 		t.Fatalf("agent input response exposed transient cancellation option: %+v", preserved)
 	}
 	beforeCancel, found, err := store.Execution().GetAgentInteraction(
@@ -350,7 +351,7 @@ func TestPublicCreateAgentInputPreservesOrExplicitlyCancelsOpenInteraction(t *te
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	input := created["agent_input"].(map[string]any)
+	input := testutil.RequireType[map[string]any](t, created["agent_input"])
 	if input["state"] != "received" ||
 		input["delivery_mode"] != string(executionstore.DeliveryModeSteering) {
 		t.Fatalf("created input=%+v want received steering input", input)
@@ -424,7 +425,7 @@ func TestPublicCreateAgentInputPreservesOrExplicitlyCancelsOpenInteraction(t *te
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if replayed["agent_input"].(map[string]any)["id"] != input["id"] {
+	if testutil.RequireType[map[string]any](t, replayed["agent_input"])["id"] != input["id"] {
 		t.Fatalf("replayed input=%+v want id %v", replayed, input["id"])
 	}
 }
@@ -457,7 +458,7 @@ func TestPublicPromotionCanCancelOpenInteraction(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	inputID := created["agent_input"].(map[string]any)["id"].(string)
+	inputID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["agent_input"])["id"])
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -612,7 +613,7 @@ func TestPublicCancelAgentTerminalizesOpenInteractionToolCall(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	event := canceled["event"].(map[string]any)
+	event := testutil.RequireType[map[string]any](t, canceled["event"])
 	if event["event_kind"] != "agent_input" ||
 		event["input_kind"] != "control" ||
 		event["control_type"] != "cancel_current" {
@@ -769,7 +770,7 @@ func TestPublicArchiveAgentCancelsOpenInteractionToolCall(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if archived["agent"].(map[string]any)["state"] != "archived" {
+	if testutil.RequireType[map[string]any](t, archived["agent"])["state"] != "archived" {
 		t.Fatalf("archive response = %+v, want archived state", archived)
 	}
 	readBack := requestJSONWithHeaders(
@@ -782,7 +783,7 @@ func TestPublicArchiveAgentCancelsOpenInteractionToolCall(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if readBack["agent"].(map[string]any)["state"] != "archived" {
+	if testutil.RequireType[map[string]any](t, readBack["agent"])["state"] != "archived" {
 		t.Fatalf("archived agent read = %+v, want archived state", readBack)
 	}
 	requestJSONWithHeaders(
@@ -884,7 +885,7 @@ func TestPublicCancelAgentNoOpResponseShape(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "public-cancel-noop")
 	launch := launchPublicHTTPAgent(t, handler, project, "public-cancel-noop", project.AdminToken, http.StatusCreated)
-	agentID := launch["agent"].(map[string]any)["id"].(string)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
 	canceled := requestJSONWithHeaders(
 		t,
@@ -932,11 +933,12 @@ func TestAgentInteractionConcurrentConflictingResolutionSerializes(t *testing.T)
 		now,
 	)
 
+	actor := httpOmnaraActorParams(t, project.OrgUUID, project.AdminUserUUID)
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for _, answer := range []int{0, 1} {
-		answer := answer
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -946,7 +948,7 @@ func TestAgentInteractionConcurrentConflictingResolutionSerializes(t *testing.T)
 				AgentID:    agentID,
 				ID:         interactionID,
 				Resolution: httpQuestionResolution(answer),
-				Actor:      httpOmnaraActorParams(t, project.OrgUUID, project.AdminUserUUID),
+				Actor:      actor,
 			})
 			errs <- err
 		}()
@@ -995,6 +997,7 @@ func TestAgentInteractionCancelAndResolveRaceSerializes(t *testing.T) {
 		now,
 	)
 
+	actor := httpOmnaraActorParams(t, project.OrgUUID, project.AdminUserUUID)
 	start := make(chan struct{})
 	cancelErr := make(chan error, 1)
 	resolveErr := make(chan error, 1)
@@ -1003,7 +1006,7 @@ func TestAgentInteractionCancelAndResolveRaceSerializes(t *testing.T) {
 		_, err := store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
 			ProjectID: project.ProjectUUID,
 			AgentID:   agentID,
-			Actor:     httpOmnaraActorParams(t, project.OrgUUID, project.AdminUserUUID),
+			Actor:     actor,
 		})
 		cancelErr <- err
 	}()
@@ -1014,7 +1017,7 @@ func TestAgentInteractionCancelAndResolveRaceSerializes(t *testing.T) {
 			AgentID:    agentID,
 			ID:         interactionID,
 			Resolution: httpQuestionResolution(0),
-			Actor:      httpOmnaraActorParams(t, project.OrgUUID, project.AdminUserUUID),
+			Actor:      actor,
 		})
 		resolveErr <- err
 	}()
@@ -1619,13 +1622,13 @@ func TestPublicAgentInteractionExposesWebToolPermissionRequest(t *testing.T) {
 			listed,
 		)
 	}
-	item := data[0].(map[string]any)
+	item := testutil.RequireType[map[string]any](t, data[0])
 	if item["id"] != interactionPublicID ||
 		item["interaction_kind"] != "permission" ||
 		item["state"] != "open" {
 		t.Fatalf("unexpected listed web permission: %+v", item)
 	}
-	payload := item["request"].(map[string]any)
+	payload := testutil.RequireType[map[string]any](t, item["request"])
 	if payload["title"] != "Permission requested for web_search" {
 		t.Fatalf("web permission payload = %+v", payload)
 	}
@@ -1877,12 +1880,12 @@ func pageThroughAgentInteractions(t *testing.T, handler http.Handler, path, toke
 			pagePath += "&cursor=" + cursor
 		}
 		page := requestJSONWithHeaders(t, handler, http.MethodGet, pagePath, "", "", http.StatusOK, authHeaders(token))
-		rows := page["data"].([]any)
+		rows := testutil.RequireType[[]any](t, page["data"])
 		if len(rows) > limit {
 			t.Fatalf("interaction page returned %d rows, want <= %d: %+v", len(rows), limit, page)
 		}
 		for _, raw := range rows {
-			id := raw.(map[string]any)["id"].(string)
+			id := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["id"])
 			if seen[id] {
 				t.Fatalf("interaction pagination returned duplicate id %s; got=%v", id, got)
 			}
@@ -1899,7 +1902,7 @@ func pageThroughAgentInteractions(t *testing.T, handler http.Handler, path, toke
 		if next == nil {
 			break
 		}
-		cursor = next.(string)
+		cursor = testutil.RequireType[string](t, next)
 	}
 	return got
 }

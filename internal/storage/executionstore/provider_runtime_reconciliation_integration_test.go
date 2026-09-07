@@ -220,6 +220,7 @@ WHERE org_id = $1 AND id = $2
 }
 
 func TestProviderRuntimeCandidatesDeriveCrashedDaemonInactivity(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name          string
 		activateEnded bool
@@ -658,6 +659,7 @@ func TestProviderRuntimeTerminatedDeletionRespectsMismatchEpoch(t *testing.T) {
 	fixture := newProviderRuntimeStorageFixture(t, ctx, "terminated-mismatch", true)
 
 	t.Run("marker added", func(t *testing.T) {
+		t.Parallel()
 		machine := fixture.insertInactiveMachine(t, ctx, "marker-added")
 		stale := fixture.discoveryCandidate(t, ctx, machine.machineID)
 		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, stale); err != nil || !marked {
@@ -672,6 +674,7 @@ func TestProviderRuntimeTerminatedDeletionRespectsMismatchEpoch(t *testing.T) {
 	})
 
 	t.Run("marker cleared", func(t *testing.T) {
+		t.Parallel()
 		machine := fixture.insertInactiveMachine(t, ctx, "marker-cleared")
 		candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
 		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
@@ -691,6 +694,7 @@ func TestProviderRuntimeTerminatedDeletionRespectsMismatchEpoch(t *testing.T) {
 	})
 
 	t.Run("marker replaced", func(t *testing.T) {
+		t.Parallel()
 		machine := fixture.insertInactiveMachine(t, ctx, "marker-replaced")
 		candidate := fixture.discoveryCandidate(t, ctx, machine.machineID)
 		if marked, err := fixture.store.Execution().MarkProviderRuntimeMismatch(ctx, candidate); err != nil || !marked {
@@ -897,6 +901,7 @@ func TestProviderRuntimeDeletionRejectsSupersededMismatch(t *testing.T) {
 }
 
 func TestProviderRuntimeMismatchDeletionClaimHandlesConcurrentChanges(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name        string
 		wantClaimed bool
@@ -1235,6 +1240,7 @@ WHERE org_id = $1 AND id = $2
 }
 
 func TestRuntimeProtectionAndUnreachableExpiryConverge(t *testing.T) {
+	t.Parallel()
 	for _, runtimeProtectionFirst := range []bool{false, true} {
 		name := "unreachable_first"
 		if runtimeProtectionFirst {

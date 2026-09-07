@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/mcptest"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -805,7 +806,7 @@ func runLiveServiceCompactionRecall(t *testing.T, ctx context.Context, opts live
 		project.adminToken,
 		http.StatusOK,
 	)
-	modelConfig := config["model"].(map[string]any)
+	modelConfig := testutil.RequireType[map[string]any](t, config["model"])
 	if modelConfig["context_window_tokens"] != float64(16000) || modelConfig["max_output_tokens"] != float64(8192) ||
 		modelConfig["default_max_output_tokens"] != float64(4096) {
 		t.Fatalf(

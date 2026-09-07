@@ -37,7 +37,7 @@ func TestRuntimeLockReaperCrossesBatchBoundary(t *testing.T) {
 	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 
 	const agentCount = 501
-	for index := 0; index < agentCount; index++ {
+	for index := range agentCount {
 		agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 			ProjectID:       testProjectID,
 			CurrentConfigID: configID,

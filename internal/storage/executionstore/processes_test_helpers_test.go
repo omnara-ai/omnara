@@ -748,26 +748,6 @@ func customProcessToolCallBatchItem(testName, toolName string) processToolCallBa
 	}
 }
 
-func createCustomReadyToolCallForProcessTest(
-	t *testing.T,
-	ctx context.Context,
-	fixture processDaemonFixture,
-	testName string,
-	toolName string,
-) ID {
-	t.Helper()
-	toolCallID := createTypedToolCallForProcessTest(
-		t,
-		ctx,
-		fixture,
-		testName,
-		toolName,
-		toolcatalog.ToolTypeCustom,
-		true,
-	)
-	return toolCallID
-}
-
 func createTypedToolCallForProcessTest(
 	t *testing.T,
 	ctx context.Context,
@@ -960,24 +940,6 @@ WHERE tool_call.project_id = $1 AND tool_call.agent_id = $2 AND tool_call.id = $
 		t.Fatalf("load tool call turn: %v", err)
 	}
 	return turnID
-}
-
-func providerCallIDForProcessToolCallTest(
-	t *testing.T,
-	ctx context.Context,
-	fixture processDaemonFixture,
-	toolCallID ID,
-) string {
-	t.Helper()
-	var providerCallID string
-	if err := fixture.Store.pool.QueryRow(ctx, `
-SELECT provider_call_id
-FROM tool_call_read_projection
-WHERE project_id = $1 AND agent_id = $2 AND id = $3
-`, testProjectID, fixture.AgentID, toolCallID).Scan(&providerCallID); err != nil {
-		t.Fatalf("load tool call provider call id: %v", err)
-	}
-	return providerCallID
 }
 
 func openingInputAndWatermarkForProcessToolCallTest(

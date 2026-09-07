@@ -128,6 +128,7 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 	}
 	for _, test := range rebindTests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			args := []any{claim.Context.ID}
 			if test.secondArg {
 				args = append(args, fixture.AgentID)

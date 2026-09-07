@@ -8,6 +8,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
@@ -196,9 +197,7 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 		publicid.KindArtifact,
 		integrationToolTestID("integration-message-validator"),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := validateRegisteredToolInput(
 		"send_integration_message",
 		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
@@ -231,9 +230,7 @@ func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
 		"text":         "hello",
 		"artifact_ids": tooManyArtifactIDs,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := validateRegisteredToolInput("send_integration_message", tooManyInput); err == nil {
 		t.Fatal("more than 20 artifact IDs accepted")
 	}

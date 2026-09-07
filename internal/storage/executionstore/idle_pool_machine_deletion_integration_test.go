@@ -353,6 +353,7 @@ func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := newIdlePoolMachineFixture(t, ctx, "policy-resolution-"+test.name, test.policy)
 			backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
 			if got := idleMachineListedForTest(t, ctx, fixture); got != test.want {
@@ -447,6 +448,7 @@ func TestTerminalProcessActionRestartsIdleWindow(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := newIdlePoolMachineFixture(
 				t,
 				ctx,
@@ -500,6 +502,8 @@ SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 				_, err = fixture.Store.Execution().FailDaemonProcessAction(ctx, input)
 			case executionstore.ProcessActionStateUnknown:
 				_, err = fixture.Store.Execution().MarkDaemonProcessActionUnknown(ctx, input)
+			default:
+				t.Fatalf("unsupported terminal action state %q", test.state)
 			}
 			if err != nil {
 				t.Fatalf("complete idle test action as %s: %v", test.state, err)

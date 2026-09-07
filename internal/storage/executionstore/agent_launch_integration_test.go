@@ -1996,7 +1996,7 @@ tools:
 		result.MachineBindings[0].Cwd != "/workspace/explicit" {
 		t.Fatalf("unexpected explicit binding: %+v", result.MachineBindings[0])
 	}
-	for slotIndex := 0; slotIndex < 3; slotIndex++ {
+	for slotIndex := range 3 {
 		binding := result.MachineBindings[slotIndex+1]
 		if binding.State != "attached" || binding.Cwd != "/workspace/pool" ||
 			binding.Description != "Pool machine" {
@@ -3053,6 +3053,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // cases share a pool limit budget and verify rollback before the next launch
 func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -3267,8 +3268,8 @@ tools:
 	}
 	outcomes := make(chan launchOutcome, 2)
 	var wg sync.WaitGroup
-	for index := 0; index < 2; index++ {
-		index := index
+	for index := range 2 {
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

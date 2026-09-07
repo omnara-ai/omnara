@@ -157,6 +157,7 @@ func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
 		{name: "invalid UTF-8 filename", contentType: "image/png", filename: string([]byte{0xff}), want: "invalid UTF-8"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			blobs := newRecordingBlobStore()
 			store := newIntegrationStore(pool, WithBlobStore(blobs))
 			_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{

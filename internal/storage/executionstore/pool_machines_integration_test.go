@@ -107,6 +107,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // rollback checks must finish before the parent changes the pool configuration
 func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

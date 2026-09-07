@@ -76,22 +76,6 @@ func machinePoolInputWithDefaultMachineForTest(
 	return input
 }
 
-func defaultMachinePoolTemplateWithDefaultMachineForTest(
-	template executionstore.DefaultMachinePoolTemplate,
-	fields defaultMachineFieldsForTest,
-) executionstore.DefaultMachinePoolTemplate {
-	if fields.DefaultMachineCPU != 0 {
-		template.DefaultMachineCPU = intPtrForMachinePoolTest(fields.DefaultMachineCPU)
-	}
-	if fields.DefaultMachineMemoryMB != 0 {
-		template.DefaultMachineMemoryMB = intPtrForMachinePoolTest(fields.DefaultMachineMemoryMB)
-	}
-	template.DefaultMachineEnv = fields.DefaultMachineEnv
-	template.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
-	template.DefaultMachineProviderOptions = fields.DefaultMachineProviderOptions
-	return template
-}
-
 type defaultMachineUpdateFieldsForTest struct {
 	DefaultMachineCPU             *int
 	DefaultMachineMemoryMB        *int
@@ -1451,6 +1435,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // cases create and delete the same project and pool grant
 func TestCreateProjectMachinePoolGrantAllowsDefaultPool(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

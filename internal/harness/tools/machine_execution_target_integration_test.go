@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -433,12 +434,8 @@ tools:
 		t.Fatalf("dispatch always-allow mixed-source inspect_machine: %v", err)
 	}
 	alwaysAllowMixedBody := toolResultMapFromTestParts(t, alwaysAllowMixedResult.ContentParts)
-	if !reflect.DeepEqual(alwaysAllowMixedBody, mixedBody) {
-		t.Fatalf(
-			"always-allow mixed-source inspect_machine result = %+v, want %+v",
-			alwaysAllowMixedBody,
-			mixedBody,
-		)
+	if diff := cmp.Diff(mixedBody, alwaysAllowMixedBody); diff != "" {
+		t.Fatalf("always-allow mixed-source inspect_machine result mismatch (-want +got):\n%s", diff)
 	}
 	staleResult, err := executor.Dispatch(ctx, alwaysAllowTurn, staleInspectCall)
 	if err != nil {
@@ -826,8 +823,8 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 	if err := json.Unmarshal(completed.ResultContentParts, &completedContent); err != nil {
 		t.Fatalf("decode completed result parts: %v; raw=%s", err, completed.ResultContentParts)
 	}
-	if !reflect.DeepEqual(resultContent, completedContent) {
-		t.Fatalf("dispatch result parts = %s, completed parts = %s", result.ContentParts, completed.ResultContentParts)
+	if diff := cmp.Diff(completedContent, resultContent); diff != "" {
+		t.Fatalf("dispatch and persisted result content mismatch (-want +got):\n%s", diff)
 	}
 	var parts []struct {
 		Type  string          `json:"type"`
@@ -2494,18 +2491,6 @@ func recordMachineToolCallsForDirectStoreTest(
 		t.Fatalf("recorded machine tool calls = %d, want %d", len(records), len(calls))
 	}
 	return records, lock, admitted, contextRecord
-}
-
-func createToolsRuntimeAgent(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	userID storage.ID,
-	name string,
-	now time.Time,
-) executionstore.LaunchAgentResult {
-	t.Helper()
-	return createToolsRuntimeAgentWithMachineSources(t, ctx, store, userID, name, nil, now)
 }
 
 type toolsAgentMachineSource struct {

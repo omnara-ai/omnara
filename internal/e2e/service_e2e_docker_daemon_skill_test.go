@@ -354,6 +354,8 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 			return false, err.Error()
 		}
 		switch state {
+		case executionstore.ProcessStateQueued, executionstore.ProcessStateStarting, executionstore.ProcessStateRunning:
+			return false, fmt.Sprintf("skill verification process state=%q", state)
 		case executionstore.ProcessStateExited:
 			if exitCode != 0 {
 				t.Fatalf("skill verification process exited with code %d", exitCode)

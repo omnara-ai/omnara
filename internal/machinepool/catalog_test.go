@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
@@ -106,7 +107,7 @@ func assertJSONEqual(t *testing.T, got, want json.RawMessage) {
 	if err := json.Unmarshal(want, &wantValue); err != nil {
 		t.Fatalf("decode want JSON %s: %v", want, err)
 	}
-	if !reflect.DeepEqual(gotValue, wantValue) {
-		t.Fatalf("JSON = %s, want %s", got, want)
+	if diff := cmp.Diff(wantValue, gotValue); diff != "" {
+		t.Fatalf("JSON value mismatch (-want +got):\n%s", diff)
 	}
 }

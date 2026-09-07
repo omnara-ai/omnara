@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestServiceE2EMediaAttachmentRoundTrip(t *testing.T) {
@@ -62,11 +63,11 @@ func TestServiceE2EMediaAttachmentRoundTrip(t *testing.T) {
 			{"type": "media", "media_type": "image/png", "filename": "upload.png", "data": uploadedBase64},
 		},
 	}, "idem-"+agentID+"-media-input", project.adminToken, http.StatusCreated)
-	inputBlocks := created["agent_input"].(map[string]any)["content_blocks"].([]any)
+	inputBlocks := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, created["agent_input"])["content_blocks"])
 	if len(inputBlocks) != 2 {
 		t.Fatalf("expected 2 content blocks, got %+v", inputBlocks)
 	}
-	uploadedArtifactID, _ := inputBlocks[1].(map[string]any)["artifact_id"].(string)
+	uploadedArtifactID, _ := testutil.RequireType[map[string]any](t, inputBlocks[1])["artifact_id"].(string)
 	if !strings.HasPrefix(uploadedArtifactID, "art_") {
 		t.Fatalf("expected uploaded artifact id, got %+v", inputBlocks[1])
 	}

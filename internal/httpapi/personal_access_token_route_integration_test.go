@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -56,7 +57,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	if data := list["data"].([]any); len(data) != 1 || data[0].(map[string]any)["name"] != "bootstrap" {
+	if data := testutil.RequireType[[]any](t, list["data"]); len(data) != 1 || testutil.RequireType[map[string]any](t, data[0])["name"] != "bootstrap" {
 		t.Fatalf("unexpected initial token list: %+v", list)
 	}
 	if _, ok := list["next_cursor"]; !ok {
@@ -66,7 +67,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		t.Fatalf("single full page should have null next_cursor, got %v", list["next_cursor"])
 	}
 
-	first := list["data"].([]any)[0].(map[string]any)
+	first := testutil.RequireType[map[string]any](t, testutil.RequireType[[]any](t, list["data"])[0])
 	if _, leaked := first["token"]; leaked {
 		t.Fatalf("list leaked token plaintext: %+v", first)
 	}
@@ -95,8 +96,8 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusCreated,
 		browserHeaders,
 	)
-	ciTokenID := created["token_record"].(map[string]any)["id"].(string)
-	ciToken := created["token"].(string)
+	ciTokenID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["token_record"])["id"])
+	ciToken := testutil.RequireType[string](t, created["token"])
 
 	requestJSONWithHeaders(
 		t,
@@ -119,21 +120,21 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	data := list["data"].([]any)
+	data := testutil.RequireType[[]any](t, list["data"])
 	if len(data) != 2 {
 		t.Fatalf("expected 2 tokens, got %+v", data)
 	}
-	if data[0].(map[string]any)["id"] != ciTokenID {
+	if testutil.RequireType[map[string]any](t, data[0])["id"] != ciTokenID {
 		t.Fatalf("expected newest token first, got %+v", data)
 	}
 	for _, raw := range data {
-		if raw.(map[string]any)["revoked_at"] != nil {
+		if testutil.RequireType[map[string]any](t, raw)["revoked_at"] != nil {
 			t.Fatalf("expected active tokens, got %+v", raw)
 		}
 	}
 
 	const extraTokens = 4
-	for i := 0; i < extraTokens; i++ {
+	for i := range extraTokens {
 		if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
 			UserID: user.ID,
 			Name:   "page-" + string(rune('a'+i)),
@@ -152,19 +153,19 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 			path += "&cursor=" + cursor
 		}
 		page := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK, authHeaders(token))
-		rows := page["data"].([]any)
+		rows := testutil.RequireType[[]any](t, page["data"])
 		if len(rows) > 2 {
 			t.Fatalf("page returned %d tokens, want <= limit 2", len(rows))
 		}
 		for _, raw := range rows {
-			row := raw.(map[string]any)
-			id := row["id"].(string)
+			row := testutil.RequireType[map[string]any](t, raw)
+			id := testutil.RequireType[string](t, row["id"])
 			if seen[id] {
 				t.Fatalf("cursor paging returned duplicate token %s", id)
 			}
 			seen[id] = true
 			pagedIDs = append(pagedIDs, id)
-			ts, err := time.Parse(time.RFC3339Nano, row["created_at"].(string))
+			ts, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, row["created_at"]))
 			if err != nil {
 				t.Fatalf("parse token created_at: %v", err)
 			}
@@ -180,7 +181,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		if next == nil {
 			break
 		}
-		cursor = next.(string)
+		cursor = testutil.RequireType[string](t, next)
 	}
 	if len(pagedIDs) != wantTotal {
 		t.Fatalf("paged %d tokens, want %d: %v", len(pagedIDs), wantTotal, pagedIDs)
@@ -238,7 +239,7 @@ func TestPersonalAccessTokenListAndRevoke(t *testing.T) {
 		http.StatusOK,
 		authHeaders(otherPAT.Token),
 	)
-	if d := otherList["data"].([]any); len(d) != 1 || d[0].(map[string]any)["name"] != "other" {
+	if d := testutil.RequireType[[]any](t, otherList["data"]); len(d) != 1 || testutil.RequireType[map[string]any](t, d[0])["name"] != "other" {
 		t.Fatalf("token list leaked across users: %+v", otherList)
 	}
 

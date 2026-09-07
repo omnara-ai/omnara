@@ -49,16 +49,11 @@ VALUES ($1, 'Test Org', 'idem-test-org', $2, $2)
 	_, err = pool.Exec(
 		ctx,
 		`
-WITH seeded_user AS (
-  INSERT INTO users(id, display_name, created_at, updated_at)
-  VALUES ($2, 'Default Provider Admin', $6, $6)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret AS (
+WITH seeded_secret AS (
   INSERT INTO secrets(
     id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at
   )
-  VALUES ($3, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $4, $6, $6)
+  VALUES ($2, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $3, $5, $5)
   ON CONFLICT (id) DO NOTHING
 ),
 seeded_secret_version AS (
@@ -67,9 +62,9 @@ seeded_secret_version AS (
     encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at
   )
   VALUES (
-    $4, $1, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local',
+    $3, $1, $2, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local',
     decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'),
-    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $6
+    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $5
   )
   ON CONFLICT (id) DO NOTHING
 )
@@ -78,12 +73,11 @@ INSERT INTO model_provider_configs(
   credential_secret_id, created_at, updated_at
 )
 VALUES (
-  $5, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1',
-  '/responses', 'bearer_token', $3, $6, $6
+  $4, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1',
+  '/responses', 'bearer_token', $2, $5, $5
 )
 ON CONFLICT (id) DO NOTHING`,
 		ids.OrgID,
-		ids.ProviderAdminUserID,
 		ids.ProviderSecretID,
 		ids.ProviderSecretVersionID,
 		ids.ProviderConfigID,

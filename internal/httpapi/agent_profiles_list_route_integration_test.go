@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestListAgentProfiles(t *testing.T) {
@@ -45,7 +47,7 @@ func TestListAgentProfiles(t *testing.T) {
 		project,
 		"list-profiles-b",
 		"Beta",
-		configB["id"].(string),
+		testutil.RequireType[string](t, configB["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -55,7 +57,7 @@ func TestListAgentProfiles(t *testing.T) {
 		project,
 		"list-profiles-a",
 		"Alpha",
-		configA["id"].(string),
+		testutil.RequireType[string](t, configA["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -72,7 +74,7 @@ func TestListAgentProfiles(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	data := listed["data"].([]any)
+	data := testutil.RequireType[[]any](t, listed["data"])
 	if len(data) != 2 {
 		t.Fatalf("expected 2 agent profiles, got %d: %+v", len(data), data)
 	}
@@ -83,8 +85,8 @@ func TestListAgentProfiles(t *testing.T) {
 		t.Fatalf("single full page should have null next_cursor, got %v", listed["next_cursor"])
 	}
 
-	first := data[0].(map[string]any)
-	second := data[1].(map[string]any)
+	first := testutil.RequireType[map[string]any](t, data[0])
+	second := testutil.RequireType[map[string]any](t, data[1])
 	if first["name"] != "Alpha" || second["name"] != "Beta" {
 		t.Fatalf("expected newest-first ordering Alpha, Beta, got %q, %q", first["name"], second["name"])
 	}
@@ -100,8 +102,8 @@ func TestListAgentProfiles(t *testing.T) {
 	if firstConfig["id"] != configA["id"] {
 		t.Fatalf("expected Alpha current_config %v, got %v", configA["id"], firstConfig["id"])
 	}
-	firstConfigModel := firstConfig["model"].(map[string]any)
-	configAModel := configA["model"].(map[string]any)
+	firstConfigModel := testutil.RequireType[map[string]any](t, firstConfig["model"])
+	configAModel := testutil.RequireType[map[string]any](t, configA["model"])
 	if firstConfigModel["configured_model_id"] != configAModel["configured_model_id"] {
 		t.Fatalf(
 			"expected Alpha current_config configured_model_id %v, got %v",
@@ -117,7 +119,7 @@ func TestListAgentProfiles(t *testing.T) {
 	}
 
 	const extraProfiles = 4
-	for i := 0; i < extraProfiles; i++ {
+	for i := range extraProfiles {
 		seed := "list-profiles-page-" + string(rune('a'+i))
 		cfg := createPublicHTTPAgentConfig(
 			t,
@@ -135,7 +137,7 @@ func TestListAgentProfiles(t *testing.T) {
 			project,
 			seed,
 			"Page"+string(rune('A'+i)),
-			cfg["id"].(string),
+			testutil.RequireType[string](t, cfg["id"]),
 			project.AdminToken,
 			http.StatusCreated,
 		)
@@ -160,13 +162,13 @@ func TestListAgentProfiles(t *testing.T) {
 			http.StatusOK,
 			authHeaders(project.AdminToken),
 		)
-		rows := page["data"].([]any)
+		rows := testutil.RequireType[[]any](t, page["data"])
 		if len(rows) > 2 {
 			t.Fatalf("page returned %d profiles, want <= limit 2", len(rows))
 		}
 		for _, raw := range rows {
-			row := raw.(map[string]any)
-			id := row["id"].(string)
+			row := testutil.RequireType[map[string]any](t, raw)
+			id := testutil.RequireType[string](t, row["id"])
 			if seen[id] {
 				t.Fatalf("cursor paging returned duplicate profile %s", id)
 			}
@@ -175,7 +177,7 @@ func TestListAgentProfiles(t *testing.T) {
 			if _, ok := row["current_config"].(map[string]any); !ok {
 				t.Fatalf("paged profile missing embedded current_config: %+v", row)
 			}
-			ts, err := time.Parse(time.RFC3339Nano, row["created_at"].(string))
+			ts, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, row["created_at"]))
 			if err != nil {
 				t.Fatalf("parse profile created_at: %v", err)
 			}
@@ -191,7 +193,7 @@ func TestListAgentProfiles(t *testing.T) {
 		if next == nil {
 			break
 		}
-		cursor = next.(string)
+		cursor = testutil.RequireType[string](t, next)
 	}
 	if len(pagedIDs) != wantTotal {
 		t.Fatalf("paged %d profiles, want %d: %v", len(pagedIDs), wantTotal, pagedIDs)
@@ -238,7 +240,7 @@ func TestListAgentProfiles(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	otherProjectID := otherProjectCreated["id"].(string)
+	otherProjectID := testutil.RequireType[string](t, otherProjectCreated["id"])
 	otherProjectPath := "/api/v1/orgs/" + project.OrgID + "/projects/" + otherProjectID
 	otherList := requestJSONWithHeaders(
 		t,
@@ -250,7 +252,7 @@ func TestListAgentProfiles(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if other := otherList["data"].([]any); len(other) != 0 {
+	if other := testutil.RequireType[[]any](t, otherList["data"]); len(other) != 0 {
 		t.Fatalf("expected sibling project to have no profiles, got %+v", other)
 	}
 	if otherList["next_cursor"] != nil {
@@ -274,7 +276,7 @@ func assertProfilesNewestFirst(t *testing.T, data []any) {
 	t.Helper()
 	var prev time.Time
 	for i, raw := range data {
-		ts, err := time.Parse(time.RFC3339Nano, raw.(map[string]any)["created_at"].(string))
+		ts, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]))
 		if err != nil {
 			t.Fatalf("parse created_at for profile %d: %v", i, err)
 		}

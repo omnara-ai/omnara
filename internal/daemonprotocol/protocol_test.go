@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 )
 
@@ -72,8 +73,8 @@ func TestSkillOfferRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.SkillOffer == nil || !reflect.DeepEqual(*decoded.SkillOffer, offer) {
-		t.Fatalf("round-trip mismatch: got %+v want %+v", decoded.SkillOffer, offer)
+	if diff := cmp.Diff(&offer, decoded.SkillOffer); diff != "" {
+		t.Fatalf("SkillOffer round trip mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -91,8 +92,8 @@ func TestSkillReportRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.SkillReport == nil || !reflect.DeepEqual(*decoded.SkillReport, report) {
-		t.Fatalf("round-trip mismatch: got %+v want %+v", decoded.SkillReport, report)
+	if diff := cmp.Diff(&report, decoded.SkillReport); diff != "" {
+		t.Fatalf("SkillReport round trip mismatch (-want +got):\n%s", diff)
 	}
 }
 

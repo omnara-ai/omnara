@@ -20,7 +20,7 @@ func TestSteeringPreservesEveryUnansweredOpeningInput(t *testing.T) {
 		{name: "worker_crashes_before_context"},
 		{name: "retrying_context", createContext: true},
 	} {
-		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()

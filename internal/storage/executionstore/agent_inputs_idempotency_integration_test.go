@@ -190,7 +190,7 @@ func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
 	ids := make(chan ID, workers)
-	for i := 0; i < workers; i++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

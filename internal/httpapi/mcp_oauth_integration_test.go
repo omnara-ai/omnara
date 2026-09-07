@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
@@ -39,7 +40,7 @@ func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
 	startPath := "/api/v1/orgs/" + project.OrgID + "/secrets/mcp-oauth"
 	start := startMCPOAuthFlow(t, handler, startPath, startBody, project.AdminToken)
 
-	authURL, err := url.Parse(start["authorization_url"].(string))
+	authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
 	if err != nil {
 		t.Fatalf("parse authorization_url: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if secret["kind"] != "oauth_token_set" || secret["owner"].(map[string]any)["kind"] != "org" {
+	if secret["kind"] != "oauth_token_set" || testutil.RequireType[map[string]any](t, secret["owner"])["kind"] != "org" {
 		t.Fatalf("unexpected secret: %+v", secret)
 	}
 	payloadKeys := jsonStringSlice(t, secret["payload_keys"])
@@ -107,7 +108,7 @@ func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
 			payloadKeys,
 		)
 	}
-	metadata := secret["metadata"].(map[string]any)
+	metadata := testutil.RequireType[map[string]any](t, secret["metadata"])
 	if len(metadata) != 2 || metadata["env"] != "prod" ||
 		metadata["mcp_url"] != fake.URL+"/mcp" {
 		t.Fatalf("metadata = %+v, want caller metadata plus mcp_url", metadata)
@@ -143,7 +144,7 @@ func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
 		restartBody,
 		project.AdminToken,
 	)
-	restartURL, err := url.Parse(restart["authorization_url"].(string))
+	restartURL, err := url.Parse(testutil.RequireType[string](t, restart["authorization_url"]))
 	if err != nil {
 		t.Fatalf("parse second authorization_url: %v", err)
 	}
@@ -177,7 +178,7 @@ func TestMCPOAuthFlowEndToEndCreatesAndRotatesSecret(t *testing.T) {
 			rotated["current_version_number"],
 		)
 	}
-	rotatedMetadata := rotated["metadata"].(map[string]any)
+	rotatedMetadata := testutil.RequireType[map[string]any](t, rotated["metadata"])
 	if len(rotatedMetadata) != 2 || rotatedMetadata["env"] != "prod" ||
 		rotatedMetadata["mcp_url"] != fake.URL+"/mcp" {
 		t.Fatalf(
@@ -224,7 +225,7 @@ func TestMCPOAuthProjectAndUserScopedFlows(t *testing.T) {
 			body,
 			project.AdminToken,
 		)
-		authURL, err := url.Parse(start["authorization_url"].(string))
+		authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
 		if err != nil {
 			t.Fatalf("%s: parse authorization_url: %v", tc.name, err)
 		}
@@ -250,7 +251,7 @@ func TestMCPOAuthProjectAndUserScopedFlows(t *testing.T) {
 			http.StatusOK,
 			authHeaders(project.AdminToken),
 		)
-		if secret["owner"].(map[string]any)["kind"] != tc.wantOwnerKind ||
+		if testutil.RequireType[map[string]any](t, secret["owner"])["kind"] != tc.wantOwnerKind ||
 			secret["kind"] != "oauth_token_set" {
 			t.Fatalf("%s: unexpected secret owner: %+v", tc.name, secret)
 		}
@@ -433,7 +434,7 @@ func TestMCPOAuthStartValidation(t *testing.T) {
 		`{"owner":{"kind":"org"},"mcp_url":"`+noRegistration.URL+`/mcp","name":"pre-reg","client_id":"pre-registered-1"}`,
 		project.AdminToken,
 	)
-	authURL, err := url.Parse(start["authorization_url"].(string))
+	authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
 	if err != nil {
 		t.Fatalf("parse authorization_url: %v", err)
 	}
@@ -459,7 +460,7 @@ func TestMCPOAuthCallbackStateAndRedirectSafety(t *testing.T) {
 		`{"owner":{"kind":"org"},"mcp_url":"`+fake.URL+`/mcp","name":"cb-mcp","return_to":"https://evil.example/phish"}`,
 		project.AdminToken,
 	)
-	authURL, err := url.Parse(start["authorization_url"].(string))
+	authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
 	if err != nil {
 		t.Fatalf("parse authorization_url: %v", err)
 	}
@@ -572,7 +573,7 @@ func TestMCPOAuthClientMetadataDocument(t *testing.T) {
 		`{"owner":{"kind":"org"},"mcp_url":"`+fake.URL+`/mcp","name":"cimd-mcp","return_to":"/settings/secrets"}`,
 		project.AdminToken,
 	)
-	authURL, err := url.Parse(start["authorization_url"].(string))
+	authURL, err := url.Parse(testutil.RequireType[string](t, start["authorization_url"]))
 	if err != nil {
 		t.Fatalf("parse authorization_url: %v", err)
 	}
@@ -885,7 +886,8 @@ func writeFakeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		t.Fatalf("encode fake response: %v", err)
+		t.Errorf("encode fake response: %v", err)
+		http.Error(w, "test response encoding failed", http.StatusInternalServerError)
 	}
 }
 
@@ -897,7 +899,7 @@ func jsonStringSlice(t *testing.T, value any) []string {
 	}
 	out := make([]string, 0, len(raw))
 	for _, item := range raw {
-		out = append(out, item.(string))
+		out = append(out, testutil.RequireType[string](t, item))
 	}
 	return out
 }

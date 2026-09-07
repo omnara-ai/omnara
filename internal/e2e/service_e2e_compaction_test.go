@@ -260,7 +260,7 @@ func writeServiceE2EOpenRouterChatMessage(
 	inputTokens int,
 	outputTokens int,
 ) {
-	message, _ := json.Marshal(map[string]any{
+	message, err := json.Marshal(map[string]any{
 		"id":    id,
 		"model": modelName,
 		"choices": []map[string]any{{
@@ -269,7 +269,11 @@ func writeServiceE2EOpenRouterChatMessage(
 			"finish_reason": "stop",
 		}},
 	})
-	usage, _ := json.Marshal(map[string]any{
+	if err != nil {
+		http.Error(w, "encode test message: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	usage, err := json.Marshal(map[string]any{
 		"id":      id,
 		"model":   modelName,
 		"choices": []any{},
@@ -278,6 +282,10 @@ func writeServiceE2EOpenRouterChatMessage(
 			"completion_tokens": outputTokens,
 		},
 	})
+	if err != nil {
+		http.Error(w, "encode test usage: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\ndata: [DONE]\n\n", message, usage)
 }

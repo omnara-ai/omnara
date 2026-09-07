@@ -365,7 +365,9 @@ func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 		logent.Org(r.Context(), identitystore.OrgRecord{ID: httpTestOrgID})
 		w.WriteHeader(http.StatusTeapot)
 		if _, err := w.Write([]byte("teapot")); err != nil {
-			t.Fatalf("write response: %v", err)
+			t.Errorf("write response: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 
@@ -680,7 +682,9 @@ func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte("partial")); err != nil {
-			t.Fatalf("write response: %v", err)
+			t.Errorf("write response: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		panic("boom")
 	}))

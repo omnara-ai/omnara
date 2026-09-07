@@ -110,6 +110,7 @@ ON CONFLICT (org_id) DO UPDATE SET
 	}
 }
 
+//nolint:tparallel // invalid inserts must be checked before the parent deletes the organization
 func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

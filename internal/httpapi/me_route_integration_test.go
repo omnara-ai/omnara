@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -41,7 +42,7 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/me", "", "", http.StatusUnauthorized, nil)
 
 	me := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/me", "", "", http.StatusOK, authHeaders(token))
-	identity := me["user"].(map[string]any)
+	identity := testutil.RequireType[map[string]any](t, me["user"])
 	if identity["id"] != wantUserID {
 		t.Fatalf("user id = %v, want %v", identity["id"], wantUserID)
 	}
@@ -51,7 +52,7 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	if identity["display_name"] != "Me Myself" {
 		t.Fatalf("display_name = %v, want Me Myself", identity["display_name"])
 	}
-	if orgs := me["orgs"].([]any); len(orgs) != 0 {
+	if orgs := testutil.RequireType[[]any](t, me["orgs"]); len(orgs) != 0 {
 		t.Fatalf("expected no orgs before joining, got %+v", orgs)
 	}
 
@@ -99,17 +100,17 @@ func TestGetCurrentUserReturnsIdentityAndOrgs(t *testing.T) {
 	)
 
 	me = requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/me", "", "", http.StatusOK, authHeaders(token))
-	orgs := me["orgs"].([]any)
+	orgs := testutil.RequireType[[]any](t, me["orgs"])
 	if len(orgs) != 2 {
 		t.Fatalf("expected exactly the caller's 2 orgs, got %+v", orgs)
 	}
-	first := orgs[0].(map[string]any)
-	second := orgs[1].(map[string]any)
+	first := testutil.RequireType[map[string]any](t, orgs[0])
+	second := testutil.RequireType[map[string]any](t, orgs[1])
 	if first["name"] != "Alpha Org" || second["name"] != "Beta Org" {
 		t.Fatalf("orgs not sorted by name: %+v", orgs)
 	}
 	for _, raw := range orgs {
-		org := raw.(map[string]any)
+		org := testutil.RequireType[map[string]any](t, raw)
 		if org["role"] != "owner" {
 			t.Fatalf("expected owner role on created org, got %+v", org)
 		}

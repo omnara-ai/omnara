@@ -27,6 +27,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
@@ -403,10 +404,10 @@ func bootstrapPublicHTTPProject(
 		http.StatusCreated,
 		authHeaders(adminToken),
 	)
-	org := created["org"].(map[string]any)
-	project := created["project"].(map[string]any)
-	orgID := org["id"].(string)
-	projectID := project["id"].(string)
+	org := testutil.RequireType[map[string]any](t, created["org"])
+	project := testutil.RequireType[map[string]any](t, created["project"])
+	orgID := testutil.RequireType[string](t, org["id"])
+	projectID := testutil.RequireType[string](t, project["id"])
 	bootstrapDefaultPublicHTTPModelProvider(t, handler, orgID, projectID, adminToken)
 	orgUUID := mustPublicHTTPID(t, publicid.KindOrganization, orgID)
 	projectUUID := mustPublicHTTPID(t, publicid.KindProject, projectID)
@@ -459,7 +460,7 @@ func bootstrapDefaultPublicHTTPModelProvider(t *testing.T, handler http.Handler,
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+orgID+"/model-provider-configs",
-		`{"name":"openai-prod","api_format":"openai-responses","api_variant":"default","base_url":"https://api.openai.com/v1","credential_secret_id":"`+secret["id"].(string)+`"}`,
+		`{"name":"openai-prod","api_format":"openai-responses","api_variant":"default","base_url":"https://api.openai.com/v1","credential_secret_id":"`+testutil.RequireType[string](t, secret["id"])+`"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(adminToken),
@@ -468,7 +469,7 @@ func bootstrapDefaultPublicHTTPModelProvider(t *testing.T, handler http.Handler,
 		t,
 		handler,
 		http.MethodPost,
-		"/api/v1/orgs/"+orgID+"/model-provider-configs/"+createdModelProviderConfig(t, providerConfig)["id"].(string)+"/models",
+		"/api/v1/orgs/"+orgID+"/model-provider-configs/"+testutil.RequireType[string](t, createdModelProviderConfig(t, providerConfig)["id"])+"/models",
 		`{"name":"gpt-test","provider_model_slug":"gpt-test","context_window_tokens":128000,"max_output_tokens":8192,"default_max_output_tokens":4096}`,
 		"",
 		http.StatusCreated,
@@ -479,7 +480,7 @@ func bootstrapDefaultPublicHTTPModelProvider(t *testing.T, handler http.Handler,
 		handler,
 		http.MethodPost,
 		projectPath+"/model-grants",
-		`{"configured_model_id":"`+configuredModel["id"].(string)+`"}`,
+		`{"configured_model_id":"`+testutil.RequireType[string](t, configuredModel["id"])+`"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(adminToken),
@@ -543,7 +544,7 @@ func createPublicHTTPAgent(
 		project,
 		seed,
 		seed+" Agent",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		token,
 		http.StatusCreated,
 	)
@@ -601,8 +602,8 @@ func launchPublicHTTPAgent(
 ) map[string]any {
 	t.Helper()
 	profile := createPublicHTTPAgent(t, handler, project, seed, token)
-	profileID := profile["id"].(string)
-	configID := profile["current_config"].(map[string]any)["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	return requestJSONWithHeaders(
 		t,
 		handler,
@@ -616,7 +617,10 @@ func launchPublicHTTPAgent(
 }
 
 func quotedJSONString(value string) string {
-	raw, _ := json.Marshal(value)
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
 	return string(raw)
 }
 

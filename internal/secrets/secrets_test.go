@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestEncryptDecryptPayloadRoundTrip(t *testing.T) {
@@ -35,8 +36,8 @@ func TestEncryptDecryptPayloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
-	if !reflect.DeepEqual(decrypted, payload) {
-		t.Fatalf("decrypted payload = %#v, want %#v", decrypted, payload)
+	if diff := cmp.Diff(payload, decrypted); diff != "" {
+		t.Fatalf("decrypted payload mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -400,8 +401,8 @@ func TestPayloadKeysAreOrderInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt reversed payload keys: %v", err)
 	}
-	if !reflect.DeepEqual(decrypted, payload) {
-		t.Fatalf("decrypted = %#v, want %#v", decrypted, payload)
+	if diff := cmp.Diff(payload, decrypted); diff != "" {
+		t.Fatalf("decrypted payload mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -602,8 +603,8 @@ func TestLocalWrapperSupportsKeyRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt old with rotated keyWrapper: %v", err)
 	}
-	if !reflect.DeepEqual(decrypted, payload) {
-		t.Fatalf("decrypted old payload = %#v, want %#v", decrypted, payload)
+	if diff := cmp.Diff(payload, decrypted); diff != "" {
+		t.Fatalf("decrypted payload mismatch (-want +got):\n%s", diff)
 	}
 	newEncrypted, err := EncryptPayload(context.Background(), rotatedWrapper, KindGeneric, payload, aad)
 	if err != nil {
@@ -625,8 +626,8 @@ func TestRewrapPayloadKeyReturnsUnchangedEnvelopeForActiveKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rewrap active key: %v", err)
 	}
-	if !reflect.DeepEqual(rewrapped, encrypted) {
-		t.Fatal("active-key rewrap changed envelope")
+	if diff := cmp.Diff(encrypted, rewrapped); diff != "" {
+		t.Fatalf("active-key rewrapped envelope mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -669,8 +670,8 @@ func TestRewrapPayloadKeyRotatesEnvelopeWithoutReencryptingPayload(t *testing.T)
 	if err != nil {
 		t.Fatalf("decrypt rewrapped: %v", err)
 	}
-	if !reflect.DeepEqual(decrypted, payload) {
-		t.Fatalf("decrypted rewrapped payload = %#v, want %#v", decrypted, payload)
+	if diff := cmp.Diff(payload, decrypted); diff != "" {
+		t.Fatalf("decrypted payload mismatch (-want +got):\n%s", diff)
 	}
 	newOnlyWrapper, err := NewLocalKeyWrapper(
 		"new-key",

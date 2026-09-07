@@ -371,9 +371,9 @@ model:
 		poolRecord.DeleteAfterIdleMinutes == nil || *poolRecord.DeleteAfterIdleMinutes != 30 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
-	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
-	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
-	assertJSONRawEqual(
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
+	assertDecodedJSONEqual(
 		t,
 		poolRecord.DefaultMachineProviderOptions,
 		`{"image":"new","sleep_after_ms":30000}`,
@@ -522,7 +522,7 @@ model:
 	if poolRecord.Description != desiredPool.Description {
 		t.Fatalf("machine pool description = %q, want %q", poolRecord.Description, desiredPool.Description)
 	}
-	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
 	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" {
 		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)

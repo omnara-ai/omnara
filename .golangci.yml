@@ -48,6 +48,7 @@ linters:
     - spancheck              # OpenTelemetry spans not ended / status not set
     - sqlclosecheck          # Rows/Stmt not closed
     - tparallel              # misuse of t.Parallel
+    - testifylint            # fatal Testify assertions must run in the test goroutine
     - unconvert              # redundant type conversion
     - unused                 # unreferenced private code and declarations
     - usestdlibvars          # http.MethodGet, http.StatusOK, ... over literals
@@ -57,6 +58,12 @@ linters:
     # API docs, and migration comments, so this catches more than aesthetics.
     - misspell
   settings:
+    testifylint:
+      disable-all: true
+      enable:
+        - go-require
+      go-require:
+        ignore-http-handlers: false
     staticcheck:
       checks:
         - all

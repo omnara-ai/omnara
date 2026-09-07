@@ -81,13 +81,19 @@ func TestPostIntegrationMessageAddsMarker(t *testing.T) {
 	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer xoxb-test" {
-			t.Fatalf("authorization = %q", got)
+			t.Errorf("authorization = %q", got)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
+			t.Errorf("decode request: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
@@ -142,10 +148,14 @@ func TestReconcileIntegrationMessageFindsMarker(t *testing.T) {
 	var form url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations.replies" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if err := r.ParseForm(); err != nil {
-			t.Fatalf("parse form: %v", err)
+			t.Errorf("parse form: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		form = r.Form
 		writeToolTestJSON(w, map[string]any{
@@ -197,7 +207,9 @@ func TestReconcileIntegrationMessageClassifiesProviderErrors(t *testing.T) {
 	agentID := integrationToolTestID("slack-readback-error-agent")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations.history" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		writeToolTestJSON(w, map[string]any{"ok": false, "error": "token_revoked"})
 	}))

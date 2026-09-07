@@ -2019,10 +2019,6 @@ func ensureWorkerProviderCredential(
 	return secret, err
 }
 
-func intPtrForWorkerTest(value int) *int {
-	return &value
-}
-
 func parseWorkerConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
 	t.Helper()
 	id, err := storage.ParseID(compiled.Compiled.Model.ConfiguredModelID)

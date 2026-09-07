@@ -277,12 +277,12 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t.Fatalf("expected unauthorized for missing token, got %v", err)
 	}
 
-	assertProjectAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: viewer.ID}, identitystore.ProjectActionRead, true)
+	assertProjectAllowed(t, ctx, store, userPrincipal(viewer.ID), identitystore.ProjectActionRead, true)
 	assertProjectAllowed(
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: viewer.ID},
+		userPrincipal(viewer.ID),
 		identitystore.ProjectActionManage,
 		false,
 	)
@@ -290,7 +290,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: developer.ID},
+		userPrincipal(developer.ID),
 		identitystore.ProjectActionManage,
 		true,
 	)
@@ -298,7 +298,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: developer.ID},
+		userPrincipal(developer.ID),
 		identitystore.AgentActionOperate,
 		true,
 	)
@@ -306,7 +306,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: operator.ID},
+		userPrincipal(operator.ID),
 		identitystore.AgentActionOperate,
 		true,
 	)
@@ -314,7 +314,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: operator.ID},
+		userPrincipal(operator.ID),
 		identitystore.ProjectActionManage,
 		false,
 	)
@@ -322,7 +322,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgAdmin.ID},
+		userPrincipal(orgAdmin.ID),
 		identitystore.ProjectActionAccessManage,
 		true,
 	)
@@ -330,7 +330,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgOwner.ID},
+		userPrincipal(orgOwner.ID),
 		identitystore.ProjectActionAccessManage,
 		true,
 	)
@@ -338,22 +338,22 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: outsider.ID},
+		userPrincipal(outsider.ID),
 		identitystore.ProjectActionRead,
 		false,
 	)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgAdmin.ID}, identitystore.OrgActionManage, true)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgOwner.ID}, identitystore.OrgActionManage, true)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: developer.ID}, identitystore.OrgActionManage, false)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: viewer.ID}, identitystore.OrgActionManage, false)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: outsider.ID}, identitystore.OrgActionManage, false)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgOwner.ID}, identitystore.OrgActionOwn, true)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgAdmin.ID}, identitystore.OrgActionOwn, false)
-	assertOrgAllowed(t, ctx, store, identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: developer.ID}, identitystore.OrgActionOwn, false)
+	assertOrgAllowed(t, ctx, store, userPrincipal(orgAdmin.ID), identitystore.OrgActionManage, true)
+	assertOrgAllowed(t, ctx, store, userPrincipal(orgOwner.ID), identitystore.OrgActionManage, true)
+	assertOrgAllowed(t, ctx, store, userPrincipal(developer.ID), identitystore.OrgActionManage, false)
+	assertOrgAllowed(t, ctx, store, userPrincipal(viewer.ID), identitystore.OrgActionManage, false)
+	assertOrgAllowed(t, ctx, store, userPrincipal(outsider.ID), identitystore.OrgActionManage, false)
+	assertOrgAllowed(t, ctx, store, userPrincipal(orgOwner.ID), identitystore.OrgActionOwn, true)
+	assertOrgAllowed(t, ctx, store, userPrincipal(orgAdmin.ID), identitystore.OrgActionOwn, false)
+	assertOrgAllowed(t, ctx, store, userPrincipal(developer.ID), identitystore.OrgActionOwn, false)
 	allowed, err := store.Identity().AuthorizeProject(
 		ctx,
 		identitystore.AuthorizeProjectInput{
-			Principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgAdmin.ID},
+			Principal: userPrincipal(orgAdmin.ID),
 			OrgID:     testOrgID,
 			ProjectID: testID("missing-project"),
 			Action:    identitystore.ProjectActionRead,
@@ -376,7 +376,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: noGrantMember.ID},
+		userPrincipal(noGrantMember.ID),
 		identitystore.ProjectActionRead,
 		false,
 	)
@@ -405,7 +405,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: viewer.ID},
+		userPrincipal(viewer.ID),
 		identitystore.ProjectActionRead,
 		false,
 	)
@@ -413,7 +413,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: orgAdmin.ID},
+		userPrincipal(orgAdmin.ID),
 		identitystore.ProjectActionRead,
 		false,
 	)
@@ -433,7 +433,7 @@ func TestProjectAuthorizationAndPersonalAccessTokens(t *testing.T) {
 		t.Fatalf("soft-delete organization for authorization check: %v", err)
 	}
 	allowed, err = store.Identity().AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
-		Principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: inactiveOrgOwner.ID},
+		Principal: userPrincipal(inactiveOrgOwner.ID),
 		OrgID:     inactiveOrg.Org.ID,
 		ProjectID: inactiveOrg.Project.ID,
 		Action:    identitystore.ProjectActionRead,
@@ -499,7 +499,7 @@ func TestCreateOrgForUserCreatesOwnerAndDefaultProject(t *testing.T) {
 	allowed, err := store.Identity().AuthorizeProject(
 		ctx,
 		identitystore.AuthorizeProjectInput{
-			Principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID},
+			Principal: userPrincipal(user.ID),
 			OrgID:     created.Org.ID,
 			ProjectID: created.Project.ID,
 			Action:    identitystore.ProjectActionAccessManage,
@@ -634,7 +634,7 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 			poolRecord.RuntimeProtectionEnabled != defaultPool.RuntimeProtectionEnabled {
 			t.Fatalf("unexpected default pool: %+v", poolRecord)
 		}
-		assertJSONRawEqual(t, poolRecord.ProviderConfig, string(defaultPool.ProviderConfig))
+		assertDecodedJSONEqual(t, poolRecord.ProviderConfig, string(defaultPool.ProviderConfig))
 		grant, err := testQueries(store).GetActiveProjectMachinePoolGrantForMachinePool(
 			ctx,
 			dbsqlc.GetActiveProjectMachinePoolGrantForMachinePoolParams{
@@ -648,7 +648,7 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 		if grant.IdempotencyKey != "" {
 			t.Fatalf("unexpected default project machine pool grant: %+v", grant)
 		}
-		assertJSONRawEqual(t, grant.Metadata, `{}`)
+		assertDecodedJSONEqual(t, grant.Metadata, `{}`)
 	}
 	createdProject, err := store.Identity().CreateProjectForPrincipal(
 		ctx,
@@ -1271,7 +1271,7 @@ func TestAuthorizeMachineRequiresAdminOrProjectVisibility(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: admin.ID},
+		userPrincipal(admin.ID),
 		machine.ID,
 		executionstore.MachineActionManage,
 		true,
@@ -1280,7 +1280,7 @@ func TestAuthorizeMachineRequiresAdminOrProjectVisibility(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: member.ID},
+		userPrincipal(member.ID),
 		machine.ID,
 		executionstore.MachineActionManage,
 		false,
@@ -1289,7 +1289,7 @@ func TestAuthorizeMachineRequiresAdminOrProjectVisibility(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: creator.ID},
+		userPrincipal(creator.ID),
 		machine.ID,
 		executionstore.MachineActionManage,
 		false,
@@ -1298,7 +1298,7 @@ func TestAuthorizeMachineRequiresAdminOrProjectVisibility(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: removedCreator.ID},
+		userPrincipal(removedCreator.ID),
 		removedMachine.ID,
 		executionstore.MachineActionRead,
 		false,
@@ -1307,7 +1307,7 @@ func TestAuthorizeMachineRequiresAdminOrProjectVisibility(t *testing.T) {
 		t,
 		ctx,
 		store,
-		identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: admin.ID},
+		userPrincipal(admin.ID),
 		testID("missing-machine"),
 		executionstore.MachineActionRead,
 		false,
@@ -1960,7 +1960,7 @@ func assertVisibleMachineManageMatchesAuthorize(
 		allowed, err := store.Execution().AuthorizeMachine(
 			ctx,
 			executionstore.AuthorizeMachineInput{
-				Principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID},
+				Principal: userPrincipal(userID),
 				OrgID:     testOrgID,
 				MachineID: record.Machine.ID,
 				Action:    executionstore.MachineActionManage,
@@ -2057,7 +2057,7 @@ func TestCreateProjectForPrincipalIdempotencyAndRestrictedCreatorGrant(t *testin
 	allowed, err := store.Identity().AuthorizeProject(
 		ctx,
 		identitystore.AuthorizeProjectInput{
-			Principal: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: creator.ID},
+			Principal: userPrincipal(creator.ID),
 			OrgID:     testOrgID,
 			ProjectID: project.ID,
 			Action:    identitystore.ProjectActionAccessManage,
@@ -3234,7 +3234,7 @@ func TestOrgInvitationRejectsExistingMemberAndPreservesMembershipLimits(t *testi
 	}
 
 	fullUser := mustCreateIdentityUser(t, ctx, store, "full@example.com", "Full")
-	for i := 0; i < identitystore.MaxOrgMembershipsPerUser; i++ {
+	for i := range identitystore.MaxOrgMembershipsPerUser {
 		orgID := testID(fmt.Sprintf("limit-org-%d", i))
 		if _, err := pool.Exec(
 			ctx,
@@ -3917,7 +3917,7 @@ func TestResolveTrustedAuthIdentityConcurrentFirstLinkSerializesEmailOwner(t *te
 		{AuthConnectorID: firstConnector.ID, Issuer: firstConnector.Issuer, Subject: "race-a", Email: "race@bücher.example", EmailVerified: true, DisplayName: "Race A"},
 		{AuthConnectorID: secondConnector.ID, Issuer: secondConnector.Issuer, Subject: "race-b", Email: "race@xn--bcher-kva.example", EmailVerified: true, DisplayName: "Race B"},
 	} {
-		input := input
+
 		go func() {
 			<-start
 			user, err := resolveAuthIdentitySessionForTest(ctx, store, input)
@@ -3977,7 +3977,7 @@ func TestResolveTrustedAuthIdentityConcurrentSameSubjectIsIdempotent(t *testing.
 	}
 	results := make(chan result, 2)
 	start := make(chan struct{})
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			<-start
 			user, err := resolveAuthIdentitySessionForTest(
@@ -4193,7 +4193,7 @@ func TestConcurrentAuthConnectorIssuerConflictIsClassified(t *testing.T) {
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	for _, slug := range []string{"concurrent-sso-a", "concurrent-sso-b"} {
-		slug := slug
+
 		go func() {
 			<-start
 			_, err := store.Identity().UpsertAuthConnector(ctx, identitystore.CreateAuthConnectorInput{
@@ -6337,7 +6337,7 @@ func TestCompromiseRevocationBlocksStalePersonalAccessTokenCreation(t *testing.T
 	sessionPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, BrowserSessionID: session.ID}
 	idleSessionPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, BrowserSessionID: idleSession.ID}
 	patPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID, PersonalAccessTokenID: pat.Record.ID}
-	unboundUserPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: user.ID}
+	unboundUserPrincipal := userPrincipal(user.ID)
 	nonUserPrincipal := identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeMachineDaemon, ID: machine.ID}
 	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
 		ctx,

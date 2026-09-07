@@ -25,7 +25,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 var processToolNames = []string{
@@ -77,7 +79,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 		project.adminToken,
 		http.StatusCreated,
 	)
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv}, "|")
 	missingCwd := "/work/missing-" + nonce
 	machine := project.bootstrapDockerMachine(t, ctx, "deterministic-byo-machine")
@@ -1466,9 +1468,7 @@ func assertServiceE2EEffectOnce(
 ) {
 	t.Helper()
 	body, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if string(body) != "x" {
 		t.Fatalf(
 			"accepted process external effect = %q, want exactly one x",
@@ -1501,16 +1501,14 @@ func assertServiceE2EFreshWork(
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var total, exited, unknown, granted int
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*),
        count(*) FILTER (WHERE state = 'exited'),
        count(*) FILTER (WHERE state = 'unknown'),
        count(*) FILTER (WHERE execution_granted_at IS NOT NULL)
 FROM processes
 WHERE project_id = $1 AND agent_id = $2
-`, projectUUID, agentUUID).Scan(&total, &exited, &unknown, &granted); err != nil {
-		t.Fatal(err)
-	}
+`, projectUUID, agentUUID).Scan(&total, &exited, &unknown, &granted))
 	if total != 2 || exited != 1 || unknown != 1 || granted != 2 {
 		t.Fatalf(
 			"processes total=%d exited=%d unknown=%d granted=%d, want 2/1/1/2",
@@ -1550,13 +1548,11 @@ func assertServiceE2ESingleProcess(
 	)
 	var processCount int
 	var processState string
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*), coalesce(min(state), '')
 FROM processes
 WHERE project_id = $1 AND agent_id = $2
-`, projectUUID, agentUUID).Scan(&processCount, &processState); err != nil {
-		t.Fatal(err)
-	}
+`, projectUUID, agentUUID).Scan(&processCount, &processState))
 	if processCount != 1 || processState != wantState {
 		t.Fatalf(
 			"recovery process rows = %d state=%q, want one %s",
@@ -1586,7 +1582,7 @@ func assertServiceE2EProcessToolResult(
 	)
 	var resultCount int
 	var resultJSON, resultOutcome string
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(DISTINCT result.id),
        coalesce(min(block.structured_data::text), ''),
        coalesce(min(result.outcome), '')
@@ -1602,9 +1598,7 @@ WHERE tool_call.project_id = $1
   AND tool_call.agent_id = $2
   AND tool_call.provider_call_id = $3
 `, projectUUID, agentUUID, providerCallID).
-		Scan(&resultCount, &resultJSON, &resultOutcome); err != nil {
-		t.Fatal(err)
-	}
+		Scan(&resultCount, &resultJSON, &resultOutcome))
 	if resultCount != 1 {
 		t.Fatalf(
 			"tool call %q result rows = %d, want 1",
@@ -1715,7 +1709,7 @@ type serviceBYOMachine struct {
 	workdir     string
 }
 
-func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.Context, seed string) serviceBYOMachine {
+func (p *deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.Context, seed string) serviceBYOMachine {
 	t.Helper()
 	machineName := seed + " machine"
 	machine := p.env.requestJSON(
@@ -1728,7 +1722,7 @@ func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.C
 		p.adminToken,
 		http.StatusCreated,
 	)
-	machineID := machine["id"].(string)
+	machineID := testutil.RequireType[string](t, machine["id"])
 	tokenResponse := p.env.requestBrowserJSON(
 		t,
 		ctx,
@@ -1740,7 +1734,7 @@ func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.C
 		p.adminCSRF,
 		http.StatusCreated,
 	)
-	token := tokenResponse["token"].(string)
+	token := testutil.RequireType[string](t, tokenResponse["token"])
 	p.env.requestJSON(
 		t,
 		ctx,
@@ -1818,17 +1812,17 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachine(
 		http.MethodPost,
 		p.projectPath+"/agent-profiles/"+p.agentID+"/config",
 		map[string]any{
-			"config":                     config["id"].(string),
+			"config":                     testutil.RequireType[string](t, config["id"]),
 			"expected_current_config_id": p.configID,
 		},
 		"idem-"+seed+"-config-"+hex.EncodeToString(sum[:8]),
 		p.adminToken,
 		http.StatusOK,
 	)
-	p.configID = updated["current_config"].(map[string]any)["id"].(string)
+	p.configID = testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, updated["current_config"])["id"])
 }
 
-func (p deterministicProject) startPermissionAutoApprover(t *testing.T, ctx context.Context, agentID string) {
+func (p *deterministicProject) startPermissionAutoApprover(t *testing.T, ctx context.Context, agentID string) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -1870,7 +1864,7 @@ func (p deterministicProject) startPermissionAutoApprover(t *testing.T, ctx cont
 	})
 }
 
-func (p deterministicProject) listOpenInteractions(ctx context.Context, agentID string) ([]any, bool) {
+func (p *deterministicProject) listOpenInteractions(ctx context.Context, agentID string) ([]any, bool) {
 	req, err := p.env.newAPIRequest(ctx, http.MethodGet, p.projectPath+"/agents/"+agentID+"/interactions?state=open", nil)
 	if err != nil {
 		return nil, false
@@ -1893,7 +1887,7 @@ func (p deterministicProject) listOpenInteractions(ctx context.Context, agentID 
 	return items, ok
 }
 
-func (p deterministicProject) resolvePermissionInteraction(ctx context.Context, agentID, interactionID string) bool {
+func (p *deterministicProject) resolvePermissionInteraction(ctx context.Context, agentID, interactionID string) bool {
 	body := bytes.NewReader(mustJSON(map[string]any{
 		"answers": []map[string]any{{
 			"option_indices": []int{toolpermission.AllowOptionIndex},

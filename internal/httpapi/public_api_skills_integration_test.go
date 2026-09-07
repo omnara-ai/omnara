@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 )
 
@@ -73,7 +74,7 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 	if !ok || len(listedData) == 0 {
 		t.Fatalf("list skills = %+v", listed)
 	}
-	if _, hasFiles := listedData[0].(map[string]any)["files"]; hasFiles {
+	if _, hasFiles := testutil.RequireType[map[string]any](t, listedData[0])["files"]; hasFiles {
 		t.Fatal("list skills unexpectedly included files")
 	}
 
@@ -134,7 +135,7 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 	if !ok || len(data) != 1 {
 		t.Fatalf("first skill page = %+v", page)
 	}
-	firstPageID, _ := data[0].(map[string]any)["id"].(string)
+	firstPageID, _ := testutil.RequireType[map[string]any](t, data[0])["id"].(string)
 	nextCursor, ok := page["next_cursor"].(string)
 	if !ok || nextCursor == "" {
 		t.Fatalf("first skill page missing next_cursor: %+v", page)
@@ -147,7 +148,7 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 	if !ok || len(secondData) != 1 {
 		t.Fatalf("second skill page = %+v", secondPage)
 	}
-	secondPageID, _ := secondData[0].(map[string]any)["id"].(string)
+	secondPageID, _ := testutil.RequireType[map[string]any](t, secondData[0])["id"].(string)
 	if firstPageID == "" || secondPageID == "" || firstPageID == secondPageID {
 		t.Fatalf("skill pages overlap: first=%q second=%q", firstPageID, secondPageID)
 	}
@@ -174,7 +175,7 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	grantData, ok := grants["data"].([]any)
 	if !ok || len(grantData) != 1 ||
-		grantData[0].(map[string]any)["grant"].(map[string]any)["id"] != grantID {
+		testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, grantData[0])["grant"])["id"] != grantID {
 		t.Fatalf("skill grants = %+v", grants)
 	}
 	available := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/skills",

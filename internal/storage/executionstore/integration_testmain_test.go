@@ -5,6 +5,8 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -290,7 +292,10 @@ func requireMachineProvisioningForTest(
 		t.Fatalf("machine provisioning memory_mb (-want +got):\n%s", diff)
 	}
 	if len(got.ProviderOptions) != len(want.ProviderOptions) {
-		t.Fatalf("machine provisioning provider_options = %+v, want %+v", got.ProviderOptions, want.ProviderOptions)
+		t.Fatalf(
+			"machine provisioning provider_options keys = %v, want %v",
+			slices.Sorted(maps.Keys(got.ProviderOptions)), slices.Sorted(maps.Keys(want.ProviderOptions)),
+		)
 	}
 	for key, wantValue := range want.ProviderOptions {
 		if !sameJSON(got.ProviderOptions[key], wantValue) {

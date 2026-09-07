@@ -20,6 +20,7 @@ func TestStrictBodyValidationThroughRoutes(t *testing.T) {
 	secretsPath := "/api/v1/orgs/" + project.OrgID + "/secrets"
 
 	t.Run("missing required body", func(t *testing.T) {
+		t.Parallel()
 		resp := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath, ``, "", http.StatusBadRequest, auth)
 		if resp["error"] == "" {
 			t.Fatalf("empty body should be rejected as required, got response=%v", resp)
@@ -27,6 +28,7 @@ func TestStrictBodyValidationThroughRoutes(t *testing.T) {
 	})
 
 	t.Run("path-owned field rejected as unknown", func(t *testing.T) {
+		t.Parallel()
 		resp := requestJSONWithHeaders(t, handler, http.MethodPost, secretsPath, `{"org_id":"x"}`, "", http.StatusBadRequest, auth)
 		if resp["error"] == "" {
 			t.Fatalf("path-owned body field should be rejected as unknown, got response=%v", resp)
@@ -40,6 +42,7 @@ func TestStrictBodyValidationThroughRoutes(t *testing.T) {
 	for op, path := range noBodyRoutes {
 		for name, body := range map[string]string{"json body": `{"unexpected":true}`, "empty object body": `{}`} {
 			t.Run(op+" rejects "+name, func(t *testing.T) {
+				t.Parallel()
 				resp := requestJSONWithHeaders(t, handler, http.MethodPost, path, body, "", http.StatusBadRequest, auth)
 				if resp["error"] == "" {
 					t.Fatalf("%s should reject a provided body, got response=%v", op, resp)
