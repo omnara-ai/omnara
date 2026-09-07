@@ -117,7 +117,7 @@ golangci-lint: $(GOLANGCI_LINT)
 	done
 	$(MAKE) golangci-lint-tagged
 
-golangci-lint-tagged: $(GOLANGCI_LINT) ## Lint all optional Go test code without running the tests
+golangci-lint-tagged: $(GOLANGCI_LINT) ## Lint optional Go test tags
 	$(GOLANGCI_LINT) run --config "$(REPO_ROOT)/.golangci.yml" --timeout=10m --build-tags=integration,servicee2e,webe2e,live,blackbox --max-issues-per-linter=0 --max-same-issues=0 ./...
 
 govulncheck:
@@ -139,7 +139,7 @@ $(GOLANGCI_LINT): .custom-gcl.yml tools/ci/go.mod tools/ci/go.sum tools/omnarali
 race-machinedaemon:
 	$(GO) test -race ./internal/machinedaemon/...
 
-race-unit: ## Run internal unit packages with the race detector
+race-unit: ## Run internal unit tests with race detection
 	$(GO) test -race -count=1 ./internal/...
 
 openapi-generate:

@@ -8,6 +8,8 @@ import (
 
 var domain = idna.New(idna.MapForLookup(), idna.BidiRule(), idna.VerifyDNSLength(true))
 
+// Normalize returns an account lookup key; keep the original address for delivery.
+// It does not validate the address.
 func Normalize(email string) string {
 	trimmed := strings.TrimSpace(email)
 	at := strings.LastIndexByte(trimmed, '@')
