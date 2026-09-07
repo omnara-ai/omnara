@@ -45,17 +45,7 @@ VALUES ($1, 'Test Org', 'idem-test-org', $2, $2)
 		now,
 	)
 	require.NoError(t, err, "seed org")
-	_, err = pool.Exec(
-		ctx,
-		`
-INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, 'Test Project', 'idem-test-project', $3, $3)
-`,
-		ids.ProjectID,
-		ids.OrgID,
-		now,
-	)
-	require.NoError(t, err, "seed project")
+	InsertProject(t, ctx, pool, ids.OrgID, ids.ProjectID, "Test Project", "idem-test-project", now)
 	_, err = pool.Exec(
 		ctx,
 		`
@@ -100,4 +90,21 @@ ON CONFLICT (id) DO NOTHING`,
 		now,
 	)
 	require.NoError(t, err, "seed default model provider config")
+}
+
+// InsertProject adds one project to an existing organization using the caller's pool.
+func InsertProject(
+	t testing.TB,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	orgID, projectID uuid.UUID,
+	name, idempotencyKey string,
+	now time.Time,
+) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $5)
+`, projectID, orgID, name, idempotencyKey, now)
+	require.NoError(t, err, "insert project %q (%s)", name, projectID)
 }

@@ -14,7 +14,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompletedToolCallsForModelContextSpanTurnsAndRespectWatermark(t *testing.T) {
@@ -623,6 +625,22 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "kernel_context_events_content_only")
+	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	require.NoError(t, err, "load agent for transcript config change")
+	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, testProjectID, agent.CurrentConfigID)
+	require.NoError(t, err, "load current config for transcript")
+	if !found {
+		t.Fatalf("current agent config %s is missing", agent.CurrentConfigID)
+	}
+	// A later config change is projected into the transcript; the initial activation is omitted.
+	_, err = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(config),
+		AgentID:                fixture.AgentID,
+		ActorType:              identitystore.PrincipalTypeSystem,
+		Reason:                 "transcript_history",
+		IdempotencyKey:         "transcript-config-change",
+	})
+	require.NoError(t, err, "record transcript config change")
 	historicalToolCallID := createToolCallForProcessTest(
 		t,
 		ctx,
@@ -677,7 +695,7 @@ func TestKernelContextEventsIncludesCanonicalTranscriptEvents(t *testing.T) {
 	if !found {
 		t.Fatal("expected admitted visible agent input")
 	}
-	agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
+	agent, err = fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("load agent for visible model output: %v", err)
 	}

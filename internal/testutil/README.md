@@ -13,12 +13,16 @@ explicit identities; they do not open databases or own cleanup.
 `storagefixture` can be imported by same-package storage tests because it uses
 leaf stores and never imports the storage facade. Keep generated SQL types
 inside the storage boundary. `storagetest` imports the facade and is intended
-for callers outside same-package storage tests. In-package `executionstore`
-tests also need local helpers because `storagefixture` imports that leaf store.
+for callers outside same-package storage tests. External `executionstore_test`
+integration tests already use `storagefixture`; same-package `executionstore`
+unit tests cannot import it because it imports that leaf store.
 
 The project seed creates storage rows with placeholder encrypted material. Use
 real secret creation when credential decryption is the behavior under test.
-Model compilation helpers name their provisioning side effect. Keep claims,
+`SeedAgentConfig` provisions the model/grant and persists the compiled config in
+the supplied project. Keep compilation and persistence separate when testing
+missing grants, validation, or other configuration contracts. Model compilation
+helpers name their provisioning side effect. Keep claims,
 execution, release, cancellation, configuration activation and clock advancement
 visible when the test exercises those transitions. For new lock helpers,
 distinguish strict release assertions from cleanup that tolerates an inactive

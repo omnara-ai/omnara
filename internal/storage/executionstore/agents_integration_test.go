@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
@@ -1966,8 +1967,9 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	config := mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            name,
@@ -1988,32 +1990,9 @@ func mustCreateAgentConfigFromYAML(
 	now time.Time,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	return mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
-}
-
-func mustCreateAgentConfigFromCompiled(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	key, source string,
-	compiled agentconfig.Result,
-	now time.Time,
-) executionstore.AgentConfigRecord {
-	t.Helper()
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  source,
-		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create agent config %s: %v", key, err)
-	}
-	return config
+	return storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 }
 
 func mustCompileAgentYAML(t *testing.T, sourceYAML string) agentconfig.Result {

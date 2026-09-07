@@ -114,19 +114,8 @@ func seedAdditionalProjectForTest(
 ) ID {
 	t.Helper()
 	projectID := testID("project_" + seed)
-	now := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
-	if _, err := pool.Exec(
-		ctx,
-		`INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $5)`,
-		projectID,
-		testOrgID,
-		"Test Project "+seed,
-		"idem-test-project-"+seed,
-		now,
-	); err != nil {
-		t.Fatalf("seed additional project %q: %v", seed, err)
-	}
+	storagefixture.InsertProject(t, ctx, pool, testOrgID, projectID,
+		"Test Project "+seed, "idem-test-project-"+seed, time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC))
 	return projectID
 }
 
@@ -245,28 +234,12 @@ func assertMachineAllowed(
 func mustCreateAgent(t *testing.T, ctx context.Context, store *Store, now time.Time) ID {
 	t.Helper()
 	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "default", now)
-	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: configID})
+	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID:       testProjectID,
+		CurrentConfigID: configID,
+	})
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
-	}
-	sourceYAML := testAgentConfigYAML()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
-			Source:                  sourceYAML,
-			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
-			EffectiveDefinitionHash: compiled.Hash,
-		},
-		AgentID:        agent.ID,
-		ActorType:      identitystore.PrincipalTypeSystem,
-		Reason:         "test_create",
-		IdempotencyKey: "test-agent-config-change-" + agent.ID.String(),
-	}); err != nil {
-		t.Fatalf("activate agent config: %v", err)
 	}
 	return agent.ID
 }
@@ -280,31 +253,9 @@ func mustCreateAgentConfig(
 	now time.Time,
 ) ID {
 	t.Helper()
-	sourceYAML := testAgentConfigYAML()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	configuredModelID := parseConfiguredModelID(t, compiled)
-	if _, err := store.Models().CreateProjectModelGrant(
-		ctx,
-		modelstore.CreateProjectModelGrantInput{
-			OrgID:             testOrgID,
-			ProjectID:         projectID,
-			ConfiguredModelID: configuredModelID,
-		},
-	); err != nil {
-		t.Fatalf("grant configured model for agent config %s: %v", key, err)
-	}
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  sourceYAML,
-		ConfiguredModelID:       configuredModelID,
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create agent config %s: %v", key, err)
-	}
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, projectID, testAgentConfigYAML(),
+	)
 	return config.ID
 }
 
@@ -325,19 +276,9 @@ func createLaunchTestAgent(
 	sourceYAML string,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  sourceYAML,
-		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create launch agent config: %v", err)
-	}
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            "Launch Agent",
@@ -532,8 +473,9 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	config := mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled)
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            name,
@@ -546,29 +488,6 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	return profile
 }
 
-func mustCreateAgentConfigFromCompiled(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	key, source string,
-	compiled agentconfig.Result,
-) executionstore.AgentConfigRecord {
-	t.Helper()
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  source,
-		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create agent config %s: %v", key, err)
-	}
-	return config
-}
-
 func mustCreateAgentConfigFromYAML(
 	t *testing.T,
 	ctx context.Context,
@@ -577,8 +496,9 @@ func mustCreateAgentConfigFromYAML(
 	now time.Time,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
-	return mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled)
+	return storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 }
 
 func changeInputFromRecord(record executionstore.AgentConfigRecord) executionstore.CreateAgentConfigInput {
