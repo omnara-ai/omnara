@@ -450,7 +450,7 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 
 func TestRespondTreatsNonTerminalStatusAsAmbiguous(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_in_progress")
+		w.Header().Set("X-Request-ID", "req_in_progress")
 		_, _ = w.Write([]byte(
 			`{"id":"resp_in_progress","status":"in_progress","request_id":"req_in_progress","output":[]}`,
 		))
@@ -778,7 +778,7 @@ func TestRespondClassifiesCompleteMid200ResponsesError(t *testing.T) {
 
 func TestRespondTreatsMalformedCompleteResponseAsRetryableUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_malformed")
+		w.Header().Set("X-Request-ID", "req_malformed")
 		_, _ = w.Write([]byte(`{"id":`))
 	}))
 	defer server.Close()

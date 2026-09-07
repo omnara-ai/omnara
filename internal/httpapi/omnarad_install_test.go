@@ -268,7 +268,54 @@ case "${1:-}" in
   *) exit 1 ;;
 esac
 `)
+	if platformOS == "Darwin" {
+		writeExecutable(t, filepath.Join(dir, "sw_vers"), "#!/bin/sh\nprintf '%s\\n' '13.0'\n")
+	}
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+func TestOmnaradInstallerChecksMacOSVersionBeforeStaging(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{"macOS 12", "printf '%s\\n' '12.7.6'", "macOS 13 or later is required (found 12.7.6)"},
+		{"unknown", "printf '%s\\n' 'unknown'", "unable to detect macOS version"},
+		{"empty", "exit 0", "unable to detect macOS version"},
+		{"command failed", "exit 1", "unable to detect macOS version"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			path := fakePlatformPath(t, "Darwin")
+			binDir := filepath.SplitList(path)[0]
+			writeExecutable(t, filepath.Join(binDir, "sw_vers"), "#!/bin/sh\n"+testCase.command+"\n")
+			marker := filepath.Join(t.TempDir(), "staging-attempted")
+			writeExecutable(t, filepath.Join(binDir, "mktemp"), "#!/bin/sh\n: > "+shellQuote(marker)+"\nexit 1\n")
+			home := filepath.Join(t.TempDir(), "home")
+			_, stderr, err := runInstaller(
+				t,
+				writeInstaller(t, "https://releases.omnara.test/omnarad"),
+				home,
+				[]string{"--install-only"},
+				"PATH="+path,
+			)
+			if err == nil {
+				t.Fatal("installer accepted an unsupported or unknown macOS version")
+			}
+			if !strings.Contains(stderr, testCase.want) {
+				t.Fatalf("installer stderr = %q, want %q", stderr, testCase.want)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("installer attempted staging before rejecting macOS: %v", err)
+			}
+			if _, err := os.Stat(home); !os.IsNotExist(err) {
+				t.Fatalf("installer modified daemon home before rejecting macOS: %v", err)
+			}
+		})
+	}
 }
 
 func TestOmnaradInstallerUsesLocalBinAndManualPathFallback(t *testing.T) {

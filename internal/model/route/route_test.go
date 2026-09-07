@@ -339,7 +339,7 @@ func TestClientRespondStreamSendsStoredRequestWithRouteHeaders(t *testing.T) {
 			return
 		}
 		sentBytes = body
-		w.Header().Set("X-Request-Id", "req_route")
+		w.Header().Set("X-Request-ID", "req_route")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
@@ -370,7 +370,7 @@ func TestClientRespondStreamSendsStoredRequestWithRouteHeaders(t *testing.T) {
 		t.Fatalf("respond rebuilt the provider request %d times", protocol.streamBuilds)
 	}
 	if resp.ID != "parsed" || resp.ProviderRequestID != "req_route" ||
-		protocol.seen.Header.Get("X-Request-Id") != "req_route" ||
+		protocol.seen.Header.Get("X-Request-ID") != "req_route" ||
 		string(protocol.seen.Body) != `{"ok":true}` {
 		t.Fatalf("response was not parsed from transport evidence: resp=%+v seen=%+v", resp, protocol.seen)
 	}

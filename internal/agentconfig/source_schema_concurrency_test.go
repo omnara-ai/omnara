@@ -12,8 +12,8 @@ import (
 
 func TestSourceSchemaValidatorConcurrentFirstUse(t *testing.T) {
 	t.Parallel()
-	// A fresh schema keeps earlier ParseSource calls from warming its regex caches.
-	validator, err := newSourceSchemaValidator()
+	// Use a fresh schema so other tests cannot hide first-use races.
+	schema, err := newCompiledSourceSchema()
 	require.NoError(t, err)
 	validSource := `{
 		"instruction": "Help the user.",
@@ -46,7 +46,7 @@ func TestSourceSchemaValidatorConcurrentFirstUse(t *testing.T) {
 	for i := range results {
 		workers.Go(func() {
 			<-start
-			results[i] = validator.validate(sources[i%len(sources)], nil)
+			results[i] = validateSourceSchema(schema, sources[i%len(sources)], nil)
 		})
 	}
 	close(start)

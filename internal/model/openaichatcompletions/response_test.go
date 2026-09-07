@@ -545,7 +545,7 @@ func TestRespondSurfacesReasoningBeforeVisibleText(t *testing.T) {
 
 func TestRespondTreatsMalformedCompleteChatShapeAsRetryableUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_malformed_chat")
+		w.Header().Set("X-Request-ID", "req_malformed_chat")
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()

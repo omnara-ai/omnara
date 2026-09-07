@@ -37,12 +37,10 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 	if !ok {
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
 	}
-	return append(
-			[]byte(nil),
-			content...), blobstore.Metadata{
-			Digest:    blobstore.ContentDigest(content),
-			SizeBytes: int64(len(content)),
-		}, nil
+	return append([]byte(nil), content...), blobstore.Metadata{
+		Digest:    blobstore.ContentDigest(content),
+		SizeBytes: int64(len(content)),
+	}, nil
 }
 
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
