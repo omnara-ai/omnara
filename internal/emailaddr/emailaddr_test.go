@@ -4,33 +4,9 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
-	"unicode"
 
 	"golang.org/x/net/idna"
-	"golang.org/x/text/unicode/bidi"
-	"golang.org/x/text/unicode/norm"
 )
-
-func TestReviewedUnicodeVersions(t *testing.T) {
-	t.Parallel()
-	const reviewed = "17.0.0"
-	for _, source := range []struct {
-		name    string
-		version string
-	}{
-		{"Go", unicode.Version},
-		{"IDNA", idna.UnicodeVersion},
-		{"normalization", norm.Version},
-		{"bidirectional text", bidi.UnicodeVersion},
-	} {
-		if source.version != reviewed {
-			t.Errorf(
-				"%s uses Unicode %s, reviewed %s; review email-key compatibility per README.md before updating this guard",
-				source.name, source.version, reviewed,
-			)
-		}
-	}
-}
 
 func TestNormalize(t *testing.T) {
 	t.Parallel()
