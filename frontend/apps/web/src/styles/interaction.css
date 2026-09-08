@@ -11,7 +11,7 @@
 
 @layer components {
   .control-focus:focus-visible,
-  .control-focus-within:has(:focus-visible) {
+  .control-focus-within:has(:is(input, textarea):focus-visible) {
     outline: var(--focus-width) solid var(--ring);
     outline-offset: var(--focus-offset);
   }
