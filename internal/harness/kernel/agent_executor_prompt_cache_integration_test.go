@@ -87,7 +87,6 @@ tools:
 skills:
   - %s
 `, machinePool.Name, skillPublicID),
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,

@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/omnara-ai/omnara/internal/storage/management"
 	"math"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateModelProviderConfigTxRejectsInvalidNameBeforeDatabaseAccess(t *testing.T) {
@@ -656,5 +658,128 @@ func TestReconciliationOutputCapacityComparisonRemainsStrict(t *testing.T) {
 	record.MaxOutputTokens = nil
 	if sameConfiguredModelIntent(record, input) {
 		t.Fatal("reconciliation ignored desired known capacity")
+	}
+}
+
+func TestUnknownCapacityPreservesOverrideAllowances(t *testing.T) {
+	for _, tc := range []struct {
+		name                                       string
+		capacity, projectAllowance, agentAllowance *int
+		wantAllowance                              *int
+		invalid                                    bool
+	}{
+		{name: "project allowance", projectAllowance: new(32000), wantAllowance: new(32000)},
+		{name: "agent allowance", agentAllowance: new(48000), wantAllowance: new(48000)},
+		{name: "project capacity", capacity: new(64000)},
+		{
+			name:             "agent overrides project default",
+			capacity:         new(64000),
+			projectAllowance: new(32000),
+			agentAllowance:   new(48000),
+			wantAllowance:    new(48000),
+		},
+		{name: "project capacity exhausts context", capacity: new(100000), invalid: true},
+		{name: "project allowance exhausts context", projectAllowance: new(100000), invalid: true},
+		{name: "agent allowance exhausts context", agentAllowance: new(100000), invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			revision := ConfiguredModelRevisionRecord{
+				ContextWindowTokens: 100000,
+				ProviderModelSlug:   "custom-model",
+			}
+			effective, err := EffectiveConfiguredModelRevisionForProjectGrant(
+				modelprotocol.APIFormatAnthropicMessages,
+				revision,
+				ProjectModelGrantRecord{
+					MaxOutputTokens:        tc.capacity,
+					DefaultMaxOutputTokens: tc.projectAllowance,
+				},
+			)
+			if err == nil {
+				effective, err = EffectiveConfiguredModelRevisionForAgentOptions(
+					modelprotocol.APIFormatAnthropicMessages,
+					effective,
+					agentconfig.ModelOverrides{
+						DefaultMaxOutputTokens: tc.agentAllowance,
+					},
+				)
+			}
+			if tc.invalid {
+				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+					t.Fatalf("invalid allowance error=%v", err)
+				}
+				return
+			}
+			require.NoError(t, err)
+			if diff := cmp.Diff(tc.capacity, effective.MaxOutputTokens); diff != "" {
+				t.Fatalf("capacity (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAllowance, effective.DefaultMaxOutputTokens); diff != "" {
+				t.Fatalf("allowance (-want +got):\n%s", diff)
+			}
+			if effective.ContextWindowTokens != 100000 {
+				t.Fatalf("context = %d, want 100000", effective.ContextWindowTokens)
+			}
+		})
+	}
+}
+
+func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
+	for _, level := range []string{"project", "agent", "both"} {
+		for _, allowance := range []struct {
+			name    string
+			value   *int
+			invalid bool
+		}{
+			{name: "capacity only"},
+			{name: "fitting inherited default", value: new(4000)},
+			{name: "inherited default exhausts context", value: new(32000), invalid: true},
+		} {
+			t.Run(level+"/"+allowance.name, func(t *testing.T) {
+				for _, capacity := range []int{8192, 64000} {
+					if allowance.invalid && capacity == 8192 {
+						continue // The source default itself must fit the source capacity.
+					}
+					revision := ConfiguredModelRevisionRecord{
+						ContextWindowTokens: 128000, MaxOutputTokens: new(capacity),
+						DefaultMaxOutputTokens: allowance.value,
+					}
+					grant := ProjectModelGrantRecord{}
+					overrides := agentconfig.ModelOverrides{}
+					if level != "agent" {
+						grant.ContextWindowTokens = new(32000)
+					}
+					if level != "project" {
+						overrides.ContextWindowTokens = new(32000)
+					}
+					effective, err := EffectiveConfiguredModelRevisionForProjectGrant(
+						modelprotocol.APIFormatAnthropicMessages, revision, grant,
+					)
+					if err == nil {
+						effective, err = EffectiveConfiguredModelRevisionForAgentOptions(
+							modelprotocol.APIFormatAnthropicMessages, effective, overrides,
+						)
+					}
+					if allowance.invalid {
+						if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+							t.Fatalf("inherited allowance error=%v", err)
+						}
+						continue
+					}
+					if err != nil {
+						t.Fatalf("capacity=%d: %v", capacity, err)
+					}
+					if effective.ContextWindowTokens != 32000 {
+						t.Fatalf("capacity=%d: context = %d, want 32000", capacity, effective.ContextWindowTokens)
+					}
+					if diff := cmp.Diff(new(capacity), effective.MaxOutputTokens); diff != "" {
+						t.Fatalf("capacity (-want +got):\n%s", diff)
+					}
+					if diff := cmp.Diff(allowance.value, effective.DefaultMaxOutputTokens); diff != "" {
+						t.Fatalf("capacity=%d: allowance (-want +got):\n%s", capacity, diff)
+					}
+				}
+			})
+		}
 	}
 }

@@ -13,10 +13,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) {
@@ -199,40 +198,11 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	providerName := "openai-keep-recent-prod"
 	configuredModelName := "kernel-keep-recent-test"
-	secret, err := fixture.ensureProviderCredential(t, ctx, providerName, fixture.Now)
-	if err != nil {
-		t.Fatalf("ensure provider credential: %v", err)
-	}
-	providerConfig, err := fixture.Store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              kernelTestOrgID,
-		Name:               providerName,
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         "default",
-		BaseURL:            "https://api.openai.com/v1",
-		CredentialSecretID: secret.ID,
-	})
-	if err != nil {
-		t.Fatalf("create keep-recent provider config: %v", err)
-	}
-	configuredModel, err := fixture.Store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  kernelTestOrgID,
-		ModelProviderConfigID:  providerConfig.ID,
-		Name:                   configuredModelName,
-		ProviderModelSlug:      configuredModelName,
-		ContextWindowTokens:    3500,
-		MaxOutputTokens:        new(64),
-		DefaultMaxOutputTokens: intPtrForKernelCompactionTest(64),
-	})
-	if err != nil {
-		t.Fatalf("create keep-recent configured model: %v", err)
-	}
-	if _, err := fixture.Store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             kernelTestOrgID,
-		ProjectID:         kernelTestProjectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant keep-recent configured model: %v", err)
-	}
+	provider := storagefixture.EnsureModelProvider(t, ctx, fixture.Store.Models(), fixture.Store.Secrets(),
+		storagefixture.ModelProviderInput{OrgID: kernelTestOrgID, UserID: kernelTestUserID, Name: providerName})
+	input := storagefixture.DefaultModelInput(kernelTestOrgID, provider.ID, configuredModelName)
+	input.ContextWindowTokens, input.MaxOutputTokens, input.DefaultMaxOutputTokens = 3500, new(64), new(64)
+	configuredModel := storagefixture.SeedModel(t, ctx, fixture.Store.Models(), kernelTestProjectID, input)
 	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " +
 		configuredModelName +
 		"\n"

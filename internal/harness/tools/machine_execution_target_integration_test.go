@@ -126,7 +126,6 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 			{MachineName: firstBinding.DisplayName, Cwd: "/first"},
 			{MachineName: secondBinding.DisplayName, Cwd: "/second"},
 		},
-		now.Add(3*time.Second),
 	)
 	if len(launch.MachineBindings) != 2 {
 		t.Fatalf("machine bindings = %+v, want two", launch.MachineBindings)
@@ -160,7 +159,6 @@ func TestResolveMachineExecutionTargetUsesMachineRefSelection(t *testing.T) {
 		user.ID,
 		"tools-target-single",
 		[]toolsAgentMachineSource{{MachineName: firstBinding.DisplayName, Cwd: "/only"}},
-		now.Add(6*time.Second),
 	)
 	if len(singleLaunch.MachineBindings) != 1 {
 		t.Fatalf("single machine bindings = %+v, want one", singleLaunch.MachineBindings)
@@ -214,7 +212,6 @@ tools:
 		fixture.Store,
 		fixture.UserID,
 		sourceYAML,
-		fixture.Now.Add(6*time.Second),
 	)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
@@ -679,7 +676,6 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 			{MachineName: firstBinding.DisplayName},
 			{MachineName: secondBinding.DisplayName},
 		},
-		now.Add(3*time.Second),
 	)
 	if len(launch.MachineBindings) != 2 {
 		t.Fatalf("machine bindings = %+v, want two", launch.MachineBindings)
@@ -1647,7 +1643,6 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 		user.ID,
 		"tools-replay",
 		[]toolsAgentMachineSource{{MachineName: binding.DisplayName, Cwd: "/replay"}},
-		now.Add(2*time.Second),
 	)
 	if len(launch.MachineBindings) != 1 {
 		t.Fatalf("machine bindings = %+v, want one", launch.MachineBindings)
@@ -2255,7 +2250,7 @@ tools:
       mode: always_allow
       parameters: {}
 `
-	compiled := compileToolsAgentYAMLResolved(t, ctx, store, user.ID, sourceYAML, now.Add(3*time.Second))
+	compiled := compileToolsAgentYAMLResolved(t, ctx, store, user.ID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -2513,7 +2508,6 @@ func createToolsRuntimeAgentWithMachineSources(
 	userID storage.ID,
 	name string,
 	machineSources []toolsAgentMachineSource,
-	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
 	return createToolsRuntimeAgentWithMachineSourcesAndSkills(
@@ -2524,7 +2518,6 @@ func createToolsRuntimeAgentWithMachineSources(
 		name,
 		machineSources,
 		nil,
-		now,
 	)
 }
 
@@ -2536,7 +2529,6 @@ func createToolsRuntimeAgentWithMachineSourcesAndSkills(
 	name string,
 	machineSources []toolsAgentMachineSource,
 	skillIDs []string,
-	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
 	sourceYAML := `instruction: Test tool execution.
@@ -2565,7 +2557,7 @@ model:
       mode: always_allow
       parameters: {}
 `
-	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML, now)
+	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),

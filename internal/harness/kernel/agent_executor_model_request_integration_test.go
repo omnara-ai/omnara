@@ -506,7 +506,6 @@ model:
 		"Kernel Model Options",
 		"kernel-model-options-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,

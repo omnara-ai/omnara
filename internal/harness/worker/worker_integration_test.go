@@ -27,11 +27,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
-	"github.com/omnara-ai/omnara/internal/storage/secretstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -1888,7 +1887,7 @@ func createWorkerAgentFromSource(
 	sourceYAML string,
 ) (storage.ID, storage.ID) {
 	t.Helper()
-	compiled := compileWorkerAgentYAMLResolved(t, ctx, store, projectID, sourceYAML, now)
+	compiled := compileWorkerAgentYAMLResolved(t, ctx, store, projectID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               projectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -1930,22 +1929,18 @@ func compileWorkerAgentYAMLResolved(
 	store *storage.Store,
 	projectID storage.ID,
 	sourceYAML string,
-	now time.Time,
 ) agentconfig.Result {
 	t.Helper()
 	source, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, []byte(sourceYAML))
 	if err != nil {
 		t.Fatalf("parse worker test agent source: %v", err)
 	}
-	configuredModel := ensureWorkerModelSelection(
-		t,
-		ctx,
-		store,
-		projectID,
-		source.Model.ProviderConfig,
-		source.Model.Name,
-		now,
-	)
+	provider := storagefixture.EnsureModelProvider(t, ctx, store.Models(), store.Secrets(),
+		storagefixture.ModelProviderInput{
+			OrgID: workerTestOrgID, UserID: workerTestUserID, Name: source.Model.ProviderConfig,
+		})
+	configuredModel := storagefixture.SeedModel(t, ctx, store.Models(), projectID,
+		storagefixture.DefaultModelInput(workerTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(
 			providerConfigName string,
@@ -1975,89 +1970,6 @@ func resolvedWorkerAgentConfigModel(
 		ConfiguredModelID: configuredModel.ID.String(),
 		SupportsTools:     &supportsTools,
 	}
-}
-
-func ensureWorkerModelSelection(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	projectID storage.ID,
-	providerConfigName, configuredModelName string,
-	now time.Time,
-) modelstore.ConfiguredModelRecord {
-	t.Helper()
-	providerConfig, err := store.Models().GetModelProviderConfigByName(ctx, workerTestOrgID, providerConfigName)
-	if err != nil {
-		if !storeerr.IsNotFound(err) {
-			t.Fatalf("load model provider config %q: %v", providerConfigName, err)
-		}
-		secret, err := ensureWorkerProviderCredential(t, ctx, store, providerConfigName)
-		if err != nil {
-			t.Fatalf("ensure provider credential: %v", err)
-		}
-		providerConfig, err = store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-			OrgID:              workerTestOrgID,
-			Name:               providerConfigName,
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         "default",
-			BaseURL:            "https://api.openai.com/v1",
-			CredentialSecretID: secret.ID,
-		})
-		if err != nil {
-			t.Fatalf("create model provider config %q: %v", providerConfigName, err)
-		}
-	}
-	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                 workerTestOrgID,
-		ModelProviderConfigID: providerConfig.ID,
-		Name:                  configuredModelName,
-		ProviderModelSlug:     configuredModelName,
-		ContextWindowTokens:   128000,
-		MaxOutputTokens:       new(8192),
-	})
-	if err != nil {
-		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             workerTestOrgID,
-		ProjectID:         projectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	return configuredModel
-}
-
-func ensureWorkerProviderCredential(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	providerConfigName string,
-) (secretstore.SecretRecord, error) {
-	t.Helper()
-	name := "worker-provider-" + providerConfigName
-	secret, err := store.Secrets().GetSecretByOwnerName(
-		ctx,
-		workerTestOrgID,
-		secretstore.SecretOwnerOrg,
-		storage.NilID,
-		storage.NilID,
-		name,
-	)
-	if err == nil {
-		return secret, nil
-	}
-	if !storeerr.IsNotFound(err) {
-		return secretstore.SecretRecord{}, err
-	}
-	secret, _, err = store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     workerTestOrgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      name,
-		Material:  secrets.GenericMaterial{Value: "test-key"},
-		Actor:     workerTestUserPrincipal(workerTestUserID),
-	})
-	return secret, err
 }
 
 func parseWorkerConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {

@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -262,13 +263,7 @@ func TestCancelOutputContinuationBeforeAndAfterRuntimeClaim(t *testing.T) {
 					t.Fatal("canceled claimed work was executable")
 				}
 			}
-			var next int
-			require.NoError(t, fixture.Pool.QueryRow(
-				ctx,
-				`SELECT count(*) FROM agent_next_model_work($1,$2)`,
-				kernelTestProjectID,
-				agentID,
-			).Scan(&next))
+			next := pendingModelWork(t, ctx, fixture, agentID)
 			if next != 0 || client.respondedCount() != 1 {
 				t.Fatalf("work=%d sends=%d", next, client.respondedCount())
 			}
@@ -301,13 +296,8 @@ func TestOutputContinuationIsConsumedBySuccessorTerminalFailure(t *testing.T) {
 	executor.ModelResolver = liveTestModelResolver(fixture.Store, client)
 	work = executeNextModelWork(t, ctx, fixture, executor, work)
 	fixture.releaseModelRuntimeLock(t, ctx, work)
-	var next, failures int
-	require.NoError(t, fixture.Pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agent_next_model_work($1,$2)`,
-		kernelTestProjectID,
-		agentID,
-	).Scan(&next))
+	var failures int
+	next := pendingModelWork(t, ctx, fixture, agentID)
 	require.NoError(t, fixture.Pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM model_outputs WHERE agent_id=$1 AND stop_reason='error'`,
@@ -405,7 +395,7 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
 			fixture.releaseModelRuntimeLock(t, ctx, work)
-			var outputs, continued, checkpoints, next int
+			var outputs, continued, checkpoints int
 			require.NoError(t, fixture.Pool.QueryRow(
 				ctx,
 				`SELECT count(*),count(*) FILTER(WHERE continue_after_truncation) FROM model_outputs WHERE agent_id=$1 AND stop_reason='max_tokens'`,
@@ -419,12 +409,7 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 				`SELECT count(*) FROM context_checkpoints WHERE agent_id=$1`,
 				agentID,
 			).Scan(&checkpoints))
-			require.NoError(t, fixture.Pool.QueryRow(
-				ctx,
-				`SELECT count(*) FROM agent_next_model_work($1,$2)`,
-				kernelTestProjectID,
-				agentID,
-			).Scan(&next))
+			next := pendingModelWork(t, ctx, fixture, agentID)
 			wantCheckpoints, wantSends := 0, 3
 			if compact {
 				wantCheckpoints, wantSends = 1, 4
@@ -550,7 +535,7 @@ func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
 				require.NoError(t, executor.ExecuteModelWork(ctx, work))
 				fixture.releaseModelRuntimeLock(t, ctx, work)
 			}
-			var outputs, continued, next int
+			var outputs, continued int
 			require.NoError(t, fixture.Pool.QueryRow(
 				ctx,
 				`SELECT count(*),count(*) FILTER(WHERE continue_after_truncation) FROM model_outputs WHERE agent_id=$1 AND stop_reason='max_tokens'`,
@@ -559,15 +544,18 @@ func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
 				&outputs,
 				&continued,
 			))
-			require.NoError(t, fixture.Pool.QueryRow(
-				ctx,
-				`SELECT count(*) FROM agent_next_model_work($1,$2)`,
-				kernelTestProjectID,
-				agentID,
-			).Scan(&next))
+			next := pendingModelWork(t, ctx, fixture, agentID)
 			if outputs != 5 || continued != 4 || next != 0 {
 				t.Fatalf("outputs=%d continued=%d next=%d", outputs, continued, next)
 			}
 		})
 	}
+}
+
+func pendingModelWork(t *testing.T, ctx context.Context, fixture kernelFixture, agentID storage.ID) int {
+	t.Helper()
+	var count int
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_next_model_work($1,$2)`, kernelTestProjectID, agentID).Scan(&count))
+	return count
 }

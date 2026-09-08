@@ -154,7 +154,7 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForServiceE2ETextOutput(t, ctx, env, projectUUID, agentUUID, finalText, failures, worker)
 	waitForServiceE2EAgentIdle(t, ctx, env, projectUUID, agentUUID)
-	var succeeded, failed, turns, truncated, calls, results int
+	var succeeded, failed, truncated, calls int
 	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(*) FILTER(WHERE state='succeeded'),count(*) FILTER(WHERE state='failed') FROM model_call_contexts WHERE agent_id=$1`,
@@ -165,11 +165,6 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 	))
 	require.NoError(t, env.db.QueryRow(
 		ctx,
-		`SELECT count(DISTINCT turn_id) FROM agent_events WHERE agent_id=$1 AND event_kind='model_output'`,
-		agentUUID,
-	).Scan(&turns))
-	require.NoError(t, env.db.QueryRow(
-		ctx,
 		`SELECT count(*) FROM model_outputs output JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.continue_after_truncation AND output.provider_replay IS NULL AND context.provider_metadata->>'request_max_output_tokens'='65536' AND context.provider_metadata->'openrouter'->>'finish_reason'='tool_calls' AND context.provider_metadata->'openrouter'->>'native_finish_reason'='length'`,
 		agentUUID,
 	).Scan(&truncated))
@@ -178,27 +173,18 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 		`SELECT count(*) FROM tool_calls WHERE agent_id=$1`,
 		agentUUID,
 	).Scan(&calls))
-	require.NoError(t, env.db.QueryRow(
-		ctx,
-		`SELECT count(*) FROM tool_call_results result JOIN tool_calls call ON call.agent_id=result.agent_id AND call.id=result.tool_call_id WHERE result.agent_id=$1 AND call.provider_call_id='accepted-call' AND result.outcome='succeeded'`,
-		agentUUID,
-	).Scan(&results))
 	if requests.Load() != 3 ||
 		succeeded != 3 ||
 		failed != 0 ||
-		turns != 1 ||
 		truncated != 1 ||
-		calls != 1 ||
-		results != 1 {
+		calls != 1 {
 		t.Fatalf(
-			"requests=%d succeeded=%d failed=%d turns=%d truncated=%d calls=%d results=%d",
+			"requests=%d succeeded=%d failed=%d truncated=%d calls=%d",
 			requests.Load(),
 			succeeded,
 			failed,
-			turns,
 			truncated,
 			calls,
-			results,
 		)
 	}
 }

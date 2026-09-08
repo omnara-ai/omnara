@@ -12,6 +12,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// DefaultModelInput returns independent defaults that callers can override before seeding.
+func DefaultModelInput(orgID, providerID uuid.UUID, name string) modelstore.CreateConfiguredModelInput {
+	return modelstore.CreateConfiguredModelInput{
+		OrgID: orgID, ModelProviderConfigID: providerID, Name: name, ProviderModelSlug: name,
+		ContextWindowTokens: 128000, MaxOutputTokens: new(8192),
+	}
+}
+
+func SeedModel(
+	t testing.TB,
+	ctx context.Context,
+	models *modelstore.Store,
+	projectID uuid.UUID,
+	input modelstore.CreateConfiguredModelInput,
+) modelstore.ConfiguredModelRecord {
+	t.Helper()
+	configuredModel, err := models.CreateConfiguredModel(ctx, input)
+	require.NoError(t, err, "create test configured model %q", input.Name)
+	_, err = models.CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID: input.OrgID, ProjectID: projectID, ConfiguredModelID: configuredModel.ID,
+	})
+	require.NoError(t, err, "grant test configured model %q", input.Name)
+	return configuredModel
+}
+
 func SeedModelForAgentYAML(
 	t testing.TB,
 	ctx context.Context,
@@ -31,23 +56,9 @@ func SeedModelForAgentYAML(
 	}
 	providerConfig, err := models.GetModelProviderConfigByName(ctx, orgID, providerConfigName)
 	require.NoError(t, err, "load test provider config %q", providerConfigName)
-	configuredModel, err := models.CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  orgID,
-		ModelProviderConfigID:  providerConfig.ID,
-		Name:                   configuredModelName,
-		ProviderModelSlug:      configuredModelName,
-		ContextWindowTokens:    128000,
-		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: new(4096),
-	})
-	require.NoError(t, err, "create test configured model %s/%s", providerConfigName, configuredModelName)
-	_, err = models.CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             orgID,
-		ProjectID:         projectID,
-		ConfiguredModelID: configuredModel.ID,
-	})
-	require.NoError(t, err, "grant test configured model %s/%s", providerConfigName, configuredModelName)
-	return configuredModel
+	input := DefaultModelInput(orgID, providerConfig.ID, configuredModelName)
+	input.DefaultMaxOutputTokens = new(4096)
+	return SeedModel(t, ctx, models, projectID, input)
 }
 
 func SeedModelAndCompileAgentYAML(

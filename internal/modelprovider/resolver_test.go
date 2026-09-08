@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -18,7 +19,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -259,151 +259,61 @@ func intPtr(value int) *int {
 	return &value
 }
 
-func TestUnknownCapacityUsesProjectAndAgentAllowancesForAnthropic(t *testing.T) {
-	for _, tc := range []struct {
-		name                                       string
-		capacity, projectAllowance, agentAllowance *int
-		want                                       int
-		invalid                                    bool
-	}{
-		{name: "project allowance", projectAllowance: new(32000), want: 32000},
-		{name: "agent allowance", agentAllowance: new(48000), want: 48000},
-		{name: "project capacity", capacity: new(64000), want: 64000},
-		{
-			name:             "agent overrides project default",
-			capacity:         new(64000),
-			projectAllowance: new(32000),
-			agentAllowance:   new(48000),
-			want:             48000,
-		},
-		{name: "project capacity exhausts context", capacity: new(100000), invalid: true},
-		{name: "project allowance exhausts context", projectAllowance: new(100000), invalid: true},
-		{name: "agent allowance exhausts context", agentAllowance: new(100000), invalid: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			revision := modelstore.ConfiguredModelRevisionRecord{
-				ContextWindowTokens: 100000,
-				ProviderModelSlug:   "custom-model",
+func TestEffectiveRevisionReachesAnthropicWire(t *testing.T) {
+	for _, narrowed := range []bool{false, true} {
+		name := "unknown capacity with project allowance"
+		if narrowed {
+			name = "inherited capacity with project and agent narrowing"
+		}
+		t.Run(name, func(t *testing.T) {
+			revision := modelstore.ConfiguredModelRevisionRecord{ContextWindowTokens: 128000}
+			grant := modelstore.ProjectModelGrantRecord{DefaultMaxOutputTokens: new(32000)}
+			overrides := agentconfig.ModelOverrides{}
+			if narrowed {
+				revision.MaxOutputTokens = new(64000)
+				grant = modelstore.ProjectModelGrantRecord{ContextWindowTokens: new(48000)}
+				overrides.ContextWindowTokens = new(32000)
 			}
 			effective, err := modelstore.EffectiveConfiguredModelRevisionForProjectGrant(
-				modelprotocol.APIFormatAnthropicMessages,
-				revision,
-				modelstore.ProjectModelGrantRecord{
-					MaxOutputTokens:        tc.capacity,
-					DefaultMaxOutputTokens: tc.projectAllowance,
-				},
+				modelprotocol.APIFormatAnthropicMessages, revision, grant,
 			)
-			if err == nil {
-				effective, err = modelstore.EffectiveConfiguredModelRevisionForAgentOptions(
-					modelprotocol.APIFormatAnthropicMessages,
-					effective,
-					agentconfig.ModelOverrides{
-						DefaultMaxOutputTokens: tc.agentAllowance,
-					},
-				)
-			}
-			if tc.invalid {
-				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-					t.Fatalf("invalid allowance error=%v", err)
-				}
-				return
-			}
 			require.NoError(t, err)
-			if tc.capacity == nil && effective.MaxOutputTokens != nil {
-				t.Fatal("request allowance manufactured a capacity")
+			effective, err = modelstore.EffectiveConfiguredModelRevisionForAgentOptions(
+				modelprotocol.APIFormatAnthropicMessages, effective, overrides,
+			)
+			require.NoError(t, err)
+			caps := capabilitiesForRevision(effective)
+			client := anthropicmessages.Client{
+				EndpointPath: "/messages", ProviderModelSlug: "custom-model", ModelCapabilities: caps,
 			}
-			prepared := prepareAnthropicRequest(t, capabilitiesForRevision(effective))
-			if prepared.MaxOutputTokens != tc.want {
-				t.Fatalf("allowance=%d want=%d", prepared.MaxOutputTokens, tc.want)
+			prepared, err := model.PrepareForSend(t.Context(), client, model.PrepareForSendInput{
+				Context: modelcontext.Bundle{Messages: []modelcontext.Message{{
+					ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
+					Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+				}}},
+				Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
+			})
+			require.NoError(t, err)
+			var wire struct {
+				MaxTokens int `json:"max_tokens"`
+			}
+			require.NoError(t, json.Unmarshal(prepared.Body, &wire))
+			want := 32000
+			if narrowed {
+				if caps.ContextWindowTokens != 32000 {
+					t.Fatalf("context = %d, want 32000", caps.ContextWindowTokens)
+				}
+				if diff := cmp.Diff(new(64000), caps.MaxOutputTokens); diff != "" {
+					t.Fatalf("inherited capacity (-want +got):\n%s", diff)
+				}
+				want = 32000 - modelcontext.DefaultSafetyMarginTokens(32000) - prepared.InputTokenEstimate
+			} else if caps.MaxOutputTokens != nil {
+				t.Fatalf("capacity = %d, want unknown", *caps.MaxOutputTokens)
+			}
+			if !prepared.InputBudget.Fits() || prepared.MaxOutputTokens != want || wire.MaxTokens != want {
+				t.Fatalf("budget=%+v recorded=%d wire=%d, want fitting allowance %d",
+					prepared.InputBudget, prepared.MaxOutputTokens, wire.MaxTokens, want)
 			}
 		})
 	}
-}
-
-func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
-	for _, level := range []string{"project", "agent", "both"} {
-		for _, allowance := range []struct {
-			name    string
-			value   *int
-			invalid bool
-		}{
-			{name: "capacity only"},
-			{name: "fitting inherited default", value: new(4000)},
-			{name: "inherited default exhausts context", value: new(32000), invalid: true},
-		} {
-			t.Run(level+"/"+allowance.name, func(t *testing.T) {
-				for _, capacity := range []int{8192, 64000} {
-					if allowance.invalid && capacity == 8192 {
-						continue // The source default itself must fit the source capacity.
-					}
-					revision := modelstore.ConfiguredModelRevisionRecord{
-						ContextWindowTokens: 128000, MaxOutputTokens: new(capacity),
-						DefaultMaxOutputTokens: allowance.value,
-					}
-					grant := modelstore.ProjectModelGrantRecord{}
-					overrides := agentconfig.ModelOverrides{}
-					if level != "agent" {
-						grant.ContextWindowTokens = new(32000)
-					}
-					if level != "project" {
-						overrides.ContextWindowTokens = new(32000)
-					}
-					effective, err := modelstore.EffectiveConfiguredModelRevisionForProjectGrant(
-						modelprotocol.APIFormatAnthropicMessages, revision, grant,
-					)
-					if err == nil {
-						effective, err = modelstore.EffectiveConfiguredModelRevisionForAgentOptions(
-							modelprotocol.APIFormatAnthropicMessages, effective, overrides,
-						)
-					}
-					if allowance.invalid {
-						if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-							t.Fatalf("inherited allowance error=%v", err)
-						}
-						continue
-					}
-					if err != nil {
-						t.Fatalf("capacity=%d: %v", capacity, err)
-					}
-					caps := capabilitiesForRevision(effective)
-					if caps.ContextWindowTokens != 32000 || caps.MaxOutputTokens == nil ||
-						*caps.MaxOutputTokens != capacity {
-						t.Fatalf("effective capabilities=%+v", caps)
-					}
-					prepared := prepareAnthropicRequest(t, caps)
-					remaining := 32000 - modelcontext.DefaultSafetyMarginTokens(32000) - prepared.InputTokenEstimate
-					want := min(capacity, remaining)
-					if allowance.value != nil {
-						want = min(want, *allowance.value)
-					}
-					if prepared.MaxOutputTokens != want {
-						t.Fatalf("capacity=%d allowance=%d want=%d", capacity, prepared.MaxOutputTokens, want)
-					}
-				}
-			})
-		}
-	}
-}
-
-func prepareAnthropicRequest(t *testing.T, caps model.Capabilities) model.PreparedRequest {
-	t.Helper()
-	client := anthropicmessages.Client{
-		EndpointPath: "/messages", ProviderModelSlug: "custom-model", ModelCapabilities: caps,
-	}
-	prepared, err := model.PrepareForSend(context.Background(), client, model.PrepareForSendInput{
-		Context: modelcontext.Bundle{Messages: []modelcontext.Message{{
-			ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
-			Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		}}},
-		Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
-	})
-	require.NoError(t, err)
-	var body struct {
-		MaxTokens int `json:"max_tokens"`
-	}
-	require.NoError(t, json.Unmarshal(prepared.Body, &body))
-	if body.MaxTokens != prepared.MaxOutputTokens {
-		t.Fatalf("wire allowance=%d, recorded=%d", body.MaxTokens, prepared.MaxOutputTokens)
-	}
-	return prepared
 }

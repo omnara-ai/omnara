@@ -44,7 +44,7 @@ mcp:
     permission:
       mode: always_allow
 `
-	agent := fixture.createConfigAndProfileBookmark(t, ctx, "Kernel MCP", "kernel-mcp-agent", sourceYAML, now)
+	agent := fixture.createConfigAndProfileBookmark(t, ctx, "Kernel MCP", "kernel-mcp-agent", sourceYAML)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -235,7 +235,6 @@ mcp:
 		"Kernel MCP Connect Retry",
 		"kernel-mcp-connect-retry-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -352,7 +351,6 @@ mcp:
 		"Kernel MCP List Tools Failure",
 		"kernel-mcp-list-tools-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -455,7 +453,6 @@ mcp:
 		"Kernel MCP Refresh",
 		"kernel-mcp-refresh-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -563,7 +560,6 @@ mcp:
 		"Kernel MCP Config Change",
 		"kernel-mcp-config-change",
 		oldSource,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
@@ -576,7 +572,7 @@ mcp:
 		t.Fatalf("launch agent: %v", err)
 	}
 	newSource := strings.Replace(oldSource, "https://old.example.com/mcp", "https://new.example.com/mcp", 1)
-	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource, now.Add(time.Second))
+	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource)
 	nextConfig := executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -706,7 +702,6 @@ mcp:
 		"Kernel MCP Refresh Failure",
 		"kernel-mcp-refresh-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -877,7 +872,6 @@ mcp:
 		"Kernel MCP Failure",
 		"kernel-mcp-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,

@@ -63,7 +63,6 @@ model:
 skills:
   - %s
 `, skillPublicID),
-		fixture.Now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
@@ -765,7 +764,7 @@ func (f kernelFixture) kernelAgentConfigInput(
 	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: " +
 		configuredModelName +
 		"\n"
-	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML, f.Now)
+	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -811,7 +810,7 @@ tools:
     input_schema:
       type: object
 `
-	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML, fixture.Now)
+	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),

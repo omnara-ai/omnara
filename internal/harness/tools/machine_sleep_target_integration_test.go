@@ -63,7 +63,6 @@ func TestRunCommandCommitsBeforeWakingAsleepMachine(t *testing.T) {
 		user.ID,
 		"tools-sleep",
 		[]toolsAgentMachineSource{{MachineName: binding.DisplayName, Cwd: "/asleep"}},
-		now.Add(2*time.Second),
 	)
 	if len(launch.MachineBindings) != 1 {
 		t.Fatalf("machine bindings = %+v, want one", launch.MachineBindings)
@@ -296,7 +295,6 @@ func TestSkillToolBroadcastsExecutableBindingsAndReportsOutcomes(t *testing.T) {
 			{MachineName: second.DisplayName, Cwd: "/second"},
 		},
 		[]string{skillPublicID},
-		now.Add(4*time.Second),
 	)
 	_, _, _, modelContext := createMachineToolCallForDirectStoreTest(
 		t,
