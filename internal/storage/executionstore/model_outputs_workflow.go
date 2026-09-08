@@ -439,6 +439,9 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockParentAgentTx(ctx, dbsqlc.New(tx), input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,

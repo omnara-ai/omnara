@@ -8895,7 +8895,7 @@ components:
           type: string
         state:
           type: string
-          enum: [running, idle, waiting_on_parent, archived]
+          enum: [running, idle, waiting_on_human, archived]
         last_activity_at:
           $ref: '#/components/schemas/Timestamp'
     AgentModel:

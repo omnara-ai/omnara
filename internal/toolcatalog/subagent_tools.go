@@ -8,14 +8,15 @@ const (
 		"background and its final answer arrives later as a message from it; read_agent shows its progress. Never " +
 		"guess or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. " +
 		"`name` is a display label only; address the subagent by the `agent_ref` in the result."
-	readAgentToolDescription = "Read a subagent's timeline by agent_ref: its inputs, model outputs, and tool results, in " +
-		"sequence order with text content. Use it to check on progress or to fetch a finished subagent's answer " +
-		"without waiting for its message. Page forward with `after_sequence` or backward from the end with " +
-		"`before_sequence`. Never guess at a subagent's result; read it or wait for its message."
+	readAgentToolDescription = "Read a subagent's timeline by agent_ref: its inputs, model outputs, and tool results " +
+		"with text content. Use it to check on progress or to fetch a finished subagent's answer without waiting " +
+		"for its message. Page forward with `after_sequence` (oldest first) or backward from the end with " +
+		"`before_sequence` (newest first). Never guess at a subagent's result; read it or wait for its message."
 	sendAgentMessageToolDescription = "Send a message to one of your subagents by agent_ref. Your plain text " +
-		"output is not visible to subagents; this tool is the only way to reach them. Use it for follow-up " +
-		"instructions, or to answer a question a subagent asked by passing its `interaction_id`. Messaging a " +
-		"finished subagent resumes it with its context intact. The reply arrives later as a message from it."
+		"output is not visible to subagents; this tool is the only way to reach them. The message interrupts " +
+		"whatever the subagent is doing and cancels any question or permission request it has open; it cannot " +
+		"answer those, only humans can. Messaging a finished subagent resumes it with its context intact. The " +
+		"reply arrives later as a message from it."
 	stopAgentToolDescription = "Stop a subagent by agent_ref. Cancels its current work and archives it, after " +
 		"which it can no longer be messaged. Use it to end a subagent you no longer need or one that is taking " +
 		"too long."
@@ -70,7 +71,7 @@ func readAgentTool() (Entry, error) {
 			"before_sequence": map[string]any{
 				"type":        "integer",
 				"minimum":     0,
-				"description": "Return events before this sequence, newest page. Pass 0 for the latest events. Ignored when after_sequence is set.",
+				"description": "Return events before this sequence, newest first. Pass 0 for the latest events. Ignored when after_sequence is set.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
@@ -97,11 +98,6 @@ func sendAgentMessageTool() (Entry, error) {
 				"type":        "string",
 				"minLength":   1,
 				"description": "Message text delivered to the subagent.",
-			},
-			"interaction_id": map[string]any{
-				"type":        "string",
-				"minLength":   1,
-				"description": "When answering a question the subagent asked, the interaction id from that question.",
 			},
 		},
 	)

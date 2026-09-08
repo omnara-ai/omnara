@@ -768,6 +768,7 @@ JOIN model_provider_configs model_provider_config
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = ANY($1::uuid[])
   AND agent.state = 'active'
+  AND agent.parent_agent_id IS NULL
 ORDER BY agent.updated_at DESC, agent.id DESC
 LIMIT $2::bigint
 `

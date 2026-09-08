@@ -183,7 +183,7 @@ WHERE NOT EXISTS (
         SELECT 1
         FROM tool_calls call
         WHERE call.agent_id = subtree.id
-          AND call.state IN ('running', 'waiting')
+          AND call.state IN ('running', 'waiting', 'awaiting_permission')
       )
     )
 )

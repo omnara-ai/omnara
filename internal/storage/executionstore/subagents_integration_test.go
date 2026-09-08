@@ -406,6 +406,20 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn subagent: %v", err)
 	}
+	parentLock, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx, testProjectID, parent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
+	)
+	if err != nil {
+		t.Fatalf("acquire parent runtime lock: %v", err)
+	}
+	parentToolCallIDs := createReadyToolCallsForTest(
+		t, ctx, store, parent.ID, user.ID, parentLaunch.AgentConfig.ID, parentLock, "subagent-question-steer",
+		[]toolCallSpecForTest{{
+			Label: "send",
+			Name:  "send_agent_message",
+			Input: json.RawMessage(`{"agent_ref":"x","message":"Skip the decision and continue."}`),
+		}},
+	)
 	runtimeLock, err := store.Execution().AcquireAgentRuntimeLock(
 		ctx, testProjectID, child.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
 	)
@@ -474,5 +488,51 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	}
 	if kind != "question" {
 		t.Fatalf("parent notification kind = %q", kind)
+	}
+
+	if _, err := store.Execution().ExecuteToolCall(
+		ctx,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       parent.ID,
+			ToolCallID:    parentToolCallIDs["send"],
+			RuntimeLockID: parentLock.ID,
+		},
+		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			return executionstore.SendSubagentMessageForToolCall(
+				executionstore.SendSubagentMessageInput{
+					TargetAgentID: child.Agent.ID,
+					Message:       "Skip the decision and continue.",
+				},
+				executionstore.ToolCallCompletionInput{
+					Outcome:            executionstore.ToolResultOutcomeSucceeded,
+					ResultContentParts: json.RawMessage(`[{"type":"text","text":"delivered"}]`),
+				},
+			), nil
+		},
+	); err != nil {
+		t.Fatalf("send message to child: %v", err)
+	}
+	var interactionState, deliveryMode string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT interaction.state, input.delivery_mode
+		 FROM agent_interaction_read_projection interaction
+		 JOIN agent_inputs input ON input.id = interaction.resolved_by_input_id
+		 WHERE interaction.project_id = $1 AND interaction.agent_id = $2`,
+		testProjectID,
+		child.Agent.ID,
+	).Scan(&interactionState, &deliveryMode); err != nil {
+		t.Fatalf("load child question after parent message: %v", err)
+	}
+	if interactionState != string(executionstore.AgentInteractionStateCanceled) || deliveryMode != "steering" {
+		t.Fatalf("child question state = %q resolved by %q input, want canceled by steering", interactionState, deliveryMode)
+	}
+	subagents, err := store.Execution().ListSubagents(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("list subagents: %v", err)
+	}
+	if len(subagents) != 1 || subagents[0].State == executionstore.SubagentStateWaitingOnHuman {
+		t.Fatalf("subagents after parent message = %+v", subagents)
 	}
 }

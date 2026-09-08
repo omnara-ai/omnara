@@ -196,11 +196,11 @@ Starts a subagent from a configured `subagents` key with a clean context. Requir
 
 ### `read_agent`
 
-Reads a page of a subagent's timeline by `agent_ref`: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start; `before_sequence` pages backward, with 0 meaning the latest events. `limit` defaults to 20.
+Reads a page of a subagent's timeline by `agent_ref`: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start, oldest first; `before_sequence` pages backward, newest first, with 0 meaning the latest events. `limit` defaults to 20.
 
 ### `send_agent_message`
 
-Delivers `message` to the subagent identified by `agent_ref`. Pass `interaction_id` to answer a question the subagent asked. The reply arrives as a message from the subagent.
+Delivers `message` to the subagent identified by `agent_ref` as a steering input: it interrupts the subagent's current work and cancels any open question or permission request. Parents cannot answer a subagent's questions; those wait for a human. The reply arrives as a message from the subagent.
 
 ### `stop_agent`
 

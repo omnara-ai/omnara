@@ -41,10 +41,10 @@ func TestSubagentToolInputValidation(t *testing.T) {
 		},
 		{name: "send ok", validate: validateSendAgentMessageInput, input: `{"agent_ref":"agtr-abcdefgh","message":"hi"}`},
 		{
-			name:     "send bad interaction",
+			name:     "send extra",
 			validate: validateSendAgentMessageInput,
-			input:    `{"agent_ref":"agtr-abcdefgh","message":"hi","interaction_id":"nope"}`,
-			wantErr:  "interaction_id",
+			input:    `{"agent_ref":"agtr-abcdefgh","message":"hi","interaction_id":"x"}`,
+			wantErr:  "unknown field",
 		},
 		{name: "stop ok", validate: validateStopAgentInput, input: `{"agent_ref":"agt_abcdefghijklmnopqrstuvwxyz"}`},
 		{name: "stop missing", validate: validateStopAgentInput, input: `{}`, wantErr: "agent_ref is required"},
