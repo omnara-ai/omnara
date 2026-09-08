@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,6 +65,16 @@ func newSubagentServiceE2EModelServer(
 		handleChild(w, r, body, childRequests.Add(1))
 	}))
 	return server, &parentRequests, &childRequests
+}
+
+var subagentRefPattern = regexp.MustCompile(`"agent_ref":"(agtr-[a-z2-7]+)"`)
+
+func subagentRefFromSpawnResult(output string) string {
+	match := subagentRefPattern.FindStringSubmatch(output)
+	if match == nil {
+		return ""
+	}
+	return match[1]
 }
 
 func failSubagentServiceE2ERequest(t *testing.T) fakeModelFailureFunc {
@@ -212,6 +223,11 @@ func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 					"name":  "slow",
 				})
 			case 2:
+				agentRef := subagentRefFromSpawnResult(toolResultOutputForCall(body, "call_spawn"))
+				if agentRef == "" {
+					fail(w, http.StatusBadRequest, "spawn result lacks an agent_ref: %s", mustJSONString(body))
+					return
+				}
 				select {
 				case <-childStarted:
 				case <-ctx.Done():
@@ -219,7 +235,7 @@ func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 					return
 				}
 				writeOpenAIFunctionCall(w, fail, "resp_parent_stop", "call_stop", "stop_agent", map[string]any{
-					"agent": "slow",
+					"agent_ref": agentRef,
 				})
 			case 3:
 				if !requestContainsToolResult(body, "call_stop", "") {

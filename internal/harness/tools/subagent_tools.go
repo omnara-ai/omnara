@@ -25,7 +25,7 @@ type spawnAgentRequest struct {
 }
 
 type readAgentRequest struct {
-	Agent          string `json:"agent"`
+	AgentRef       string `json:"agent_ref"`
 	AfterSequence  *int64 `json:"after_sequence,omitempty"`
 	BeforeSequence *int64 `json:"before_sequence,omitempty"`
 	Limit          *int   `json:"limit,omitempty"`
@@ -42,17 +42,18 @@ type subagentEventSummary struct {
 }
 
 type sendAgentMessageRequest struct {
-	Agent         string `json:"agent"`
+	AgentRef      string `json:"agent_ref"`
 	Message       string `json:"message"`
 	InteractionID string `json:"interaction_id,omitempty"`
 }
 
 type stopAgentRequest struct {
-	Agent string `json:"agent"`
+	AgentRef string `json:"agent_ref"`
 }
 
 type subagentSummary struct {
 	AgentID        string `json:"agent_id"`
+	AgentRef       string `json:"agent_ref"`
 	Name           string `json:"name,omitempty"`
 	Key            string `json:"key"`
 	State          string `json:"state"`
@@ -88,10 +89,10 @@ func resolveSendAgentMessageRequest(raw json.RawMessage) (sendAgentMessageReques
 	if err != nil {
 		return sendAgentMessageRequest{}, err
 	}
-	input.Agent = strings.TrimSpace(input.Agent)
+	input.AgentRef = strings.TrimSpace(input.AgentRef)
 	input.InteractionID = strings.TrimSpace(input.InteractionID)
-	if input.Agent == "" {
-		return sendAgentMessageRequest{}, errors.New("send_agent_message agent is required")
+	if input.AgentRef == "" {
+		return sendAgentMessageRequest{}, errors.New("send_agent_message agent_ref is required")
 	}
 	if strings.TrimSpace(input.Message) == "" {
 		return sendAgentMessageRequest{}, errors.New("send_agent_message message is required")
@@ -109,9 +110,9 @@ func resolveStopAgentRequest(raw json.RawMessage) (stopAgentRequest, error) {
 	if err := decodeStrictToolRequest("stop_agent", raw, &input); err != nil {
 		return stopAgentRequest{}, err
 	}
-	input.Agent = strings.TrimSpace(input.Agent)
-	if input.Agent == "" {
-		return stopAgentRequest{}, errors.New("stop_agent agent is required")
+	input.AgentRef = strings.TrimSpace(input.AgentRef)
+	if input.AgentRef == "" {
+		return stopAgentRequest{}, errors.New("stop_agent agent_ref is required")
 	}
 	return input, nil
 }
@@ -126,9 +127,9 @@ func resolveReadAgentRequest(raw json.RawMessage) (readAgentRequest, error) {
 	if err := decodeStrictToolRequest("read_agent", raw, &input); err != nil {
 		return readAgentRequest{}, err
 	}
-	input.Agent = strings.TrimSpace(input.Agent)
-	if input.Agent == "" {
-		return readAgentRequest{}, errors.New("read_agent agent is required")
+	input.AgentRef = strings.TrimSpace(input.AgentRef)
+	if input.AgentRef == "" {
+		return readAgentRequest{}, errors.New("read_agent agent_ref is required")
 	}
 	if input.AfterSequence != nil && *input.AfterSequence < 0 {
 		return readAgentRequest{}, errors.New("read_agent after_sequence must be at least 0")
@@ -195,6 +196,7 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 	}
 	return subagentSummary{
 		AgentID:        agentPublicID,
+		AgentRef:       status.AgentRef,
 		Name:           status.Name,
 		Key:            status.Key,
 		State:          status.State,
@@ -307,10 +309,11 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		return nil, fmt.Errorf("encode subagent id: %w", err)
 	}
 	content, err := structuredToolResultContent(map[string]any{
-		"agent_id": childPublicID,
-		"name":     launch.Agent.Name,
-		"key":      input.Agent,
-		"state":    executionstore.SubagentStateRunning,
+		"agent_id":  childPublicID,
+		"agent_ref": executionstore.SubagentRef(launch.Agent.ID),
+		"name":      launch.Agent.Name,
+		"key":       input.Agent,
+		"state":     executionstore.SubagentStateRunning,
 		"message": "Subagent started. Its final answer will arrive as a message from it; " +
 			"use read_agent to check its progress.",
 	})
@@ -379,7 +382,7 @@ func readAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if input.BeforeSequence != nil && input.AfterSequence == nil {
 		beforeSequence = *input.BeforeSequence
 	}
-	status, events, err := call.Reader.ReadSubagentEvents(ctx, input.Agent, afterSequence, beforeSequence, limit)
+	status, events, err := call.Reader.ReadSubagentEvents(ctx, input.AgentRef, afterSequence, beforeSequence, limit)
 	if err != nil {
 		return failSubagentTransactionForStorageError("read_agent_failed", err)
 	}
@@ -457,7 +460,7 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 	if err != nil {
 		return nil, err
 	}
-	target, err := call.Reader.ResolveSubagentReference(ctx, input.Agent)
+	target, err := call.Reader.ResolveSubagentReference(ctx, input.AgentRef)
 	if err != nil {
 		return failSubagentTransactionForStorageError("send_agent_message_failed", err)
 	}
@@ -504,7 +507,7 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	if err != nil {
 		return nil, err
 	}
-	target, err := call.Reader.ResolveSubagentReference(ctx, input.Agent)
+	target, err := call.Reader.ResolveSubagentReference(ctx, input.AgentRef)
 	if err != nil {
 		return failSubagentTransactionForStorageError("stop_agent_failed", err)
 	}

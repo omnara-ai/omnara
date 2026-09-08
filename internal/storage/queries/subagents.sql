@@ -41,14 +41,11 @@ FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
-  AND (sqlc.narg(agent_id)::uuid IS NULL OR agent.id = sqlc.narg(agent_id)::uuid)
-  AND (sqlc.arg(name)::text = '' OR agent.name = sqlc.arg(name)::text)
 ORDER BY agent.created_at, agent.id;
 
 -- name: CountActiveChildAgentsForLaunch :one
 SELECT count(*)::integer AS total,
-       count(*) FILTER (WHERE agent.subagent_key = sqlc.arg(subagent_key)::text)::integer AS same_key,
-       coalesce(bool_or(agent.name = sqlc.arg(name)::text), false)::boolean AS name_exists
+       count(*) FILTER (WHERE agent.subagent_key = sqlc.arg(subagent_key)::text)::integer AS same_key
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)

@@ -46,6 +46,7 @@ type SubagentLaunch struct {
 
 type SubagentStatus struct {
 	AgentID           ID
+	AgentRef          string
 	Name              string
 	Key               string
 	State             string
@@ -94,7 +95,6 @@ func prepareSubagentLaunchTx(
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	projectID ID,
-	name *string,
 	launch SubagentLaunch,
 ) (AgentRecord, error) {
 	if isNilID(launch.ParentAgentID) || launch.Key == "" {
@@ -128,13 +128,8 @@ func prepareSubagentLaunchTx(
 			fmt.Errorf("subagent depth limit of %d reached", MaxSubagentDepth),
 		)
 	}
-	requestedName := ""
-	if name != nil {
-		requestedName = *name
-	}
 	siblings, err := qtx.CountActiveChildAgentsForLaunch(ctx, dbsqlc.CountActiveChildAgentsForLaunchParams{
 		SubagentKey:   launch.Key,
-		Name:          requestedName,
 		ProjectID:     projectID,
 		ParentAgentID: &launch.ParentAgentID,
 	})
@@ -149,11 +144,6 @@ func prepareSubagentLaunchTx(
 	}
 	if launch.MaxSubagents != nil && int(siblings.Total) >= *launch.MaxSubagents {
 		return AgentRecord{}, resourceLimitExceeded("active subagents", int64(*launch.MaxSubagents))
-	}
-	if requestedName != "" && siblings.NameExists {
-		return AgentRecord{}, storeerr.InvalidRequest(
-			fmt.Errorf("an active subagent named %q already exists", requestedName),
-		)
 	}
 	return parent, nil
 }
@@ -202,6 +192,7 @@ func shareParentMachineBindingsTx(
 func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 	status := SubagentStatus{
 		AgentID:           row.ID,
+		AgentRef:          SubagentRef(row.ID),
 		Name:              row.Name,
 		Key:               row.SubagentKey,
 		LastActivityAt:    row.LastActivityAt,
@@ -252,8 +243,7 @@ func (r *ToolCallReader) ListSubagents(ctx context.Context, includeArchived bool
 	)
 }
 
-// ResolveSubagentReference accepts a subagent public id or the name of one of
-// the caller's active subagents.
+// ResolveSubagentReference accepts a subagent's agent_ref or its full public id.
 func (r *ToolCallReader) ResolveSubagentReference(ctx context.Context, reference string) (SubagentStatus, error) {
 	return resolveSubagentReferenceTx(
 		ctx, r.transaction.q, r.transaction.input.ProjectID, r.transaction.input.AgentID, reference,
@@ -270,32 +260,43 @@ func resolveSubagentReferenceTx(
 	if reference == "" {
 		return SubagentStatus{}, storeerr.InvalidRequest(errors.New("subagent reference is required"))
 	}
-	params := dbsqlc.ListChildAgentsParams{
-		ProjectID:       projectID,
-		ParentAgentID:   &parentAgentID,
-		IncludeArchived: true,
-	}
-	if decoded, err := publicid.Decode(publicid.KindAgent, reference); err == nil {
-		params.AgentID = &decoded
-	} else {
-		params.Name = reference
-		params.IncludeArchived = false
-	}
-	rows, err := qtx.ListChildAgents(ctx, params)
+	children, err := listChildAgentsTx(ctx, qtx, projectID, parentAgentID, true)
 	if err != nil {
-		return SubagentStatus{}, fmt.Errorf("resolve subagent reference: %w", err)
+		return SubagentStatus{}, err
 	}
-	switch len(rows) {
+	var matches []SubagentStatus
+	for _, child := range children {
+		if child.AgentRef == reference {
+			matches = append(matches, child)
+			continue
+		}
+		if publicID, err := publicid.Encode(publicid.KindAgent, child.AgentID); err == nil && publicID == reference {
+			matches = append(matches, child)
+		}
+	}
+	switch len(matches) {
 	case 0:
-		return SubagentStatus{}, storeerr.InvalidRequest(fmt.Errorf("no subagent matches %q", reference))
+		return SubagentStatus{}, storeerr.InvalidRequest(fmt.Errorf("no subagent matches agent_ref %q", reference))
 	case 1:
-		return subagentStatusFromSQLC(rows[0]), nil
+		return matches[0], nil
 	default:
 		return SubagentStatus{}, storeerr.InvalidRequest(
-			fmt.Errorf("%d subagents are named %q; address it by agent id instead", len(rows), reference),
+			fmt.Errorf("%d subagents match %q; address it by full agent id instead", len(matches), reference),
 		)
 	}
 }
+
+// SubagentRef is the short form of an agent id that subagent tools accept:
+// the trailing characters of the public id, which carry its random bits.
+func SubagentRef(agentID ID) string {
+	publicID, err := publicid.Encode(publicid.KindAgent, agentID)
+	if err != nil {
+		return ""
+	}
+	return "agtr-" + publicID[len(publicID)-subagentRefLength:]
+}
+
+const subagentRefLength = 8
 
 func renderQuestionForParent(interactionID ID, form interactionform.Form) (string, error) {
 	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
@@ -347,10 +348,11 @@ func notifyParentAgentTx(
 		return fmt.Errorf("encode subagent id: %w", err)
 	}
 	metadataBody := map[string]any{
-		"kind":     message.Kind,
-		"agent_id": childPublicID,
-		"name":     child.Name,
-		"key":      child.SubagentKey,
+		"kind":      message.Kind,
+		"agent_id":  childPublicID,
+		"agent_ref": SubagentRef(child.ID),
+		"name":      child.Name,
+		"key":       child.SubagentKey,
 	}
 	if !isNilID(message.InteractionID) {
 		interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, message.InteractionID)
@@ -386,7 +388,9 @@ func notifyParentAgentTx(
 }
 
 func subagentMessageText(child AgentRecord, childPublicID string, message subagentMessage) string {
-	label := fmt.Sprintf("Subagent %q (%s, key %q)", subagentDisplayName(child), childPublicID, child.SubagentKey)
+	label := fmt.Sprintf(
+		"Subagent %q (agent_ref %s, key %q)", subagentDisplayName(child), SubagentRef(child.ID), child.SubagentKey,
+	)
 	var header string
 	switch message.Kind {
 	case SubagentMessageKindResult:

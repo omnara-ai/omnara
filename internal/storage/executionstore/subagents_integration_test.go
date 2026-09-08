@@ -113,9 +113,6 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-2", "subagent-launch-child-2", intPtrForSubagentTest(1)); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("second spawn beyond max_concurrent: err = %v, want conflict", err)
 	}
-	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-3", nil); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("duplicate subagent name: err = %v, want invalid request", err)
-	}
 
 	subagents, err := store.Execution().ListSubagents(ctx, testProjectID, parent.ID)
 	if err != nil {
@@ -123,6 +120,9 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	}
 	if len(subagents) != 1 || subagents[0].AgentID != child.Agent.ID || subagents[0].State != executionstore.SubagentStateRunning {
 		t.Fatalf("subagents = %+v", subagents)
+	}
+	if subagents[0].AgentRef != executionstore.SubagentRef(child.Agent.ID) || subagents[0].AgentRef == "" {
+		t.Fatalf("subagent ref = %q", subagents[0].AgentRef)
 	}
 
 	topLevel, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
