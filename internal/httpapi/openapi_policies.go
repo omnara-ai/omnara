@@ -123,7 +123,6 @@ const (
 	operationDemoteSteeringInputToQueued   operationID = "DemoteSteeringInputToQueued"
 	operationEndMachineDaemonRuntime       operationID = "EndMachineDaemonRuntime"
 	operationGetAgent                      operationID = "GetAgent"
-	operationGetAgentUsage                 operationID = "GetAgentUsage"
 	operationGetAgentConfig                operationID = "GetAgentConfig"
 	operationGetAgentProfile               operationID = "GetAgentProfile"
 	operationGetArtifact                   operationID = "GetArtifact"
@@ -355,7 +354,6 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
 
 	operationGetAgent:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationGetAgentUsage:                accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListQueuedBacklogInputs:      accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListEvents:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurns:                    accountPolicy(agentScope(identitystore.AgentActionRead)),

@@ -1351,24 +1351,6 @@ export type SubagentSummary = {
     last_activity_at: Timestamp;
 };
 
-export type AgentUsageResponse = {
-    /**
-     * Number of agents aggregated, including the agent itself.
-     */
-    agent_count: number;
-    model_call_count: number;
-    input_tokens_total: number;
-    uncached_input_tokens: number;
-    cache_read_input_tokens: number;
-    cache_write_input_tokens: number;
-    output_tokens_total: number;
-    reasoning_output_tokens: number;
-    /**
-     * Sum of provider-reported cost in USD as a decimal string.
-     */
-    provider_reported_cost_usd?: string;
-};
-
 export type AgentModel = {
     provider_config: ResourceName;
     name: ResourceName;
@@ -9361,45 +9343,6 @@ export type StreamEventsResponses = {
 };
 
 export type StreamEventsResponse = StreamEventsResponses[keyof StreamEventsResponses];
-
-export type GetAgentUsageData = {
-    body?: never;
-    path: {
-        orgID: string;
-        projectID: string;
-        agentID: string;
-    };
-    query?: {
-        include_children?: boolean;
-    };
-    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/usage';
-};
-
-export type GetAgentUsageErrors = {
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-};
-
-export type GetAgentUsageError = GetAgentUsageErrors[keyof GetAgentUsageErrors];
-
-export type GetAgentUsageResponses = {
-    /**
-     * Aggregated model usage.
-     */
-    200: AgentUsageResponse;
-};
-
-export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageResponses];
 
 export type CancelAgentData = {
     body?: CancelAgentRequest;

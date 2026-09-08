@@ -95,18 +95,6 @@ type subagentMessage struct {
 	IdempotencyKey string
 }
 
-type AgentModelUsageSummary struct {
-	AgentCount              int
-	ModelCallCount          int
-	InputTokensTotal        int64
-	UncachedInputTokens     int64
-	CacheReadInputTokens    int64
-	CacheWriteInputTokens   int64
-	OutputTokensTotal       int64
-	ReasoningOutputTokens   int64
-	ProviderReportedCostUSD string
-}
-
 func SubagentActorParams(orgID ID, agent AgentRecord) (*ActorParams, error) {
 	tenantID, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {
@@ -1296,28 +1284,4 @@ func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID I
 		return nil, fmt.Errorf("list agent descendants: %w", err)
 	}
 	return rows, nil
-}
-
-func (s *Store) SumAgentModelUsage(ctx context.Context, projectID ID, agentIDs []ID) (AgentModelUsageSummary, error) {
-	if isNilID(projectID) {
-		return AgentModelUsageSummary{}, errors.New("project is required")
-	}
-	if len(agentIDs) == 0 {
-		return AgentModelUsageSummary{}, nil
-	}
-	row, err := s.q.SumAgentModelUsage(ctx, dbsqlc.SumAgentModelUsageParams{ProjectID: projectID, AgentIds: agentIDs})
-	if err != nil {
-		return AgentModelUsageSummary{}, fmt.Errorf("sum agent model usage: %w", err)
-	}
-	return AgentModelUsageSummary{
-		AgentCount:              len(agentIDs),
-		ModelCallCount:          int(row.ModelCallCount),
-		InputTokensTotal:        row.InputTokensTotal,
-		UncachedInputTokens:     row.UncachedInputTokens,
-		CacheReadInputTokens:    row.CacheReadInputTokens,
-		CacheWriteInputTokens:   row.CacheWriteInputTokens,
-		OutputTokensTotal:       row.OutputTokensTotal,
-		ReasoningOutputTokens:   row.ReasoningOutputTokens,
-		ProviderReportedCostUSD: row.ProviderReportedCostUsd,
-	}, nil
 }
