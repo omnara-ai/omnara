@@ -2,7 +2,8 @@ package agentconfig
 
 import (
 	"encoding/json"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -157,11 +158,7 @@ func compileSubagents(
 	source AgentConfigSource,
 	opts CompileOptions,
 ) (map[string]SubagentCompiled, error) {
-	keys := make([]string, 0, len(source.Subagents))
-	for key := range source.Subagents {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(source.Subagents))
 	compiled := make(map[string]SubagentCompiled, len(keys))
 	for _, key := range keys {
 		entry := source.Subagents[key]

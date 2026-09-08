@@ -6,7 +6,7 @@ import {
   newSubagent,
   subagentKeyError,
   type SubagentType,
-} from '@/components/agents/useAgentBuilderForm'
+} from '@/components/agents/agentConfigSubagents'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'

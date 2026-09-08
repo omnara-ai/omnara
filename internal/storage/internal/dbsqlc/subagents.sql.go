@@ -13,139 +13,39 @@ import (
 	"github.com/google/uuid"
 )
 
-const activeChildAgentNameExists = `-- name: ActiveChildAgentNameExists :one
-SELECT EXISTS (
-  SELECT 1
-  FROM agents agent
-  WHERE agent.project_id = $1
-    AND agent.parent_agent_id = $2
-    AND agent.state = 'active'
-    AND agent.name = $3::text
-)
-`
-
-type ActiveChildAgentNameExistsParams struct {
-	ProjectID     uuid.UUID
-	ParentAgentID *uuid.UUID
-	Name          string
-}
-
-func (q *Queries) ActiveChildAgentNameExists(ctx context.Context, arg ActiveChildAgentNameExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, activeChildAgentNameExists, arg.ProjectID, arg.ParentAgentID, arg.Name)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const completeToolCallFromAgentWait = `-- name: CompleteToolCallFromAgentWait :one
-WITH locked_agent AS MATERIALIZED (
-  SELECT agent.project_id, agent.id
-  FROM agents agent
-  WHERE agent.project_id = $3
-    AND agent.id = $4
-  FOR UPDATE
-)
-UPDATE tool_calls call
-SET state = 'completed',
-    runtime_lock_id = NULL
-FROM locked_agent agent
-CROSS JOIN tool_call_read_projection projection
-WHERE call.agent_id = agent.id
-  AND call.id = $1
-  AND call.state = 'waiting'
-  AND call.type = 'built_in'
-  AND EXISTS (
-    SELECT 1
-    FROM agent_wait_targets target
-    WHERE target.agent_id = call.agent_id
-      AND target.tool_call_id = call.id
-  )
-  AND projection.project_id = agent.project_id
-  AND projection.agent_id = call.agent_id
-  AND projection.id = call.id
-RETURNING call.id, projection.project_id, call.agent_id,
-  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
-  call.provider_call_id,
-  call.name, call.input,
-  call.type, call.state,
-  $2::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
-  call.created_at
-`
-
-type CompleteToolCallFromAgentWaitParams struct {
-	ToolCallID uuid.UUID
-	Outcome    string
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-}
-
-type CompleteToolCallFromAgentWaitRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-}
-
-func (q *Queries) CompleteToolCallFromAgentWait(ctx context.Context, arg CompleteToolCallFromAgentWaitParams) (CompleteToolCallFromAgentWaitRow, error) {
-	row := q.db.QueryRow(ctx, completeToolCallFromAgentWait,
-		arg.ToolCallID,
-		arg.Outcome,
-		arg.ProjectID,
-		arg.AgentID,
-	)
-	var i CompleteToolCallFromAgentWaitRow
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.TurnID,
-		&i.SourceEventID,
-		&i.ModelCallContextID,
-		&i.ProviderCallID,
-		&i.Name,
-		&i.Input,
-		&i.Type,
-		&i.State,
-		&i.Outcome,
-		&i.RuntimeLockID,
-		&i.ResultContentParts,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const countActiveChildAgents = `-- name: CountActiveChildAgents :one
-SELECT count(*)::integer
+const countActiveChildAgentsForLaunch = `-- name: CountActiveChildAgentsForLaunch :one
+SELECT count(*)::integer AS total,
+       count(*) FILTER (WHERE agent.subagent_key = $1::text)::integer AS same_key,
+       coalesce(bool_or(agent.name = $2::text), false)::boolean AS name_exists
 FROM agents agent
-WHERE agent.project_id = $1
-  AND agent.parent_agent_id = $2
+WHERE agent.project_id = $3
+  AND agent.parent_agent_id = $4
   AND agent.state = 'active'
-  AND ($3::text = '' OR agent.subagent_key = $3::text)
 `
 
-type CountActiveChildAgentsParams struct {
+type CountActiveChildAgentsForLaunchParams struct {
+	SubagentKey   string
+	Name          string
 	ProjectID     uuid.UUID
 	ParentAgentID *uuid.UUID
-	SubagentKey   string
 }
 
-func (q *Queries) CountActiveChildAgents(ctx context.Context, arg CountActiveChildAgentsParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countActiveChildAgents, arg.ProjectID, arg.ParentAgentID, arg.SubagentKey)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
+type CountActiveChildAgentsForLaunchRow struct {
+	Total      int32
+	SameKey    int32
+	NameExists bool
+}
+
+func (q *Queries) CountActiveChildAgentsForLaunch(ctx context.Context, arg CountActiveChildAgentsForLaunchParams) (CountActiveChildAgentsForLaunchRow, error) {
+	row := q.db.QueryRow(ctx, countActiveChildAgentsForLaunch,
+		arg.SubagentKey,
+		arg.Name,
+		arg.ProjectID,
+		arg.ParentAgentID,
+	)
+	var i CountActiveChildAgentsForLaunchRow
+	err := row.Scan(&i.Total, &i.SameKey, &i.NameExists)
+	return i, err
 }
 
 const countAgentAncestors = `-- name: CountAgentAncestors :one
@@ -217,62 +117,52 @@ func (q *Queries) CountPendingAgentWaitTargets(ctx context.Context, arg CountPen
 	return column_1, err
 }
 
-const getOpenPermissionInteractionForAgent = `-- name: GetOpenPermissionInteractionForAgent :one
+const getAgentParentID = `-- name: GetAgentParentID :one
+SELECT parent_agent_id
+FROM agents
+WHERE project_id = $1
+  AND id = $2
+`
+
+type GetAgentParentIDParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetAgentParentID(ctx context.Context, arg GetAgentParentIDParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAgentParentID, arg.ProjectID, arg.ID)
+	var parent_agent_id *uuid.UUID
+	err := row.Scan(&parent_agent_id)
+	return parent_agent_id, err
+}
+
+const getOpenInteractionForAgentByKind = `-- name: GetOpenInteractionForAgentByKind :one
 SELECT interaction.id, interaction.tool_call_id, interaction.request
 FROM agent_interactions interaction
 JOIN agents agent ON agent.id = interaction.agent_id
 WHERE agent.project_id = $1
   AND interaction.agent_id = $2
-  AND interaction.interaction_kind = 'permission'
+  AND interaction.interaction_kind = $3
   AND interaction.state = 'open'
 ORDER BY interaction.created_at DESC, interaction.id DESC
 LIMIT 1
 `
 
-type GetOpenPermissionInteractionForAgentParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
+type GetOpenInteractionForAgentByKindParams struct {
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	InteractionKind string
 }
 
-type GetOpenPermissionInteractionForAgentRow struct {
+type GetOpenInteractionForAgentByKindRow struct {
 	ID         uuid.UUID
 	ToolCallID uuid.UUID
 	Request    json.RawMessage
 }
 
-func (q *Queries) GetOpenPermissionInteractionForAgent(ctx context.Context, arg GetOpenPermissionInteractionForAgentParams) (GetOpenPermissionInteractionForAgentRow, error) {
-	row := q.db.QueryRow(ctx, getOpenPermissionInteractionForAgent, arg.ProjectID, arg.AgentID)
-	var i GetOpenPermissionInteractionForAgentRow
-	err := row.Scan(&i.ID, &i.ToolCallID, &i.Request)
-	return i, err
-}
-
-const getOpenQuestionInteractionForAgent = `-- name: GetOpenQuestionInteractionForAgent :one
-SELECT interaction.id, interaction.tool_call_id, interaction.request
-FROM agent_interactions interaction
-JOIN agents agent ON agent.id = interaction.agent_id
-WHERE agent.project_id = $1
-  AND interaction.agent_id = $2
-  AND interaction.interaction_kind = 'question'
-  AND interaction.state = 'open'
-ORDER BY interaction.created_at DESC, interaction.id DESC
-LIMIT 1
-`
-
-type GetOpenQuestionInteractionForAgentParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-type GetOpenQuestionInteractionForAgentRow struct {
-	ID         uuid.UUID
-	ToolCallID uuid.UUID
-	Request    json.RawMessage
-}
-
-func (q *Queries) GetOpenQuestionInteractionForAgent(ctx context.Context, arg GetOpenQuestionInteractionForAgentParams) (GetOpenQuestionInteractionForAgentRow, error) {
-	row := q.db.QueryRow(ctx, getOpenQuestionInteractionForAgent, arg.ProjectID, arg.AgentID)
-	var i GetOpenQuestionInteractionForAgentRow
+func (q *Queries) GetOpenInteractionForAgentByKind(ctx context.Context, arg GetOpenInteractionForAgentByKindParams) (GetOpenInteractionForAgentByKindRow, error) {
+	row := q.db.QueryRow(ctx, getOpenInteractionForAgentByKind, arg.ProjectID, arg.AgentID, arg.InteractionKind)
+	var i GetOpenInteractionForAgentByKindRow
 	err := row.Scan(&i.ID, &i.ToolCallID, &i.Request)
 	return i, err
 }
@@ -310,8 +200,7 @@ WITH latest AS (
   ORDER BY output.created_at DESC, output.id DESC
   LIMIT 1
 )
-SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text,
-       count(latest.id)::integer AS output_count
+SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text
 FROM latest
 LEFT JOIN content_blocks block ON block.owner_model_output_id = latest.id
   AND block.owner_kind = 'model_output'
@@ -323,16 +212,11 @@ type LatestModelOutputTextForAgentParams struct {
 	AgentID   uuid.UUID
 }
 
-type LatestModelOutputTextForAgentRow struct {
-	ResultText  string
-	OutputCount int32
-}
-
-func (q *Queries) LatestModelOutputTextForAgent(ctx context.Context, arg LatestModelOutputTextForAgentParams) (LatestModelOutputTextForAgentRow, error) {
+func (q *Queries) LatestModelOutputTextForAgent(ctx context.Context, arg LatestModelOutputTextForAgentParams) (string, error) {
 	row := q.db.QueryRow(ctx, latestModelOutputTextForAgent, arg.ProjectID, arg.AgentID)
-	var i LatestModelOutputTextForAgentRow
-	err := row.Scan(&i.ResultText, &i.OutputCount)
-	return i, err
+	var result_text string
+	err := row.Scan(&result_text)
+	return result_text, err
 }
 
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
@@ -568,12 +452,12 @@ SELECT agent.id,
        agent.name,
        agent.state,
        agent.subagent_key,
-       agent.created_at,
-       agent.archived_at,
        coalesce((
-         SELECT max(event.created_at)
+         SELECT event.created_at
          FROM agent_events event
          WHERE event.agent_id = agent.id
+         ORDER BY event.sequence DESC
+         LIMIT 1
        ), agent.created_at) AS last_activity_at,
        EXISTS (
          SELECT 1
@@ -629,8 +513,6 @@ type ListChildAgentsRow struct {
 	Name              string
 	State             string
 	SubagentKey       string
-	CreatedAt         time.Time
-	ArchivedAt        *time.Time
 	LastActivityAt    time.Time
 	HasOpenQuestion   bool
 	HasOpenPermission bool
@@ -658,8 +540,6 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.Name,
 			&i.State,
 			&i.SubagentKey,
-			&i.CreatedAt,
-			&i.ArchivedAt,
 			&i.LastActivityAt,
 			&i.HasOpenQuestion,
 			&i.HasOpenPermission,
@@ -815,8 +695,7 @@ func (q *Queries) ListOpenAgentWaitsForTarget(ctx context.Context, arg ListOpenA
 }
 
 const listParentMachineBindingsForSharing = `-- name: ListParentMachineBindingsForSharing :many
-SELECT binding.machine_id,
-       pmgrant.id AS project_machine_grant_id,
+SELECT pmgrant.id AS project_machine_grant_id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
@@ -840,7 +719,6 @@ type ListParentMachineBindingsForSharingParams struct {
 }
 
 type ListParentMachineBindingsForSharingRow struct {
-	MachineID             uuid.UUID
 	ProjectMachineGrantID uuid.UUID
 	Cwd                   string
 	EnvOverlay            json.RawMessage
@@ -858,7 +736,6 @@ func (q *Queries) ListParentMachineBindingsForSharing(ctx context.Context, arg L
 	for rows.Next() {
 		var i ListParentMachineBindingsForSharingRow
 		if err := rows.Scan(
-			&i.MachineID,
 			&i.ProjectMachineGrantID,
 			&i.Cwd,
 			&i.EnvOverlay,
@@ -879,8 +756,7 @@ const markAgentWaitTargetDone = `-- name: MarkAgentWaitTargetDone :execrows
 UPDATE agent_wait_targets
 SET state = 'done',
     result_kind = $1,
-    result_text = $2,
-    completed_at = statement_timestamp()
+    result_text = $2
 WHERE agent_id = $3
   AND tool_call_id = $4
   AND target_agent_id = $5

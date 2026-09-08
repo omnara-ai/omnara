@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -27,12 +29,7 @@ type RuntimeContract struct {
 }
 
 func (contract RuntimeContract) SubagentKeys() []string {
-	keys := make([]string, 0, len(contract.Subagents))
-	for key := range contract.Subagents {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
+	return slices.Sorted(maps.Keys(contract.Subagents))
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
@@ -147,13 +144,12 @@ func RuntimeContractFromCompiled(
 			return RuntimeContract{}, err
 		}
 	}
-	for _, name := range toolcatalog.SubagentToolNames() {
-		if len(compiled.Subagents) == 0 {
-			break
-		}
-		contract, err = contract.WithImplicitBuiltInTool(name)
-		if err != nil {
-			return RuntimeContract{}, err
+	if len(compiled.Subagents) > 0 {
+		for _, name := range toolcatalog.SubagentToolNames() {
+			contract, err = contract.WithImplicitBuiltInTool(name)
+			if err != nil {
+				return RuntimeContract{}, err
+			}
 		}
 	}
 	return contract, nil

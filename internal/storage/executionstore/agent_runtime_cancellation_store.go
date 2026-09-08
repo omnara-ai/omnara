@@ -26,6 +26,8 @@ type CancelAgentInput struct {
 	Actor     *ActorParams
 }
 
+const cancelReasonAgentCanceled = "agent_canceled"
+
 func (s *Store) CancelAgent(
 	ctx context.Context,
 	input CancelAgentInput,
@@ -59,7 +61,7 @@ func (s *Store) CancelAgent(
 			ProjectID:        input.ProjectID,
 			AgentID:          input.AgentID,
 			ActorID:          actorID,
-			ReasonCode:       "agent_canceled",
+			ReasonCode:       cancelReasonAgentCanceled,
 			ModelCallMessage: "The model call was canceled by an explicit agent cancellation.",
 		},
 	)
@@ -386,7 +388,7 @@ func cancelAgentTx(
 	if err := qtx.ReconcileAgentWakeup(ctx, params); err != nil {
 		return CancelAgentResult{}, fmt.Errorf("reconcile canceled agent wakeup: %w", err)
 	}
-	if input.ReasonCode == "agent_canceled" {
+	if input.ReasonCode == cancelReasonAgentCanceled {
 		if err := handleSubagentTurnEndedTx(ctx, txNotifications, tx, qtx, projectID, agentID, subagentMessage{
 			Kind:           SubagentMessageKindCanceled,
 			IdempotencyKey: fmt.Sprintf("canceled:%s:%d", agentID.String(), afterSequence),

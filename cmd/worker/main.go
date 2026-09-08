@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -270,13 +270,34 @@ func main() {
 	}
 }
 
+func runBatchLoop(ctx context.Context, interval time.Duration, tick func() (batchFull bool)) {
+	for {
+		batchFull := tick()
+		if ctx.Err() != nil {
+			return
+		}
+		if batchFull {
+			continue
+		}
+		timer := time.NewTimer(jitteredFireDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
 func runCronTriggerFireLoop(
 	ctx context.Context,
 	log *slog.Logger,
 	service *crontrigger.Service,
 	interval time.Duration,
 ) {
-	for {
+	runBatchLoop(ctx, interval, func() bool {
 		stats, err := runCronTriggerFireTick(ctx, log, service)
 		if err != nil && ctx.Err() == nil {
 			log.Error("fire due cron triggers", "error", err)
@@ -290,22 +311,8 @@ func runCronTriggerFireLoop(
 				"failures", stats.Failures,
 			)
 		}
-		if ctx.Err() != nil {
-			return
-		}
-		if stats.Claimed == crontrigger.FireBatchSize {
-			continue
-		}
-		timer := time.NewTimer(jitteredFireDelay(interval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
-	}
+		return stats.Claimed == crontrigger.FireBatchSize
+	})
 }
 
 func runCronTriggerFireTick(
@@ -332,29 +339,15 @@ func runToolCallExpiryLoop(
 	store *executionstore.Store,
 	interval time.Duration,
 ) {
-	for {
+	runBatchLoop(ctx, interval, func() bool {
 		expired, err := runToolCallExpiryTick(ctx, log, store)
 		if err != nil && ctx.Err() == nil {
 			log.Error("expire tool calls", "expired_count", expired, "error", err)
 		} else if expired > 0 {
 			log.Info("expired tool calls", "expired_count", expired)
 		}
-		if ctx.Err() != nil {
-			return
-		}
-		if expired == executionstore.ToolCallExpiryBatchSize {
-			continue
-		}
-		timer := time.NewTimer(jitteredFireDelay(interval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
-	}
+		return expired == executionstore.ToolCallExpiryBatchSize
+	})
 }
 
 func runToolCallExpiryTick(

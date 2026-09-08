@@ -59,16 +59,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if err != nil {
 		return nil, agentConfigCompileError(err)
 	}
-	config, err := s.server.store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               project.ID,
-		Definition:              compiled.Definition,
-		Source:                  compiled.Source,
-		SourceFormat:            compiled.SourceFormat,
-		ConfiguredModelID:       compiled.ConfiguredModelID,
-		CompiledDefinition:      compiled.CompiledDefinition,
-		CompilerVersion:         compiled.CompilerVersion,
-		EffectiveDefinitionHash: compiled.DefinitionHash,
-	})
+	config, err := s.server.store.Execution().CreateAgentConfig(ctx, compiled.CreateInput(project.ID))
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -888,16 +879,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
 	result, err := s.server.store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID:               project.ID,
-			Definition:              compiled.Definition,
-			Source:                  compiled.Source,
-			SourceFormat:            compiled.SourceFormat,
-			ConfiguredModelID:       compiled.ConfiguredModelID,
-			CompiledDefinition:      compiled.CompiledDefinition,
-			CompilerVersion:         compiled.CompilerVersion,
-			EffectiveDefinitionHash: compiled.DefinitionHash,
-		},
+		CreateAgentConfigInput:  compiled.CreateInput(project.ID),
 		AgentID:                 agent.ID,
 		ExpectedCurrentConfigID: expectedCurrentConfigID,
 		ActorType:               principal.Type,
@@ -1297,16 +1279,14 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-type compiledAgentConfigBody agentconfigcompile.Body
-
 func (s *Server) compileAgentConfigBodyForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
 	sourceFormatRaw, source string,
-) (compiledAgentConfigBody, error) {
+) (agentconfigcompile.Body, error) {
 	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
 	if err != nil {
-		return compiledAgentConfigBody{}, err
+		return agentconfigcompile.Body{}, err
 	}
 	body, err := agentconfigcompile.Compile(
 		ctx,
@@ -1318,9 +1298,9 @@ func (s *Server) compileAgentConfigBodyForProject(
 		source,
 	)
 	if err != nil {
-		return compiledAgentConfigBody{}, err
+		return agentconfigcompile.Body{}, err
 	}
-	return compiledAgentConfigBody(body), nil
+	return body, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {

@@ -599,7 +599,7 @@ func failMachineTransactionWithMessage(
 	cause error,
 	retryable bool,
 ) (transactionalPhaseResult, error) {
-	content, err := machineToolFailureContent(code, message, retryable)
+	content, err := toolFailureContent(code, message, retryable)
 	if err != nil {
 		return nil, fmt.Errorf("marshal machine tool failure: %w", err)
 	}
@@ -627,7 +627,7 @@ func failMachineTransactionForStorageError(
 	return failMachineTransaction(code, cause, retryable)
 }
 
-func machineToolFailureContent(
+func toolFailureContent(
 	code, message string,
 	retryable bool,
 ) (toolResultContent, error) {

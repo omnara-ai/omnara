@@ -24,7 +24,7 @@ func TestSubagentToolInputValidation(t *testing.T) {
 			name:     "spawn unknown field",
 			validate: validateSpawnAgentInput,
 			input:    `{"agent":"fork","task":"x","extra":1}`,
-			wantErr:  "unsupported field",
+			wantErr:  "unknown field",
 		},
 		{name: "wait ok empty", validate: validateWaitAgentsInput, input: `{}`},
 		{
@@ -49,7 +49,7 @@ func TestSubagentToolInputValidation(t *testing.T) {
 		{name: "stop ok", validate: validateStopAgentInput, input: `{"agent":"agt_abcdefghijklmnopqrstuvwxyz"}`},
 		{name: "stop missing", validate: validateStopAgentInput, input: `{}`, wantErr: "agent is required"},
 		{name: "list ok", validate: validateListAgentsInput, input: `{}`},
-		{name: "list extra", validate: validateListAgentsInput, input: `{"x":1}`, wantErr: "unsupported field"},
+		{name: "list extra", validate: validateListAgentsInput, input: `{"x":1}`, wantErr: "unknown field"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.validate(json.RawMessage(test.input))

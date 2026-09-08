@@ -528,9 +528,9 @@ func (s *Store) completeMachineUnreachableToolCall(
 		}
 		return false, nil
 	}
-	row, err := qtx.CompleteMachineUnreachableToolCall(
+	row, err := qtx.CompleteWaitingBuiltInToolCall(
 		ctx,
-		dbsqlc.CompleteMachineUnreachableToolCallParams{
+		dbsqlc.CompleteWaitingBuiltInToolCallParams{
 			ProjectID: projectID,
 			AgentID:   agentID,
 			ID:        toolCallID,
@@ -548,7 +548,7 @@ func (s *Store) completeMachineUnreachableToolCall(
 		txNotifications,
 		tx,
 		qtx,
-		toolCallRecordFromMachineUnreachableCompleteSQLC(row),
+		toolCallRecordFromWaitingCompleteSQLC(row),
 		toolCallResultInput{
 			Outcome:            ToolResultOutcomeFailed,
 			ResultContentParts: parts,

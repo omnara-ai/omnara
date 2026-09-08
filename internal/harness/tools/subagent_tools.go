@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
@@ -47,27 +48,8 @@ type subagentSummary struct {
 	LastActivityAt string `json:"last_activity_at"`
 }
 
-func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any, allowed ...string) error {
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return fmt.Errorf("parse %s request: %w", toolName, err)
-	}
-	for field, value := range body {
-		known := false
-		for _, name := range allowed {
-			if name == field {
-				known = true
-				break
-			}
-		}
-		if !known {
-			return fmt.Errorf("%s request has unsupported field %q", toolName, field)
-		}
-		if string(value) == "null" {
-			return fmt.Errorf("%s request field %q cannot be null", toolName, field)
-		}
-	}
-	if err := json.Unmarshal(raw, target); err != nil {
+func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any) error {
+	if err := decodeSingleStrictJSON(raw, target, toolName+" request"); err != nil {
 		return fmt.Errorf("parse %s request: %w", toolName, err)
 	}
 	return nil
@@ -75,7 +57,7 @@ func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any, a
 
 func resolveSpawnAgentRequest(raw json.RawMessage) (spawnAgentRequest, error) {
 	var input spawnAgentRequest
-	if err := decodeStrictToolRequest("spawn_agent", raw, &input, "agent", "task", "name"); err != nil {
+	if err := decodeStrictToolRequest("spawn_agent", raw, &input); err != nil {
 		return spawnAgentRequest{}, err
 	}
 	input.Agent = strings.TrimSpace(input.Agent)
@@ -91,7 +73,7 @@ func resolveSpawnAgentRequest(raw json.RawMessage) (spawnAgentRequest, error) {
 
 func resolveWaitAgentsRequest(raw json.RawMessage) (waitAgentsRequest, error) {
 	var input waitAgentsRequest
-	if err := decodeStrictToolRequest("wait_agents", raw, &input, "agents", "mode", "timeout_seconds"); err != nil {
+	if err := decodeStrictToolRequest("wait_agents", raw, &input); err != nil {
 		return waitAgentsRequest{}, err
 	}
 	if input.Mode == "" {
@@ -118,7 +100,7 @@ func resolveWaitAgentsRequest(raw json.RawMessage) (waitAgentsRequest, error) {
 
 func resolveSendAgentMessageRequest(raw json.RawMessage) (sendAgentMessageRequest, error) {
 	var input sendAgentMessageRequest
-	err := decodeStrictToolRequest("send_agent_message", raw, &input, "agent", "message", "interaction_id")
+	err := decodeStrictToolRequest("send_agent_message", raw, &input)
 	if err != nil {
 		return sendAgentMessageRequest{}, err
 	}
@@ -140,7 +122,7 @@ func resolveSendAgentMessageRequest(raw json.RawMessage) (sendAgentMessageReques
 
 func resolveStopAgentRequest(raw json.RawMessage) (stopAgentRequest, error) {
 	var input stopAgentRequest
-	if err := decodeStrictToolRequest("stop_agent", raw, &input, "agent"); err != nil {
+	if err := decodeStrictToolRequest("stop_agent", raw, &input); err != nil {
 		return stopAgentRequest{}, err
 	}
 	input.Agent = strings.TrimSpace(input.Agent)
@@ -175,20 +157,18 @@ func validateListAgentsInput(raw json.RawMessage) error {
 	return decodeStrictToolRequest("list_agents", raw, &input)
 }
 
-func subagentToolFailureContent(code, message string) (toolResultContent, error) {
-	return structuredToolResultContent(
-		map[string]any{"error_code": code, "error": message, "message": message, "retryable": false},
-	)
+func subagentStorageErrorIsToolFailure(cause error) bool {
+	return errors.Is(cause, storeerr.ErrInvalidRequest) ||
+		errors.Is(cause, storeerr.ErrNotFound) ||
+		errors.Is(cause, storeerr.ErrConflict) ||
+		errors.Is(cause, storeerr.ErrStateTransitionConflict)
 }
 
 func failSubagentTransactionForStorageError(code string, cause error) (transactionalPhaseResult, error) {
-	if !errors.Is(cause, storeerr.ErrInvalidRequest) &&
-		!errors.Is(cause, storeerr.ErrNotFound) &&
-		!errors.Is(cause, storeerr.ErrConflict) &&
-		!errors.Is(cause, storeerr.ErrStateTransitionConflict) {
+	if !subagentStorageErrorIsToolFailure(cause) {
 		return nil, cause
 	}
-	content, err := subagentToolFailureContent(code, cause.Error())
+	content, err := toolFailureContent(code, cause.Error(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +176,7 @@ func failSubagentTransactionForStorageError(code string, cause error) (transacti
 }
 
 func failSubagentAsync(code string, cause error) (asyncPhaseResult, error) {
-	content, err := subagentToolFailureContent(code, cause.Error())
+	content, err := toolFailureContent(code, cause.Error(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +193,7 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 		Name:           status.Name,
 		Key:            status.Key,
 		State:          status.State,
-		LastActivityAt: status.LastActivityAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		LastActivityAt: status.LastActivityAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -294,7 +274,6 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		IdempotencyKey: "spawn:" + call.ToolCallID.String(),
 		Subagent: &executionstore.SubagentLaunch{
 			ParentAgentID:           parent.ID,
-			SpawnToolCallID:         call.ToolCallID,
 			Key:                     input.Agent,
 			MaxConcurrent:           subagent.MaxConcurrent,
 			MaxSubagents:            contract.MaxSubagents,
@@ -303,10 +282,7 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		},
 	})
 	if err != nil {
-		if errors.Is(err, storeerr.ErrInvalidRequest) ||
-			errors.Is(err, storeerr.ErrConflict) ||
-			errors.Is(err, storeerr.ErrNotFound) ||
-			errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		if subagentStorageErrorIsToolFailure(err) {
 			return failSubagentAsync("spawn_agent_failed", err)
 		}
 		return nil, err
@@ -509,9 +485,6 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 }
 
 func listAgents(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
-	if err := validateListAgentsInput(call.Call.Input); err != nil {
-		return nil, err
-	}
 	statuses, err := call.Reader.ListSubagents(ctx, false)
 	if err != nil {
 		return nil, err

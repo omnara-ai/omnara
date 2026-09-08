@@ -3,12 +3,12 @@ SELECT agent.id,
        agent.name,
        agent.state,
        agent.subagent_key,
-       agent.created_at,
-       agent.archived_at,
        coalesce((
-         SELECT max(event.created_at)
+         SELECT event.created_at
          FROM agent_events event
          WHERE event.agent_id = agent.id
+         ORDER BY event.sequence DESC
+         LIMIT 1
        ), agent.created_at) AS last_activity_at,
        EXISTS (
          SELECT 1
@@ -50,23 +50,20 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(name)::text = '' OR agent.name = sqlc.arg(name)::text)
 ORDER BY agent.created_at, agent.id;
 
--- name: CountActiveChildAgents :one
-SELECT count(*)::integer
+-- name: CountActiveChildAgentsForLaunch :one
+SELECT count(*)::integer AS total,
+       count(*) FILTER (WHERE agent.subagent_key = sqlc.arg(subagent_key)::text)::integer AS same_key,
+       coalesce(bool_or(agent.name = sqlc.arg(name)::text), false)::boolean AS name_exists
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
-  AND agent.state = 'active'
-  AND (sqlc.arg(subagent_key)::text = '' OR agent.subagent_key = sqlc.arg(subagent_key)::text);
+  AND agent.state = 'active';
 
--- name: ActiveChildAgentNameExists :one
-SELECT EXISTS (
-  SELECT 1
-  FROM agents agent
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
-    AND agent.state = 'active'
-    AND agent.name = sqlc.arg(name)::text
-);
+-- name: GetAgentParentID :one
+SELECT parent_agent_id
+FROM agents
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id);
 
 -- name: ListActiveChildAgentIDs :many
 SELECT agent.id
@@ -121,16 +118,14 @@ WITH latest AS (
   ORDER BY output.created_at DESC, output.id DESC
   LIMIT 1
 )
-SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text,
-       count(latest.id)::integer AS output_count
+SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text
 FROM latest
 LEFT JOIN content_blocks block ON block.owner_model_output_id = latest.id
   AND block.owner_kind = 'model_output'
   AND block.block_kind = 'text';
 
 -- name: ListParentMachineBindingsForSharing :many
-SELECT binding.machine_id,
-       pmgrant.id AS project_machine_grant_id,
+SELECT pmgrant.id AS project_machine_grant_id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
@@ -147,24 +142,13 @@ WHERE binding.project_id = sqlc.arg(project_id)
   AND binding.state = 'attached'
 ORDER BY binding.created_at, binding.id;
 
--- name: GetOpenQuestionInteractionForAgent :one
+-- name: GetOpenInteractionForAgentByKind :one
 SELECT interaction.id, interaction.tool_call_id, interaction.request
 FROM agent_interactions interaction
 JOIN agents agent ON agent.id = interaction.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
   AND interaction.agent_id = sqlc.arg(agent_id)
-  AND interaction.interaction_kind = 'question'
-  AND interaction.state = 'open'
-ORDER BY interaction.created_at DESC, interaction.id DESC
-LIMIT 1;
-
--- name: GetOpenPermissionInteractionForAgent :one
-SELECT interaction.id, interaction.tool_call_id, interaction.request
-FROM agent_interactions interaction
-JOIN agents agent ON agent.id = interaction.agent_id
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND interaction.agent_id = sqlc.arg(agent_id)
-  AND interaction.interaction_kind = 'permission'
+  AND interaction.interaction_kind = sqlc.arg(interaction_kind)
   AND interaction.state = 'open'
 ORDER BY interaction.created_at DESC, interaction.id DESC
 LIMIT 1;
@@ -217,8 +201,7 @@ ORDER BY call.created_at, call.id;
 UPDATE agent_wait_targets
 SET state = 'done',
     result_kind = sqlc.arg(result_kind),
-    result_text = sqlc.arg(result_text),
-    completed_at = statement_timestamp()
+    result_text = sqlc.arg(result_text)
 WHERE agent_id = sqlc.arg(agent_id)
   AND tool_call_id = sqlc.arg(tool_call_id)
   AND target_agent_id = sqlc.arg(target_agent_id)
@@ -299,38 +282,3 @@ WHERE NOT EXISTS (
 )
 ORDER BY candidate.created_at, candidate.id
 LIMIT sqlc.arg(row_limit)::integer;
-
--- name: CompleteToolCallFromAgentWait :one
-WITH locked_agent AS MATERIALIZED (
-  SELECT agent.project_id, agent.id
-  FROM agents agent
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
-)
-UPDATE tool_calls call
-SET state = 'completed',
-    runtime_lock_id = NULL
-FROM locked_agent agent
-CROSS JOIN tool_call_read_projection projection
-WHERE call.agent_id = agent.id
-  AND call.id = sqlc.arg(tool_call_id)
-  AND call.state = 'waiting'
-  AND call.type = 'built_in'
-  AND EXISTS (
-    SELECT 1
-    FROM agent_wait_targets target
-    WHERE target.agent_id = call.agent_id
-      AND target.tool_call_id = call.id
-  )
-  AND projection.project_id = agent.project_id
-  AND projection.agent_id = call.agent_id
-  AND projection.id = call.id
-RETURNING call.id, projection.project_id, call.agent_id,
-  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
-  call.provider_call_id,
-  call.name, call.input,
-  call.type, call.state,
-  sqlc.arg(outcome)::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
-  call.created_at;

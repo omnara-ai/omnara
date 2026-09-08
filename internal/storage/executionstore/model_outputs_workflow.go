@@ -688,17 +688,8 @@ func completeSuccessfulNormalModelCallTx(
 }
 
 func modelOutputEndsTurn(envelope modelenvelope.ResponseEnvelope) (string, bool) {
-	var texts []string
-	for _, part := range envelope.Normalized.Content {
-		switch part.Type {
-		case modelenvelope.ResponsePartTypeToolCall:
-			return "", false
-		case modelenvelope.ResponsePartTypeText:
-			if strings.TrimSpace(part.Text) != "" {
-				texts = append(texts, part.Text)
-			}
-		case modelenvelope.ResponsePartTypeError, modelenvelope.ResponsePartTypeReasoning:
-		}
+	if envelope.HasToolCalls() {
+		return "", false
 	}
-	return strings.Join(texts, "\n"), true
+	return strings.TrimSpace(envelope.Text()), true
 }

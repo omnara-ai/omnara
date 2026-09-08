@@ -731,9 +731,13 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 		t.Fatalf("create child question: %v", err)
 	}
 
-	tree, err := store.Execution().ListAgentInteractionsForAgentTree(ctx, executionstore.ListAgentInteractionsForAgentTreeInput{
+	descendants, err := store.Execution().ListAgentDescendantIDs(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("list descendants: %v", err)
+	}
+	tree, err := store.Execution().ListAgentInteractions(ctx, executionstore.ListAgentInteractionsInput{
 		ProjectID: testProjectID,
-		AgentID:   parent.ID,
+		AgentIDs:  append([]ID{parent.ID}, descendants...),
 		State:     executionstore.AgentInteractionStateOpen,
 		Limit:     10,
 	})
