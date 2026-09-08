@@ -226,10 +226,7 @@ export function AgentComposer({
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="control-focus-within bg-background relative rounded-2xl border p-2 shadow-sm"
-    >
+    <form onSubmit={onSubmit} className="bg-background relative rounded-2xl border p-2 shadow-sm">
       {dragging && (
         <div className="bg-background/95 border-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl border-2 text-sm font-medium shadow-sm">
           <Upload className="size-5" /> Drop files to attach
