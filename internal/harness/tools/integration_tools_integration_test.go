@@ -271,25 +271,25 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					if err := r.ParseForm(); err != nil {
 						t.Errorf("parse upload URL request: %v", err)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					artifactIndex := requests[r.URL.Path] - tt.uploadURLFailures - 1
 					if artifactIndex >= len(artifactFiles) {
 						t.Errorf("unexpected upload URL request %d", requests[r.URL.Path])
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					file := artifactFiles[artifactIndex]
 					if r.Form.Get("filename") != file.filename || r.Form.Get("length") != strconv.Itoa(len(file.content)) {
 						t.Errorf("upload URL form = %v", r.Form)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					if tt.loseAfterPath == r.URL.Path {
 						if err := loseOwnership(); err != nil {
 							t.Errorf("release runtime lock: %v", err)
-							http.Error(w, "test ownership change failed", http.StatusInternalServerError)
+							http.Error(w, "test ownership change failed", http.StatusBadRequest)
 							return
 						}
 					}
@@ -301,7 +301,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				case "/upload/v1/artifact", "/upload/v1/chart":
 					if r.Header.Get("Authorization") != "" {
 						t.Errorf("file upload included authorization")
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					artifactIndex := 0
@@ -310,25 +310,25 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					if artifactIndex >= len(artifactFiles) {
 						t.Errorf("unexpected artifact upload path %s", r.URL.Path)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					file := artifactFiles[artifactIndex]
 					body, err := io.ReadAll(r.Body)
 					if err != nil {
 						t.Errorf("read uploaded artifact: %v", err)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					if string(body) != string(file.content) {
 						t.Errorf("uploaded artifact = %q", body)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					if tt.loseAfterPath == r.URL.Path {
 						if err := loseOwnership(); err != nil {
 							t.Errorf("release runtime lock: %v", err)
-							http.Error(w, "test ownership change failed", http.StatusInternalServerError)
+							http.Error(w, "test ownership change failed", http.StatusBadRequest)
 							return
 						}
 					}
@@ -345,19 +345,19 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 						t.Errorf("decode completion payload: %v", err)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					if len(payload.Files) != len(artifactFiles) || payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 						payload.InitialComment != "here is the report" {
 						t.Errorf("completion payload = %+v", payload)
-						http.Error(w, "test handler failed", http.StatusInternalServerError)
+						http.Error(w, "test handler failed", http.StatusBadRequest)
 						return
 					}
 					for artifactIndex, file := range artifactFiles {
 						if payload.Files[artifactIndex].ID != file.fileID || payload.Files[artifactIndex].Title != file.filename {
 							t.Errorf("completion payload = %+v", payload)
-							http.Error(w, "test handler failed", http.StatusInternalServerError)
+							http.Error(w, "test handler failed", http.StatusBadRequest)
 							return
 						}
 					}
@@ -373,7 +373,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 					writeToolTestJSON(w, map[string]any{"ok": true})
 				default:
 					t.Errorf("unexpected integration provider path %s", r.URL.Path)
-					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					http.Error(w, "test handler failed", http.StatusBadRequest)
 					return
 				}
 			}))

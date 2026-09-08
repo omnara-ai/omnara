@@ -923,10 +923,15 @@ func (s *oauthMCPTestServer) drainTokenCalls() []tokenCall {
 
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(value); err != nil {
+	body, err := json.Marshal(value)
+	if err != nil {
 		t.Errorf("encode response: %v", err)
 		http.Error(w, "test response encoding failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(append(body, '\n')); err != nil {
+		t.Errorf("write response: %v", err)
 	}
 }
 
