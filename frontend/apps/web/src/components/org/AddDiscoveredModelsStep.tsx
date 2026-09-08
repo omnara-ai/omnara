@@ -47,9 +47,7 @@ export function AddDiscoveredModelsStep({
   onDone: () => void
 }) {
   const createConfiguredModel = useCreateConfiguredModel(orgId)
-  const creatableModels = discoveredModels.filter((model) =>
-    canCreateDiscoveredModel(model, provider.api_format),
-  )
+  const creatableModels = discoveredModels.filter(canCreateDiscoveredModel)
   const [state, setState] = useState(initialAddModelsState)
   const selectedSlugSet = new Set(state.selectedSlugs)
   // Covers the whole batch below; the mutation's isPending only tracks its latest call.
@@ -74,7 +72,6 @@ export function AddDiscoveredModelsStep({
             modelProviderConfigID: provider.id,
             ...configuredModelRequestForDiscoveredModel(
               creatableModels.find((model) => model.slug === slug) ?? { slug },
-              provider.api_format,
             ),
           }),
         ),

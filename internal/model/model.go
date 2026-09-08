@@ -263,7 +263,7 @@ func (l OutputTokenLimits) Validate(maxOutputTokens int, errorSource string) err
 		Kind:    ErrorKindInvalidRequest,
 		Source:  errorSource,
 		Code:    OutputTokenLimitIncompatibleCode,
-		Message: cause.Error(),
+		Message: cause.Error() + ". Configure a larger output allowance or reduce the thinking budget.",
 		Cause:   cause,
 	}
 }

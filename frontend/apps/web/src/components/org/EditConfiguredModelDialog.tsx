@@ -1,5 +1,5 @@
 import { useUpdateConfiguredModel } from '@omnara/react'
-import { type ConfiguredModel, type ModelApiFormat } from '@omnara/sdk'
+import { type ConfiguredModel } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 
 import { Button } from '@/components/ui/button'
@@ -27,13 +27,11 @@ export function EditConfiguredModelDialog({
   onOpenChange,
   orgId,
   model,
-  apiFormat,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   model: ConfiguredModel
-  apiFormat: ModelApiFormat
 }) {
   const mutation = useUpdateConfiguredModel(orgId)
   const defaultValues = {
@@ -47,7 +45,7 @@ export function EditConfiguredModelDialog({
   const valid = (value: typeof defaultValues) =>
     resourceNameValid(value.name) &&
     value.slug.trim() !== '' &&
-    !configuredModelTokenLimitsError(value, apiFormat)
+    !configuredModelTokenLimitsError(value)
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
@@ -138,17 +136,14 @@ export function EditConfiguredModelDialog({
                       type="number"
                       min="1"
                       step="1"
-                      required={apiFormat === 'anthropic-messages'}
-                      placeholder={apiFormat === 'anthropic-messages' ? 'Required' : 'Unknown'}
+                      placeholder="Unknown"
                       value={field.state.value}
                       onChange={(event) => {
                         field.handleChange(event.target.value)
                       }}
                     />
                     <FieldDescription>
-                      {apiFormat === 'anthropic-messages'
-                        ? 'Max output is required for Anthropic Messages.'
-                        : 'Optional output capacity. Leave blank if unknown.'}
+                      Optional output capacity. Leave blank if unknown.
                     </FieldDescription>
                   </Field>
                 )}
@@ -171,9 +166,7 @@ export function EditConfiguredModelDialog({
                 )}
               </form.Field>
             </div>
-            <form.Subscribe
-              selector={(state) => configuredModelTokenLimitsError(state.values, apiFormat)}
-            >
+            <form.Subscribe selector={(state) => configuredModelTokenLimitsError(state.values)}>
               {(error) => error && <p className="text-destructive text-sm">{error}</p>}
             </form.Subscribe>
             {error && <p className="text-destructive text-sm">{error}</p>}

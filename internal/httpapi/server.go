@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -59,27 +58,23 @@ type Server struct {
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
 	modelDiscoverer                     modelprovider.DiscoverFunc
-	fillMissingModelLimits              func(
-		context.Context,
-		[]modelprovider.DiscoveredModel,
-	) []modelprovider.DiscoveredModel
-	allowInsecureLocalHostBypass bool
-	defaultPools                 []executionstore.DefaultMachinePoolTemplate
-	defaultModelProvider         *modelstore.DefaultModelProviderTemplate
-	hostedCredentialProvisioner  modelprovider.HostedCredentialProvisioner
-	daemonNotifications          *daemonNotificationConfig
-	replyPublisher               replyChannelPublisher
-	mcpOAuthHTTPClient           *http.Client
-	mcpClient                    mcp.Client
-	sigV4CredentialCache         *mcp.SigV4CredentialCache
-	slackOAuth                   SlackOAuthConfig
-	secretKeyWrapper             secrets.KeyWrapper
-	authHTTPClient               *http.Client
-	mcpRegistry                  *mcpregistry.Registry
-	openAPIRequestValidator      middleware
-	openAPIAuthorizer            operationAuthorizer
-	webAssets                    fs.FS
-	closeOnce                    sync.Once
+	allowInsecureLocalHostBypass        bool
+	defaultPools                        []executionstore.DefaultMachinePoolTemplate
+	defaultModelProvider                *modelstore.DefaultModelProviderTemplate
+	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
+	daemonNotifications                 *daemonNotificationConfig
+	replyPublisher                      replyChannelPublisher
+	mcpOAuthHTTPClient                  *http.Client
+	mcpClient                           mcp.Client
+	sigV4CredentialCache                *mcp.SigV4CredentialCache
+	slackOAuth                          SlackOAuthConfig
+	secretKeyWrapper                    secrets.KeyWrapper
+	authHTTPClient                      *http.Client
+	mcpRegistry                         *mcpregistry.Registry
+	openAPIRequestValidator             middleware
+	openAPIAuthorizer                   operationAuthorizer
+	webAssets                           fs.FS
+	closeOnce                           sync.Once
 
 	machinePoolManager *machinepool.Manager
 
@@ -335,12 +330,10 @@ func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	}
 }
 
-// WithModelLimitsCatalog shares cached limit metadata between provider discovery
-// and registration of models whose output capacity was omitted.
+// WithModelLimitsCatalog adds cached limit metadata to provider discovery.
 func WithModelLimitsCatalog(catalog *modelprovider.LimitsCatalog) Option {
 	return func(s *Server) {
 		s.modelDiscoverer = modelprovider.NewDiscoverer(catalog)
-		s.fillMissingModelLimits = catalog.FillMissingLimits
 	}
 }
 

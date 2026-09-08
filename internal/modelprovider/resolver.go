@@ -28,6 +28,7 @@ type Resolver struct {
 	Secrets               *secretstore.Store
 	HTTPRecorder          *metrics.HTTPClientRecorder
 	AllowLoopback         bool
+	MessagesOutputLimits  *MessagesOutputLimits
 	OpenRouterAttribution OpenRouterAttribution
 }
 
@@ -192,6 +193,15 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		auth = route.Chain{auth, route.Headers(headers)}
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
+	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
+		capabilities.DefaultMaxOutputTokens == 0 && capabilities.MaxOutputTokens == nil {
+		capabilities.DefaultMaxOutputTokens, err = r.messagesOutputAllowance(
+			ctx, providerConfig, credential.CurrentVersionID, revision.ProviderModelSlug, auth,
+		)
+		if err != nil {
+			return model.ResolvedClient{}, err
+		}
+	}
 	httpClient, err := r.httpClientForProviderConfig(providerConfig)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(

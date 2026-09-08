@@ -1,4 +1,4 @@
-import type { DiscoveredProviderModel, ModelApiFormat, ModelProviderConfig } from '@omnara/sdk'
+import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
 
 import { resourceNameSuggestion, resourceNameValid } from '@/lib/resource-name'
 
@@ -77,16 +77,12 @@ export function configuredModelTokenLimitsError(
     ConfiguredModelFormValues,
     'contextWindowTokens' | 'maxOutputTokens' | 'defaultMaxOutputTokens'
   >,
-  apiFormat: ModelApiFormat,
 ) {
   const contextWindowTokensValue = Number(values.contextWindowTokens)
   const maxOutputTokensValue = Number(values.maxOutputTokens)
   const defaultMaxOutputTokensValue = Number(values.defaultMaxOutputTokens)
   if (!Number.isInteger(contextWindowTokensValue) || contextWindowTokensValue < 2) {
     return 'Context window must be a whole number greater than one.'
-  }
-  if (apiFormat === 'anthropic-messages' && values.maxOutputTokens === '') {
-    return 'Max output is required for Anthropic Messages.'
   }
   if (
     values.maxOutputTokens !== '' &&
@@ -116,6 +112,6 @@ export function configuredModelFormValid(
     provider !== undefined &&
     resourceNameValid(values.name) &&
     values.providerModelSlug.trim() !== '' &&
-    !configuredModelTokenLimitsError(values, provider.api_format)
+    !configuredModelTokenLimitsError(values)
   )
 }

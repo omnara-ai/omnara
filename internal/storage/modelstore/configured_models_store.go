@@ -119,28 +119,9 @@ func (s *Store) createConfiguredModelTx(
 	); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
-	resolved := input
-	if hint := input.DiscoveredMaxOutputTokens; resolved.MaxOutputTokens == nil && hint != nil &&
-		*hint > 0 && *hint < input.ContextWindowTokens &&
-		(input.DefaultMaxOutputTokens == nil || *input.DefaultMaxOutputTokens <= *hint) {
-		resolved.MaxOutputTokens = cloneIntPtr(hint)
-	}
-	apiFormat := modelprotocol.APIFormat(providerConfigRow.ApiFormat)
-	if apiFormat == modelprotocol.APIFormatAnthropicMessages && resolved.MaxOutputTokens == nil {
-		// Creation retries retain the stored capacity when discovery is unavailable.
-		existing, err := qtx.GetConfiguredModelByName(ctx, dbsqlc.GetConfiguredModelByNameParams{
-			OrgID: input.OrgID, ModelProviderConfigID: input.ModelProviderConfigID, Name: input.Name,
-		})
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return ConfiguredModelRecord{}, fmt.Errorf("get configured model for creation replay: %w", err)
-		}
-		if err == nil {
-			return replayConfiguredModelCreation(
-				configuredModelRecordFromGetByNameSQLC(existing), input, managementKind, apiFormat,
-			)
-		}
-	}
-	if err := validateConfiguredModelOptions(apiFormat, configuredModelOptionsFromCreate(resolved)); err != nil {
+	if err := validateConfiguredModelOptions(
+		modelprotocol.APIFormat(providerConfigRow.ApiFormat), configuredModelOptionsFromCreate(input),
+	); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
 	row, err := qtx.InsertConfiguredModel(
@@ -152,7 +133,7 @@ func (s *Store) createConfiguredModelTx(
 			Name:                      input.Name,
 			ProviderModelSlug:         input.ProviderModelSlug,
 			ContextWindowTokens:       int32(input.ContextWindowTokens),
-			MaxOutputTokens:           storeutil.Int32Ptr(resolved.MaxOutputTokens),
+			MaxOutputTokens:           storeutil.Int32Ptr(input.MaxOutputTokens),
 			DefaultMaxOutputTokens:    storeutil.Int32Ptr(input.DefaultMaxOutputTokens),
 			DefaultCacheRetention:     storeutil.TextFromEmpty(input.DefaultCacheRetention),
 			SupportsTools:             boolPtrDefault(input.SupportsTools, true),
@@ -186,23 +167,10 @@ func (s *Store) createConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
 	}
-	return replayConfiguredModelCreation(
-		configuredModelRecordFromGetByNameSQLC(existingRow), input, managementKind, apiFormat,
-	)
-}
-
-func replayConfiguredModelCreation(
-	record ConfiguredModelRecord,
-	input CreateConfiguredModelInput,
-	managementKind management.Kind,
-	apiFormat modelprotocol.APIFormat,
-) (ConfiguredModelRecord, error) {
-	// Omitted capacity replays the stored choice even if discovery has changed.
+	record := configuredModelRecordFromGetByNameSQLC(existingRow)
+	// Omitted capacity replays the stored choice, including later edits or clearing.
 	if managementKind == management.Tenant && input.MaxOutputTokens == nil {
 		input.MaxOutputTokens = record.MaxOutputTokens
-	}
-	if err := validateConfiguredModelOptions(apiFormat, configuredModelOptionsFromCreate(input)); err != nil {
-		return ConfiguredModelRecord{}, err
 	}
 	if record.ManagementKind != managementKind || !sameConfiguredModelIntent(record, input) {
 		return ConfiguredModelRecord{}, configuredModelNameConflict(input.Name)
@@ -249,17 +217,6 @@ func (s *Store) PatchConfiguredModel(
 	update = normalizeConfiguredModelUpdate(update)
 	behaviorChanged := configuredModelBehaviorChanged(current, update)
 	if !behaviorChanged {
-		provider, err := qtx.GetModelProviderConfig(ctx, dbsqlc.GetModelProviderConfigParams{
-			OrgID: input.OrgID, ID: input.ModelProviderConfigID,
-		})
-		if err != nil {
-			return ConfiguredModelRecord{}, err
-		}
-		if err := validateConfiguredModelOptions(
-			modelprotocol.APIFormat(provider.ApiFormat), configuredModelOptionsFromUpdate(update),
-		); err != nil {
-			return ConfiguredModelRecord{}, err
-		}
 		if update.Name == "" {
 			return ConfiguredModelRecord{}, errors.New("configured model name is required")
 		}

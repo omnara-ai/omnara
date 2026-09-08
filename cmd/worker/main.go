@@ -184,10 +184,11 @@ func main() {
 			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{
-			Models:        store.Models(),
-			Secrets:       store.Secrets(),
-			HTTPRecorder:  httpRecorder,
-			AllowLoopback: cfg.AllowInsecureDev,
+			Models:               store.Models(),
+			Secrets:              store.Secrets(),
+			HTTPRecorder:         httpRecorder,
+			AllowLoopback:        cfg.AllowInsecureDev,
+			MessagesOutputLimits: &modelprovider.MessagesOutputLimits{},
 			OpenRouterAttribution: modelprovider.OpenRouterAttribution{
 				SiteURL:       cfg.OpenRouterSiteURL,
 				AppTitle:      cfg.OpenRouterAppTitle,

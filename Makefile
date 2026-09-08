@@ -474,6 +474,7 @@ test-live-openrouter:
 test-live-anthropic:
 	@$(LOAD_DOTENV); \
 	: "$${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required for live Anthropic tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/modelprovider -run '^TestLiveAnthropicOutputAllowance$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/anthropic$$' && \
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=25m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveAnthropic(ModelTurn|CompactionRecall|DockerDaemonProcessTools)$$' && \
 	$(TEST_DB_ENV) $(GO) test -count=1 -v -tags='integration live' ./internal/compaction -run '^TestRunnerLiveAnthropicCompactionCreatesCheckpoint$$'

@@ -65,6 +65,12 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 			wantOutput: 2_048,
 			wantFloor:  2_048,
 		},
+		{
+			name:       "runtime allowance with unknown capacity retains preferred summary size",
+			caps:       model.Capabilities{ContextWindowTokens: 200000, DefaultMaxOutputTokens: 64000},
+			wantOutput: preferredSummaryOutputTokens,
+			wantFloor:  preferredSummaryOutputTokens,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

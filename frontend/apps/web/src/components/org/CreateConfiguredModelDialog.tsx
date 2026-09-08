@@ -211,29 +211,22 @@ export function CreateConfiguredModelDialog({
             </form.Field>
             <form.Field name="maxOutputTokens">
               {(field) => (
-                <form.Subscribe selector={(state) => state.values.providerId}>
-                  {(providerId) => (
-                    <Field>
-                      <FieldLabel htmlFor="cm-max-output">Max output</FieldLabel>
-                      <Input
-                        id="cm-max-output"
-                        type="number"
-                        min="1"
-                        step="1"
-                        required={providerById(providerId)?.api_format === 'anthropic-messages'}
-                        value={field.state.value}
-                        onChange={(event) => {
-                          field.handleChange(event.target.value)
-                        }}
-                      />
-                      <FieldDescription>
-                        {providerById(providerId)?.api_format === 'anthropic-messages'
-                          ? 'Max output is required for Anthropic Messages.'
-                          : 'Optional output capacity. Leave blank if unknown.'}
-                      </FieldDescription>
-                    </Field>
-                  )}
-                </form.Subscribe>
+                <Field>
+                  <FieldLabel htmlFor="cm-max-output">Max output</FieldLabel>
+                  <Input
+                    id="cm-max-output"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                  <FieldDescription>
+                    Optional output capacity. Leave blank if unknown.
+                  </FieldDescription>
+                </Field>
               )}
             </form.Field>
             <ConfiguredModelAdvancedFields
@@ -264,12 +257,11 @@ export function CreateConfiguredModelDialog({
               </form.Field>
             </ConfiguredModelAdvancedFields>
             <form.Subscribe
-              selector={(state) => {
-                const provider = providerById(state.values.providerId)
-                return provider && state.values.contextWindowTokens !== ''
-                  ? configuredModelTokenLimitsError(state.values, provider.api_format)
+              selector={(state) =>
+                state.values.contextWindowTokens !== ''
+                  ? configuredModelTokenLimitsError(state.values)
                   : ''
-              }}
+              }
             >
               {(error) => error && <p className="text-destructive text-sm">{error}</p>}
             </form.Subscribe>

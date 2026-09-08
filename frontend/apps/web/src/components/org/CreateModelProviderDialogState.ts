@@ -1,8 +1,4 @@
-import type {
-  CreateConfiguredModelRequest,
-  DiscoveredProviderModel,
-  ModelApiFormat,
-} from '@omnara/sdk'
+import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
 
 import { resourceNameValid } from '@/lib/resource-name'
 
@@ -83,9 +79,8 @@ export function providerSecretName(provider: ModelProviderOption) {
 
 export function configuredModelRequestForDiscoveredModel(
   model: DiscoveredProviderModel,
-  apiFormat: ModelApiFormat,
 ): CreateConfiguredModelRequest {
-  if (!canCreateDiscoveredModel(model, apiFormat) || model.context_window_tokens === undefined) {
+  if (!canCreateDiscoveredModel(model) || model.context_window_tokens === undefined) {
     throw new Error(`Token limits are missing or invalid for ${model.slug}`)
   }
   const request: CreateConfiguredModelRequest = {
@@ -99,16 +94,10 @@ export function configuredModelRequestForDiscoveredModel(
   return request
 }
 
-export function canCreateDiscoveredModel(
-  model: DiscoveredProviderModel,
-  apiFormat: ModelApiFormat,
-) {
-  return !configuredModelTokenLimitsError(
-    {
-      contextWindowTokens: String(model.context_window_tokens ?? ''),
-      maxOutputTokens: String(model.max_output_tokens ?? ''),
-      defaultMaxOutputTokens: '',
-    },
-    apiFormat,
-  )
+export function canCreateDiscoveredModel(model: DiscoveredProviderModel) {
+  return !configuredModelTokenLimitsError({
+    contextWindowTokens: String(model.context_window_tokens ?? ''),
+    maxOutputTokens: String(model.max_output_tokens ?? ''),
+    defaultMaxOutputTokens: '',
+  })
 }

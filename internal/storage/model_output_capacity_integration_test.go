@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
+func TestOutputCapacityConcurrentCreationAndImmutableClear(t *testing.T) {
 	t.Parallel()
 	for _, format := range []modelprotocol.APIFormat{
 		modelprotocol.APIFormatOpenAIResponses, modelprotocol.APIFormatAnthropicMessages,
@@ -41,16 +41,15 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 			}
 			results := make(chan creation, 2)
 			start := make(chan struct{})
-			for _, hint := range []int{64000, 96000} {
+			for range 2 {
 				go func() {
 					<-start
 					record, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-						OrgID:                     testOrgID,
-						ModelProviderConfigID:     providerID,
-						Name:                      "discovered-model",
-						ProviderModelSlug:         "test-model",
-						ContextWindowTokens:       128000,
-						DiscoveredMaxOutputTokens: new(hint),
+						OrgID:                 testOrgID,
+						ModelProviderConfigID: providerID,
+						Name:                  "optional-capacity-model",
+						ProviderModelSlug:     "test-model",
+						ContextWindowTokens:   128000,
 					})
 					results <- creation{record, err}
 				}()
@@ -63,14 +62,18 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 			if first.model.ID != second.model.ID ||
 				first.model.CurrentRevisionID != second.model.CurrentRevisionID ||
 				first.model.Created == second.model.Created ||
-				first.model.MaxOutputTokens == nil ||
-				second.model.MaxOutputTokens == nil ||
+				first.model.MaxOutputTokens != nil ||
+				second.model.MaxOutputTokens != nil ||
 				first.model.DefaultMaxOutputTokens != nil ||
-				second.model.DefaultMaxOutputTokens != nil ||
-				*first.model.MaxOutputTokens != *second.model.MaxOutputTokens {
+				second.model.DefaultMaxOutputTokens != nil {
 				t.Fatal("concurrent omitted-capacity creation did not converge")
 			}
-			old := first.model
+			created := first.model
+			old, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+				OrgID: testOrgID, ModelProviderConfigID: providerID, ID: created.ID,
+				MaxOutputTokens: patch.NullableInt{Set: true, Value: new(64000)},
+			})
+			require.NoError(t, err)
 			grant, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
 				OrgID: testOrgID, ProjectID: testProjectID, ConfiguredModelID: old.ID,
 				ContextWindowTokens: new(32000),
@@ -91,56 +94,7 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 			clearInput := modelstore.PatchConfiguredModelInput{
 				OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, MaxOutputTokens: patch.NullableInt{Set: true},
 			}
-			if format == modelprotocol.APIFormatAnthropicMessages {
-				clearInput.Name = new("rejected-rename")
-			}
 			cleared, err := store.Models().PatchConfiguredModel(ctx, clearInput)
-			if format == modelprotocol.APIFormatAnthropicMessages {
-				require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
-				current, err := store.Models().GetConfiguredModelByName(ctx, testOrgID, providerID, old.Name)
-				require.NoError(t, err)
-				require.Equal(t, old.CurrentRevisionID, current.CurrentRevisionID)
-				require.Equal(t, old.MaxOutputTokens, current.MaxOutputTokens)
-				require.Equal(t, old.Name, current.Name)
-				var revisions int
-				require.NoError(t, pool.QueryRow(ctx,
-					`SELECT count(*) FROM configured_model_revisions WHERE configured_model_id=$1`, old.ID,
-				).Scan(&revisions))
-				require.Equal(t, 1, revisions, "rejected capacity clearing must not append a revision")
-				var missingCapacityRevision ID
-				require.NoError(t, pool.QueryRow(ctx, `
-WITH revision AS (
-    INSERT INTO configured_model_revisions(
-        org_id, configured_model_id, model_provider_config_id, provider_model_slug,
-        context_window_tokens, max_output_tokens, created_at
-    ) VALUES ($1, $2, $3, 'test-model', 128000, NULL, statement_timestamp())
-    RETURNING id
-)
-UPDATE configured_models SET current_revision_id=revision.id
-FROM revision WHERE configured_models.id=$2 RETURNING revision.id`, testOrgID, old.ID, providerID,
-				).Scan(&missingCapacityRevision))
-				_, err = store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-					OrgID: testOrgID, ModelProviderConfigID: providerID, Name: old.Name,
-					ProviderModelSlug: old.ProviderModelSlug, ContextWindowTokens: old.ContextWindowTokens,
-				})
-				require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
-				for _, name := range []*string{nil, new("rejected-legacy-rename")} {
-					_, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
-						OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, Name: name,
-					})
-					require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
-				}
-				current, err = store.Models().GetConfiguredModelByName(ctx, testOrgID, providerID, old.Name)
-				require.NoError(t, err)
-				require.Equal(t, missingCapacityRevision, current.CurrentRevisionID)
-				require.Equal(t, old.Name, current.Name)
-				require.Nil(t, current.MaxOutputTokens)
-				require.NoError(t, pool.QueryRow(ctx,
-					`SELECT count(*) FROM configured_model_revisions WHERE configured_model_id=$1`, old.ID,
-				).Scan(&revisions))
-				require.Equal(t, 2, revisions, "invalid replay and patches must not append revisions")
-				return
-			}
 			require.NoError(t, err)
 			historical, err := store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, old.CurrentRevisionID)
 			require.NoError(t, err)
@@ -154,6 +108,32 @@ FROM revision WHERE configured_models.id=$2 RETURNING revision.id`, testOrgID, o
 				old.CurrentRevisionID == cleared.CurrentRevisionID {
 				t.Fatal("nullable revision changed immutable history")
 			}
+			replay, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+				OrgID: testOrgID, ModelProviderConfigID: providerID, Name: old.Name,
+				ProviderModelSlug: old.ProviderModelSlug, ContextWindowTokens: old.ContextWindowTokens,
+			})
+			require.NoError(t, err)
+			if replay.Created || replay.ID != cleared.ID || replay.CurrentRevisionID != cleared.CurrentRevisionID ||
+				replay.MaxOutputTokens != nil || replay.DefaultMaxOutputTokens != nil {
+				t.Fatal("creation replay changed cleared capacity or appended a revision")
+			}
+			for _, name := range []*string{nil, new("renamed-null-capacity")} {
+				updated, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+					OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, Name: name,
+				})
+				require.NoError(t, err)
+				if updated.CurrentRevisionID != cleared.CurrentRevisionID || updated.MaxOutputTokens != nil {
+					t.Fatal("no-op or name-only update changed cleared capacity")
+				}
+				if name != nil && updated.Name != *name {
+					t.Fatalf("name = %q, want %q", updated.Name, *name)
+				}
+			}
+			var revisions int
+			require.NoError(t, pool.QueryRow(ctx,
+				`SELECT count(*) FROM configured_model_revisions WHERE configured_model_id=$1`, old.ID,
+			).Scan(&revisions))
+			require.Equal(t, 3, revisions, "only creation, setting, and clearing capacity append revisions")
 			for _, tc := range []struct {
 				name                string
 				context             int

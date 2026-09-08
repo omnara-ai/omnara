@@ -14,7 +14,6 @@ import (
 	openapigen "github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -558,12 +557,6 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
 	input := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
-	if input.MaxOutputTokens == nil && s.server.fillMissingModelLimits != nil {
-		models := s.server.fillMissingModelLimits(ctx, []modelprovider.DiscoveredModel{{
-			Slug: input.ProviderModelSlug, ContextWindowTokens: &input.ContextWindowTokens,
-		}})
-		input.DiscoveredMaxOutputTokens = models[0].MaxOutputTokens
-	}
 	record, err := s.server.store.Models().CreateConfiguredModel(ctx, input)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

@@ -306,11 +306,11 @@ export type CreateConfiguredModelRequest = {
      */
     context_window_tokens: number;
     /**
-     * Known output-token ceiling. Required for anthropic-messages models after best-effort catalog autofill; optional for other API formats. When omitted, Omnara uses catalog metadata consistent with explicit settings. Repeating creation with an omitted ceiling preserves the existing model's current capacity, provided it satisfies the API format's requirements. Explicit values must not exceed the provider's supported limit.
+     * Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Repeating creation with an omitted ceiling preserves the existing model's current capacity. Explicit values must not exceed the provider's supported limit.
      */
     max_output_tokens?: number;
     /**
-     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling, or the provider default when capacity is unknown and the API permits omission. This allowance does not replace the anthropic-messages capacity requirement.
+     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -358,11 +358,11 @@ export type UpdateConfiguredModelRequest = {
      */
     context_window_tokens?: number;
     /**
-     * Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for other API formats; anthropic-messages models require a capacity and reject clearing it.
+     * Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for every API format.
      */
     max_output_tokens?: number | null;
     /**
-     * Default per-request output allowance unless a project or agent overrides it. Anthropic Messages requires a numeric effective allowance, which can also come from the known model ceiling.
+     * Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance.
      */
     default_max_output_tokens?: number | null;
     default_cache_retention?: ModelCacheRetention;

@@ -84,14 +84,12 @@ type ModelProviderConfigRecord struct {
 }
 
 type CreateConfiguredModelInput struct {
-	OrgID                 ID
-	ModelProviderConfigID ID
-	Name                  string
-	ProviderModelSlug     string
-	ContextWindowTokens   int
-	MaxOutputTokens       *int
-	// DiscoveredMaxOutputTokens is a creation-only catalog hint, not caller intent.
-	DiscoveredMaxOutputTokens *int
+	OrgID                     ID
+	ModelProviderConfigID     ID
+	Name                      string
+	ProviderModelSlug         string
+	ContextWindowTokens       int
+	MaxOutputTokens           *int
 	DefaultMaxOutputTokens    *int
 	DefaultCacheRetention     string
 	SupportsTools             *bool

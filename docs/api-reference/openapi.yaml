@@ -7250,12 +7250,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Known output-token ceiling. Required for anthropic-messages models after best-effort catalog autofill; optional for other API formats. When omitted, Omnara uses catalog metadata consistent with explicit settings. Repeating creation with an omitted ceiling preserves the existing model's current capacity, provided it satisfies the API format's requirements. Explicit values must not exceed the provider's supported limit.
+          description: Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Repeating creation with an omitted ceiling preserves the existing model's current capacity. Explicit values must not exceed the provider's supported limit.
         default_max_output_tokens:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling, or the provider default when capacity is unknown and the API permits omission. This allowance does not replace the anthropic-messages capacity requirement.
+          description: Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7310,12 +7310,12 @@ components:
           type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for other API formats; anthropic-messages models require a capacity and reject clearing it.
+          description: Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for every API format.
         default_max_output_tokens:
           type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Default per-request output allowance unless a project or agent overrides it. Anthropic Messages requires a numeric effective allowance, which can also come from the known model ceiling.
+          description: Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:

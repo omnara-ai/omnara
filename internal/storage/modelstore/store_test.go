@@ -88,7 +88,7 @@ func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 				err := validateConfiguredModelOptions(format, configuredModelOptions{
 					ContextWindowTokens: tc.context, MaxOutputTokens: tc.capacity, DefaultMaxOutputTokens: tc.allowance,
 				})
-				if tc.wantErr || (format == modelprotocol.APIFormatAnthropicMessages && tc.capacity == nil) {
+				if tc.wantErr {
 					if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 						t.Fatalf("error = %v, want invalid configuration", err)
 					}
