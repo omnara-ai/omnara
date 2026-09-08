@@ -304,16 +304,3 @@ RETURNING call.id, projection.project_id, call.agent_id,
   sqlc.arg(outcome)::text AS outcome, call.runtime_lock_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
-
--- name: SumAgentModelUsage :one
-SELECT count(*)::integer AS model_call_count,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
-FROM model_call_contexts context
-WHERE context.project_id = sqlc.arg(project_id)
-  AND context.agent_id = ANY(sqlc.arg(agent_ids)::uuid[]);

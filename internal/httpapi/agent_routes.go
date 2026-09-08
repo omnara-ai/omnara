@@ -624,39 +624,6 @@ func (s strictOpenAPIServer) getAgent(
 	return openapi.GetAgent200JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) GetAgentUsage(
-	ctx context.Context,
-	request openapi.GetAgentUsageRequestObject,
-) (openapi.GetAgentUsageResponseObject, error) {
-	scope, err := agentScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	agentIDs := []storage.ID{scope.agent.ID}
-	if request.Params.IncludeChildren != nil && *request.Params.IncludeChildren {
-		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, scope.agent.ProjectID, scope.agent.ID)
-		if err != nil {
-			return nil, apierror.ProjectScoped(err)
-		}
-		agentIDs = append(agentIDs, descendants...)
-	}
-	usage, err := s.server.store.Execution().SumAgentModelUsage(ctx, scope.agent.ProjectID, agentIDs)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	return openapi.GetAgentUsage200JSONResponse(openapi.AgentUsageResponse{
-		AgentCount:              len(agentIDs),
-		ModelCallCount:          usage.ModelCallCount,
-		InputTokensTotal:        usage.InputTokensTotal,
-		UncachedInputTokens:     usage.UncachedInputTokens,
-		CacheReadInputTokens:    usage.CacheReadInputTokens,
-		CacheWriteInputTokens:   usage.CacheWriteInputTokens,
-		OutputTokensTotal:       usage.OutputTokensTotal,
-		ReasoningOutputTokens:   usage.ReasoningOutputTokens,
-		ProviderReportedCostUsd: ptrFromNonEmpty(usage.ProviderReportedCostUSD),
-	}), nil
-}
-
 func (s strictOpenAPIServer) ListAgents(
 	ctx context.Context,
 	request openapi.ListAgentsRequestObject,
