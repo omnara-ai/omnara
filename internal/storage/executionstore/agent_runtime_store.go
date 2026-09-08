@@ -570,9 +570,6 @@ func archiveAgentTreeTx(
 		return nil, err
 	}
 	machines = append(machines, released...)
-	if err := cancelOpenAgentWaitsTx(ctx, qtx, projectID, agentID); err != nil {
-		return nil, err
-	}
 	if notifyParent && !alreadyArchived && !isNilID(agent.ParentAgentID) {
 		if err := handleSubagentMessageTx(ctx, txNotifications, tx, qtx, agent, subagentMessage{
 			Kind:           SubagentMessageKindArchived,
