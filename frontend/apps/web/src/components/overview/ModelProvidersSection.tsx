@@ -15,7 +15,11 @@ import { EditModelProviderDialog } from '@/components/org/EditModelProviderDialo
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -26,6 +30,7 @@ export function ModelProvidersSection() {
   const list = useResourceList<ModelProviderListSort>('-created_at')
   const query = useModelProviders(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const deleteProvider = useDeleteModelProvider(activeOrg.id)
   const [open, setOpen] = useState(false)
   const [editProvider, setEditProvider] = useState<ModelProviderConfig | null>(null)
@@ -48,7 +53,7 @@ export function ModelProvidersSection() {
         <SearchHeader
           title="Model providers"
           toolbar={
-            showListToolbar(list, paged.pagination) ? (
+            showToolbar ? (
               <ResourceListToolbar
                 search={list.search}
                 onSearchChange={list.setSearch}

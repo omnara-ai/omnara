@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
-  showListToolbar,
+  useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -36,6 +36,7 @@ export function ProjectModelGrantsTable({
     sort: list.sort,
   })
   const grantsPaged = usePagedQuery(grantsQuery, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, grantsPaged.pagination, grantsQuery.isSuccess)
   const deleteGrant = useDeleteProjectModelGrant(orgId, projectId)
   const [editing, setEditing] = useState<ProjectModelGrantListItem | null>(null)
 
@@ -44,7 +45,7 @@ export function ProjectModelGrantsTable({
       <SearchHeader
         title="Model grants"
         toolbar={
-          showListToolbar(list, grantsPaged.pagination) ? (
+          showToolbar ? (
             <ResourceListToolbar
               search={list.search}
               onSearchChange={list.setSearch}

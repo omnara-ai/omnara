@@ -20,7 +20,7 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import {
   filterAndSortLocalItems,
   resourceSortOptions,
-  showListToolbar,
+  useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -84,6 +84,9 @@ export function ConfiguredModelsSection() {
     updated_at: (option) => option.model.updated_at,
   })
   const paged = useArrayPagination(filteredModels, (option) => option.model.id)
+  const isPending = providersPending || (providers.length > 0 && modelsQuery.isPending)
+  const isError = providersQuery.isError || modelsQuery.isError
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, !isPending && !isError)
 
   return (
     <>
@@ -91,7 +94,7 @@ export function ConfiguredModelsSection() {
         <SearchHeader
           title="Configured models"
           toolbar={
-            showListToolbar(list, paged.pagination) ? (
+            showToolbar ? (
               <ResourceListToolbar
                 search={list.search}
                 onSearchChange={list.setSearch}
@@ -203,8 +206,8 @@ export function ConfiguredModelsSection() {
               ]}
             />
           )}
-          isPending={providersPending || (providers.length > 0 && modelsQuery.isPending)}
-          isError={providersQuery.isError || modelsQuery.isError}
+          isPending={isPending}
+          isError={isError}
           onRetry={() => {
             void Promise.all([providersQuery.refetch(), modelsQuery.refetch()])
           }}

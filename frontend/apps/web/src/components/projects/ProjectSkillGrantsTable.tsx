@@ -6,7 +6,11 @@ import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { projectSkillOwnerLabel } from '@/lib/skills'
 
@@ -25,13 +29,14 @@ export function ProjectSkillGrantsTable({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
 
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Skill grants"
         toolbar={
-          showListToolbar(list, paged.pagination) ? (
+          showToolbar ? (
             <ResourceListToolbar
               search={list.search}
               onSearchChange={list.setSearch}

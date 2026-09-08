@@ -16,7 +16,11 @@ import {
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
@@ -35,6 +39,7 @@ export function MachinePoolsSection() {
   const list = useResourceList<MachinePoolListSort>('-created_at')
   const query = useMachinePools(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const deletePool = useDeleteMachinePool(activeOrg.id)
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
 
@@ -56,7 +61,7 @@ export function MachinePoolsSection() {
         <SearchHeader
           title="Machine pools"
           toolbar={
-            showListToolbar(list, paged.pagination) ? (
+            showToolbar ? (
               <ResourceListToolbar
                 search={list.search}
                 onSearchChange={list.setSearch}

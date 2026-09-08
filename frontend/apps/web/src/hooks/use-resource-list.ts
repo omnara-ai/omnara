@@ -52,11 +52,20 @@ export function useResourceList<TSort extends string>(defaultSort: TSort) {
   }
 }
 
-export function showListToolbar(
+/** Keep controls mounted until a successful result can update their visibility. */
+export function useListToolbarVisibility(
   list: { search: string; isFiltering: boolean },
   pagination: PaginationControls,
+  isSuccess: boolean,
 ): boolean {
-  return list.isFiltering || list.search !== '' || pagination.page > 0 || pagination.canNext
+  const [wasVisible, setWasVisible] = useState(false)
+  const visible =
+    list.isFiltering ||
+    list.search !== '' ||
+    (isSuccess ? pagination.page > 0 || pagination.canNext : wasVisible)
+
+  if (visible !== wasVisible) setWasVisible(visible)
+  return visible
 }
 
 export function nameGlob(value: string) {
