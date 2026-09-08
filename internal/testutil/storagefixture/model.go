@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// DefaultModelInput returns independent defaults that callers can override before seeding.
 func DefaultModelInput(orgID, providerID uuid.UUID, name string) modelstore.CreateConfiguredModelInput {
 	return modelstore.CreateConfiguredModelInput{
 		OrgID: orgID, ModelProviderConfigID: providerID, Name: name, ProviderModelSlug: name,

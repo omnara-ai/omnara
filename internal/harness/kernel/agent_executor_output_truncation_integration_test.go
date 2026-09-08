@@ -269,7 +269,6 @@ func TestOutputContinuationSurvivesRetryAndCompaction(t *testing.T) {
 			executor.ModelResolver = liveTestModelResolver(fixture.Store, client)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
 			fixture.releaseModelRuntimeLock(t, ctx, work)
-			// A retry or checkpoint resumes the same output frontier.
 			claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
 			work = modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(2*time.Second))
 			if !compact && work.Kind != executionstore.ModelWorkResume {

@@ -323,7 +323,6 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
-// WithModelDiscoverer replaces provider-native model discovery.
 func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	return func(s *Server) {
 		s.modelDiscoverer = discoverer

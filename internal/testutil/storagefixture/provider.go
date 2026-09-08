@@ -20,7 +20,7 @@ type ModelProviderInput struct {
 }
 
 // EnsureModelProvider reuses a provider or creates one with a usable test credential.
-// Call during fixture setup, with an existing org and a user authorized to create its secrets.
+// Requires an existing org and a user authorized to create its secrets.
 func EnsureModelProvider(
 	t testing.TB,
 	ctx context.Context,

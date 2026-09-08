@@ -104,9 +104,8 @@ const IncompleteToolCallError = "The tool call was incomplete and was not execut
 
 const UnparseableToolCallName = "unparseable_tool_call"
 
-// ToolArgumentString decodes provider arguments without losing the call identity
-// when the value has the wrong JSON type. An invalid value becomes empty input,
-// which NewToolCallPart rejects along with other malformed arguments.
+// ToolArgumentString preserves call identity by decoding non-string arguments as
+// empty input for NewToolCallPart to reject.
 type ToolArgumentString string
 
 func (a *ToolArgumentString) UnmarshalJSON(raw []byte) error {

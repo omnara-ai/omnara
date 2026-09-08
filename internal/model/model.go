@@ -147,7 +147,6 @@ type PrepareForSendInput struct {
 	Policy      RequestPolicy
 	ErrorSource string
 	// ReserveFullOutputAllowance preserves the complete summary allowance during compaction.
-	// Normal requests reserve independent generation headroom.
 	ReserveFullOutputAllowance bool
 }
 

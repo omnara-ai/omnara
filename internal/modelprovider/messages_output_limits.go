@@ -24,8 +24,8 @@ const (
 	messagesLimitCacheSize       = 1_024
 )
 
-// MessagesOutputLimits caches provider metadata without changing configured model
-// revisions. Its zero value is ready for use. A nil cache performs uncached lookups.
+// MessagesOutputLimits caches provider output limits. Its zero value is ready for use.
+// A nil cache performs uncached lookups.
 type MessagesOutputLimits struct {
 	mu       sync.Mutex
 	entries  *simplelru.LRU[messagesOutputLimitKey, messagesOutputLimitEntry]
