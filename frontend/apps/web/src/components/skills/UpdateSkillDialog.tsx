@@ -30,7 +30,7 @@ function SkillMdEditorFallback() {
       role="status"
       aria-live="polite"
     >
-      <Spinner className="text-muted-foreground h-6 w-6" />
+      <Spinner className="text-muted-foreground size-6" />
       <span className="sr-only">Loading SKILL.md editor</span>
     </div>
   )
