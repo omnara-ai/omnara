@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -67,6 +68,14 @@ type Executor struct {
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
 	AgentConfigOptions       agentconfig.CompileOptions
+	Log                      *slog.Logger
+}
+
+func (e Executor) logger() *slog.Logger {
+	if e.Log != nil {
+		return e.Log
+	}
+	return slog.Default()
 }
 
 func (e Executor) skillStore() SkillStore {
@@ -85,6 +94,7 @@ func (e Executor) skillStore() SkillStore {
 
 type machinePoolManager interface {
 	ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error
+	StartLaunchProvisioning(parent context.Context, logger *slog.Logger, orgID storage.ID, machineIDs []storage.ID)
 	DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error
 	WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error)
 }
