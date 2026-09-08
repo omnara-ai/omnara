@@ -366,6 +366,170 @@ func TestSubagentArchiveCompletesParentWait(t *testing.T) {
 	}
 }
 
+func TestExpireToolCallsTimesOutParentWait(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-timeout@example.com", "Subagent Timeout")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-timeout", "Subagent Timeout", subagentParentYAML, now,
+	)
+	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-timeout-parent",
+	})
+	if err != nil {
+		t.Fatalf("launch parent: %v", err)
+	}
+	parent := parentLaunch.Agent
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "slow", "subagent-timeout-child", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+
+	runtimeLock, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx,
+		testProjectID,
+		parent.ID,
+		testWorkerProcessID,
+		testAgentRuntimeLockLeaseDuration,
+	)
+	if err != nil {
+		t.Fatalf("acquire parent runtime lock: %v", err)
+	}
+	toolCallIDs := createReadyToolCallsForTest(
+		t,
+		ctx,
+		store,
+		parent.ID,
+		user.ID,
+		parentLaunch.AgentConfig.ID,
+		runtimeLock,
+		"subagent-timeout",
+		[]toolCallSpecForTest{{
+			Label: "wait",
+			Name:  "wait_agents",
+			Input: json.RawMessage(`{"agents":["slow"],"timeout_seconds":60}`),
+		}},
+	)
+	waitToolCallID := toolCallIDs["wait"]
+	timeoutSeconds := 60
+	execution, err := store.Execution().ExecuteToolCall(
+		ctx,
+		executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       parent.ID,
+			ToolCallID:    waitToolCallID,
+			RuntimeLockID: runtimeLock.ID,
+		},
+		func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			return executionstore.CreateAgentWaitForToolCall(
+				executionstore.CreateAgentWaitInput{
+					TargetAgentIDs: []ID{child.Agent.ID},
+					Mode:           executionstore.AgentWaitModeAll,
+					TimeoutSeconds: &timeoutSeconds,
+				},
+				func(outcome executionstore.AgentWaitOutcome) (executionstore.ToolCallCompletionInput, error) {
+					parts, err := executionstore.ToolResultContentParts(mustTestRawJSON(t, outcome))
+					if err != nil {
+						return executionstore.ToolCallCompletionInput{}, err
+					}
+					return executionstore.ToolCallCompletionInput{
+						Outcome:            executionstore.ToolResultOutcomeSucceeded,
+						ResultContentParts: parts,
+					}, nil
+				},
+			), nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("create agent wait: %v", err)
+	}
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatalf("wait disposition = %v, want waiting", execution.Disposition)
+	}
+	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, parent.ID, runtimeLock.ID); err != nil {
+		t.Fatalf("release parent runtime lock: %v", err)
+	}
+
+	expired, err := store.Execution().ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
+	if err != nil {
+		t.Fatalf("expire tool calls before deadline: %v", err)
+	}
+	if expired != 0 {
+		t.Fatalf("expired %d tool calls before the deadline, want 0", expired)
+	}
+	var deadlineSet bool
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT deadline_at IS NOT NULL FROM tool_calls WHERE agent_id = $1 AND id = $2`,
+		parent.ID,
+		waitToolCallID,
+	).Scan(&deadlineSet); err != nil {
+		t.Fatalf("load wait tool call deadline: %v", err)
+	}
+	if !deadlineSet {
+		t.Fatal("wait tool call has no deadline")
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE tool_calls SET deadline_at = statement_timestamp() - interval '1 second'
+		 WHERE agent_id = $1 AND id = $2`,
+		parent.ID,
+		waitToolCallID,
+	); err != nil {
+		t.Fatalf("backdate wait tool call deadline: %v", err)
+	}
+
+	expired, err = store.Execution().ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
+	if err != nil {
+		t.Fatalf("expire tool calls: %v", err)
+	}
+	if expired != 1 {
+		t.Fatalf("expired %d tool calls, want 1", expired)
+	}
+	waitCall, err := store.Execution().GetToolCall(ctx, testProjectID, parent.ID, waitToolCallID)
+	if err != nil {
+		t.Fatalf("load wait tool call: %v", err)
+	}
+	if waitCall.State != executionstore.ToolCallStateCompleted {
+		t.Fatalf("wait tool call state = %s, want completed", waitCall.State)
+	}
+	if !strings.Contains(string(waitCall.ResultContentParts), `"timed_out":true`) {
+		t.Fatalf("wait result = %s", waitCall.ResultContentParts)
+	}
+	if !strings.Contains(string(waitCall.ResultContentParts), executionstore.SubagentMessageKindTimeout) {
+		t.Fatalf("wait result = %s", waitCall.ResultContentParts)
+	}
+	var waitState string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT state FROM agent_waits WHERE agent_id = $1 AND tool_call_id = $2`,
+		parent.ID,
+		waitToolCallID,
+	).Scan(&waitState); err != nil {
+		t.Fatalf("load agent wait: %v", err)
+	}
+	if waitState != "completed" {
+		t.Fatalf("agent wait state = %s, want completed", waitState)
+	}
+	expired, err = store.Execution().ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
+	if err != nil {
+		t.Fatalf("expire tool calls again: %v", err)
+	}
+	if expired != 0 {
+		t.Fatalf("expired %d tool calls on the second pass, want 0", expired)
+	}
+}
+
 func containsAgentID(agents []executionstore.AgentRecord, id ID) bool {
 	for _, agent := range agents {
 		if agent.ID == id {

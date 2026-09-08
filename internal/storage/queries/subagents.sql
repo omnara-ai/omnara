@@ -189,24 +189,20 @@ ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: InsertAgentWait :one
-INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at)
+INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at)
 SELECT agent.org_id, agent.project_id, agent.id, sqlc.arg(tool_call_id), sqlc.arg(mode), 'open',
-       CASE
-         WHEN sqlc.narg(timeout_seconds)::integer IS NULL THEN NULL
-         ELSE statement_timestamp() + make_interval(secs => sqlc.narg(timeout_seconds)::integer)
-       END,
        statement_timestamp(), statement_timestamp()
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.id = sqlc.arg(agent_id)
-RETURNING id, org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at, completed_at;
+RETURNING id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at;
 
 -- name: InsertAgentWaitTarget :exec
 INSERT INTO agent_wait_targets(wait_id, project_id, target_agent_id, state)
 VALUES (sqlc.arg(wait_id), sqlc.arg(project_id), sqlc.arg(target_agent_id), 'pending');
 
 -- name: GetAgentWaitByToolCall :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at, completed_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at
 FROM agent_waits
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -214,7 +210,7 @@ WHERE project_id = sqlc.arg(project_id)
 
 -- name: ListOpenAgentWaitsForTarget :many
 SELECT wait.id, wait.org_id, wait.project_id, wait.agent_id, wait.tool_call_id, wait.mode, wait.state,
-       wait.deadline_at, wait.created_at, wait.updated_at, wait.completed_at
+       wait.created_at, wait.updated_at, wait.completed_at
 FROM agent_wait_targets target
 JOIN agent_waits wait ON wait.id = target.wait_id
 WHERE target.project_id = sqlc.arg(project_id)
@@ -262,17 +258,6 @@ SET state = sqlc.arg(state),
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND state = 'open';
-
--- name: ClaimExpiredAgentWaits :many
-SELECT wait.id, wait.org_id, wait.project_id, wait.agent_id, wait.tool_call_id, wait.mode, wait.state,
-       wait.deadline_at, wait.created_at, wait.updated_at, wait.completed_at
-FROM agent_waits wait
-WHERE wait.state = 'open'
-  AND wait.deadline_at IS NOT NULL
-  AND wait.deadline_at <= statement_timestamp()
-ORDER BY wait.deadline_at, wait.id
-LIMIT sqlc.arg(row_limit)::integer
-FOR UPDATE SKIP LOCKED;
 
 -- name: ListIdleSubagentsForArchive :many
 SELECT agent.project_id, agent.id

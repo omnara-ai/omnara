@@ -60,54 +60,6 @@ func (q *Queries) CancelOpenAgentWaitsForAgent(ctx context.Context, arg CancelOp
 	return result.RowsAffected(), nil
 }
 
-const claimExpiredAgentWaits = `-- name: ClaimExpiredAgentWaits :many
-SELECT wait.id, wait.org_id, wait.project_id, wait.agent_id, wait.tool_call_id, wait.mode, wait.state,
-       wait.deadline_at, wait.created_at, wait.updated_at, wait.completed_at
-FROM agent_waits wait
-WHERE wait.state = 'open'
-  AND wait.deadline_at IS NOT NULL
-  AND wait.deadline_at <= statement_timestamp()
-ORDER BY wait.deadline_at, wait.id
-LIMIT $1::integer
-FOR UPDATE SKIP LOCKED
-`
-
-type ClaimExpiredAgentWaitsParams struct {
-	RowLimit int32
-}
-
-func (q *Queries) ClaimExpiredAgentWaits(ctx context.Context, arg ClaimExpiredAgentWaitsParams) ([]AgentWait, error) {
-	rows, err := q.db.Query(ctx, claimExpiredAgentWaits, arg.RowLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentWait{}
-	for rows.Next() {
-		var i AgentWait
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.ToolCallID,
-			&i.Mode,
-			&i.State,
-			&i.DeadlineAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.CompletedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const completeAgentWait = `-- name: CompleteAgentWait :execrows
 UPDATE agent_waits
 SET state = $1,
@@ -293,7 +245,7 @@ func (q *Queries) CountPendingAgentWaitTargets(ctx context.Context, arg CountPen
 }
 
 const getAgentWaitByToolCall = `-- name: GetAgentWaitByToolCall :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at, completed_at
+SELECT id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at
 FROM agent_waits
 WHERE project_id = $1
   AND agent_id = $2
@@ -317,7 +269,6 @@ func (q *Queries) GetAgentWaitByToolCall(ctx context.Context, arg GetAgentWaitBy
 		&i.ToolCallID,
 		&i.Mode,
 		&i.State,
-		&i.DeadlineAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
@@ -386,32 +337,26 @@ func (q *Queries) GetOpenQuestionInteractionForAgent(ctx context.Context, arg Ge
 }
 
 const insertAgentWait = `-- name: InsertAgentWait :one
-INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at)
+INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at)
 SELECT agent.org_id, agent.project_id, agent.id, $1, $2, 'open',
-       CASE
-         WHEN $3::integer IS NULL THEN NULL
-         ELSE statement_timestamp() + make_interval(secs => $3::integer)
-       END,
        statement_timestamp(), statement_timestamp()
 FROM agents agent
-WHERE agent.project_id = $4
-  AND agent.id = $5
-RETURNING id, org_id, project_id, agent_id, tool_call_id, mode, state, deadline_at, created_at, updated_at, completed_at
+WHERE agent.project_id = $3
+  AND agent.id = $4
+RETURNING id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at
 `
 
 type InsertAgentWaitParams struct {
-	ToolCallID     uuid.UUID
-	Mode           string
-	TimeoutSeconds *int32
-	ProjectID      uuid.UUID
-	AgentID        uuid.UUID
+	ToolCallID uuid.UUID
+	Mode       string
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
 }
 
 func (q *Queries) InsertAgentWait(ctx context.Context, arg InsertAgentWaitParams) (AgentWait, error) {
 	row := q.db.QueryRow(ctx, insertAgentWait,
 		arg.ToolCallID,
 		arg.Mode,
-		arg.TimeoutSeconds,
 		arg.ProjectID,
 		arg.AgentID,
 	)
@@ -424,7 +369,6 @@ func (q *Queries) InsertAgentWait(ctx context.Context, arg InsertAgentWaitParams
 		&i.ToolCallID,
 		&i.Mode,
 		&i.State,
-		&i.DeadlineAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
@@ -879,7 +823,7 @@ func (q *Queries) ListIdleSubagentsForArchive(ctx context.Context, arg ListIdleS
 
 const listOpenAgentWaitsForTarget = `-- name: ListOpenAgentWaitsForTarget :many
 SELECT wait.id, wait.org_id, wait.project_id, wait.agent_id, wait.tool_call_id, wait.mode, wait.state,
-       wait.deadline_at, wait.created_at, wait.updated_at, wait.completed_at
+       wait.created_at, wait.updated_at, wait.completed_at
 FROM agent_wait_targets target
 JOIN agent_waits wait ON wait.id = target.wait_id
 WHERE target.project_id = $1
@@ -912,7 +856,6 @@ func (q *Queries) ListOpenAgentWaitsForTarget(ctx context.Context, arg ListOpenA
 			&i.ToolCallID,
 			&i.Mode,
 			&i.State,
-			&i.DeadlineAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CompletedAt,

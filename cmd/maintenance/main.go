@@ -140,10 +140,10 @@ func main() {
 		defer close(machineLoopDone)
 		runMachinePoolMaintenanceLoop(ctx, logger, machinePoolManager, cfg.MaintenanceInterval)
 	}()
-	subagentLoopDone := make(chan struct{})
+	idleSubagentLoopDone := make(chan struct{})
 	go func() {
-		defer close(subagentLoopDone)
-		runSubagentMaintenanceLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
+		defer close(idleSubagentLoopDone)
+		runIdleSubagentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
 	}()
 	runtimeDiscoveryDone := make(chan struct{})
 	go func() {
@@ -218,7 +218,7 @@ func main() {
 	)
 	cancel()
 	<-machineLoopDone
-	<-subagentLoopDone
+	<-idleSubagentLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-defaultModelProviderDone
@@ -520,7 +520,7 @@ func runMachinePoolMaintenanceTick(
 	}
 }
 
-func runSubagentMaintenanceLoop(
+func runIdleSubagentArchiveLoop(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
@@ -530,7 +530,7 @@ func runSubagentMaintenanceLoop(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		runSubagentMaintenanceTick(ctx, log, store, machinePoolManager)
+		runIdleSubagentArchiveTick(ctx, log, store, machinePoolManager)
 		select {
 		case <-ctx.Done():
 			return
@@ -539,22 +539,15 @@ func runSubagentMaintenanceLoop(
 	}
 }
 
-func runSubagentMaintenanceTick(
+func runIdleSubagentArchiveTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
 	machinePoolManager *machinepool.Manager,
 ) {
 	defer recoverMachinePoolMaintenancePanic(log)
-	expired, err := store.Execution().ExpireAgentWaits(ctx, machinepool.DefaultReconcileBatchSize)
-	outcome := completedMaintenanceOutcome(ctx, err)
-	if outcome.err != nil {
-		log.Error("expire agent waits", "expired_count", expired, "error", outcome.err)
-	} else if !outcome.interrupted && expired > 0 {
-		log.Info("expired agent waits", "expired_count", expired)
-	}
 	machines, archived, err := store.Execution().ArchiveIdleSubagents(ctx, machinepool.DefaultReconcileBatchSize)
-	outcome = completedMaintenanceOutcome(ctx, err)
+	outcome := completedMaintenanceOutcome(ctx, err)
 	if outcome.err != nil {
 		log.Error("archive idle subagents", "archived_count", archived, "error", outcome.err)
 	} else if !outcome.interrupted && archived > 0 {

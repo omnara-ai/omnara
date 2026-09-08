@@ -188,6 +188,91 @@ func (q *Queries) CompleteCustomToolCall(ctx context.Context, arg CompleteCustom
 	return i, err
 }
 
+const completeExpiredToolCall = `-- name: CompleteExpiredToolCall :one
+WITH locked_agent AS MATERIALIZED (
+  SELECT agent.project_id, agent.id
+  FROM agents agent
+  WHERE agent.project_id = $3
+    AND agent.id = $4
+  FOR UPDATE
+)
+UPDATE tool_calls call
+SET state = 'completed',
+    runtime_lock_id = NULL
+FROM locked_agent agent
+CROSS JOIN tool_call_read_projection projection
+WHERE call.agent_id = agent.id
+  AND call.id = $1
+  AND call.state = 'waiting'
+  AND call.type = 'built_in'
+  AND call.deadline_at IS NOT NULL
+  AND call.deadline_at <= statement_timestamp()
+  AND projection.project_id = agent.project_id
+  AND projection.agent_id = call.agent_id
+  AND projection.id = call.id
+RETURNING call.id, projection.project_id, call.agent_id,
+  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
+  call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  $2::text AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at
+`
+
+type CompleteExpiredToolCallParams struct {
+	ID        uuid.UUID
+	Outcome   string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type CompleteExpiredToolCallRow struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	SourceEventID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderCallID     string
+	Name               string
+	Input              json.RawMessage
+	Type               string
+	State              string
+	Outcome            string
+	RuntimeLockID      *uuid.UUID
+	ResultContentParts json.RawMessage
+	CreatedAt          time.Time
+}
+
+func (q *Queries) CompleteExpiredToolCall(ctx context.Context, arg CompleteExpiredToolCallParams) (CompleteExpiredToolCallRow, error) {
+	row := q.db.QueryRow(ctx, completeExpiredToolCall,
+		arg.ID,
+		arg.Outcome,
+		arg.ProjectID,
+		arg.AgentID,
+	)
+	var i CompleteExpiredToolCallRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.SourceEventID,
+		&i.ModelCallContextID,
+		&i.ProviderCallID,
+		&i.Name,
+		&i.Input,
+		&i.Type,
+		&i.State,
+		&i.Outcome,
+		&i.RuntimeLockID,
+		&i.ResultContentParts,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const completeMachineUnreachableToolCall = `-- name: CompleteMachineUnreachableToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
@@ -1377,6 +1462,56 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listExpiredToolCalls = `-- name: ListExpiredToolCalls :many
+SELECT projection.project_id, call.agent_id, call.id, call.name, call.deadline_at
+FROM tool_calls call
+JOIN tool_call_read_projection projection ON projection.agent_id = call.agent_id
+  AND projection.id = call.id
+WHERE call.state = 'waiting'
+  AND call.deadline_at IS NOT NULL
+  AND call.deadline_at <= statement_timestamp()
+ORDER BY call.deadline_at, call.id
+LIMIT $1::integer
+`
+
+type ListExpiredToolCallsParams struct {
+	RowLimit int32
+}
+
+type ListExpiredToolCallsRow struct {
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ID         uuid.UUID
+	Name       string
+	DeadlineAt *time.Time
+}
+
+func (q *Queries) ListExpiredToolCalls(ctx context.Context, arg ListExpiredToolCallsParams) ([]ListExpiredToolCallsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiredToolCalls, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredToolCallsRow{}
+	for rows.Next() {
+		var i ListExpiredToolCallsRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.AgentID,
+			&i.ID,
+			&i.Name,
+			&i.DeadlineAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
@@ -1965,9 +2100,9 @@ WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agents agent ON agent.id = runtime_lock.agent_id
-  WHERE agent.project_id = $5
-    AND runtime_lock.agent_id = $2
-    AND runtime_lock.id = $4
+  WHERE agent.project_id = $6
+    AND runtime_lock.agent_id = $3
+    AND runtime_lock.id = $5
     AND runtime_lock.cancel_requested_at IS NULL
     AND runtime_lock.lease_expires_at > statement_timestamp()
 )
@@ -1979,10 +2114,14 @@ SET state = CASE
     runtime_lock_id = CASE
       WHEN $1::boolean THEN runtime_lock.id
       ELSE NULL
+    END,
+    deadline_at = CASE
+      WHEN $1::boolean OR $2::integer IS NULL THEN NULL
+      ELSE statement_timestamp() + make_interval(secs => $2::integer)
     END
 FROM live_runtime runtime_lock
-WHERE call.agent_id = $2
-  AND call.id = $3
+WHERE call.agent_id = $3
+  AND call.id = $4
   AND call.state = 'ready'
   AND call.runtime_lock_id IS NULL
   AND call.type IN ('built_in', 'mcp')
@@ -1991,11 +2130,12 @@ WHERE call.agent_id = $2
     OR call.type = 'built_in'
   )
   AND runtime_lock.agent_id = call.agent_id
-  AND runtime_lock.id = $4
+  AND runtime_lock.id = $5
 `
 
 type StartToolCallParams struct {
 	RetainRuntimeOwnership bool
+	TimeoutSeconds         *int32
 	AgentID                uuid.UUID
 	ID                     uuid.UUID
 	RuntimeLockID          uuid.UUID
@@ -2005,6 +2145,7 @@ type StartToolCallParams struct {
 func (q *Queries) StartToolCall(ctx context.Context, arg StartToolCallParams) (int64, error) {
 	result, err := q.db.Exec(ctx, startToolCall,
 		arg.RetainRuntimeOwnership,
+		arg.TimeoutSeconds,
 		arg.AgentID,
 		arg.ID,
 		arg.RuntimeLockID,

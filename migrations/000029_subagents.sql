@@ -55,6 +55,13 @@ BEFORE UPDATE OF id, org_id, project_id, agent_profile_id, parent_agent_id, spaw
     subagent_handle, idempotency_key, created_at ON agents
 FOR EACH ROW EXECUTE FUNCTION agents_reject_identity_change();
 
+ALTER TABLE tool_calls
+    ADD COLUMN deadline_at timestamptz;
+
+CREATE INDEX tool_calls_waiting_deadline_idx
+    ON tool_calls(deadline_at)
+    WHERE state = 'waiting' AND deadline_at IS NOT NULL;
+
 CREATE TABLE agent_waits (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
@@ -63,7 +70,6 @@ CREATE TABLE agent_waits (
     tool_call_id uuid NOT NULL,
     mode text NOT NULL,
     state text NOT NULL,
-    deadline_at timestamptz,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     completed_at timestamptz,
@@ -75,10 +81,6 @@ CREATE TABLE agent_waits (
     UNIQUE (agent_id, tool_call_id),
     UNIQUE (project_id, id)
 );
-
-CREATE INDEX agent_waits_open_deadline_idx
-    ON agent_waits(deadline_at)
-    WHERE state = 'open' AND deadline_at IS NOT NULL;
 
 CREATE TABLE agent_wait_targets (
     wait_id uuid NOT NULL REFERENCES agent_waits(id),

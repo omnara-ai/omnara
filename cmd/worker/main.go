@@ -30,12 +30,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
 const (
 	integrationHTTPClientTimeout = 5 * time.Minute
 	cronTriggerFireInterval      = 30 * time.Second
+	toolCallExpiryInterval       = 5 * time.Second
 )
 
 func main() {
@@ -230,6 +232,11 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
+	toolCallExpiryDone := make(chan struct{})
+	go func() {
+		defer close(toolCallExpiryDone)
+		runToolCallExpiryLoop(ctx, log, store.Execution(), toolCallExpiryInterval)
+	}()
 
 	exitCode := 0
 	select {
@@ -256,6 +263,7 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
+	<-toolCallExpiryDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -316,6 +324,55 @@ func runCronTriggerFireTick(
 		}
 	}()
 	return service.FireDueTriggers(ctx)
+}
+
+func runToolCallExpiryLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	store *executionstore.Store,
+	interval time.Duration,
+) {
+	for {
+		expired, err := runToolCallExpiryTick(ctx, log, store)
+		if err != nil && ctx.Err() == nil {
+			log.Error("expire tool calls", "expired_count", expired, "error", err)
+		} else if expired > 0 {
+			log.Info("expired tool calls", "expired_count", expired)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if expired == executionstore.ToolCallExpiryBatchSize {
+			continue
+		}
+		timer := time.NewTimer(jitteredFireDelay(interval))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func runToolCallExpiryTick(
+	ctx context.Context,
+	log *slog.Logger,
+	store *executionstore.Store,
+) (expired int, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("tool call expiry tick panicked: %v", recovered)
+			log.Error(
+				"tool call expiry tick panicked",
+				"error", recovered,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	return store.ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
 }
 
 func jitteredFireDelay(interval time.Duration) time.Duration {
