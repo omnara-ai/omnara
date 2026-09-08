@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: pr-type-label-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   label:
@@ -30,10 +30,8 @@ jobs:
       - name: Apply type label from PR title
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -44,6 +42,11 @@ jobs:
             echo "Dependabot PR, skipping type label"
             exit 0
           fi
+
+          # Read current state so delayed runs and reruns use the latest title and labels.
+          pr=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title,labels)
+          PR_TITLE=$(jq -r '.title' <<< "$pr")
+          PR_LABELS=$(jq -c '[.labels[].name]' <<< "$pr")
 
           types="feat fix docs test refactor build chore ci perf security revert release style"
 
