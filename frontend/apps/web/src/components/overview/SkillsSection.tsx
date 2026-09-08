@@ -9,7 +9,11 @@ import { SkillDetails } from '@/components/skills/SkillDetails'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -47,6 +51,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const [open, setOpen] = useState(false)
 
   return (
@@ -55,14 +60,16 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
         <SearchHeader
           title="Skills"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search skills by name…"
-            />
+            showToolbar ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search skills by name…"
+              />
+            ) : undefined
           }
         >
           {canManage && (

@@ -1,6 +1,8 @@
 import { CREATED_RESOURCE_LIST_SORTS, RESOURCE_LIST_SORTS } from '@omnara/react'
 import { useEffect, useState } from 'react'
 
+import type { PaginationControls } from '@/hooks/use-paged-query'
+
 export interface SortOption<TSort extends string = string> {
   label: string
   value: TSort
@@ -48,6 +50,22 @@ export function useResourceList<TSort extends string>(defaultSort: TSort) {
     isFiltering: name !== undefined,
     queryKey: JSON.stringify([apiFilters, sort]),
   }
+}
+
+/** Preserve visibility during loading and errors; only successful results can hide controls. */
+export function useListToolbarVisibility(
+  list: { search: string; isFiltering: boolean },
+  pagination: Pick<PaginationControls, 'page' | 'canNext'>,
+  isSuccess: boolean,
+): boolean {
+  const [wasVisible, setWasVisible] = useState(false)
+  const visible =
+    list.isFiltering ||
+    list.search !== '' ||
+    (isSuccess ? pagination.page > 0 || pagination.canNext : wasVisible)
+
+  if (visible !== wasVisible) setWasVisible(visible)
+  return visible
 }
 
 export function nameGlob(value: string) {

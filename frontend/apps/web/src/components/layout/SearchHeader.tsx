@@ -1,50 +1,26 @@
 import type { ReactNode } from 'react'
 
-import { Input } from '@/components/ui/input'
-
 /**
- * Header for a table or list: title and count on top, then a toolbar row with
- * the search box on the left and an actions slot on the right. The caller
- * owns the query and filters its own data; omit the search props for lists
- * that don't search. Rich API lists pass a ResourceListToolbar instead.
+ * Header for a table or list: title on the left with the actions slot inline
+ * on the right, then an optional toolbar row (e.g. ResourceListToolbar)
+ * below. Omit the toolbar to collapse its row entirely.
  */
 export function SearchHeader({
   title,
   toolbar,
-  value,
-  onChange,
-  placeholder,
   children,
 }: {
   title: string
   toolbar?: ReactNode
-  value?: string
-  onChange?: (value: string) => void
-  placeholder?: string
   children?: ReactNode
 }) {
-  const showToolbar = toolbar !== undefined || onChange !== undefined || children !== undefined
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="type-title">{title}</h2>
-      {showToolbar && (
-        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          {toolbar}
-          {onChange && (
-            <Input
-              value={value}
-              placeholder={placeholder}
-              className="h-10 w-full max-w-sm sm:h-8"
-              onChange={(event) => {
-                onChange(event.target.value)
-              }}
-            />
-          )}
-          {children && (
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{children}</div>
-          )}
-        </div>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="type-title">{title}</h2>
+        {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+      </div>
+      {toolbar}
     </div>
   )
 }
