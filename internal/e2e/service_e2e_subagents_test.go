@@ -84,6 +84,14 @@ func failSubagentServiceE2ERequest(t *testing.T) fakeModelFailureFunc {
 	}
 }
 
+func assistantTextRecorded(ctx context.Context, env *serviceE2EEnvironment, projectUUID, agentUUID, text string) bool {
+	var count int
+	if err := env.db.QueryRow(ctx, assistantTextCountSQL, projectUUID, agentUUID, text).Scan(&count); err != nil {
+		return false
+	}
+	return count == 1
+}
+
 func waitForAssistantText(
 	t *testing.T,
 	ctx context.Context,
@@ -92,12 +100,25 @@ func waitForAssistantText(
 ) {
 	t.Helper()
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		var count int
-		if err := env.db.QueryRow(ctx, assistantTextCountSQL, projectUUID, agentUUID, text).Scan(&count); err != nil {
-			return false, err.Error()
-		}
-		return count == 1, "assistant output not recorded yet"
+		return assistantTextRecorded(ctx, env, projectUUID, agentUUID, text), "assistant output not recorded yet"
 	})
+}
+
+func blockUntilAssistantText(
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID, text string,
+) bool {
+	for {
+		if assistantTextRecorded(ctx, env, projectUUID, agentUUID, text) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
@@ -105,6 +126,7 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 	defer cancel()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-result")
 	fail := failSubagentServiceE2ERequest(t)
+	var parentIdentity atomic.Value
 	const childTask = "Summarize why the build failed."
 	const childText = "SUBAGENT_RESULT: the build failed because a test timed out"
 	const delegatedText = "parent delegated the summary and is waiting to hear back"
@@ -136,9 +158,14 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 				fail(w, http.StatusTeapot, "unexpected parent request %d: %s", request, mustJSONString(body))
 			}
 		},
-		func(w http.ResponseWriter, _ *http.Request, body map[string]any, request int64) {
+		func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64) {
 			if request != 1 {
 				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
+				return
+			}
+			identity, ok := parentIdentity.Load().([2]string)
+			if !ok || !blockUntilAssistantText(r.Context(), env, identity[0], identity[1], delegatedText) {
+				fail(w, http.StatusConflict, "child model call ran before the parent finished delegating")
 				return
 			}
 			requestText := mustJSONString(body)
@@ -167,6 +194,7 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 	)
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
+	parentIdentity.Store([2]string{projectUUID, agentUUID})
 
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, delegatedText)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, parentText)

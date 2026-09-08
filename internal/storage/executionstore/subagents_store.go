@@ -389,7 +389,7 @@ func notifyParentAgentTx(
 		Actor:            actor,
 		ContentBlocks:    contentBlocksJSON,
 		Metadata:         metadata,
-		DeliveryMode:     DeliveryModeQueued,
+		DeliveryMode:     DeliveryModeSteering,
 		IdempotencyScope: subagentMessageIdempotencyScope,
 		IdempotencyKey:   message.IdempotencyKey,
 	}, contentBlocks); err != nil {
