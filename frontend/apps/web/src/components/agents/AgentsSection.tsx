@@ -1,4 +1,9 @@
-import { type AgentListSort, useAgents, useArchiveAgent } from '@omnara/react'
+import {
+  type AgentListFilters,
+  type AgentListSort,
+  useAgents,
+  useArchiveAgent,
+} from '@omnara/react'
 import { type Agent, ApiError } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -53,11 +58,9 @@ export function AgentsTable({
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
   const [includeSubagents, setIncludeSubagents] = useState(false)
-  const filters = {
-    ...list.apiFilters,
-    ...(profileId ? { agent_profile_id: profileId } : {}),
-    ...(includeSubagents ? { include_subagents: true } : {}),
-  }
+  const filters: AgentListFilters = { ...list.apiFilters }
+  if (profileId) filters.agent_profile_id = profileId
+  if (includeSubagents) filters.include_subagents = true
   const query = useAgents(orgId, projectId, { filters, sort: list.sort })
   const paged = usePagedQuery(query, `${list.queryKey}:${includeSubagents ? 'all' : 'top'}`)
   const showToolbar =

@@ -34,9 +34,13 @@ const ProfileNameCombobox = createResourceCombobox<ProfileOption>({
   emptyMessage: 'No agent profiles found.',
 })
 
-const subagentTypeLabels: Record<SubagentType, string> = {
-  profile: 'Profile',
-  self: 'Copy of this agent',
+const subagentTypeOptions: { value: SubagentType; label: string }[] = [
+  { value: 'profile', label: 'Profile' },
+  { value: 'self', label: 'Copy of this agent' },
+]
+
+function subagentTypeLabel(type: SubagentType) {
+  return subagentTypeOptions.find((option) => option.value === type)?.label ?? type
 }
 
 export function AgentConfigSubagentsField({
@@ -159,16 +163,17 @@ function SubagentRow({
           <Select
             value={subagent.type}
             onValueChange={(value) => {
-              onChange({ type: value as SubagentType })
+              const option = subagentTypeOptions.find((candidate) => candidate.value === value)
+              if (option) onChange({ type: option.value })
             }}
           >
             <SelectTrigger id={fieldId('type')} className="w-full">
-              <SelectValue>{subagentTypeLabels[subagent.type]}</SelectValue>
+              <SelectValue>{subagentTypeLabel(subagent.type)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(subagentTypeLabels) as SubagentType[]).map((type) => (
-                <SelectItem key={type} value={type}>
-                  {subagentTypeLabels[type]}
+              {subagentTypeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
