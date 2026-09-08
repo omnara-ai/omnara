@@ -1377,47 +1377,6 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 	return items, nil
 }
 
-const listExpiredToolCalls = `-- name: ListExpiredToolCalls :many
-SELECT agent.project_id, call.agent_id, call.id
-FROM tool_calls call
-JOIN agents agent ON agent.id = call.agent_id
-WHERE call.state = 'waiting'
-  AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
-ORDER BY call.deadline_at, call.id
-LIMIT $1::integer
-`
-
-type ListExpiredToolCallsParams struct {
-	RowLimit int32
-}
-
-type ListExpiredToolCallsRow struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) ListExpiredToolCalls(ctx context.Context, arg ListExpiredToolCallsParams) ([]ListExpiredToolCallsRow, error) {
-	rows, err := q.db.Query(ctx, listExpiredToolCalls, arg.RowLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListExpiredToolCallsRow{}
-	for rows.Next() {
-		var i ListExpiredToolCallsRow
-		if err := rows.Scan(&i.ProjectID, &i.AgentID, &i.ID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
@@ -1613,29 +1572,6 @@ func (q *Queries) ListToolCallsForModelContext(ctx context.Context, arg ListTool
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockExpiredToolCall = `-- name: LockExpiredToolCall :one
-SELECT call.id
-FROM tool_calls call
-WHERE call.agent_id = $1
-  AND call.id = $2
-  AND call.state = 'waiting'
-  AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
-FOR UPDATE
-`
-
-type LockExpiredToolCallParams struct {
-	AgentID uuid.UUID
-	ID      uuid.UUID
-}
-
-func (q *Queries) LockExpiredToolCall(ctx context.Context, arg LockExpiredToolCallParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockExpiredToolCall, arg.AgentID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
 }
 
 const markToolCallAwaitingPermission = `-- name: MarkToolCallAwaitingPermission :one
@@ -2029,9 +1965,9 @@ WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agents agent ON agent.id = runtime_lock.agent_id
-  WHERE agent.project_id = $6
-    AND runtime_lock.agent_id = $3
-    AND runtime_lock.id = $5
+  WHERE agent.project_id = $5
+    AND runtime_lock.agent_id = $2
+    AND runtime_lock.id = $4
     AND runtime_lock.cancel_requested_at IS NULL
     AND runtime_lock.lease_expires_at > statement_timestamp()
 )
@@ -2043,14 +1979,10 @@ SET state = CASE
     runtime_lock_id = CASE
       WHEN $1::boolean THEN runtime_lock.id
       ELSE NULL
-    END,
-    deadline_at = CASE
-      WHEN $1::boolean OR $2::integer IS NULL THEN NULL
-      ELSE statement_timestamp() + make_interval(secs => $2::integer)
     END
 FROM live_runtime runtime_lock
-WHERE call.agent_id = $3
-  AND call.id = $4
+WHERE call.agent_id = $2
+  AND call.id = $3
   AND call.state = 'ready'
   AND call.runtime_lock_id IS NULL
   AND call.type IN ('built_in', 'mcp')
@@ -2059,12 +1991,11 @@ WHERE call.agent_id = $3
     OR call.type = 'built_in'
   )
   AND runtime_lock.agent_id = call.agent_id
-  AND runtime_lock.id = $5
+  AND runtime_lock.id = $4
 `
 
 type StartToolCallParams struct {
 	RetainRuntimeOwnership bool
-	TimeoutSeconds         *int32
 	AgentID                uuid.UUID
 	ID                     uuid.UUID
 	RuntimeLockID          uuid.UUID
@@ -2074,7 +2005,6 @@ type StartToolCallParams struct {
 func (q *Queries) StartToolCall(ctx context.Context, arg StartToolCallParams) (int64, error) {
 	result, err := q.db.Exec(ctx, startToolCall,
 		arg.RetainRuntimeOwnership,
-		arg.TimeoutSeconds,
 		arg.AgentID,
 		arg.ID,
 		arg.RuntimeLockID,

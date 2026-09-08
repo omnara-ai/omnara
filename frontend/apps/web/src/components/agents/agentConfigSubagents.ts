@@ -37,7 +37,7 @@ const subagentKeyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 
 const subagentToolNames = new Set([
   'spawn_agent',
-  'wait_agents',
+  'read_agent',
   'send_agent_message',
   'stop_agent',
   'list_agents',

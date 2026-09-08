@@ -240,10 +240,6 @@ SET state = CASE
     runtime_lock_id = CASE
       WHEN sqlc.arg(retain_runtime_ownership)::boolean THEN runtime_lock.id
       ELSE NULL
-    END,
-    deadline_at = CASE
-      WHEN sqlc.arg(retain_runtime_ownership)::boolean OR sqlc.narg(timeout_seconds)::integer IS NULL THEN NULL
-      ELSE statement_timestamp() + make_interval(secs => sqlc.narg(timeout_seconds)::integer)
     END
 FROM live_runtime runtime_lock
 WHERE call.agent_id = sqlc.arg(agent_id)
@@ -538,26 +534,6 @@ RETURNING call.id, projection.project_id, call.agent_id,
   sqlc.arg(outcome)::text AS outcome, call.runtime_lock_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
-
--- name: ListExpiredToolCalls :many
-SELECT agent.project_id, call.agent_id, call.id
-FROM tool_calls call
-JOIN agents agent ON agent.id = call.agent_id
-WHERE call.state = 'waiting'
-  AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
-ORDER BY call.deadline_at, call.id
-LIMIT sqlc.arg(row_limit)::integer;
-
--- name: LockExpiredToolCall :one
-SELECT call.id
-FROM tool_calls call
-WHERE call.agent_id = sqlc.arg(agent_id)
-  AND call.id = sqlc.arg(id)
-  AND call.state = 'waiting'
-  AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
-FOR UPDATE;
 
 -- name: CompleteCustomToolCall :one
 WITH locked_agent AS MATERIALIZED (

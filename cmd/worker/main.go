@@ -37,7 +37,7 @@ import (
 const (
 	integrationHTTPClientTimeout = 5 * time.Minute
 	cronTriggerFireInterval      = 30 * time.Second
-	toolCallExpiryInterval       = 5 * time.Second
+	subagentDeadlineInterval     = 10 * time.Second
 )
 
 func main() {
@@ -232,10 +232,10 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
-	toolCallExpiryDone := make(chan struct{})
+	subagentDeadlineDone := make(chan struct{})
 	go func() {
-		defer close(toolCallExpiryDone)
-		runToolCallExpiryLoop(ctx, log, store.Execution(), toolCallExpiryInterval)
+		defer close(subagentDeadlineDone)
+		runSubagentDeadlineLoop(ctx, log, store.Execution(), machinePoolManager, subagentDeadlineInterval)
 	}()
 
 	exitCode := 0
@@ -263,7 +263,7 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
-	<-toolCallExpiryDone
+	<-subagentDeadlineDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -333,39 +333,50 @@ func runCronTriggerFireTick(
 	return service.FireDueTriggers(ctx)
 }
 
-func runToolCallExpiryLoop(
+func runSubagentDeadlineLoop(
 	ctx context.Context,
 	log *slog.Logger,
 	store *executionstore.Store,
+	machinePoolManager *machinepool.Manager,
 	interval time.Duration,
 ) {
 	runBatchLoop(ctx, interval, func() bool {
-		expired, err := runToolCallExpiryTick(ctx, log, store)
+		stopped, err := runSubagentDeadlineTick(ctx, log, store, machinePoolManager)
 		if err != nil && ctx.Err() == nil {
-			log.Error("expire tool calls", "expired_count", expired, "error", err)
-		} else if expired > 0 {
-			log.Info("expired tool calls", "expired_count", expired)
+			log.Error("stop expired subagents", "stopped_count", stopped, "error", err)
+		} else if stopped > 0 {
+			log.Info("stopped expired subagents", "stopped_count", stopped)
 		}
-		return expired == executionstore.ToolCallExpiryBatchSize
+		return stopped == executionstore.SubagentExpiryBatchSize
 	})
 }
 
-func runToolCallExpiryTick(
+func runSubagentDeadlineTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *executionstore.Store,
-) (expired int, err error) {
+	machinePoolManager *machinepool.Manager,
+) (stopped int, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("tool call expiry tick panicked: %v", recovered)
+			err = fmt.Errorf("subagent deadline tick panicked: %v", recovered)
 			log.Error(
-				"tool call expiry tick panicked",
+				"subagent deadline tick panicked",
 				"error", recovered,
 				"stack", string(debug.Stack()),
 			)
 		}
 	}()
-	return store.ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
+	machines, stopped, err := store.StopExpiredSubagents(ctx, executionstore.SubagentExpiryBatchSize)
+	if err != nil {
+		return stopped, err
+	}
+	if len(machines) > 0 && machinePoolManager != nil {
+		if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
+			return stopped, fmt.Errorf("delete expired subagent machines: %w", err)
+		}
+	}
+	return stopped, nil
 }
 
 func jitteredFireDelay(interval time.Duration) time.Duration {

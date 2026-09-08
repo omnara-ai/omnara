@@ -4,18 +4,27 @@ ALTER TABLE agents
     ADD COLUMN parent_agent_id uuid,
     ADD COLUMN subagent_key text NOT NULL DEFAULT '',
     ADD COLUMN archive_after_idle_minutes integer,
+    ADD COLUMN deadline_at timestamptz,
     ADD CONSTRAINT agents_parent_agent_fk
         FOREIGN KEY (project_id, parent_agent_id) REFERENCES agents(project_id, id),
     ADD CONSTRAINT agents_subagent_key_check
         CHECK ((parent_agent_id IS NULL) = (subagent_key = '')),
     ADD CONSTRAINT agents_archive_after_idle_minutes_check
         CHECK (archive_after_idle_minutes IS NULL OR archive_after_idle_minutes >= 1),
+    ADD CONSTRAINT agents_deadline_requires_parent_check
+        CHECK (deadline_at IS NULL OR parent_agent_id IS NOT NULL),
     ADD CONSTRAINT agents_not_own_parent_check
         CHECK (parent_agent_id IS NULL OR parent_agent_id <> id);
 
 CREATE INDEX agents_parent_agent_idx
     ON agents(project_id, parent_agent_id, created_at, id)
     WHERE parent_agent_id IS NOT NULL;
+
+CREATE INDEX agents_subagent_deadline_idx
+    ON agents(deadline_at)
+    WHERE parent_agent_id IS NOT NULL
+      AND state = 'active'
+      AND deadline_at IS NOT NULL;
 
 CREATE INDEX agents_idle_archive_candidates_idx
     ON agents(created_at, id)
@@ -52,33 +61,3 @@ CREATE TRIGGER agents_identity_immutable
 BEFORE UPDATE OF id, org_id, project_id, agent_profile_id, parent_agent_id,
     subagent_key, idempotency_key, created_at ON agents
 FOR EACH ROW EXECUTE FUNCTION agents_reject_identity_change();
-
-ALTER TABLE tool_calls
-    ADD COLUMN deadline_at timestamptz;
-
-CREATE INDEX tool_calls_waiting_deadline_idx
-    ON tool_calls(deadline_at)
-    WHERE state = 'waiting' AND deadline_at IS NOT NULL;
-
-CREATE TABLE agent_wait_targets (
-    project_id uuid NOT NULL,
-    agent_id uuid NOT NULL,
-    tool_call_id uuid NOT NULL,
-    target_agent_id uuid NOT NULL,
-    state text NOT NULL,
-    result_kind text NOT NULL DEFAULT '',
-    result_text text NOT NULL DEFAULT '',
-    CHECK (state IN ('pending', 'done')),
-    CHECK (state = 'pending' OR result_kind <> ''),
-    CHECK (result_kind IN (
-        '', 'result', 'failed', 'waiting_on_parent', 'waiting_on_human', 'canceled', 'archived', 'timeout'
-    )),
-    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
-    FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id),
-    FOREIGN KEY (project_id, target_agent_id) REFERENCES agents(project_id, id),
-    PRIMARY KEY (agent_id, tool_call_id, target_agent_id)
-);
-
-CREATE INDEX agent_wait_targets_pending_idx
-    ON agent_wait_targets(project_id, target_agent_id)
-    WHERE state = 'pending';

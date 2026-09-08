@@ -19,15 +19,27 @@ import (
 )
 
 type spawnAgentRequest struct {
-	Agent string `json:"agent"`
-	Task  string `json:"task"`
-	Name  string `json:"name,omitempty"`
+	Agent          string `json:"agent"`
+	Task           string `json:"task"`
+	Name           string `json:"name,omitempty"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
 }
 
-type waitAgentsRequest struct {
-	Agents         []string `json:"agents,omitempty"`
-	Mode           string   `json:"mode,omitempty"`
-	TimeoutSeconds *int     `json:"timeout_seconds,omitempty"`
+type readAgentRequest struct {
+	Agent          string `json:"agent"`
+	AfterSequence  *int64 `json:"after_sequence,omitempty"`
+	BeforeSequence *int64 `json:"before_sequence,omitempty"`
+	Limit          *int   `json:"limit,omitempty"`
+}
+
+type subagentEventSummary struct {
+	Sequence   int64  `json:"sequence"`
+	Kind       string `json:"kind"`
+	CreatedAt  string `json:"created_at"`
+	Text       string `json:"text,omitempty"`
+	StopReason string `json:"stop_reason,omitempty"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	Outcome    string `json:"outcome,omitempty"`
 }
 
 type sendAgentMessageRequest struct {
@@ -68,32 +80,8 @@ func resolveSpawnAgentRequest(raw json.RawMessage) (spawnAgentRequest, error) {
 	if strings.TrimSpace(input.Task) == "" {
 		return spawnAgentRequest{}, errors.New("spawn_agent task is required")
 	}
-	return input, nil
-}
-
-func resolveWaitAgentsRequest(raw json.RawMessage) (waitAgentsRequest, error) {
-	var input waitAgentsRequest
-	if err := decodeStrictToolRequest("wait_agents", raw, &input); err != nil {
-		return waitAgentsRequest{}, err
-	}
-	if input.Mode == "" {
-		input.Mode = executionstore.AgentWaitModeAll
-	}
-	if input.Mode != executionstore.AgentWaitModeAll && input.Mode != executionstore.AgentWaitModeAny {
-		return waitAgentsRequest{}, fmt.Errorf(
-			"wait_agents mode must be %q or %q",
-			executionstore.AgentWaitModeAll,
-			executionstore.AgentWaitModeAny,
-		)
-	}
-	if input.TimeoutSeconds != nil && (*input.TimeoutSeconds < 1 || *input.TimeoutSeconds > 86400) {
-		return waitAgentsRequest{}, errors.New("wait_agents timeout_seconds must be between 1 and 86400")
-	}
-	for index, reference := range input.Agents {
-		input.Agents[index] = strings.TrimSpace(reference)
-		if input.Agents[index] == "" {
-			return waitAgentsRequest{}, errors.New("wait_agents agents entries cannot be empty")
-		}
+	if input.TimeoutSeconds != nil && (*input.TimeoutSeconds < 1 || *input.TimeoutSeconds > 604800) {
+		return spawnAgentRequest{}, errors.New("spawn_agent timeout_seconds must be between 1 and 604800")
 	}
 	return input, nil
 }
@@ -137,8 +125,29 @@ func validateSpawnAgentInput(raw json.RawMessage) error {
 	return err
 }
 
-func validateWaitAgentsInput(raw json.RawMessage) error {
-	_, err := resolveWaitAgentsRequest(raw)
+func resolveReadAgentRequest(raw json.RawMessage) (readAgentRequest, error) {
+	var input readAgentRequest
+	if err := decodeStrictToolRequest("read_agent", raw, &input); err != nil {
+		return readAgentRequest{}, err
+	}
+	input.Agent = strings.TrimSpace(input.Agent)
+	if input.Agent == "" {
+		return readAgentRequest{}, errors.New("read_agent agent is required")
+	}
+	if input.AfterSequence != nil && *input.AfterSequence < 0 {
+		return readAgentRequest{}, errors.New("read_agent after_sequence must be at least 0")
+	}
+	if input.BeforeSequence != nil && *input.BeforeSequence < 0 {
+		return readAgentRequest{}, errors.New("read_agent before_sequence must be at least 0")
+	}
+	if input.Limit != nil && (*input.Limit < 1 || *input.Limit > 100) {
+		return readAgentRequest{}, errors.New("read_agent limit must be between 1 and 100")
+	}
+	return input, nil
+}
+
+func validateReadAgentInput(raw json.RawMessage) error {
+	_, err := resolveReadAgentRequest(raw)
 	return err
 }
 
@@ -279,6 +288,7 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 			MaxSubagents:            contract.MaxSubagents,
 			ShareParentMachines:     subagent.Type == agentconfig.SubagentTypeSelf,
 			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
+			TimeoutSeconds:          input.TimeoutSeconds,
 		},
 	})
 	if err != nil {
@@ -306,8 +316,8 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		"name":     launch.Agent.Name,
 		"key":      input.Agent,
 		"state":    executionstore.SubagentStateRunning,
-		"message": "Subagent started. Its final answer will arrive as a message from it, " +
-			"or call wait_agents to block until it finishes.",
+		"message": "Subagent started. Its final answer will arrive as a message from it; " +
+			"use read_agent to check its progress.",
 	})
 	if err != nil {
 		return nil, err
@@ -357,53 +367,94 @@ func (e Executor) subagentBaseConfig(
 	}
 }
 
-func resolveSubagentTargets(
-	ctx context.Context,
-	reader *executionstore.ToolCallReader,
-	references []string,
-) ([]storage.ID, error) {
-	ids := make([]storage.ID, 0, len(references))
-	seen := make(map[storage.ID]struct{}, len(references))
-	for _, reference := range references {
-		status, err := reader.ResolveSubagentReference(ctx, reference)
-		if err != nil {
-			return nil, err
-		}
-		if _, duplicate := seen[status.AgentID]; duplicate {
-			continue
-		}
-		seen[status.AgentID] = struct{}{}
-		ids = append(ids, status.AgentID)
-	}
-	return ids, nil
-}
-
-func waitAgents(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
-	input, err := resolveWaitAgentsRequest(call.Call.Input)
+func readAgent(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
+	input, err := resolveReadAgentRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
-	targets, err := resolveSubagentTargets(ctx, call.Reader, input.Agents)
-	if err != nil {
-		return failSubagentTransactionForStorageError("wait_agents_failed", err)
+	limit := int32(20)
+	if input.Limit != nil {
+		limit = int32(*input.Limit)
 	}
-	command := executionstore.CreateAgentWaitForToolCall(
-		executionstore.CreateAgentWaitInput{
-			TargetAgentIDs: targets,
-			Mode:           input.Mode,
-			TimeoutSeconds: input.TimeoutSeconds,
-		},
-		func(outcome executionstore.AgentWaitOutcome) (executionstore.ToolCallCompletionInput, error) {
-			content, err := structuredToolResultContent(outcome)
-			if err != nil {
-				return executionstore.ToolCallCompletionInput{}, err
-			}
-			return successfulToolCallCompletion(content)
-		},
-	)
-	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
-		return failSubagentTransactionForStorageError("wait_agents_failed", err)
-	}), nil
+	afterSequence := int64(0)
+	if input.AfterSequence != nil {
+		afterSequence = *input.AfterSequence
+	}
+	beforeSequence := int64(-1)
+	if input.BeforeSequence != nil && input.AfterSequence == nil {
+		beforeSequence = *input.BeforeSequence
+	}
+	status, events, err := call.Reader.ReadSubagentEvents(ctx, input.Agent, afterSequence, beforeSequence, limit)
+	if err != nil {
+		return failSubagentTransactionForStorageError("read_agent_failed", err)
+	}
+	summary, err := subagentSummaryFromStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]subagentEventSummary, 0, len(events))
+	for _, event := range events {
+		entries = append(entries, subagentEventSummaryFromRecord(event))
+	}
+	content, err := structuredToolResultContent(map[string]any{
+		"agent":  summary,
+		"events": entries,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return completeInTransaction(content), nil
+}
+
+func subagentEventSummaryFromRecord(event executionstore.AgentEventReadRecord) subagentEventSummary {
+	entry := subagentEventSummary{
+		Sequence:   event.Sequence,
+		Kind:       event.EventKind,
+		CreatedAt:  event.CreatedAt.UTC().Format(time.RFC3339),
+		Text:       agentEventText(event.ContentBlocks),
+		StopReason: string(event.ModelStopReason),
+		Outcome:    string(event.ToolOutcome),
+	}
+	if event.ToolCallID != storage.NilID {
+		if toolCallID, err := publicid.Encode(publicid.KindToolCall, event.ToolCallID); err == nil {
+			entry.ToolCallID = toolCallID
+		}
+	}
+	if event.CheckpointSummary != "" && entry.Text == "" {
+		entry.Text = event.CheckpointSummary
+	}
+	return entry
+}
+
+func agentEventText(contentBlocks json.RawMessage) string {
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(contentBlocks, &blocks); err != nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, block := range blocks {
+		var piece string
+		switch block.Type {
+		case "text", "error":
+			piece = block.Text
+		case "tool_call":
+			piece = "[tool_call " + block.Name + "]"
+		default:
+			continue
+		}
+		if piece == "" {
+			continue
+		}
+		if out.Len() > 0 {
+			out.WriteString("\n")
+		}
+		out.WriteString(piece)
+	}
+	return out.String()
 }
 
 func sendAgentMessage(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {

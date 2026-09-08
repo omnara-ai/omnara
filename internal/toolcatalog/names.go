@@ -25,7 +25,7 @@ const (
 	ToolNameDownloadArtifact       = "download_artifact"
 	ToolNameSkill                  = "skill"
 	ToolNameSpawnAgent             = "spawn_agent"
-	ToolNameWaitAgents             = "wait_agents"
+	ToolNameReadAgent              = "read_agent"
 	ToolNameSendAgentMessage       = "send_agent_message"
 	ToolNameStopAgent              = "stop_agent"
 	ToolNameListAgents             = "list_agents"
@@ -34,7 +34,7 @@ const (
 func SubagentToolNames() []string {
 	return []string{
 		ToolNameSpawnAgent,
-		ToolNameWaitAgents,
+		ToolNameReadAgent,
 		ToolNameSendAgentMessage,
 		ToolNameStopAgent,
 		ToolNameListAgents,

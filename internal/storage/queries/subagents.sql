@@ -36,12 +36,7 @@ SELECT agent.id,
            WHERE wake.agent_id = agent.id
          )
          OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-       )::boolean AS is_running,
-       EXISTS (
-         SELECT 1
-         FROM model_outputs output
-         WHERE output.agent_id = agent.id
-       ) AS has_model_output
+       )::boolean AS is_running
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
@@ -107,23 +102,6 @@ SELECT descendants.id
 FROM descendants
 ORDER BY descendants.depth, descendants.id;
 
--- name: LatestModelOutputTextForAgent :one
-WITH latest AS (
-  SELECT output.id
-  FROM model_outputs output
-  JOIN agents agent ON agent.id = output.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND output.agent_id = sqlc.arg(agent_id)
-    AND output.stop_reason <> 'tool_use'
-  ORDER BY output.created_at DESC, output.id DESC
-  LIMIT 1
-)
-SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text
-FROM latest
-LEFT JOIN content_blocks block ON block.owner_model_output_id = latest.id
-  AND block.owner_kind = 'model_output'
-  AND block.block_kind = 'text';
-
 -- name: ListParentMachineBindingsForSharing :many
 SELECT pmgrant.id AS project_machine_grant_id,
        binding.cwd,
@@ -141,17 +119,6 @@ WHERE binding.project_id = sqlc.arg(project_id)
   AND binding.agent_id = sqlc.arg(agent_id)
   AND binding.state = 'attached'
 ORDER BY binding.created_at, binding.id;
-
--- name: GetOpenInteractionForAgentByKind :one
-SELECT interaction.id, interaction.tool_call_id, interaction.request
-FROM agent_interactions interaction
-JOIN agents agent ON agent.id = interaction.agent_id
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND interaction.agent_id = sqlc.arg(agent_id)
-  AND interaction.interaction_kind = sqlc.arg(interaction_kind)
-  AND interaction.state = 'open'
-ORDER BY interaction.created_at DESC, interaction.id DESC
-LIMIT 1;
 
 -- name: ListAgentInteractionsForAgents :many
 SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
@@ -172,62 +139,15 @@ WHERE interaction.project_id = sqlc.arg(project_id)
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: InsertAgentWaitTarget :exec
-INSERT INTO agent_wait_targets(project_id, agent_id, tool_call_id, target_agent_id, state)
-VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(tool_call_id), sqlc.arg(target_agent_id), 'pending');
-
--- name: CountAgentWaitTargets :one
-SELECT count(*)::integer
-FROM agent_wait_targets
-WHERE agent_id = sqlc.arg(agent_id)
-  AND tool_call_id = sqlc.arg(tool_call_id);
-
--- name: ListOpenAgentWaitsForTarget :many
-SELECT target.project_id, target.agent_id, target.tool_call_id,
-       coalesce(call.input->>'mode', 'all')::text AS mode
-FROM agent_wait_targets target
-JOIN tool_calls call ON call.agent_id = target.agent_id
-  AND call.id = target.tool_call_id
-JOIN agents waiting_agent ON waiting_agent.project_id = target.project_id
-  AND waiting_agent.id = target.agent_id
-WHERE target.project_id = sqlc.arg(project_id)
-  AND target.target_agent_id = sqlc.arg(target_agent_id)
-  AND target.state = 'pending'
-  AND call.state = 'waiting'
-  AND waiting_agent.state <> 'archived'
-ORDER BY call.created_at, call.id;
-
--- name: MarkAgentWaitTargetDone :execrows
-UPDATE agent_wait_targets
-SET state = 'done',
-    result_kind = sqlc.arg(result_kind),
-    result_text = sqlc.arg(result_text)
-WHERE agent_id = sqlc.arg(agent_id)
-  AND tool_call_id = sqlc.arg(tool_call_id)
-  AND target_agent_id = sqlc.arg(target_agent_id)
-  AND state = 'pending';
-
--- name: CountPendingAgentWaitTargets :one
-SELECT count(*)::integer
-FROM agent_wait_targets
-WHERE agent_id = sqlc.arg(agent_id)
-  AND tool_call_id = sqlc.arg(tool_call_id)
-  AND state = 'pending';
-
--- name: ListAgentWaitTargets :many
-SELECT target.target_agent_id,
-       target.state,
-       target.result_kind,
-       target.result_text,
-       agent.name,
-       agent.subagent_key,
-       agent.state AS agent_state
-FROM agent_wait_targets target
-JOIN agents agent ON agent.project_id = target.project_id
-  AND agent.id = target.target_agent_id
-WHERE target.agent_id = sqlc.arg(agent_id)
-  AND target.tool_call_id = sqlc.arg(tool_call_id)
-ORDER BY agent.created_at, agent.id;
+-- name: ListExpiredSubagents :many
+SELECT agent.project_id, agent.id
+FROM agents agent
+WHERE agent.parent_agent_id IS NOT NULL
+  AND agent.state = 'active'
+  AND agent.deadline_at IS NOT NULL
+  AND agent.deadline_at <= coalesce(sqlc.narg(as_of)::timestamptz, statement_timestamp())
+ORDER BY agent.deadline_at, agent.id
+LIMIT sqlc.arg(row_limit)::integer;
 
 -- name: ListIdleSubagentsForArchive :many
 WITH RECURSIVE candidate AS (

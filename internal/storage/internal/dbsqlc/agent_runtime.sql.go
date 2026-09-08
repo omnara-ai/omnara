@@ -266,13 +266,17 @@ WITH inserted AS (
     INSERT INTO agents(
         org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
-        archive_after_idle_minutes, created_at, updated_at
+        archive_after_idle_minutes, deadline_at, created_at, updated_at
     )
     SELECT
         $1, $2, 'active', $3,
         $4, $5, $6,
         $7, $8,
         $9,
+        CASE
+          WHEN $10::integer IS NULL THEN NULL
+          ELSE transaction_timestamp() + make_interval(secs => $10::integer)
+        END,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
@@ -315,6 +319,7 @@ type InsertAgentParams struct {
 	ParentAgentID           *uuid.UUID
 	SubagentKey             string
 	ArchiveAfterIdleMinutes *int32
+	TimeoutSeconds          *int32
 }
 
 type InsertAgentRow struct {
@@ -350,6 +355,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		arg.ParentAgentID,
 		arg.SubagentKey,
 		arg.ArchiveAfterIdleMinutes,
+		arg.TimeoutSeconds,
 	)
 	var i InsertAgentRow
 	err := row.Scan(

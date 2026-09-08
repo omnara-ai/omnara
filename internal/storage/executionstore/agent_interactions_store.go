@@ -129,9 +129,6 @@ func (s *Store) CreatePermissionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("load created agent interaction: %w", err)
 	}
 	record := agentInteractionRecordFromSQLC(row)
-	if err := handleSubagentPermissionTx(ctx, txNotifications, tx, qtx, record); err != nil {
-		return AgentInteractionRecord{}, err
-	}
 	if err := markToolCallAwaitingPermissionTx(
 		ctx,
 		txNotifications,

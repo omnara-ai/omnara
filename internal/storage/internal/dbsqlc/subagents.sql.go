@@ -78,45 +78,6 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
-const countAgentWaitTargets = `-- name: CountAgentWaitTargets :one
-SELECT count(*)::integer
-FROM agent_wait_targets
-WHERE agent_id = $1
-  AND tool_call_id = $2
-`
-
-type CountAgentWaitTargetsParams struct {
-	AgentID    uuid.UUID
-	ToolCallID uuid.UUID
-}
-
-func (q *Queries) CountAgentWaitTargets(ctx context.Context, arg CountAgentWaitTargetsParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countAgentWaitTargets, arg.AgentID, arg.ToolCallID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const countPendingAgentWaitTargets = `-- name: CountPendingAgentWaitTargets :one
-SELECT count(*)::integer
-FROM agent_wait_targets
-WHERE agent_id = $1
-  AND tool_call_id = $2
-  AND state = 'pending'
-`
-
-type CountPendingAgentWaitTargetsParams struct {
-	AgentID    uuid.UUID
-	ToolCallID uuid.UUID
-}
-
-func (q *Queries) CountPendingAgentWaitTargets(ctx context.Context, arg CountPendingAgentWaitTargetsParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countPendingAgentWaitTargets, arg.AgentID, arg.ToolCallID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const getAgentParentID = `-- name: GetAgentParentID :one
 SELECT parent_agent_id
 FROM agents
@@ -134,89 +95,6 @@ func (q *Queries) GetAgentParentID(ctx context.Context, arg GetAgentParentIDPara
 	var parent_agent_id *uuid.UUID
 	err := row.Scan(&parent_agent_id)
 	return parent_agent_id, err
-}
-
-const getOpenInteractionForAgentByKind = `-- name: GetOpenInteractionForAgentByKind :one
-SELECT interaction.id, interaction.tool_call_id, interaction.request
-FROM agent_interactions interaction
-JOIN agents agent ON agent.id = interaction.agent_id
-WHERE agent.project_id = $1
-  AND interaction.agent_id = $2
-  AND interaction.interaction_kind = $3
-  AND interaction.state = 'open'
-ORDER BY interaction.created_at DESC, interaction.id DESC
-LIMIT 1
-`
-
-type GetOpenInteractionForAgentByKindParams struct {
-	ProjectID       uuid.UUID
-	AgentID         uuid.UUID
-	InteractionKind string
-}
-
-type GetOpenInteractionForAgentByKindRow struct {
-	ID         uuid.UUID
-	ToolCallID uuid.UUID
-	Request    json.RawMessage
-}
-
-func (q *Queries) GetOpenInteractionForAgentByKind(ctx context.Context, arg GetOpenInteractionForAgentByKindParams) (GetOpenInteractionForAgentByKindRow, error) {
-	row := q.db.QueryRow(ctx, getOpenInteractionForAgentByKind, arg.ProjectID, arg.AgentID, arg.InteractionKind)
-	var i GetOpenInteractionForAgentByKindRow
-	err := row.Scan(&i.ID, &i.ToolCallID, &i.Request)
-	return i, err
-}
-
-const insertAgentWaitTarget = `-- name: InsertAgentWaitTarget :exec
-INSERT INTO agent_wait_targets(project_id, agent_id, tool_call_id, target_agent_id, state)
-VALUES ($1, $2, $3, $4, 'pending')
-`
-
-type InsertAgentWaitTargetParams struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	ToolCallID    uuid.UUID
-	TargetAgentID uuid.UUID
-}
-
-func (q *Queries) InsertAgentWaitTarget(ctx context.Context, arg InsertAgentWaitTargetParams) error {
-	_, err := q.db.Exec(ctx, insertAgentWaitTarget,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.ToolCallID,
-		arg.TargetAgentID,
-	)
-	return err
-}
-
-const latestModelOutputTextForAgent = `-- name: LatestModelOutputTextForAgent :one
-WITH latest AS (
-  SELECT output.id
-  FROM model_outputs output
-  JOIN agents agent ON agent.id = output.agent_id
-  WHERE agent.project_id = $1
-    AND output.agent_id = $2
-    AND output.stop_reason <> 'tool_use'
-  ORDER BY output.created_at DESC, output.id DESC
-  LIMIT 1
-)
-SELECT coalesce(string_agg(block.text_content, E'\n' ORDER BY block.ordinal), '')::text AS result_text
-FROM latest
-LEFT JOIN content_blocks block ON block.owner_model_output_id = latest.id
-  AND block.owner_kind = 'model_output'
-  AND block.block_kind = 'text'
-`
-
-type LatestModelOutputTextForAgentParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) LatestModelOutputTextForAgent(ctx context.Context, arg LatestModelOutputTextForAgentParams) (string, error) {
-	row := q.db.QueryRow(ctx, latestModelOutputTextForAgent, arg.ProjectID, arg.AgentID)
-	var result_text string
-	err := row.Scan(&result_text)
-	return result_text, err
 }
 
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
@@ -388,65 +266,6 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 	return items, nil
 }
 
-const listAgentWaitTargets = `-- name: ListAgentWaitTargets :many
-SELECT target.target_agent_id,
-       target.state,
-       target.result_kind,
-       target.result_text,
-       agent.name,
-       agent.subagent_key,
-       agent.state AS agent_state
-FROM agent_wait_targets target
-JOIN agents agent ON agent.project_id = target.project_id
-  AND agent.id = target.target_agent_id
-WHERE target.agent_id = $1
-  AND target.tool_call_id = $2
-ORDER BY agent.created_at, agent.id
-`
-
-type ListAgentWaitTargetsParams struct {
-	AgentID    uuid.UUID
-	ToolCallID uuid.UUID
-}
-
-type ListAgentWaitTargetsRow struct {
-	TargetAgentID uuid.UUID
-	State         string
-	ResultKind    string
-	ResultText    string
-	Name          string
-	SubagentKey   string
-	AgentState    string
-}
-
-func (q *Queries) ListAgentWaitTargets(ctx context.Context, arg ListAgentWaitTargetsParams) ([]ListAgentWaitTargetsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentWaitTargets, arg.AgentID, arg.ToolCallID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListAgentWaitTargetsRow{}
-	for rows.Next() {
-		var i ListAgentWaitTargetsRow
-		if err := rows.Scan(
-			&i.TargetAgentID,
-			&i.State,
-			&i.ResultKind,
-			&i.ResultText,
-			&i.Name,
-			&i.SubagentKey,
-			&i.AgentState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listChildAgents = `-- name: ListChildAgents :many
 SELECT agent.id,
        agent.name,
@@ -485,12 +304,7 @@ SELECT agent.id,
            WHERE wake.agent_id = agent.id
          )
          OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-       )::boolean AS is_running,
-       EXISTS (
-         SELECT 1
-         FROM model_outputs output
-         WHERE output.agent_id = agent.id
-       ) AS has_model_output
+       )::boolean AS is_running
 FROM agents agent
 WHERE agent.project_id = $1
   AND agent.parent_agent_id = $2
@@ -517,7 +331,6 @@ type ListChildAgentsRow struct {
 	HasOpenQuestion   bool
 	HasOpenPermission bool
 	IsRunning         bool
-	HasModelOutput    bool
 }
 
 func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams) ([]ListChildAgentsRow, error) {
@@ -544,8 +357,48 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.HasOpenQuestion,
 			&i.HasOpenPermission,
 			&i.IsRunning,
-			&i.HasModelOutput,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpiredSubagents = `-- name: ListExpiredSubagents :many
+SELECT agent.project_id, agent.id
+FROM agents agent
+WHERE agent.parent_agent_id IS NOT NULL
+  AND agent.state = 'active'
+  AND agent.deadline_at IS NOT NULL
+  AND agent.deadline_at <= coalesce($1::timestamptz, statement_timestamp())
+ORDER BY agent.deadline_at, agent.id
+LIMIT $2::integer
+`
+
+type ListExpiredSubagentsParams struct {
+	AsOf     *time.Time
+	RowLimit int32
+}
+
+type ListExpiredSubagentsRow struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) ListExpiredSubagents(ctx context.Context, arg ListExpiredSubagentsParams) ([]ListExpiredSubagentsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiredSubagents, arg.AsOf, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiredSubagentsRow{}
+	for rows.Next() {
+		var i ListExpiredSubagentsRow
+		if err := rows.Scan(&i.ProjectID, &i.ID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -641,59 +494,6 @@ func (q *Queries) ListIdleSubagentsForArchive(ctx context.Context, arg ListIdleS
 	return items, nil
 }
 
-const listOpenAgentWaitsForTarget = `-- name: ListOpenAgentWaitsForTarget :many
-SELECT target.project_id, target.agent_id, target.tool_call_id,
-       coalesce(call.input->>'mode', 'all')::text AS mode
-FROM agent_wait_targets target
-JOIN tool_calls call ON call.agent_id = target.agent_id
-  AND call.id = target.tool_call_id
-JOIN agents waiting_agent ON waiting_agent.project_id = target.project_id
-  AND waiting_agent.id = target.agent_id
-WHERE target.project_id = $1
-  AND target.target_agent_id = $2
-  AND target.state = 'pending'
-  AND call.state = 'waiting'
-  AND waiting_agent.state <> 'archived'
-ORDER BY call.created_at, call.id
-`
-
-type ListOpenAgentWaitsForTargetParams struct {
-	ProjectID     uuid.UUID
-	TargetAgentID uuid.UUID
-}
-
-type ListOpenAgentWaitsForTargetRow struct {
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-	ToolCallID uuid.UUID
-	Mode       string
-}
-
-func (q *Queries) ListOpenAgentWaitsForTarget(ctx context.Context, arg ListOpenAgentWaitsForTargetParams) ([]ListOpenAgentWaitsForTargetRow, error) {
-	rows, err := q.db.Query(ctx, listOpenAgentWaitsForTarget, arg.ProjectID, arg.TargetAgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListOpenAgentWaitsForTargetRow{}
-	for rows.Next() {
-		var i ListOpenAgentWaitsForTargetRow
-		if err := rows.Scan(
-			&i.ProjectID,
-			&i.AgentID,
-			&i.ToolCallID,
-			&i.Mode,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listParentMachineBindingsForSharing = `-- name: ListParentMachineBindingsForSharing :many
 SELECT pmgrant.id AS project_machine_grant_id,
        binding.cwd,
@@ -750,37 +550,4 @@ func (q *Queries) ListParentMachineBindingsForSharing(ctx context.Context, arg L
 		return nil, err
 	}
 	return items, nil
-}
-
-const markAgentWaitTargetDone = `-- name: MarkAgentWaitTargetDone :execrows
-UPDATE agent_wait_targets
-SET state = 'done',
-    result_kind = $1,
-    result_text = $2
-WHERE agent_id = $3
-  AND tool_call_id = $4
-  AND target_agent_id = $5
-  AND state = 'pending'
-`
-
-type MarkAgentWaitTargetDoneParams struct {
-	ResultKind    string
-	ResultText    string
-	AgentID       uuid.UUID
-	ToolCallID    uuid.UUID
-	TargetAgentID uuid.UUID
-}
-
-func (q *Queries) MarkAgentWaitTargetDone(ctx context.Context, arg MarkAgentWaitTargetDoneParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markAgentWaitTargetDone,
-		arg.ResultKind,
-		arg.ResultText,
-		arg.AgentID,
-		arg.ToolCallID,
-		arg.TargetAgentID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

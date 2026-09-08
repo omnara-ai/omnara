@@ -89,7 +89,7 @@ max_subagents: 5
 	}
 	for _, name := range []string{
 		toolcatalog.ToolNameSpawnAgent,
-		toolcatalog.ToolNameWaitAgents,
+		toolcatalog.ToolNameReadAgent,
 		toolcatalog.ToolNameSendAgentMessage,
 		toolcatalog.ToolNameListAgents,
 		"run_command",
@@ -150,7 +150,7 @@ tools:
 			name: "custom tool named like a subagent tool",
 			extra: `
 tools:
-  wait_agents:
+  list_agents:
     type: custom
     description: mine
     input_schema:
