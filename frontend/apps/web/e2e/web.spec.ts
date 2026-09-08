@@ -358,7 +358,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
   })
   await configuredModelPicker.fill(ungrantedModelName)
   await page.getByRole('option', { name: ungrantedModelName }).click()
-  await configuredModelPicker.press('Escape')
+  await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toBeVisible()
   await dialog.getByRole('button', { name: `Clear ${providerConfig}` }).click()
   await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Grant models', exact: true })).toBeDisabled()

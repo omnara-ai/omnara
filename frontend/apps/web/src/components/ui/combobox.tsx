@@ -114,7 +114,7 @@ const ComboboxValue = ComboboxPrimitive.Value
 function ComboboxContent({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.Popup>) {
   const dialogContainer = useContext(DialogContainerContext)
   return (
-    <ComboboxPrimitive.Portal container={dialogContainer}>
+    <ComboboxPrimitive.Portal container={dialogContainer ?? undefined} className="contents">
       <ComboboxPrimitive.Positioner
         className="pointer-events-auto isolate z-50"
         sideOffset={4}
