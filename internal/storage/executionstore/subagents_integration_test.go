@@ -227,14 +227,18 @@ func TestSubagentArchiveNotifiesParent(t *testing.T) {
 		t.Fatalf("archive subagent: %v", err)
 	}
 	var metadata json.RawMessage
+	var deliveryMode string
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT metadata FROM agent_inputs
+		`SELECT metadata, delivery_mode FROM agent_inputs
 		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
 		testProjectID,
 		parent.ID,
-	).Scan(&metadata); err != nil {
+	).Scan(&metadata, &deliveryMode); err != nil {
 		t.Fatalf("load parent notification input: %v", err)
+	}
+	if deliveryMode != string(executionstore.DeliveryModeSteering) {
+		t.Fatalf("parent notification delivery mode = %q, want steering", deliveryMode)
 	}
 	var decodedMetadata struct {
 		SubagentMessage struct {
