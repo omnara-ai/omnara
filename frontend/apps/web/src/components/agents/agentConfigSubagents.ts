@@ -3,6 +3,7 @@ import {
   type SubagentEntry,
   type SubagentModelEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import { optionalPositiveInt32Valid } from '@/components/machines/machineOverrides'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export type SubagentType = 'profile' | 'self'
@@ -32,13 +33,7 @@ export function newSubagent(): BasicSubagent {
   }
 }
 
-const positiveIntegerPattern = /^[1-9][0-9]*$/
-
-export function positiveCountValid(value: string) {
-  return value === '' || positiveIntegerPattern.test(value)
-}
-
-export const subagentKeyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
+const subagentKeyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 
 const subagentToolNames = new Set([
   'spawn_agent',
@@ -57,16 +52,16 @@ export function subagentKeyError(key: string): string | undefined {
   return undefined
 }
 
-export function subagentValid(subagent: BasicSubagent) {
+function subagentValid(subagent: BasicSubagent) {
   return (
     subagentKeyError(subagent.key) === undefined &&
     (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&
-    positiveCountValid(subagent.maxConcurrent) &&
-    positiveCountValid(subagent.archiveAfterIdleMinutes)
+    optionalPositiveInt32Valid(subagent.maxConcurrent) &&
+    optionalPositiveInt32Valid(subagent.archiveAfterIdleMinutes)
   )
 }
 
-export function subagentKeysUnique(subagents: BasicSubagent[]) {
+function subagentKeysUnique(subagents: BasicSubagent[]) {
   const keys = subagents.map((subagent) => subagent.key)
   return new Set(keys).size === keys.length
 }
@@ -75,7 +70,7 @@ export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string)
   return (
     subagentKeysUnique(subagents) &&
     subagents.every(subagentValid) &&
-    positiveCountValid(maxSubagents) &&
+    optionalPositiveInt32Valid(maxSubagents) &&
     (maxSubagents === '' || subagents.length > 0)
   )
 }

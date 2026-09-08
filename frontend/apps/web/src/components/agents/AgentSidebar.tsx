@@ -156,7 +156,7 @@ function AgentMachinesGroup({ orgId, machineIds }: { orgId: string; machineIds: 
   )
 }
 
-export function AgentSubagentsGroup({
+function AgentSubagentsGroup({
   projectId,
   subagents,
 }: {

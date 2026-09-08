@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -40,14 +39,19 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	if params.State != nil {
 		state = executionstore.AgentInteractionState(*params.State)
 	}
+	agentIDs := []storage.ID{agentID}
 	if params.IncludeSubagents != nil && *params.IncludeSubagents {
-		return s.listAgentTreeInteractions(ctx, orgID, projectID, agentID, state, limit, after)
+		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, projectID, agentID)
+		if err != nil {
+			return nil, apierror.ProjectScoped(err)
+		}
+		agentIDs = append(agentIDs, descendants...)
 	}
-	page, err := s.server.store.Execution().ListAgentInteractionsForAgent(
+	page, err := s.server.store.Execution().ListAgentInteractions(
 		ctx,
-		executionstore.ListAgentInteractionsForAgentInput{
+		executionstore.ListAgentInteractionsInput{
 			ProjectID: projectID,
-			AgentID:   agentID,
+			AgentIDs:  agentIDs,
 			State:     state,
 			Limit:     limit,
 			After:     after,
@@ -58,13 +62,17 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	}
 	data := make([]openapi.AgentInteraction, 0, len(page.Interactions))
 	var last executionstore.AgentInteractionRecord
-	for _, record := range page.Interactions {
-		response, err := agentInteractionResponseFromRecord(orgID, record)
+	for _, item := range page.Interactions {
+		response, err := agentInteractionResponseFromRecord(orgID, item.AgentInteractionRecord)
 		if err != nil {
 			return nil, err
 		}
+		if item.AgentID != agentID {
+			response.AgentName = &item.AgentName
+			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
+		}
 		data = append(data, response)
-		last = record
+		last = item.AgentInteractionRecord
 	}
 	nextCursor, err := encodeNextCursor(
 		page.HasMore,
@@ -175,55 +183,6 @@ func marshalJSON(value any) (json.RawMessage, error) {
 		return nil, err
 	}
 	return body, nil
-}
-
-func (s strictOpenAPIServer) listAgentTreeInteractions(
-	ctx context.Context,
-	orgID, projectID, agentID storage.ID,
-	state executionstore.AgentInteractionState,
-	limit int,
-	after listing.KeysetCursor,
-) (openapi.ListAgentInteractionsResponseObject, error) {
-	page, err := s.server.store.Execution().ListAgentInteractionsForAgentTree(
-		ctx,
-		executionstore.ListAgentInteractionsForAgentTreeInput{
-			ProjectID: projectID,
-			AgentID:   agentID,
-			State:     state,
-			Limit:     limit,
-			After:     after,
-		},
-	)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	data := make([]openapi.AgentInteraction, 0, len(page.Interactions))
-	var last executionstore.AgentInteractionRecord
-	for _, item := range page.Interactions {
-		response, err := agentInteractionResponseFromRecord(orgID, item.AgentInteractionRecord)
-		if err != nil {
-			return nil, err
-		}
-		if item.AgentID != agentID {
-			response.AgentName = &item.AgentName
-			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
-		}
-		data = append(data, response)
-		last = item.AgentInteractionRecord
-	}
-	nextCursor, err := encodeNextCursor(
-		page.HasMore,
-		last.CreatedAt,
-		publicid.KindAgentInteraction,
-		last.ID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return openapi.ListAgentInteractions200JSONResponse(openapi.ListAgentInteractionsResponse{
-		Data:       data,
-		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
 }
 
 func agentInteractionResponseFromRecord(

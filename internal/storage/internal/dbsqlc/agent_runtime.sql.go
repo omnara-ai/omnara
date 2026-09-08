@@ -265,14 +265,14 @@ const insertAgent = `-- name: InsertAgent :one
 WITH inserted AS (
     INSERT INTO agents(
         org_id, project_id, state, name, agent_profile_id, current_config_id,
-        idempotency_key, parent_agent_id, spawn_tool_call_id, subagent_key,
+        idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
         $1, $2, 'active', $3,
         $4, $5, $6,
-        $7, $8, $9,
-        $10,
+        $7, $8,
+        $9,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
@@ -313,7 +313,6 @@ type InsertAgentParams struct {
 	CurrentConfigID         uuid.UUID
 	IdempotencyKey          *string
 	ParentAgentID           *uuid.UUID
-	SpawnToolCallID         *uuid.UUID
 	SubagentKey             string
 	ArchiveAfterIdleMinutes *int32
 }
@@ -349,7 +348,6 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		arg.CurrentConfigID,
 		arg.IdempotencyKey,
 		arg.ParentAgentID,
-		arg.SpawnToolCallID,
 		arg.SubagentKey,
 		arg.ArchiveAfterIdleMinutes,
 	)

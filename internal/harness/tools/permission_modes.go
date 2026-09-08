@@ -263,7 +263,7 @@ func createMachinePermissionChallenge(
 	}
 	source, err := selectPoolForMachineCreate(sources, input)
 	if err != nil {
-		content, contentErr := machineToolFailureContent(
+		content, contentErr := toolFailureContent(
 			"create_machine_failed",
 			err.Error(),
 			false,

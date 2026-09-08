@@ -2,15 +2,12 @@
 
 ALTER TABLE agents
     ADD COLUMN parent_agent_id uuid,
-    ADD COLUMN spawn_tool_call_id uuid,
     ADD COLUMN subagent_key text NOT NULL DEFAULT '',
     ADD COLUMN archive_after_idle_minutes integer,
     ADD CONSTRAINT agents_parent_agent_fk
         FOREIGN KEY (project_id, parent_agent_id) REFERENCES agents(project_id, id),
     ADD CONSTRAINT agents_subagent_key_check
         CHECK ((parent_agent_id IS NULL) = (subagent_key = '')),
-    ADD CONSTRAINT agents_spawn_tool_call_requires_parent_check
-        CHECK (spawn_tool_call_id IS NULL OR parent_agent_id IS NOT NULL),
     ADD CONSTRAINT agents_archive_after_idle_minutes_check
         CHECK (archive_after_idle_minutes IS NULL OR archive_after_idle_minutes >= 1),
     ADD CONSTRAINT agents_not_own_parent_check
@@ -26,10 +23,6 @@ CREATE INDEX agents_idle_archive_candidates_idx
       AND state = 'active'
       AND archive_after_idle_minutes IS NOT NULL;
 
-CREATE UNIQUE INDEX agents_spawn_tool_call_idx
-    ON agents(project_id, parent_agent_id, spawn_tool_call_id)
-    WHERE spawn_tool_call_id IS NOT NULL;
-
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION agents_reject_identity_change()
 RETURNS trigger
@@ -41,7 +34,6 @@ BEGIN
        OR OLD.project_id IS DISTINCT FROM NEW.project_id
        OR OLD.agent_profile_id IS DISTINCT FROM NEW.agent_profile_id
        OR OLD.parent_agent_id IS DISTINCT FROM NEW.parent_agent_id
-       OR OLD.spawn_tool_call_id IS DISTINCT FROM NEW.spawn_tool_call_id
        OR OLD.subagent_key IS DISTINCT FROM NEW.subagent_key
        OR OLD.idempotency_key IS DISTINCT FROM NEW.idempotency_key
        OR OLD.created_at IS DISTINCT FROM NEW.created_at THEN
@@ -57,7 +49,7 @@ $$;
 DROP TRIGGER agents_identity_immutable ON agents;
 
 CREATE TRIGGER agents_identity_immutable
-BEFORE UPDATE OF id, org_id, project_id, agent_profile_id, parent_agent_id, spawn_tool_call_id,
+BEFORE UPDATE OF id, org_id, project_id, agent_profile_id, parent_agent_id,
     subagent_key, idempotency_key, created_at ON agents
 FOR EACH ROW EXECUTE FUNCTION agents_reject_identity_change();
 
@@ -76,9 +68,7 @@ CREATE TABLE agent_wait_targets (
     state text NOT NULL,
     result_kind text NOT NULL DEFAULT '',
     result_text text NOT NULL DEFAULT '',
-    completed_at timestamptz,
     CHECK (state IN ('pending', 'done')),
-    CHECK ((state = 'done') = (completed_at IS NOT NULL)),
     CHECK (state = 'pending' OR result_kind <> ''),
     CHECK (result_kind IN (
         '', 'result', 'failed', 'waiting_on_parent', 'waiting_on_human', 'canceled', 'archived', 'timeout'

@@ -38,9 +38,7 @@ func (body Body) CreateInput(projectID storage.ID) executionstore.CreateAgentCon
 	}
 }
 
-// Options binds every compile-time resolver to the given project so a source
-// document can be compiled outside the HTTP layer.
-func Options(
+func options(
 	ctx context.Context,
 	store *storage.Store,
 	orgID, projectID storage.ID,
@@ -190,7 +188,7 @@ func Compile(
 	if source == "" {
 		return Body{}, fmt.Errorf("source is required")
 	}
-	result, err := agentconfig.Compile(sourceFormat, []byte(source), Options(ctx, store, orgID, projectID, base))
+	result, err := agentconfig.Compile(sourceFormat, []byte(source), options(ctx, store, orgID, projectID, base))
 	if err != nil {
 		return Body{}, err
 	}

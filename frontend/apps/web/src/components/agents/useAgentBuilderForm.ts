@@ -18,10 +18,7 @@ import {
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import {
   type BasicSubagent,
-  newSubagent,
-  subagentKeyError,
   subagentsValid,
-  type SubagentType,
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
@@ -46,8 +43,6 @@ import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 
 export type MachineSourceKind = 'pool' | 'machine'
-
-export { type BasicSubagent, newSubagent, subagentKeyError, type SubagentType }
 
 export interface BasicMachineSource {
   id: string

@@ -510,7 +510,7 @@ RETURNING call.id, projection.project_id, call.agent_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
 
--- name: CompleteMachineUnreachableToolCall :one
+-- name: CompleteWaitingBuiltInToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
@@ -540,10 +540,9 @@ RETURNING call.id, projection.project_id, call.agent_id,
   call.created_at;
 
 -- name: ListExpiredToolCalls :many
-SELECT projection.project_id, call.agent_id, call.id, call.name, call.deadline_at
+SELECT agent.project_id, call.agent_id, call.id
 FROM tool_calls call
-JOIN tool_call_read_projection projection ON projection.agent_id = call.agent_id
-  AND projection.id = call.id
+JOIN agents agent ON agent.id = call.agent_id
 WHERE call.state = 'waiting'
   AND call.deadline_at IS NOT NULL
   AND call.deadline_at <= statement_timestamp()
@@ -559,36 +558,6 @@ WHERE call.agent_id = sqlc.arg(agent_id)
   AND call.deadline_at IS NOT NULL
   AND call.deadline_at <= statement_timestamp()
 FOR UPDATE;
-
--- name: CompleteExpiredToolCall :one
-WITH locked_agent AS MATERIALIZED (
-  SELECT agent.project_id, agent.id
-  FROM agents agent
-  WHERE agent.project_id = sqlc.arg(project_id)
-    AND agent.id = sqlc.arg(agent_id)
-  FOR UPDATE
-)
-UPDATE tool_calls call
-SET state = 'completed',
-    runtime_lock_id = NULL
-FROM locked_agent agent
-CROSS JOIN tool_call_read_projection projection
-WHERE call.agent_id = agent.id
-  AND call.id = sqlc.arg(id)
-  AND call.state = 'waiting'
-  AND call.type = 'built_in'
-  AND call.deadline_at IS NOT NULL
-  AND projection.project_id = agent.project_id
-  AND projection.agent_id = call.agent_id
-  AND projection.id = call.id
-RETURNING call.id, projection.project_id, call.agent_id,
-  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
-  call.provider_call_id,
-  call.name, call.input,
-  call.type, call.state,
-  sqlc.arg(outcome)::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
-  call.created_at;
 
 -- name: CompleteCustomToolCall :one
 WITH locked_agent AS MATERIALIZED (

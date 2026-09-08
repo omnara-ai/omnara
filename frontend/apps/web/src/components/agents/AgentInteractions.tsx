@@ -42,9 +42,7 @@ function keyedContextItems(interaction: AgentInteraction) {
 
 function subagentSourceLabel(interaction: AgentInteraction): string | null {
   if (interaction.agent_name == null) return null
-  const candidates = [interaction.agent_name, interaction.subagent_key, interaction.agent_id]
-  const name = candidates.find((value) => value != null && value !== '') ?? interaction.agent_id
-  return `From subagent ${name}`
+  return `From subagent ${interaction.agent_name}`
 }
 
 function InteractionFormCard({

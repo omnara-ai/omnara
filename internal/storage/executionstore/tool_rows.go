@@ -37,8 +37,8 @@ func toolCallRecordFromRuntimeCompleteSQLC(row dbsqlc.CompleteRuntimeToolCallRow
 	)
 }
 
-func toolCallRecordFromMachineUnreachableCompleteSQLC(
-	row dbsqlc.CompleteMachineUnreachableToolCallRow,
+func toolCallRecordFromWaitingCompleteSQLC(
+	row dbsqlc.CompleteWaitingBuiltInToolCallRow,
 ) ToolCallRecord {
 	return toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,

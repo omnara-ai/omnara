@@ -867,30 +867,20 @@ func (s *Store) ListAgentInteractionsForAgent(
 	if input.Limit <= 0 {
 		return ListAgentInteractionsForAgentResult{}, errors.New("limit must be positive")
 	}
-	params := dbsqlc.ListAgentInteractionsForAgentParams{
+	page, err := s.ListAgentInteractions(ctx, ListAgentInteractionsInput{
 		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
-		State:     string(input.State),
-		RowLimit:  int64(input.Limit) + 1,
-	}
-	if input.After.Set {
-		createdAt := input.After.CreatedAt
-		id := input.After.ID
-		params.CursorCreatedAt = &createdAt
-		params.CursorID = &id
-	}
-	rows, err := s.q.ListAgentInteractionsForAgent(ctx, params)
+		AgentIDs:  []ID{input.AgentID},
+		State:     input.State,
+		Limit:     input.Limit,
+		After:     input.After,
+	})
 	if err != nil {
-		return ListAgentInteractionsForAgentResult{}, fmt.Errorf("list agent interactions: %w", err)
+		return ListAgentInteractionsForAgentResult{}, err
 	}
-	result := ListAgentInteractionsForAgentResult{}
-	if len(rows) > input.Limit {
-		result.HasMore = true
-		rows = rows[:input.Limit]
-	}
-	result.Interactions = make([]AgentInteractionRecord, 0, len(rows))
-	for _, row := range rows {
-		result.Interactions = append(result.Interactions, agentInteractionRecordFromSQLC(row))
+	result := ListAgentInteractionsForAgentResult{HasMore: page.HasMore}
+	result.Interactions = make([]AgentInteractionRecord, 0, len(page.Interactions))
+	for _, item := range page.Interactions {
+		result.Interactions = append(result.Interactions, item.AgentInteractionRecord)
 	}
 	return result, nil
 }

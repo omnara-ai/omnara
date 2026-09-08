@@ -65,35 +65,6 @@ func newSubagentServiceE2EModelServer(
 	return server, &parentRequests, &childRequests
 }
 
-func requestToolResultText(body map[string]any, callID string) string {
-	input, ok := body["input"].([]any)
-	if !ok {
-		return ""
-	}
-	var text strings.Builder
-	for _, raw := range input {
-		item, ok := raw.(map[string]any)
-		if !ok || item["type"] != "function_call_output" || item["call_id"] != callID {
-			continue
-		}
-		parts, ok := item["output"].([]any)
-		if !ok {
-			continue
-		}
-		for _, rawPart := range parts {
-			part, ok := rawPart.(map[string]any)
-			if !ok {
-				continue
-			}
-			if partText, ok := part["text"].(string); ok {
-				text.WriteString(partText)
-				text.WriteString("\n")
-			}
-		}
-	}
-	return text.String()
-}
-
 func waitForParentWaitToPark(ctx context.Context, env *serviceE2EEnvironment, projectUUID, parentUUID string) bool {
 	for {
 		var parked int
@@ -165,7 +136,7 @@ func TestServiceE2EDeterministicSubagentSpawnWaitAndResult(t *testing.T) {
 					"agents": []string{"summarizer"},
 				})
 			case 3:
-				waitResult := requestToolResultText(body, "call_wait")
+				waitResult := toolResultOutputForCall(body, "call_wait")
 				if !strings.Contains(waitResult, childText) || !strings.Contains(waitResult, `"result_kind":"result"`) {
 					fail(w, http.StatusBadRequest, "third parent request lacks the child result: %s", mustJSONString(body))
 					return
@@ -285,7 +256,7 @@ func TestServiceE2EDeterministicSubagentWaitTimeoutAndStop(t *testing.T) {
 					"timeout_seconds": 1,
 				})
 			case 3:
-				waitResult := requestToolResultText(body, "call_wait")
+				waitResult := toolResultOutputForCall(body, "call_wait")
 				if !strings.Contains(waitResult, `"timed_out":true`) {
 					fail(w, http.StatusBadRequest, "third parent request lacks a timed-out wait result: %s", mustJSONString(body))
 					return

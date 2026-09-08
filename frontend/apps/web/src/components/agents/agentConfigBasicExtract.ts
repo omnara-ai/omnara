@@ -2,12 +2,12 @@ import type { ToolPermissionSelection } from '@omnara/sdk'
 import type { Document } from 'yaml'
 import { z } from 'zod'
 
+import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type {
   BasicConfig,
   BasicMachineSource,
   BasicMcpServer,
   BasicMcpTool,
-  BasicSubagent,
 } from '@/components/agents/useAgentBuilderForm'
 import {
   emptyProviderOptions,

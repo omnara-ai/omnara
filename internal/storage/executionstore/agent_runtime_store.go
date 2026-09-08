@@ -31,7 +31,6 @@ type insertAgentInput struct {
 	CurrentConfigID         ID
 	IdempotencyKey          string
 	ParentAgentID           ID
-	SpawnToolCallID         ID
 	SubagentKey             string
 	ArchiveAfterIdleMinutes *int
 }
@@ -84,7 +83,6 @@ func insertAdmittedAgentTx(
 		CurrentConfigID:         input.CurrentConfigID,
 		IdempotencyKey:          sqlcTextFromEmpty(input.IdempotencyKey),
 		ParentAgentID:           sqlcIDFromNil(input.ParentAgentID),
-		SpawnToolCallID:         sqlcIDFromNil(input.SpawnToolCallID),
 		SubagentKey:             input.SubagentKey,
 		ArchiveAfterIdleMinutes: sqlcInt32Ptr(input.ArchiveAfterIdleMinutes),
 	})

@@ -104,7 +104,7 @@ func expireToolCallTx(
 	if err != nil {
 		return false, err
 	}
-	row, err := qtx.CompleteExpiredToolCall(ctx, dbsqlc.CompleteExpiredToolCallParams{
+	row, err := qtx.CompleteWaitingBuiltInToolCall(ctx, dbsqlc.CompleteWaitingBuiltInToolCallParams{
 		ProjectID: projectID,
 		AgentID:   agentID,
 		ID:        toolCallID,
@@ -121,13 +121,7 @@ func expireToolCallTx(
 		txNotifications,
 		tx,
 		qtx,
-		toolCallRecordFromSQLC(
-			row.ID, row.ProjectID, row.AgentID, row.TurnID,
-			row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-			row.Name, row.Input, row.Type,
-			row.State, row.Outcome, row.RuntimeLockID,
-			row.ResultContentParts, row.CreatedAt, nil,
-		),
+		toolCallRecordFromWaitingCompleteSQLC(row),
 		toolCallResultInput{Outcome: ToolResultOutcomeFailed, ResultContentParts: parts},
 	); err != nil {
 		return false, err
