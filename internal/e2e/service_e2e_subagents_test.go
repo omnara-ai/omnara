@@ -195,7 +195,14 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 		t.Fatalf("top-level agent list returned %d agents, want only the parent: %s", len(items), mustJSONString(listed))
 	}
 	listedWithChildren := env.requestJSON(
-		t, ctx, http.MethodGet, project.projectPath+"/agents?include_subagents=true", nil, "", project.adminToken, http.StatusOK,
+		t,
+		ctx,
+		http.MethodGet,
+		project.projectPath+"/agents?include_subagents=true",
+		nil,
+		"",
+		project.adminToken,
+		http.StatusOK,
 	)
 	if items, _ := listedWithChildren["data"].([]any); len(items) != 2 {
 		t.Fatalf("agent list with subagents returned %d agents, want 2: %s", len(items), mustJSONString(listedWithChildren))

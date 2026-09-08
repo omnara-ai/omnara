@@ -86,7 +86,9 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-launch@example.com", "Subagent Launch")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "subagent-launch", "Subagent Launch", subagentParentYAML)
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-launch", "Subagent Launch", subagentParentYAML,
+	)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		ProfileID:      profile.ID,
@@ -99,7 +101,9 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	}
 	parent := parentLaunch.Agent
 
-	child, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-1", intPtrForSubagentTest(1))
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-1", intPtrForSubagentTest(1),
+	)
 	if err != nil {
 		t.Fatalf("spawn subagent: %v", err)
 	}
@@ -110,7 +114,10 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatal("child launch did not queue the task input")
 	}
 
-	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-2", "subagent-launch-child-2", intPtrForSubagentTest(1)); !errors.Is(err, storeerr.ErrConflict) {
+	_, err = spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "worker-2", "subagent-launch-child-2", intPtrForSubagentTest(1),
+	)
+	if !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("second spawn beyond max_concurrent: err = %v, want conflict", err)
 	}
 
@@ -118,7 +125,8 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list subagents: %v", err)
 	}
-	if len(subagents) != 1 || subagents[0].AgentID != child.Agent.ID || subagents[0].State != executionstore.SubagentStateRunning {
+	if len(subagents) != 1 || subagents[0].AgentID != child.Agent.ID ||
+		subagents[0].State != executionstore.SubagentStateRunning {
 		t.Fatalf("subagents = %+v", subagents)
 	}
 	if subagents[0].AgentRef != executionstore.SubagentRef(child.Agent.ID) || subagents[0].AgentRef == "" {
@@ -213,7 +221,9 @@ func TestSubagentArchiveNotifiesParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn subagent: %v", err)
 	}
-	if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, child.Agent.ID, userPrincipal(user.ID)); err != nil {
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, testProjectID, child.Agent.ID, userPrincipal(user.ID),
+	); err != nil {
 		t.Fatalf("archive subagent: %v", err)
 	}
 	var metadata json.RawMessage
@@ -304,7 +314,9 @@ func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, leaf.Agent.ID, leafLock.ID); err != nil {
 		t.Fatalf("release leaf runtime lock: %v", err)
 	}
-	if err := store.Execution().MarkAgentWakeup(ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`)); err != nil {
+	if err := store.Execution().MarkAgentWakeup(
+		ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`),
+	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}
 	_, archived, err = store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
