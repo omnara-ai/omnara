@@ -8872,8 +8872,8 @@ components:
         parent_agent_id:
           description: Set when this agent is a subagent spawned by another agent.
           $ref: '#/components/schemas/AgentID'
-        subagent_handle:
-          description: The subagents handle this agent was spawned from.
+        subagent_key:
+          description: The `subagents` key this agent was spawned from.
           type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -8884,13 +8884,13 @@ components:
     SubagentSummary:
       type: object
       additionalProperties: false
-      required: [id, name, handle, state, last_activity_at]
+      required: [id, name, key, state, last_activity_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentID'
         name:
           $ref: '#/components/schemas/AgentName'
-        handle:
+        key:
           type: string
         state:
           type: string
@@ -10220,7 +10220,7 @@ components:
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         agent_name:
           $ref: '#/components/schemas/AgentName'
-        subagent_handle:
+        subagent_key:
           type: string
           description: Present when the interaction belongs to a subagent of the listed agent.
         interaction_kind:

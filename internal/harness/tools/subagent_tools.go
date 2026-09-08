@@ -42,7 +42,7 @@ type stopAgentRequest struct {
 type subagentSummary struct {
 	AgentID        string `json:"agent_id"`
 	Name           string `json:"name,omitempty"`
-	Handle         string `json:"handle"`
+	Key            string `json:"key"`
 	State          string `json:"state"`
 	LastActivityAt string `json:"last_activity_at"`
 }
@@ -211,7 +211,7 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 	return subagentSummary{
 		AgentID:        agentPublicID,
 		Name:           status.Name,
-		Handle:         status.Handle,
+		Key:            status.Key,
 		State:          status.State,
 		LastActivityAt: status.LastActivityAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}, nil
@@ -230,19 +230,19 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if err != nil {
 		return nil, err
 	}
-	handle, ok := contract.Subagents[input.Agent]
+	subagent, ok := contract.Subagents[input.Agent]
 	if !ok {
 		return failSubagentAsync("spawn_agent_failed", fmt.Errorf(
-			"unknown subagent handle %q; configured handles: %s",
+			"unknown subagent key %q; configured keys: %s",
 			input.Agent,
-			strings.Join(contract.SubagentHandles(), ", "),
+			strings.Join(contract.SubagentKeys(), ", "),
 		))
 	}
 	parent, err := executor.Store.Execution().GetAgentInProject(ctx, call.Turn.ProjectID, call.Turn.AgentID)
 	if err != nil {
 		return nil, err
 	}
-	baseConfig, err := executor.subagentBaseConfig(ctx, call.Turn, handle)
+	baseConfig, err := executor.subagentBaseConfig(ctx, call.Turn, subagent)
 	if err != nil {
 		return failSubagentAsync("spawn_agent_failed", err)
 	}
@@ -253,7 +253,7 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if err != nil {
 		return nil, fmt.Errorf("parse base agent config source: %w", err)
 	}
-	childSource, err := json.Marshal(agentconfig.SubagentSource(baseSource, handle))
+	childSource, err := json.Marshal(agentconfig.SubagentSource(baseSource, subagent))
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent config source: %w", err)
 	}
@@ -295,11 +295,11 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		Subagent: &executionstore.SubagentLaunch{
 			ParentAgentID:           parent.ID,
 			SpawnToolCallID:         call.ToolCallID,
-			Handle:                  input.Agent,
-			MaxConcurrent:           handle.MaxConcurrent,
+			Key:                     input.Agent,
+			MaxConcurrent:           subagent.MaxConcurrent,
 			MaxSubagents:            contract.MaxSubagents,
-			ShareParentMachines:     handle.Type == agentconfig.SubagentTypeSelf,
-			ArchiveAfterIdleMinutes: handle.ArchiveAfterIdleMinutes,
+			ShareParentMachines:     subagent.Type == agentconfig.SubagentTypeSelf,
+			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
 		},
 	})
 	if err != nil {
@@ -328,7 +328,7 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	content, err := structuredToolResultContent(map[string]any{
 		"agent_id": childPublicID,
 		"name":     launch.Agent.Name,
-		"handle":   input.Agent,
+		"key":      input.Agent,
 		"state":    executionstore.SubagentStateRunning,
 		"message": "Subagent started. Its final answer will arrive as a message from it, " +
 			"or call wait_agents to block until it finishes.",
@@ -342,9 +342,9 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 func (e Executor) subagentBaseConfig(
 	ctx context.Context,
 	turn Turn,
-	handle agentconfig.SubagentCompiled,
+	subagent agentconfig.SubagentCompiled,
 ) (executionstore.AgentConfigRecord, error) {
-	switch handle.Type {
+	switch subagent.Type {
 	case agentconfig.SubagentTypeSelf:
 		contextRow, found, err := e.Store.Execution().GetModelCallContext(
 			ctx, turn.ProjectID, turn.AgentID, turn.ModelCallContextID,
@@ -364,20 +364,20 @@ func (e Executor) subagentBaseConfig(
 		}
 		return config, nil
 	case agentconfig.SubagentTypeProfile:
-		profileID, err := publicid.Decode(publicid.KindAgentProfile, handle.ProfileID)
+		profileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
 		if err != nil {
 			return executionstore.AgentConfigRecord{}, fmt.Errorf("decode subagent profile id: %w", err)
 		}
 		profile, err := e.Store.Execution().GetAgentProfile(ctx, turn.ProjectID, profileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return executionstore.AgentConfigRecord{}, fmt.Errorf("subagent profile %s no longer exists", handle.ProfileID)
+				return executionstore.AgentConfigRecord{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
 			}
 			return executionstore.AgentConfigRecord{}, err
 		}
 		return profile.CurrentConfig, nil
 	default:
-		return executionstore.AgentConfigRecord{}, fmt.Errorf("unsupported subagent type %q", handle.Type)
+		return executionstore.AgentConfigRecord{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
 	}
 }
 

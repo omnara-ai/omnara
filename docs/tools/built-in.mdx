@@ -192,7 +192,7 @@ These tools are added automatically when the config declares [`subagents`](/agen
 
 ### `spawn_agent`
 
-Starts a subagent from a configured handle with a clean context. Requires `agent` (the handle) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
 
 ### `wait_agents`
 
@@ -208,7 +208,7 @@ Cancels and archives a subagent.
 
 ### `list_agents`
 
-Lists the agent's subagents with their handle, state, and last activity.
+Lists the agent's subagents with their key, state, and last activity.
 
 ## Skills
 

@@ -2,7 +2,7 @@
 SELECT agent.id,
        agent.name,
        agent.state,
-       agent.subagent_handle,
+       agent.subagent_key,
        agent.created_at,
        agent.archived_at,
        coalesce((
@@ -56,7 +56,7 @@ FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND agent.state = 'active'
-  AND (sqlc.arg(subagent_handle)::text = '' OR agent.subagent_handle = sqlc.arg(subagent_handle)::text);
+  AND (sqlc.arg(subagent_key)::text = '' OR agent.subagent_key = sqlc.arg(subagent_key)::text);
 
 -- name: ActiveChildAgentNameExists :one
 SELECT EXISTS (
@@ -174,7 +174,7 @@ SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
-       agent.name AS agent_name, agent.subagent_handle
+       agent.name AS agent_name, agent.subagent_key
 FROM agent_interaction_read_projection interaction
 JOIN agents agent ON agent.project_id = interaction.project_id
   AND agent.id = interaction.agent_id
@@ -237,7 +237,7 @@ SELECT target.target_agent_id,
        target.result_kind,
        target.result_text,
        agent.name,
-       agent.subagent_handle,
+       agent.subagent_key,
        agent.state AS agent_state
 FROM agent_wait_targets target
 JOIN agents agent ON agent.project_id = target.project_id

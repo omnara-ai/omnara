@@ -45,7 +45,7 @@ const (
 type SubagentLaunch struct {
 	ParentAgentID           ID
 	SpawnToolCallID         ID
-	Handle                  string
+	Key                     string
 	MaxConcurrent           *int
 	MaxSubagents            *int
 	ShareParentMachines     bool
@@ -55,7 +55,7 @@ type SubagentLaunch struct {
 type SubagentStatus struct {
 	AgentID           ID
 	Name              string
-	Handle            string
+	Key               string
 	State             string
 	LastActivityAt    time.Time
 	CreatedAt         time.Time
@@ -77,7 +77,7 @@ type AgentWaitTargetOutcome struct {
 	AgentID    ID     `json:"-"`
 	PublicID   string `json:"agent_id"`
 	Name       string `json:"name,omitempty"`
-	Handle     string `json:"handle"`
+	Key        string `json:"key"`
 	State      string `json:"state"`
 	ResultKind string `json:"result_kind"`
 	Result     string `json:"result,omitempty"`
@@ -115,8 +115,8 @@ func subagentDisplayName(agent AgentRecord) string {
 	if agent.Name != "" {
 		return agent.Name
 	}
-	if agent.SubagentHandle != "" {
-		return agent.SubagentHandle
+	if agent.SubagentKey != "" {
+		return agent.SubagentKey
 	}
 	return "agent"
 }
@@ -129,8 +129,8 @@ func prepareSubagentLaunchTx(
 	name *string,
 	launch SubagentLaunch,
 ) (AgentRecord, error) {
-	if isNilID(launch.ParentAgentID) || launch.Handle == "" {
-		return AgentRecord{}, errors.New("subagent launch requires a parent agent and handle")
+	if isNilID(launch.ParentAgentID) || launch.Key == "" {
+		return AgentRecord{}, errors.New("subagent launch requires a parent agent and key")
 	}
 	if _, err := qtx.LockAgentInProject(
 		ctx,
@@ -162,16 +162,16 @@ func prepareSubagentLaunchTx(
 	}
 	if launch.MaxConcurrent != nil {
 		count, err := qtx.CountActiveChildAgents(ctx, dbsqlc.CountActiveChildAgentsParams{
-			ProjectID:      projectID,
-			ParentAgentID:  &launch.ParentAgentID,
-			SubagentHandle: launch.Handle,
+			ProjectID:     projectID,
+			ParentAgentID: &launch.ParentAgentID,
+			SubagentKey:   launch.Key,
 		})
 		if err != nil {
-			return AgentRecord{}, fmt.Errorf("count active subagents for handle: %w", err)
+			return AgentRecord{}, fmt.Errorf("count active subagents for key: %w", err)
 		}
 		if int(count) >= *launch.MaxConcurrent {
 			return AgentRecord{}, resourceLimitExceeded(
-				fmt.Sprintf("active subagents for handle %q", launch.Handle),
+				fmt.Sprintf("active subagents for key %q", launch.Key),
 				int64(*launch.MaxConcurrent),
 			)
 		}
@@ -251,7 +251,7 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 	status := SubagentStatus{
 		AgentID:           row.ID,
 		Name:              row.Name,
-		Handle:            row.SubagentHandle,
+		Key:               row.SubagentKey,
 		LastActivityAt:    row.LastActivityAt,
 		CreatedAt:         row.CreatedAt,
 		Archived:          row.State == string(AgentStateArchived),
@@ -606,7 +606,7 @@ func waitTargetOutcome(status SubagentStatus) (AgentWaitTargetOutcome, error) {
 		AgentID:  status.AgentID,
 		PublicID: agentPublicID,
 		Name:     status.Name,
-		Handle:   status.Handle,
+		Key:      status.Key,
 		State:    status.State,
 	}, nil
 }
@@ -662,7 +662,7 @@ func completeAgentWaitTx(
 			AgentID:    target.TargetAgentID,
 			PublicID:   agentPublicID,
 			Name:       target.Name,
-			Handle:     target.SubagentHandle,
+			Key:        target.SubagentKey,
 			State:      state,
 			ResultKind: target.ResultKind,
 			Result:     target.ResultText,
@@ -785,7 +785,7 @@ func notifyParentAgentTx(
 		"kind":     message.Kind,
 		"agent_id": childPublicID,
 		"name":     child.Name,
-		"handle":   child.SubagentHandle,
+		"key":      child.SubagentKey,
 	}
 	if !isNilID(message.InteractionID) {
 		interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, message.InteractionID)
@@ -830,7 +830,7 @@ func notifyParentAgentTx(
 }
 
 func subagentMessageText(child AgentRecord, childPublicID string, message subagentMessage) string {
-	label := fmt.Sprintf("Subagent %q (%s, handle %q)", subagentDisplayName(child), childPublicID, child.SubagentHandle)
+	label := fmt.Sprintf("Subagent %q (%s, key %q)", subagentDisplayName(child), childPublicID, child.SubagentKey)
 	var header string
 	switch message.Kind {
 	case SubagentMessageKindResult:
@@ -957,8 +957,8 @@ type ListAgentInteractionsForAgentTreeInput struct {
 
 type AgentTreeInteraction struct {
 	AgentInteractionRecord
-	AgentName      string
-	SubagentHandle string
+	AgentName   string
+	SubagentKey string
 }
 
 type ListAgentInteractionsForAgentTreeResult struct {
@@ -1027,8 +1027,8 @@ func (s *Store) ListAgentInteractionsForAgentTree(
 				CreatedAt:          row.CreatedAt,
 				ResolvedAt:         resolvedAt,
 			},
-			AgentName:      row.AgentName,
-			SubagentHandle: row.SubagentHandle,
+			AgentName:   row.AgentName,
+			SubagentKey: row.SubagentKey,
 		})
 	}
 	return result, nil

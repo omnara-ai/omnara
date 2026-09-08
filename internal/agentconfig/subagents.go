@@ -83,17 +83,17 @@ func (override *SubagentModelCompiled) ApplyTo(base AgentConfigModelSource) Agen
 
 // SubagentSource derives the source document a subagent launches from: the
 // base config minus everything that would let the child spawn further
-// subagents (for self forks), plus the handle's model and instruction
+// subagents (for self forks), plus the key's model and instruction
 // overrides.
-func SubagentSource(base AgentConfigSource, handle SubagentCompiled) AgentConfigSource {
+func SubagentSource(base AgentConfigSource, subagent SubagentCompiled) AgentConfigSource {
 	child := base
-	child.Model = handle.Model.ApplyTo(base.Model)
-	if handle.InstructionAppend != "" {
-		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + handle.InstructionAppend
+	child.Model = subagent.Model.ApplyTo(base.Model)
+	if subagent.InstructionAppend != "" {
+		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + subagent.InstructionAppend
 	}
 	child.Tools = toolsWithEncodablePermissions(base.Tools)
 	child.MCP = mcpWithEncodablePermissions(base.MCP)
-	if handle.Type == SubagentTypeSelf {
+	if subagent.Type == SubagentTypeSelf {
 		child.Subagents = nil
 		child.MaxSubagents = nil
 		for name := range child.Tools {
@@ -157,17 +157,17 @@ func compileSubagents(
 	source AgentConfigSource,
 	opts CompileOptions,
 ) (map[string]SubagentCompiled, error) {
-	handles := make([]string, 0, len(source.Subagents))
-	for handle := range source.Subagents {
-		handles = append(handles, handle)
+	keys := make([]string, 0, len(source.Subagents))
+	for key := range source.Subagents {
+		keys = append(keys, key)
 	}
-	sort.Strings(handles)
-	compiled := make(map[string]SubagentCompiled, len(handles))
-	for _, handle := range handles {
-		entry := source.Subagents[handle]
-		pointer := jsonPointer("subagents", handle)
-		if toolcatalog.IsSubagentToolName(handle) {
-			return nil, issuef(pointer, "handle %q collides with a subagent tool name", handle)
+	sort.Strings(keys)
+	compiled := make(map[string]SubagentCompiled, len(keys))
+	for _, key := range keys {
+		entry := source.Subagents[key]
+		pointer := jsonPointer("subagents", key)
+		if toolcatalog.IsSubagentToolName(key) {
+			return nil, issuef(pointer, "key %q collides with a subagent tool name", key)
 		}
 		out := SubagentCompiled{
 			Type:                    entry.Type,
@@ -197,34 +197,34 @@ func compileSubagents(
 			}
 			profileID, err := opts.ResolveAgentProfileName(entry.Profile)
 			if err != nil {
-				return nil, issueOr(jsonPointer("subagents", handle, "profile"), err)
+				return nil, issueOr(jsonPointer("subagents", key, "profile"), err)
 			}
 			if profileID == "" {
-				return nil, issuef(jsonPointer("subagents", handle, "profile"), "resolver returned an empty profile id")
+				return nil, issuef(jsonPointer("subagents", key, "profile"), "resolver returned an empty profile id")
 			}
 			out.ProfileID = profileID
 			if out.Model != nil && out.Model.ProviderConfig != "" && out.Model.Name != "" &&
 				opts.ResolveModelSelection != nil {
 				if _, err := opts.ResolveModelSelection(out.Model.ProviderConfig, out.Model.Name); err != nil {
-					return nil, issueOr(jsonPointer("subagents", handle, "model"), err)
+					return nil, issueOr(jsonPointer("subagents", key, "model"), err)
 				}
 			}
 		case SubagentTypeSelf:
 			if out.Model != nil && opts.ResolveModelSelection != nil {
 				merged := out.Model.ApplyTo(source.Model)
 				if _, err := opts.ResolveModelSelection(merged.ProviderConfig, merged.Name); err != nil {
-					return nil, issueOr(jsonPointer("subagents", handle, "model"), err)
+					return nil, issueOr(jsonPointer("subagents", key, "model"), err)
 				}
 			}
 		default:
 			return nil, issuef(
-				jsonPointer("subagents", handle, "type"),
+				jsonPointer("subagents", key, "type"),
 				"must be %q or %q",
 				SubagentTypeProfile,
 				SubagentTypeSelf,
 			)
 		}
-		compiled[handle] = out
+		compiled[key] = out
 	}
 	return compiled, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func TestSpawnAgentToolSpecInjectsHandles(t *testing.T) {
+func TestSpawnAgentToolSpecInjectsKeys(t *testing.T) {
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		t.Fatal(err)

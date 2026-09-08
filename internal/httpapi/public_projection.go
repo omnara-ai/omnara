@@ -73,8 +73,8 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 	if parentAgentID != "" {
 		response.ParentAgentId = &parentAgentID
 	}
-	if record.SubagentHandle != "" {
-		response.SubagentHandle = &record.SubagentHandle
+	if record.SubagentKey != "" {
+		response.SubagentKey = &record.SubagentKey
 	}
 	if record.Model.ProviderConfig != "" && record.Model.Name != "" {
 		response.Model = &openapi.AgentModel{

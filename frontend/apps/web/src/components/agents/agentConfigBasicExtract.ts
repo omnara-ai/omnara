@@ -161,17 +161,15 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     })),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
-    subagents: Object.entries(doc.subagents ?? {}).map(([handle, entry]) =>
-      subagentDraft(handle, entry),
-    ),
+    subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),
   }
 }
 
-function subagentDraft(handle: string, entry: z.infer<typeof subagentEntry>): BasicSubagent {
+function subagentDraft(key: string, entry: z.infer<typeof subagentEntry>): BasicSubagent {
   return {
     id: crypto.randomUUID(),
-    handle,
+    key,
     type: entry.type,
     profileName: entry.profile ?? '',
     description: entry.description ?? '',

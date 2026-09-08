@@ -206,7 +206,7 @@ func (s strictOpenAPIServer) listAgentTreeInteractions(
 		}
 		if item.AgentID != agentID {
 			response.AgentName = &item.AgentName
-			response.SubagentHandle = ptrFromNonEmpty(item.SubagentHandle)
+			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
 		}
 		data = append(data, response)
 		last = item.AgentInteractionRecord

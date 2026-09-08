@@ -1,7 +1,7 @@
 package toolcatalog
 
 const (
-	spawnAgentToolDescription = "Start a subagent from one of the configured subagent handles. The subagent runs " +
+	spawnAgentToolDescription = "Start a subagent from one of the configured subagent keys. The subagent runs " +
 		"asynchronously with a clean context; only `task` reaches it. Returns immediately with the subagent's id. " +
 		"Its final answer arrives later as a message from the subagent, or through wait_agents."
 	waitAgentsToolDescription = "Wait until subagents finish their current work. Pass the subagent names or ids " +
@@ -12,7 +12,7 @@ const (
 		"The subagent's reply arrives later as a message from it."
 	stopAgentToolDescription = "Cancel and archive one of your subagents. Its work stops and it can no longer " +
 		"be messaged."
-	listAgentsToolDescription    = "List your subagents with their names, handles, states, and last activity."
+	listAgentsToolDescription    = "List your subagents with their names, keys, states, and last activity."
 	subagentReferenceDescription = "Subagent name or id (agt_...)."
 )
 
@@ -25,7 +25,7 @@ func spawnAgentTool() (Entry, error) {
 			"agent": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Subagent handle from the configured subagents.",
+				"description": "Subagent key from the configured subagents.",
 			},
 			"task": map[string]any{
 				"type":        "string",

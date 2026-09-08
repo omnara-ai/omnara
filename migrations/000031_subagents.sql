@@ -3,12 +3,12 @@
 ALTER TABLE agents
     ADD COLUMN parent_agent_id uuid,
     ADD COLUMN spawn_tool_call_id uuid,
-    ADD COLUMN subagent_handle text NOT NULL DEFAULT '',
+    ADD COLUMN subagent_key text NOT NULL DEFAULT '',
     ADD COLUMN archive_after_idle_minutes integer,
     ADD CONSTRAINT agents_parent_agent_fk
         FOREIGN KEY (project_id, parent_agent_id) REFERENCES agents(project_id, id),
-    ADD CONSTRAINT agents_subagent_handle_check
-        CHECK ((parent_agent_id IS NULL) = (subagent_handle = '')),
+    ADD CONSTRAINT agents_subagent_key_check
+        CHECK ((parent_agent_id IS NULL) = (subagent_key = '')),
     ADD CONSTRAINT agents_spawn_tool_call_requires_parent_check
         CHECK (spawn_tool_call_id IS NULL OR parent_agent_id IS NOT NULL),
     ADD CONSTRAINT agents_archive_after_idle_minutes_check
@@ -42,7 +42,7 @@ BEGIN
        OR OLD.agent_profile_id IS DISTINCT FROM NEW.agent_profile_id
        OR OLD.parent_agent_id IS DISTINCT FROM NEW.parent_agent_id
        OR OLD.spawn_tool_call_id IS DISTINCT FROM NEW.spawn_tool_call_id
-       OR OLD.subagent_handle IS DISTINCT FROM NEW.subagent_handle
+       OR OLD.subagent_key IS DISTINCT FROM NEW.subagent_key
        OR OLD.idempotency_key IS DISTINCT FROM NEW.idempotency_key
        OR OLD.created_at IS DISTINCT FROM NEW.created_at THEN
         RAISE EXCEPTION 'agent identity is immutable'
@@ -58,7 +58,7 @@ DROP TRIGGER agents_identity_immutable ON agents;
 
 CREATE TRIGGER agents_identity_immutable
 BEFORE UPDATE OF id, org_id, project_id, agent_profile_id, parent_agent_id, spawn_tool_call_id,
-    subagent_handle, idempotency_key, created_at ON agents
+    subagent_key, idempotency_key, created_at ON agents
 FOR EACH ROW EXECUTE FUNCTION agents_reject_identity_change();
 
 ALTER TABLE tool_calls
