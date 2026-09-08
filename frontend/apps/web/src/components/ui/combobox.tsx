@@ -2,24 +2,52 @@ import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from '@/components/icons'
+import { textFieldVariants } from '@/components/ui/text-field-variants'
 import { cn } from '@/lib/utils'
 
 const Combobox = ComboboxPrimitive.Root
 
-function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.Input>) {
+function ComboboxInput({
+  className,
+  showTrigger = true,
+  ...props
+}: ComponentProps<typeof ComboboxPrimitive.Input> & { showTrigger?: boolean }) {
   return (
     <div className="relative">
       <ComboboxPrimitive.Input
         className={cn(
-          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 pr-9 text-base md:text-sm',
+          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 text-base md:text-sm',
+          showTrigger ? 'pr-9' : 'pr-3',
           className,
         )}
         {...props}
       />
-      <ComboboxPrimitive.Trigger className="text-muted-foreground absolute right-2 top-2.5">
-        <ChevronsUpDownIcon className="size-4" />
-      </ComboboxPrimitive.Trigger>
+      {showTrigger && (
+        <ComboboxPrimitive.Trigger className="text-muted-foreground absolute right-2 top-2.5">
+          <ChevronsUpDownIcon className="size-4" />
+        </ComboboxPrimitive.Trigger>
+      )}
     </div>
+  )
+}
+
+function ComboboxTrigger({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof ComboboxPrimitive.Trigger>) {
+  return (
+    <ComboboxPrimitive.Trigger
+      className={cn(
+        textFieldVariants(),
+        'control-transition hover:bg-(--secondary-hover) data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronsUpDownIcon className="text-muted-foreground size-4 shrink-0" />
+    </ComboboxPrimitive.Trigger>
   )
 }
 
@@ -180,5 +208,6 @@ export {
   ComboboxList,
   ComboboxLoading,
   ComboboxStatus,
+  ComboboxTrigger,
   ComboboxValue,
 }

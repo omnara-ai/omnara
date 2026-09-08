@@ -19,15 +19,18 @@ export function ResourceComboboxContent<TItem>({
   emptyMessage,
   query,
   action,
+  searchInput,
 }: {
   config: ResourceComboboxConfig<TItem>
   pending: boolean
   emptyMessage: string
   query?: ResourceComboboxQuery
   action?: ReactNode
+  searchInput?: ReactNode
 }) {
   return (
-    <ComboboxContent>
+    <ComboboxContent aria-label={config.placeholder}>
+      {searchInput && <div className="border-b p-2">{searchInput}</div>}
       {action && <div className="border-b p-1">{action}</div>}
       <ComboboxEmpty>{query?.isError ? null : pending ? 'Searching…' : emptyMessage}</ComboboxEmpty>
       <ComboboxList>

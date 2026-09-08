@@ -1,4 +1,8 @@
-import { Combobox, ComboboxInput } from '@/components/ui/combobox'
+import { useRef } from 'react'
+
+import { XIcon } from '@/components/icons'
+import { Button } from '@/components/ui/button'
+import { Combobox, ComboboxInput, ComboboxTrigger } from '@/components/ui/combobox'
 import { ResourceComboboxContent } from '@/components/ui/resource-combobox-content'
 import {
   type ResourceComboboxBaseProps,
@@ -25,38 +29,63 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     emptyMessage = config.emptyMessage ?? 'No matching results.',
     disabled,
     action,
+    clearable = true,
   }: ResourceComboboxBaseProps<TItem> & {
     value: TItem | null
     onValueChange: (item: TItem | null) => void
+    clearable?: boolean
   }) {
-    const {
-      inputValue: searchValue,
-      onInputValueChange: setSearchValue,
-      ...rootProps
-    } = useResourceComboboxRootProps(config, search, items, disabled)
-    const inputValue = searchValue || (value ? config.itemLabel(value) : '')
+    const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const canClear = clearable && value !== null
 
     return (
       <Combobox
         {...rootProps}
         id={id}
         required={required}
-        inputValue={inputValue}
-        onInputValueChange={(nextValue, eventDetails) => {
-          // Only user typing is a search query. Selection and popup lifecycle
-          // updates should restore the selected item's label in the input.
-          setSearchValue(eventDetails.reason === 'input-change' ? nextValue : '')
-        }}
         value={value}
         onValueChange={onValueChange}
       >
-        <ComboboxInput aria-label={id ? undefined : placeholder} placeholder={placeholder} />
+        <div className="relative">
+          <ComboboxTrigger
+            ref={triggerRef}
+            id={id}
+            aria-label={id ? undefined : config.placeholder}
+            className={canClear ? '[&>span]:pr-8' : undefined}
+          >
+            <span className="truncate">{value ? config.itemLabel(value) : placeholder}</span>
+          </ComboboxTrigger>
+          {canClear && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground absolute right-8 top-1 size-8"
+              aria-label={`Clear ${config.itemLabel(value)}`}
+              disabled={disabled}
+              onClick={() => {
+                rootProps.onInputValueChange('')
+                onValueChange(null)
+                triggerRef.current?.focus()
+              }}
+            >
+              <XIcon className="size-4" />
+            </Button>
+          )}
+        </div>
         <ResourceComboboxContent
           config={config}
           pending={pending}
           emptyMessage={emptyMessage}
           query={query}
           action={action}
+          searchInput={
+            <ComboboxInput
+              showTrigger={false}
+              aria-label={config.placeholder}
+              placeholder={config.placeholder}
+            />
+          }
         />
       </Combobox>
     )

@@ -105,10 +105,9 @@ export function AgentConfigModelField({
               setGrantOpen(true)
               return
             }
-            if (!option) return
             onChange({
-              providerConfig: option.model.provider_config,
-              modelName: option.model.name,
+              providerConfig: option?.model.provider_config ?? '',
+              modelName: option?.model.name ?? '',
             })
           }}
           search={search}

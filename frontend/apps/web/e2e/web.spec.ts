@@ -77,7 +77,8 @@ async function signIn(page: Page, email: string, returnTo: string) {
 
 async function selectConfiguredModel(page: Page) {
   const modelPicker = page.getByRole('combobox', { name: 'Model' })
-  await modelPicker.fill(modelName)
+  await modelPicker.click()
+  await page.getByPlaceholder('Search granted models…').fill(modelName)
   await page
     .getByRole('option')
     .filter({ hasText: modelName })
@@ -256,6 +257,11 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
 
+  await page.getByRole('button', { name: `Clear ${modelName} · ${providerConfig}` }).click()
+  await expect(page.getByRole('combobox', { name: 'Model' })).not.toContainText(modelName)
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeDisabled()
+  await selectConfiguredModel(page)
+
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
@@ -320,20 +326,23 @@ test('granting a model from the Builder does not create a profile or agent', asy
   })
 
   const modelPicker = page.getByRole('combobox', { name: 'Model' })
-  await modelPicker.fill('Grant models')
+  await modelPicker.click()
+  const modelSearch = page.getByPlaceholder('Search granted models…')
+  await modelSearch.fill('Grant models')
   const grantModelsOption = page.getByRole('option', { name: 'Grant models…' })
   await expect(grantModelsOption).toBeVisible()
-  await modelPicker.press('ArrowDown')
+  await modelSearch.press('ArrowDown')
   await expect(grantModelsOption).toHaveAttribute('data-highlighted', '')
   const providerListResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
     return response.request().method() === 'GET' && url.pathname.endsWith('/model-provider-configs')
   })
-  await modelPicker.press('Enter')
+  await modelSearch.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Grant models' })
   const providerPicker = dialog.getByRole('combobox', { name: 'Search model providers…' })
   expect((await providerListResponse).ok()).toBe(true)
-  await providerPicker.fill(providerConfig)
+  await providerPicker.click()
+  await page.getByPlaceholder('Search model providers…').fill(providerConfig)
   await page.getByRole('option', { name: providerConfig }).click()
   const configuredModelPicker = dialog.getByRole('combobox', {
     name: 'Search configured models…',
