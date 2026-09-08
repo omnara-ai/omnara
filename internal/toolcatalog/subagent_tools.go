@@ -7,8 +7,7 @@ const (
 		"`task` must be complete and self-contained. Returns immediately with the subagent's id. It runs in the " +
 		"background and its final answer arrives later as a message from it; read_agent shows its progress. Never " +
 		"guess or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. " +
-		"Give it a `name` to address it later. Set `timeout_seconds` only when the work must be bounded; the " +
-		"subagent is stopped when it elapses."
+		"Give it a `name` to address it later."
 	readAgentToolDescription = "Read a subagent's timeline: its inputs, model outputs, and tool results, in " +
 		"sequence order with text content. Use it to check on progress or to fetch a finished subagent's answer " +
 		"without waiting for its message. Page forward with `after_sequence` or backward from the end with " +
@@ -47,12 +46,6 @@ func spawnAgentTool() (Entry, error) {
 				"minLength":   1,
 				"maxLength":   64,
 				"description": "Optional name for addressing the subagent later. Must be unique among your active subagents.",
-			},
-			"timeout_seconds": map[string]any{
-				"type":        "integer",
-				"minimum":     1,
-				"maximum":     604800,
-				"description": "Optional lifetime cap. The subagent is stopped and archived when it elapses, and you are notified. Omit it unless the work must be bounded.",
 			},
 		},
 	)

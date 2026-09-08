@@ -30,14 +30,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
 const (
 	integrationHTTPClientTimeout = 5 * time.Minute
 	cronTriggerFireInterval      = 30 * time.Second
-	subagentDeadlineInterval     = 10 * time.Second
 )
 
 func main() {
@@ -232,11 +230,6 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
-	subagentDeadlineDone := make(chan struct{})
-	go func() {
-		defer close(subagentDeadlineDone)
-		runSubagentDeadlineLoop(ctx, log, store.Execution(), machinePoolManager, subagentDeadlineInterval)
-	}()
 
 	exitCode := 0
 	select {
@@ -263,7 +256,6 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
-	<-subagentDeadlineDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -331,52 +323,6 @@ func runCronTriggerFireTick(
 		}
 	}()
 	return service.FireDueTriggers(ctx)
-}
-
-func runSubagentDeadlineLoop(
-	ctx context.Context,
-	log *slog.Logger,
-	store *executionstore.Store,
-	machinePoolManager *machinepool.Manager,
-	interval time.Duration,
-) {
-	runBatchLoop(ctx, interval, func() bool {
-		stopped, err := runSubagentDeadlineTick(ctx, log, store, machinePoolManager)
-		if err != nil && ctx.Err() == nil {
-			log.Error("stop expired subagents", "stopped_count", stopped, "error", err)
-		} else if stopped > 0 {
-			log.Info("stopped expired subagents", "stopped_count", stopped)
-		}
-		return stopped == executionstore.SubagentExpiryBatchSize
-	})
-}
-
-func runSubagentDeadlineTick(
-	ctx context.Context,
-	log *slog.Logger,
-	store *executionstore.Store,
-	machinePoolManager *machinepool.Manager,
-) (stopped int, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("subagent deadline tick panicked: %v", recovered)
-			log.Error(
-				"subagent deadline tick panicked",
-				"error", recovered,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-	machines, stopped, err := store.StopExpiredSubagents(ctx, executionstore.SubagentExpiryBatchSize)
-	if err != nil {
-		return stopped, err
-	}
-	if len(machines) > 0 && machinePoolManager != nil {
-		if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
-			return stopped, fmt.Errorf("delete expired subagent machines: %w", err)
-		}
-	}
-	return stopped, nil
 }
 
 func jitteredFireDelay(interval time.Duration) time.Duration {

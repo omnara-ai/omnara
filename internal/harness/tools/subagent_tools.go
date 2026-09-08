@@ -19,10 +19,9 @@ import (
 )
 
 type spawnAgentRequest struct {
-	Agent          string `json:"agent"`
-	Task           string `json:"task"`
-	Name           string `json:"name,omitempty"`
-	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
+	Agent string `json:"agent"`
+	Task  string `json:"task"`
+	Name  string `json:"name,omitempty"`
 }
 
 type readAgentRequest struct {
@@ -79,9 +78,6 @@ func resolveSpawnAgentRequest(raw json.RawMessage) (spawnAgentRequest, error) {
 	}
 	if strings.TrimSpace(input.Task) == "" {
 		return spawnAgentRequest{}, errors.New("spawn_agent task is required")
-	}
-	if input.TimeoutSeconds != nil && (*input.TimeoutSeconds < 1 || *input.TimeoutSeconds > 604800) {
-		return spawnAgentRequest{}, errors.New("spawn_agent timeout_seconds must be between 1 and 604800")
 	}
 	return input, nil
 }
@@ -288,7 +284,6 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 			MaxSubagents:            contract.MaxSubagents,
 			ShareParentMachines:     subagent.Type == agentconfig.SubagentTypeSelf,
 			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
-			TimeoutSeconds:          input.TimeoutSeconds,
 		},
 	})
 	if err != nil {

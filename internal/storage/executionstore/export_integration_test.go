@@ -591,11 +591,3 @@ func (s *Store) ArchiveIdleSubagentsAsOf(
 ) ([]MachineRecord, int, error) {
 	return s.archiveIdleSubagents(ctx, &asOf, limit)
 }
-
-func (s *Store) StopExpiredSubagentsAsOf(
-	ctx context.Context,
-	asOf time.Time,
-	limit int,
-) ([]MachineRecord, int, error) {
-	return s.stopExpiredSubagents(ctx, &asOf, limit)
-}

@@ -139,16 +139,6 @@ WHERE interaction.project_id = sqlc.arg(project_id)
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: ListExpiredSubagents :many
-SELECT agent.project_id, agent.id
-FROM agents agent
-WHERE agent.parent_agent_id IS NOT NULL
-  AND agent.state = 'active'
-  AND agent.deadline_at IS NOT NULL
-  AND agent.deadline_at <= coalesce(sqlc.narg(as_of)::timestamptz, statement_timestamp())
-ORDER BY agent.deadline_at, agent.id
-LIMIT sqlc.arg(row_limit)::integer;
-
 -- name: ListIdleSubagentsForArchive :many
 WITH RECURSIVE candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at
