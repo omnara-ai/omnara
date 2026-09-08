@@ -26,7 +26,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <aside className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex">
-        <div className="from-primary/10 via-card to-card absolute inset-0 bg-gradient-to-br" />
+        <div className="from-primary/10 via-card to-card bg-linear-to-br absolute inset-0" />
         <div aria-hidden className="absolute inset-0 opacity-40" style={dotGrid} />
         <div
           aria-hidden

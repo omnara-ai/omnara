@@ -26,7 +26,7 @@ function StepRail({ status, nextStatus }: { status: StepStatus; nextStatus: Step
             ? '-bottom-[81px]'
             : '-bottom-[57px]',
         status === 'done' && nextStatus === 'done' && 'bg-primary/60',
-        status === 'done' && nextStatus !== 'done' && 'to-border from-primary bg-gradient-to-b',
+        status === 'done' && nextStatus !== 'done' && 'to-border from-primary bg-linear-to-b',
         status !== 'done' && 'bg-border',
       )}
     />
@@ -140,7 +140,7 @@ export function OnboardingStep({
         <div
           className={cn(
             'min-w-0 flex-1 rounded-2xl p-px sm:-m-6',
-            status === 'done' && 'from-primary/25 bg-gradient-to-r to-transparent',
+            status === 'done' && 'from-primary/25 bg-linear-to-r to-transparent',
             status === 'done' && statusChanged && 'animate-in fade-in-0 duration-500',
           )}
         >
@@ -148,7 +148,7 @@ export function OnboardingStep({
             className={cn(
               'min-w-0 rounded-[15px] p-[15px] sm:p-[23px]',
               status === 'done' &&
-                'bg-background from-primary/[0.07] bg-gradient-to-r to-transparent',
+                'bg-background from-primary/[0.07] bg-linear-to-r to-transparent',
             )}
           >
             <div className="flex min-w-0 flex-col gap-5 sm:gap-8">

@@ -3,12 +3,12 @@ import { extendTailwindMerge } from 'tailwind-merge'
 
 const twMerge = extendTailwindMerge({
   extend: {
-    theme: { borderRadius: ['control', 'card'] },
-    classGroups: {
-      'font-size': [{ text: ['caption'] }],
-      'font-weight': [{ font: ['heading'] }],
-      leading: [{ leading: ['prose', 'control'] }],
-      tracking: [{ tracking: ['eyebrow'] }],
+    theme: {
+      text: ['caption'],
+      'font-weight': ['heading'],
+      leading: ['prose', 'control'],
+      tracking: ['eyebrow'],
+      radius: ['control', 'card'],
     },
   },
 })
