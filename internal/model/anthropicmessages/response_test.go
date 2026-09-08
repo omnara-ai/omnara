@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -320,7 +323,7 @@ func TestRespondRejectsUnsupportedAnthropicContentBlock(t *testing.T) {
 	}
 }
 
-func TestRespondRejectsMissingOrNullAnthropicToolInput(t *testing.T) {
+func TestRespondReturnsMissingOrNullInputAsRejectedCalls(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		input string
@@ -344,10 +347,11 @@ func TestRespondRejectsMissingOrNullAnthropicToolInput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse invalid tool input for boundary validation: %v", err)
 			}
-			if err := model.ValidateProviderResponse(response); err == nil ||
-				!strings.Contains(err.Error(), "tool input must be a JSON object") {
-				t.Fatalf("invalid tool input validation = %v", err)
-			}
+			require.NoError(t, model.ValidateProviderResponse(response))
+			require.Len(t, response.Content, 1)
+			require.NotEmpty(t, response.Content[0].ToolCallError)
+			require.JSONEq(t, "{}", string(response.Content[0].ToolInput))
+
 		})
 	}
 }
@@ -388,5 +392,50 @@ func TestRespondTreatsAnthropicMaxTokensAsSuccess(t *testing.T) {
 	}
 	if resp.StopReason != model.StopReasonMaxTokens || resp.Text() != "partial" {
 		t.Fatalf("max_tokens response = %+v", resp)
+	}
+}
+
+func TestRespondMaxTokensRejectsOnlyFinalContentBlockToolUse(t *testing.T) {
+	firstCall := model.ResponsePart{
+		Type: model.ResponsePartTypeToolCall, ProviderCallID: "toolu_first",
+		ToolName: "run_command", ToolInput: json.RawMessage(`{"command":"true"}`),
+	}
+	for _, test := range []struct {
+		name string
+		tail string
+		want model.ResponsePart
+	}{
+		{
+			name: "final tool with empty object",
+			tail: `{"type":"tool_use","id":"toolu_last","name":"run_command","input":{}}`,
+			want: model.ResponsePart{
+				Type: model.ResponsePartTypeToolCall, ProviderCallID: "toolu_last",
+				ToolName: "run_command", ToolInput: json.RawMessage(`{}`),
+				ToolCallError: model.IncompleteToolCallError,
+			},
+		},
+		{
+			name: "tool before trailing text",
+			tail: `{"type":"text","text":"after the call"}`,
+			want: model.ResponsePart{Type: model.ResponsePartTypeText, Text: "after the call"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"id":"msg_cutoff","stop_reason":"max_tokens","content":[` +
+					`{"type":"tool_use","id":"toolu_first","name":"run_command","input":{"command":"true"}},` + test.tail + `]}`))
+			}))
+			defer server.Close()
+			resp, err := testRespondClient(server).Respond(t.Context(), model.Request{
+				ProviderRequest: json.RawMessage(`{"messages":[]}`),
+			})
+			require.NoError(t, err)
+			if resp.StopReason != model.StopReasonMaxTokens {
+				t.Errorf("stop reason = %q, want max_tokens", resp.StopReason)
+			}
+			if diff := cmp.Diff([]model.ResponsePart{firstCall, test.want}, resp.Content); diff != "" {
+				t.Errorf("content (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

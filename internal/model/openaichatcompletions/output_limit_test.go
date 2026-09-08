@@ -12,90 +12,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
+func TestOutputLimitReasonsAndPerCallValidation(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		variant   modelprotocol.APIVariant
-		finish    string
-		native    any
-		arguments string
-		output    int
-		wantLimit bool
-		wantError bool
+		name       string
+		variant    modelprotocol.APIVariant
+		finish     string
+		native     any
+		arguments  string
+		output     int
+		wantReason model.StopReason
+		refusal    string
 	}{
-		{"router rewritten length", modelprotocol.APIVariantOpenRouter, "tool_calls", "length", "{", 8192, true, false},
-		{
-			"router native max tokens",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			"max_tokens",
-			"{",
-			8192,
-			true,
-			false,
-		},
-		{
-			"router native max output",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			"max_output_tokens",
-			"{",
-			8192,
-			true,
-			false,
-		},
-		{
-			"router native uppercase zero usage",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			"MAX_TOKENS",
-			"{",
-			0,
-			true,
-			false,
-		},
-		{"router missing normalized reason", modelprotocol.APIVariantOpenRouter, "", "length", "{", 8192, true, false},
-		{"generic normalized length", modelprotocol.APIVariantDefault, "length", nil, "{", 8192, true, false},
-		{
-			"other route ignores native reason",
-			modelprotocol.APIVariantDefault,
-			"tool_calls",
-			"length",
-			"{",
-			8192,
-			false,
-			true,
-		},
-		{
-			"malformed without limit evidence",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			"stop",
-			"{",
-			8192,
-			false,
-			true,
-		},
-		{
-			"complete call at same usage",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			"stop",
-			"{}",
-			8192,
-			false,
-			false,
-		},
-		{
-			"invalid optional native telemetry",
-			modelprotocol.APIVariantOpenRouter,
-			"tool_calls",
-			17,
-			"{}",
-			8192,
-			false,
-			false,
-		},
+		{"router rewritten length", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "length", "{", 8192, model.StopReasonMaxTokens, ""},
+		{"router native max tokens", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "max_tokens", "{", 8192, model.StopReasonMaxTokens, ""},
+		{"router native max output", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "max_output_tokens", "{", 8192, model.StopReasonMaxTokens, ""},
+		{"router uppercase zero usage", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "MAX_TOKENS", "{", 0, model.StopReasonMaxTokens, ""},
+		{"router missing normalized reason", modelprotocol.APIVariantOpenRouter,
+			"", "length", "{", 8192, model.StopReasonMaxTokens, ""},
+		{"generic normalized length", modelprotocol.APIVariantDefault,
+			"length", nil, "{", 8192, model.StopReasonMaxTokens, ""},
+		{"other route ignores native reason", modelprotocol.APIVariantDefault,
+			"tool_calls", "length", "{", 8192, model.StopReasonToolUse, ""},
+		{"malformed without cutoff", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "stop", "{", 8192, model.StopReasonToolUse, ""},
+		{"complete call at same usage", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", "stop", "{}", 8192, model.StopReasonToolUse, ""},
+		{"invalid optional telemetry", modelprotocol.APIVariantOpenRouter,
+			"tool_calls", 17, "{}", 8192, model.StopReasonToolUse, ""},
+		{"explicit stop with tools", modelprotocol.APIVariantOpenRouter,
+			"stop", "stop", "{}", 100, model.StopReasonEndTurn, ""},
+		{"content filter takes precedence", modelprotocol.APIVariantOpenRouter,
+			"content_filter", "length", "{}", 100, model.StopReasonContentFilter, ""},
+		{"unknown reason takes precedence", modelprotocol.APIVariantOpenRouter,
+			"unsupported", "length", "{}", 100, model.StopReasonUnknown, ""},
+		{"refusal takes precedence", modelprotocol.APIVariantOpenRouter,
+			"length", "length", "{}", 100, model.StopReasonRefusal, "Refused"},
 	} {
 		for _, mode := range []string{
 			"response",
@@ -119,6 +74,7 @@ func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
 				message := map[string]any{
 					"role":    "assistant",
 					"content": "partial",
+					"refusal": tc.refusal,
 					"tool_calls": []any{
 						completeTool,
 						tool,
@@ -165,28 +121,15 @@ func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
 					response, err = (protocol{client: Client{APIVariant: tc.variant}}).ParseResponse(
 						context.Background(), route.Response{StatusCode: http.StatusOK, Body: body})
 				}
-				if tc.wantError {
-					providerErr, ok := model.ClassifyError(err)
-					if !ok ||
-						providerErr.Code != "malformed_success_response" ||
-						!model.IsAmbiguousProviderOutcome(err) {
-						t.Fatalf("malformed response lost its classification: %+v, %v", providerErr, err)
-					}
-				} else {
-					require.NoError(t, err)
-					if tc.wantLimit {
-						if response.StopReason != model.StopReasonMaxTokens ||
-							response.HasToolCalls() ||
-							len(response.ProviderReplay) != 0 {
-							t.Fatalf("truncated response retained executable calls/replay or lost cause: %+v", response)
-						}
-					} else if response.StopReason != model.StopReasonToolUse || !response.HasToolCalls() {
-						t.Fatalf("complete tool call was discarded: %+v", response)
-					}
-					if response.Text() != "partial" || response.Usage.OutputTokens != tc.output {
-						t.Fatalf("partial text/usage lost: %+v", response)
-					}
-				}
+				require.NoError(t, err)
+				require.Equal(t, tc.wantReason, response.StopReason)
+				require.Len(t, response.Content, 3)
+				require.Empty(t, response.Content[1].ToolCallError)
+				require.Equal(t, tc.arguments != "{}", response.Content[2].ToolCallError != "")
+				require.JSONEq(t, "{}", string(response.Content[2].ToolInput))
+				require.NotEmpty(t, response.ProviderReplay)
+				require.Contains(t, response.Text(), "partial")
+				require.Equal(t, tc.output, response.Usage.OutputTokens)
 				if tc.variant == modelprotocol.APIVariantOpenRouter {
 					native, _ := tc.native.(string)
 					if response.ProviderMetadata.OpenRouter.FinishReason != tc.finish ||

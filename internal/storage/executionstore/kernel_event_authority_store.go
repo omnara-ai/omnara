@@ -488,11 +488,6 @@ func validateModelOutputAuthorityInput(input CreateModelOutputAuthorityInput) er
 			"project, agent, model context, and stop reason are required",
 		)
 	}
-	if input.ContinueAfterTruncation &&
-		(input.StopReason != modelenvelope.StopReasonMaxTokens ||
-			len(input.ProviderReplay) != 0) {
-		return errors.New("output continuation requires max_tokens without provider replay")
-	}
 	if !modelenvelope.IsDurableModelOutputStopReason(input.StopReason) {
 		return fmt.Errorf("unsupported model output stop reason %q", input.StopReason)
 	}
@@ -565,7 +560,6 @@ func sameModelOutputAuthorityIntent(
 	return existing.ModelCallContextID == input.ModelCallContextID &&
 		existing.ServedProviderModelSlug == input.ServedProviderModelSlug &&
 		existing.StopReason == input.StopReason &&
-		existing.ContinueAfterTruncation == input.ContinueAfterTruncation &&
 		((len(existing.ProviderReplay) == 0 && len(input.ProviderReplay) == 0) ||
 			sameJSON(existing.ProviderReplay, input.ProviderReplay)) &&
 		existing.Usage == modelUsageForStorage(input.Usage)
@@ -580,7 +574,6 @@ func modelOutputAuthorityFromSQLC(row dbsqlc.InsertModelOutputAuthorityRow) Mode
 		ModelCallContextID:      row.ModelCallContextID,
 		ServedProviderModelSlug: row.ServedProviderModelSlug,
 		StopReason:              modelenvelope.StopReason(row.StopReason),
-		ContinueAfterTruncation: row.ContinueAfterTruncation,
 		ProviderResponseID:      row.ProviderResponseID,
 		ProviderReplay:          rawMessageFromSQLCPtr(row.ProviderReplay),
 		Usage: modelUsageFromSQLC(
@@ -604,7 +597,6 @@ func modelOutputAuthorityFromGetSQLC(row dbsqlc.GetModelOutputByModelContextRow)
 		ModelCallContextID:      row.ModelCallContextID,
 		ServedProviderModelSlug: row.ServedProviderModelSlug,
 		StopReason:              modelenvelope.StopReason(row.StopReason),
-		ContinueAfterTruncation: row.ContinueAfterTruncation,
 		ProviderResponseID:      row.ProviderResponseID,
 		ProviderReplay:          rawMessageFromSQLCPtr(row.ProviderReplay),
 		Usage: modelUsageFromSQLC(

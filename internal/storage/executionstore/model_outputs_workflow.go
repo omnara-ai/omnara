@@ -23,8 +23,7 @@ type RecordModelOutputAndCompleteContextInput struct {
 	// ProviderResponse is consumed inside the completion transaction and
 	// never durably stored. Storage and the model package share this type so
 	// the envelope shape is checked at compile time (no JSON re-parsing).
-	ProviderResponse        modelenvelope.ResponseEnvelope
-	ContinueAfterTruncation bool
+	ProviderResponse modelenvelope.ResponseEnvelope
 }
 
 type ToolCallBindingInput struct {
@@ -47,11 +46,12 @@ type RecordToolCallSourceAndCompleteContextInput struct {
 }
 
 type boundToolCall struct {
-	ID             ID
-	ProviderCallID string
-	Name           string
-	Input          []byte
-	Type           string
+	ID               ID
+	ProviderCallID   string
+	Name             string
+	Input            []byte
+	Type             string
+	RejectionContent []byte
 }
 
 func bindToolCalls(
@@ -106,13 +106,24 @@ func bindToolCalls(
 				part.ProviderCallID,
 			)
 		}
-		toolCalls = append(toolCalls, boundToolCall{
+		call := boundToolCall{
 			ID:             binding.ID,
 			ProviderCallID: part.ProviderCallID,
 			Name:           part.ToolName,
 			Input:          part.ToolInput,
 			Type:           binding.Type,
-		})
+		}
+		if part.ToolCallError != "" {
+			content, err := marshalJSON([]map[string]any{{
+				"type":  "structured_data",
+				"value": map[string]any{"error": part.ToolCallError, "error_code": "malformed"},
+			}})
+			if err != nil {
+				return nil, fmt.Errorf("marshal rejected tool call result: %w", err)
+			}
+			call.RejectionContent = content
+		}
+		toolCalls = append(toolCalls, call)
 	}
 	if len(toolCalls) == 0 {
 		return nil, errors.New("provider response contains no tool calls")
@@ -339,6 +350,20 @@ func (s *Store) RecordToolCallSourceAndCompleteContext(
 			)
 		}
 	}
+	for index, call := range toolCalls {
+		if len(call.RejectionContent) == 0 {
+			continue
+		}
+		record, err := completeToolCallTx(ctx, txNotifications, tx, CompleteToolCallInput{
+			ProjectID: input.ProjectID, AgentID: input.AgentID, RuntimeLockID: input.RuntimeLockID,
+			ID: records[index].ID, Outcome: ToolResultOutcomeFailed,
+			ResultContentParts: call.RejectionContent,
+		})
+		if err != nil {
+			return events.Event{}, nil, fmt.Errorf("record rejected tool call: %w", err)
+		}
+		records[index] = record
+	}
 	if err := completeSuccessfulNormalModelCallTx(
 		ctx,
 		qtx,
@@ -385,6 +410,11 @@ func sameBoundToolCallBatch(
 			(!isNilID(call.ID) && record.ID != call.ID) {
 			return false
 		}
+		if len(call.RejectionContent) > 0 &&
+			(record.State != ToolCallStateCompleted || record.Outcome != ToolResultOutcomeFailed ||
+				!sameJSON(record.ResultContentParts, call.RejectionContent)) {
+			return false
+		}
 	}
 	return true
 }
@@ -401,15 +431,6 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 	}
 	if err := validateModelResponseEnvelope(input.ProviderResponse); err != nil {
 		return events.Event{}, err
-	}
-	if input.ContinueAfterTruncation {
-		hasFeedback := false
-		for _, part := range input.ProviderResponse.Normalized.Content {
-			hasFeedback = hasFeedback || (part.Type == modelenvelope.ResponsePartTypeError && part.Text != "")
-		}
-		if input.ProviderResponse.HasToolCalls() || !hasFeedback {
-			return events.Event{}, errors.New("output continuation requires feedback without tool calls")
-		}
 	}
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})

@@ -82,7 +82,8 @@ func (c compat) outputTruncated(finishReason, nativeFinishReason string) bool {
 	if finishReason == "length" {
 		return true
 	}
-	if c.reportsNativeFinishReason {
+	if c.reportsNativeFinishReason &&
+		(finishReason == "" || finishReason == "stop" || finishReason == "tool_calls" || finishReason == "function_call") {
 		switch strings.ToLower(strings.TrimSpace(nativeFinishReason)) {
 		case "length", "max_tokens", "max_output_tokens":
 			return true

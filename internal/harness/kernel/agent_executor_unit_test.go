@@ -312,34 +312,6 @@ func TestInvalidModelToolCallResponse(t *testing.T) {
 			message: "without an ID",
 		},
 		{
-			name:    "missing name",
-			calls:   []model.ToolCall{{ID: "call_missing_name", Input: json.RawMessage(`{}`)}},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "without a name",
-		},
-		{
-			name:    "empty input",
-			calls:   []model.ToolCall{{ID: "call_empty_input", Name: "run_command"}},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "JSON object",
-		},
-		{
-			name:    "invalid json input",
-			calls:   []model.ToolCall{{ID: "call_invalid_json", Name: "run_command", Input: json.RawMessage(`{`)}},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "JSON object",
-		},
-		{
-			name:    "nonobject input",
-			calls:   []model.ToolCall{{ID: "call_array_input", Name: "run_command", Input: json.RawMessage(`[]`)}},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "JSON object",
-		},
-		{
 			name: "duplicate id",
 			calls: []model.ToolCall{
 				{ID: "call_duplicate", Name: "run_command", Input: json.RawMessage(`{"command":"one"}`)},

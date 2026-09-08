@@ -226,38 +226,3 @@ func bindValidatedToolCalls(
 	}
 	return bindToolCalls(envelope, bindings)
 }
-
-func TestOutputContinuationRejectsMissingFeedbackOrToolCallsBeforeStorage(t *testing.T) {
-	for _, parts := range [][]modelenvelope.ResponsePart{
-		{{Type: modelenvelope.ResponsePartTypeText, Text: "partial"}},
-		{{Type: modelenvelope.ResponsePartTypeError}},
-		{
-			{
-				Type: modelenvelope.ResponsePartTypeError,
-				Text: "feedback",
-			},
-			{
-				Type:           modelenvelope.ResponsePartTypeToolCall,
-				ProviderCallID: "call",
-				ToolName:       "run_command",
-				ToolInput:      json.RawMessage(`{}`),
-			},
-		},
-	} {
-		envelope := validToolCallEnvelope(parts...)
-		envelope.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
-		_, err := (&Store{}).RecordModelOutputAndCompleteContext(
-			context.Background(),
-			RecordModelOutputAndCompleteContextInput{
-				ProjectID:          parseUUIDText("00000000-0000-4000-8000-000000000001"),
-				AgentID:            parseUUIDText("00000000-0000-4000-8000-000000000002"),
-				RuntimeLockID:      parseUUIDText("00000000-0000-4000-8000-000000000003"),
-				ModelCallContextID: parseUUIDText("00000000-0000-4000-8000-000000000004"),
-				ProviderResponse:   envelope, ContinueAfterTruncation: true,
-			},
-		)
-		if err == nil || !strings.Contains(err.Error(), "output continuation requires feedback without tool calls") {
-			t.Fatalf("validation error=%v", err)
-		}
-	}
-}

@@ -590,7 +590,7 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 	choices := make([]chatChoice, 0, len(a.choices))
 	for _, index := range sortedChoiceIndexes(a.choices) {
 		state := a.choices[index]
-		message, err := state.responseMessage(a.protocol.client.compat())
+		message, err := state.responseMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -610,7 +610,7 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 	})
 }
 
-func (s *chatStreamChoiceState) responseMessage(compatibility compat) (chatResponseMessage, error) {
+func (s *chatStreamChoiceState) responseMessage() (chatResponseMessage, error) {
 	role := s.role
 	if role == "" {
 		role = chatRoleAssistant
@@ -623,13 +623,9 @@ func (s *chatStreamChoiceState) responseMessage(compatibility compat) (chatRespo
 		}
 		content = raw
 	}
-	var toolCalls []json.RawMessage
-	if !compatibility.outputTruncated(s.finishReason, string(s.nativeFinishReason)) {
-		var err error
-		toolCalls, err = s.toolCallMessages()
-		if err != nil {
-			return chatResponseMessage{}, err
-		}
+	toolCalls, err := s.toolCallMessages()
+	if err != nil {
+		return chatResponseMessage{}, err
 	}
 	reasoningDetails, err := s.reasoningDetailMessages()
 	if err != nil {
@@ -679,7 +675,7 @@ func (s *chatStreamChoiceState) toolCallMessages() ([]json.RawMessage, error) {
 			Type: callType,
 			Function: chatFunction{
 				Name:      tool.name,
-				Arguments: arguments,
+				Arguments: model.ToolArgumentString(arguments),
 			},
 		})
 		if err != nil {

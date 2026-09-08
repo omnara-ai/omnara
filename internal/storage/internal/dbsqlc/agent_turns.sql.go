@@ -151,6 +151,37 @@ func (q *Queries) InsertAgentTurn(ctx context.Context, arg InsertAgentTurnParams
 	return i, err
 }
 
+const isOutputLimitBoundary = `-- name: IsOutputLimitBoundary :one
+SELECT EXISTS (
+  SELECT 1
+  FROM agent_events event
+  JOIN agents agent ON agent.id = event.agent_id
+  JOIN model_outputs output ON output.agent_id = event.agent_id
+    AND output.id = event.model_output_id
+  WHERE agent.project_id = $1
+    AND event.agent_id = $2
+    AND event.sequence = $3
+    AND output.stop_reason = 'max_tokens'
+    AND NOT EXISTS (
+      SELECT 1 FROM tool_calls call
+      WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id
+    )
+)::boolean
+`
+
+type IsOutputLimitBoundaryParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	EventSequence int64
+}
+
+func (q *Queries) IsOutputLimitBoundary(ctx context.Context, arg IsOutputLimitBoundaryParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isOutputLimitBoundary, arg.ProjectID, arg.AgentID, arg.EventSequence)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listAgentEventsBeforeForRead = `-- name: ListAgentEventsBeforeForRead :many
 SELECT projection.id, projection.org_id, projection.project_id, projection.agent_id,
        projection.turn_id, projection.turn_sequence, projection.is_opening_event,
@@ -165,7 +196,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata, projection.continue_after_truncation
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -232,7 +263,6 @@ func (q *Queries) ListAgentEventsBeforeForRead(ctx context.Context, arg ListAgen
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
-			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -258,7 +288,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata, projection.continue_after_truncation
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -322,7 +352,6 @@ func (q *Queries) ListAgentEventsForRead(ctx context.Context, arg ListAgentEvent
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
-			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -422,7 +451,7 @@ SELECT event.id,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
        output.provider_replay,
-       coalesce(output.stop_reason = 'max_tokens' AND bool_or(block.block_kind = 'error'), false)::boolean AS has_output_limit_feedback,
+       coalesce(output.stop_reason, '') AS stop_reason,
        CASE
          WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -506,7 +535,7 @@ type ListContextEventsRow struct {
 	ApiFormat                  string
 	ApiVariant                 string
 	ProviderReplay             *json.RawMessage
-	HasOutputLimitFeedback     bool
+	StopReason                 string
 	ContentParts               json.RawMessage
 }
 
@@ -538,7 +567,7 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.ApiFormat,
 			&i.ApiVariant,
 			&i.ProviderReplay,
-			&i.HasOutputLimitFeedback,
+			&i.StopReason,
 			&i.ContentParts,
 		); err != nil {
 			return nil, err
@@ -565,7 +594,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata, projection.continue_after_truncation
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id
@@ -630,7 +659,6 @@ func (q *Queries) ListTurnBoundaryEventsForRead(ctx context.Context, arg ListTur
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
-			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}
@@ -656,7 +684,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata, projection.continue_after_truncation
+       projection.provider_metadata
 FROM agent_event_read_projection projection
 WHERE projection.project_id = $1
   AND projection.agent_id = $2
@@ -726,7 +754,6 @@ func (q *Queries) ListTurnEventsForRead(ctx context.Context, arg ListTurnEventsF
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
 			&i.ProviderMetadata,
-			&i.ContinueAfterTruncation,
 		); err != nil {
 			return nil, err
 		}

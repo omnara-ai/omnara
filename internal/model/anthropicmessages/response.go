@@ -15,6 +15,10 @@ import (
 
 func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model.Response, error) {
 	_ = ctx
+	return p.parseResponse(resp, false)
+}
+
+func (p protocol) parseResponse(resp route.Response, streamed bool) (model.Response, error) {
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return model.Response{}, classifyHTTPError(p.errorSource(), resp.StatusCode, resp.Header, body)
@@ -57,10 +61,22 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	out.StopReason = mapStopReason(decoded.StopReason)
 	replayBlocks := make([]json.RawMessage, 0, len(decoded.Content))
 	hasToolCall := false
-	for _, rawBlock := range decoded.Content {
+	for index, rawBlock := range decoded.Content {
 		var block contentBlock
 		if err := json.Unmarshal(rawBlock, &block); err != nil {
 			return out, p.invalidResponseError(resp, decoded, err)
+		}
+		var toolCall model.ResponsePart
+		if block.Type == "tool_use" {
+			toolCall = model.NewToolCallPart(block.ID, block.Name, block.Input)
+			// Nonstreaming input is always an object, even when the final call
+			// was interrupted. Its completeness cannot be established at a cutoff.
+			// Streaming retains the original argument fragments for validation.
+			if !streamed && out.StopReason == model.StopReasonMaxTokens && index == len(decoded.Content)-1 {
+				toolCall.ToolCallError = model.IncompleteToolCallError
+			}
+			block.Name = toolCall.ToolName
+			block.Input = toolCall.ToolInput
 		}
 		replayBlock, err := anthropicContentBlockForReplay(rawBlock, block)
 		if err != nil {
@@ -84,12 +100,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				})
 			}
 		case "tool_use":
-			out.Content = append(out.Content, model.ResponsePart{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: block.ID,
-				ToolName:       block.Name,
-				ToolInput:      block.Input,
-			})
+			out.Content = append(out.Content, toolCall)
 			hasToolCall = true
 		default:
 			return out, p.invalidResponseError(
@@ -126,6 +137,11 @@ func anthropicContentBlockForReplay(
 		return nil, err
 	}
 	fields["input"] = input
+	name, err := json.Marshal(block.Name)
+	if err != nil {
+		return nil, err
+	}
+	fields["name"] = name
 	return json.Marshal(fields)
 }
 

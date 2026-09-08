@@ -1746,10 +1746,6 @@ export type ModelOutputEvent = {
     event_kind: 'model_output';
     model_call_context_id: ModelCallContextId;
     stop_reason: ModelOutputStopReason;
-    /**
-     * Whether this output requested automatic continuation after reaching its output limit. Cancellation or subsequent work can consume this intent.
-     */
-    continue_after_truncation: boolean;
     content_blocks: Array<ModelOutputContentBlock>;
     usage?: ModelUsage;
     /**

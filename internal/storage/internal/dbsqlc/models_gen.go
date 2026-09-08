@@ -72,7 +72,6 @@ type AgentEventReadProjection struct {
 	OutputTokensTotal              *int32
 	ReasoningOutputTokens          *int32
 	ProviderMetadata               *json.RawMessage
-	ContinueAfterTruncation        bool
 }
 
 type AgentInteractionReadProjection struct {

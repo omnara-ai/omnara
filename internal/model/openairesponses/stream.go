@@ -331,8 +331,8 @@ func (a *openAIStreamAccumulator) handleOutputItemAdded(ctx context.Context, dat
 	a.seenItemIDs[frame.Item.ID] = true
 	switch frame.Item.Type {
 	case "function_call":
-		if strings.TrimSpace(frame.Item.CallID) == "" || strings.TrimSpace(frame.Item.Name) == "" {
-			return errors.New("response.output_item.added function call is missing call_id or name")
+		if strings.TrimSpace(frame.Item.CallID) == "" {
+			return errors.New("response.output_item.added function call is missing call_id")
 		}
 		idx := a.allocBlock()
 		a.itemBlockIndex[frame.Item.ID] = idx

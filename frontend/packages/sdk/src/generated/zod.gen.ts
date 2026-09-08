@@ -1481,7 +1481,6 @@ export const zModelOutputEvent = z.object({
     event_kind: z.enum(['model_output']),
     model_call_context_id: zModelCallContextId,
     stop_reason: zModelOutputStopReason,
-    continue_after_truncation: z.boolean(),
     content_blocks: z.array(zModelOutputContentBlock),
     usage: zModelUsage.optional(),
     provider_metadata: z.record(z.string(), z.unknown()).optional(),

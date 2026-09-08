@@ -73,22 +73,6 @@ func invalidModelToolCallResponse(
 			), true
 		}
 		seenIDs[call.ID] = struct{}{}
-		if call.Name == "" {
-			return malformedToolCallResponse(
-				errorSource,
-				"The model response contains a tool call without a name.",
-			), true
-		}
-		if err := modelenvelope.ValidateToolInput(call.Input); err != nil {
-			return malformedToolCallResponse(
-				errorSource,
-				fmt.Sprintf(
-					"The model response tool call %q has invalid input: %v",
-					call.ID,
-					err,
-				),
-			), true
-		}
 	}
 	return nil, false
 }

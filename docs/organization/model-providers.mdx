@@ -88,7 +88,9 @@ Token settings have separate roles:
 
 Project and agent context overrides can be smaller than an inherited output capacity; request preparation fits the allowance to that smaller window. An explicit default allowance must remain below the effective context window, including when inherited from the model or project.
 
-Normal context admission reserves generation headroom independently of a large output capacity. If a response reaches its output limit, Omnara discards all tool calls from that response, records feedback, and lets the model continue with smaller calls. After two consecutive automatic continuations, another truncated response ends the run with an error message. Partial tool calls are never executed.
+Normal context admission reserves generation headroom independently of a large output capacity. Responses that reach their output limit retain the `max_tokens` stop reason. Omnara preserves their text and reusable reasoning and continues the conversation. When there are no tool calls, the next request includes a harness notice explaining that the preceding response may be incomplete. These notices are derived from recorded outputs and remain in later request history; they do not create user inputs or error events.
+
+Tool calls are handled individually, including in responses that reach the output limit. Complete, valid calls follow the usual permission and execution flow. Invalid arguments and unavailable tools receive a paired failed tool result so the model can correct the call. Calls rejected during response parsing are recorded together with their failed results and never execute. Missing call identities or malformed provider envelopes use the provider-error and retry flow. A response with tools continues after all results settle; a response without tools stops when the provider reports `end_turn`.
 
 Changing a model's runtime settings creates a new **revision** (`mrev_…`). Agents resolve the current revision before each model call, so the new settings apply to later calls from existing agents too.
 

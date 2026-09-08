@@ -37,9 +37,9 @@ describe('projectAgentChat input lifecycle', () => {
     hasOlderEvents: false,
   }
 
-  it.each([true, false])(
-    'restores recovery status from durable history: continued=%s',
-    (continued) => {
+  it.each(['max_tokens', 'end_turn'] as const)(
+    'restores work status from the stop reason: %s',
+    (reason) => {
       const result = projectAgentChat({
         ...base,
         localInputs: [],
@@ -48,14 +48,13 @@ describe('projectAgentChat input lifecycle', () => {
           userInputEvent(),
           event({
             sequence: 12,
-            stop_reason: 'max_tokens',
-            continue_after_truncation: continued,
-            content_blocks: [{ type: 'error', text: 'Output limit reached.' }],
+            stop_reason: reason,
+            content_blocks: [{ type: 'text', text: 'Model output.' }],
           }),
         ],
       })
-      expect(result.isWorking).toBe(continued)
-      expect(result.status).toBe(continued ? 'streaming' : 'ready')
+      expect(result.isWorking).toBe(reason === 'max_tokens')
+      expect(result.status).toBe(reason === 'max_tokens' ? 'streaming' : 'ready')
     },
   )
 

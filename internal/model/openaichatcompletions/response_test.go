@@ -11,12 +11,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {
@@ -106,7 +109,7 @@ func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {
 	}
 }
 
-func TestRespondRejectsMalformedToolArgumentsAtModelBoundary(t *testing.T) {
+func TestRespondReturnsMalformedArgumentsAsRejectedCalls(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		arguments string
@@ -116,6 +119,8 @@ func TestRespondRejectsMalformedToolArgumentsAtModelBoundary(t *testing.T) {
 		{name: "null", arguments: `,"arguments":null`},
 		{name: "string null", arguments: `,"arguments":"null"`},
 		{name: "malformed", arguments: `,"arguments":"{"`},
+		{name: "object", arguments: `,"arguments":{}`},
+		{name: "array", arguments: `,"arguments":[]`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := `{"id":"chatcmpl_1","model":"gpt-served","choices":[{"index":0,"message":` +
@@ -125,13 +130,16 @@ func TestRespondRejectsMalformedToolArgumentsAtModelBoundary(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 			}))
 			defer server.Close()
-			_, err := testRespondClient(server).Respond(
+			response, err := testRespondClient(server).Respond(
 				context.Background(),
 				model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 			)
-			if err == nil || !strings.Contains(err.Error(), "tool input must be a JSON object") {
-				t.Fatalf("malformed tool arguments error = %v", err)
-			}
+			require.NoError(t, err)
+			require.NoError(t, model.ValidateProviderResponse(response))
+			require.Len(t, response.Content, 1)
+			require.NotEmpty(t, response.Content[0].ToolCallError)
+			require.JSONEq(t, "{}", string(response.Content[0].ToolInput))
+
 		})
 	}
 }
@@ -677,11 +685,38 @@ func TestRespondTreatsLengthFinishAsSuccessfulMaxTokens(t *testing.T) {
 		t.Fatalf("length response: %v", err)
 	}
 	if resp.StopReason != model.StopReasonMaxTokens || resp.Text() != "partial" ||
-		resp.HasToolCalls() || len(resp.ProviderReplay) != 0 || len(resp.Content) != 2 ||
+		!resp.HasToolCalls() || len(resp.ProviderReplay) == 0 || len(resp.Content) != 3 ||
+		resp.Content[2].ToolCallError == "" ||
 		resp.Content[0].Type != model.ResponsePartTypeReasoning ||
 		resp.Content[0].Text != "still thinking" {
 		t.Fatalf("length response = %+v", resp)
 	}
+	replay := testProviderReplay(
+		"gpt-test", modelprotocol.APIFormatOpenAIChatCompletions, modelprotocol.APIVariantDefault, resp.ProviderReplay)
+	message := chatReplayMessage("mcc_1", replay)
+	message.StopReason = resp.StopReason
+	message.Content = json.RawMessage(`[{"type":"reasoning","text":"still thinking"},{"type":"text","text":"partial"},{"type":"tool_call","tool_call_id":"tcl_partial"}]`)
+	prepared, err := testRespondClient(server).Prepare(context.Background(),
+		model.PrepareInput{Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{message},
+			ToolResults: []modelcontext.ToolResultRef{{
+				ToolCallID: "tcl_partial", ModelCallContextID: "mcc_1", ProviderCallID: "call_partial",
+				Name: "run_command", Input: resp.Content[2].ToolInput, Outcome: executionstore.ToolResultOutcomeFailed,
+				ContentParts: json.RawMessage(`[{"type":"structured_data","value":{"error":"retry","error_code":"malformed"}}]`),
+			}},
+		}})
+	require.NoError(t, err)
+	var request struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(prepared.Body, &request))
+	require.Len(t, request.Messages, 3)
+	require.Contains(t, string(request.Messages[1]), `"reasoning":"still thinking"`)
+	require.Contains(t, string(request.Messages[1]), `"arguments":"{}"`)
+	require.Contains(t, string(request.Messages[2]), `"tool_call_id":"call_partial"`)
+	require.Contains(t, string(request.Messages[2]), "malformed")
+	require.NotContains(t, string(prepared.Body), "Automatic Omnara harness notice")
+
 }
 
 func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testing.T) {

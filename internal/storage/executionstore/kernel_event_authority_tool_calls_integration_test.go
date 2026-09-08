@@ -18,7 +18,154 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
+
+func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) {
+	t.Parallel()
+	for _, stopReason := range []modelenvelope.StopReason{
+		modelenvelope.StopReasonToolUse, modelenvelope.StopReasonEndTurn, modelenvelope.StopReasonMaxTokens,
+	} {
+		t.Run(string(stopReason), func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "mixed_tool_call_rejections")
+			providerModelSlug := modelProviderSlugForContext(
+				t, ctx, fixture.Store, testProjectID, fixture.AgentID, claim.Context.ID,
+			)
+			input := executionstore.RecordToolCallSourceAndCompleteContextInput{
+				ProjectID: testProjectID, AgentID: fixture.AgentID,
+				RuntimeLockID: fixture.Lock.ID, ModelCallContextID: claim.Context.ID,
+				ProviderResponse: modelenvelope.ResponseEnvelope{
+					RequestedProviderModelSlug: providerModelSlug, ServedProviderModelSlug: providerModelSlug,
+					APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
+					Normalized: modelenvelope.ResponseNormalized{
+						ID: "mixed-tool-response", StopReason: stopReason,
+						Content: []modelenvelope.ResponsePart{
+							{
+								Type: modelenvelope.ResponsePartTypeToolCall, ProviderCallID: "accepted-call",
+								ToolName: "read_file", ToolInput: json.RawMessage(`{"path":"README.md"}`),
+							},
+							{
+								Type: modelenvelope.ResponsePartTypeToolCall, ProviderCallID: "rejected-call",
+								ToolName: "docs__lookup", ToolInput: json.RawMessage(`{}`),
+								ToolCallError: "tool arguments are incomplete",
+							},
+						},
+					},
+				},
+				ToolCallBindings: []executionstore.ToolCallBindingInput{
+					{ProviderCallID: "accepted-call", Type: toolcatalog.ToolTypeBuiltIn},
+					{ProviderCallID: "rejected-call", Type: toolcatalog.ToolTypeMCP},
+				},
+			}
+			event, calls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, input)
+			require.NoError(t, err, "record mixed tool batch")
+			boundary, err := fixture.Store.Execution().IsOutputLimitBoundary(
+				ctx, input.ProjectID, input.AgentID, event.Sequence)
+			require.NoError(t, err)
+			require.False(t, boundary, "tool-bearing outputs use paired results instead of a cutoff notice")
+
+			if len(calls) != 2 {
+				t.Fatalf("tool calls = %d, want 2", len(calls))
+			}
+			accepted, rejected := calls[0], calls[1]
+			if accepted.ProviderCallID != "accepted-call" ||
+				accepted.State != executionstore.ToolCallStateAwaitingAuthorization {
+				t.Fatalf("accepted call = %+v, want awaiting authorization", accepted)
+			}
+			rejected, err = fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, rejected.ID)
+			require.NoError(t, err, "load rejected call immediately after source commit")
+			wantError := json.RawMessage(`[{"type":"structured_data","value":{"error":"tool arguments are incomplete","error_code":"malformed"}}]`)
+			if rejected.ProviderCallID != "rejected-call" || rejected.State != executionstore.ToolCallStateCompleted ||
+				rejected.Outcome != executionstore.ToolResultOutcomeFailed || !sameJSON(rejected.ResultContentParts, wantError) {
+				t.Fatalf("rejected call = %+v, want completed failed call with result %s", rejected, wantError)
+			}
+			resultEvents := listTypedToolResultEventsForToolCall(t, ctx, fixture.Store, fixture.AgentID, rejected.ID)
+			if len(resultEvents) != 1 || resultEvents[0].Sequence <= event.Sequence {
+				t.Fatalf("result events = %+v, want one result after source sequence %d", resultEvents, event.Sequence)
+			}
+			output, found, err := fixture.Store.Execution().GetModelOutputForContext(
+				ctx, testProjectID, fixture.AgentID, claim.Context.ID,
+			)
+			require.NoError(t, err)
+			if !found || output.StopReason != stopReason {
+				t.Fatalf("source output found=%v reason=%s, want %s", found, output.StopReason, stopReason)
+			}
+			completedContext, found, err := fixture.Store.Execution().GetModelCallContext(
+				ctx, testProjectID, fixture.AgentID, claim.Context.ID,
+			)
+			require.NoError(t, err)
+			if !found || completedContext.State != executionstore.ModelCallContextSucceeded {
+				t.Fatalf("model context found=%v state=%s, want succeeded", found, completedContext.State)
+			}
+			next, found, err := fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
+			require.NoError(t, err)
+			if found {
+				t.Fatalf("model work = %+v before accepted tool settled, want none", next)
+			}
+			for _, settled := range []bool{false, true} {
+				if settled {
+					markToolCallReadyForTest(t, ctx, fixture, accepted.ID, fixture.Now)
+					_, err := fixture.Store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
+						ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
+						ID: accepted.ID, Outcome: executionstore.ToolResultOutcomeSucceeded,
+						ResultContentParts: json.RawMessage(`[{"type":"text","text":"file contents"}]`),
+					})
+					require.NoError(t, err, "complete accepted tool")
+				}
+				replayed, replayCalls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, input)
+				require.NoError(t, err, "replay source with accepted tool settled=%v", settled)
+				if replayed.ID != event.ID || len(replayCalls) != 2 {
+					t.Fatalf("replayed event=%s calls=%d, want event=%s calls=2", replayed.ID, len(replayCalls), event.ID)
+				}
+			}
+			changed := input
+			changed.ProviderResponse.Normalized.Content = slices.Clone(input.ProviderResponse.Normalized.Content)
+			changed.ProviderResponse.Normalized.Content[1].ToolCallError = "tool arguments must be an object"
+			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
+			if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+				t.Fatalf("changed rejection replay error = %v, want idempotency conflict", err)
+			}
+			changed.ProviderResponse.Normalized.Content[1].ToolCallError = ""
+			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
+			require.NoError(t, err, "replay without transient rejection evidence")
+			_, err = fixture.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
+				ProjectID: testProjectID, AgentID: fixture.AgentID, ID: rejected.ID, RuntimeLockID: fixture.Lock.ID,
+			})
+			if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+				t.Fatalf("reopen rejected call error = %v, want state transition conflict", err)
+			}
+			replayedResults := listTypedToolResultEventsForToolCall(t, ctx, fixture.Store, fixture.AgentID, rejected.ID)
+			if len(replayedResults) != 1 || replayedResults[0].ID != resultEvents[0].ID {
+				t.Fatalf("replayed rejection events = %+v, want original result %s", replayedResults, resultEvents[0].ID)
+			}
+			next, found, err = fixture.Store.Execution().NextAgentModelWork(ctx, testProjectID, fixture.AgentID)
+			require.NoError(t, err)
+			if !found || next.Kind != executionstore.ModelWorkContinue || next.SourceModelOutputID != output.ID {
+				t.Fatalf("model work found=%v work=%+v, want continuation of output %s", found, next, output.ID)
+			}
+		})
+	}
+}
+
+func TestDatabaseRejectsResultForIncompleteToolCall(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	fixture := newProcessDaemonFixture(t, ctx, "result_for_incomplete_call")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "result_for_incomplete_call", "read_process")
+	tx, err := fixture.Store.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
+INSERT INTO tool_call_results(agent_id, tool_call_id, outcome, completed_at)
+VALUES ($1, $2, 'failed', now())`, fixture.AgentID, toolCallID)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SET CONSTRAINTS tool_result_completed_call_required IMMEDIATE`)
+	if !isPgCheckViolation(err) || !strings.Contains(err.Error(), "requires a completed tool call") {
+		t.Fatalf("result for incomplete call error = %v, want completed-call constraint violation", err)
+	}
+}
 
 func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 	t.Parallel()

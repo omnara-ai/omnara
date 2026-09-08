@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -23,192 +23,75 @@ import (
 func truncatedKernelResponse() model.Response {
 	return model.Response{
 		ID: "truncated-response", StopReason: model.StopReasonMaxTokens,
-		Content: []model.ResponsePart{
-			{Type: model.ResponsePartTypeText, Text: "partial response"},
-			{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: "complete-call",
-				ToolName:       "run_command",
-				ToolInput:      json.RawMessage(`{"command":"echo complete"}`),
-			},
-			{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: "partial-call",
-				ToolName:       "run_command",
-				ToolInput:      json.RawMessage(`{"command":`),
-			},
-		},
-		ProviderReplay: json.RawMessage(`[{"type":"message","content":"partial"}]`),
-		Usage:          model.Usage{InputTokens: 100, OutputTokens: 8192, ReasoningTokens: 1000},
+		Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial response"}},
+		Usage:   model.Usage{InputTokens: 100, OutputTokens: 128, ReasoningTokens: 64},
 	}
 }
 
-func TestOutputTruncationContinuesAcrossClaimsAndStopsAtDurableBound(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/output-recovery", fixture.Now)
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
-	turnID := work.TurnID
-	for attempt := range 3 {
-		client := &sequenceKernelModel{
-			providerModelSlug: "output-recovery",
-			responses: []model.Response{
+func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content []model.ResponsePart
+	}{
+		{name: "empty"},
+		{name: "reasoning", content: []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "finished thinking"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newKernelFixture(t, ctx)
+			agentID, userID := fixture.createAgent(t, ctx, "openai/output-recovery", fixture.Now)
+			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
+			client := &sequenceKernelModel{providerModelSlug: "output-recovery", responses: []model.Response{
 				truncatedKernelResponse(),
-			},
-		}
-
-		publisher := &capturingStreamPublisher{}
-		for index, callID := range []string{"complete-call", "partial-call"} {
-			client.streamEvents = append(client.streamEvents, model.StreamEvent{
-				Kind: model.StreamEventBlockStart, BlockIndex: index,
-				Block: &model.StreamBlock{Kind: model.StreamBlockToolUse, ToolCallID: callID, ToolName: "run_command"},
-			})
-		}
-		executor := AgentExecutor{
-			Store: fixture.Store,
-			ModelResolver: liveTestModelResolver(
-				fixture.Store,
-				client,
-			),
-			StreamPublisher: publisher,
-		}
-
-		require.NoError(t, executor.ExecuteModelWork(ctx, work))
-
-		previews := 0
-		for _, frame := range publisher.envelopes(t) {
-			if frame.Event.Block != nil && frame.Event.Block.Kind == model.StreamBlockToolUse {
-				previews++
-				if frame.Event.Block.ToolCallID == "complete-call" || frame.Event.Block.ToolCallID == "partial-call" {
-					t.Fatal("preview did not use a public tool identity")
+				{ID: "thinking", StopReason: model.StopReasonMaxTokens,
+					Content: []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}}},
+				{ID: "empty", StopReason: model.StopReasonMaxTokens},
+				truncatedKernelResponse(),
+				{ID: "done", StopReason: model.StopReasonEndTurn, Content: tc.content},
+			}}
+			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			var openingInputs int
+			require.NoError(t, fixture.Pool.QueryRow(ctx,
+				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&openingInputs))
+			responseCount := len(client.responses)
+			for attempt := range responseCount {
+				require.NoError(t, executor.ExecuteModelWork(ctx, work))
+				// Replaying completed work must not issue a second provider request.
+				err := executor.ExecuteModelWork(ctx, work)
+				require.True(t, err == nil || errors.Is(err, storeerr.ErrAgentNotAdvanceable), "%v", err)
+				require.Equal(t, attempt+1, client.respondedCount())
+				history, err := modelcontext.CanonicalHistory(client.responded[attempt].Bundle)
+				require.NoError(t, err)
+				notices := 0
+				for _, entry := range history {
+					if entry.Message.Role == modelprotocol.RoleUser &&
+						strings.Contains(string(entry.Message.Content), "Automatic Omnara harness notice") {
+						notices++
+					}
+				}
+				require.Equal(t, attempt, notices)
+				fixture.releaseModelRuntimeLock(t, ctx, work)
+				if attempt < responseCount-1 {
+					require.Equal(t, 1, pendingModelWork(t, ctx, fixture, agentID))
+					claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
+					next := modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(time.Second))
+					require.Equal(t, executionstore.ModelWorkContinue, next.Kind)
+					require.Equal(t, work.TurnID, next.TurnID)
+					work = next
 				}
 			}
-		}
-		if previews != 2 {
-			t.Fatalf("provisional tool previews=%d", previews)
-		}
-		// Stale completed work must not send again.
-		if err := executor.ExecuteModelWork(ctx, work); err != nil && !errors.Is(err, storeerr.ErrAgentNotAdvanceable) {
-			t.Fatal(err)
-		}
-		if client.respondedCount() != 1 {
-			t.Fatalf("provider sends=%d", client.respondedCount())
-		}
-		if attempt > 0 {
-			bundle := client.responded[0].Bundle
-			if _, err := modelcontext.CanonicalHistory(bundle); err != nil {
-				t.Fatal(err)
-			}
-			last := bundle.Messages[len(bundle.Messages)-1]
-			if last.Role != modelprotocol.RoleUser || !strings.Contains(string(last.Content), "smaller tool calls") {
-				t.Fatalf("feedback=%+v", last)
-			}
-			if len(client.responded[0].ProviderReplays) != 0 {
-				t.Fatal("truncated provider replay reached successor")
-			}
-		}
-		fixture.releaseModelRuntimeLock(t, ctx, work)
-		if attempt < 2 {
-			claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
-			work = modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(time.Second))
-			if work.Kind != executionstore.ModelWorkContinue || work.TurnID != turnID {
-				t.Fatalf("successor=%+v", work)
-			}
-		}
+			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+			var cutoffs, failed, inputs int
+			require.NoError(t, fixture.Pool.QueryRow(ctx, `
+   SELECT count(*) FILTER (WHERE stop_reason='max_tokens'), count(*) FILTER (WHERE stop_reason='error')
+   FROM model_outputs WHERE agent_id=$1`, agentID).Scan(&cutoffs, &failed))
+			require.NoError(t, fixture.Pool.QueryRow(ctx,
+				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&inputs))
+			require.Equal(t, 4, cutoffs)
+			require.Zero(t, failed)
+			require.Equal(t, openingInputs, inputs, "notices must not create durable user inputs")
+		})
 	}
-	var outputs, continuations, feedback, exhausted, toolCalls, inputTokens, outputTokens, reasoningTokens int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `
- SELECT count(*),count(*) FILTER(WHERE output.continue_after_truncation),
-        sum(context.input_tokens_total),sum(context.output_tokens_total),sum(context.reasoning_output_tokens)
- FROM model_outputs output JOIN model_call_contexts context
- ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id
- WHERE output.agent_id=$1 AND output.stop_reason='max_tokens'
- AND context.state='succeeded' AND output.provider_replay IS NULL`, agentID).
-		Scan(&outputs, &continuations, &inputTokens, &outputTokens, &reasoningTokens))
-	require.NoError(t, fixture.Pool.QueryRow(
-		ctx,
-		`SELECT count(*), count(*) FILTER(WHERE text_content LIKE '%Automatic continuation stopped%') FROM content_blocks WHERE agent_id=$1 AND block_kind='error'`,
-		agentID,
-	).Scan(
-		&feedback,
-		&exhausted,
-	))
-	require.NoError(t, fixture.Pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM tool_calls WHERE agent_id=$1`,
-		agentID,
-	).Scan(&toolCalls))
-	if outputs != 3 ||
-		continuations != 2 ||
-		feedback != 3 ||
-		exhausted != 1 ||
-		toolCalls != 0 ||
-		inputTokens != 300 ||
-		outputTokens != 24576 ||
-		reasoningTokens != 3000 {
-		t.Fatalf(
-			"outputs=%d continued=%d feedback=%d exhausted=%d tools=%d usage=%d/%d/%d",
-			outputs,
-			continuations,
-			feedback,
-			exhausted,
-			toolCalls,
-			inputTokens,
-			outputTokens,
-			reasoningTokens,
-		)
-	}
-	_, found, err := fixture.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(time.Time{}))
-	if found || (err != nil && !errors.Is(err, storeerr.ErrNoClaimableAgentWakeup)) {
-		t.Fatalf("exhausted work found=%v err=%v", found, err)
-	}
-	// A new user input resets the bound, and exhaustion feedback retains its
-	// harness role when that input starts another attempt.
-	work = fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		"continue with smaller writes",
-		fixture.Now.Add(time.Minute),
-	)
-	client := &sequenceKernelModel{providerModelSlug: "output-recovery", responses: []model.Response{
-		truncatedKernelResponse(), {
-			ID:         "completed",
-			StopReason: model.StopReasonEndTurn,
-			Content: []model.ResponsePart{
-				{
-					Type: model.ResponsePartTypeText,
-					Text: "task complete",
-				},
-			},
-		},
-	}}
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	sawExhaustion := false
-	for _, message := range client.responded[0].Bundle.Messages {
-		if strings.Contains(string(message.Content), "Automatic continuation stopped") {
-			sawExhaustion = true
-			if message.Role != modelprotocol.RoleUser {
-				t.Fatalf("exhaustion feedback role=%s", message.Role)
-			}
-		}
-	}
-	if !sawExhaustion {
-		t.Fatal("missing prior exhaustion feedback")
-	}
-	fixture.releaseModelRuntimeLock(t, ctx, work)
-	work = executeNextModelWork(t, ctx, fixture, executor, work)
-	fixture.releaseModelRuntimeLock(t, ctx, work)
-	if client.respondedCount() != 2 {
-		t.Fatalf("reset journey sends=%d", client.respondedCount())
-	}
-	_, found, err = fixture.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(time.Time{}))
-	if found || (err != nil && !errors.Is(err, storeerr.ErrNoClaimableAgentWakeup)) {
-		t.Fatalf("completed work found=%v err=%v", found, err)
-	}
-
 }
 
 func TestCancelOutputContinuationBeforeAndAfterRuntimeClaim(t *testing.T) {
@@ -308,7 +191,7 @@ func TestOutputContinuationIsConsumedBySuccessorTerminalFailure(t *testing.T) {
 	}
 }
 
-func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
+func TestOutputContinuationSurvivesRetryAndCompaction(t *testing.T) {
 	for _, compact := range []bool{false, true} {
 		name := "retry"
 		if compact {
@@ -317,11 +200,11 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			fixture := newKernelFixture(t, ctx)
-			agentID, userID := fixture.createAgent(t, ctx, "openai/recovery-bound", fixture.Now)
-			client := &sequenceKernelModel{providerModelSlug: "recovery-bound", responses: []model.Response{
+			agentID, userID := fixture.createAgent(t, ctx, "openai/recovery-retry", fixture.Now)
+			client := &sequenceKernelModel{providerModelSlug: "recovery-retry", responses: []model.Response{
 				{
 					ID:         "seed",
-					StopReason: model.StopReasonEndTurn,
+					StopReason: model.StopReasonMaxTokens,
 					Content: []model.ResponsePart{
 						{
 							Type: "text",
@@ -342,18 +225,18 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "establish earlier history", fixture.Now)
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			fixture.releaseModelRuntimeLock(t, ctx, work)
-			work = fixture.admitContentInputTurn(
+			work = fixture.admitSteeringInputsTurn(
 				t,
 				ctx,
 				agentID,
 				userID,
-				"complete the task",
+				[]string{"complete the task"},
 				fixture.Now.Add(time.Second),
 			)
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			client = &sequenceKernelModel{
-				providerModelSlug: "recovery-bound",
+				providerModelSlug: "recovery-retry",
 				responses: []model.Response{
 					truncatedKernelResponse(),
 					truncatedKernelResponse(),
@@ -384,8 +267,7 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			executor.ModelResolver = liveTestModelResolver(fixture.Store, client)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
 			fixture.releaseModelRuntimeLock(t, ctx, work)
-			// A retry and a checkpoint are not semantic progress: both resume the
-			// same output frontier, preserving the consecutive truncation count.
+			// A retry or checkpoint resumes the same output frontier.
 			claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
 			work = modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(2*time.Second))
 			if !compact && work.Kind != executionstore.ModelWorkResume {
@@ -395,14 +277,13 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = executeNextModelWork(t, ctx, fixture, executor, work)
 			fixture.releaseModelRuntimeLock(t, ctx, work)
-			var outputs, continued, checkpoints int
+			var outputs, checkpoints int
 			require.NoError(t, fixture.Pool.QueryRow(
 				ctx,
-				`SELECT count(*),count(*) FILTER(WHERE continue_after_truncation) FROM model_outputs WHERE agent_id=$1 AND stop_reason='max_tokens'`,
+				`SELECT count(*) FROM model_outputs WHERE agent_id=$1 AND stop_reason='max_tokens'`,
 				agentID,
 			).Scan(
 				&outputs,
-				&continued,
 			))
 			require.NoError(t, fixture.Pool.QueryRow(
 				ctx,
@@ -413,16 +294,34 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 			wantCheckpoints, wantSends := 0, 3
 			if compact {
 				wantCheckpoints, wantSends = 1, 4
+				bundle := client.responded[len(client.responded)-1].Bundle
+				require.NotNil(t, bundle.ContextCheckpoint)
+				require.True(t, bundle.ContextCheckpoint.EndsWithOutputLimit)
+				prepared, err := (openairesponses.Client{
+					ProviderModelSlug: "recovery-retry", EndpointPath: "/responses",
+				}).Prepare(ctx, model.PrepareInput{Context: bundle})
+				require.NoError(t, err)
+				var request struct {
+					Input []struct {
+						Content json.RawMessage `json:"content"`
+					} `json:"input"`
+				}
+				require.NoError(t, json.Unmarshal(prepared.Body, &request))
+				require.NotEmpty(t, request.Input)
+				var checkpointText string
+				require.NoError(t, json.Unmarshal(request.Input[0].Content, &checkpointText))
+				require.Contains(t, checkpointText, "</context_checkpoint>\n\n[Automatic Omnara harness notice]")
+				require.Greater(t, len(request.Input), 1)
+				require.Contains(t, string(request.Input[1].Content), "complete the task")
+
 			}
-			if outputs != 3 ||
-				continued != 2 ||
+			if outputs != 4 ||
 				checkpoints != wantCheckpoints ||
-				next != 0 ||
+				next != 1 ||
 				client.respondedCount() != wantSends {
 				t.Fatalf(
-					"outputs=%d continued=%d checkpoints=%d next=%d sends=%d",
+					"outputs=%d checkpoints=%d next=%d sends=%d",
 					outputs,
-					continued,
 					checkpoints,
 					next,
 					client.respondedCount(),
@@ -432,124 +331,26 @@ func TestOutputContinuationBoundSurvivesRetryAndCompaction(t *testing.T) {
 	}
 }
 
-func TestOutputContinuationBoundResetsOnSteeringAndToolProgress(t *testing.T) {
-	for _, useTool := range []bool{false, true} {
-		name := "steering"
-		if useTool {
-			name = "tool result"
-		}
-		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			fixture := newKernelFixture(t, ctx)
-			agentID, userID := fixture.createAgent(t, ctx, "openai/recovery-progress", fixture.Now, "list_machines")
-			client := &sequenceKernelModel{
-				providerModelSlug: "recovery-progress",
-				responses: []model.Response{
-					truncatedKernelResponse(),
-					truncatedKernelResponse(),
-				},
-			}
-			if useTool {
-				client.responses = append(
-					client.responses,
-					model.Response{
-						ID:         "progress",
-						StopReason: model.StopReasonToolUse,
-						Content: []model.ResponsePart{
-							{
-								Type:           model.ResponsePartTypeToolCall,
-								ProviderCallID: "accepted-call",
-								ToolName:       "list_machines",
-								ToolInput:      json.RawMessage(`{}`),
-							},
-						},
-					},
-				)
-			}
-			client.responses = append(
-				client.responses,
-				truncatedKernelResponse(),
-				truncatedKernelResponse(),
-				truncatedKernelResponse(),
-			)
-			executor := AgentExecutor{
-				Store: fixture.Store,
-				ModelResolver: liveTestModelResolver(
-					fixture.Store,
-					client,
-				),
-				ToolExecutor: tools.Executor{
-					Store: fixture.Store,
-				},
-			}
-			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
-			require.NoError(t, executor.ExecuteModelWork(ctx, work))
-			fixture.releaseModelRuntimeLock(t, ctx, work)
-			work = executeNextModelWork(t, ctx, fixture, executor, work)
-			fixture.releaseModelRuntimeLock(t, ctx, work)
-			if useTool {
-				work = executeNextModelWork(t, ctx, fixture, executor, work)
-				toolWork := nextToolWorkExecution(t, ctx, fixture, work)
-				require.NoError(t, executor.ExecuteToolWork(ctx, toolWork))
-				require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
-					ctx,
-					toolWork.ProjectID,
-					toolWork.AgentID,
-					toolWork.RuntimeLockID,
-				))
-				work = modelWorkExecutionFromClaimForKernelTest(
-					claimNextAgentWorkForKernelTest(
-						t,
-						ctx,
-						fixture,
-						agentID,
-						executionstore.AgentWorkModel,
-					),
-					fixture.Now,
-				)
-			} else {
-				work = fixture.admitSteeringInputsTurn(
-					t,
-					ctx,
-					agentID,
-					userID,
-					[]string{
-						"use smaller calls",
-					},
-					fixture.Now.Add(time.Second),
-				)
-			}
-			for attempt := range 3 {
-				if attempt > 0 {
-					work = modelWorkExecutionFromClaimForKernelTest(
-						claimNextAgentWorkForKernelTest(
-							t,
-							ctx,
-							fixture,
-							agentID,
-							executionstore.AgentWorkModel,
-						),
-						fixture.Now,
-					)
-				}
-				require.NoError(t, executor.ExecuteModelWork(ctx, work))
-				fixture.releaseModelRuntimeLock(t, ctx, work)
-			}
-			var outputs, continued int
-			require.NoError(t, fixture.Pool.QueryRow(
-				ctx,
-				`SELECT count(*),count(*) FILTER(WHERE continue_after_truncation) FROM model_outputs WHERE agent_id=$1 AND stop_reason='max_tokens'`,
-				agentID,
-			).Scan(
-				&outputs,
-				&continued,
-			))
-			next := pendingModelWork(t, ctx, fixture, agentID)
-			if outputs != 5 || continued != 4 || next != 0 {
-				t.Fatalf("outputs=%d continued=%d next=%d", outputs, continued, next)
-			}
-		})
-	}
+func TestNewInputSupersedesOutputContinuation(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/recovery-steering", fixture.Now)
+	client := &sequenceKernelModel{providerModelSlug: "recovery-steering", responses: []model.Response{
+		truncatedKernelResponse(), {ID: "done", StopReason: model.StopReasonEndTurn},
+	}}
+	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	fixture.releaseModelRuntimeLock(t, ctx, work)
+	work = fixture.admitSteeringInputsTurn(
+		t, ctx, agentID, userID, []string{"change direction"}, fixture.Now.Add(time.Second))
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	fixture.releaseModelRuntimeLock(t, ctx, work)
+	history, err := modelcontext.CanonicalHistory(client.responded[1].Bundle)
+	require.NoError(t, err)
+	require.Contains(t, string(history[len(history)-2].Message.Content), "Automatic Omnara harness notice")
+	require.Contains(t, string(history[len(history)-1].Message.Content), "change direction")
+	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 }
 
 func pendingModelWork(t *testing.T, ctx context.Context, fixture kernelFixture, agentID storage.ID) int {

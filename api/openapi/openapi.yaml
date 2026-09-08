@@ -9531,7 +9531,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, continue_after_truncation, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -9558,9 +9558,6 @@ components:
           $ref: '#/components/schemas/ModelCallContextID'
         stop_reason:
           $ref: '#/components/schemas/ModelOutputStopReason'
-        continue_after_truncation:
-          type: boolean
-          description: Whether this output requested automatic continuation after reaching its output limit. Cancellation or subsequent work can consume this intent.
         content_blocks:
           type: array
           items:

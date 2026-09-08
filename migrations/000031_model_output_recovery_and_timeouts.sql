@@ -7,14 +7,29 @@ ALTER TABLE configured_model_revisions
     ADD CONSTRAINT configured_model_revisions_default_output_within_context
     CHECK (default_max_output_tokens IS NULL OR default_max_output_tokens < context_window_tokens);
 
--- Outputs recorded without explicit continuation intent never schedule recovery.
-ALTER TABLE model_outputs
-    ADD COLUMN continue_after_truncation boolean NOT NULL DEFAULT false,
-    ADD CONSTRAINT model_outputs_continuation_requires_truncation
-    CHECK (NOT continue_after_truncation OR (stop_reason = 'max_tokens' AND provider_replay IS NULL));
-
-CREATE INDEX model_outputs_truncation_continuation_idx
-    ON model_outputs (agent_id) WHERE continue_after_truncation;
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION enforce_tool_call_result()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Deferred checks must observe the final row, including calls created and
+    -- rejected together with their result in one transaction.
+    IF EXISTS (
+        SELECT 1 FROM tool_calls call
+        WHERE call.agent_id = NEW.agent_id AND call.id = NEW.id
+          AND (call.state = 'completed') IS DISTINCT FROM EXISTS (
+              SELECT 1 FROM tool_call_results result
+              WHERE result.agent_id = call.agent_id AND result.tool_call_id = call.id
+          )
+    ) THEN
+        RAISE EXCEPTION 'tool call % completion state must match result existence', NEW.id
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION agent_next_model_work(p_project_id uuid, p_agent_id uuid)
@@ -130,7 +145,12 @@ truncated_output AS (
       AND source_event.model_output_id = output.id
       AND source_event.event_kind = 'model_output'
     WHERE output.agent_id = p_agent_id
-      AND output.continue_after_truncation
+      AND output.stop_reason = 'max_tokens'
+      AND NOT EXISTS (
+          SELECT 1 FROM tool_calls call
+          WHERE call.agent_id = output.agent_id
+            AND call.model_output_id = output.id
+      )
       AND source_event.turn_id = agent_latest_turn_id(p_project_id, p_agent_id)
       AND NOT EXISTS (
           SELECT 1 FROM agent_stop_events stop_event
@@ -138,12 +158,12 @@ truncated_output AS (
             AND stop_event.agent_id = p_agent_id
             AND stop_event.sequence > source_event.sequence
       )
-      AND NOT EXISTS (
-          SELECT 1 FROM model_call_contexts later_context
+      AND source_event.sequence > (
+          SELECT max(later_context.input_event_sequence)
+          FROM model_call_contexts later_context
           WHERE later_context.project_id = p_project_id
             AND later_context.agent_id = p_agent_id
             AND later_context.operation_kind = 'normal'
-            AND later_context.input_event_sequence >= source_event.sequence
       )
     ORDER BY source_event.sequence
     LIMIT 1
@@ -239,104 +259,6 @@ ORDER BY candidate.work_order,
 LIMIT 1
 $$;
 -- +goose StatementEnd
-
-CREATE OR REPLACE VIEW agent_event_read_projection AS
-SELECT event.id,
-       agent.org_id,
-       agent.project_id,
-       event.agent_id,
-       event.turn_id,
-       turn.turn_sequence,
-       event.is_opening_event,
-       event.sequence,
-       event.event_kind,
-       input.input_kind,
-       input.actor_id,
-       input.idempotency_scope,
-       input.input_idempotency_key,
-       event.agent_input_id,
-       input.control_type,
-       input.target_interaction_id,
-       input.agent_config_id,
-       tool_result.tool_call_id,
-       tool_result.outcome AS tool_outcome,
-       model_output.model_call_context_id,
-       model_output.stop_reason AS model_stop_reason,
-       event.context_checkpoint_id,
-       checkpoint.summarized_through_event_sequence,
-       checkpoint.summary AS checkpoint_summary,
-       block_projection.content_blocks::jsonb AS content_blocks,
-       event.created_at,
-       model_call.input_tokens_total,
-       model_call.uncached_input_tokens,
-       model_call.cache_read_input_tokens,
-       model_call.cache_write_input_tokens,
-       model_call.output_tokens_total,
-       model_call.reasoning_output_tokens,
-       model_call.provider_metadata,
-       coalesce(model_output.continue_after_truncation, false)::boolean AS continue_after_truncation
-FROM agent_events event
-JOIN agents agent
-  ON agent.id = event.agent_id
-JOIN agent_turns turn
-  ON turn.agent_id = event.agent_id
- AND turn.id = event.turn_id
-LEFT JOIN agent_inputs input
-  ON input.agent_id = event.agent_id
- AND input.id = event.agent_input_id
-LEFT JOIN tool_call_results tool_result
-  ON tool_result.agent_id = event.agent_id
- AND tool_result.id = event.tool_call_result_id
-LEFT JOIN model_outputs model_output
-  ON model_output.agent_id = event.agent_id
- AND model_output.id = event.model_output_id
-LEFT JOIN context_checkpoints checkpoint
-  ON checkpoint.agent_id = event.agent_id
- AND checkpoint.id = event.context_checkpoint_id
-LEFT JOIN model_call_contexts model_call
-  ON model_call.agent_id = model_output.agent_id
- AND model_call.id = model_output.model_call_context_id
-CROSS JOIN LATERAL (
-  SELECT coalesce(jsonb_agg(
-    (
-      CASE
-        WHEN block.block_kind = 'text' THEN jsonb_build_object('type', 'text', 'text', block.text_content)
-        WHEN block.block_kind = 'structured_data' THEN jsonb_build_object('type', 'structured_data', 'value', block.structured_data)
-        WHEN block.block_kind = 'artifact' THEN
-          jsonb_build_object('type', 'media_ref', 'artifact_id', block.artifact_id) ||
-          CASE
-            WHEN block.exclude_from_model_context THEN jsonb_build_object('exclude_from_model_context', true)
-            ELSE '{}'::jsonb
-          END
-        WHEN block.block_kind = 'reasoning' THEN jsonb_build_object('type', 'reasoning', 'text', block.text_content)
-        WHEN block.block_kind = 'error' THEN jsonb_build_object('type', 'error', 'text', block.text_content)
-        WHEN block.block_kind = 'tool_call' THEN
-          jsonb_build_object(
-            'type', 'tool_call',
-            'tool_call_id', block.tool_call_id,
-            'tool_type', tool_block_call.type,
-            'name', tool_block_call.name,
-            'input', tool_block_call.input
-          )
-        ELSE NULL
-      END
-    ) || CASE
-      WHEN block.metadata = '{}'::jsonb THEN '{}'::jsonb
-      ELSE jsonb_build_object('metadata', block.metadata)
-    END
-    ORDER BY block.ordinal, block.id
-  ) FILTER (WHERE block.id IS NOT NULL AND block.block_kind IN ('text', 'structured_data', 'artifact', 'reasoning', 'tool_call', 'error')), '[]'::jsonb) AS content_blocks
-  FROM content_blocks block
-  LEFT JOIN tool_calls tool_block_call
-    ON tool_block_call.agent_id = block.agent_id
-   AND tool_block_call.id = block.tool_call_id
-  WHERE block.agent_id = event.agent_id
-    AND (
-      block.owner_agent_input_id = event.agent_input_id
-      OR block.owner_model_output_id = event.model_output_id
-      OR block.owner_tool_call_result_id = event.tool_call_result_id
-    )
-) block_projection;
 
 ALTER TABLE model_provider_configs
     ALTER COLUMN request_timeout_ms SET DEFAULT 3600000,

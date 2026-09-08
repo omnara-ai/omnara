@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 var errAnthropicStreamTerminal = errors.New("anthropic stream reached a terminal event")
@@ -99,11 +100,11 @@ func (p protocol) ConsumeStream(
 			Cause:      err,
 		}
 	}
-	out, err := p.ParseResponse(ctx, route.Response{
+	out, err := p.parseResponse(route.Response{
 		StatusCode: statusCode,
 		Header:     header,
 		Body:       responseBody,
-	})
+	}, true)
 	if err != nil {
 		emit.Error(ctx, err.Error())
 		if _, ok := model.ClassifyError(err); !ok {
@@ -119,7 +120,7 @@ func (p protocol) ConsumeStream(
 		}
 		return out, err
 	}
-	acc.restoreMalformedToolInputs(&out)
+	acc.rejectIncompleteToolInputs(&out)
 	emit.MessageStop(ctx, out.StopReason, out.Usage)
 	return out, nil
 }
@@ -410,7 +411,7 @@ func (a *anthropicStreamAccumulator) abortOpenBlocks(ctx context.Context) {
 	}
 }
 
-func (a *anthropicStreamAccumulator) restoreMalformedToolInputs(response *model.Response) {
+func (a *anthropicStreamAccumulator) rejectIncompleteToolInputs(response *model.Response) {
 	toolIndex := 0
 	for index := range response.Content {
 		part := &response.Content[index]
@@ -422,8 +423,11 @@ func (a *anthropicStreamAccumulator) restoreMalformedToolInputs(response *model.
 		}
 		raw := a.toolInputs[toolIndex]
 		toolIndex++
-		if raw != "" && !json.Valid([]byte(raw)) {
-			part.ToolInput = json.RawMessage(raw)
+		if raw == "" && response.StopReason != model.StopReasonMaxTokens {
+			continue
+		}
+		if raw == "" || modelenvelope.ValidateToolInput(json.RawMessage(raw)) != nil {
+			part.ToolCallError = model.IncompleteToolCallError
 		}
 	}
 }

@@ -272,7 +272,7 @@ export function hasToolCalls(event: AgentEvent): boolean {
 
 export function isFinishedModelOutput(event: AgentEvent): boolean {
   return (
-    event.event_kind === 'model_output' && !event.continue_after_truncation && !hasToolCalls(event)
+    event.event_kind === 'model_output' && event.stop_reason !== 'max_tokens' && !hasToolCalls(event)
   )
 }
 

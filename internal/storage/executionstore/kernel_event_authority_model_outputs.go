@@ -20,7 +20,6 @@ type CreateModelOutputAuthorityInput struct {
 	ModelCallContextID      ID
 	ServedProviderModelSlug string
 	StopReason              modelenvelope.StopReason
-	ContinueAfterTruncation bool
 	ProviderReplay          json.RawMessage
 	Usage                   modelenvelope.Usage
 }
@@ -33,7 +32,6 @@ type ModelOutputAuthorityRecord struct {
 	ModelCallContextID      ID
 	ServedProviderModelSlug string
 	StopReason              modelenvelope.StopReason
-	ContinueAfterTruncation bool
 	ProviderResponseID      string
 	ProviderReplay          json.RawMessage
 	Usage                   modelenvelope.Usage
@@ -82,7 +80,6 @@ func createModelOutputAuthorityTx(
 		ModelCallContextID:      input.ModelCallContextID,
 		ServedProviderModelSlug: input.ServedProviderModelSlug,
 		StopReason:              string(input.StopReason),
-		ContinueAfterTruncation: input.ContinueAfterTruncation,
 		ProviderReplay:          sqlcRawMessageFromEmpty(input.ProviderReplay),
 		ProjectID:               input.ProjectID,
 		AgentID:                 input.AgentID,
@@ -114,32 +111,4 @@ func createModelOutputAuthorityTx(
 	record := modelOutputAuthorityFromSQLC(row)
 	record.Usage = input.Usage
 	return record, nil
-}
-
-// ConsecutiveOutputContinuations counts only durable output continuations before
-// a captured request watermark. New inputs, tool progress, and other outputs
-// reset the run; retry attempts and compaction do not advance it.
-func (s *Store) ConsecutiveOutputContinuations(
-	ctx context.Context,
-	projectID, agentID ID,
-	watermark int64,
-	limit int32,
-) (int, error) {
-	if isNilID(projectID) || isNilID(agentID) || watermark <= 0 || limit <= 0 {
-		return 0, errors.New("project, agent, positive watermark, and positive lookback limit are required")
-	}
-	flags, err := s.q.RecentOutputContinuationFlags(ctx, dbsqlc.RecentOutputContinuationFlagsParams{
-		ProjectID: projectID, AgentID: agentID, Watermark: watermark, LookbackLimit: limit,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("load consecutive output continuations: %w", err)
-	}
-	count := 0
-	for _, continued := range flags {
-		if !continued {
-			break
-		}
-		count++
-	}
-	return count, nil
 }

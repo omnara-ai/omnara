@@ -181,7 +181,7 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('retires truncated tool previews without completing recovery or discarding successor deltas', async () => {
+  it('settles cutoff text without completing recovery or discarding successor deltas', async () => {
     const session = startSession()
     const stream = await connection(0)
     stream.push({ event: 'agent_input', data: userInputEvent() })
@@ -190,12 +190,15 @@ describe('AgentChatSession streaming', () => {
       data: delta(1, {
         kind: 'block_start',
         block_index: 0,
-        block: { kind: 'tool_use', tool_call_id: 'discarded-call', tool_name: 'shell' },
+        block: { kind: 'text' },
       }),
     })
-    await waitForSnapshot(
-      session,
-      (s) => s.messages.at(-1)?.parts.some((p) => p.type === 'dynamic-tool') === true,
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(2, { kind: 'text_delta', block_index: 0, delta: 'Provisional text' }),
+    })
+    await waitForSnapshot(session, (s) =>
+      s.messages.flatMap(messageText).includes('Provisional text'),
     )
     // Successor frames may arrive before the preceding durable event.
     stream.push({
@@ -217,7 +220,7 @@ describe('AgentChatSession streaming', () => {
         {
           kind: 'text_delta',
           block_index: 0,
-          delta: 'Smaller write',
+          delta: 'Continuing the answer',
         },
         { model_call_context_id: 'successor' },
       ),
@@ -227,25 +230,25 @@ describe('AgentChatSession streaming', () => {
       data: event({
         sequence: 12,
         stop_reason: 'max_tokens',
-        continue_after_truncation: true,
-        content_blocks: [{ type: 'error', text: 'Use smaller tool calls.' }],
+        content_blocks: [{ type: 'text', text: 'Partial output.' }],
       }),
     })
     stream.push({
       event: 'model_output_delta',
-      data: delta(2, {
-        kind: 'tool_arguments_delta',
+      data: delta(3, {
+        kind: 'text_delta',
         block_index: 0,
-        delta: '{"command":"stale',
+        delta: 'stale text',
       }),
     })
     const recovering = await waitForSnapshot(
       session,
       (s) =>
-        s.messages.flatMap(messageText).includes('Smaller write') &&
-        !s.messages.some((m) => m.parts.some((p) => p.type === 'dynamic-tool')),
+        s.messages.flatMap(messageText).includes('Continuing the answer') &&
+        s.messages.flatMap(messageText).includes('Partial output.'),
     )
     expect(recovering.status).toBe('streaming')
+    expect(recovering.messages.flatMap(messageText).join(' ')).not.toMatch(/Provisional|stale/)
     stream.connectionState({
       state: 'reconnecting',
       attempt: 1,
@@ -253,16 +256,15 @@ describe('AgentChatSession streaming', () => {
       error: new AgentEventStreamError({ kind: 'transport', message: 'disconnected' }),
     })
     expect(read(session).status).toBe('streaming')
-    expect(read(session).messages.flatMap(messageText)).not.toContain('Smaller write')
+    expect(read(session).messages.flatMap(messageText)).not.toContain('Continuing the answer')
     stream.connectionState({ state: 'connected', reconnected: true })
     stream.push({
       event: 'model_output',
       data: event({
         sequence: 13,
         model_call_context_id: 'successor',
-        stop_reason: 'max_tokens',
-        continue_after_truncation: false,
-        content_blocks: [{ type: 'error', text: 'Automatic continuation stopped.' }],
+        stop_reason: 'end_turn',
+        content_blocks: [{ type: 'text', text: 'Done.' }],
       }),
     })
     await waitForSnapshot(session, (s) => s.status === 'ready')

@@ -197,7 +197,6 @@ func modelOutputAuthorityInputFromContext(
 		ModelCallContextID:      input.ModelCallContextID,
 		ServedProviderModelSlug: servedProviderModelSlug,
 		StopReason:              envelope.Normalized.StopReason,
-		ContinueAfterTruncation: input.ContinueAfterTruncation,
 		ProviderReplay:          envelope.ProviderReplay,
 		Usage:                   envelope.Normalized.Usage,
 	}

@@ -275,8 +275,6 @@ func (r Runner) run(
 		}
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
-	response = model.WithoutToolCallsOnMaxTokens(response)
-	providerAttempt.Response = response
 	if err := model.ValidateProviderResponse(response); err != nil {
 		return r.recordFailure(
 			ctx,

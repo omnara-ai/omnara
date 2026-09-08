@@ -102,21 +102,24 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				Text: text,
 			})
 		}
-		if !truncated && len(choice.Message.ToolCalls) > 0 {
-			for _, rawToolCall := range choice.Message.ToolCalls {
+		if len(choice.Message.ToolCalls) > 0 {
+			for index, rawToolCall := range choice.Message.ToolCalls {
 				var toolCall chatToolCall
 				if err := json.Unmarshal(rawToolCall, &toolCall); err != nil {
 					return out, p.invalidResponseError(resp, decoded, err)
 				}
-				out.Content = append(out.Content, model.ResponsePart{
-					Type:           model.ResponsePartTypeToolCall,
-					ProviderCallID: toolCall.ID,
-					ToolName:       toolCall.Function.Name,
-					ToolInput:      json.RawMessage(toolCall.Function.Arguments),
-				})
+				part := model.NewToolCallPart(toolCall.ID, toolCall.Function.Name, json.RawMessage(toolCall.Function.Arguments))
+				out.Content = append(out.Content, part)
+				toolCall.Function.Name = part.ToolName
+				toolCall.Function.Arguments = model.ToolArgumentString(part.ToolInput)
+				normalized, err := json.Marshal(toolCall)
+				if err != nil {
+					return out, p.invalidResponseError(resp, decoded, err)
+				}
+				choice.Message.ToolCalls[index] = normalized
 			}
 		}
-		if !truncated && len(out.ProviderReplay) == 0 &&
+		if len(out.ProviderReplay) == 0 &&
 			(chatMessageHasReasoningReplay(choice.Message) || len(choice.Message.ToolCalls) > 0) {
 			replay, err := chatReplayForRequest(choice.Message)
 			if err != nil {
@@ -129,7 +132,7 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 		} else if out.StopReason == "" {
 			out.StopReason = mapFinishReason(choice.FinishReason)
 		}
-		if !truncated && choice.Message.Refusal != "" {
+		if choice.Message.Refusal != "" {
 			out.StopReason = model.StopReasonRefusal
 		}
 	}
@@ -234,7 +237,7 @@ func chatReplayForRequest(
 			Type: "function",
 			Function: chatFunction{
 				Name:      call.Function.Name,
-				Arguments: string(input),
+				Arguments: model.ToolArgumentString(input),
 			},
 		})
 		if err != nil {

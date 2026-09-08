@@ -160,10 +160,11 @@ WHERE id = $1`, claim.Context.ID)
 
 func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"completed", "continued", "historical max_tokens"} {
-		t.Run(name, func(t *testing.T) {
+	for _, stopReason := range []modelenvelope.StopReason{
+		modelenvelope.StopReasonEndTurn, modelenvelope.StopReasonMaxTokens,
+	} {
+		t.Run(string(stopReason), func(t *testing.T) {
 			t.Parallel()
-			continued := name == "continued"
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "kernel_model_output_authority")
 			now := fixture.Now.Add(time.Minute)
@@ -186,21 +187,9 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				Normalized: modelenvelope.ResponseNormalized{
 					ID:         "resp_kernel_model_output_authority",
 					Content:    []modelenvelope.ResponsePart{{Type: "text", Text: "hello"}},
-					StopReason: modelenvelope.StopReasonEndTurn,
+					StopReason: stopReason,
 					Usage:      modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
 				},
-			}
-			if name != "completed" {
-				providerResponse.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
-			}
-			if continued {
-				providerResponse.Normalized.Content = append(
-					providerResponse.Normalized.Content,
-					modelenvelope.ResponsePart{
-						Type: modelenvelope.ResponsePartTypeError,
-						Text: "Continue with smaller tool calls.",
-					},
-				)
 			}
 			actorID := fixture.omnaraActorID(t, ctx)
 			if _, err := fixture.Store.pool.Exec(ctx, `
@@ -267,17 +256,22 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				t.Fatalf("claim model output fixture context: %v", err)
 			}
 			recordInput := executionstore.RecordModelOutputAndCompleteContextInput{
-				ProjectID:               testProjectID,
-				AgentID:                 fixture.AgentID,
-				RuntimeLockID:           fixture.Lock.ID,
-				ModelCallContextID:      modelClaim.Context.ID,
-				ProviderResponse:        providerResponse,
-				ContinueAfterTruncation: continued,
+				ProjectID:          testProjectID,
+				AgentID:            fixture.AgentID,
+				RuntimeLockID:      fixture.Lock.ID,
+				ModelCallContextID: modelClaim.Context.ID,
+				ProviderResponse:   providerResponse,
 			}
 			event, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, recordInput)
 			if err != nil {
 				t.Fatalf("record typed model output: %v", err)
 			}
+			boundary, err := fixture.Store.Execution().IsOutputLimitBoundary(
+				ctx, recordInput.ProjectID, recordInput.AgentID, event.Sequence)
+			if err != nil || boundary != (stopReason == modelenvelope.StopReasonMaxTokens) {
+				t.Fatalf("output limit boundary = %v, err = %v, stop reason = %s", boundary, err, stopReason)
+			}
+
 			if event.Kind != events.KindModelOutput {
 				t.Fatalf("event=%+v, want typed model output projection", event)
 			}
@@ -288,16 +282,12 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			if replayed.ID != event.ID || replayed.Sequence != event.Sequence {
 				t.Fatalf("replayed event = %s/%d, want %s/%d", replayed.ID, replayed.Sequence, event.ID, event.Sequence)
 			}
-			if continued {
-				changedFlag := recordInput
-				changedFlag.ContinueAfterTruncation = false
-				if _, err := fixture.Store.Execution().
-					RecordModelOutputAndCompleteContext(ctx, changedFlag); !errors.Is(
-					err,
-					storeerr.ErrIdempotencyConflict,
-				) {
-					t.Fatalf("changed continuation flag replay error = %v", err)
-				}
+			changedReason := recordInput
+			changedReason.ProviderResponse.Normalized.StopReason = modelenvelope.StopReasonToolUse
+			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedReason); !errors.Is(
+				err, storeerr.ErrIdempotencyConflict,
+			) {
+				t.Fatalf("changed stop reason replay error = %v, want idempotency conflict", err)
 			}
 			var pending int
 			require.NoError(
@@ -308,7 +298,7 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 					Scan(&pending),
 			)
 			wantPending := 0
-			if continued {
+			if stopReason == modelenvelope.StopReasonMaxTokens {
 				wantPending = 1
 			}
 			if pending != wantPending {
@@ -399,8 +389,8 @@ WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProj
 			if readModelOutput == nil {
 				t.Fatalf("model output event %s missing from read projection", event.ID)
 			}
-			if readModelOutput.ContinueAfterTruncation != continued {
-				t.Fatalf("read continuation=%v want=%v", readModelOutput.ContinueAfterTruncation, continued)
+			if readModelOutput.ModelStopReason != stopReason {
+				t.Fatalf("read stop reason=%s want=%s", readModelOutput.ModelStopReason, stopReason)
 			}
 			if readModelOutput.ModelUsage != providerResponse.Normalized.Usage ||
 				readModelOutput.ProviderMetadata != providerResponse.ProviderMetadata {
@@ -427,16 +417,12 @@ WHERE context.project_id = $1 AND output.agent_id = $2 AND output.id = $3
 	`, testProjectID, fixture.AgentID, modelOutputID).Scan(&inputTokens, &outputTokens, &contentBlocks); err != nil {
 				t.Fatalf("load model output usage: %v", err)
 			}
-			wantBlocks := 1
-			if continued {
-				wantBlocks++
-			}
-			if inputTokens != 1 || outputTokens != 1 || contentBlocks != wantBlocks {
+			if inputTokens != 1 || outputTokens != 1 || contentBlocks != 1 {
 				t.Fatalf(
-					"model output usage/content input=%d output=%d blocks=%d, want 1/1/%d",
+					"model output usage/content input=%d output=%d blocks=%d, want 1/1/1",
 					inputTokens,
 					outputTokens,
-					contentBlocks, wantBlocks,
+					contentBlocks,
 				)
 			}
 			appendTx, err := fixture.Store.pool.Begin(ctx)

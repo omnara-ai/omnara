@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
+func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	for _, key := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"} {
@@ -57,7 +57,7 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 				"tool_calls": []any{
 					map[string]any{
 						"index": 0,
-						"id":    "discarded-complete",
+						"id":    "complete-call",
 						"type":  "function",
 						"function": map[string]any{
 							"name":      "list_machines",
@@ -66,7 +66,7 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 					},
 					map[string]any{
 						"index": 1,
-						"id":    "discarded-partial",
+						"id":    "partial-call",
 						"type":  "function",
 						"function": map[string]any{
 							"name":      "list_machines",
@@ -79,25 +79,21 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 			writeOutputLimitChatChunk(w, map[string]any{}, "", "length")
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 		case 2:
-			last, _ := messages[len(messages)-1].(map[string]any)
-			previous, _ := messages[len(messages)-2].(map[string]any)
-			if last["role"] != "user" || !strings.Contains(fmt.Sprint(last["content"]), "smaller tool calls") ||
-				previous["role"] != "assistant" ||
-				!strings.Contains(
-					fmt.Sprint(previous["content"]),
-					"Checking machines.",
-				) ||
-
-				strings.Contains(mustJSONString(body), "discarded-") {
-				fail(
-					w,
-					fmt.Sprintf(
-						"recovery must preserve partial text and harness feedback without discarded calls: %s",
-						mustJSONString(messages),
-					),
-				)
+			if len(messages) < 3 {
+				fail(w, "missing mixed tool history")
 				return
 			}
+			accepted, _ := messages[len(messages)-2].(map[string]any)
+			rejected, _ := messages[len(messages)-1].(map[string]any)
+			if accepted["role"] != "tool" || accepted["tool_call_id"] != "complete-call" ||
+				!strings.Contains(fmt.Sprint(accepted["content"]), `"machines":[]`) ||
+				rejected["role"] != "tool" || rejected["tool_call_id"] != "partial-call" ||
+				!strings.Contains(fmt.Sprint(rejected["content"]), "complete JSON object") ||
+				strings.Contains(mustJSONString(messages), "Automatic Omnara harness notice") {
+				fail(w, "mixed calls must receive the real result and a paired argument error")
+				return
+			}
+
 			writeOutputLimitChatChunk(w, map[string]any{"role": "assistant", "tool_calls": []any{
 				map[string]any{
 					"index": 0,
@@ -117,6 +113,27 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 				!strings.Contains(fmt.Sprint(last["content"]), `"machines":[]`) ||
 				previous["role"] != "assistant" || !strings.Contains(mustJSONString(previous), "accepted-call") {
 				fail(w, "completion must receive the accepted call and real tool result")
+				return
+			}
+			writeOutputLimitChatChunk(w, map[string]any{
+				"role": "assistant", "reasoning": "working through results", "content": "The available machines",
+			}, "length", "")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		case 4:
+			last, _ := messages[len(messages)-1].(map[string]any)
+			previous, _ := messages[len(messages)-2].(map[string]any)
+			if last["role"] != "user" || !strings.Contains(fmt.Sprint(last["content"]), "Automatic Omnara harness notice") ||
+				previous["role"] != "assistant" || previous["reasoning"] != "working through results" ||
+				previous["content"] != "The available machines" {
+				fail(w, "text cutoff must preserve reasoning and append a harness notice")
+				return
+			}
+			writeOutputLimitChatChunk(w, map[string]any{"role": "assistant"}, "length", "")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		case 5:
+			if strings.Count(mustJSONString(messages), "Automatic Omnara harness notice") != 2 ||
+				!strings.Contains(mustJSONString(messages), `"reasoning":"working through results"`) {
+				fail(w, "empty cutoff must continue without removing historical reasoning or notices")
 				return
 			}
 			writeServiceE2EOpenRouterChatMessage(w, "completed", modelName, finalText, 100, 12)
@@ -165,7 +182,7 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 	))
 	require.NoError(t, env.db.QueryRow(
 		ctx,
-		`SELECT count(*) FROM model_outputs output JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.continue_after_truncation AND output.provider_replay IS NULL AND context.provider_metadata->>'request_max_output_tokens'='65536' AND context.provider_metadata->'openrouter'->>'finish_reason'='tool_calls' AND context.provider_metadata->'openrouter'->>'native_finish_reason'='length'`,
+		`SELECT count(*) FROM model_outputs output JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.provider_replay IS NOT NULL AND context.provider_metadata->>'request_max_output_tokens'='65536' AND context.provider_metadata->'openrouter'->>'finish_reason'='tool_calls' AND context.provider_metadata->'openrouter'->>'native_finish_reason'='length'`,
 		agentUUID,
 	).Scan(&truncated))
 	require.NoError(t, env.db.QueryRow(
@@ -173,11 +190,11 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 		`SELECT count(*) FROM tool_calls WHERE agent_id=$1`,
 		agentUUID,
 	).Scan(&calls))
-	if requests.Load() != 3 ||
-		succeeded != 3 ||
+	if requests.Load() != 5 ||
+		succeeded != 5 ||
 		failed != 0 ||
 		truncated != 1 ||
-		calls != 1 {
+		calls != 3 {
 		t.Fatalf(
 			"requests=%d succeeded=%d failed=%d truncated=%d calls=%d",
 			requests.Load(),

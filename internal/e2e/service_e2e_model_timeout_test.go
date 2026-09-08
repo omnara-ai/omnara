@@ -157,7 +157,7 @@ FROM model_call_contexts WHERE agent_id=$1`, agentUUID).
 	require.NoError(
 		t,
 		env.db.QueryRow(ctx, `SELECT count(*) FROM model_outputs
-WHERE agent_id=$1 AND (continue_after_truncation OR stop_reason='max_tokens')`, agentUUID).
+WHERE agent_id=$1 AND stop_reason='max_tokens'`, agentUUID).
 			Scan(&continued),
 	)
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT count(*) FROM tool_calls WHERE agent_id=$1`, agentUUID).

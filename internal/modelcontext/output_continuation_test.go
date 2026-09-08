@@ -1,132 +1,98 @@
 package modelcontext
 
 import (
+	"context"
 	"encoding/json"
-	"strings"
 	"testing"
+	"time"
 
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOutputContinuationProjectsHarnessFeedbackSeparately(t *testing.T) {
-	for _, tc := range []struct {
-		name, content string
-		hasFeedback   bool
-		wantMessages  int
-	}{
-		{"partial text", `[{"type":"text","text":"partial"},{"type":"error","text":"use smaller calls"}]`, true, 2},
-		{"only feedback", `[{"type":"error","text":"use smaller calls"}]`, true, 1},
-		{
-			"partial reasoning",
-			`[{"type":"reasoning","text":"thinking"},{"type":"text","text":"partial"},{"type":"error","text":"use smaller calls"}]`,
-			true,
-			2,
-		},
-		{
-			"historical output",
-			`[{"type":"text","text":"partial"},{"type":"error","text":"historical error"}]`,
-			false,
-			1,
-		},
+func TestOutputLimitNoticePreservesHistoricalPrefix(t *testing.T) {
+	for _, content := range []string{
+		`[{"type":"text","text":"partial"}]`,
+		`[{"type":"reasoning","text":"thinking"}]`,
+		`[]`,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			messages, err := contextEventsToMessages([]executionstore.ContextEventRecord{{
-				ID: testIDN(9100), ModelCallContextID: testIDN(9101), Sequence: 42, Role: modelprotocol.RoleAssistant,
-				ContentParts: json.RawMessage(tc.content), HasOutputLimitFeedback: tc.hasFeedback,
-			}})
-			require.NoError(t, err)
-			if len(messages) != tc.wantMessages {
-				t.Fatalf("messages=%+v", messages)
-			}
-			bundle := Bundle{
-				ProjectID: testIDN(9102),
-				AgentID:   testIDN(9103),
-				TurnID:    testIDN(9104),
-				OpeningInputIDs: []storage.ID{
-					testIDN(9105),
-				},
-				InputEventSequence: 42,
-				Messages:           messages,
-			}
-			if err := (ProjectionNormalizer{}).Normalize(bundle); err != nil {
-				t.Fatalf("normalize projected feedback: %v", err)
-			}
-			if _, err := CanonicalHistory(bundle); err != nil {
-				t.Fatalf("canonical history: %v", err)
-			}
-			last := messages[len(messages)-1]
-			if tc.hasFeedback {
-				if last.Role != modelprotocol.RoleUser ||
-					last.ModelCallContextID != "" ||
-					len(last.ProviderReplay) != 0 ||
-					last.Sequence != 42 ||
-					!strings.Contains(
-						string(last.Content),
-						`"type":"text"`,
-					) {
-					t.Fatalf("feedback=%+v", last)
+		t.Run(content, func(t *testing.T) {
+			for _, reason := range []modelenvelope.StopReason{
+				modelenvelope.StopReasonMaxTokens, modelenvelope.StopReasonEndTurn,
+			} {
+				messages, err := contextEventsToMessages([]executionstore.ContextEventRecord{{
+					ID: testIDN(9100), ModelCallContextID: testIDN(9101), Sequence: 42,
+					Role: modelprotocol.RoleAssistant, StopReason: reason,
+					ContentParts: json.RawMessage(content), ProviderReplay: json.RawMessage(`{"opaque":"unchanged"}`),
+				}})
+				require.NoError(t, err)
+				require.Len(t, messages, 1)
+				require.JSONEq(t, content, string(messages[0].Content))
+				require.Equal(t, reason, messages[0].StopReason)
+				bundle := Bundle{Messages: messages}
+				history, err := CanonicalHistory(bundle)
+				require.NoError(t, err)
+				require.Equal(t, messages[0], history[0].Message)
+				if reason == modelenvelope.StopReasonMaxTokens {
+					require.Len(t, history, 2)
+					notice := history[1].Message
+					require.Equal(t, modelprotocol.RoleUser, notice.Role)
+					require.Contains(t, string(notice.Content), outputLimitNotice)
+					require.Empty(t, notice.ID)
+					require.Empty(t, notice.ModelCallContextID)
+					require.Empty(t, notice.ProviderReplay)
+				} else {
+					require.Len(t, history, 1)
 				}
-				if len(messages) == 2 &&
-					(messages[0].ModelCallContextID != testIDN(9101).String() ||
-						messages[0].Role != modelprotocol.RoleAssistant ||
-						messages[0].ID == last.ID ||
-						strings.Contains(
-							string(messages[0].Content),
-							"use smaller calls",
-						)) {
-					t.Fatalf("partial assistant=%+v", messages[0])
-				}
-			} else if last.Role != modelprotocol.RoleAssistant {
-				t.Fatalf("historical role=%s", last.Role)
+				bundle.Messages = append(bundle.Messages,
+					Message{ID: "later-user", Sequence: 43, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"new input"}]`)},
+					Message{ID: "later-output", Sequence: 44, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"done"}]`)},
+				)
+				later, err := CanonicalHistory(bundle)
+				require.NoError(t, err)
+				require.Equal(t, history, later[:len(history)], "reasoning replay prefixes must keep historical notices")
 			}
 		})
 	}
 }
 
-func TestOutputContinuationRejectsMissingFeedback(t *testing.T) {
-	_, err := contextEventsToMessages([]executionstore.ContextEventRecord{{
-		ID: testIDN(9100), Sequence: 42, Role: modelprotocol.RoleAssistant, HasOutputLimitFeedback: true,
-		ContentParts: json.RawMessage(`[{"type":"text","text":"partial"}]`),
-	}})
-	if err == nil || !strings.Contains(err.Error(), "missing harness feedback") {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-func TestProjectedMessageOrderStillRejectsReversalAndDuplicateIdentity(t *testing.T) {
-	base := Bundle{
-		ProjectID: testIDN(9102),
-		AgentID:   testIDN(9103),
-		TurnID:    testIDN(9104),
-		OpeningInputIDs: []storage.ID{
-			testIDN(9105),
-		},
-		InputEventSequence: 42,
-	}
-	first := Message{
-		ID:       "first",
-		Sequence: 42,
-		Role:     modelprotocol.RoleAssistant,
-		Content:  json.RawMessage(`[{"type":"text","text":"partial"}]`),
-	}
-	second := Message{
-		ID:       "feedback",
-		Sequence: 42,
-		Role:     modelprotocol.RoleUser,
-		Content:  json.RawMessage(`[{"type":"text","text":"continue"}]`),
-	}
-	base.Messages = []Message{first, second}
-	require.NoError(t, (ProjectionNormalizer{}).Normalize(base))
-	base.Messages[1].Sequence = 41
-	if err := (ProjectionNormalizer{}).Normalize(base); err == nil {
-		t.Fatal("reversed events accepted")
-	}
-	base.Messages[1] = second
-	base.Messages[1].ID = first.ID
-	if err := (ProjectionNormalizer{}).Normalize(base); err == nil {
-		t.Fatal("duplicate message identity accepted")
+func TestCheckpointOutputLimitNoticeUsesFixedBoundary(t *testing.T) {
+	for _, override := range []bool{false, true} {
+		for _, cutoff := range []bool{false, true} {
+			store := &fakeContextStore{
+				watermark:             43,
+				outputLimitBoundaries: map[int64]bool{42: cutoff},
+				checkpoints: []executionstore.ContextCheckpointRecord{{
+					ID: testIDN(9100), Summary: "Earlier work", SummarizedThroughEventSequence: 42, CheckpointEventSequence: 43,
+				}},
+			}
+			input := BuildInput{
+				ProjectID: testProjectID, AgentID: testAgentID, TurnID: testTurnID,
+				OpeningInputIDs: []storage.ID{testInputID}, Now: time.Now(),
+			}
+			if override {
+				input.CheckpointOverride = &CheckpointRef{
+					Summary: "Earlier work", SummarizedThroughEventSequence: 42,
+					EndsWithOutputLimit: !cutoff, // The builder derives this from storage.
+				}
+			}
+			bundle, err := (Builder{Store: store}).Build(context.Background(), input)
+			require.NoError(t, err)
+			require.Equal(t, cutoff, bundle.ContextCheckpoint.EndsWithOutputLimit)
+			projected := ProjectedCheckpointContent(*bundle.ContextCheckpoint)
+			if cutoff {
+				require.Contains(t, projected, "</context_checkpoint>\n\n"+outputLimitNotice)
+			} else {
+				require.NotContains(t, projected, outputLimitNotice)
+			}
+			store.watermark = 44
+			store.messages = append(store.messages, contextTextEvent(t, testIDN(9102), 44, "later input"))
+			later, err := (Builder{Store: store}).Build(context.Background(), input)
+			require.NoError(t, err)
+			require.Equal(t, projected, ProjectedCheckpointContent(*later.ContextCheckpoint))
+		}
 	}
 }

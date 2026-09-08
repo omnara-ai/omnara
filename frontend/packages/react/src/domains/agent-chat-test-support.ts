@@ -49,7 +49,6 @@ export function event(overrides: Partial<ModelOutputEvent> = {}): ModelOutputEve
     event_kind: 'model_output',
     model_call_context_id: 'mcc',
     stop_reason: 'end_turn',
-    continue_after_truncation: false,
     content_blocks: [],
     created_at: '2026-07-14T00:00:00Z',
     ...overrides,

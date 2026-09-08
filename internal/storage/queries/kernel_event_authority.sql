@@ -2,10 +2,10 @@
 WITH inserted AS (
   INSERT INTO model_outputs(
     agent_id, model_call_context_id,
-    served_provider_model_slug, stop_reason, continue_after_truncation, provider_replay, created_at
+    served_provider_model_slug, stop_reason, provider_replay, created_at
   )
   SELECT agent.id, context.id,
-    sqlc.arg(served_provider_model_slug), sqlc.arg(stop_reason), sqlc.arg(continue_after_truncation),
+    sqlc.arg(served_provider_model_slug), sqlc.arg(stop_reason),
     sqlc.narg(provider_replay)::jsonb, statement_timestamp()
   FROM agents agent
   JOIN model_call_contexts context ON context.project_id = agent.project_id
@@ -15,7 +15,7 @@ WITH inserted AS (
     AND agent.id = sqlc.arg(agent_id)
   ON CONFLICT (agent_id, model_call_context_id) DO NOTHING
   RETURNING id, agent_id, model_call_context_id,
-    served_provider_model_slug, stop_reason, continue_after_truncation, provider_replay, created_at
+    served_provider_model_slug, stop_reason, provider_replay, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id,
   (
@@ -26,7 +26,7 @@ SELECT inserted.id, agent.project_id, inserted.agent_id,
       AND context_turn.model_call_context_id = inserted.model_call_context_id
   ) AS turn_id,
   inserted.model_call_context_id,
-  inserted.served_provider_model_slug, inserted.stop_reason, inserted.continue_after_truncation,
+  inserted.served_provider_model_slug, inserted.stop_reason,
   context.provider_response_id,
   inserted.provider_replay,
   context.input_tokens_total, context.uncached_input_tokens,
@@ -50,7 +50,7 @@ SELECT output.id, agent.project_id, output.agent_id,
   ) AS turn_id,
   output.model_call_context_id,
   output.served_provider_model_slug,
-  output.stop_reason, output.continue_after_truncation, context.provider_response_id,
+  output.stop_reason, context.provider_response_id,
   output.provider_replay,
   context.input_tokens_total, context.uncached_input_tokens,
   context.cache_read_input_tokens, context.cache_write_input_tokens,
@@ -422,16 +422,3 @@ JOIN agents agent ON agent.id = event.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
   AND event.agent_id = sqlc.arg(agent_id)
   AND event.model_output_id = sqlc.arg(model_output_id);
-
--- name: RecentOutputContinuationFlags :many
-SELECT coalesce(output.continue_after_truncation, false)::boolean AS continue_after_truncation
-FROM agent_events event
-JOIN agents agent ON agent.id = event.agent_id
-LEFT JOIN model_outputs output ON output.agent_id = event.agent_id
-  AND output.id = event.model_output_id
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND event.agent_id = sqlc.arg(agent_id)
-  AND event.sequence <= sqlc.arg(watermark)
-  AND event.event_kind IN ('agent_input', 'model_output', 'tool_result')
-ORDER BY event.sequence DESC
-LIMIT sqlc.arg(lookback_limit);

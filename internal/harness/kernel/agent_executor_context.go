@@ -309,7 +309,6 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
-	response = model.WithoutToolCallsOnMaxTokens(response)
 	if err := model.ValidateProviderResponse(response); err != nil {
 		return e.recordNormalFailure(
 			ctx,
@@ -372,29 +371,30 @@ func (e AgentExecutor) finishModelResponse(
 			step.Response,
 		)
 	}
-	switch reason {
-	case model.StopReasonToolUse:
-		if len(calls) == 0 {
-			cause := model.MalformedProviderSuccess(
-				errorSource,
-				string(reason),
-				"The model stopped for tool use without returning a supported tool call.",
-				nil,
-			)
-			return e.recordNormalFailure(
-				ctx,
-				input,
-				executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-				step.Resolved,
-				cause,
-				true,
-				step.Response,
-			)
-		}
+	if len(calls) > 0 && (reason == model.StopReasonToolUse ||
+		reason == model.StopReasonEndTurn || reason == model.StopReasonMaxTokens) {
 		step.State = modelStepToolUse
 		return step, nil
-	case model.StopReasonEndTurn:
-		return e.recordSuccessfulModelOutput(ctx, input, step, false)
+	}
+	switch reason {
+	case model.StopReasonToolUse:
+		cause := model.MalformedProviderSuccess(
+			errorSource,
+			string(reason),
+			"The model stopped for tool use without returning a supported tool call.",
+			nil,
+		)
+		return e.recordNormalFailure(
+			ctx,
+			input,
+			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
+			step.Resolved,
+			cause,
+			true,
+			step.Response,
+		)
+	case model.StopReasonEndTurn, model.StopReasonMaxTokens:
+		return e.recordSuccessfulModelOutput(ctx, input, step)
 	case model.StopReasonRefusal, model.StopReasonContentFilter:
 		if len(calls) > 0 {
 			cause := model.MalformedProviderSuccess(
@@ -413,9 +413,7 @@ func (e AgentExecutor) finishModelResponse(
 				step.Response,
 			)
 		}
-		return e.recordSuccessfulModelOutput(ctx, input, step, false)
-	case model.StopReasonMaxTokens:
-		return e.recordTruncatedModelOutput(ctx, input, step)
+		return e.recordSuccessfulModelOutput(ctx, input, step)
 	case model.StopReasonContextWindow:
 		cause := model.ProviderError{
 			Kind:    model.ErrorKindContextWindow,
@@ -487,18 +485,16 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	ctx context.Context,
 	input ModelWorkExecution,
 	step modelStep,
-	continueAfterTruncation bool,
 ) (modelStep, error) {
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:               input.ProjectID,
-			AgentID:                 input.AgentID,
-			RuntimeLockID:           input.RuntimeLockID,
-			ModelCallContextID:      step.Context.ID,
-			ProviderRequestID:       step.Response.ProviderRequestID,
-			ProviderResponse:        step.Envelope,
-			ContinueAfterTruncation: continueAfterTruncation,
+			ProjectID:          input.ProjectID,
+			AgentID:            input.AgentID,
+			RuntimeLockID:      input.RuntimeLockID,
+			ModelCallContextID: step.Context.ID,
+			ProviderRequestID:  step.Response.ProviderRequestID,
+			ProviderResponse:   step.Envelope,
 		},
 	)
 	if err != nil {

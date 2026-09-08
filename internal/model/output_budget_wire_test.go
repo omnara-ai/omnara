@@ -124,7 +124,7 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 	}
 }
 
-func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
+func TestAdaptersProjectOutputLimitNoticeAfterPartialAssistant(t *testing.T) {
 	for _, partial := range []string{
 		`[]`,
 		`[{"type":"reasoning","text":"partial reasoning"}]`,
@@ -148,12 +148,7 @@ func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
 						Role:               modelprotocol.RoleAssistant,
 						ModelCallContextID: "source-context",
 						Content:            json.RawMessage(partial),
-					},
-					{
-						ID:       "feedback",
-						Sequence: 2,
-						Role:     modelprotocol.RoleUser,
-						Content:  json.RawMessage(`[{"type":"text","text":"use smaller calls"}]`),
+						StopReason:         model.StopReasonMaxTokens,
 					},
 				}}
 				prepared, err := model.PrepareForSend(
@@ -193,7 +188,7 @@ func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
 					t.Fatalf("assistant messages=%d want=%d", assistantCount, wantAssistant)
 				}
 				last := messages[len(messages)-1]
-				if last.Role != "user" || !strings.Contains(string(last.Content), "use smaller calls") {
+				if last.Role != "user" || !strings.Contains(string(last.Content), "Automatic Omnara harness notice") {
 					t.Fatalf("last message=%+v", last)
 				}
 				if strings.Contains(
