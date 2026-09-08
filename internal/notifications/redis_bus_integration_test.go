@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 )
 
@@ -629,7 +630,7 @@ func TestAgentEventWakeupBusSurvivesFirstSubscriberContextCancel(t *testing.T) {
 	cancelA()
 
 	select {
-	case <-subA.(*fanoutSubscription[struct{}]).Done():
+	case <-testutil.RequireType[*fanoutSubscription[struct{}]](t, subA).Done():
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for A to drop out of fanout")
 	}
@@ -688,7 +689,7 @@ func TestAgentStreamDeltaBusSurvivesFirstSubscriberContextCancel(t *testing.T) {
 	cancelA()
 
 	select {
-	case <-subA.(*fanoutSubscription[json.RawMessage]).Done():
+	case <-testutil.RequireType[*fanoutSubscription[json.RawMessage]](t, subA).Done():
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for stream A to drop out of fanout")
 	}

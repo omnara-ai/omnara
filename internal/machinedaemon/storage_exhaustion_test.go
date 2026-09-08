@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb/statedbtest"
+	"github.com/stretchr/testify/require"
 )
 
 type storageExhaustionRunner struct {
@@ -154,9 +155,7 @@ func TestAcceptedStorageFailureReportsAfterContainment(t *testing.T) {
 		)
 	}
 	var event daemonReportedEvent
-	if err := json.Unmarshal(transport.report.Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(transport.report.Body, &event))
 	if event.State != daemonprotocol.ProcessStateFailed ||
 		event.StateReasonCode != daemonprotocol.ProcessReasonMachineStorageExhausted ||
 		event.StateReasonMessage != daemonprotocol.ProcessMessageMachineStorageExhausted {
@@ -219,19 +218,13 @@ func TestRegistrationStartRetainsStorageExhaustedSupervisor(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.closeState() })
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(ctx, statedb.Process{
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      "supervisor-token-storage-registration",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
 	runner := &storageExhaustionRunner{
 		done:     make(chan struct{}),
 		startErr: syscall.ENOSPC,
@@ -245,7 +238,7 @@ func TestRegistrationStartRetainsStorageExhaustedSupervisor(t *testing.T) {
 		Runners:       map[string]*processRuntime{processID: runtime},
 		ForcedReports: make(map[string]struct{}),
 	}
-	if err := client.applyProcessDisposition(
+	require.NoError(t, client.applyProcessDisposition(
 		ctx,
 		&startup,
 		ProcessReconciliationClaim{
@@ -257,9 +250,7 @@ func TestRegistrationStartRetainsStorageExhaustedSupervisor(t *testing.T) {
 			SupervisorInstanceID: supervisorInstanceID,
 			Disposition:          daemonprotocol.ProcessDispositionStart,
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if startup.Runners[processID] != runtime {
 		t.Fatal("storage-exhausted supervisor was not retained")
 	}
@@ -288,7 +279,7 @@ func TestRegistrationStartRetainsTerminalReadySupervisor(t *testing.T) {
 		Runners:       map[string]*processRuntime{processID: runtime},
 		ForcedReports: make(map[string]struct{}),
 	}
-	if err := client.applyProcessDisposition(
+	require.NoError(t, client.applyProcessDisposition(
 		context.Background(),
 		&startup,
 		ProcessReconciliationClaim{ProcessID: processID},
@@ -296,9 +287,7 @@ func TestRegistrationStartRetainsTerminalReadySupervisor(t *testing.T) {
 			ProcessID:   processID,
 			Disposition: daemonprotocol.ProcessDispositionStart,
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if startup.Runners[processID] != runtime {
 		t.Fatal("terminal-ready supervisor was not retained")
 	}
@@ -316,43 +305,23 @@ func TestAcceptedCleanupHandlesLifetimeLock(t *testing.T) {
 	client.bootstrap = daemonBootstrap{InstallationID: "ins_storage_lock", MachineID: "mch_storage_lock"}
 	t.Cleanup(func() { _ = client.closeState() })
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(ctx, statedb.Process{
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      "supervisor-token-storage-lock",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(machine.RunDir()))
 	lockPath, err := machine.LifetimeLockPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lock, err := localstore.TryAcquireLock(lockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lock.Release(); err != nil {
-		t.Fatal(err)
-	}
-	if err := statedbtest.SetProcessDeleteFailure(ctx, machine.StateDBPath(), true); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+	require.NoError(t, statedbtest.SetProcessDeleteFailure(ctx, machine.StateDBPath(), true))
 	runtime := &processRuntime{
 		processID:            processID,
 		supervisorInstanceID: supervisorInstanceID,
@@ -365,12 +334,8 @@ func TestAcceptedCleanupHandlesLifetimeLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retained lifetime lock = %v", err)
 	}
-	if err := retained.Release(); err != nil {
-		t.Fatal(err)
-	}
-	if err := statedbtest.SetProcessDeleteFailure(ctx, machine.StateDBPath(), false); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, retained.Release())
+	require.NoError(t, statedbtest.SetProcessDeleteFailure(ctx, machine.StateDBPath(), false))
 	pending, err = client.closeStorageExhaustedProcess(ctx, runtime)
 	if err != nil || pending {
 		t.Fatalf("cleanup retry: pending=%t err=%v", pending, err)
@@ -381,19 +346,13 @@ func TestAcceptedCleanupHandlesLifetimeLock(t *testing.T) {
 	if _, found, err := store.Process(ctx, processID); err != nil || found {
 		t.Fatalf("process after cleanup: found=%t err=%v", found, err)
 	}
-	if err := store.ReserveProcess(ctx, statedb.Process{
+	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      "supervisor-token-storage-lock",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	pending, err = client.closeStorageExhaustedProcess(ctx, runtime)
 	if err != nil || pending {
 		t.Fatalf("cleanup with missing lifetime lock: pending=%t err=%v", pending, err)

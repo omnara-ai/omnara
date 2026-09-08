@@ -255,7 +255,9 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	}
 	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(keyWrapper))
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{DisplayName: "Resolver Tester", Email: "resolver@example.com"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{DisplayName: "Resolver Tester", Email: "resolver@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -428,12 +430,15 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("original credential did not replay compatible provider state: %s", preparedWithOriginalCredential.Body)
 	}
 
-	rotatedCredential, rotatedVersion, err := store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
-		OrgID:    created.Org.ID,
-		SecretID: credential.ID,
-		Material: secrets.GenericMaterial{Value: "sk-resolver-rotated"},
-		Actor:    modelProviderUserPrincipal(user.ID),
-	})
+	rotatedCredential, rotatedVersion, err := store.Secrets().CreateSecretVersion(
+		ctx,
+		secretstore.CreateSecretVersionInput{
+			OrgID:    created.Org.ID,
+			SecretID: credential.ID,
+			Material: secrets.GenericMaterial{Value: "sk-resolver-rotated"},
+			Actor:    modelProviderUserPrincipal(user.ID),
+		},
+	)
 	if err != nil {
 		t.Fatalf("rotate credential secret: %v", err)
 	}
@@ -637,7 +642,9 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	if !ok || resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens != replacementMaxOutput {
 		t.Fatalf("unrelated grant changed resolved capabilities: %+v", resolvedWithOtherGrant.Client)
 	}
-	if _, err := store.Models().DeleteProjectModelGrant(ctx, created.Org.ID, created.Project.ID, otherGrant.ID); err != nil {
+	if _, err := store.Models().DeleteProjectModelGrant(
+		ctx, created.Org.ID, created.Project.ID, otherGrant.ID,
+	); err != nil {
 		t.Fatalf("revoke other configured model grant: %v", err)
 	}
 	_, err = integrationResolver(store).Resolve(ctx, model.Selection{

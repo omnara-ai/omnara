@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestPublicActorPutUpsertsExternalActor(t *testing.T) {
@@ -262,7 +263,7 @@ func TestPublicActorListPaginatesAndFilters(t *testing.T) {
 			http.StatusOK,
 			authHeaders(project.AdminToken),
 		)
-		createdIDs[created["id"].(string)] = true
+		createdIDs[testutil.RequireType[string](t, created["id"])] = true
 	}
 
 	firstPage := requestJSONWithHeaders(
@@ -302,7 +303,7 @@ func TestPublicActorListPaginatesAndFilters(t *testing.T) {
 	}
 	listedIDs := map[string]bool{}
 	for _, item := range append(firstData, secondData...) {
-		listedIDs[item.(map[string]any)["id"].(string)] = true
+		listedIDs[testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, item)["id"])] = true
 	}
 	if len(listedIDs) != 3 {
 		t.Fatalf("paginated ids = %v, want 3 distinct actors", listedIDs)
@@ -325,7 +326,7 @@ func TestPublicActorListPaginatesAndFilters(t *testing.T) {
 	)
 	filteredData, ok := filtered["data"].([]any)
 	if !ok || len(filteredData) != 1 ||
-		filteredData[0].(map[string]any)["provider_user_id"] != "cust-b" {
+		testutil.RequireType[map[string]any](t, filteredData[0])["provider_user_id"] != "cust-b" {
 		t.Fatalf("filtered listing = %+v, want only cust-b", filtered)
 	}
 
@@ -341,7 +342,7 @@ func TestPublicActorListPaginatesAndFilters(t *testing.T) {
 	)
 	tenantData, ok := tenantFiltered["data"].([]any)
 	if !ok || len(tenantData) != 1 ||
-		tenantData[0].(map[string]any)["provider_user_id"] != "cust-b" {
+		testutil.RequireType[map[string]any](t, tenantData[0])["provider_user_id"] != "cust-b" {
 		t.Fatalf("tenant-filtered listing = %+v, want only cust-b", tenantFiltered)
 	}
 

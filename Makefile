@@ -60,7 +60,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 
 .PHONY: \
 	help ci test-all test verify verify-go verify-static fmt-check golangci-version-check golangci-lint govulncheck race-machinedaemon \
-	go-modules-check integration-packages-check tagged-packages-check \
+	go-modules-check integration-packages-check tagged-packages-check golangci-lint-tagged race-unit \
 	openapi-generate openapi-check openapi-compat-fixture-check openapi-compat-check compatibility-check \
 	migration-create state-migration-create migration-fix migration-check migration-compat-check goose-version-check sqlite-libc-check \
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
@@ -84,7 +84,7 @@ test: sqlc-check sql-rules sqlc-vet unit test-integration
 
 verify: verify-go web-check ## Run the fast repository gate
 
-verify-go: verify-static unit race-machinedaemon
+verify-go: verify-static unit race-unit
 
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
@@ -115,6 +115,10 @@ golangci-lint: $(GOLANGCI_LINT)
 		printf 'golangci-lint (%s)\n' "$$module"; \
 		(cd "$$module" && "$(GOLANGCI_LINT)" run --config "$(REPO_ROOT)/.golangci.yml" ./...); \
 	done
+	$(MAKE) golangci-lint-tagged
+
+golangci-lint-tagged: $(GOLANGCI_LINT) ## Lint optional Go test tags
+	$(GOLANGCI_LINT) run --config "$(REPO_ROOT)/.golangci.yml" --timeout=10m --build-tags=integration,servicee2e,webe2e,live,blackbox --max-issues-per-linter=0 --max-same-issues=0 ./...
 
 govulncheck:
 	@set -e; for module in $(GO_MODULE_DIRS); do \
@@ -134,6 +138,9 @@ $(GOLANGCI_LINT): .custom-gcl.yml tools/ci/go.mod tools/ci/go.sum tools/omnarali
 
 race-machinedaemon:
 	$(GO) test -race ./internal/machinedaemon/...
+
+race-unit: ## Run internal unit tests with race detection
+	$(GO) test -race -count=1 ./internal/...
 
 openapi-generate:
 	$(OAPI_CODEGEN) -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml

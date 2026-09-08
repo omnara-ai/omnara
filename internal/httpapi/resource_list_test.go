@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResourceNameGlobToLike(t *testing.T) {
@@ -49,22 +50,16 @@ func TestResourceListCursorBindsScopeAndFilters(t *testing.T) {
 		AllowedSorts: sorts, Sort: &sortValue, Extra: []string{"active"},
 	}
 	options, err := parseResourceListQuery(base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	id := uuid.MustParse("018f0f4d-48ac-7d7d-8d91-111111111111")
 	cursor, err := encodeResourceListNextCursor(
 		true, listing.Cursor{Set: true, Key: "alpha", ID: id},
 		options, base.ListKind, base.Scope, base.IDKind, base.Extra,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	base.Cursor = cursor
 	decoded, err := parseResourceListQuery(base)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !decoded.After.Set || decoded.After.Key != "alpha" || decoded.After.ID != id {
 		t.Fatalf("unexpected decoded cursor: %#v", decoded.After)
 	}

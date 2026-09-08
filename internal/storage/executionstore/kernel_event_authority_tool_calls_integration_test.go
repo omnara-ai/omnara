@@ -274,7 +274,13 @@ func TestKernelTypedFrontierToolResultAuthority(t *testing.T) {
 		)
 	}
 	var blockCount int
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT count(*) FROM content_blocks block JOIN agents agent ON agent.id = block.agent_id WHERE agent.project_id = $1 AND block.agent_id = $2 AND block.owner_tool_call_result_id = $3`, testProjectID, fixture.AgentID, result.ID).Scan(&blockCount); err != nil {
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM content_blocks block JOIN agents agent ON agent.id = block.agent_id WHERE agent.project_id = $1 AND block.agent_id = $2 AND block.owner_tool_call_result_id = $3`,
+		testProjectID,
+		fixture.AgentID,
+		result.ID,
+	).Scan(&blockCount); err != nil {
 		t.Fatalf("count tool result content blocks: %v", err)
 	}
 	if blockCount != 2 {
@@ -450,15 +456,19 @@ func TestKernelToolCallBlockLinkageConstraints(t *testing.T) {
 	}
 	otherToolCallID := otherToolCalls[0].ID
 	otherModelOutputID := modelOutputIDForToolCall(t, ctx, fixture.Store, fixture.AgentID, otherToolCallID)
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
-		OwnerModelOutputID: otherModelOutputID,
-		Ordinal:            1,
-		BlockKind:          executionstore.ContentBlockKindToolCall,
-		ToolCallID:         toolCallID,
-	}); !isPgConstraintViolation(err) {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
+			OwnerModelOutputID: otherModelOutputID,
+			Ordinal:            1,
+			BlockKind:          executionstore.ContentBlockKindToolCall,
+			ToolCallID:         toolCallID,
+		},
+	); !isPgConstraintViolation(err) {
 		t.Fatalf("mismatched tool call block model output error = %v, want constraint violation", err)
 	}
 	var blockID, linkedToolCallID ID
@@ -601,7 +611,13 @@ func TestKernelAppendCompletedToolResultWritesTypedAuthority(t *testing.T) {
 		t.Fatalf("events = %+v, want one tool_result from completion transaction", appended)
 	}
 	var resultID ID
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.tool_call_result_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, appended[0].ID).Scan(&resultID); err != nil {
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT event.tool_call_result_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`,
+		testProjectID,
+		fixture.AgentID,
+		appended[0].ID,
+	).Scan(&resultID); err != nil {
 		t.Fatalf("load typed event result pointer: %v", err)
 	}
 	if isNilID(resultID) {
@@ -739,7 +755,9 @@ func TestKernelZeroVisibleOutputToolResultIsTerminalAuthority(t *testing.T) {
 	if !found {
 		t.Fatalf("zero-output result authority found=%v result=%+v", found, result)
 	}
-	rows, err := fixture.Store.Execution().ListCompletedToolCallsForTurn(ctx, testProjectID, fixture.AgentID, completed.TurnID)
+	rows, err := fixture.Store.Execution().ListCompletedToolCallsForTurn(
+		ctx, testProjectID, fixture.AgentID, completed.TurnID,
+	)
 	if err != nil {
 		t.Fatalf("list zero-output completed tool calls: %v", err)
 	}

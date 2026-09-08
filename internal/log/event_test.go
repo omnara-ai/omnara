@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/storage"
 )
@@ -256,9 +257,7 @@ func TestResponseRecorder(t *testing.T) {
 		rec := NewResponseRecorder(raw)
 		rec.WriteHeader(http.StatusCreated)
 		n, err := rec.Write([]byte("hello"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if n != 5 || rec.BytesWritten() != 5 {
 			t.Fatalf("n=%d bytes=%d, want 5", n, rec.BytesWritten())
 		}
@@ -285,11 +284,15 @@ func TestResponseRecorder(t *testing.T) {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			flusher, ok := w.(http.Flusher)
 			if !ok {
-				t.Fatal("wrapped response writer does not implement http.Flusher")
+				t.Error("wrapped response writer does not implement http.Flusher")
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			if _, err := w.Write([]byte(": ok\n\n")); err != nil {
-				t.Fatal(err)
+				t.Error(err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			flusher.Flush()
 		})
@@ -485,9 +488,7 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 		}
 		records = append(records, record)
 	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, scanner.Err())
 	return records
 }
 

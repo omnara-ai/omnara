@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLaunchdStartReconcilesService(t *testing.T) {
@@ -340,17 +342,11 @@ func TestLaunchdUninstallRejectsRegisteredForeignDefinition(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
-	if err := os.MkdirAll(plistDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(plistDir, 0o700))
 	plist, err := renderLaunchdPlist(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
-	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(plistPath, plist, 0o600))
 	commands := filepath.Join(t.TempDir(), "commands")
 	domain := "gui/" + strconv.Itoa(os.Geteuid())
 	target := domain + "/" + launchdServiceLabel
@@ -408,17 +404,11 @@ func TestLaunchdUninstallRejectsUnavailableManager(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
-	if err := os.MkdirAll(plistDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(plistDir, 0o700))
 	plist, err := renderLaunchdPlist(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
-	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(plistPath, plist, 0o600))
 	t.Setenv("HOME", userHome)
 	t.Setenv("PATH", t.TempDir())
 	if err := uninstallDaemonService(context.Background(), home); err == nil ||
@@ -434,17 +424,11 @@ func TestLaunchdUninstallRejectsDifferentHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	plistDir := filepath.Join(userHome, "Library", "LaunchAgents")
-	if err := os.MkdirAll(plistDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(plistDir, 0o700))
 	plist, err := renderLaunchdPlist("/other/home", userHome, "/opt/omnarad", "/tmp/daemon.log")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	plistPath := filepath.Join(plistDir, launchdServiceLabel+".plist")
-	if err := os.WriteFile(plistPath, plist, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(plistPath, plist, 0o600))
 	t.Setenv("HOME", userHome)
 	t.Setenv("PATH", t.TempDir())
 	if err := uninstallDaemonService(context.Background(), home); err == nil ||

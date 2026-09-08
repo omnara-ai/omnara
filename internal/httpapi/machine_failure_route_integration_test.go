@@ -14,6 +14,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMachineFailureRoute(t *testing.T) {
@@ -330,14 +331,12 @@ func TestMachineFailureRoute(t *testing.T) {
 	readFailure := func() []byte {
 		t.Helper()
 		var report []byte
-		if err := pool.QueryRow(
+		require.NoError(t, pool.QueryRow(
 			ctx,
 			`SELECT failure_report FROM machines WHERE org_id = $1 AND id = $2`,
 			project.OrgUUID,
 			byoMachine.ID,
-		).Scan(&report); err != nil {
-			t.Fatal(err)
-		}
+		).Scan(&report))
 		return report
 	}
 	for _, report := range []struct {
@@ -352,9 +351,7 @@ func TestMachineFailureRoute(t *testing.T) {
 			Stage      string `json:"stage"`
 			OutputTail string `json:"output_tail"`
 		}
-		if err := json.Unmarshal(readFailure(), &stored); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, json.Unmarshal(readFailure(), &stored))
 		if stored.Stage != report.stage || stored.OutputTail != report.detail {
 			t.Fatalf("stored daemon uninstall report = %+v", stored)
 		}
@@ -369,9 +366,7 @@ func TestMachineFailureRoute(t *testing.T) {
 				LeaseTimeout:     time.Hour,
 			},
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if failure := readFailure(); failure != nil {
 			t.Fatalf("runtime registration kept daemon uninstall report: %s", failure)
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -37,13 +38,13 @@ func TestListAgents(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, configResp["id"].(string))
+	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, testutil.RequireType[string](t, configResp["id"]))
 
 	const agentCount = 5
 	wantOrder := make([]string, 0, agentCount)
 	agents := make([]executionstore.AgentRecord, 0, agentCount)
 	var base time.Time
-	for i := 0; i < agentCount; i++ {
+	for i := range agentCount {
 		name := "Agent " + string(rune('A'+i))
 		idempotencyKey := "list-agents-" + string(rune('a'+i))
 		var agent executionstore.AgentRecord
@@ -124,13 +125,13 @@ func TestListAgents(t *testing.T) {
 			http.StatusOK,
 			authHeaders(project.AdminToken),
 		)
-		data := page["data"].([]any)
+		data := testutil.RequireType[[]any](t, page["data"])
 		if len(data) > 2 {
 			t.Fatalf("page returned %d items, want <= limit 2", len(data))
 		}
 		for _, raw := range data {
-			row := raw.(map[string]any)
-			id := row["id"].(string)
+			row := testutil.RequireType[map[string]any](t, raw)
+			id := testutil.RequireType[string](t, row["id"])
 			if _, ok := row["name"].(string); !ok {
 				t.Fatalf("list agent missing required name: %+v", row)
 			}
@@ -169,7 +170,7 @@ func TestListAgents(t *testing.T) {
 		if next == nil {
 			break
 		}
-		cursor = next.(string)
+		cursor = testutil.RequireType[string](t, next)
 	}
 
 	if len(got) != agentCount {
@@ -194,7 +195,7 @@ func TestListAgents(t *testing.T) {
 	if full["next_cursor"] != nil {
 		t.Fatalf("single full page should have null next_cursor, got %v", full["next_cursor"])
 	}
-	if data := full["data"].([]any); len(data) != agentCount {
+	if data := testutil.RequireType[[]any](t, full["data"]); len(data) != agentCount {
 		t.Fatalf("full page returned %d agents, want %d", len(data), agentCount)
 	}
 
@@ -239,7 +240,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	configID := config["id"].(string)
+	configID := testutil.RequireType[string](t, config["id"])
 	firstProfile := createPublicHTTPAgentProfile(
 		t,
 		handler,
@@ -260,8 +261,8 @@ func TestListAgentsByProfile(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	firstProfileID := firstProfile["id"].(string)
-	secondProfileID := secondProfile["id"].(string)
+	firstProfileID := testutil.RequireType[string](t, firstProfile["id"])
+	secondProfileID := testutil.RequireType[string](t, secondProfile["id"])
 
 	profileLaunch := requestJSONWithHeaders(
 		t,
@@ -273,7 +274,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	profileAgent := profileLaunch["agent"].(map[string]any)
+	profileAgent := testutil.RequireType[map[string]any](t, profileLaunch["agent"])
 	if got := profileAgent["agent_profile_id"]; got != firstProfileID {
 		t.Fatalf("launched agent agent_profile_id = %v, want %s", got, firstProfileID)
 	}
@@ -288,7 +289,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	configAgent := configLaunch["agent"].(map[string]any)
+	configAgent := testutil.RequireType[map[string]any](t, configLaunch["agent"])
 	if _, ok := configAgent["agent_profile_id"]; ok {
 		t.Fatalf("config-only agent unexpectedly has agent_profile_id: %+v", configAgent)
 	}
@@ -303,11 +304,11 @@ func TestListAgentsByProfile(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	firstData := firstPage["data"].([]any)
+	firstData := testutil.RequireType[[]any](t, firstPage["data"])
 	if len(firstData) != 1 {
 		t.Fatalf("first profile returned %d agents, want 1", len(firstData))
 	}
-	if got := firstData[0].(map[string]any)["id"]; got != profileAgent["id"] {
+	if got := testutil.RequireType[map[string]any](t, firstData[0])["id"]; got != profileAgent["id"] {
 		t.Fatalf("first profile agent = %v, want %v", got, profileAgent["id"])
 	}
 
@@ -321,7 +322,7 @@ func TestListAgentsByProfile(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if data := secondPage["data"].([]any); len(data) != 0 {
+	if data := testutil.RequireType[[]any](t, secondPage["data"]); len(data) != 0 {
 		t.Fatalf("second profile returned %d agents, want 0", len(data))
 	}
 }
@@ -374,7 +375,7 @@ func seedListAgentsSlackTarget(
 		"list-agents-target",
 		project.AdminToken,
 	)
-	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, profile["id"].(string))
+	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
 	install := createSlackHTTPInstall(
 		t,
 		ctx,

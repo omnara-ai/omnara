@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -32,21 +33,21 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	projects := overview["projects"].([]any)
+	projects := testutil.RequireType[[]any](t, overview["projects"])
 	if len(projects) != 1 {
 		t.Fatalf("projects = %+v, want the bootstrap project only", projects)
 	}
-	bootstrapRow := projects[0].(map[string]any)
+	bootstrapRow := testutil.RequireType[map[string]any](t, projects[0])
 	if bootstrapRow["id"] != project.ProjectID {
 		t.Fatalf("project id = %v, want %s", bootstrapRow["id"], project.ProjectID)
 	}
-	if access := bootstrapRow["access"].(map[string]any); access["can_manage"] != true {
+	if access := testutil.RequireType[map[string]any](t, bootstrapRow["access"]); access["can_manage"] != true {
 		t.Fatalf("bootstrap project access = %+v, want can_manage", access)
 	}
-	if agents := overview["recent_agents"].([]any); len(agents) != 0 {
+	if agents := testutil.RequireType[[]any](t, overview["recent_agents"]); len(agents) != 0 {
 		t.Fatalf("fresh org recent_agents = %+v, want empty", agents)
 	}
-	if profiles := overview["recent_agent_profiles"].([]any); len(profiles) != 0 {
+	if profiles := testutil.RequireType[[]any](t, overview["recent_agent_profiles"]); len(profiles) != 0 {
 		t.Fatalf("fresh org recent_agent_profiles = %+v, want empty", profiles)
 	}
 
@@ -61,7 +62,7 @@ func TestGetOrgOverview(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	configID := config["id"].(string)
+	configID := testutil.RequireType[string](t, config["id"])
 	firstProfile := createPublicHTTPAgentProfile(
 		t,
 		handler,
@@ -72,7 +73,7 @@ func TestGetOrgOverview(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	firstProfileID := firstProfile["id"].(string)
+	firstProfileID := testutil.RequireType[string](t, firstProfile["id"])
 
 	secondCreated := requestJSONWithHeaders(
 		t,
@@ -85,7 +86,7 @@ func TestGetOrgOverview(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	secondProject := project
-	secondProject.ProjectID = secondCreated["id"].(string)
+	secondProject.ProjectID = testutil.RequireType[string](t, secondCreated["id"])
 	secondProject.ProjectUUID = mustPublicHTTPID(t, publicid.KindProject, secondProject.ProjectID)
 	secondProject.ProjectPath = "/api/v1/orgs/" + project.OrgID + "/projects/" + secondProject.ProjectID
 	grantDefaultPublicHTTPModelToProject(t, handler, project, secondProject.ProjectID, project.AdminToken)
@@ -99,7 +100,7 @@ func TestGetOrgOverview(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	secondConfigID := secondConfig["id"].(string)
+	secondConfigID := testutil.RequireType[string](t, secondConfig["id"])
 	secondProfile := createPublicHTTPAgentProfile(
 		t,
 		handler,
@@ -110,7 +111,7 @@ func TestGetOrgOverview(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	secondProfileID := secondProfile["id"].(string)
+	secondProfileID := testutil.RequireType[string](t, secondProfile["id"])
 	launch := requestJSONWithHeaders(
 		t,
 		handler,
@@ -121,7 +122,7 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	launchedAgentID := launch["agent"].(map[string]any)["id"].(string)
+	launchedAgentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 
 	overview = requestJSONWithHeaders(
 		t,
@@ -133,34 +134,38 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if projects := overview["projects"].([]any); len(projects) != 2 {
+	if projects := testutil.RequireType[[]any](t, overview["projects"]); len(projects) != 2 {
 		t.Fatalf("projects = %+v, want both org projects", projects)
 	}
-	agents := overview["recent_agents"].([]any)
+	agents := testutil.RequireType[[]any](t, overview["recent_agents"])
 	if len(agents) != 1 {
 		t.Fatalf("recent_agents = %+v, want the launched agent", agents)
 	}
-	agentRow := agents[0].(map[string]any)
+	agentRow := testutil.RequireType[map[string]any](t, agents[0])
 	if agentRow["id"] != launchedAgentID {
 		t.Fatalf("recent agent id = %v, want %s", agentRow["id"], launchedAgentID)
 	}
 	if agentRow["project_id"] != secondProject.ProjectID {
 		t.Fatalf("recent agent project_id = %v, want %s", agentRow["project_id"], secondProject.ProjectID)
 	}
-	if model := agentRow["model"].(map[string]any); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {
+	if model := testutil.RequireType[map[string]any](
+		t, agentRow["model"],
+	); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {
 		t.Fatalf("recent agent model = %+v, want openai-prod/gpt-test", model)
 	}
-	profileRows := overview["recent_agent_profiles"].([]any)
+	profileRows := testutil.RequireType[[]any](t, overview["recent_agent_profiles"])
 	if len(profileRows) != 2 {
 		t.Fatalf("recent_agent_profiles = %+v, want both profiles", profileRows)
 	}
-	if got := profileRows[0].(map[string]any)["id"]; got != secondProfileID {
+	if got := testutil.RequireType[map[string]any](t, profileRows[0])["id"]; got != secondProfileID {
 		t.Fatalf("recent profile order[0] = %v, want %s (newest first)", got, secondProfileID)
 	}
-	if got := profileRows[1].(map[string]any)["id"]; got != firstProfileID {
+	if got := testutil.RequireType[map[string]any](t, profileRows[1])["id"]; got != firstProfileID {
 		t.Fatalf("recent profile order[1] = %v, want %s", got, firstProfileID)
 	}
-	if got := profileRows[0].(map[string]any)["current_config"].(map[string]any)["id"]; got != secondConfigID {
+	if got := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, profileRows[0])["current_config"],
+	)["id"]; got != secondConfigID {
 		t.Fatalf("recent profile current_config id = %v, want %s", got, secondConfigID)
 	}
 
@@ -176,7 +181,7 @@ func TestGetOrgOverview(t *testing.T) {
 			project.AdminToken,
 			http.StatusCreated,
 		)
-		extraProfileIDs = append(extraProfileIDs, extra["id"].(string))
+		extraProfileIDs = append(extraProfileIDs, testutil.RequireType[string](t, extra["id"]))
 	}
 	overview = requestJSONWithHeaders(
 		t,
@@ -188,18 +193,18 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	profileRows = overview["recent_agent_profiles"].([]any)
+	profileRows = testutil.RequireType[[]any](t, overview["recent_agent_profiles"])
 	if len(profileRows) != 5 {
 		t.Fatalf("recent_agent_profiles returned %d rows, want cap of 5", len(profileRows))
 	}
 	gotProfileIDs := map[string]bool{}
 	for _, raw := range profileRows {
-		gotProfileIDs[raw.(map[string]any)["id"].(string)] = true
+		gotProfileIDs[testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["id"])] = true
 	}
 	if gotProfileIDs[firstProfileID] {
 		t.Fatalf("oldest profile %s should fall outside the recents cap: %v", firstProfileID, gotProfileIDs)
 	}
-	if got := profileRows[0].(map[string]any)["id"]; got != extraProfileIDs[3] {
+	if got := testutil.RequireType[map[string]any](t, profileRows[0])["id"]; got != extraProfileIDs[3] {
 		t.Fatalf("recent profile order[0] = %v, want most recent %s", got, extraProfileIDs[3])
 	}
 
@@ -249,23 +254,25 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusOK,
 		authHeaders(viewerPAT.Token),
 	)
-	viewerProjects := viewerOverview["projects"].([]any)
+	viewerProjects := testutil.RequireType[[]any](t, viewerOverview["projects"])
 	if len(viewerProjects) != 1 {
 		t.Fatalf("viewer projects = %+v, want the second project only", viewerProjects)
 	}
-	viewerProject := viewerProjects[0].(map[string]any)
+	viewerProject := testutil.RequireType[map[string]any](t, viewerProjects[0])
 	if viewerProject["id"] != secondProject.ProjectID {
 		t.Fatalf("viewer project id = %v, want %s", viewerProject["id"], secondProject.ProjectID)
 	}
-	if access := viewerProject["access"].(map[string]any); access["can_manage"] != false || access["can_read"] != true {
+	if access := testutil.RequireType[map[string]any](
+		t, viewerProject["access"],
+	); access["can_manage"] != false || access["can_read"] != true {
 		t.Fatalf("viewer project access = %+v, want read-only", access)
 	}
-	viewerAgents := viewerOverview["recent_agents"].([]any)
-	if len(viewerAgents) != 1 || viewerAgents[0].(map[string]any)["id"] != launchedAgentID {
+	viewerAgents := testutil.RequireType[[]any](t, viewerOverview["recent_agents"])
+	if len(viewerAgents) != 1 || testutil.RequireType[map[string]any](t, viewerAgents[0])["id"] != launchedAgentID {
 		t.Fatalf("viewer recent_agents = %+v, want the second project's agent", viewerAgents)
 	}
-	viewerProfiles := viewerOverview["recent_agent_profiles"].([]any)
-	if len(viewerProfiles) != 1 || viewerProfiles[0].(map[string]any)["id"] != secondProfileID {
+	viewerProfiles := testutil.RequireType[[]any](t, viewerOverview["recent_agent_profiles"])
+	if len(viewerProfiles) != 1 || testutil.RequireType[map[string]any](t, viewerProfiles[0])["id"] != secondProfileID {
 		t.Fatalf("viewer recent_agent_profiles = %+v, want the second project's profile", viewerProfiles)
 	}
 

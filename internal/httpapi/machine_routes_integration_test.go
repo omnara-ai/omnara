@@ -26,9 +26,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
@@ -48,7 +50,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	machineID := machine["id"].(string)
+	machineID := testutil.RequireType[string](t, machine["id"])
 	patMint := requestJSONWithHeaders(
 		t,
 		handler,
@@ -59,7 +61,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if err := bearertoken.Validate(patMint["token"].(string), bearertoken.KindDaemon); err != nil {
+	if err := bearertoken.Validate(testutil.RequireType[string](t, patMint["token"]), bearertoken.KindDaemon); err != nil {
 		t.Fatalf("PAT-minted daemon token is not canonical: %v", err)
 	}
 	adminKey := requestJSONWithHeaders(
@@ -72,7 +74,7 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
 	)
-	adminKeyToken := adminKey["token"].(string)
+	adminKeyToken := testutil.RequireType[string](t, adminKey["token"])
 	orgKeyMint := requestJSONWithHeaders(
 		t,
 		handler,
@@ -83,7 +85,9 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(adminKeyToken),
 	)
-	if err := bearertoken.Validate(orgKeyMint["token"].(string), bearertoken.KindDaemon); err != nil {
+	if err := bearertoken.Validate(
+		testutil.RequireType[string](t, orgKeyMint["token"]), bearertoken.KindDaemon,
+	); err != nil {
 		t.Fatalf("org-key-minted daemon token is not canonical: %v", err)
 	}
 	tokenResponse := requestJSONWithHeaders(
@@ -96,15 +100,15 @@ func TestMachineDaemonTokenCannotAdminMachineTokens(t *testing.T) {
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
 	)
-	token := tokenResponse["token"].(string)
+	token := testutil.RequireType[string](t, tokenResponse["token"])
 	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		t.Fatalf("browser-minted daemon token is not canonical: %v", err)
 	}
-	tokenRecord := tokenResponse["token_record"].(map[string]any)
+	tokenRecord := testutil.RequireType[map[string]any](t, tokenResponse["token_record"])
 	if tokenRecord["name"] != "daemon" {
 		t.Fatalf("default daemon token name = %v, want daemon", tokenRecord["name"])
 	}
-	tokenID := tokenRecord["id"].(string)
+	tokenID := testutil.RequireType[string](t, tokenRecord["id"])
 
 	requestJSONWithHeaders(
 		t,
@@ -135,15 +139,15 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	patMachine := patResponse["machine"].(map[string]any)
+	patMachine := testutil.RequireType[map[string]any](t, patResponse["machine"])
 	if patMachine["description"] != "connected by CLI" || patMachine["cwd"] != "/srv/agents" {
 		t.Fatalf("unexpected PAT-connected machine: %+v", patMachine)
 	}
-	patTokenRecord := patResponse["token_record"].(map[string]any)
+	patTokenRecord := testutil.RequireType[map[string]any](t, patResponse["token_record"])
 	if patTokenRecord["name"] != "daemon" {
 		t.Fatalf("unexpected PAT token record: %+v", patTokenRecord)
 	}
-	if grants := patResponse["project_grants"].([]any); len(grants) != 0 {
+	if grants := testutil.RequireType[[]any](t, patResponse["project_grants"]); len(grants) != 0 {
 		t.Fatalf("PAT project grants = %d, want 0", len(grants))
 	}
 	response := requestJSONWithHeaders(
@@ -156,24 +160,24 @@ func TestConnectBYOMachineCreatesAtomicConnection(t *testing.T) {
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
 	)
-	machine := response["machine"].(map[string]any)
-	machineID := machine["id"].(string)
+	machine := testutil.RequireType[map[string]any](t, response["machine"])
+	machineID := testutil.RequireType[string](t, machine["id"])
 	if machine["display_name"] != "Connected Through API" || machine["source_kind"] != "byo" {
 		t.Fatalf("unexpected connected machine: %+v", machine)
 	}
-	token := response["token"].(string)
+	token := testutil.RequireType[string](t, response["token"])
 	if err := bearertoken.Validate(token, bearertoken.KindDaemon); err != nil {
 		t.Fatalf("connected machine token is not canonical: %v", err)
 	}
-	tokenRecord := response["token_record"].(map[string]any)
+	tokenRecord := testutil.RequireType[map[string]any](t, response["token_record"])
 	if tokenRecord["machine_id"] != machineID || tokenRecord["name"] != "web-console" {
 		t.Fatalf("unexpected token record: %+v", tokenRecord)
 	}
-	grants := response["project_grants"].([]any)
+	grants := testutil.RequireType[[]any](t, response["project_grants"])
 	if len(grants) != 1 {
 		t.Fatalf("project grants = %d, want 1", len(grants))
 	}
-	grant := grants[0].(map[string]any)
+	grant := testutil.RequireType[map[string]any](t, grants[0])
 	if grant["project_id"] != project.ProjectID || grant["machine_id"] != machineID {
 		t.Fatalf("unexpected project grant: %+v", grant)
 	}
@@ -286,7 +290,7 @@ func TestConnectBYOMachineAuthorizesEveryProjectGrant(t *testing.T) {
 			OrgID: project.OrgID,
 			Body: &openapi.ConnectBYOMachineRequest{
 				DisplayName: "Unauthorized Project Connection",
-				ProjectIds:  &[]openapi.ProjectID{openapi.ProjectID(project.ProjectID)},
+				ProjectIds:  &[]openapi.ProjectID{project.ProjectID},
 			},
 		},
 	)
@@ -394,9 +398,9 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	machineID := created["id"].(string)
-	if created["cwd"] != "/workspace" || created["env"].(map[string]any)["APP"] != "one" ||
-		created["secret_env"].(map[string]any)["TOKEN"] != secretID {
+	machineID := testutil.RequireType[string](t, created["id"])
+	if created["cwd"] != "/workspace" || testutil.RequireType[map[string]any](t, created["env"])["APP"] != "one" ||
+		testutil.RequireType[map[string]any](t, created["secret_env"])["TOKEN"] != secretID {
 		t.Fatalf("created machine execution defaults = %+v", created)
 	}
 	createdJSON, err := json.Marshal(created)
@@ -423,8 +427,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if cwdOnly["cwd"] != "/changed" || cwdOnly["env"].(map[string]any)["DROP"] != "old" ||
-		cwdOnly["secret_env"].(map[string]any)["TOKEN"] != secretID {
+	if cwdOnly["cwd"] != "/changed" || testutil.RequireType[map[string]any](t, cwdOnly["env"])["DROP"] != "old" ||
+		testutil.RequireType[map[string]any](t, cwdOnly["secret_env"])["TOKEN"] != secretID {
 		t.Fatalf("cwd-only update changed omitted fields: %+v", cwdOnly)
 	}
 	replaced := requestJSONWithHeaders(
@@ -437,10 +441,10 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if replaced["env"].(map[string]any)["APP"] != "two" {
+	if testutil.RequireType[map[string]any](t, replaced["env"])["APP"] != "two" {
 		t.Fatalf("replaced machine env = %+v", replaced["env"])
 	}
-	if _, ok := replaced["env"].(map[string]any)["DROP"]; ok {
+	if _, ok := testutil.RequireType[map[string]any](t, replaced["env"])["DROP"]; ok {
 		t.Fatalf("replace-whole env retained removed key: %+v", replaced["env"])
 	}
 	replayed := requestJSONWithHeaders(
@@ -454,7 +458,7 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if replayed["id"] != machineID || replayed["cwd"] != "/changed" ||
-		replayed["env"].(map[string]any)["APP"] != "two" {
+		testutil.RequireType[map[string]any](t, replayed["env"])["APP"] != "two" {
 		t.Fatalf("replayed machine after execution-default update = %+v", replayed)
 	}
 	orgAdmin, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
@@ -471,10 +475,13 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add second org admin: %v", err)
 	}
-	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: orgAdmin.ID,
-		Name:   "machine-defaults-admin",
-	})
+	orgAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: orgAdmin.ID,
+			Name:   "machine-defaults-admin",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create second org admin token: %v", err)
 	}
@@ -492,8 +499,8 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 		replayedByOtherAdmin["display_name"] != "Execution Defaults Machine" ||
 		replayedByOtherAdmin["description"] != "" ||
 		replayedByOtherAdmin["cwd"] != "/changed" ||
-		replayedByOtherAdmin["env"].(map[string]any)["APP"] != "two" ||
-		len(replayedByOtherAdmin["metadata"].(map[string]any)) != 0 {
+		testutil.RequireType[map[string]any](t, replayedByOtherAdmin["env"])["APP"] != "two" ||
+		len(testutil.RequireType[map[string]any](t, replayedByOtherAdmin["metadata"])) != 0 {
 		t.Fatalf("machine idempotency replay = %+v", replayedByOtherAdmin)
 	}
 	requestJSONWithHeaders(
@@ -520,10 +527,13 @@ func TestMachineExecutionDefaultsAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add org member: %v", err)
 	}
-	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: member.ID,
-		Name:   "machine-defaults-member",
-	})
+	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: member.ID,
+			Name:   "machine-defaults-member",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create org member token: %v", err)
 	}
@@ -596,7 +606,7 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	byoID := byo["id"].(string)
+	byoID := testutil.RequireType[string](t, byo["id"])
 	providerAuthSecret, _, err := store.Secrets().CreateSecret(
 		ctx,
 		secretstore.CreateSecretInput{
@@ -1041,11 +1051,11 @@ func machineIDsFromListResponse(
 	response map[string]any,
 ) map[string]bool {
 	t.Helper()
-	data := response["data"].([]any)
+	data := testutil.RequireType[[]any](t, response["data"])
 	out := make(map[string]bool, len(data))
 	for _, item := range data {
-		machine := item.(map[string]any)
-		out[machine["id"].(string)] = true
+		machine := testutil.RequireType[map[string]any](t, item)
+		out[testutil.RequireType[string](t, machine["id"])] = true
 	}
 	return out
 }
@@ -1191,9 +1201,7 @@ func TestMachineDaemonStorageExhaustionFailsQueuedProcess(t *testing.T) {
 		process.AgentUUID,
 		process.ProcessUUID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if updated.State != executionstore.ProcessStateFailed ||
 		updated.ExecutionGrantedAt != nil ||
 		updated.SourceStartedAt != nil ||
@@ -1207,9 +1215,7 @@ func TestMachineDaemonStorageExhaustionFailsQueuedProcess(t *testing.T) {
 		process.AgentUUID,
 		process.ToolCallUUID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if toolCall.State != "completed" || !strings.Contains(
 		string(toolCall.ResultContentParts),
 		daemonprotocol.ProcessReasonMachineStorageExhausted,
@@ -1285,11 +1291,11 @@ func TestMachineDaemonRuntimeRegistrationClosesQueuedPreparation(
 		http.StatusCreated,
 		authHeaders(process.Token),
 	)
-	reconciliation := response["reconciliation"].(map[string]any)
-	processes := reconciliation["processes"].([]any)
+	reconciliation := testutil.RequireType[map[string]any](t, response["reconciliation"])
+	processes := testutil.RequireType[[]any](t, reconciliation["processes"])
 	if len(processes) != 1 ||
-		processes[0].(map[string]any)["process_id"] != process.ProcessID ||
-		processes[0].(map[string]any)["disposition"] != "close_preparation" {
+		testutil.RequireType[map[string]any](t, processes[0])["process_id"] != process.ProcessID ||
+		testutil.RequireType[map[string]any](t, processes[0])["disposition"] != "close_preparation" {
 		t.Fatalf("queued preparation reconciliation = %+v", reconciliation)
 	}
 	updated, err := store.Execution().GetProcess(
@@ -1366,11 +1372,11 @@ func TestMachineDaemonRuntimeRegistrationClosesCanceledPreparation(
 		http.StatusCreated,
 		authHeaders(process.Token),
 	)
-	reconciliation := response["reconciliation"].(map[string]any)
-	processes := reconciliation["processes"].([]any)
+	reconciliation := testutil.RequireType[map[string]any](t, response["reconciliation"])
+	processes := testutil.RequireType[[]any](t, reconciliation["processes"])
 	if len(processes) != 1 ||
-		processes[0].(map[string]any)["process_id"] != process.ProcessID ||
-		processes[0].(map[string]any)["disposition"] !=
+		testutil.RequireType[map[string]any](t, processes[0])["process_id"] != process.ProcessID ||
+		testutil.RequireType[map[string]any](t, processes[0])["disposition"] !=
 			"close_preparation" {
 		t.Fatalf(
 			"canceled preparation reconciliation = %+v",
@@ -1617,11 +1623,11 @@ func TestMachineDaemonRuntimeRegistrationReportsTerminalAndUnknownProcesses(
 		http.StatusCreated,
 		authHeaders(terminal.Token),
 	)
-	reconciliation := response["reconciliation"].(map[string]any)
-	processes := reconciliation["processes"].([]any)
+	reconciliation := testutil.RequireType[map[string]any](t, response["reconciliation"])
+	processes := testutil.RequireType[[]any](t, reconciliation["processes"])
 	if len(processes) != 1 ||
-		processes[0].(map[string]any)["process_id"] != terminal.ProcessID ||
-		processes[0].(map[string]any)["disposition"] != "release" {
+		testutil.RequireType[map[string]any](t, processes[0])["process_id"] != terminal.ProcessID ||
+		testutil.RequireType[map[string]any](t, processes[0])["disposition"] != "release" {
 		t.Fatalf("terminal reconciliation = %+v, want release", reconciliation)
 	}
 	terminalProcess, err := store.Execution().GetProcess(
@@ -1710,11 +1716,11 @@ func TestMachineDaemonRuntimeRegistrationRetainsLiveProcess(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(process.Token),
 	)
-	reconciliation := response["reconciliation"].(map[string]any)
-	processes := reconciliation["processes"].([]any)
+	reconciliation := testutil.RequireType[map[string]any](t, response["reconciliation"])
+	processes := testutil.RequireType[[]any](t, reconciliation["processes"])
 	if len(processes) != 1 ||
-		processes[0].(map[string]any)["process_id"] != process.ProcessID ||
-		processes[0].(map[string]any)["disposition"] != "retain" {
+		testutil.RequireType[map[string]any](t, processes[0])["process_id"] != process.ProcessID ||
+		testutil.RequireType[map[string]any](t, processes[0])["disposition"] != "retain" {
 		t.Fatalf("live process reconciliation = %+v, want retain", reconciliation)
 	}
 	updated, err := store.Execution().GetProcess(
@@ -1732,7 +1738,7 @@ func TestMachineDaemonRuntimeRegistrationRetainsLiveProcess(t *testing.T) {
 	}
 	replacementRuntimeID, err := publicid.Decode(
 		publicid.KindDaemonRuntime,
-		response["runtime"].(map[string]any)["id"].(string),
+		testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, response["runtime"])["id"]),
 	)
 	if err != nil {
 		t.Fatalf("decode replacement runtime: %v", err)
@@ -1878,17 +1884,17 @@ func TestMachineDaemonRuntimeRegistrationReleasesCommittedRead(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(process.Token),
 	)
-	reconciliation := response["reconciliation"].(map[string]any)
-	processes := reconciliation["processes"].([]any)
+	reconciliation := testutil.RequireType[map[string]any](t, response["reconciliation"])
+	processes := testutil.RequireType[[]any](t, reconciliation["processes"])
 	if len(processes) != 1 {
 		t.Fatalf("read reconciliation = %+v, want one process", reconciliation)
 	}
-	disposition := processes[0].(map[string]any)
-	actions := disposition["actions"].([]any)
+	disposition := testutil.RequireType[map[string]any](t, processes[0])
+	actions := testutil.RequireType[[]any](t, disposition["actions"])
 	if disposition["disposition"] != "retain" || len(actions) != 1 {
 		t.Fatalf("read reconciliation disposition = %+v", disposition)
 	}
-	readDisposition := actions[0].(map[string]any)
+	readDisposition := testutil.RequireType[map[string]any](t, actions[0])
 	if readDisposition["process_action_id"] != actionID ||
 		readDisposition["seq"] != float64(action.Seq) ||
 		readDisposition["action_kind"] != "read" ||
@@ -1951,7 +1957,7 @@ func TestReplacementDaemonRuntimeCompletesGrantedProcessAndReplaysEvidence(
 	)
 	replacementRuntimeID, err := publicid.Decode(
 		publicid.KindDaemonRuntime,
-		response["runtime"].(map[string]any)["id"].(string),
+		testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, response["runtime"])["id"]),
 	)
 	if err != nil {
 		t.Fatalf("decode replacement runtime: %v", err)
@@ -2565,9 +2571,7 @@ func TestMachineDaemonLateStorageExhaustionSettlesAcceptedAction(t *testing.T) {
 			Payload:    json.RawMessage(`{"data":"x"}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := acceptDaemonProcessActionOfferForTest(
 		ctx,
 		store,
@@ -2666,15 +2670,6 @@ func (f daemonProcessFixture) toolCall(
 		t.Fatalf("tool call %s missing from accepted proposal batch", providerCallID)
 	}
 	return toolCall
-}
-
-func containsString(values []any, want string) bool {
-	for _, value := range values {
-		if got, ok := value.(string); ok && got == want {
-			return true
-		}
-	}
-	return false
 }
 
 func createDaemonAcceptedProcessFixture(
@@ -3010,34 +3005,6 @@ func createDaemonProcessFixtureWithToolInputBuilder(
 	}
 }
 
-func createHTTPProcessToolCall(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	orgID, projectID, producerID storage.ID,
-	now time.Time,
-	name string,
-	toolName string,
-	machineName string,
-) (executionstore.AgentRecord, executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord, executionstore.AgentMachineBindingRecord) {
-	t.Helper()
-	agent, toolCall, _, lock, binding := createHTTPProcessToolCallBatch(
-		t,
-		ctx,
-		store,
-		orgID,
-		projectID,
-		producerID,
-		now,
-		name,
-		toolName,
-		machineName,
-		nil,
-		nil,
-	)
-	return agent, toolCall, lock, binding
-}
-
 func createHTTPProcessToolCallBatch(
 	t *testing.T,
 	ctx context.Context,
@@ -3175,6 +3142,9 @@ func createHTTPProcessToolCallBatch(
 }
 
 func quote(value string) string {
-	body, _ := json.Marshal(value)
+	body, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
 	return string(body)
 }

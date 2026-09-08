@@ -27,7 +27,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
-func completeMachinePoolInputForTest(input executionstore.CreateMachinePoolInput) executionstore.CreateMachinePoolInput {
+func completeMachinePoolInputForTest(
+	input executionstore.CreateMachinePoolInput,
+) executionstore.CreateMachinePoolInput {
 	if input.DefaultMachineCPU == nil {
 		input.DefaultMachineCPU = intPtrForMachinePoolTest(1)
 	}
@@ -74,22 +76,6 @@ func machinePoolInputWithDefaultMachineForTest(
 	input.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
 	input.DefaultMachineProviderOptions = fields.DefaultMachineProviderOptions
 	return input
-}
-
-func defaultMachinePoolTemplateWithDefaultMachineForTest(
-	template executionstore.DefaultMachinePoolTemplate,
-	fields defaultMachineFieldsForTest,
-) executionstore.DefaultMachinePoolTemplate {
-	if fields.DefaultMachineCPU != 0 {
-		template.DefaultMachineCPU = intPtrForMachinePoolTest(fields.DefaultMachineCPU)
-	}
-	if fields.DefaultMachineMemoryMB != 0 {
-		template.DefaultMachineMemoryMB = intPtrForMachinePoolTest(fields.DefaultMachineMemoryMB)
-	}
-	template.DefaultMachineEnv = fields.DefaultMachineEnv
-	template.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
-	template.DefaultMachineProviderOptions = fields.DefaultMachineProviderOptions
-	return template
 }
 
 type defaultMachineUpdateFieldsForTest struct {
@@ -537,7 +523,12 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 			t,
 			ctx,
 			store,
-			executionstore.CreateMachinePoolInput{OrgID: testOrgID, Name: "Taken Pool", Provider: "test.provider", MaxTotalMachines: 1},
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Taken Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 1,
+			},
 		),
 	); err != nil {
 		t.Fatalf("create duplicate-name target pool: %v", err)
@@ -593,7 +584,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update machine pool: %v", err)
 	}
-	if updated.ID != created.ID || updated.OrgID != created.OrgID || updated.Provider != created.Provider || !updated.CreatedAt.Equal(created.CreatedAt) {
+	if updated.ID != created.ID || updated.OrgID != created.OrgID || updated.Provider != created.Provider ||
+		!updated.CreatedAt.Equal(created.CreatedAt) {
 		t.Fatalf("update changed immutable fields: created=%+v updated=%+v", created, updated)
 	}
 	if updated.Name != "Renamed Pool" || updated.Description != "updated description" ||
@@ -636,7 +628,9 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t.Fatalf("metadata not updated: %s", updated.Metadata)
 	}
 	patchDescription := "patched description only"
-	patched, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Description: &patchDescription})
+	patched, err := store.Execution().UpdateMachinePool(
+		ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Description: &patchDescription},
+	)
 	if err != nil {
 		t.Fatalf("patch machine pool: %v", err)
 	}
@@ -670,14 +664,18 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t.Fatalf("bad cap update error = %v, want cpu cap error", err)
 	}
 	takenName := "Taken Pool"
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Name: &takenName}); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Execution().UpdateMachinePool(
+		ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Name: &takenName},
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("duplicate name update error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, created.ID); err != nil {
 		t.Fatalf("archive machine pool: %v", err)
 	}
 	archivedName := "Archived Pool"
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Name: &archivedName}); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().UpdateMachinePool(
+		ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: created.ID, Name: &archivedName},
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("archived pool update error = %v, want not found", err)
 	}
 	defaultPool := createDefaultMachinePoolForTest(
@@ -730,19 +728,24 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t.Fatalf("update cluster-managed machine pool editable fields: %v", err)
 	}
 	if updatedDefaultPool.DefaultMachineCPU == nil || *updatedDefaultPool.DefaultMachineCPU != clusterDefaultCPU ||
-		updatedDefaultPool.DefaultMachineMemoryMB == nil || *updatedDefaultPool.DefaultMachineMemoryMB != clusterDefaultMemoryMB ||
+		updatedDefaultPool.DefaultMachineMemoryMB == nil ||
+		*updatedDefaultPool.DefaultMachineMemoryMB != clusterDefaultMemoryMB ||
 		updatedDefaultPool.MinMachineCPU == nil || *updatedDefaultPool.MinMachineCPU != clusterMinCPU ||
 		updatedDefaultPool.MinMachineMemoryMB == nil || *updatedDefaultPool.MinMachineMemoryMB != clusterMinMemoryMB ||
 		updatedDefaultPool.MaxMachineCPU == nil || *updatedDefaultPool.MaxMachineCPU != clusterMaxCPU ||
 		updatedDefaultPool.MaxMachineMemoryMB == nil || *updatedDefaultPool.MaxMachineMemoryMB != clusterMaxMemoryMB ||
-		updatedDefaultPool.DeleteAfterIdleMinutes == nil || *updatedDefaultPool.DeleteAfterIdleMinutes != clusterDeleteAfterIdleMinutes ||
+		updatedDefaultPool.DeleteAfterIdleMinutes == nil ||
+		*updatedDefaultPool.DeleteAfterIdleMinutes != clusterDeleteAfterIdleMinutes ||
 		!sameJSON(updatedDefaultPool.DefaultMachineEnv, json.RawMessage(`{"ALLOWED":"yes"}`)) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineSecretEnv, clusterSecretEnv) ||
 		!sameJSON(updatedDefaultPool.DefaultMachineProviderOptions, json.RawMessage(`{"image":"cluster","sleep_after_ms":30000}`)) {
 		t.Fatalf("cluster-managed editable fields not updated: %+v", updatedDefaultPool)
 	}
 	defaultDescription := "not allowed"
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: defaultPool.ID, Description: &defaultDescription}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := store.Execution().UpdateMachinePool(
+		ctx,
+		executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: defaultPool.ID, Description: &defaultDescription},
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("cluster-managed description update error = %v, want ErrStateTransitionConflict", err)
 	}
 	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
@@ -752,10 +755,19 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 		t.Fatalf("cluster-managed provider options update error = %v, want ErrStateTransitionConflict", err)
 	}
 	clusterMaxTotalMachines := int32(2)
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{OrgID: testOrgID, ID: defaultPool.ID, MaxTotalMachines: &clusterMaxTotalMachines}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := store.Execution().UpdateMachinePool(
+		ctx,
+		executionstore.UpdateMachinePoolInput{
+			OrgID:            testOrgID,
+			ID:               defaultPool.ID,
+			MaxTotalMachines: &clusterMaxTotalMachines,
+		},
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("cluster-managed quota update error = %v, want ErrStateTransitionConflict", err)
 	}
-	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, defaultPool.ID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := store.Execution().DeleteMachinePool(
+		ctx, testOrgID, defaultPool.ID,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("cluster-managed archive error = %v, want ErrStateTransitionConflict", err)
 	}
 	preservedDefaultPool, err := store.Execution().GetMachinePool(ctx, testOrgID, defaultPool.ID)
@@ -879,17 +891,20 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
 		t.Fatalf("project grant reserved env error = %v", err)
 	}
-	clearGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          testOrgID,
-			ProjectID:      testProjectID,
-			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "idem-project-pool-env-clear",
-		},
-		defaultMachineOverlayFieldsForTest{
-			DefaultMachineEnvOverlay: json.RawMessage(`{"APP_ENV":null}`),
-		},
-	))
+	clearGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+		ctx,
+		projectGrantInputWithDefaultMachineOverlayForTest(
+			executionstore.CreateProjectMachinePoolGrantInput{
+				OrgID:          testOrgID,
+				ProjectID:      testProjectID,
+				MachinePoolID:  machinePool.ID,
+				IdempotencyKey: "idem-project-pool-env-clear",
+			},
+			defaultMachineOverlayFieldsForTest{
+				DefaultMachineEnvOverlay: json.RawMessage(`{"APP_ENV":null}`),
+			},
+		),
+	)
 
 	if err != nil {
 		t.Fatalf("project grant env clear should be valid: %v", err)
@@ -1071,7 +1086,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	}
 
 	machineRef := "mchr-secr3t"
-	agentID := mustCreateAgent(t, ctx, store, now.Add(6*time.Second))
+	agentID := mustCreateAgent(t, ctx, store)
 	poolGrant, err := store.q.GetActiveProjectMachinePoolGrantForLaunch(
 		ctx,
 		dbsqlc.GetActiveProjectMachinePoolGrantForLaunchParams{
@@ -1097,16 +1112,20 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreatePoolMachineBindingTx(ctx, store.q, executionstore.IntegrationPoolMachineBindingInput{
-		OrgID:            testOrgID,
-		ProjectID:        testProjectID,
-		AgentID:          agentID,
-		Description:      "secret env machine",
-		PoolGrant:        poolGrant,
-		ResolvedMachine:  resolvedMachine,
-		MachineRef:       machineRef,
-		CreateToolCallID: NilID,
-	}); err != nil {
+	if _, err := executionstore.IntegrationCreatePoolMachineBindingTx(
+		ctx,
+		store.q,
+		executionstore.IntegrationPoolMachineBindingInput{
+			OrgID:            testOrgID,
+			ProjectID:        testProjectID,
+			AgentID:          agentID,
+			Description:      "secret env machine",
+			PoolGrant:        poolGrant,
+			ResolvedMachine:  resolvedMachine,
+			MachineRef:       machineRef,
+			CreateToolCallID: NilID,
+		},
+	); err != nil {
 		t.Fatalf("create pool machine binding: %v", err)
 	}
 	record, err := executionstore.IntegrationPoolMachineByRefTx(ctx, store.q, testProjectID, agentID, machineRef)
@@ -1407,16 +1426,19 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 		}
 	}
 
-	agentGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          testOrgID,
-			ProjectID:      testProjectID,
-			MachinePoolID:  machinePool.ID,
-			MinMachineCPU:  &cpu8,
-			IdempotencyKey: "idem-agent-config-machine-minimum",
-		},
-		defaultMachineOverlayFieldsForTest{DefaultMachineCPU: &cpu8},
-	))
+	agentGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+		ctx,
+		projectGrantInputWithDefaultMachineOverlayForTest(
+			executionstore.CreateProjectMachinePoolGrantInput{
+				OrgID:          testOrgID,
+				ProjectID:      testProjectID,
+				MachinePoolID:  machinePool.ID,
+				MinMachineCPU:  &cpu8,
+				IdempotencyKey: "idem-agent-config-machine-minimum",
+			},
+			defaultMachineOverlayFieldsForTest{DefaultMachineCPU: &cpu8},
+		),
+	)
 	if err != nil {
 		t.Fatalf("create agent config minimum grant: %v", err)
 	}
@@ -1451,6 +1473,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // cases create and delete the same project and pool grant
 func TestCreateProjectMachinePoolGrantAllowsDefaultPool(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1719,7 +1742,9 @@ tools:
 	if err != nil {
 		t.Fatalf("launch pool agent: %v", err)
 	}
-	generated := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID)
+	generated := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID,
+	)
 	agentID := launch.Agent.ID
 	machineID := launch.MachineBindings[0].MachineID
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(ctx, testOrgID, machineID)
@@ -1879,14 +1904,17 @@ tools:
 	for _, machine := range archivedMachines {
 		markedMachineIDs[machine.ID] = true
 	}
-	if len(markedMachineIDs) != 2 || !markedMachineIDs[launch.MachineBindings[0].MachineID] || !markedMachineIDs[orphan.ID] {
+	if len(markedMachineIDs) != 2 || !markedMachineIDs[launch.MachineBindings[0].MachineID] ||
+		!markedMachineIDs[orphan.ID] {
 		t.Fatalf("archived machines = %+v", archivedMachines)
 	}
 	assertProviderRuntimeMismatchClearedForTest(t, ctx, pool, machineID, orphan.ID)
 	if _, err := store.Execution().GetMachinePool(ctx, testOrgID, machinePool.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("get archived machine pool error = %v, want not found", err)
 	}
-	pools, err := store.Execution().ListMachinePools(ctx, executionstore.ListMachinePoolsInput{OrgID: testOrgID, Limit: 10})
+	pools, err := store.Execution().ListMachinePools(
+		ctx, executionstore.ListMachinePoolsInput{OrgID: testOrgID, Limit: 10},
+	)
 	if err != nil {
 		t.Fatalf("list machine pools after archive: %v", err)
 	}
@@ -1895,10 +1923,14 @@ tools:
 			t.Fatalf("archived pool still listed: %+v", pools)
 		}
 	}
-	if _, err := store.Execution().GetProjectMachinePoolGrant(ctx, testOrgID, testProjectID, poolGrant.ID); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().GetProjectMachinePoolGrant(
+		ctx, testOrgID, testProjectID, poolGrant.ID,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
-	if _, err := store.Execution().GetProjectMachineGrant(ctx, testOrgID, testProjectID, generated.ID); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().GetProjectMachineGrant(
+		ctx, testOrgID, testProjectID, generated.ID,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted generated grant lookup error = %v, want not found", err)
 	}
 	current, err := store.Execution().GetProcess(ctx, testProjectID, agentID, process.ID)
@@ -2096,7 +2128,9 @@ tools:
 	if err != nil {
 		t.Fatalf("launch pool agent: %v", err)
 	}
-	generated := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID)
+	generated := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID,
+	)
 	if generated.SourceKind != "pool" || generated.ProjectMachinePoolGrantID != poolGrant.ID {
 		t.Fatalf("unexpected generated grant: %+v", generated)
 	}
@@ -2124,7 +2158,9 @@ tools:
 	if len(revokedResult.Machines) != 1 || revokedResult.Machines[0].ID != launch.MachineBindings[0].MachineID {
 		t.Fatalf("revoked result machines = %+v", revokedResult.Machines)
 	}
-	if _, err := store.Execution().GetProjectMachineGrant(ctx, testOrgID, testProjectID, generated.ID); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().GetProjectMachineGrant(
+		ctx, testOrgID, testProjectID, generated.ID,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted generated grant lookup error = %v, want not found", err)
 	}
 	machine, err := store.Execution().GetMachine(ctx, testOrgID, launch.MachineBindings[0].MachineID)
@@ -2616,7 +2652,9 @@ tools:
 	if binding.State != "attached" {
 		t.Fatalf("binding after runtime registration = %+v, want attached", binding)
 	}
-	generated := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID)
+	generated := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, launch.MachineBindings[0].MachineID,
+	)
 	executable, err := store.Execution().ListExecutableAgentMachineBindings(ctx, testProjectID, agentID)
 	if err != nil {
 		t.Fatalf("list executable bindings before revoke: %v", err)
@@ -2872,10 +2910,14 @@ INSERT INTO machines(
     lifecycle_changed_at, provider_resource_id, cpu, memory_mb, provider_options,
     deleted_at, created_at, updated_at
 ) VALUES
-    ($1, $2, $3, 'pool', 'test', 'list-alpha-active', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($5, $2, $3, 'pool', 'test', 'list-alpha-deleted', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb, $4, $4, $4),
-    ($6, $2, $7, 'pool', 'test', 'list-beta-known', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4, $4),
-    ($8, $2, $7, 'pool', 'test', 'list-beta-resolved', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb, NULL, $4, $4)
+    ($1, $2, $3, 'pool', 'test', 'list-alpha-active', 'active', $4, 'list-alpha-active', 3, 2048, '{}'::jsonb, NULL,
+        $4, $4),
+    ($5, $2, $3, 'pool', 'test', 'list-alpha-deleted', 'deleted', $4, 'list-alpha-deleted', 8, 8192, '{}'::jsonb,
+        $4, $4, $4),
+    ($6, $2, $7, 'pool', 'test', 'list-beta-known', 'active', $4, 'list-beta-known', 2, 2048, '{}'::jsonb, NULL, $4,
+        $4),
+    ($8, $2, $7, 'pool', 'test', 'list-beta-resolved', 'active', $4, 'list-beta-resolved', NULL, 1024, '{}'::jsonb,
+        NULL, $4, $4)
 `,
 		testID("list_alpha_active"),
 		testOrgID,

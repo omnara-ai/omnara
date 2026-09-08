@@ -179,7 +179,15 @@ detect_platform() {
   platform_os=$(run_with_timeout 5 run_public uname -s) || die "unable to detect operating system"
   platform_arch=$(run_with_timeout 5 run_public uname -m) || die "unable to detect architecture"
   case "$platform_os" in
-    Darwin) platform_os=darwin ;;
+    Darwin)
+      platform_os=darwin
+      macos_version=$(run_with_timeout 5 run_public sw_vers -productVersion) || die "unable to detect macOS version; macOS 13 or later is required"
+      macos_major=${macos_version%%.*}
+      case "$macos_major" in
+        ''|*[!0-9]*) die "unable to detect macOS version; macOS 13 or later is required" ;;
+      esac
+      [ "$macos_major" -ge 13 ] 2>/dev/null || die "macOS 13 or later is required (found $macos_version)"
+      ;;
     Linux) platform_os=linux ;;
     *) die "unsupported operating system: $platform_os" ;;
   esac

@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
@@ -145,15 +146,6 @@ func assertNoAuthEmail(t *testing.T, ch <-chan capturedAuthEmail) {
 	}
 }
 
-func assertNoStringEmail(t *testing.T, ch <-chan string) {
-	t.Helper()
-	select {
-	case email := <-ch:
-		t.Fatalf("unexpected auth email to %q", email)
-	case <-time.After(100 * time.Millisecond):
-	}
-}
-
 func newJSONRequest(method, path, body string) *http.Request {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -175,12 +167,6 @@ func cookieValue(cookies []*http.Cookie, name string) string {
 	return ""
 }
 
-func performRequest(handler http.Handler, req *http.Request) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	return rec
-}
-
 func assertAuthNoSessionCookies(t *testing.T, rec *httptest.ResponseRecorder) {
 	t.Helper()
 	if got := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); got != "" {
@@ -198,7 +184,9 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "owner@example.com", DisplayName: "Owner"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "owner@example.com", DisplayName: "Owner"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -244,12 +232,12 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(ownerToken),
 	)
-	org := created["org"].(map[string]any)
-	project := created["project"].(map[string]any)
+	org := testutil.RequireType[map[string]any](t, created["org"])
+	project := testutil.RequireType[map[string]any](t, created["project"])
 	if org["id"] == "" || project["id"] == "" {
 		t.Fatalf("expected org and default project: %+v", created)
 	}
-	orgID, err := publicid.Decode(publicid.KindOrganization, org["id"].(string))
+	orgID, err := publicid.Decode(publicid.KindOrganization, testutil.RequireType[string](t, org["id"]))
 	if err != nil {
 		t.Fatalf("decode created organization ID: %v", err)
 	}
@@ -267,7 +255,7 @@ func TestPublicIdentityOrgBootstrapUsesAuthenticatedUser(t *testing.T) {
 		http.StatusOK,
 		authHeaders(ownerToken),
 	)
-	if replayed["org"].(map[string]any)["id"] != org["id"] {
+	if testutil.RequireType[map[string]any](t, replayed["org"])["id"] != org["id"] {
 		t.Fatalf("expected idempotent replay, got %+v", replayed)
 	}
 	requestJSONWithHeaders(
@@ -290,7 +278,9 @@ func TestPublicInvitationFlow(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "invite-flow")
-	invitee, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "invitee@example.com", DisplayName: "Invitee"})
+	invitee, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "invitee@example.com", DisplayName: "Invitee"},
+	)
 	if err != nil {
 		t.Fatalf("create invitee: %v", err)
 	}
@@ -316,7 +306,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	inviteID := invite["id"].(string)
+	inviteID := testutil.RequireType[string](t, invite["id"])
 	if invite["org_name"] != "invite-flow Org" {
 		t.Fatalf("invitation organization name = %v, want invite-flow Org", invite["org_name"])
 	}
@@ -351,10 +341,10 @@ func TestPublicInvitationFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(inviteeToken),
 	)
-	data := pending["data"].([]any)
+	data := testutil.RequireType[[]any](t, pending["data"])
 	if len(data) != 1 ||
-		data[0].(map[string]any)["id"] != inviteID ||
-		data[0].(map[string]any)["org_name"] != "invite-flow Org" {
+		testutil.RequireType[map[string]any](t, data[0])["id"] != inviteID ||
+		testutil.RequireType[map[string]any](t, data[0])["org_name"] != "invite-flow Org" {
 		t.Fatalf("unexpected pending invitations: %+v", pending)
 	}
 	requestJSONWithHeaders(
@@ -380,7 +370,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 	if reinvited["id"] == inviteID {
 		t.Fatalf("invitation after decline reused consumed id: %+v", reinvited)
 	}
-	inviteID = reinvited["id"].(string)
+	inviteID = testutil.RequireType[string](t, reinvited["id"])
 	accepted := requestJSONWithHeaders(
 		t,
 		handler,
@@ -415,7 +405,10 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "member-mgmt")
 
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "member-mgmt-member@example.com", DisplayName: "Member"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "member-mgmt-member@example.com", DisplayName: "Member"},
+	)
 	if err != nil {
 		t.Fatalf("create member user: %v", err)
 	}
@@ -424,9 +417,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add org membership: %v", err)
 	}
-	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: member.ID, Name: "member",
-	})
+	memberPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: member.ID, Name: "member",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create member token: %v", err)
 	}
@@ -472,7 +468,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 		http.StatusOK, authHeaders(project.AdminToken),
 	)
 	data, _ := listed["data"].([]any)
-	if len(data) != 1 || data[0].(map[string]any)["role"] != "developer" {
+	if len(data) != 1 || testutil.RequireType[map[string]any](t, data[0])["role"] != "developer" {
 		t.Fatalf("unexpected project grants: %+v", listed)
 	}
 
@@ -513,9 +509,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add project admin project membership: %v", err)
 	}
-	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: projectAdmin.ID, Name: "project-admin",
-	})
+	projectAdminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: projectAdmin.ID, Name: "project-admin",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create project admin token: %v", err)
 	}
@@ -536,9 +535,12 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add developer project membership: %v", err)
 	}
-	developerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, identitystore.CreatePersonalAccessTokenInput{
-		UserID: developer.ID, Name: "developer",
-	})
+	developerPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{
+			UserID: developer.ID, Name: "developer",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create developer token: %v", err)
 	}
@@ -585,11 +587,15 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "developer-project")
 
-	creator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "creator@example.com", DisplayName: "Creator"})
+	creator, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "creator@example.com", DisplayName: "Creator"},
+	)
 	if err != nil {
 		t.Fatalf("create creator: %v", err)
 	}
-	other, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-dev@example.com", DisplayName: "Other Dev"})
+	other, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "other-dev@example.com", DisplayName: "Other Dev"},
+	)
 	if err != nil {
 		t.Fatalf("create other developer: %v", err)
 	}
@@ -638,7 +644,7 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(creatorPAT.Token),
 	)
-	projectID := created["id"].(string)
+	projectID := testutil.RequireType[string](t, created["id"])
 	projectPath := "/api/v1/orgs/" + project.OrgID + "/projects/" + projectID
 	createdProject := publicHTTPProject{
 		OrgID:       project.OrgID,
@@ -649,8 +655,8 @@ func TestOrgAdminCreatesPrivateProjectByDefault(t *testing.T) {
 	}
 	grantDefaultPublicHTTPModelToProject(t, handler, project, projectID, creatorPAT.Token)
 	profile := createPublicHTTPAgent(t, handler, createdProject, "creator-restricted", creatorPAT.Token)
-	profileID := profile["id"].(string)
-	configID := profile["current_config"].(map[string]any)["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -684,7 +690,9 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "operator-project")
 
-	operator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "operator@example.com", DisplayName: "Operator"})
+	operator, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "operator@example.com", DisplayName: "Operator"},
+	)
 	if err != nil {
 		t.Fatalf("create operator: %v", err)
 	}
@@ -722,8 +730,8 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 		"operator-owned-by-admin",
 		project.AdminToken,
 	)
-	profileID := profile["id"].(string)
-	configID := profile["current_config"].(map[string]any)["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -744,7 +752,7 @@ func TestProjectOperatorCanRunAgentsButCannotManageProjectResources(
 		http.StatusCreated,
 		authHeaders(operatorToken),
 	)
-	agentID := launched["agent"].(map[string]any)["id"].(string)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 	changedYAML := "instruction: Operator must not author runtime config.\n" +
 		"model:\n" +
 		"  provider_config: openai-prod\n" +
@@ -779,7 +787,10 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "visibility-lists")
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "visibility-member@example.com", DisplayName: "Visibility Member"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "visibility-member@example.com", DisplayName: "Visibility Member"},
+	)
 	if err != nil {
 		t.Fatalf("create member: %v", err)
 	}
@@ -831,20 +842,32 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	secondProjectID := createdProject["id"].(string)
-	adminProjects := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(project.AdminToken))["data"].([]any)
+	secondProjectID := testutil.RequireType[string](t, createdProject["id"])
+	adminProjects := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["data"],
+	)
 	if len(adminProjects) != 2 {
 		t.Fatalf("admin should see both projects, got %+v", adminProjects)
 	}
 	for _, projectRow := range adminProjects {
-		access := projectRow.(map[string]any)["access"].(map[string]any)
+		access := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, projectRow)["access"])
 		if access["can_read"] != true || access["can_manage"] != true ||
 			access["can_manage_access"] != true ||
 			access["can_operate"] != true {
 			t.Fatalf("unexpected admin project access: %+v", access)
 		}
 	}
-	memberProjects := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(memberToken))["data"].([]any)
+	memberProjects := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
 	if len(memberProjects) != 0 {
 		t.Fatalf(
 			"member without project grants should see no projects, got %+v",
@@ -870,11 +893,17 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add viewer project membership: %v", err)
 	}
-	memberProjects = requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK, authHeaders(memberToken))["data"].([]any)
-	if len(memberProjects) != 1 || memberProjects[0].(map[string]any)["id"] != project.ProjectID {
+	memberProjects = testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/projects", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
+	if len(memberProjects) != 1 || testutil.RequireType[map[string]any](t, memberProjects[0])["id"] != project.ProjectID {
 		t.Fatalf("viewer should see only granted project, got %+v", memberProjects)
 	}
-	access := memberProjects[0].(map[string]any)["access"].(map[string]any)
+	access := testutil.RequireType[map[string]any](t, testutil.RequireType[map[string]any](t, memberProjects[0])["access"])
 	if access["can_read"] != true || access["can_manage"] != false ||
 		access["can_manage_access"] != false ||
 		access["can_operate"] != false {
@@ -901,13 +930,25 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	grantedMachineID := grantedMachine["id"].(string)
-	grant := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/machine-grants", `{"machine_id":"`+grantedMachineID+`"}`, "idem-visibility-machine-grant", http.StatusCreated, authHeaders(project.AdminToken))["grant"].(map[string]any)
-	memberMachines := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK, authHeaders(memberToken))["data"].([]any)
-	if len(memberMachines) != 1 || memberMachines[0].(map[string]any)["id"] != grantedMachineID {
+	grantedMachineID := testutil.RequireType[string](t, grantedMachine["id"])
+	grant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/machine-grants", `{"machine_id":"`+grantedMachineID+`"}`,
+			"idem-visibility-machine-grant", http.StatusCreated, authHeaders(project.AdminToken),
+		)["grant"],
+	)
+	memberMachines := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK,
+			authHeaders(memberToken),
+		)["data"],
+	)
+	if len(memberMachines) != 1 || testutil.RequireType[map[string]any](t, memberMachines[0])["id"] != grantedMachineID {
 		t.Fatalf("viewer should see only project-granted machine, got %+v", memberMachines)
 	}
-	memberMachine := memberMachines[0].(map[string]any)
+	memberMachine := testutil.RequireType[map[string]any](t, memberMachines[0])
 	for _, field := range []string{
 		"installation_id",
 		"provider_resource_id",
@@ -923,25 +964,25 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 			)
 		}
 	}
-	machineAccess := memberMachine["access"].(map[string]any)
+	machineAccess := testutil.RequireType[map[string]any](t, memberMachine["access"])
 	if machineAccess["can_manage"] != false {
 		t.Fatalf(
 			"viewer should not manage granted machine, got %+v",
 			machineAccess,
 		)
 	}
-	memberSources := machineAccess["sources"].([]any)
+	memberSources := testutil.RequireType[[]any](t, machineAccess["sources"])
 	if len(memberSources) != 1 {
 		t.Fatalf("unexpected visible machine source: %+v", memberSources)
 	}
-	memberSource := memberSources[0].(map[string]any)
+	memberSource := testutil.RequireType[map[string]any](t, memberSources[0])
 	if memberSource["kind"] != "project_machine_grant" ||
 		memberSource["project_id"] != project.ProjectID ||
 		memberSource["grant_id"] != grant["id"] ||
 		memberSource["grant_source_kind"] != "explicit" {
 		t.Fatalf("unexpected visible machine source: %+v", memberSource)
 	}
-	projectMachines := requestJSONFieldWithHeaders(
+	projectMachines := testutil.RequireType[[]any](t, requestJSONFieldWithHeaders(
 		t,
 		handler,
 		http.MethodGet,
@@ -951,20 +992,22 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		http.StatusOK,
 		authHeaders(memberToken),
 		"data",
-	).([]any)
+	))
 	if len(projectMachines) != 1 ||
-		projectMachines[0].(map[string]any)["id"] != grantedMachineID {
+		testutil.RequireType[map[string]any](t, projectMachines[0])["id"] != grantedMachineID {
 		t.Fatalf(
 			"project machines should include granted machine, got %+v",
 			projectMachines,
 		)
 	}
-	projectMachineAccess := projectMachines[0].(map[string]any)["access"].(map[string]any)
-	projectSources := projectMachineAccess["sources"].([]any)
+	projectMachineAccess := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, projectMachines[0])["access"],
+	)
+	projectSources := testutil.RequireType[[]any](t, projectMachineAccess["sources"])
 	if len(projectSources) != 1 {
 		t.Fatalf("unexpected project machine source: %+v", projectSources)
 	}
-	projectSource := projectSources[0].(map[string]any)
+	projectSource := testutil.RequireType[map[string]any](t, projectSources[0])
 	if projectSource["kind"] != "project_machine_grant" ||
 		projectSource["project_id"] != project.ProjectID ||
 		projectSource["grant_id"] != grant["id"] ||
@@ -1009,7 +1052,13 @@ func TestPublicVisibilityAwareLists(t *testing.T) {
 		authHeaders(memberToken),
 	)
 
-	adminMachines := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK, authHeaders(project.AdminToken))["data"].([]any)
+	adminMachines := testutil.RequireType[[]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/machines", "", "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["data"],
+	)
 	if len(adminMachines) != 2 {
 		t.Fatalf("admin should see every machine, got %+v", adminMachines)
 	}
@@ -1022,7 +1071,9 @@ func TestBrowserSessionRequiresCSRFForMutations(t *testing.T) {
 
 	handler := newIntegrationServer(pool)
 	store := newIntegrationStore(pool)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "browser@example.com", DisplayName: "Browser"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "browser@example.com", DisplayName: "Browser"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -1489,7 +1540,9 @@ func TestPasswordAuthNoEnumerationResponseShapes(t *testing.T) {
 	now := time.Now().UTC()
 	runKey := identitystore.HashBearerToken(t.Name() + now.Format(time.RFC3339Nano))[:12]
 	email := "known-" + runKey + "@example.com"
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: "Known"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: "Known"},
+	)
 	if err != nil {
 		t.Fatalf("create verified user: %v", err)
 	}
@@ -1972,7 +2025,7 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("cross-origin signup status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for i := 0; i < httpauth.SignupLimit; i++ {
+	for i := range httpauth.SignupLimit {
 		req = newAuthJSONRequest(http.MethodPost, "/api/auth/signup", `{"email":"`+email+`"}`)
 		req.RemoteAddr = clientAddr
 		rec = performRequest(handler, req)
@@ -1992,7 +2045,7 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("subject-wide signup limit status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for i := 0; i < httpauth.SignupClientLimit-httpauth.SignupLimit; i++ {
+	for i := range httpauth.SignupClientLimit - httpauth.SignupLimit {
 		req = newAuthJSONRequest(
 			http.MethodPost,
 			"/api/auth/signup",
@@ -2069,7 +2122,8 @@ func TestPasswordAuthRateLimitsPublicCredentialSurfaces(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for i := 0; i < tc.limit; i++ {
+			t.Parallel()
+			for i := range tc.limit {
 				req := newAuthJSONRequest(http.MethodPost, tc.path, tc.body)
 				req.RemoteAddr = "rate-" + tc.name + "-" + runKey
 				rec := performRequest(handler, req)
@@ -2102,7 +2156,10 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 	)
 	if metadataRec.Code != http.StatusOK ||
 		!strings.Contains(metadataRec.Header().Get("Cache-Control"), "public") {
-		t.Fatalf("authorization server metadata status=%d headers=%v body=%s", metadataRec.Code, metadataRec.Header(), metadataRec.Body.String())
+		t.Fatalf(
+			"authorization server metadata status=%d headers=%v body=%s", metadataRec.Code, metadataRec.Header(),
+			metadataRec.Body.String(),
+		)
 	}
 	var metadata struct {
 		Issuer                      string   `json:"issuer"`
@@ -2122,7 +2179,9 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		t.Fatalf("authorization server metadata = %+v", metadata)
 	}
 	store := integrationStoreForHandler(t, handler)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-http@example.com", DisplayName: "Device HTTP"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-http@example.com", DisplayName: "Device HTTP"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -2190,6 +2249,7 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			rec := performRequest(handler, tc.req)
 			if rec.Code != http.StatusBadRequest ||
 				!strings.Contains(rec.Body.String(), `"error":"`+tc.errorCode+`"`) {
@@ -2450,7 +2510,7 @@ func TestDeviceAuthTokenPollingAllowsAdvertisedIntervalBudget(t *testing.T) {
 	}
 
 	polls := started.ExpiresIn / started.Interval
-	for i := 0; i < polls; i++ {
+	for i := range polls {
 		req = newOAuthFormRequest(
 			http.MethodPost,
 			"/api/auth/device/token",
@@ -2484,7 +2544,9 @@ func TestDeviceAuthApprovalRateLimitsUserCodeGuesses(t *testing.T) {
 	runKey := identitystore.HashBearerToken(t.Name() + now.Format(time.RFC3339Nano))[:12]
 	guessCode := strings.ToUpper(runKey[:5] + "-" + runKey[5:10])
 	clientBucket := "device-rate-client-" + runKey
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-rate@example.com", DisplayName: "Device Rate"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "device-rate@example.com", DisplayName: "Device Rate"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -2500,7 +2562,7 @@ func TestDeviceAuthApprovalRateLimitsUserCodeGuesses(t *testing.T) {
 		t.Fatalf("create browser session: %v", err)
 	}
 
-	for i := 0; i < httpauth.TokenConsumeLimit; i++ {
+	for i := range httpauth.TokenConsumeLimit {
 		req := newAuthJSONRequest(http.MethodPost, "/api/auth/device/approve", `{"user_code":"`+guessCode+`"}`)
 		req.RemoteAddr = clientBucket
 		req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionCookieName, Value: "device-rate-session"})
@@ -2611,7 +2673,9 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 		switch r.URL.Path {
 		case "/api/authorize":
 			if r.URL.Query().Get("code_challenge") == "" || r.URL.Query().Get("code_challenge_method") != "S256" {
-				t.Fatalf("authorize query missing PKCE: %s", r.URL.RawQuery)
+				t.Errorf("authorize query missing PKCE: %s", r.URL.RawQuery)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			gotAuthorizationState = r.URL.Query().Get("state")
 			http.Redirect(
@@ -2622,16 +2686,22 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 			)
 		case "/token":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse token form: %v", err)
+				t.Errorf("parse token form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			gotCodeVerifier = r.Form.Get("code_verifier")
 			if gotCodeVerifier == "" || r.Form.Get("code") != "oauth-code" {
-				t.Fatalf("token form = %v", r.Form)
+				t.Errorf("token form = %v", r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"access_token": "provider-access-token", "token_type": "bearer"})
 		case "/user":
 			if r.Header.Get("Authorization") != "Bearer provider-access-token" {
-				t.Fatalf("user authorization header = %q", r.Header.Get("Authorization"))
+				t.Errorf("user authorization header = %q", r.Header.Get("Authorization"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"id": 12345, "login": "octo", "name": "Octo User"})
 		case "/user/emails":
@@ -2812,7 +2882,10 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 		t.Fatalf("oauth principal = %+v", principal)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = $2`, connector.ID, strconv.FormatInt(12345, 10)).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = $2`, connector.ID,
+		strconv.FormatInt(12345, 10),
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -2949,7 +3022,7 @@ func TestOAuthLoginRateLimitsStateCreation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create auth connector: %v", err)
 	}
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		req := httptest.NewRequest(http.MethodGet, "http://omnara.test/api/auth/connectors/github-rate/login", nil)
 		req.RemoteAddr = clientBucket
 		rec := performRequest(handler, req)
@@ -2997,24 +3070,37 @@ func TestSSOOIDCConnectorValidatesIDTokenAndNonce(t *testing.T) {
 			})
 		case "/api/authorize":
 			if r.URL.Query().Get("code_challenge") == "" || r.URL.Query().Get("code_challenge_method") != "S256" {
-				t.Fatalf("authorize query missing PKCE: %s", r.URL.RawQuery)
+				t.Errorf("authorize query missing PKCE: %s", r.URL.RawQuery)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			gotNonce = r.URL.Query().Get("nonce")
 			if gotNonce == "" {
-				t.Fatalf("authorize query missing nonce: %s", r.URL.RawQuery)
+				t.Errorf("authorize query missing nonce: %s", r.URL.RawQuery)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			redirectURI := r.URL.Query().Get("redirect_uri")
 			state := r.URL.Query().Get("state")
 			http.Redirect(w, r, redirectURI+"?code=oidc-code&state="+url.QueryEscape(state), http.StatusFound)
 		case "/token":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse token form: %v", err)
+				t.Errorf("parse token form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			gotCodeVerifier = r.Form.Get("code_verifier")
 			if gotCodeVerifier == "" || r.Form.Get("code") != "oidc-code" {
-				t.Fatalf("token form = %v", r.Form)
+				t.Errorf("token form = %v", r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
-			idToken := signedOIDCTestToken(t, issuer, "client-id", "oidc-subject", gotNonce, key)
+			idToken, err := signedOIDCTestToken(issuer, "client-id", "oidc-subject", gotNonce, key)
+			if err != nil {
+				t.Errorf("create test ID token: %v", err)
+				http.Error(w, "test token signing failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(
 				w,
 				http.StatusOK,
@@ -3022,7 +3108,9 @@ func TestSSOOIDCConnectorValidatesIDTokenAndNonce(t *testing.T) {
 			)
 		case "/userinfo":
 			if r.Header.Get("Authorization") != "Bearer oidc-access-token" {
-				t.Fatalf("userinfo authorization header = %q", r.Header.Get("Authorization"))
+				t.Errorf("userinfo authorization header = %q", r.Header.Get("Authorization"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeJSON(
 				w,
@@ -3113,7 +3201,10 @@ func TestSSOOIDCConnectorValidatesIDTokenAndNonce(t *testing.T) {
 		t.Fatalf("oidc principal = %+v", principal)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count oidc linked identity: %v", err)
 	}
@@ -3162,10 +3253,11 @@ func TestSSOOIDCConnectorUsesVerifiedIDTokenEmailWithoutUserInfo(t *testing.T) {
 			http.Redirect(w, r, redirectURI+"?code=oidc-code&state="+url.QueryEscape(state), http.StatusFound)
 		case "/token":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse token form: %v", err)
+				t.Errorf("parse token form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
-			idToken := signedOIDCTestToken(
-				t,
+			idToken, err := signedOIDCTestToken(
 				issuer,
 				"client-id",
 				"oidc-subject",
@@ -3173,6 +3265,11 @@ func TestSSOOIDCConnectorUsesVerifiedIDTokenEmailWithoutUserInfo(t *testing.T) {
 				key,
 				map[string]any{"email": "id-token@example.com", "email_verified": true, "name": "ID Token User"},
 			)
+			if err != nil {
+				t.Errorf("create test ID token: %v", err)
+				http.Error(w, "test token signing failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(
 				w,
 				http.StatusOK,
@@ -3262,7 +3359,10 @@ func TestSSOOIDCConnectorUsesVerifiedIDTokenEmailWithoutUserInfo(t *testing.T) {
 		t.Fatal("userinfo endpoint was called despite verified ID-token email")
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -3298,8 +3398,7 @@ func TestSSOOIDCConnectorRejectsMismatchedAuthorizedParty(t *testing.T) {
 			state := r.URL.Query().Get("state")
 			http.Redirect(w, r, redirectURI+"?code=oidc-code&state="+url.QueryEscape(state), http.StatusFound)
 		case "/token":
-			idToken := signedOIDCTestToken(
-				t,
+			idToken, err := signedOIDCTestToken(
 				issuer,
 				"client-id",
 				"oidc-subject",
@@ -3307,6 +3406,11 @@ func TestSSOOIDCConnectorRejectsMismatchedAuthorizedParty(t *testing.T) {
 				key,
 				map[string]any{"azp": "other-client", "email": "id-token@example.com", "email_verified": true},
 			)
+			if err != nil {
+				t.Errorf("create test ID token: %v", err)
+				http.Error(w, "test token signing failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(
 				w,
 				http.StatusOK,
@@ -3398,10 +3502,11 @@ func TestSSOOIDCConnectorRejectsMismatchedUserInfoEmailVerification(t *testing.T
 			http.Redirect(w, r, redirectURI+"?code=oidc-code&state="+url.QueryEscape(state), http.StatusFound)
 		case "/token":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse token form: %v", err)
+				t.Errorf("parse token form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
-			idToken := signedOIDCTestToken(
-				t,
+			idToken, err := signedOIDCTestToken(
 				issuer,
 				"client-id",
 				"oidc-subject",
@@ -3409,6 +3514,11 @@ func TestSSOOIDCConnectorRejectsMismatchedUserInfoEmailVerification(t *testing.T
 				key,
 				map[string]any{"email": "id-token@example.com"},
 			)
+			if err != nil {
+				t.Errorf("create test ID token: %v", err)
+				http.Error(w, "test token signing failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(
 				w,
 				http.StatusOK,
@@ -3513,9 +3623,16 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 			http.Redirect(w, r, redirectURI+"?code=oidc-code&state="+url.QueryEscape(state), http.StatusFound)
 		case "/token":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse token form: %v", err)
+				t.Errorf("parse token form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
-			idToken := signedOIDCTestToken(t, issuer, "client-id", "oidc-subject", gotNonce, key)
+			idToken, err := signedOIDCTestToken(issuer, "client-id", "oidc-subject", gotNonce, key)
+			if err != nil {
+				t.Errorf("create test ID token: %v", err)
+				http.Error(w, "test token signing failed", http.StatusInternalServerError)
+				return
+			}
 			writeJSON(
 				w,
 				http.StatusOK,
@@ -3595,7 +3712,10 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 		t.Fatalf("verified email count = %d, want 0", verifiedEmailCount)
 	}
 	var linkedCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`, connector.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM user_auth_identities WHERE auth_connector_id = $1 AND subject = 'oidc-subject'`,
+		connector.ID,
+	).
 		Scan(&linkedCount); err != nil {
 		t.Fatalf("count linked identity: %v", err)
 	}
@@ -3605,12 +3725,10 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 }
 
 func signedOIDCTestToken(
-	t *testing.T,
 	issuer, audience, subject, nonce string,
 	key *rsa.PrivateKey,
 	extraClaims ...map[string]any,
-) string {
-	t.Helper()
+) (string, error) {
 	claims := map[string]any{
 		"iss":   issuer,
 		"aud":   audience,
@@ -3626,24 +3744,24 @@ func signedOIDCTestToken(
 	}
 	body, err := json.Marshal(claims)
 	if err != nil {
-		t.Fatalf("marshal oidc claims: %v", err)
+		return "", fmt.Errorf("marshal oidc claims: %w", err)
 	}
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.RS256, Key: key},
 		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "test-key"),
 	)
 	if err != nil {
-		t.Fatalf("create oidc signer: %v", err)
+		return "", fmt.Errorf("create oidc signer: %w", err)
 	}
 	jws, err := signer.Sign(body)
 	if err != nil {
-		t.Fatalf("sign oidc token: %v", err)
+		return "", fmt.Errorf("sign oidc token: %w", err)
 	}
 	token, err := jws.CompactSerialize()
 	if err != nil {
-		t.Fatalf("serialize oidc token: %v", err)
+		return "", fmt.Errorf("serialize oidc token: %w", err)
 	}
-	return token
+	return token, nil
 }
 
 func sCreateBrowserSessionForTest(
@@ -3692,7 +3810,10 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 	store := newIntegrationStore(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "org-machine-auth")
 
-	viewer, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-viewer@example.com", DisplayName: "Machine Viewer"})
+	viewer, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-viewer@example.com", DisplayName: "Machine Viewer"},
+	)
 	if err != nil {
 		t.Fatalf("create viewer user: %v", err)
 	}
@@ -3714,7 +3835,10 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		t.Fatalf("create viewer token: %v", err)
 	}
 	viewerToken := viewerPAT.Token
-	creator, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "machine-creator@example.com", DisplayName: "Machine Creator"})
+	creator, err := storagetest.CreateVerifiedUser(
+		ctx, pool,
+		storagetest.CreateVerifiedUserInput{Email: "machine-creator@example.com", DisplayName: "Machine Creator"},
+	)
 	if err != nil {
 		t.Fatalf("create creator user: %v", err)
 	}
@@ -3758,7 +3882,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	machineID := machine["id"].(string)
+	machineID := testutil.RequireType[string](t, machine["id"])
 	missingMachineID := testPublicID(t, publicid.KindMachine, httpTestID("missing-machine"))
 	requestJSONWithHeaders(
 		t,
@@ -3780,7 +3904,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	otherMachineID := otherMachine["id"].(string)
+	otherMachineID := testutil.RequireType[string](t, otherMachine["id"])
 	creatorMachine := requestJSONWithHeaders(
 		t,
 		handler,
@@ -3791,7 +3915,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(creatorToken),
 	)
-	creatorMachineID := creatorMachine["id"].(string)
+	creatorMachineID := testutil.RequireType[string](t, creatorMachine["id"])
 	membershiplessCreatorMachine := requestJSONWithHeaders(
 		t,
 		handler,
@@ -3802,7 +3926,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(creatorToken),
 	)
-	membershiplessCreatorMachineID := membershiplessCreatorMachine["id"].(string)
+	membershiplessCreatorMachineID := testutil.RequireType[string](t, membershiplessCreatorMachine["id"])
 	if _, err := store.Identity().AddOrgMembership(
 		ctx,
 		identitystore.AddOrgMembershipInput{OrgID: project.OrgUUID, UserID: creator.ID, Role: "member"},
@@ -3855,9 +3979,9 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
 	)
-	tokenRecord := token["token_record"].(map[string]any)
-	tokenID := tokenRecord["id"].(string)
-	daemonToken := token["token"].(string)
+	tokenRecord := testutil.RequireType[map[string]any](t, token["token_record"])
+	tokenID := testutil.RequireType[string](t, tokenRecord["id"])
+	daemonToken := testutil.RequireType[string](t, token["token"])
 	if len(token) != 2 {
 		t.Fatalf("unexpected daemon token response: %+v", token)
 	}
@@ -3871,9 +3995,11 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		project.adminBrowserAuthHeaders(),
 	)
-	otherDaemonToken := otherToken["token"].(string)
+	otherDaemonToken := testutil.RequireType[string](t, otherToken["token"])
 	var installationUUID storage.ID
-	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(&installationUUID); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT id FROM installation WHERE singleton_key = 1`).Scan(
+		&installationUUID,
+	); err != nil {
 		t.Fatalf("get installation: %v", err)
 	}
 	installationID := testPublicID(t, publicid.KindInstallation, installationUUID)
@@ -3884,7 +4010,7 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
-		`{"profile":"`+profile["id"].(string)+`","config":"`+profile["current_config"].(map[string]any)["id"].(string)+`"}`,
+		`{"profile":"`+testutil.RequireType[string](t, profile["id"])+`","config":"`+testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])+`"}`,
 		"",
 		http.StatusForbidden,
 		authHeaders(daemonToken),
@@ -3944,9 +4070,9 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(daemonToken),
 	)
-	runtimeRecord := runtime["runtime"].(map[string]any)
-	runtimeID := runtimeRecord["id"].(string)
-	if runtimeRecord["next_heartbeat_after_ms"].(float64) <= 0 {
+	runtimeRecord := testutil.RequireType[map[string]any](t, runtime["runtime"])
+	runtimeID := testutil.RequireType[string](t, runtimeRecord["id"])
+	if testutil.RequireType[float64](t, runtimeRecord["next_heartbeat_after_ms"]) <= 0 {
 		t.Fatalf(
 			"runtime response missing positive next_heartbeat_after_ms: %+v",
 			runtimeRecord,

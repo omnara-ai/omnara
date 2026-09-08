@@ -90,7 +90,9 @@ func TestMachineMetadataLimits(t *testing.T) {
 	}
 
 	var badMachineRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Bad Metadata Machine'`, testOrgID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Bad Metadata Machine'`, testOrgID,
+	).
 		Scan(&badMachineRows); err != nil {
 		t.Fatalf("count invalid machine rows: %v", err)
 	}

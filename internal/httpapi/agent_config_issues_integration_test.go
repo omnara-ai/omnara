@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
@@ -33,11 +35,11 @@ func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
 	if !ok || len(issues) != 2 {
 		t.Fatalf("issues = %v, want two issues", response["issues"])
 	}
-	first := issues[0].(map[string]any)
+	first := testutil.RequireType[map[string]any](t, issues[0])
 	if first["path"] != "/model/name" || first["line"] != float64(2) || first["column"] != float64(1) {
 		t.Fatalf("first issue = %v, want /model/name at 2:1", first)
 	}
-	second := issues[1].(map[string]any)
+	second := testutil.RequireType[map[string]any](t, issues[1])
 	if second["path"] != "/tools/run_command/enabled" || second["line"] != float64(6) {
 		t.Fatalf("second issue = %v, want /tools/run_command/enabled on line 6", second)
 	}
@@ -56,7 +58,7 @@ func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
 	if !ok || len(modelIssues) != 1 {
 		t.Fatalf("issues = %v, want one issue", unknownModel["issues"])
 	}
-	modelIssue := modelIssues[0].(map[string]any)
+	modelIssue := testutil.RequireType[map[string]any](t, modelIssues[0])
 	if modelIssue["path"] != "/model/name" || modelIssue["line"] != float64(4) {
 		t.Fatalf("model issue = %v, want /model/name on line 4", modelIssue)
 	}
@@ -75,7 +77,7 @@ func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
 	if !ok || len(syntaxIssues) != 1 {
 		t.Fatalf("issues = %v, want one issue", syntax["issues"])
 	}
-	syntaxIssue := syntaxIssues[0].(map[string]any)
+	syntaxIssue := testutil.RequireType[map[string]any](t, syntaxIssues[0])
 	if syntaxIssue["path"] != "" || syntaxIssue["line"] != float64(4) {
 		t.Fatalf("syntax issue = %v, want root issue on line 4", syntaxIssue)
 	}

@@ -120,6 +120,7 @@ WHERE agent_id = $1 AND id = $2
 	}
 }
 
+//nolint:tparallel // transitions must finish before the parent releases their shared runtime lock
 func TestKernelToolCallTransitionGraph(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -589,6 +590,7 @@ func TestKernelContentBlockOwnerAndOrdinalConstraints(t *testing.T) {
 		},
 	} {
 		t.Run("database unsafe "+test.name, func(t *testing.T) {
+			t.Parallel()
 			test.input.ProjectID = testProjectID
 			test.input.AgentID = fixture.AgentID
 			test.input.OwnerKind = executionstore.ContentBlockOwnerModelOutput
@@ -620,7 +622,8 @@ WHERE agent.project_id = $1
 		t.Fatalf("load model output content block: %v", err)
 	}
 	block.BlockKind = executionstore.ContentBlockKind(blockKind)
-	if block.OwnerModelOutputID != modelOutputID || block.Ordinal != 0 || block.BlockKind != executionstore.ContentBlockKindToolCall {
+	if block.OwnerModelOutputID != modelOutputID || block.Ordinal != 0 ||
+		block.BlockKind != executionstore.ContentBlockKindToolCall {
 		t.Fatalf("content block = %+v", block)
 	}
 	if _, err := fixture.Store.pool.Exec(ctx, `
@@ -637,38 +640,50 @@ WHERE agent_id = $1 AND id = $2
 		t.Fatalf("deleting content block unexpectedly succeeded")
 	}
 
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
-		OwnerModelOutputID: modelOutputID,
-		Ordinal:            0,
-		BlockKind:          executionstore.ContentBlockKindText,
-		TextContent:        "duplicate",
-	}); !isPgConstraintViolation(err) {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
+			OwnerModelOutputID: modelOutputID,
+			Ordinal:            0,
+			BlockKind:          executionstore.ContentBlockKindText,
+			TextContent:        "duplicate",
+		},
+	); !isPgConstraintViolation(err) {
 		t.Fatalf("duplicate content block ordinal error = %v, want constraint violation", err)
 	}
 
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
-		OwnerModelOutputID: modelOutputID,
-		Ordinal:            1,
-		BlockKind:          executionstore.ContentBlockKindArtifact,
-		TextContent:        "not an artifact",
-	}); !isPgConstraintViolation(err) {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
+			OwnerModelOutputID: modelOutputID,
+			Ordinal:            1,
+			BlockKind:          executionstore.ContentBlockKindArtifact,
+			TextContent:        "not an artifact",
+		},
+	); !isPgConstraintViolation(err) {
 		t.Fatalf("invalid artifact block error = %v, want constraint violation", err)
 	}
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		OwnerKind:          executionstore.ContentBlockOwnerToolCallResult,
-		OwnerModelOutputID: modelOutputID,
-		Ordinal:            2,
-		BlockKind:          executionstore.ContentBlockKindReasoning,
-		TextContent:        "invalid owner/kind",
-	}); !isPgConstraintViolation(err) {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			OwnerKind:          executionstore.ContentBlockOwnerToolCallResult,
+			OwnerModelOutputID: modelOutputID,
+			Ordinal:            2,
+			BlockKind:          executionstore.ContentBlockKindReasoning,
+			TextContent:        "invalid owner/kind",
+		},
+	); !isPgConstraintViolation(err) {
 		t.Fatalf("invalid owner/block kind error = %v, want constraint violation", err)
 	}
 
@@ -680,15 +695,19 @@ WHERE agent_id = $1 AND id = $2
 	`, contentInputID, testProjectID, fixture.AgentID, actorID, now); err != nil {
 		t.Fatalf("insert content-bearing agent input: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:         testProjectID,
-		AgentID:           fixture.AgentID,
-		OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
-		OwnerAgentInputID: contentInputID,
-		Ordinal:           0,
-		BlockKind:         executionstore.ContentBlockKindText,
-		TextContent:       "hello",
-	}); err != nil {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:         testProjectID,
+			AgentID:           fixture.AgentID,
+			OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
+			OwnerAgentInputID: contentInputID,
+			Ordinal:           0,
+			BlockKind:         executionstore.ContentBlockKindText,
+			TextContent:       "hello",
+		},
+	); err != nil {
 		t.Fatalf("create agent input content block: %v", err)
 	}
 	configInputID := testID("content_block_config_input_owner")
@@ -709,15 +728,19 @@ WHERE agent_id = $1 AND id = $2
 	`, configInputID, testProjectID, fixture.AgentID, actorID, currentConfigID, now); err != nil {
 		t.Fatalf("insert config-change agent input: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreateContentBlockTx(ctx, fixture.Store.pool, executionstore.CreateContentBlockInput{
-		ProjectID:         testProjectID,
-		AgentID:           fixture.AgentID,
-		OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
-		OwnerAgentInputID: configInputID,
-		Ordinal:           0,
-		BlockKind:         executionstore.ContentBlockKindText,
-		TextContent:       "must not be accepted",
-	}); !isPgConstraintViolation(err) {
+	if _, err := executionstore.IntegrationCreateContentBlockTx(
+		ctx,
+		fixture.Store.pool,
+		executionstore.CreateContentBlockInput{
+			ProjectID:         testProjectID,
+			AgentID:           fixture.AgentID,
+			OwnerKind:         executionstore.ContentBlockOwnerAgentInput,
+			OwnerAgentInputID: configInputID,
+			Ordinal:           0,
+			BlockKind:         executionstore.ContentBlockKindText,
+			TextContent:       "must not be accepted",
+		},
+	); !isPgConstraintViolation(err) {
 		t.Fatalf("config-change content block error = %v, want constraint violation", err)
 	}
 	if _, err := fixture.Store.pool.Exec(ctx, `
@@ -829,13 +852,17 @@ func TestModelOutputContentBlockInsertSerializesWithContextClosure(t *testing.T)
 	if err := blockTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockPID); err != nil {
 		t.Fatalf("get model output block backend: %v", err)
 	}
-	output, err := executionstore.IntegrationCreateModelOutputAuthorityTx(ctx, blockTx, executionstore.CreateModelOutputAuthorityInput{
-		ProjectID:               testProjectID,
-		AgentID:                 fixture.AgentID,
-		ModelCallContextID:      contextID,
-		ServedProviderModelSlug: providerModelSlug,
-		StopReason:              "end_turn",
-	})
+	output, err := executionstore.IntegrationCreateModelOutputAuthorityTx(
+		ctx,
+		blockTx,
+		executionstore.CreateModelOutputAuthorityInput{
+			ProjectID:               testProjectID,
+			AgentID:                 fixture.AgentID,
+			ModelCallContextID:      contextID,
+			ServedProviderModelSlug: providerModelSlug,
+			StopReason:              "end_turn",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create model output for owner lock: %v", err)
 	}
@@ -886,8 +913,7 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "wakeup-idem@example.com", "Wakeup Idempotency")
 	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID:      testProjectID,
@@ -901,7 +927,12 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 	}
 
 	var turnID ID
-	if err := pool.QueryRow(ctx, `SELECT event.turn_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 ORDER BY event.sequence DESC LIMIT 1`, testProjectID, agentID).Scan(&turnID); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT event.turn_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 ORDER BY event.sequence DESC LIMIT 1`,
+		testProjectID,
+		agentID,
+	).Scan(&turnID); err != nil {
 		t.Fatalf("load existing turn id: %v", err)
 	}
 
@@ -928,14 +959,19 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(ctx, txNotifications, tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		TurnID:         turnID,
-		Kind:           events.KindAgentInput,
-		IdempotencyKey: "agent_input:" + input.ID.String(),
-		AgentInputID:   input.ID,
-	}); err != nil {
+	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		txNotifications,
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			TurnID:         turnID,
+			Kind:           events.KindAgentInput,
+			IdempotencyKey: "agent_input:" + input.ID.String(),
+			AgentInputID:   input.ID,
+		},
+	); err != nil {
 		t.Fatalf("first append: %v", err)
 	}
 	if got := countAgentEvents(txNotifications); got != 1 {
@@ -943,14 +979,19 @@ func TestKernelTypedFrontierAddAgentEventOnlyOnRealInsert(t *testing.T) {
 	}
 
 	txn2 := notifications.NewTxNotifications()
-	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(ctx, txn2, tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		TurnID:         turnID,
-		Kind:           events.KindAgentInput,
-		IdempotencyKey: "agent_input:" + input.ID.String(),
-		AgentInputID:   input.ID,
-	}); err != nil {
+	if _, err := executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		txn2,
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			TurnID:         turnID,
+			Kind:           events.KindAgentInput,
+			IdempotencyKey: "agent_input:" + input.ID.String(),
+			AgentInputID:   input.ID,
+		},
+	); err != nil {
 		t.Fatalf("second append (pointer re-find): %v", err)
 	}
 	if got := countAgentEvents(txn2); got != 0 {
@@ -964,22 +1005,26 @@ func TestKernelTypedFrontierRejectsMismatchedPointer(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 24, 13, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin typed event validation tx: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	_, err = executionstore.IntegrationAppendTypedAgentEventTx(ctx, notifications.NewTxNotifications(), tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		TurnID:         testID("turn_bad_model_output_pointer"),
-		Kind:           events.KindModelOutput,
-		IdempotencyKey: "bad-model-output-pointer",
-		AgentInputID:   testID("not_a_model_output"),
-	})
+	_, err = executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			TurnID:         testID("turn_bad_model_output_pointer"),
+			Kind:           events.KindModelOutput,
+			IdempotencyKey: "bad-model-output-pointer",
+			AgentInputID:   testID("not_a_model_output"),
+		},
+	)
 	if err == nil || err.Error() != "model_output event requires model_output_id" {
 		t.Fatalf("mismatched typed event error = %v, want model output validation error", err)
 	}
@@ -991,8 +1036,7 @@ func TestKernelTypedFrontierRequiresTurnMembership(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 24, 13, 30, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "orphan-event@example.com", "Orphan Event")
 	input, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID:      testProjectID,
@@ -1010,15 +1054,20 @@ func TestKernelTypedFrontierRequiresTurnMembership(t *testing.T) {
 		t.Fatalf("begin orphan typed event tx: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	_, err = executionstore.IntegrationAppendTypedAgentEventTx(ctx, notifications.NewTxNotifications(), tx, executionstore.AppendTypedAgentEventInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		TurnID:         testID("turn_orphan_event"),
-		IsOpeningEvent: true,
-		Kind:           events.KindAgentInput,
-		IdempotencyKey: "agent_input:" + input.ID.String(),
-		AgentInputID:   input.ID,
-	})
+	_, err = executionstore.IntegrationAppendTypedAgentEventTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		executionstore.AppendTypedAgentEventInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			TurnID:         testID("turn_orphan_event"),
+			IsOpeningEvent: true,
+			Kind:           events.KindAgentInput,
+			IdempotencyKey: "agent_input:" + input.ID.String(),
+			AgentInputID:   input.ID,
+		},
+	)
 	if err == nil {
 		err = tx.Commit(ctx)
 	}

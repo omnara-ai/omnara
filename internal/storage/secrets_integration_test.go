@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -174,11 +176,15 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	for _, role := range []string{authz.OrgRoleOwner, authz.OrgRoleAdmin, authz.OrgRoleMember} {
 		roleUser := createSecretTestUser(t, ctx, store, "Org visibility "+role, role)
-		page, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(roleUser.ID), Limit: 10})
+		page, err := store.Secrets().ListSecrets(
+			ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(roleUser.ID), Limit: 10},
+		)
 		if err != nil {
 			t.Fatalf("list canonical secrets for org role %s: %v", role, err)
 		}
-		if got, want := containsSecret(page.Secrets, orgSecret.ID), authz.OrgRoleAllows(role, authz.OrgSecretsList); got != want {
+		if got, want := containsSecret(
+			page.Secrets, orgSecret.ID,
+		), authz.OrgRoleAllows(role, authz.OrgSecretsList); got != want {
 			t.Fatalf("org role %s SQL visibility = %v, authz allows = %v", role, got, want)
 		}
 	}
@@ -194,27 +200,36 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 		}); err != nil {
 			t.Fatalf("add project role %s: %v", role, err)
 		}
-		page, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(roleUser.ID), Limit: 10})
+		page, err := store.Secrets().ListSecrets(
+			ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(roleUser.ID), Limit: 10},
+		)
 		if err != nil {
 			t.Fatalf("list canonical secrets for project role %s: %v", role, err)
 		}
-		if got, want := containsSecret(page.Secrets, projectSecret.ID), authz.ProjectRoleAllows(role, authz.ProjectSecretsList); got != want {
+		if got, want := containsSecret(
+			page.Secrets, projectSecret.ID,
+		), authz.ProjectRoleAllows(role, authz.ProjectSecretsList); got != want {
 			t.Fatalf("project role %s SQL visibility = %v, authz allows = %v", role, got, want)
 		}
 	}
 	assertNoPlaintextInSecretVersions(t, ctx, store, "sk-secret-project")
-	adminVisible, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(admin.ID), Limit: 10})
+	adminVisible, err := store.Secrets().ListSecrets(
+		ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(admin.ID), Limit: 10},
+	)
 	if err != nil {
 		t.Fatalf("list canonical secrets as admin: %v", err)
 	}
 	if !containsSecret(adminVisible.Secrets, orgSecret.ID) || !containsSecret(adminVisible.Secrets, projectSecret.ID) {
 		t.Fatalf("admin canonical list missing owners: %+v", adminVisible.Secrets)
 	}
-	developerVisible, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(developer.ID), Limit: 10})
+	developerVisible, err := store.Secrets().ListSecrets(
+		ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(developer.ID), Limit: 10},
+	)
 	if err != nil {
 		t.Fatalf("list canonical secrets as developer: %v", err)
 	}
-	if containsSecret(developerVisible.Secrets, orgSecret.ID) || !containsSecret(developerVisible.Secrets, projectSecret.ID) {
+	if containsSecret(developerVisible.Secrets, orgSecret.ID) ||
+		!containsSecret(developerVisible.Secrets, projectSecret.ID) {
 		t.Fatalf("developer canonical visibility mismatch: %+v", developerVisible.Secrets)
 	}
 	if _, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{
@@ -251,7 +266,11 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 
 	available, err := store.Secrets().AuthorizeSecretForProjectReference(
 		ctx,
-		secretstore.AuthorizeSecretForProjectReferenceInput{OrgID: testOrgID, ProjectID: testProjectID, SecretID: orgSecret.ID},
+		secretstore.AuthorizeSecretForProjectReferenceInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			SecretID:  orgSecret.ID,
+		},
 	)
 	if err != nil {
 		t.Fatalf("authorize org secret before grant: %v", err)
@@ -276,7 +295,11 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	available, err = store.Secrets().AuthorizeSecretForProjectReference(
 		ctx,
-		secretstore.AuthorizeSecretForProjectReferenceInput{OrgID: testOrgID, ProjectID: testProjectID, SecretID: orgSecret.ID},
+		secretstore.AuthorizeSecretForProjectReferenceInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			SecretID:  orgSecret.ID,
+		},
 	)
 	if err != nil {
 		t.Fatalf("authorize org secret after grant: %v", err)
@@ -353,12 +376,15 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if err != nil {
 		t.Fatalf("create availability outsider: %v", err)
 	}
-	if _, err := store.Secrets().ListProjectAvailableSecretsForPrincipal(ctx, secretstore.ListProjectAvailableSecretsForPrincipalInput{
-		ListProjectAvailableSecretsInput: secretstore.ListProjectAvailableSecretsInput{
-			OrgID: testOrgID, ProjectID: testProjectID, Limit: 10,
+	if _, err := store.Secrets().ListProjectAvailableSecretsForPrincipal(
+		ctx,
+		secretstore.ListProjectAvailableSecretsForPrincipalInput{
+			ListProjectAvailableSecretsInput: secretstore.ListProjectAvailableSecretsInput{
+				OrgID: testOrgID, ProjectID: testProjectID, Limit: 10,
+			},
+			Actor: userPrincipal(outsider.ID),
 		},
-		Actor: userPrincipal(outsider.ID),
-	}); !errors.Is(err, storeerr.ErrUnauthorized) {
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("list project availability as outsider error = %v, want ErrUnauthorized", err)
 	}
 	if _, err := store.Secrets().GetProjectAvailableSecretForPrincipal(
@@ -376,7 +402,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	for _, projectListed := range projectSecrets {
 		if projectListed.ID == orgSecret.ID {
-			assertJSONRawEqual(t, projectListed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
+			assertDecodedJSONEqual(t, projectListed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
 		}
 	}
 	for _, access := range projectSecretPage.Accesses {
@@ -430,7 +456,15 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	if len(filteredProjectSecrets) != 1 || filteredProjectSecrets[0].ID != orgSecret.ID {
 		t.Fatalf("project metadata filter mismatch: %+v", filteredProjectSecrets)
 	}
-	orgSecretPage, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{OrgID: testOrgID, Actor: userPrincipal(admin.ID), Filters: secretstore.SecretListFilters{OwnerKind: secretstore.SecretOwnerOrg}, Limit: 10})
+	orgSecretPage, err := store.Secrets().ListSecrets(
+		ctx,
+		secretstore.ListSecretsInput{
+			OrgID:   testOrgID,
+			Actor:   userPrincipal(admin.ID),
+			Filters: secretstore.SecretListFilters{OwnerKind: secretstore.SecretOwnerOrg},
+			Limit:   10,
+		},
+	)
 	if err != nil {
 		t.Fatalf("list org secrets: %v", err)
 	}
@@ -440,15 +474,18 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	for _, listed := range orgSecrets {
 		if listed.ID == orgSecret.ID {
-			assertJSONRawEqual(t, listed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
+			assertDecodedJSONEqual(t, listed.Metadata, `{"label":"OpenAI","suite":"availability"}`)
 		}
 	}
 	filteredOrgSecretPage, err := store.Secrets().ListSecrets(
 		ctx,
 		secretstore.ListSecretsInput{
 			OrgID: testOrgID, Actor: userPrincipal(admin.ID),
-			Filters: secretstore.SecretListFilters{OwnerKind: secretstore.SecretOwnerOrg, Metadata: map[string]string{"label": "OpenAI"}},
-			Limit:   10,
+			Filters: secretstore.SecretListFilters{
+				OwnerKind: secretstore.SecretOwnerOrg,
+				Metadata:  map[string]string{"label": "OpenAI"},
+			},
+			Limit: 10,
 		},
 	)
 	if err != nil {
@@ -553,8 +590,10 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	manualOAuth, _, err := store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
 		OrgID:    testOrgID,
 		SecretID: oauthSecret.ID,
-		Material: oauthSecretMaterialForTest("access-manual", "refresh-manual", secrets.FixedOAuthAccessTokenLifetime(time.Hour)),
-		Actor:    userPrincipal(developer.ID),
+		Material: oauthSecretMaterialForTest(
+			"access-manual", "refresh-manual", secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+		),
+		Actor: userPrincipal(developer.ID),
 	})
 	if err != nil {
 		t.Fatalf("manual OAuth version during refresh lease: %v", err)
@@ -603,7 +642,7 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("sub-millisecond oauth refresh lease error = %v, want ErrInvalidSecretRequest", err)
 	}
-	maximumTTL := time.Duration(1<<63 - 1)
+	maximumTTL := time.Duration(math.MaxInt64)
 	maximumLease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
 		ctx,
 		secretstore.AcquireProjectOAuthRefreshLeaseInput{
@@ -703,7 +742,9 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 		),
 	}
 	rotationInput.Lease = firstLease
-	if _, err := store.Secrets().RotateProjectAvailableOAuthSecret(ctx, rotationInput); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Secrets().RotateProjectAvailableOAuthSecret(
+		ctx, rotationInput,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("rotate with superseded oauth refresh lease error = %v, want ErrConflict", err)
 	}
 	rotationInput.Lease = takeoverLease
@@ -717,8 +758,10 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	manuallyUpdatedOAuth, _, err := store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
 		OrgID:    testOrgID,
 		SecretID: oauthSecret.ID,
-		Material: oauthSecretMaterialForTest("access-manual", "refresh-manual", secrets.FixedOAuthAccessTokenLifetime(time.Hour)),
-		Actor:    userPrincipal(developer.ID),
+		Material: oauthSecretMaterialForTest(
+			"access-manual", "refresh-manual", secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+		),
+		Actor: userPrincipal(developer.ID),
 	})
 	if err != nil {
 		t.Fatalf("manual OAuth version after refresh lease release: %v", err)
@@ -746,7 +789,11 @@ func TestSecretsStorageEncryptsVersionsAndListsProjectAvailability(t *testing.T)
 	}
 	available, err = store.Secrets().AuthorizeSecretForProjectReference(
 		ctx,
-		secretstore.AuthorizeSecretForProjectReferenceInput{OrgID: testOrgID, ProjectID: testProjectID, SecretID: orgSecret.ID},
+		secretstore.AuthorizeSecretForProjectReferenceInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			SecretID:  orgSecret.ID,
+		},
 	)
 	if err != nil {
 		t.Fatalf("authorize org secret after revoke: %v", err)
@@ -823,9 +870,12 @@ func TestOAuthRefreshLeaseExpiryIsCheckedAfterRowLockWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create oauth secret: %v", err)
 	}
-	lease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(ctx, secretstore.AcquireProjectOAuthRefreshLeaseInput{
-		OrgID: testOrgID, ProjectID: testProjectID, SecretID: secret.ID, TTL: time.Minute,
-	})
+	lease, acquired, err := store.Secrets().AcquireProjectOAuthRefreshLease(
+		ctx,
+		secretstore.AcquireProjectOAuthRefreshLeaseInput{
+			OrgID: testOrgID, ProjectID: testProjectID, SecretID: secret.ID, TTL: time.Minute,
+		},
+	)
 	if err != nil || !acquired {
 		t.Fatalf("acquire oauth refresh lease acquired=%v err=%v", acquired, err)
 	}
@@ -857,15 +907,18 @@ func TestOAuthRefreshLeaseExpiryIsCheckedAfterRowLockWait(t *testing.T) {
 
 	rotationResult := make(chan error, 1)
 	go func() {
-		_, rotateErr := store.Secrets().RotateProjectAvailableOAuthSecret(ctx, secretstore.RotateProjectAvailableOAuthSecretInput{
-			ProjectID: testProjectID,
-			Lease:     lease,
-			Material: oauthSecretMaterialForTest(
-				"access-new",
-				"refresh-new",
-				secrets.FixedOAuthAccessTokenLifetime(time.Hour),
-			),
-		})
+		_, rotateErr := store.Secrets().RotateProjectAvailableOAuthSecret(
+			ctx,
+			secretstore.RotateProjectAvailableOAuthSecretInput{
+				ProjectID: testProjectID,
+				Lease:     lease,
+				Material: oauthSecretMaterialForTest(
+					"access-new",
+					"refresh-new",
+					secrets.FixedOAuthAccessTokenLifetime(time.Hour),
+				),
+			},
+		)
 		rotationResult <- rotateErr
 	}()
 	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "secret_oauth_refresh_leases", blockingPID)
@@ -893,7 +946,8 @@ func TestResolveMachineProviderAuthTokenReportsMissingSecret(t *testing.T) {
 		uuid.New(),
 		"",
 	)
-	if err == nil || err.Error() != "machine pool provider auth secret is unavailable" || errors.Is(err, storeerr.ErrNotFound) {
+	if err == nil || err.Error() != "machine pool provider auth secret is unavailable" ||
+		errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("missing provider auth secret error = %v", err)
 	}
 }
@@ -923,8 +977,11 @@ func TestCanonicalSecretPaginationIsStableForEqualTimestamps(t *testing.T) {
 	for {
 		page, err := store.Secrets().ListSecrets(ctx, secretstore.ListSecretsInput{
 			OrgID: testOrgID, Actor: userPrincipal(admin.ID),
-			Filters: secretstore.SecretListFilters{OwnerKind: secretstore.SecretOwnerOrg, Metadata: map[string]string{"pagination": "equal"}},
-			Limit:   1, List: listing.Options{After: after},
+			Filters: secretstore.SecretListFilters{
+				OwnerKind: secretstore.SecretOwnerOrg,
+				Metadata:  map[string]string{"pagination": "equal"},
+			},
+			Limit: 1, List: listing.Options{After: after},
 		})
 		if err != nil {
 			t.Fatalf("list canonical page: %v", err)
@@ -1002,7 +1059,12 @@ func TestUserOwnedSecretIsTenantBoundAndGrantable(t *testing.T) {
 	user := createSecretTestUser(t, ctx, store, "OAuth User", "member")
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: user.ID, Role: "developer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    user.ID,
+			Role:      "developer",
+		},
 	); err != nil {
 		t.Fatalf("add project membership: %v", err)
 	}
@@ -1040,8 +1102,11 @@ func TestUserOwnedSecretIsTenantBoundAndGrantable(t *testing.T) {
 		ctx,
 		secretstore.ListSecretsInput{
 			OrgID: testOrgID, Actor: userPrincipal(user.ID),
-			Filters: secretstore.SecretListFilters{OwnerKind: secretstore.SecretOwnerUser, Metadata: map[string]string{"external_user_id": "octo"}},
-			Limit:   10,
+			Filters: secretstore.SecretListFilters{
+				OwnerKind: secretstore.SecretOwnerUser,
+				Metadata:  map[string]string{"external_user_id": "octo"},
+			},
+			Limit: 10,
 		},
 	)
 	if err != nil {
@@ -1144,7 +1209,9 @@ func TestSecretVersionKeyRewrapRetiresOldEncryptionKey(t *testing.T) {
 			t.Fatalf("rewrapped wrapper = %q, want external-test", row.DekWrappedBy)
 		}
 	}
-	oldRows, err := testQueries(rotatedStore).ListSecretVersionsByKeyID(ctx, dbsqlc.ListSecretVersionsByKeyIDParams{KeyID: "old-key"})
+	oldRows, err := testQueries(rotatedStore).ListSecretVersionsByKeyID(
+		ctx, dbsqlc.ListSecretVersionsByKeyIDParams{KeyID: "old-key"},
+	)
 	if err != nil {
 		t.Fatalf("list old-key versions: %v", err)
 	}
@@ -1250,6 +1317,7 @@ func TestSecretVersionSchemaRejectsInvalidEncryptionEnvelope(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := store.pool.Exec(ctx, `
 				INSERT INTO secret_versions(
 				    id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by,
@@ -1331,8 +1399,16 @@ func TestSecretAuthorityIsImmutable(t *testing.T) {
 		value any
 	}{
 		{name: "id", query: `UPDATE secrets SET id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-secret-id")},
-		{name: "organization", query: `UPDATE secrets SET org_id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-secret-org")},
-		{name: "management kind", query: `UPDATE secrets SET management_kind = $1 WHERE org_id = $2 AND id = $3`, value: "cluster"},
+		{
+			name:  "organization",
+			query: `UPDATE secrets SET org_id = $1 WHERE org_id = $2 AND id = $3`,
+			value: testID("changed-secret-org"),
+		},
+		{
+			name:  "management kind",
+			query: `UPDATE secrets SET management_kind = $1 WHERE org_id = $2 AND id = $3`,
+			value: "cluster",
+		},
 		{name: "kind", query: `UPDATE secrets SET kind = $1 WHERE org_id = $2 AND id = $3`, value: "oauth_token_set"},
 		{name: "owner", query: `UPDATE secrets SET owner_kind = $1 WHERE org_id = $2 AND id = $3`, value: "project"},
 	} {
@@ -1365,13 +1441,17 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 	tooManyEntriesInput := input
 	tooManyEntriesInput.Name = "too-many-entries-metadata"
 	tooManyEntriesInput.Metadata = tooManyEntries
-	if _, _, err := store.Secrets().CreateSecret(ctx, tooManyEntriesInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+	if _, _, err := store.Secrets().CreateSecret(
+		ctx, tooManyEntriesInput,
+	); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("create secret with too many metadata entries error = %v, want ErrInvalidSecretRequest", err)
 	}
 	oversizedMetadataInput := input
 	oversizedMetadataInput.Name = "oversized-metadata"
 	oversizedMetadataInput.Metadata = resourcemeta.Metadata{"value": strings.Repeat("x", resourcemeta.MaxValueLength+1)}
-	if _, _, err := store.Secrets().CreateSecret(ctx, oversizedMetadataInput); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+	if _, _, err := store.Secrets().CreateSecret(
+		ctx, oversizedMetadataInput,
+	); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("create secret with oversized metadata error = %v, want ErrInvalidSecretRequest", err)
 	}
 	first, _, err := store.Secrets().CreateSecret(ctx, input)
@@ -1405,7 +1485,7 @@ func TestSecretNameAndGrantUniqueness(t *testing.T) {
 	if renamed.Name != "shared-renamed" {
 		t.Fatalf("updated secret metadata = %+v", renamed)
 	}
-	assertJSONRawEqual(t, renamed.Metadata, `{"label":"renamed"}`)
+	assertDecodedJSONEqual(t, renamed.Metadata, `{"label":"renamed"}`)
 	if _, err := store.Secrets().UpdateSecretMetadata(
 		ctx,
 		secretstore.UpdateSecretMetadataInput{
@@ -1677,7 +1757,11 @@ func TestSecretTenantBoundaries(t *testing.T) {
 	}
 	otherProject, err := store.Identity().CreateProjectForPrincipal(
 		ctx,
-		identitystore.CreateProjectForPrincipalInput{OrgID: otherOrgID, Creator: userPrincipal(otherUser.ID), Name: "Other Project"},
+		identitystore.CreateProjectForPrincipalInput{
+			OrgID:   otherOrgID,
+			Creator: userPrincipal(otherUser.ID),
+			Name:    "Other Project",
+		},
 	)
 	if err != nil {
 		t.Fatalf("create other project: %v", err)
@@ -1688,7 +1772,11 @@ func TestSecretTenantBoundaries(t *testing.T) {
 	}
 	available, err := store.Secrets().AuthorizeSecretForProjectReference(
 		ctx,
-		secretstore.AuthorizeSecretForProjectReferenceInput{OrgID: otherOrgID, ProjectID: otherProject.ID, SecretID: secret.ID},
+		secretstore.AuthorizeSecretForProjectReferenceInput{
+			OrgID:     otherOrgID,
+			ProjectID: otherProject.ID,
+			SecretID:  secret.ID,
+		},
 	)
 	if err != nil {
 		t.Fatalf("authorize wrong org: %v", err)
@@ -1769,19 +1857,34 @@ func TestUserOwnedSecretRequiresOwnerActorAndMembership(t *testing.T) {
 	viewer := createSecretTestUser(t, ctx, store, "Viewer User", "member")
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: owner.ID, Role: "developer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    owner.ID,
+			Role:      "developer",
+		},
 	); err != nil {
 		t.Fatalf("add owner project membership: %v", err)
 	}
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: other.ID, Role: "developer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    other.ID,
+			Role:      "developer",
+		},
 	); err != nil {
 		t.Fatalf("add other project membership: %v", err)
 	}
 	if _, err := store.Identity().AddProjectMembership(
 		ctx,
-		identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID, Role: "viewer"},
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    viewer.ID,
+			Role:      "viewer",
+		},
 	); err != nil {
 		t.Fatalf("add viewer project membership: %v", err)
 	}
@@ -1839,7 +1942,12 @@ func TestUserOwnedSecretRequiresOwnerActorAndMembership(t *testing.T) {
 	}
 	if _, err := store.Secrets().UpdateSecretMetadata(
 		ctx,
-		secretstore.UpdateSecretMetadataInput{OrgID: testOrgID, SecretID: secret.ID, Name: "stolen", Actor: userPrincipal(other.ID)},
+		secretstore.UpdateSecretMetadataInput{
+			OrgID:    testOrgID,
+			SecretID: secret.ID,
+			Name:     "stolen",
+			Actor:    userPrincipal(other.ID),
+		},
 	); !errors.Is(
 		err,
 		storeerr.ErrUnauthorized,
@@ -1969,7 +2077,12 @@ func (w *testWrappedByKeyWrapper) UnwrapDataKey(
 	return w.base.UnwrapDataKey(ctx, wrapped, associatedData)
 }
 
-func createSecretTestUser(t *testing.T, ctx context.Context, store *Store, name, orgRole string) identitystore.UserRecord {
+func createSecretTestUser(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	name, orgRole string,
+) identitystore.UserRecord {
 	t.Helper()
 	user, err := store.Identity().CreateUser(
 		ctx,
@@ -2089,7 +2202,9 @@ func assertSecretRowsDeleted(t *testing.T, ctx context.Context, store *Store, se
 		Scan(&grantsCount); err != nil {
 		t.Fatalf("count grants: %v", err)
 	}
-	if err := store.pool.QueryRow(ctx, `SELECT count(*)::int FROM secret_oauth_refresh_leases WHERE secret_id = $1`, secretID).
+	if err := store.pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM secret_oauth_refresh_leases WHERE secret_id = $1`, secretID,
+	).
 		Scan(&leasesCount); err != nil {
 		t.Fatalf("count leases: %v", err)
 	}
@@ -2101,7 +2216,7 @@ func assertSecretRowsDeleted(t *testing.T, ctx context.Context, store *Store, se
 	}
 }
 
-func assertJSONRawEqual(t *testing.T, got json.RawMessage, want string) {
+func assertDecodedJSONEqual(t *testing.T, got json.RawMessage, want string) {
 	t.Helper()
 	var gotValue any
 	if err := json.Unmarshal(got, &gotValue); err != nil {
@@ -2111,8 +2226,8 @@ func assertJSONRawEqual(t *testing.T, got json.RawMessage, want string) {
 	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
 		t.Fatalf("unmarshal want json %q: %v", want, err)
 	}
-	if !reflect.DeepEqual(gotValue, wantValue) {
-		t.Fatalf("json = %s, want %s", string(got), want)
+	if diff := cmp.Diff(wantValue, gotValue); diff != "" {
+		t.Fatalf("JSON value mismatch (-want +got):\n%s", diff)
 	}
 }
 

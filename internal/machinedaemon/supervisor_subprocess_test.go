@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -194,13 +195,9 @@ func (f *detachedSupervisorTestFixture) waitForOutput(
 ) {
 	t.Helper()
 	machine, err := f.client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	path, err := machine.OutputBufferPath(f.runtime.processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	deadline := time.Now().Add(5 * time.Second)
 	var last string
 	for {
@@ -302,9 +299,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 			},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	accepted := false
 	t.Cleanup(func() {
 		if prepared.runner.IsDone() {
@@ -333,9 +328,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	)
 	secondClient.bootstrap = firstClient.bootstrap
 	startup, err := secondClient.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(startup.Claims) != 1 ||
 		startup.Claims[0].ProcessID != processID ||
 		startup.Claims[0].Phase != statedb.ProcessPrepared ||
@@ -354,9 +347,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 			}},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	accepted = true
 	secondClient.closeState()
 
@@ -370,9 +361,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	)
 	thirdClient.bootstrap = firstClient.bootstrap
 	actionStartup, err := thirdClient.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	const actionID = "act_real_supervisor_write"
 	actionPayload := json.RawMessage(`{"data":"y\n"}`)
 	err = thirdClient.applyRegistrationReconciliation(
@@ -393,9 +382,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 			}},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	actionCtx, cancelActions := context.WithCancel(ctx)
 	transport := newDaemonSocketTransport(
 		&thirdClient,
@@ -410,9 +397,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	defer thirdClient.closeState()
 
 	store, err := thirdClient.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	select {
 	case <-prepared.runner.Done():
 	case <-time.After(10 * time.Second):
@@ -439,24 +424,18 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		t.Fatalf("terminal process state = %+v", terminal)
 	}
 	var actionEvent daemonReportedEvent
-	if err := json.Unmarshal(actionReport.Body, &actionEvent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(actionReport.Body, &actionEvent))
 	if actionEvent.Type != "process_action_applied" {
 		t.Fatalf("frozen action report = %+v", actionReport)
 	}
 
 	marker, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if string(marker) != "x" {
 		t.Fatalf("external side effect = %q, want exactly one x", marker)
 	}
 	actionMarker, err := os.ReadFile(actionMarkerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if string(actionMarker) != "y" {
 		t.Fatalf(
 			"action external side effect = %q, want exactly one y",
@@ -465,9 +444,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 	}
 
 	reports, err := store.ReportsForProcess(ctx, processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var sawStarted, sawTerminal bool
 	for _, report := range reports {
 		switch report.Kind {
@@ -476,9 +453,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		case statedb.ReportProcessTerminal:
 			sawTerminal = true
 			var event daemonReportedEvent
-			if err := json.Unmarshal(report.Body, &event); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, json.Unmarshal(report.Body, &event))
 			if !strings.Contains(string(event.Result), "supervisor-output") {
 				t.Fatalf("terminal result lost process output: %s", event.Result)
 			}
@@ -529,9 +504,7 @@ func TestRestartReconciliationClosesPreparedSupervisor(
 			},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() {
 		if !prepared.runner.IsDone() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(
@@ -555,15 +528,13 @@ func TestRestartReconciliationClosesPreparedSupervisor(
 	restarted.bootstrap = first.bootstrap
 	defer restarted.closeState()
 	startup, err := restarted.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(startup.Claims) != 1 ||
 		startup.Claims[0].Phase != statedb.ProcessPrepared {
 		startup.releaseResources()
 		t.Fatalf("prepared restart claims = %+v", startup.Claims)
 	}
-	if err := restarted.applyRegistrationReconciliation(
+	require.NoError(t, restarted.applyRegistrationReconciliation(
 		ctx,
 		&startup,
 		DaemonRuntimeReconciliation{
@@ -573,18 +544,14 @@ func TestRestartReconciliationClosesPreparedSupervisor(
 				Disposition:          "close_preparation",
 			}},
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	select {
 	case <-prepared.runner.Done():
 	case <-ctx.Done():
 		t.Fatal("reconstructed supervisor did not close")
 	}
 	store, err := restarted.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := store.Process(ctx, processID); err != nil {
 		t.Fatal(err)
 	} else if found {
@@ -634,9 +601,7 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 			Env: map[string]string{"MARKER": markerPath},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() {
 		if !prepared.runner.IsDone() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(
@@ -648,16 +613,12 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 		}
 	}()
 	store, err := first.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(
+	require.NoError(t, err)
+	require.NoError(t, store.MarkAccepted(
 		ctx,
 		processID,
 		prepared.supervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if err := prepared.runner.StartOnce(ctx); err != nil {
 		t.Fatalf("start accepted process: %v", err)
 	}
@@ -693,18 +654,14 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 		nil,
 		slog.New(slog.NewTextHandler(&logs, nil)),
 	)
-	if err := restarted.Run(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, restarted.Run(ctx))
 	select {
 	case <-prepared.runner.Done():
 	case <-ctx.Done():
 		t.Fatal("authentication rejection left the process supervisor alive")
 	}
 	machine, err := restarted.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := os.Stat(machine.MachineDir()); !errors.Is(
 		err,
 		os.ErrNotExist,
@@ -776,9 +733,7 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		}
 	}
 	payload, err := json.Marshal(map[string]string{"data": actionPayload})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := fixture.runtime.runner.ApplyOnce(ctx, ProcessAction{
 		ID:         "act_no_persisted_payload",
 		ActionKind: "write",
@@ -799,7 +754,7 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 	}
 
 	sentinels := []string{machineCredential, launchSecret, reservedLaunchSecret, actionPayload}
-	if err := filepath.WalkDir(
+	require.NoError(t, filepath.WalkDir(
 		root,
 		func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -823,9 +778,7 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 			}
 			return nil
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 }
 
 func TestAcceptedProcessCanTerminateBeforeSpawn(t *testing.T) {
@@ -849,20 +802,16 @@ func TestAcceptedProcessCanTerminateBeforeSpawn(t *testing.T) {
 			Env: map[string]string{"MARKER": markerPath},
 		},
 	)
-	if err := fixture.store.MarkAccepted(
+	require.NoError(t, fixture.store.MarkAccepted(
 		ctx,
 		fixture.runtime.processID,
 		fixture.runtime.supervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	fixture.accepted = true
-	if err := fixture.runtime.runner.Terminate(
+	require.NoError(t, fixture.runtime.runner.Terminate(
 		ctx,
 		"server_requested",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	process := fixture.waitClosed(t, 10*time.Second)
 	if process.ExecCommitted {
 		t.Fatalf(
@@ -901,13 +850,9 @@ func TestDetachedSupervisorPreparationErrorNeedsNoCommand(t *testing.T) {
 		t.Fatalf("known start failure state = %+v", process)
 	}
 	machine, err := fixture.client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	outputPath, err := machine.OutputBufferPath(process.ProcessID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	output, baseOffset, err := readTestProcessOutputFile(outputPath)
 	if err != nil || len(output) != 0 || baseOffset != 0 {
 		t.Fatalf(
@@ -918,17 +863,13 @@ func TestDetachedSupervisorPreparationErrorNeedsNoCommand(t *testing.T) {
 		)
 	}
 	reports, err := fixture.store.ReportsForProcess(ctx, process.ProcessID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(reports) != 1 ||
 		reports[0].Kind != statedb.ReportProcessTerminal {
 		t.Fatalf("known start failure reports = %+v", reports)
 	}
 	var terminal daemonReportedEvent
-	if err := json.Unmarshal(reports[0].Body, &terminal); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(reports[0].Body, &terminal))
 	if terminal.State != "failed" ||
 		terminal.StateReasonCode != "start_failed" ||
 		!terminal.StartedAt.IsZero() ||
@@ -1009,9 +950,7 @@ func TestDetachedSupervisorFastExitFreezesOnlyTerminalReport(t *testing.T) {
 				ctx,
 				process.ProcessID,
 			)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(reports) != 1 ||
 				reports[0].Kind != statedb.ReportProcessTerminal {
 				t.Fatalf(
@@ -1020,9 +959,7 @@ func TestDetachedSupervisorFastExitFreezesOnlyTerminalReport(t *testing.T) {
 				)
 			}
 			var event daemonReportedEvent
-			if err := json.Unmarshal(reports[0].Body, &event); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, json.Unmarshal(reports[0].Body, &event))
 			if event.StartedAt.IsZero() ||
 				event.EndedAt.Before(event.StartedAt) ||
 				event.State != tt.wantState ||
@@ -1062,16 +999,10 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		},
 	)
 	machine, err := fixture.client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	outputPath, err := machine.OutputBufferPath(fixture.runtime.processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(outputPath); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(outputPath))
 
 	fixture.acceptAndStart(t, ctx)
 	var report statedb.Report
@@ -1083,9 +1014,7 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 			fixture.runtime.processID,
 			"",
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if found {
 			break
 		}
@@ -1097,9 +1026,7 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		t.Fatal("output read failure stopped the running process")
 	}
 	var event daemonReportedEvent
-	if err := json.Unmarshal(report.Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(report.Body, &event))
 	var result struct {
 		State      string `json:"state"`
 		Error      string `json:"error"`
@@ -1108,9 +1035,7 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		Cursor     int64  `json:"cursor"`
 		NextCursor int64  `json:"next_cursor"`
 	}
-	if err := json.Unmarshal(event.Result, &result); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(event.Result, &result))
 	if event.Type != "process_started" || result.State != "running" ||
 		result.Done || !result.Truncated || result.Cursor != 0 ||
 		result.NextCursor != 0 ||
@@ -1118,9 +1043,7 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		t.Fatalf("degraded started report = %+v result=%s", event, event.Result)
 	}
 
-	if err := fixture.runtime.runner.Terminate(ctx, "test_finished"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 }
 
@@ -1188,9 +1111,7 @@ func TestDetachedSupervisorRejectsWrongIPCIdentityBeforeStart(t *testing.T) {
 		process.ContainmentKind != "" {
 		t.Fatalf("IPC impostor mutated process state: %+v", process)
 	}
-	if err := fixture.runtime.runner.CloseUngranted(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, fixture.runtime.runner.CloseUngranted(ctx))
 	fixture.waitDone(t, 5*time.Second)
 }
 
@@ -1212,24 +1133,16 @@ func TestDetachedSupervisorCloseUngrantedRetainsLifetimeLock(t *testing.T) {
 		},
 	)
 	machine, err := fixture.client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lockPath, err := machine.LifetimeLockPath(fixture.runtime.processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.runtime.runner.CloseUngranted(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, fixture.runtime.runner.CloseUngranted(ctx))
 	fixture.waitDone(t, 5*time.Second)
 	lock, err := localstore.TryAcquireExistingLock(lockPath)
 	if err != nil {
 		t.Fatalf("acquire retained lifetime lock: %v", err)
 	}
-	if err := lock.Release(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, lock.Release())
 }
 
 func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
@@ -1309,18 +1222,14 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 		t.Fatalf("read PTY write report: found=%t err=%v", found, err)
 	}
 	var writeEvent daemonReportedEvent
-	if err := json.Unmarshal(writeReport.Body, &writeEvent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(writeReport.Body, &writeEvent))
 	if writeEvent.Type != "process_action_applied" {
 		t.Fatalf("PTY write report = %+v", writeEvent)
 	}
-	if err := fixture.store.AcknowledgeReport(
+	require.NoError(t, fixture.store.AcknowledgeReport(
 		ctx,
 		writeReport.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	closeInput := ProcessAction{
 		ID:         "act_pty_close_stdin",
@@ -1344,9 +1253,7 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 		t.Fatalf("read PTY close-input report: found=%t err=%v", found, err)
 	}
 	var closeEvent daemonReportedEvent
-	if err := json.Unmarshal(closeReport.Body, &closeEvent); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(closeReport.Body, &closeEvent))
 	if closeEvent.Type != "process_action_failed" ||
 		closeEvent.StateReasonCode != "not_supported" {
 		t.Fatalf("PTY close-input report = %+v", closeEvent)
@@ -1365,16 +1272,12 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 			closeMarker,
 		)
 	}
-	if err := fixture.store.AcknowledgeReport(
+	require.NoError(t, fixture.store.AcknowledgeReport(
 		ctx,
 		closeReport.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	fixture.waitForOutput(t, ctx, "got:hello")
-	if err := fixture.runtime.runner.Terminate(ctx, "test_finished"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 	_, event := fixture.terminalEvent(t)
 	if !strings.Contains(string(event.Result), "ready") ||
@@ -1464,9 +1367,7 @@ func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
 			)
 		}
 		var event daemonReportedEvent
-		if err := json.Unmarshal(report.Body, &event); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, json.Unmarshal(report.Body, &event))
 		if event.Type != "process_action_failed" ||
 			event.StateReasonCode != "invalid_payload" {
 			t.Fatalf("%s event = %+v", test.name, event)
@@ -1487,17 +1388,13 @@ func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
 				marker,
 			)
 		}
-		if err := fixture.store.AcknowledgeReport(
+		require.NoError(t, fixture.store.AcknowledgeReport(
 			ctx,
 			report.ID,
-		); err != nil {
-			t.Fatal(err)
-		}
+		))
 	}
 
-	if err := fixture.runtime.runner.Terminate(ctx, "test_finished"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 }
 
@@ -1555,9 +1452,7 @@ func TestDetachedStalledWriteClosesStdinAndReleasesReconciliation(
 		t.Fatalf("read stalled write report: found=%t err=%v", found, err)
 	}
 	var event daemonReportedEvent
-	if err := json.Unmarshal(report.Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(report.Body, &event))
 	if event.Type != "process_action_unknown" ||
 		event.StateReasonCode != "stdin_write_unknown" {
 		t.Fatalf("stalled write report = %+v", event)
@@ -1609,9 +1504,7 @@ func TestDetachedStalledWriteClosesStdinAndReleasesReconciliation(
 		t.Fatal(err)
 	}
 	cancelReconcile()
-	if err := fixture.runtime.runner.Terminate(ctx, "test_finished"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 }
 
@@ -1668,9 +1561,7 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 		t.Fatalf("read stalled PTY write report: found=%t err=%v", found, err)
 	}
 	var event daemonReportedEvent
-	if err := json.Unmarshal(report.Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(report.Body, &event))
 	if event.Type != "process_action_unknown" ||
 		event.StateReasonCode != "stdin_write_unknown" {
 		t.Fatalf("stalled PTY write report = %+v", event)

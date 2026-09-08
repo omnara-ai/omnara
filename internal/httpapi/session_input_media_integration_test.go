@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 )
 
@@ -58,7 +59,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
@@ -78,12 +79,12 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 
-	input := created["agent_input"].(map[string]any)
-	blocks := input["content_blocks"].([]any)
+	input := testutil.RequireType[map[string]any](t, created["agent_input"])
+	blocks := testutil.RequireType[[]any](t, input["content_blocks"])
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 content blocks, got %+v", blocks)
 	}
-	mediaBlock := blocks[1].(map[string]any)
+	mediaBlock := testutil.RequireType[map[string]any](t, blocks[1])
 	if mediaBlock["type"] != "media_ref" {
 		t.Fatalf("expected media_ref block, got %+v", mediaBlock)
 	}
@@ -117,7 +118,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		metadata["filename"] != filename {
 		t.Fatalf("unexpected artifact metadata: %+v", metadata)
 	}
-	if metadata["size_bytes"].(float64) != float64(len(testPNGBytes)) {
+	if testutil.RequireType[float64](t, metadata["size_bytes"]) != float64(len(testPNGBytes)) {
 		t.Fatalf("unexpected artifact size: %+v", metadata["size_bytes"])
 	}
 
@@ -157,7 +158,7 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	replayedInput := replayed["agent_input"].(map[string]any)
+	replayedInput := testutil.RequireType[map[string]any](t, replayed["agent_input"])
 	if replayedInput["id"] != input["id"] {
 		t.Fatalf(
 			"replay created a new input: %v vs %v",
@@ -165,7 +166,9 @@ func TestSessionInputInlineMediaUploadAndDownload(t *testing.T) {
 			input["id"],
 		)
 	}
-	replayedBlock := replayedInput["content_blocks"].([]any)[1].(map[string]any)
+	replayedBlock := testutil.RequireType[map[string]any](
+		t, testutil.RequireType[[]any](t, replayedInput["content_blocks"])[1],
+	)
 	if replayedBlock["artifact_id"] != artifactID {
 		t.Fatalf(
 			"replay minted a new artifact: %v vs %v",
@@ -188,7 +191,7 @@ func TestSessionInputInlineMediaMatchesJSONUTF8Decoding(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 	invalidText := `{"type":"text","text":"before` + string([]byte{0xff}) + `after"}`
 
@@ -216,8 +219,10 @@ func TestSessionInputInlineMediaMatchesJSONUTF8Decoding(t *testing.T) {
 	)
 
 	for _, response := range []map[string]any{withoutMedia, withMedia} {
-		blocks := response["agent_input"].(map[string]any)["content_blocks"].([]any)
-		if blocks[0].(map[string]any)["text"] != "before\uFFFDafter" {
+		blocks := testutil.RequireType[[]any](
+			t, testutil.RequireType[map[string]any](t, response["agent_input"])["content_blocks"],
+		)
+		if testutil.RequireType[map[string]any](t, blocks[0])["text"] != "before\uFFFDafter" {
 			t.Fatalf("decoded content blocks = %+v, want replacement character", blocks)
 		}
 	}
@@ -236,7 +241,7 @@ func TestSessionInputInlineMediaValidation(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	unsupported := requestJSONWithHeaders(
@@ -309,7 +314,7 @@ func TestSessionInputRejectedAttachmentLeavesNoArtifacts(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	pngBase64 := base64.StdEncoding.EncodeToString(testPNGBytes)
@@ -348,7 +353,7 @@ func TestSessionInputRejectsMediaRefBlocks(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	response := requestJSONWithHeaders(
@@ -379,7 +384,7 @@ func TestSessionInputAttachmentSizeLimit(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentPublicID := launch["agent"].(map[string]any)["id"].(string)
+	agentPublicID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	inputsPath := project.ProjectPath + "/agents/" + agentPublicID + "/inputs"
 
 	oversized := base64.StdEncoding.EncodeToString(
@@ -395,7 +400,7 @@ func TestSessionInputAttachmentSizeLimit(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(response["error"].(string), "attachment exceeds") {
+	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "attachment exceeds") {
 		t.Fatalf("unexpected error: %+v", response)
 	}
 }

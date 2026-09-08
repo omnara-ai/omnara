@@ -83,16 +83,24 @@ func TestReconcileMessagePaginatesReadback(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests++
 				if r.URL.Path != test.wantMethod {
-					t.Fatalf("path = %q, want %q", r.URL.Path, test.wantMethod)
+					t.Errorf("path = %q, want %q", r.URL.Path, test.wantMethod)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse form: %v", err)
+					t.Errorf("parse form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if r.Form.Get("limit") != "100" {
-					t.Fatalf("limit = %q, want 100", r.Form.Get("limit"))
+					t.Errorf("limit = %q, want 100", r.Form.Get("limit"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if test.target.ThreadTS != "" && r.Form.Get("ts") != test.target.ThreadTS {
-					t.Fatalf("thread timestamp = %q, want %q", r.Form.Get("ts"), test.target.ThreadTS)
+					t.Errorf("thread timestamp = %q, want %q", r.Form.Get("ts"), test.target.ThreadTS)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if requests == 1 {
 					writeSlackTestJSON(w, map[string]any{
@@ -105,7 +113,9 @@ func TestReconcileMessagePaginatesReadback(t *testing.T) {
 					return
 				}
 				if r.Form.Get("cursor") != "page-2" {
-					t.Fatalf("cursor = %q, want page-2", r.Form.Get("cursor"))
+					t.Errorf("cursor = %q, want page-2", r.Form.Get("cursor"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				writeSlackTestJSON(w, map[string]any{
 					"ok": true,
@@ -173,7 +183,9 @@ func TestReconcileMessageReturnsUnknownAtPageLimit(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests++
 				if r.URL.Path != test.path {
-					t.Fatalf("path = %q, want %q", r.URL.Path, test.path)
+					t.Errorf("path = %q, want %q", r.URL.Path, test.path)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				writeSlackTestJSON(w, map[string]any{
 					"ok":       true,

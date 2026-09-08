@@ -70,7 +70,10 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("register daemon runtime: %v", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive, executionstore.MachineConnectionStateOnline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive,
+		executionstore.MachineConnectionStateOnline,
+	)
 	if _, err := store.Execution().DeleteMachine(
 		ctx,
 		executionstore.DeleteMachineInput{
@@ -80,7 +83,10 @@ func TestDeleteMachineEndsDaemonRuntime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("delete machine: %v", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateDeleted, executionstore.MachineConnectionStateOffline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateDeleted,
+		executionstore.MachineConnectionStateOffline,
+	)
 }
 
 func TestDaemonUninstalledReportCompletesProcessWork(t *testing.T) {
@@ -119,7 +125,9 @@ func TestDaemonUninstalledReportCompletesProcessWork(t *testing.T) {
 		DaemonTokenID: fixture.TokenID,
 		Stage:         executionstore.MachineFailureStageDaemonUninstalled,
 	}
-	if err := fixture.Store.Execution().RecordMachineFailureReport(ctx, report); !errors.Is(err, storeerr.ErrUnauthorized) {
+	if err := fixture.Store.Execution().RecordMachineFailureReport(
+		ctx, report,
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("active-runtime uninstall report error = %v, want unauthorized", err)
 	}
 	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, running.ID)
@@ -514,7 +522,9 @@ func TestMachineUnreachableProcessToolCallUnblocksWithoutTerminalizingProcess(t 
 	if err != nil {
 		t.Fatalf("get tool call: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, process.ID)
 	if err != nil {
 		t.Fatalf("get process: %v", err)
@@ -722,7 +732,9 @@ func TestLateProcessFinishedReportPreservesMachineUnreachableToolResult(t *testi
 	if err != nil {
 		t.Fatalf("get tool call after machine unreachable: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 
 	exitCode := 0
 	input := executionstore.CompleteDaemonProcessInput{
@@ -771,7 +783,9 @@ func TestLateProcessFinishedReportPreservesMachineUnreachableToolResult(t *testi
 	if err != nil {
 		t.Fatalf("get tool call after late daemon process: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 }
 
 func TestMachineUnreachableResolvesAcceptedActionsInSequence(t *testing.T) {
@@ -1051,7 +1065,9 @@ func TestLateAcceptedActionReportAfterMachineUnreachableIsCleanupOnly(t *testing
 	if err != nil {
 		t.Fatalf("get action tool call after machine unreachable: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 
 	input := executionstore.CompleteDaemonProcessActionInput{
 		ProjectID: testProjectID,
@@ -1090,7 +1106,9 @@ func TestLateAcceptedActionReportAfterMachineUnreachableIsCleanupOnly(t *testing
 	if err != nil {
 		t.Fatalf("get action tool call after late report: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 }
 
 func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) {
@@ -1146,18 +1164,24 @@ SELECT last_activity_at FROM processes WHERE id = $1
 		t.Fatalf("load failed queued process activity: %v", err)
 	}
 	if !activityAfter.Equal(activityBefore) {
-		t.Fatalf("queued process activity after housekeeping failure = %s, want unchanged at %s", activityAfter, activityBefore)
+		t.Fatalf(
+			"queued process activity after housekeeping failure = %s, want unchanged at %s", activityAfter,
+			activityBefore,
+		)
 	}
 	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
 	if err != nil {
 		t.Fatalf("get tool call: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
 	current, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, process.ID)
 	if err != nil {
 		t.Fatalf("get process: %v", err)
 	}
-	if current.State != executionstore.ProcessStateFailed || current.StateReasonCode != executionstore.ProcessToolReasonMachineUnreachable ||
+	if current.State != executionstore.ProcessStateFailed ||
+		current.StateReasonCode != executionstore.ProcessToolReasonMachineUnreachable ||
 		current.SourceEndedAt != nil ||
 		current.ExecutionGrantedAt != nil {
 		t.Fatalf("queued process after machine-unreachable expiry = %+v, want failed", current)
@@ -1488,8 +1512,12 @@ func TestMachineUnreachableQueuedActionFailsBeforeActionGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get action tool call: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable)
-	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	assertCompletedToolCallWithResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessToolReasonMachineUnreachable,
+	)
+	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get action by tool call: %v", err)
 	}

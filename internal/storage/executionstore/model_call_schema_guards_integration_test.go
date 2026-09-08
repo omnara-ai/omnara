@@ -124,10 +124,14 @@ func TestModelCallContextDatabaseGuardsRejectRebinding(t *testing.T) {
 	}{
 		{name: "attempt number", query: `UPDATE model_call_contexts SET attempt_number = attempt_number + 1 WHERE id = $1`},
 		{name: "runtime lock", query: `UPDATE model_call_contexts SET runtime_lock_id = $2 WHERE id = $1`, secondArg: true},
-		{name: "event frontier", query: `UPDATE model_call_contexts SET input_event_sequence = input_event_sequence + 1 WHERE id = $1`},
+		{
+			name:  "event frontier",
+			query: `UPDATE model_call_contexts SET input_event_sequence = input_event_sequence + 1 WHERE id = $1`,
+		},
 	}
 	for _, test := range rebindTests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			args := []any{claim.Context.ID}
 			if test.secondArg {
 				args = append(args, fixture.AgentID)

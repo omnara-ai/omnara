@@ -318,20 +318,28 @@ func TestClientRespondStreamSendsStoredRequestWithRouteHeaders(t *testing.T) {
 	var sentBytes []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/respond" {
-			t.Fatalf("path = %s", r.URL.Path)
+			t.Errorf("path = %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if r.Header.Get("Authorization") != "Bearer secret-token" || r.Header.Get("X-Provider-Version") != "2026-05-10" {
-			t.Fatalf("missing route headers: %+v", r.Header)
+			t.Errorf("missing route headers: %+v", r.Header)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read body: %v", err)
+			t.Errorf("read body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if err := json.Unmarshal(body, &sentBody); err != nil {
-			t.Fatalf("decode sent body: %v", err)
+			t.Errorf("decode sent body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		sentBytes = body
-		w.Header().Set("X-Request-Id", "req_route")
+		w.Header().Set("X-Request-ID", "req_route")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
@@ -362,7 +370,7 @@ func TestClientRespondStreamSendsStoredRequestWithRouteHeaders(t *testing.T) {
 		t.Fatalf("respond rebuilt the provider request %d times", protocol.streamBuilds)
 	}
 	if resp.ID != "parsed" || resp.ProviderRequestID != "req_route" ||
-		protocol.seen.Header.Get("X-Request-Id") != "req_route" ||
+		protocol.seen.Header.Get("X-Request-ID") != "req_route" ||
 		string(protocol.seen.Body) != `{"ok":true}` {
 		t.Fatalf("response was not parsed from transport evidence: resp=%+v seen=%+v", resp, protocol.seen)
 	}
@@ -411,7 +419,9 @@ func TestClientRespondStreamDoesNotFollowProviderRedirect(t *testing.T) {
 			redirectedRequests++
 			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
-			t.Fatalf("unexpected path %q", r.URL.Path)
+			t.Errorf("unexpected path %q", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -439,7 +449,9 @@ func TestClientRespondStreamParsesNonEventStreamResponse(t *testing.T) {
 	var sentBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&sentBody); err != nil {
-			t.Fatalf("decode body: %v", err)
+			t.Errorf("decode body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -484,7 +496,9 @@ func TestClientRespondStreamUsesProtocolMediaType(t *testing.T) {
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Accept"); got != acceptMediaType {
-			t.Fatalf("Accept = %q, want %q", got, acceptMediaType)
+			t.Errorf("Accept = %q, want %q", got, acceptMediaType)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", responseMediaType+"; charset=binary")
 		_, _ = w.Write([]byte("stream frame"))

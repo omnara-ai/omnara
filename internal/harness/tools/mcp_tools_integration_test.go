@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -702,7 +703,8 @@ func TestMCPDispatchDoesNotRefreshAfterOwnershipLoss(t *testing.T) {
 			fixture.Agent.ID,
 			fixture.Lock.ID,
 		); err != nil {
-			t.Fatalf("release runtime lock after first MCP call: %v", err)
+			t.Errorf("release runtime lock after first MCP call: %v", err)
+			return nil, fmt.Errorf("release runtime lock after first MCP call: %w", err)
 		}
 		return nil, mcp.ErrSessionExpired
 	}
@@ -794,7 +796,9 @@ func assertIntegrationToolCallState(
 ) {
 	t.Helper()
 	var state string
-	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(&state); err != nil {
+	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM tool_calls WHERE id = $1`, toolCallID).Scan(
+		&state,
+	); err != nil {
 		t.Fatalf("load MCP tool call state: %v", err)
 	}
 	if state != want {

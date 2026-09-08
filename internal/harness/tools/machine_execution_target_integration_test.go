@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -55,20 +57,7 @@ func (toolsTestMachinePoolProviders) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{
-		defaultOptions,
-		projectOptions,
-		agentOptions,
-	} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged, nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (toolsTestMachinePoolProviders) ValidatePool(
@@ -389,7 +378,7 @@ tools:
 
 	if _, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
 		ctx,
-		fixture.Store,
+		fixture.Store.Execution(),
 		executionstore.ExecuteToolCallInput{
 			ProjectID:     toolsTestProjectID,
 			AgentID:       launch.Agent.ID,
@@ -433,12 +422,8 @@ tools:
 		t.Fatalf("dispatch always-allow mixed-source inspect_machine: %v", err)
 	}
 	alwaysAllowMixedBody := toolResultMapFromTestParts(t, alwaysAllowMixedResult.ContentParts)
-	if !reflect.DeepEqual(alwaysAllowMixedBody, mixedBody) {
-		t.Fatalf(
-			"always-allow mixed-source inspect_machine result = %+v, want %+v",
-			alwaysAllowMixedBody,
-			mixedBody,
-		)
+	if diff := cmp.Diff(mixedBody, alwaysAllowMixedBody); diff != "" {
+		t.Fatalf("always-allow mixed-source inspect_machine result mismatch (-want +got):\n%s", diff)
 	}
 	staleResult, err := executor.Dispatch(ctx, alwaysAllowTurn, staleInspectCall)
 	if err != nil {
@@ -826,8 +811,8 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 	if err := json.Unmarshal(completed.ResultContentParts, &completedContent); err != nil {
 		t.Fatalf("decode completed result parts: %v; raw=%s", err, completed.ResultContentParts)
 	}
-	if !reflect.DeepEqual(resultContent, completedContent) {
-		t.Fatalf("dispatch result parts = %s, completed parts = %s", result.ContentParts, completed.ResultContentParts)
+	if diff := cmp.Diff(completedContent, resultContent); diff != "" {
+		t.Fatalf("dispatch and persisted result content mismatch (-want +got):\n%s", diff)
 	}
 	var parts []struct {
 		Type  string          `json:"type"`
@@ -1413,7 +1398,7 @@ func TestMissedMachineBackgroundDeletionCanBeReconciled(t *testing.T) {
 	)
 	created, err := storagetest.ExecuteToolCallCommand[executionstore.CreatePoolMachineResult](
 		ctx,
-		store,
+		store.Execution(),
 		executionstore.ExecuteToolCallInput{
 			ProjectID:     toolsTestProjectID,
 			AgentID:       launch.Agent.ID,
@@ -2323,7 +2308,12 @@ func createMachineToolCallForDirectStoreTest(
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
-) (storage.ID, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	storage.ID,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	call := model.ToolCall{ID: "call_" + label, Name: name, Input: inputJSON}
 	toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
@@ -2348,7 +2338,12 @@ func createMachineToolCallsForDirectStoreTest(
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
-) ([]executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	[]executionstore.ToolCallRecord,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
 		t,
@@ -2387,7 +2382,12 @@ func recordMachineToolCallForDirectStoreTest(
 	label, name string,
 	inputJSON json.RawMessage,
 	now time.Time,
-) (storage.ID, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	storage.ID,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	call := model.ToolCall{ID: "call_" + label, Name: name, Input: inputJSON}
 	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
@@ -2412,7 +2412,12 @@ func recordMachineToolCallsForDirectStoreTest(
 	label string,
 	calls []model.ToolCall,
 	now time.Time,
-) ([]executionstore.ToolCallRecord, executionstore.AgentRuntimeLockRecord, executionstore.AdmittedAgentInputTurn, executionstore.ModelCallContextRecord) {
+) (
+	[]executionstore.ToolCallRecord,
+	executionstore.AgentRuntimeLockRecord,
+	executionstore.AdmittedAgentInputTurn,
+	executionstore.ModelCallContextRecord,
+) {
 	t.Helper()
 	if len(calls) == 0 {
 		t.Fatal("machine tool fixture requires at least one tool proposal")
@@ -2494,18 +2499,6 @@ func recordMachineToolCallsForDirectStoreTest(
 		t.Fatalf("recorded machine tool calls = %d, want %d", len(records), len(calls))
 	}
 	return records, lock, admitted, contextRecord
-}
-
-func createToolsRuntimeAgent(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	userID storage.ID,
-	name string,
-	now time.Time,
-) executionstore.LaunchAgentResult {
-	t.Helper()
-	return createToolsRuntimeAgentWithMachineSources(t, ctx, store, userID, name, nil, now)
 }
 
 type toolsAgentMachineSource struct {

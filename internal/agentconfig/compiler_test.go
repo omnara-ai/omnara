@@ -11,12 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelCompiledOverridesPreserveConfiguredValues(t *testing.T) {
@@ -87,13 +89,9 @@ model:
   name: %q
 `, "Provider Cafe\u0301", "Model Cafe\u0301")
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Model.ProviderConfig != "Provider Café" || parsed.Model.Name != "Model Café" {
 		t.Fatalf("parsed source references = %+v", parsed.Model)
 	}
@@ -110,16 +108,12 @@ model:
   name: Model
 `, "Provider Cafe\u0301")
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Source != source {
 		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Model.ProviderConfig != "Provider Café" {
 		t.Fatalf("stored provider config = %q, want NFC value", parsed.Model.ProviderConfig)
 	}
@@ -133,16 +127,12 @@ model:
   name: Model
 `, decomposed)
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Source != source {
 		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Instruction != decomposed {
 		t.Fatalf("instruction = %q, want original alias target %q", parsed.Instruction, decomposed)
 	}
@@ -986,10 +976,8 @@ tools:
 			Description:        "Test pool machine",
 		},
 	}
-	for index, machine := range contract.MachineSources {
-		if !reflect.DeepEqual(machine, want[index]) {
-			t.Fatalf("machine %d = %+v, want %+v", index, machine, want[index])
-		}
+	if diff := cmp.Diff(want, contract.MachineSources); diff != "" {
+		t.Fatalf("machine sources mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1632,17 +1620,13 @@ model:
 	first, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
 		ResolveModelSelection: resolve,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	configuredModelID = "configured_model_reusing_name"
 	second, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
 		ResolveModelSelection: resolve,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if first.Compiled.Model.ConfiguredModelID != "configured_model_original" {
 		t.Fatalf("first compiled model ID changed: %+v", first.Compiled.Model)
 	}

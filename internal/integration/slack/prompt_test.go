@@ -32,10 +32,14 @@ func TestReconcilePromptBoundsPagination(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != test.path {
-					t.Fatalf("unexpected path %s", r.URL.Path)
+					t.Errorf("unexpected path %s", r.URL.Path)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse readback request: %v", err)
+					t.Errorf("parse readback request: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				wantCursor := ""
 				if calls > 0 {
@@ -44,7 +48,9 @@ func TestReconcilePromptBoundsPagination(t *testing.T) {
 				if r.Form.Get("channel") != "C123" || r.Form.Get("ts") != test.wantFormTS ||
 					r.Form.Get("cursor") != wantCursor || r.Form.Get("oldest") != "" ||
 					r.Form.Get("limit") != "100" {
-					t.Fatalf("readback form=%v", r.Form)
+					t.Errorf("readback form=%v", r.Form)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				calls++
 				writeSlackTestJSON(w, map[string]any{
@@ -257,11 +263,15 @@ func TestDismissInteractionPromptsRemovesOnlyCanceledQuestionAndPermissionAction
 		switch r.URL.Path {
 		case "/conversations.replies":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse history request: %v", err)
+				t.Errorf("parse history request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if r.Form.Get("channel") != "C123" || r.Form.Get("ts") != "111.222" ||
 				r.Form.Get("latest") != "333.444" || r.Form.Get("inclusive") != "false" {
-				t.Fatalf("history form=%v", r.Form)
+				t.Errorf("history form=%v", r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeSlackTestJSON(w, map[string]any{
 				"ok": true,
@@ -311,7 +321,9 @@ func TestDismissInteractionPromptsRemovesOnlyCanceledQuestionAndPermissionAction
 		case "/chat.update":
 			var update map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-				t.Fatalf("decode chat update: %v", err)
+				t.Errorf("decode chat update: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			updates = append(updates, update)
 			if len(updates) == 1 {
@@ -323,7 +335,9 @@ func TestDismissInteractionPromptsRemovesOnlyCanceledQuestionAndPermissionAction
 			}
 			writeSlackTestJSON(w, map[string]any{"ok": true})
 		default:
-			t.Fatalf("unexpected path %s", r.URL.Path)
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -386,7 +400,9 @@ func TestDismissInteractionPromptsReturnsEmbeddedRateLimit(t *testing.T) {
 		case "/chat.update":
 			writeSlackTestJSON(w, map[string]any{"ok": false, "error": "ratelimited"})
 		default:
-			t.Fatalf("unexpected path %s", r.URL.Path)
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()

@@ -147,7 +147,7 @@ func RequestIDFromHeader(header http.Header) string {
 	if requestID := strings.TrimSpace(header.Get("Request-Id")); requestID != "" {
 		return requestID
 	}
-	return strings.TrimSpace(header.Get("X-Request-Id"))
+	return strings.TrimSpace(header.Get("X-Request-ID"))
 }
 
 type AmbiguousProviderOutcomeError struct {

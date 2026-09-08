@@ -277,7 +277,11 @@ model:
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "unavailable-grant-model",
 		responses: []model.Response{
-			{ID: "resp_unreachable", Content: []model.ResponsePart{{Type: "text", Text: "should not respond"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp_unreachable",
+				Content:    []model.ResponsePart{{Type: "text", Text: "should not respond"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	var postedMessage struct {
@@ -744,7 +748,11 @@ tools:
 		providerModelSlug: "tool-support-model",
 		capabilities:      model.Capabilities{SupportsTools: &supportsTools},
 		responses: []model.Response{
-			{ID: "resp_unreachable", Content: []model.ResponsePart{{Type: "text", Text: "should not respond"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp_unreachable",
+				Content:    []model.ResponsePart{{Type: "text", Text: "should not respond"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	executor := AgentExecutor{

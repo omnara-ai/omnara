@@ -66,7 +66,11 @@ mcp:
 		providerModelSlug: "test-model",
 		responses: []model.Response{
 			{ID: "resp-mcp", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn},
-			{ID: "resp-mcp-removed", Content: []model.ResponsePart{{Type: "text", Text: "done without mcp"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-removed",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done without mcp"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
@@ -255,7 +259,11 @@ mcp:
 			Message: "retry model call",
 		}},
 		responses: []model.Response{
-			{ID: "resp-mcp-connect-retry", Content: []model.ResponsePart{{Type: "text", Text: "continued"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-connect-retry",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
@@ -363,7 +371,11 @@ mcp:
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "test-model",
 		responses: []model.Response{
-			{ID: "resp-mcp-list-tools-failure", Content: []model.ResponsePart{{Type: "text", Text: "continued"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-list-tools-failure",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
@@ -404,7 +416,8 @@ mcp:
 	if err != nil || !found {
 		t.Fatalf("load mcp connection: found=%t err=%v", found, err)
 	}
-	if conn.State != executionstore.MCPConnectionStateFailed || !strings.Contains(conn.InitializeError, "list mcp tools") ||
+	if conn.State != executionstore.MCPConnectionStateFailed ||
+		!strings.Contains(conn.InitializeError, "list mcp tools") ||
 		!strings.Contains(conn.InitializeError, "unexpected HTTP status 503") {
 		t.Fatalf("mcp connection should store tools/list failure, got %+v", conn)
 	}
@@ -479,7 +492,11 @@ mcp:
 					},
 				}),
 			},
-			{ID: "resp-mcp-final", Content: []model.ResponsePart{{Type: "text", Text: "done after mcp"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done after mcp"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
@@ -583,7 +600,11 @@ mcp:
 					Input: json.RawMessage(`{"name":"Ada"}`),
 				}}),
 			},
-			{ID: "resp-mcp-config-change-final", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-config-change-final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 		afterRespond: func(response model.Response) {
 			if response.ID != "resp-mcp-config-change-tool" {
@@ -731,7 +752,11 @@ mcp:
 					},
 				}),
 			},
-			{ID: "resp-mcp-failed-final", Content: []model.ResponsePart{{Type: "text", Text: "continued after mcp failure"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp-mcp-failed-final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued after mcp failure"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
@@ -777,7 +802,10 @@ mcp:
 		t.Fatalf("retried continuation should keep failed mcp tools removed, got %+v", modelClient.prepared[2].ToolSpecs)
 	}
 	if mcpClient.initializeCount != 2 {
-		t.Fatalf("same-turn model retry reinitialized failed mcp connection: initialize=%d, want 2", mcpClient.initializeCount)
+		t.Fatalf(
+			"same-turn model retry reinitialized failed mcp connection: initialize=%d, want 2",
+			mcpClient.initializeCount,
+		)
 	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
@@ -870,7 +898,13 @@ mcp:
 	input := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "test-model",
-		responses:         []model.Response{{ID: "resp-mcp-failure", Content: []model.ResponsePart{{Type: "text", Text: "continued"}}, StopReason: model.StopReasonEndTurn}},
+		responses: []model.Response{
+			{
+				ID:         "resp-mcp-failure",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	mcpClient := &fakeKernelMCPClient{
 		agentID:         "remote-session",
