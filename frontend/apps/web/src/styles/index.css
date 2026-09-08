@@ -140,7 +140,6 @@
 
   body {
     @apply bg-background text-foreground font-sans;
-    background-image: var(--page-texture);
     font-size: var(--type-size-body);
     font-weight: var(--type-weight-body);
     line-height: var(--type-leading-body);

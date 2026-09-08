@@ -31,15 +31,14 @@
   --chart-3: var(--muted-foreground);
   --chart-4: rgb(var(--palette-light-accent-soft));
   --chart-5: var(--foreground);
-  --sidebar: var(--card);
+  --sidebar: var(--muted);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--link);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--accent);
+  --sidebar-accent: color-mix(in oklab, var(--primary) 10%, var(--sidebar));
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
-  --page-texture: none;
   color-scheme: light;
 }
 
@@ -59,6 +58,7 @@
   --border: rgb(var(--palette-dark-line));
   --input: rgb(var(--palette-dark-line-strong));
   --chart-4: rgb(var(--palette-dark-accent-soft));
-  --page-texture: var(--palette-dark-texture);
+  --sidebar: rgb(var(--palette-dark-sidebar));
+  --sidebar-accent: color-mix(in oklab, var(--primary) 13%, var(--sidebar));
   color-scheme: dark;
 }
