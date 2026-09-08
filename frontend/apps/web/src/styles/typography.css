@@ -1,0 +1,108 @@
+:root {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
+  --type-weight-body: 400;
+  --type-weight-control: 500;
+  --type-weight-display: 525;
+  --type-weight-heading: 525;
+  --type-weight-emphasis: 600;
+  --type-tracking-display: -0.0375em;
+  --type-tracking-title: -0.02em;
+  --type-tracking-body: 0;
+  --type-tracking-eyebrow: 0.14em;
+  --type-leading-display: 1.08;
+  --type-leading-title: 1.25;
+  --type-leading-body: 1.6;
+  --type-leading-prose: 1.75;
+  --type-leading-control: 1.4;
+  --type-leading-code: 1.75;
+  --type-size-page: clamp(2.2rem, 4.5vw, 3.2rem);
+  --type-size-title: 1.5rem;
+  --type-size-card: 1.125rem;
+  --type-size-body: 1rem;
+  --type-size-small: 0.875rem;
+  --type-size-caption: 0.8125rem;
+  --type-size-fine: 0.75rem;
+  --type-size-code: var(--type-size-caption);
+}
+
+@layer components {
+  .type-page-title {
+    font-family: var(--font-sans);
+    font-size: var(--type-size-page);
+    font-weight: var(--type-weight-display);
+    line-height: var(--type-leading-display);
+    letter-spacing: var(--type-tracking-display);
+  }
+
+  .type-title,
+  .type-card-title {
+    font-family: var(--font-sans);
+    font-weight: var(--type-weight-heading);
+    line-height: var(--type-leading-title);
+    letter-spacing: var(--type-tracking-title);
+  }
+
+  .type-title {
+    font-size: var(--type-size-title);
+  }
+
+  .type-card-title {
+    font-size: var(--type-size-card);
+  }
+
+  .type-body-small,
+  .type-caption,
+  .type-fine {
+    font-family: var(--font-sans);
+    font-weight: var(--type-weight-body);
+    line-height: var(--type-leading-body);
+    letter-spacing: var(--type-tracking-body);
+  }
+
+  .type-body-small {
+    font-size: var(--type-size-small);
+  }
+
+  .type-caption {
+    font-size: var(--type-size-caption);
+  }
+
+  .type-fine {
+    font-size: var(--type-size-fine);
+  }
+
+  .type-control,
+  .type-control-small,
+  .type-label,
+  .type-eyebrow {
+    font-family: var(--font-sans);
+    font-size: var(--type-size-small);
+    font-weight: var(--type-weight-control);
+    line-height: var(--type-leading-control);
+    letter-spacing: var(--type-tracking-body);
+  }
+
+  .type-control-small {
+    font-size: var(--type-size-caption);
+  }
+
+  .type-label {
+    font-weight: var(--type-weight-heading);
+  }
+
+  .type-eyebrow {
+    font-size: var(--type-size-fine);
+    font-weight: var(--type-weight-heading);
+    letter-spacing: var(--type-tracking-eyebrow);
+    text-transform: uppercase;
+  }
+
+  .type-code {
+    font-family: var(--font-mono);
+    font-size: var(--type-size-code);
+    font-weight: var(--type-weight-body);
+    line-height: var(--type-leading-code);
+    letter-spacing: var(--type-tracking-body);
+  }
+}

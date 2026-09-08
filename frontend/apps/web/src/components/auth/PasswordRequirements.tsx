@@ -20,7 +20,7 @@ export function PasswordRequirements({ id, password }: { id: string; password: s
           key={requirement.label}
           className={
             requirement.met
-              ? 'flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400'
+              ? 'text-success flex items-center gap-1.5'
               : 'text-muted-foreground flex items-center gap-1.5'
           }
         >

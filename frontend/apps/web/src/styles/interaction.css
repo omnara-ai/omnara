@@ -1,0 +1,48 @@
+:root {
+  --shape-radius-control: 0.5rem;
+  --shape-radius-card: 0.75rem;
+  --focus-width: 2px;
+  --focus-offset: 4px;
+  --duration-control: 150ms;
+  --duration-panel: 200ms;
+  --duration-page: 450ms;
+  --ease-page: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@layer components {
+  .control-focus:focus-visible,
+  .control-focus-within:has(:is(input, textarea):focus-visible) {
+    outline: var(--focus-width) solid var(--ring);
+    outline-offset: var(--focus-offset);
+  }
+
+  .control-transition {
+    transition-property: background-color, border-color, color, box-shadow;
+    transition-duration: var(--duration-control);
+  }
+
+  .state-loading {
+    border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+    border-top-color: currentColor;
+    border-radius: 50%;
+  }
+
+  .surface-page {
+    background-color: var(--background);
+  }
+}
+
+@layer base {
+  :where(
+    a[href],
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex='-1'])
+  ):focus-visible {
+    outline: var(--focus-width) solid var(--ring);
+    outline-offset: var(--focus-offset);
+  }
+}

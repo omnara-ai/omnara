@@ -17,7 +17,7 @@ export function SearchHeader({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+        <h2 className="type-title">{title}</h2>
         {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>
       {toolbar}

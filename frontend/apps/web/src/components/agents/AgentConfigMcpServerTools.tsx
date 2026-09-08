@@ -258,7 +258,7 @@ function DiscoveryFailure({
   const detected = detectedAuthType(error)
   const switchable = detected != null && detected !== server.authType
   return (
-    <div role="alert" className="flex items-start gap-2 text-sm text-amber-600 dark:text-amber-500">
+    <div role="alert" className="text-warning flex items-start gap-2 text-sm">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1 space-y-1">
         <p className="font-medium">{discoveryFailureTitle(error, server, detected)}</p>

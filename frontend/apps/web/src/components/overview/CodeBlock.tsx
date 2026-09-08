@@ -119,7 +119,7 @@ function Code({
   return (
     <pre
       className={cn(
-        'code-highlight overflow-x-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-sm leading-6 sm:px-6 sm:py-5',
+        'code-highlight type-code overflow-x-auto whitespace-pre-wrap break-words px-4 py-4 sm:px-6 sm:py-5',
         emphasis ? 'text-foreground font-medium' : 'text-muted-foreground',
         className,
       )}

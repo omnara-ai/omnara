@@ -61,7 +61,7 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary rounded-xs focus:outline-hidden absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none">
+        <SheetPrimitive.Close className="control-focus data-[state=open]:bg-secondary rounded-xs absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none">
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>
@@ -94,7 +94,7 @@ function SheetTitle({ className, ...props }: ComponentProps<typeof SheetPrimitiv
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn('text-foreground font-semibold', className)}
+      className={cn('type-card-title text-foreground', className)}
       {...props}
     />
   )

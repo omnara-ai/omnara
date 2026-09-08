@@ -78,7 +78,7 @@ function CheckboxField({
           <span
             id={descriptionId}
             data-slot="field-description"
-            className="text-muted-foreground text-sm leading-normal"
+            className="text-muted-foreground type-body-small"
           >
             {description}
           </span>
@@ -141,7 +141,7 @@ function FieldDescription({ className, ...props }: ComponentProps<'p'>) {
   return (
     <p
       data-slot="field-description"
-      className={cn('text-muted-foreground text-sm leading-normal', className)}
+      className={cn('text-muted-foreground type-body-small', className)}
       {...props}
     />
   )
@@ -178,7 +178,7 @@ function FieldError({ className, children, errors, ...props }: FieldErrorProps) 
     <div
       role="alert"
       data-slot="field-error"
-      className={cn('text-destructive text-sm font-medium', className)}
+      className={cn('text-destructive type-control', className)}
       {...props}
     >
       {content}

@@ -1,23 +1,17 @@
-import { useDeleteOrgInvitation, useOrgInvitations, useOrgMembers } from '@omnara/react'
-import type { OrgInvitation, OrgMember } from '@omnara/sdk'
+import { useDeleteOrgInvitation } from '@omnara/react'
+import type { OrgMember } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
+import { useMembersPage } from '@/components/org/useMembersPage'
 import { Button } from '@/components/ui/button'
-import type { PaginationControls } from '@/hooks/use-paged-query'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
-
-type CombinedRow =
-  | { kind: 'invitation'; id: string; invitation: OrgInvitation }
-  | { kind: 'member'; id: string; member: OrgMember }
-
-const PAGE_SIZE = 15
 
 function memberName(member: OrgMember) {
   return member.display_name || member.email || 'Unnamed user'
@@ -27,84 +21,9 @@ export function Members() {
   const { activeOrg } = useActiveOrg()
   const [inviteOpen, setInviteOpen] = useState(false)
   const canManage = canManageOrg(activeOrg.role)
-  const [page, setPage] = useState(0)
-  const [paginationOwner, setPaginationOwner] = useState({
-    orgID: activeOrg.id,
-    canManage,
-  })
-  if (paginationOwner.orgID !== activeOrg.id || paginationOwner.canManage !== canManage) {
-    setPaginationOwner({ orgID: activeOrg.id, canManage })
-    setPage(0)
-  }
-
-  const invitationsQuery = useOrgInvitations(activeOrg.id, {
-    pageSize: PAGE_SIZE,
-    enabled: canManage,
-  })
   const deleteInvitation = useDeleteOrgInvitation(activeOrg.id)
-  const invitationsExhausted =
-    !canManage ||
-    invitationsQuery.isError ||
-    (invitationsQuery.isSuccess && !invitationsQuery.hasNextPage)
-  const membersQuery = useOrgMembers(activeOrg.id, {
-    sort: 'name',
-    pageSize: PAGE_SIZE,
-    enabled: invitationsExhausted,
-  })
-
-  const loadedRows: CombinedRow[] = []
-  for (const loadedPage of invitationsQuery.data?.pages ?? []) {
-    for (const invitation of loadedPage.data) {
-      loadedRows.push({ kind: 'invitation', id: invitation.id, invitation })
-    }
-  }
-  for (const loadedPage of membersQuery.data?.pages ?? []) {
-    for (const member of loadedPage.data) {
-      loadedRows.push({ kind: 'member', id: member.user_id, member })
-    }
-  }
-  const pageStart = page * PAGE_SIZE
-  const rows = loadedRows.slice(pageStart, pageStart + PAGE_SIZE)
-  const nextPageStart = pageStart + PAGE_SIZE
-  const nextPageEnd = nextPageStart + PAGE_SIZE
-  const hasLoadedNextPage = loadedRows.length > nextPageStart
-  const pagination: PaginationControls = {
-    page,
-    canPrev: page > 0,
-    canNext:
-      hasLoadedNextPage ||
-      invitationsQuery.hasNextPage ||
-      (invitationsExhausted && membersQuery.hasNextPage),
-    onPrev: () => {
-      setPage((current) => Math.max(current - 1, 0))
-    },
-    onNext: () => {
-      if (
-        loadedRows.length < nextPageEnd &&
-        invitationsQuery.hasNextPage &&
-        !invitationsQuery.isFetchingNextPage
-      ) {
-        void invitationsQuery.fetchNextPage().then(() => {
-          setPage((current) => current + 1)
-        })
-        return
-      }
-      if (
-        loadedRows.length < nextPageEnd &&
-        invitationsExhausted &&
-        membersQuery.hasNextPage &&
-        !membersQuery.isFetchingNextPage
-      ) {
-        void membersQuery.fetchNextPage().then(() => {
-          setPage((current) => current + 1)
-        })
-        return
-      }
-      if (hasLoadedNextPage) {
-        setPage((current) => current + 1)
-      }
-    },
-  }
+  const { invitationsQuery, membersQuery, invitationsExhausted, rows, pagination, setPage } =
+    useMembersPage(activeOrg.id, canManage)
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -117,7 +36,7 @@ export function Members() {
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold tracking-tight">Members</h2>
+          <h2 className="type-title">Members</h2>
           {canManage ? (
             <Button
               size="sm"

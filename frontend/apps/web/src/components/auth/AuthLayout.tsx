@@ -4,7 +4,7 @@ import { BrandMark } from '@/components/brand/OmnaraMark'
 
 function Wordmark() {
   return (
-    <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+    <div className="type-card-title flex items-center gap-2 text-base">
       <BrandMark className="size-5" />
       Omnara
     </div>
@@ -26,7 +26,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <aside className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex">
-        <div className="from-primary/10 via-card to-card absolute inset-0 bg-gradient-to-br" />
+        <div className="from-primary/10 via-card to-card bg-linear-to-br absolute inset-0" />
         <div aria-hidden className="absolute inset-0 opacity-40" style={dotGrid} />
         <div
           aria-hidden
@@ -37,9 +37,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <Wordmark />
         </div>
         <div className="relative z-10 space-y-3">
-          <p className="text-foreground text-3xl font-semibold tracking-tight">
-            The API for production-grade agents.
-          </p>
+          <p className="text-foreground type-title">The API for production-grade agents.</p>
           <p className="text-muted-foreground text-base">Omnara console</p>
         </div>
       </aside>
@@ -59,7 +57,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 export function AuthHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+      <h1 className="type-title">{title}</h1>
       <p className="text-muted-foreground text-pretty text-sm">{subtitle}</p>
     </div>
   )

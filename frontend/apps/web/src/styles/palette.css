@@ -1,0 +1,33 @@
+:root {
+  --palette-primary: 80 111 207;
+  --palette-primary-hover: 61 91 181;
+  --palette-primary-active: 61 91 181;
+  --palette-on-primary: 255 255 255;
+
+  --palette-dark-bg: 18 18 18;
+  --palette-dark-fg: 238 238 238;
+  --palette-dark-sidebar: 26 26 26;
+  --palette-dark-surface: 32 32 32;
+  --palette-dark-surface-2: 40 40 40;
+  --palette-dark-surface-3: 48 48 48;
+  --palette-dark-line: 54 54 54;
+  --palette-dark-line-strong: 82 82 82;
+  --palette-dark-accent: 133 160 230;
+  --palette-dark-accent-strong: 166 187 239;
+  --palette-dark-accent-soft: 193 207 244;
+  --palette-dark-destructive: oklch(0.7 0.19 22);
+  --palette-dark-success: 98 207 158;
+
+  --palette-light-bg: 250 250 250;
+  --palette-light-fg: 24 24 24;
+  --palette-light-surface: 255 255 255;
+  --palette-light-surface-2: 242 242 242;
+  --palette-light-surface-3: 230 230 230;
+  --palette-light-line: 218 218 218;
+  --palette-light-line-strong: 176 176 176;
+  --palette-light-accent: 61 94 181;
+  --palette-light-accent-strong: 51 81 164;
+  --palette-light-accent-soft: 112 140 217;
+  --palette-light-destructive: oklch(0.58 0.24 27);
+  --palette-light-success: 13 122 79;
+}

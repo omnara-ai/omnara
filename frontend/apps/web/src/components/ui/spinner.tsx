@@ -1,8 +1,15 @@
-import { Loader2 } from '@/components/icons'
 import { cn } from '@/lib/utils'
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cn('h-4 w-4 animate-spin', className)} aria-hidden />
+  return (
+    <span
+      className={cn(
+        'state-loading inline-block size-5 shrink-0 motion-safe:animate-spin',
+        className,
+      )}
+      aria-hidden
+    />
+  )
 }
 
 export function FullPageSpinner() {
@@ -12,7 +19,7 @@ export function FullPageSpinner() {
       role="status"
       aria-live="polite"
     >
-      <Spinner className="text-muted-foreground h-6 w-6" />
+      <Spinner className="text-muted-foreground size-6" />
       <span className="sr-only">Loading</span>
     </div>
   )

@@ -140,7 +140,7 @@ export function DeployAgentProfileDialog({
                   <FieldLabel htmlFor="slack-app-configuration-token">
                     App configuration token
                   </FieldLabel>
-                  <FieldDescription className="text-[13px] leading-snug">
+                  <FieldDescription className="text-caption leading-snug">
                     This token lets Omnara create and configure the Slack app automatically.
                     Generate one in{' '}
                     <a

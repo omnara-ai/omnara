@@ -23,7 +23,7 @@ export function AgentsSection({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
+      <h2 className="type-title">Agents</h2>
       <AgentsTable
         orgId={orgId}
         projectId={projectId}
