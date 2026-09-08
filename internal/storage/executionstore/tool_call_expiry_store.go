@@ -54,6 +54,14 @@ func (s *Store) expireToolCall(ctx context.Context, projectID, agentID, toolCall
 		}
 		return false, fmt.Errorf("lock agent for tool call expiry: %w", err)
 	}
+	if _, err := qtx.LockExpiredToolCall(
+		ctx, dbsqlc.LockExpiredToolCallParams{AgentID: agentID, ID: toolCallID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lock expired tool call: %w", err)
+	}
 	completed, err := expireToolCallTx(ctx, txNotifications, tx, qtx, projectID, agentID, toolCallID)
 	if err != nil {
 		return false, err

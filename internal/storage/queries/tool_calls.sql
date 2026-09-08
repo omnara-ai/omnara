@@ -550,6 +550,16 @@ WHERE call.state = 'waiting'
 ORDER BY call.deadline_at, call.id
 LIMIT sqlc.arg(row_limit)::integer;
 
+-- name: LockExpiredToolCall :one
+SELECT call.id
+FROM tool_calls call
+WHERE call.agent_id = sqlc.arg(agent_id)
+  AND call.id = sqlc.arg(id)
+  AND call.state = 'waiting'
+  AND call.deadline_at IS NOT NULL
+  AND call.deadline_at <= statement_timestamp()
+FOR UPDATE;
+
 -- name: CompleteExpiredToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
@@ -568,7 +578,6 @@ WHERE call.agent_id = agent.id
   AND call.state = 'waiting'
   AND call.type = 'built_in'
   AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
   AND projection.project_id = agent.project_id
   AND projection.agent_id = call.agent_id
   AND projection.id = call.id
