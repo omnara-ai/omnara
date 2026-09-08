@@ -6,10 +6,12 @@ import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import {
   type BasicConfig,
   basicConfigValid,
+  type BasicMcpServer,
   createBasicConfigSession,
   mcpRuntimeToolNameError,
   mcpServerNameError,
   mcpToolEnabled,
+  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
@@ -650,6 +652,53 @@ describe('basic agent config names', () => {
         'but the model only accepts tool names of 64 characters or fewer. ' +
         'The tool name itself is too long to expose under any server name.',
     )
+  })
+
+  it.each([
+    ['', 'Tool name is required.'],
+    [
+      '1search',
+      '"1search" must start with a letter, but the model only accepts tool names that begin with a letter.',
+    ],
+    [
+      'search.issues',
+      '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
+    ],
+    [
+      'search issues',
+      '"search issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
+    ],
+    ['search_issues-v2', undefined],
+  ])('explains when the MCP tool name %j has characters the model rejects', (name, expected) => {
+    expect(mcpRuntimeToolNameError('github', name)).toBe(expected)
+  })
+
+  it('lists enabled discovered and configured MCP tools the model cannot accept', () => {
+    const [server] = fullConfig.mcpServers
+    if (!server) throw new Error('fixture needs a server')
+    const longName = 'b'.repeat(64)
+    const configured: BasicMcpServer = {
+      ...server,
+      name: 'github',
+      defaultEnabled: true,
+      tools: [
+        { name: longName, enabled: null, permission: null },
+        { name: 'c'.repeat(64), enabled: false, permission: null },
+        { name: 'search.issues', enabled: true, permission: null },
+      ],
+    }
+    expect(
+      unexposableMcpTools(configured, ['list-issues', 'get.issue', 'search.issues']).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['get.issue', 'search.issues', longName])
+    expect(unexposableMcpTools({ ...configured, defaultEnabled: false }, ['get.issue'])).toEqual([
+      {
+        name: 'search.issues',
+        error:
+          '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
+      },
+    ])
   })
 
   it('resolves whether an MCP tool is enabled from its override or the server default', () => {

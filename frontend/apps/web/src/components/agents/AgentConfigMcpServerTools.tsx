@@ -15,10 +15,9 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpRuntimeToolName,
-  mcpRuntimeToolNameError,
-  mcpRuntimeToolNameMaxLength,
-  mcpToolEnabled,
+  mcpToolNameAddable,
+  type UnexposableMcpTool,
+  unexposableMcpTools,
 } from '@/components/agents/useAgentBuilderForm'
 import { SearchIcon, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -32,8 +31,6 @@ import {
 } from '@/components/ui/combobox'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { useDebouncedValue } from '@/hooks/use-resource-list'
-
-const mcpToolNamePattern = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
 
 export function AgentConfigMcpServerTools({
   orgId,
@@ -59,11 +56,10 @@ export function AgentConfigMcpServerTools({
   })
   const discovered = discovery.data?.tools ?? []
   const overriddenNames = new Set(server.tools.map((tool) => tool.name))
-  const unexposableTools = discovered.flatMap((tool) => {
-    if (!mcpToolEnabled(server, tool.name)) return []
-    const error = mcpRuntimeToolNameError(server.name, tool.name)
-    return error === undefined ? [] : [{ name: tool.name, error }]
-  })
+  const unexposableTools = unexposableMcpTools(
+    server,
+    discovered.map((tool) => tool.name),
+  )
   const toolCountLabel = discovery.isSuccess
     ? `${discovered.length} ${discovered.length === 1 ? 'tool' : 'tools'}`
     : null
@@ -97,9 +93,7 @@ export function AgentConfigMcpServerTools({
           onToolsChange={onToolsChange}
         />
       </div>
-      {unexposableTools.length > 0 && (
-        <UnexposableTools serverName={server.name} tools={unexposableTools} />
-      )}
+      {unexposableTools.length > 0 && <UnexposableTools tools={unexposableTools} />}
       {discoveryFailure && (
         <DiscoveryFailure
           error={discoveryFailure}
@@ -133,7 +127,7 @@ function ToolOverridePicker({
   const candidates = discovered.filter((tool) => !overriddenNames.has(tool.name))
   const typedName = query.trim()
   const typedNameAddable =
-    mcpToolNamePattern.test(typedName) &&
+    mcpToolNameAddable(typedName) &&
     !overriddenNames.has(typedName) &&
     !discovered.some((tool) => tool.name === typedName)
 
@@ -288,36 +282,20 @@ function DiscoveryFailure({
   )
 }
 
-function UnexposableTools({
-  serverName,
-  tools,
-}: {
-  serverName: string
-  tools: { name: string; error: string }[]
-}) {
-  const longestToolName = Math.max(...tools.map((tool) => tool.name.length))
-  const maxServerNameLength =
-    mcpRuntimeToolNameMaxLength - mcpRuntimeToolName('', '').length - longestToolName
+function UnexposableTools({ tools }: { tools: UnexposableMcpTool[] }) {
   return (
     <div role="alert" className="text-destructive flex items-start gap-2 text-sm">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1 space-y-1">
         <p className="font-medium">
           {tools.length === 1
-            ? 'One tool cannot be exposed to the model, so the agent will fail to connect to this server.'
-            : `${tools.length} tools cannot be exposed to the model, so the agent will fail to connect to this server.`}
-        </p>
-        <p className="text-muted-foreground">
-          Omnara names MCP tools <code className="font-mono">mcp__{serverName}__&lt;tool&gt;</code>,
-          and the full name must be {mcpRuntimeToolNameMaxLength} characters or fewer.{' '}
-          {maxServerNameLength >= 1
-            ? `Shorten the server name to ${maxServerNameLength} characters or fewer, or disable these tools.`
-            : 'Some tool names are too long to expose under any server name, so disable them.'}
+            ? 'One tool cannot be exposed to the model, so the agent will fail to connect to this server. Fix the name or disable the tool.'
+            : `${tools.length} tools cannot be exposed to the model, so the agent will fail to connect to this server. Fix the names or disable the tools.`}
         </p>
         <ul className="text-muted-foreground list-disc space-y-0.5 pl-5">
           {tools.map((tool) => (
-            <li key={tool.name} className="break-all font-mono text-xs">
-              {tool.name}
+            <li key={tool.name} className="break-words">
+              {tool.error}
             </li>
           ))}
         </ul>
