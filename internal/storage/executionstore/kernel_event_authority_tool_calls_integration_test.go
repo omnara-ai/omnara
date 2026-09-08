@@ -23,10 +23,17 @@ import (
 
 func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) {
 	t.Parallel()
-	for _, stopReason := range []modelenvelope.StopReason{
-		modelenvelope.StopReasonToolUse, modelenvelope.StopReasonEndTurn, modelenvelope.StopReasonMaxTokens,
+	for _, tc := range []struct {
+		name                                     string
+		stopReason                               modelenvelope.StopReason
+		acceptedName, rejectedName, rejectedType string
+	}{
+		{"tool_use", modelenvelope.StopReasonToolUse, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
+		{"end_turn with identical names", modelenvelope.StopReasonEndTurn,
+			"unparseable_tool_call", "unparseable_tool_call", toolcatalog.ToolTypeBuiltIn},
+		{"max_tokens", modelenvelope.StopReasonMaxTokens, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
 	} {
-		t.Run(string(stopReason), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "mixed_tool_call_rejections")
@@ -40,15 +47,15 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 					RequestedProviderModelSlug: providerModelSlug, ServedProviderModelSlug: providerModelSlug,
 					APIFormat: modelprotocol.APIFormatOpenAIResponses, APIVariant: modelprotocol.APIVariantDefault,
 					Normalized: modelenvelope.ResponseNormalized{
-						ID: "mixed-tool-response", StopReason: stopReason,
+						ID: "mixed-tool-response", StopReason: tc.stopReason,
 						Content: []modelenvelope.ResponsePart{
 							{
 								Type: modelenvelope.ResponsePartTypeToolCall, ProviderCallID: "accepted-call",
-								ToolName: "read_file", ToolInput: json.RawMessage(`{"path":"README.md"}`),
+								ToolName: tc.acceptedName, ToolInput: json.RawMessage(`{"path":"README.md"}`),
 							},
 							{
 								Type: modelenvelope.ResponsePartTypeToolCall, ProviderCallID: "rejected-call",
-								ToolName: "docs__lookup", ToolInput: json.RawMessage(`{}`),
+								ToolName: tc.rejectedName, ToolInput: json.RawMessage(`{}`),
 								ToolCallError: "tool arguments are incomplete",
 							},
 						},
@@ -56,7 +63,7 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 				},
 				ToolCallBindings: []executionstore.ToolCallBindingInput{
 					{ProviderCallID: "accepted-call", Type: toolcatalog.ToolTypeBuiltIn},
-					{ProviderCallID: "rejected-call", Type: toolcatalog.ToolTypeMCP},
+					{ProviderCallID: "rejected-call", Type: tc.rejectedType},
 				},
 			}
 			event, calls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, input)
@@ -89,8 +96,8 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 				ctx, testProjectID, fixture.AgentID, claim.Context.ID,
 			)
 			require.NoError(t, err)
-			if !found || output.StopReason != stopReason {
-				t.Fatalf("source output found=%v reason=%s, want %s", found, output.StopReason, stopReason)
+			if !found || output.StopReason != tc.stopReason {
+				t.Fatalf("source output found=%v reason=%s, want %s", found, output.StopReason, tc.stopReason)
 			}
 			completedContext, found, err := fixture.Store.Execution().GetModelCallContext(
 				ctx, testProjectID, fixture.AgentID, claim.Context.ID,

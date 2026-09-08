@@ -102,6 +102,8 @@ type ResponsePart struct {
 
 const IncompleteToolCallError = "The tool call was incomplete and was not executed. Retry with complete arguments, splitting large inputs into smaller calls."
 
+const UnparseableToolCallName = "unparseable_tool_call"
+
 // ToolArgumentString decodes provider arguments without losing the call identity
 // when the value has the wrong JSON type. An invalid value becomes empty input,
 // which NewToolCallPart rejects along with other malformed arguments.
@@ -121,13 +123,13 @@ func (a *ToolArgumentString) UnmarshalJSON(raw []byte) error {
 // as the call, before its placeholder input can be admitted for execution.
 func NewToolCallPart(id, name string, input json.RawMessage) ResponsePart {
 	part := ResponsePart{
-		Type: ResponsePartTypeToolCall, ProviderCallID: id, ToolName: name,
+		Type: ResponsePartTypeToolCall, ToolName: name,
 	}
-	if strings.TrimSpace(id) == "" {
-		part.ProviderCallID = ""
+	if strings.TrimSpace(id) != "" {
+		part.ProviderCallID = id
 	}
 	if strings.TrimSpace(name) == "" {
-		part.ToolName = "unparseable_tool_call"
+		part.ToolName = UnparseableToolCallName
 		part.ToolCallError = "The tool call had no usable tool name and was not executed. Retry using an available tool name."
 	}
 	normalized, err := modelenvelope.NormalizeToolInput(input)

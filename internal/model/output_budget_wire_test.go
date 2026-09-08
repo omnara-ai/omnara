@@ -8,51 +8,10 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
-	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
-	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/stretchr/testify/require"
 )
-
-func outputWireClients(capabilities model.Capabilities) []struct {
-	name, field string
-	client      model.Client
-} {
-	return []struct {
-		name, field string
-		client      model.Client
-	}{
-		{
-			"chat",
-			"max_completion_tokens",
-			openaichatcompletions.Client{
-				EndpointPath:      "/chat/completions",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: capabilities,
-			},
-		},
-		{
-			"responses",
-			"max_output_tokens",
-			openairesponses.Client{
-				EndpointPath:      "/responses",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: capabilities,
-			},
-		},
-		{
-			"anthropic",
-			"max_tokens",
-			anthropicmessages.Client{
-				EndpointPath:      "/messages",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: capabilities,
-			},
-		},
-	}
-}
 
 func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 	content, err := json.Marshal([]map[string]string{{"type": "text", "text": strings.Repeat("input detail ", 6000)}})
@@ -72,7 +31,7 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 		if known {
 			caps.MaxOutputTokens = new(90000)
 		}
-		for _, tc := range outputWireClients(caps) {
+		for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
 			label := "unknown"
 			if known {
 				label = "known"
@@ -130,10 +89,10 @@ func TestAdaptersProjectOutputLimitNoticeAfterPartialAssistant(t *testing.T) {
 		`[{"type":"reasoning","text":"partial reasoning"}]`,
 		`[{"type":"text","text":"partial answer"}]`,
 	} {
-		for _, tc := range outputWireClients(model.Capabilities{
+		for _, tc := range adapterWireClients(wireClientConfig{capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
 			MaxOutputTokens:     new(64000),
-		}) {
+		}}) {
 			t.Run(tc.name+"/"+partial, func(t *testing.T) {
 				bundle := modelcontext.Bundle{Messages: []modelcontext.Message{
 					{

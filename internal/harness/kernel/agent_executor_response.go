@@ -60,12 +60,6 @@ func invalidModelToolCallResponse(
 ) (error, bool) {
 	seenIDs := make(map[string]struct{}, len(calls))
 	for _, call := range calls {
-		if call.ID == "" {
-			return malformedToolCallResponse(
-				errorSource,
-				"The model response contains a tool call without an ID.",
-			), true
-		}
 		if _, exists := seenIDs[call.ID]; exists {
 			return malformedToolCallResponse(
 				errorSource,

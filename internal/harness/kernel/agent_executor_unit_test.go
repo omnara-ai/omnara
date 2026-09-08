@@ -305,13 +305,6 @@ func TestInvalidModelToolCallResponse(t *testing.T) {
 		message string
 	}{
 		{
-			name:    "missing id",
-			calls:   []model.ToolCall{{Name: "run_command", Input: json.RawMessage(`{}`)}},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "without an ID",
-		},
-		{
 			name: "duplicate id",
 			calls: []model.ToolCall{
 				{ID: "call_duplicate", Name: "run_command", Input: json.RawMessage(`{"command":"one"}`)},

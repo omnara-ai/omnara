@@ -410,19 +410,23 @@ func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
 	}
 }
 
-func TestResponseEnvelopeRejectsInvalidToolInput(t *testing.T) {
-	_, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
-		ID:         "resp_1",
-		StopReason: modelenvelope.StopReasonToolUse,
-		Content: []ResponsePart{{
-			Type:           "tool_call",
-			ProviderCallID: "call_bad",
-			ToolName:       "run_command",
-			ToolInput:      json.RawMessage(`{"command":`),
-		}},
-	})
-	if err == nil {
-		t.Fatal("malformed tool input must be rejected before durable storage")
+func TestResponseEnvelopeRejectsInvalidToolCalls(t *testing.T) {
+	for _, tc := range []struct {
+		name, id, input string
+	}{
+		{"missing ID", "", `{}`},
+		{"malformed arguments", "call_bad", `{"command":`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewResponseEnvelopeForStorage("test-model", "test", "default", Response{
+				ID: "resp_1", StopReason: modelenvelope.StopReasonToolUse,
+				Content: []ResponsePart{{
+					Type: "tool_call", ProviderCallID: tc.id,
+					ToolName: "run_command", ToolInput: json.RawMessage(tc.input),
+				}},
+			})
+			require.Error(t, err, "invalid tool call must be rejected before durable storage")
+		})
 	}
 }
 
