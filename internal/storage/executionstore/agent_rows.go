@@ -22,7 +22,7 @@ func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -47,7 +47,7 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -72,7 +72,7 @@ func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 }
 
@@ -92,7 +92,7 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -117,7 +117,7 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -149,7 +149,7 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -183,7 +183,7 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
-		row.SubagentHandle,
+		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
 		Provider:         row.IntegrationTargetProvider,
@@ -214,7 +214,7 @@ func agentRecordFromSQLC(
 	updatedAt time.Time,
 	archivedAt *time.Time,
 	parentAgentID *ID,
-	subagentHandle string,
+	subagentKey string,
 ) AgentRecord {
 	return AgentRecord{
 		ID:                  id,
@@ -231,6 +231,6 @@ func agentRecordFromSQLC(
 		UpdatedAt:           updatedAt,
 		ArchivedAt:          archivedAt,
 		ParentAgentID:       idFromSQLCPtr(parentAgentID),
-		SubagentHandle:      subagentHandle,
+		SubagentKey:         subagentKey,
 	}
 }

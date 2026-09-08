@@ -26,13 +26,13 @@ type RuntimeContract struct {
 	configuredTools map[string]struct{}
 }
 
-func (contract RuntimeContract) SubagentHandles() []string {
-	handles := make([]string, 0, len(contract.Subagents))
-	for handle := range contract.Subagents {
-		handles = append(handles, handle)
+func (contract RuntimeContract) SubagentKeys() []string {
+	keys := make([]string, 0, len(contract.Subagents))
+	for key := range contract.Subagents {
+		keys = append(keys, key)
 	}
-	sort.Strings(handles)
-	return handles
+	sort.Strings(keys)
+	return keys
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {

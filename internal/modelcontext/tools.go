@@ -179,16 +179,16 @@ func spawnAgentToolSpec(
 	if agentProperty == nil {
 		return "", nil, fmt.Errorf("spawn_agent schema has no agent property")
 	}
-	handles := contract.SubagentHandles()
-	agentProperty["enum"] = handles
+	keys := contract.SubagentKeys()
+	agentProperty["enum"] = keys
 	encoded, err := json.Marshal(schema)
 	if err != nil {
 		return "", nil, fmt.Errorf("encode spawn_agent schema: %w", err)
 	}
-	lines := make([]string, 0, len(handles))
-	for _, handle := range handles {
-		entry := contract.Subagents[handle]
-		line := fmt.Sprintf("- %s (%s)", handle, entry.Type)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entry := contract.Subagents[key]
+		line := fmt.Sprintf("- %s (%s)", key, entry.Type)
 		if entry.Description != "" {
 			line += ": " + entry.Description
 		}

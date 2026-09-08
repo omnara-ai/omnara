@@ -19,7 +19,7 @@ import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import {
   type BasicSubagent,
   newSubagent,
-  subagentHandleError,
+  subagentKeyError,
   subagentsValid,
   type SubagentType,
   subagentWire,
@@ -47,7 +47,7 @@ export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 
 export type MachineSourceKind = 'pool' | 'machine'
 
-export { type BasicSubagent, newSubagent, subagentHandleError, type SubagentType }
+export { type BasicSubagent, newSubagent, subagentKeyError, type SubagentType }
 
 export interface BasicMachineSource {
   id: string
@@ -375,10 +375,10 @@ function applyToDocument(
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
     'subagents',
-    config.subagents.map((subagent) => [subagent.handle, subagentWire(subagent)]),
+    config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
     baseline == null
       ? null
-      : baseline.subagents.map((subagent) => [subagent.handle, subagentWire(subagent)]),
+      : baseline.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
     set,
     del,
   )

@@ -179,17 +179,17 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 		}
 	}
 	if subagents, ok := root["subagents"].(map[string]any); ok {
-		for handle, value := range subagents {
+		for key, value := range subagents {
 			subagent, ok := value.(map[string]any)
 			if !ok {
 				continue
 			}
-			if err := canonicalize(subagent, "profile", jsonPointer("subagents", handle, "profile")); err != nil {
+			if err := canonicalize(subagent, "profile", jsonPointer("subagents", key, "profile")); err != nil {
 				return false, err
 			}
 			if model, ok := subagent["model"].(map[string]any); ok {
-				for _, key := range []string{"provider_config", "name"} {
-					if err := canonicalize(model, key, jsonPointer("subagents", handle, "model", key)); err != nil {
+				for _, field := range []string{"provider_config", "name"} {
+					if err := canonicalize(model, field, jsonPointer("subagents", key, "model", field)); err != nil {
 						return false, err
 					}
 				}

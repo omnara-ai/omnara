@@ -225,16 +225,16 @@ func TestServiceE2EDeterministicSubagentSpawnWaitAndResult(t *testing.T) {
 		t.Fatalf("child made %d model requests, want 1", got)
 	}
 
-	var childName, childHandle, childState string
+	var childName, childKey, childState string
 	if err := env.db.QueryRow(
 		ctx,
-		`SELECT name, subagent_handle, state FROM agents WHERE project_id = $1 AND parent_agent_id = $2`,
+		`SELECT name, subagent_key, state FROM agents WHERE project_id = $1 AND parent_agent_id = $2`,
 		projectUUID, agentUUID,
-	).Scan(&childName, &childHandle, &childState); err != nil {
+	).Scan(&childName, &childKey, &childState); err != nil {
 		t.Fatalf("load spawned subagent: %v", err)
 	}
-	if childName != "summarizer" || childHandle != "helper" || childState != "active" {
-		t.Fatalf("subagent = %s/%s/%s, want summarizer/helper/active", childName, childHandle, childState)
+	if childName != "summarizer" || childKey != "helper" || childState != "active" {
+		t.Fatalf("subagent = %s/%s/%s, want summarizer/helper/active", childName, childKey, childState)
 	}
 	var pendingTargets int
 	if err := env.db.QueryRow(

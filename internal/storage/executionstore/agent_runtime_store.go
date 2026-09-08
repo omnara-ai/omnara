@@ -32,7 +32,7 @@ type insertAgentInput struct {
 	IdempotencyKey          string
 	ParentAgentID           ID
 	SpawnToolCallID         ID
-	SubagentHandle          string
+	SubagentKey             string
 	ArchiveAfterIdleMinutes *int
 }
 
@@ -53,7 +53,7 @@ type AgentRecord struct {
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
 	ParentAgentID       ID         `json:"parent_agent_id,omitempty"`
-	SubagentHandle      string     `json:"subagent_handle,omitempty"`
+	SubagentKey         string     `json:"subagent_key,omitempty"`
 	Created             bool       `json:"-"`
 }
 
@@ -85,7 +85,7 @@ func insertAdmittedAgentTx(
 		IdempotencyKey:          sqlcTextFromEmpty(input.IdempotencyKey),
 		ParentAgentID:           sqlcIDFromNil(input.ParentAgentID),
 		SpawnToolCallID:         sqlcIDFromNil(input.SpawnToolCallID),
-		SubagentHandle:          input.SubagentHandle,
+		SubagentKey:             input.SubagentKey,
 		ArchiveAfterIdleMinutes: sqlcInt32Ptr(input.ArchiveAfterIdleMinutes),
 	})
 	if err == nil {

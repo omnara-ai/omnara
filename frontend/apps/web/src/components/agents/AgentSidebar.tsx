@@ -102,7 +102,7 @@ export function AgentSidebar({
                       </Link>
                     ) : undefined,
                   },
-                  { label: 'Handle', value: agent.subagent_handle, mono: true },
+                  { label: 'Key', value: agent.subagent_key, mono: true },
                   { label: 'Config', value: agent.current_config_id, mono: true },
                   { label: 'Created', value: formatDateTime(agent.created_at) },
                 ]}
@@ -182,10 +182,10 @@ export function AgentSubagentsGroup({
                     params={{ projectId, agentId: subagent.id }}
                     className="truncate hover:underline"
                   >
-                    {subagent.name || subagent.handle}
+                    {subagent.name || subagent.key}
                   </Link>
                   <span className="text-muted-foreground truncate font-mono text-xs">
-                    {subagent.handle}
+                    {subagent.key}
                   </span>
                 </span>
                 <Badge variant="outline" className="capitalize">

@@ -98,7 +98,7 @@ const fullConfig: BasicConfig = {
   subagents: [
     {
       id: 'sub-1',
-      handle: 'researcher',
+      key: 'researcher',
       type: 'profile',
       profileName: 'research-agent',
       description: 'Investigate.',
@@ -108,7 +108,7 @@ const fullConfig: BasicConfig = {
     },
     {
       id: 'sub-2',
-      handle: 'fork',
+      key: 'fork',
       type: 'self',
       profileName: '',
       description: '',
@@ -209,7 +209,7 @@ describe('createBasicConfigSession initialDraft', () => {
     })
     expect(config.subagents).toMatchObject([
       {
-        handle: 'researcher',
+        key: 'researcher',
         type: 'profile',
         profileName: 'research-agent',
         description: 'Investigate.',
@@ -217,7 +217,7 @@ describe('createBasicConfigSession initialDraft', () => {
         maxConcurrent: '2',
         archiveAfterIdleMinutes: '30',
       },
-      { handle: 'fork', type: 'self', profileName: '' },
+      { key: 'fork', type: 'self', profileName: '' },
     ])
     expect(config.maxSubagents).toBe('4')
     expect(parse(source)).toMatchObject({

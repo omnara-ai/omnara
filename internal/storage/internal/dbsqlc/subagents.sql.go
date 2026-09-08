@@ -132,17 +132,17 @@ FROM agents agent
 WHERE agent.project_id = $1
   AND agent.parent_agent_id = $2
   AND agent.state = 'active'
-  AND ($3::text = '' OR agent.subagent_handle = $3::text)
+  AND ($3::text = '' OR agent.subagent_key = $3::text)
 `
 
 type CountActiveChildAgentsParams struct {
-	ProjectID      uuid.UUID
-	ParentAgentID  *uuid.UUID
-	SubagentHandle string
+	ProjectID     uuid.UUID
+	ParentAgentID *uuid.UUID
+	SubagentKey   string
 }
 
 func (q *Queries) CountActiveChildAgents(ctx context.Context, arg CountActiveChildAgentsParams) (int32, error) {
-	row := q.db.QueryRow(ctx, countActiveChildAgents, arg.ProjectID, arg.ParentAgentID, arg.SubagentHandle)
+	row := q.db.QueryRow(ctx, countActiveChildAgents, arg.ProjectID, arg.ParentAgentID, arg.SubagentKey)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -417,7 +417,7 @@ SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
-       agent.name AS agent_name, agent.subagent_handle
+       agent.name AS agent_name, agent.subagent_key
 FROM agent_interaction_read_projection interaction
 JOIN agents agent ON agent.project_id = interaction.project_id
   AND agent.id = interaction.agent_id
@@ -457,7 +457,7 @@ type ListAgentInteractionsForAgentsRow struct {
 	CreatedAt          time.Time
 	ResolvedAt         *time.Time
 	AgentName          string
-	SubagentHandle     string
+	SubagentKey        string
 }
 
 func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAgentInteractionsForAgentsParams) ([]ListAgentInteractionsForAgentsRow, error) {
@@ -492,7 +492,7 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 			&i.CreatedAt,
 			&i.ResolvedAt,
 			&i.AgentName,
-			&i.SubagentHandle,
+			&i.SubagentKey,
 		); err != nil {
 			return nil, err
 		}
@@ -510,7 +510,7 @@ SELECT target.target_agent_id,
        target.result_kind,
        target.result_text,
        agent.name,
-       agent.subagent_handle,
+       agent.subagent_key,
        agent.state AS agent_state
 FROM agent_wait_targets target
 JOIN agents agent ON agent.project_id = target.project_id
@@ -526,13 +526,13 @@ type ListAgentWaitTargetsParams struct {
 }
 
 type ListAgentWaitTargetsRow struct {
-	TargetAgentID  uuid.UUID
-	State          string
-	ResultKind     string
-	ResultText     string
-	Name           string
-	SubagentHandle string
-	AgentState     string
+	TargetAgentID uuid.UUID
+	State         string
+	ResultKind    string
+	ResultText    string
+	Name          string
+	SubagentKey   string
+	AgentState    string
 }
 
 func (q *Queries) ListAgentWaitTargets(ctx context.Context, arg ListAgentWaitTargetsParams) ([]ListAgentWaitTargetsRow, error) {
@@ -550,7 +550,7 @@ func (q *Queries) ListAgentWaitTargets(ctx context.Context, arg ListAgentWaitTar
 			&i.ResultKind,
 			&i.ResultText,
 			&i.Name,
-			&i.SubagentHandle,
+			&i.SubagentKey,
 			&i.AgentState,
 		); err != nil {
 			return nil, err
@@ -567,7 +567,7 @@ const listChildAgents = `-- name: ListChildAgents :many
 SELECT agent.id,
        agent.name,
        agent.state,
-       agent.subagent_handle,
+       agent.subagent_key,
        agent.created_at,
        agent.archived_at,
        coalesce((
@@ -628,7 +628,7 @@ type ListChildAgentsRow struct {
 	ID                uuid.UUID
 	Name              string
 	State             string
-	SubagentHandle    string
+	SubagentKey       string
 	CreatedAt         time.Time
 	ArchivedAt        *time.Time
 	LastActivityAt    time.Time
@@ -657,7 +657,7 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.ID,
 			&i.Name,
 			&i.State,
-			&i.SubagentHandle,
+			&i.SubagentKey,
 			&i.CreatedAt,
 			&i.ArchivedAt,
 			&i.LastActivityAt,

@@ -4,7 +4,7 @@ import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCa
 import {
   type BasicSubagent,
   newSubagent,
-  subagentHandleError,
+  subagentKeyError,
   type SubagentType,
 } from '@/components/agents/useAgentBuilderForm'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
@@ -58,9 +58,9 @@ export function AgentConfigSubagentsField({
   onSubagentsChange: (subagents: BasicSubagent[]) => void
   onMaxSubagentsChange: (value: string) => void
 }) {
-  const handleCounts = new Map<string, number>()
+  const keyCounts = new Map<string, number>()
   for (const subagent of subagents) {
-    handleCounts.set(subagent.handle, (handleCounts.get(subagent.handle) ?? 0) + 1)
+    keyCounts.set(subagent.key, (keyCounts.get(subagent.key) ?? 0) + 1)
   }
   const update = (id: string, fields: Partial<BasicSubagent>) => {
     onSubagentsChange(
@@ -94,7 +94,7 @@ export function AgentConfigSubagentsField({
               orgId={orgId}
               projectId={projectId}
               subagent={subagent}
-              duplicateHandle={(handleCounts.get(subagent.handle) ?? 0) > 1}
+              duplicateKey={(keyCounts.get(subagent.key) ?? 0) > 1}
               onChange={(fields) => {
                 update(subagent.id, fields)
               }}
@@ -125,38 +125,34 @@ function SubagentRow({
   orgId,
   projectId,
   subagent,
-  duplicateHandle,
+  duplicateKey,
   onChange,
   onRemove,
 }: {
   orgId: string
   projectId: string
   subagent: BasicSubagent
-  duplicateHandle: boolean
+  duplicateKey: boolean
   onChange: (fields: Partial<BasicSubagent>) => void
   onRemove: () => void
 }) {
-  const handleError = duplicateHandle
-    ? 'Handle must be unique.'
-    : subagentHandleError(subagent.handle)
+  const keyError = duplicateKey ? 'Key must be unique.' : subagentKeyError(subagent.key)
   const fieldId = (name: string) => `agent-config-subagent-${subagent.id}-${name}`
   return (
     <div className="border-border bg-muted/30 space-y-3 rounded-md border p-3">
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <Field>
-          <FieldLabel htmlFor={fieldId('handle')}>Handle</FieldLabel>
+          <FieldLabel htmlFor={fieldId('key')}>Key</FieldLabel>
           <Input
-            id={fieldId('handle')}
-            value={subagent.handle}
+            id={fieldId('key')}
+            value={subagent.key}
             placeholder="researcher"
-            aria-invalid={handleError !== undefined}
+            aria-invalid={keyError !== undefined}
             onChange={(event) => {
-              onChange({ handle: event.target.value.trim() })
+              onChange({ key: event.target.value.trim() })
             }}
           />
-          {handleError !== undefined && subagent.handle !== '' && (
-            <FieldError>{handleError}</FieldError>
-          )}
+          {keyError !== undefined && subagent.key !== '' && <FieldError>{keyError}</FieldError>}
         </Field>
         <Field>
           <FieldLabel htmlFor={fieldId('type')}>Runs</FieldLabel>
@@ -184,7 +180,7 @@ function SubagentRow({
           size="icon"
           variant="ghost"
           className="self-end"
-          aria-label={`Remove subagent ${subagent.handle || 'entry'}`}
+          aria-label={`Remove subagent ${subagent.key || 'entry'}`}
           onClick={onRemove}
         >
           <Trash2Icon />

@@ -28,7 +28,7 @@ func (profileNotFoundError) Error() string { return "profile not found" }
 
 var errNotFoundProfile = profileNotFoundError{}
 
-func TestCompileYAMLSubagentsCompilesHandlesAndImplicitTools(t *testing.T) {
+func TestCompileYAMLSubagentsCompilesKeysAndImplicitTools(t *testing.T) {
 	source := validAgentSource(`
 tools:
   run_command: {}
@@ -80,8 +80,8 @@ max_subagents: 5
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if got := strings.Join(contract.SubagentHandles(), ","); got != "fork,researcher" {
-		t.Fatalf("handles = %q", got)
+	if got := strings.Join(contract.SubagentKeys(), ","); got != "fork,researcher" {
+		t.Fatalf("keys = %q", got)
 	}
 	names := make(map[string]bool, len(contract.Tools))
 	for _, tool := range contract.Tools {
@@ -110,7 +110,7 @@ func TestCompileYAMLSubagentsRejectsInvalidShapes(t *testing.T) {
 		want  string
 	}{
 		{
-			name: "profile handle without profile",
+			name: "profile key without profile",
 			extra: `
 subagents:
   researcher:
@@ -119,7 +119,7 @@ subagents:
 			want: "subagents.researcher.profile: required",
 		},
 		{
-			name: "self handle with profile",
+			name: "self key with profile",
 			extra: `
 subagents:
   fork:
@@ -169,7 +169,7 @@ max_subagents: 3
 			want: "max_subagents",
 		},
 		{
-			name: "handle named like a tool",
+			name: "key named like a tool",
 			extra: `
 subagents:
   spawn_agent:

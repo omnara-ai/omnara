@@ -66,7 +66,7 @@ func spawnSubagentForTest(
 		IdempotencyKey: idempotencyKey,
 		Subagent: &executionstore.SubagentLaunch{
 			ParentAgentID: parent.ID,
-			Handle:        "fork",
+			Key:           "fork",
 			MaxConcurrent: maxConcurrent,
 		},
 	}
@@ -104,8 +104,8 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn subagent: %v", err)
 	}
-	if child.Agent.ParentAgentID != parent.ID || child.Agent.SubagentHandle != "fork" {
-		t.Fatalf("child linkage = parent %s handle %q", child.Agent.ParentAgentID, child.Agent.SubagentHandle)
+	if child.Agent.ParentAgentID != parent.ID || child.Agent.SubagentKey != "fork" {
+		t.Fatalf("child linkage = parent %s key %q", child.Agent.ParentAgentID, child.Agent.SubagentKey)
 	}
 	if child.AgentInput.ID == NilID {
 		t.Fatal("child launch did not queue the task input")
@@ -741,7 +741,7 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 		t.Fatalf("list tree interactions: %v", err)
 	}
 	if len(tree.Interactions) != 1 || tree.Interactions[0].AgentID != child.Agent.ID ||
-		tree.Interactions[0].AgentName != "asker" || tree.Interactions[0].SubagentHandle != "fork" {
+		tree.Interactions[0].AgentName != "asker" || tree.Interactions[0].SubagentKey != "fork" {
 		t.Fatalf("tree interactions = %+v", tree.Interactions)
 	}
 	var kind string

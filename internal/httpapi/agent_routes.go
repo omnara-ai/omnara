@@ -1012,7 +1012,7 @@ func (s *Server) currentAgentResponse(
 		subagentSummaries = append(subagentSummaries, openapi.SubagentSummary{
 			Id:             subagentID,
 			Name:           subagent.Name,
-			Handle:         subagent.Handle,
+			Key:            subagent.Key,
 			State:          openapi.SubagentSummaryState(subagent.State),
 			LastActivityAt: subagent.LastActivityAt,
 		})

@@ -1335,9 +1335,9 @@ export type Agent = {
      */
     parent_agent_id?: AgentId;
     /**
-     * The subagents handle this agent was spawned from.
+     * The `subagents` key this agent was spawned from.
      */
-    subagent_handle?: string;
+    subagent_key?: string;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
@@ -1346,7 +1346,7 @@ export type Agent = {
 export type SubagentSummary = {
     id: AgentId;
     name: AgentName;
-    handle: string;
+    key: string;
     state: 'running' | 'idle' | 'waiting_on_parent' | 'archived';
     last_activity_at: Timestamp;
 };
@@ -2111,7 +2111,7 @@ export type AgentInteraction = {
     /**
      * Present when the interaction belongs to a subagent of the listed agent.
      */
-    subagent_handle?: string;
+    subagent_key?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;

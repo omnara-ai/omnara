@@ -9,7 +9,7 @@ export type SubagentType = 'profile' | 'self'
 
 export interface BasicSubagent {
   id: string
-  handle: string
+  key: string
   type: SubagentType
   profileName: string
   description: string
@@ -22,7 +22,7 @@ export interface BasicSubagent {
 export function newSubagent(): BasicSubagent {
   return {
     id: crypto.randomUUID(),
-    handle: '',
+    key: '',
     type: 'profile',
     profileName: '',
     description: '',
@@ -38,7 +38,7 @@ export function positiveCountValid(value: string) {
   return value === '' || positiveIntegerPattern.test(value)
 }
 
-export const subagentHandlePattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
+export const subagentKeyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 
 const subagentToolNames = new Set([
   'spawn_agent',
@@ -48,32 +48,32 @@ const subagentToolNames = new Set([
   'list_agents',
 ])
 
-export function subagentHandleError(handle: string): string | undefined {
-  if (handle === '') return 'Handle is required.'
-  if (!subagentHandlePattern.test(handle)) {
-    return 'Handle must start with a letter or underscore and use only letters, numbers, and underscores.'
+export function subagentKeyError(key: string): string | undefined {
+  if (key === '') return 'Key is required.'
+  if (!subagentKeyPattern.test(key)) {
+    return 'Key must start with a letter or underscore and use only letters, numbers, and underscores.'
   }
-  if (subagentToolNames.has(handle)) return 'Handle collides with a subagent tool name.'
+  if (subagentToolNames.has(key)) return 'Key collides with a subagent tool name.'
   return undefined
 }
 
 export function subagentValid(subagent: BasicSubagent) {
   return (
-    subagentHandleError(subagent.handle) === undefined &&
+    subagentKeyError(subagent.key) === undefined &&
     (subagent.type === 'self' || resourceNameValid(subagent.profileName)) &&
     positiveCountValid(subagent.maxConcurrent) &&
     positiveCountValid(subagent.archiveAfterIdleMinutes)
   )
 }
 
-export function subagentHandlesUnique(subagents: BasicSubagent[]) {
-  const handles = subagents.map((subagent) => subagent.handle)
-  return new Set(handles).size === handles.length
+export function subagentKeysUnique(subagents: BasicSubagent[]) {
+  const keys = subagents.map((subagent) => subagent.key)
+  return new Set(keys).size === keys.length
 }
 
 export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string) {
   return (
-    subagentHandlesUnique(subagents) &&
+    subagentKeysUnique(subagents) &&
     subagents.every(subagentValid) &&
     positiveCountValid(maxSubagents) &&
     (maxSubagents === '' || subagents.length > 0)

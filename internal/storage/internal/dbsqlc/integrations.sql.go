@@ -890,7 +890,7 @@ RETURNING id, org_id, project_id, state, name,
   agent_profile_id, current_config_id, integration_target_id,
   coalesce(idempotency_key, '') AS idempotency_key,
   next_event_sequence, created_at, updated_at, archived_at,
-  parent_agent_id, subagent_handle
+  parent_agent_id, subagent_key
 `
 
 type SetAgentIntegrationTargetParams struct {
@@ -914,7 +914,7 @@ type SetAgentIntegrationTargetRow struct {
 	UpdatedAt           time.Time
 	ArchivedAt          *time.Time
 	ParentAgentID       *uuid.UUID
-	SubagentHandle      string
+	SubagentKey         string
 }
 
 func (q *Queries) SetAgentIntegrationTarget(ctx context.Context, arg SetAgentIntegrationTargetParams) (SetAgentIntegrationTargetRow, error) {
@@ -935,7 +935,7 @@ func (q *Queries) SetAgentIntegrationTarget(ctx context.Context, arg SetAgentInt
 		&i.UpdatedAt,
 		&i.ArchivedAt,
 		&i.ParentAgentID,
-		&i.SubagentHandle,
+		&i.SubagentKey,
 	)
 	return i, err
 }
