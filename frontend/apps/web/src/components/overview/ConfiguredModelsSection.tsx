@@ -3,7 +3,7 @@ import {
   useDeleteConfiguredModel,
   useModelProviders,
 } from '@omnara/react'
-import { ApiError, type ConfiguredModel } from '@omnara/sdk'
+import { ApiError, type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
 import { useEffect, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -215,35 +215,60 @@ export function ConfiguredModelsSection() {
           }
         />
       </div>
-      {canManage && providers.length > 0 && (
+      {canManage && (
+        <ConfiguredModelDialogs
+          orgId={activeOrg.id}
+          providers={providers}
+          activeDialog={activeDialog}
+          onClose={() => {
+            setActiveDialog(null)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function ConfiguredModelDialogs({
+  orgId,
+  providers,
+  activeDialog,
+  onClose,
+}: {
+  orgId: string
+  providers: ModelProviderConfig[]
+  activeDialog: ActiveDialog
+  onClose: () => void
+}) {
+  return (
+    <>
+      {providers.length > 0 && (
         <CreateConfiguredModelDialog
           open={activeDialog?.kind === 'create'}
           onOpenChange={(open) => {
-            if (!open) setActiveDialog(null)
+            if (!open) onClose()
           }}
-          orgId={activeOrg.id}
+          orgId={orgId}
           providers={providers}
         />
       )}
-      {canManage && activeDialog?.kind === 'grant' && (
+      {activeDialog?.kind === 'grant' && (
         <GrantConfiguredModelDialog
           open
           onOpenChange={(open) => {
-            if (!open) {
-              setActiveDialog(null)
-            }
+            if (!open) onClose()
           }}
-          orgId={activeOrg.id}
+          orgId={orgId}
           model={activeDialog.model}
         />
       )}
-      {canManage && activeDialog?.kind === 'edit' && (
+      {activeDialog?.kind === 'edit' && (
         <EditConfiguredModelDialog
           open
           onOpenChange={(open) => {
-            if (!open) setActiveDialog(null)
+            if (!open) onClose()
           }}
-          orgId={activeOrg.id}
+          orgId={orgId}
           model={activeDialog.model}
         />
       )}
