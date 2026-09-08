@@ -192,6 +192,14 @@ func (t *toolCallTransaction) startToolCall(
 	ctx context.Context,
 	retainRuntimeOwnership bool,
 ) error {
+	return t.startToolCallWithTimeout(ctx, retainRuntimeOwnership, nil)
+}
+
+func (t *toolCallTransaction) startToolCallWithTimeout(
+	ctx context.Context,
+	retainRuntimeOwnership bool,
+	timeoutSeconds *int,
+) error {
 	if t == nil || t.tx == nil || t.q == nil {
 		return errors.New("tool call transaction is required")
 	}
@@ -205,6 +213,7 @@ func (t *toolCallTransaction) startToolCall(
 		ctx,
 		dbsqlc.StartToolCallParams{
 			RetainRuntimeOwnership: retainRuntimeOwnership,
+			TimeoutSeconds:         sqlcInt32Ptr(timeoutSeconds),
 			ProjectID:              t.input.ProjectID,
 			AgentID:                t.input.AgentID,
 			ID:                     t.input.ToolCallID,

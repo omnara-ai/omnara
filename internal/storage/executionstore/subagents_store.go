@@ -74,7 +74,6 @@ type AgentWaitRecord struct {
 	ToolCallID ID
 	Mode       string
 	State      string
-	DeadlineAt *time.Time
 }
 
 type AgentWaitTargetOutcome struct {
@@ -114,7 +113,6 @@ type AgentModelUsageSummary struct {
 func agentWaitRecordFromSQLC(
 	id, orgID, projectID, agentID, toolCallID ID,
 	mode, state string,
-	deadlineAt *time.Time,
 ) AgentWaitRecord {
 	return AgentWaitRecord{
 		ID:         id,
@@ -124,7 +122,6 @@ func agentWaitRecordFromSQLC(
 		ToolCallID: toolCallID,
 		Mode:       mode,
 		State:      state,
-		DeadlineAt: deadlineAt,
 	}
 }
 
@@ -603,11 +600,10 @@ func (t *toolCallTransaction) createAgentWait(
 		return outcome, false, nil
 	}
 	wait, err := t.q.InsertAgentWait(ctx, dbsqlc.InsertAgentWaitParams{
-		ToolCallID:     t.input.ToolCallID,
-		Mode:           input.Mode,
-		TimeoutSeconds: sqlcInt32Ptr(input.TimeoutSeconds),
-		ProjectID:      t.input.ProjectID,
-		AgentID:        t.input.AgentID,
+		ToolCallID: t.input.ToolCallID,
+		Mode:       input.Mode,
+		ProjectID:  t.input.ProjectID,
+		AgentID:    t.input.AgentID,
 	})
 	if err != nil {
 		return AgentWaitOutcome{}, false, fmt.Errorf("create agent wait: %w", err)
@@ -633,7 +629,7 @@ func (t *toolCallTransaction) createAgentWait(
 		}
 	}
 	t.hasDurableCompletionOwner = true
-	if err := t.startToolCall(ctx, false); err != nil {
+	if err := t.startToolCallWithTimeout(ctx, false, input.TimeoutSeconds); err != nil {
 		return AgentWaitOutcome{}, false, err
 	}
 	return AgentWaitOutcome{}, true, nil
@@ -783,7 +779,7 @@ func handleSubagentMessageTx(
 	}
 	for _, row := range waits {
 		wait := agentWaitRecordFromSQLC(
-			row.ID, row.OrgID, row.ProjectID, row.AgentID, row.ToolCallID, row.Mode, row.State, row.DeadlineAt,
+			row.ID, row.OrgID, row.ProjectID, row.AgentID, row.ToolCallID, row.Mode, row.State,
 		)
 		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
 			ResultKind:    message.Kind,
@@ -1245,55 +1241,31 @@ func StopSubagentForToolCall(
 	})
 }
 
-func (s *Store) ExpireAgentWaits(ctx context.Context, limit int) (int, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+func timeOutAgentWaitTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	wait AgentWaitRecord,
+) error {
+	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{WaitID: wait.ID})
 	if err != nil {
-		return 0, fmt.Errorf("begin expire agent waits: %w", err)
+		return fmt.Errorf("list agent wait targets: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	rows, err := qtx.ClaimExpiredAgentWaits(ctx, dbsqlc.ClaimExpiredAgentWaitsParams{RowLimit: int32(limit)})
-	if err != nil {
-		return 0, fmt.Errorf("claim expired agent waits: %w", err)
-	}
-	for _, row := range rows {
-		wait := agentWaitRecordFromSQLC(
-			row.ID, row.OrgID, row.ProjectID, row.AgentID, row.ToolCallID, row.Mode, row.State, row.DeadlineAt,
-		)
-		if _, err := qtx.LockAgentInProject(
-			ctx, dbsqlc.LockAgentInProjectParams{ProjectID: wait.ProjectID, ID: wait.AgentID},
-		); err != nil {
-			return 0, fmt.Errorf("lock waiting agent: %w", err)
+	for _, target := range targets {
+		if target.State != "pending" {
+			continue
 		}
-		targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{WaitID: wait.ID})
-		if err != nil {
-			return 0, fmt.Errorf("list agent wait targets: %w", err)
-		}
-		for _, target := range targets {
-			if target.State != "pending" {
-				continue
-			}
-			if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
-				ResultKind:    SubagentMessageKindTimeout,
-				ResultText:    "",
-				WaitID:        wait.ID,
-				TargetAgentID: target.TargetAgentID,
-			}); err != nil {
-				return 0, fmt.Errorf("time out agent wait target: %w", err)
-			}
-		}
-		if err := completeAgentWaitTx(ctx, txNotifications, tx, qtx, wait, true); err != nil {
-			return 0, err
+		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
+			ResultKind:    SubagentMessageKindTimeout,
+			ResultText:    "",
+			WaitID:        wait.ID,
+			TargetAgentID: target.TargetAgentID,
+		}); err != nil {
+			return fmt.Errorf("time out agent wait target: %w", err)
 		}
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "expire agent waits"); err != nil {
-		return 0, err
-	}
-	return len(rows), nil
+	return completeAgentWaitTx(ctx, txNotifications, tx, qtx, wait, true)
 }
 
 func (s *Store) ArchiveIdleSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
