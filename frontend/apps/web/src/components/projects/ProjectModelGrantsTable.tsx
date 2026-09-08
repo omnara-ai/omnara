@@ -16,7 +16,11 @@ import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { createdResourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  createdResourceSortOptions,
+  showListToolbar,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 
 export function ProjectModelGrantsTable({
@@ -40,14 +44,16 @@ export function ProjectModelGrantsTable({
       <SearchHeader
         title="Model grants"
         toolbar={
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            sort={list.sort}
-            sortOptions={createdResourceSortOptions}
-            onSortChange={list.setSort}
-            placeholder="Search model grants by name…"
-          />
+          showListToolbar(list, grantsPaged.pagination) ? (
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={list.sort}
+              sortOptions={createdResourceSortOptions}
+              onSortChange={list.setSort}
+              placeholder="Search model grants by name…"
+            />
+          ) : undefined
         }
       >
         <Button asChild size="sm" variant="ghost">

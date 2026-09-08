@@ -20,6 +20,7 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import {
   filterAndSortLocalItems,
   resourceSortOptions,
+  showListToolbar,
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -90,14 +91,16 @@ export function ConfiguredModelsSection() {
         <SearchHeader
           title="Configured models"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search models by name…"
-            />
+            showListToolbar(list, paged.pagination) ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search models by name…"
+              />
+            ) : undefined
           }
         >
           {newModelButton()}

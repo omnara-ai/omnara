@@ -16,7 +16,7 @@ import {
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { canManageOrg } from '@/lib/permissions'
@@ -56,14 +56,16 @@ export function MachinePoolsSection() {
         <SearchHeader
           title="Machine pools"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search pools by name…"
-            />
+            showListToolbar(list, paged.pagination) ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search pools by name…"
+              />
+            ) : undefined
           }
         >
           {newPoolButton()}

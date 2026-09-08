@@ -10,7 +10,7 @@ import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar
 import { TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -31,7 +31,7 @@ export function AgentProfilesSection({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
+  const showToolbar = showListToolbar(list, paged.pagination)
   const createAgent = useCreateAgent(orgId, projectId)
   const { data: webConfig } = useWebConfig()
   const navigate = useNavigate()

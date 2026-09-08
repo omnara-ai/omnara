@@ -9,7 +9,7 @@ import { SkillDetails } from '@/components/skills/SkillDetails'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -55,14 +55,16 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
         <SearchHeader
           title="Skills"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search skills by name…"
-            />
+            showListToolbar(list, paged.pagination) ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search skills by name…"
+              />
+            ) : undefined
           }
         >
           {canManage && (

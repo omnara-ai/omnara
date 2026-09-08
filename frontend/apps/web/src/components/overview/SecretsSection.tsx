@@ -10,7 +10,7 @@ import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialo
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { secretSubtitle } from '@/lib/secrets'
@@ -72,14 +72,16 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
         <SearchHeader
           title="Secrets"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search secrets by name…"
-            />
+            showListToolbar(list, paged.pagination) ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search secrets by name…"
+              />
+            ) : undefined
           }
         >
           {newSecretButton()}

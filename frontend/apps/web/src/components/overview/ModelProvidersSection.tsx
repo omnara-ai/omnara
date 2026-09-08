@@ -15,7 +15,7 @@ import { EditModelProviderDialog } from '@/components/org/EditModelProviderDialo
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { resourceSortOptions, showListToolbar, useResourceList } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -48,14 +48,16 @@ export function ModelProvidersSection() {
         <SearchHeader
           title="Model providers"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search providers by name…"
-            />
+            showListToolbar(list, paged.pagination) ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search providers by name…"
+              />
+            ) : undefined
           }
         >
           {newProviderButton()}

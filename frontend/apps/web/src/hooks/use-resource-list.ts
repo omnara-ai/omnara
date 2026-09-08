@@ -1,6 +1,8 @@
 import { CREATED_RESOURCE_LIST_SORTS, RESOURCE_LIST_SORTS } from '@omnara/react'
 import { useEffect, useState } from 'react'
 
+import type { PaginationControls } from '@/hooks/use-paged-query'
+
 export interface SortOption<TSort extends string = string> {
   label: string
   value: TSort
@@ -48,6 +50,13 @@ export function useResourceList<TSort extends string>(defaultSort: TSort) {
     isFiltering: name !== undefined,
     queryKey: JSON.stringify([apiFilters, sort]),
   }
+}
+
+export function showListToolbar(
+  list: { search: string; isFiltering: boolean },
+  pagination: PaginationControls,
+): boolean {
+  return list.isFiltering || list.search !== '' || pagination.page > 0 || pagination.canNext
 }
 
 export function nameGlob(value: string) {

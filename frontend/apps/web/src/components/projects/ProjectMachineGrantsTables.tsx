@@ -23,6 +23,7 @@ import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   createdResourceSortOptions,
   resourceSortOptions,
+  showListToolbar,
   useResourceList,
 } from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
@@ -80,14 +81,16 @@ export function ProjectMachineGrantsTables({
         <SearchHeader
           title="Machine pool grants"
           toolbar={
-            <ResourceListToolbar
-              search={poolList.search}
-              onSearchChange={poolList.setSearch}
-              sort={poolList.sort}
-              sortOptions={createdResourceSortOptions}
-              onSortChange={poolList.setSort}
-              placeholder="Search pool grants by name…"
-            />
+            showListToolbar(poolList, grantsPaged.pagination) ? (
+              <ResourceListToolbar
+                search={poolList.search}
+                onSearchChange={poolList.setSearch}
+                sort={poolList.sort}
+                sortOptions={createdResourceSortOptions}
+                onSortChange={poolList.setSort}
+                placeholder="Search pool grants by name…"
+              />
+            ) : undefined
           }
         >
           {
@@ -210,14 +213,16 @@ export function ProjectMachineGrantsTables({
         <SearchHeader
           title="Machine grants"
           toolbar={
-            <ResourceListToolbar
-              search={machineList.search}
-              onSearchChange={machineList.setSearch}
-              sort={machineList.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={machineList.setSort}
-              placeholder="Search machine grants by name…"
-            />
+            showListToolbar(machineList, machineGrantsPaged.pagination) ? (
+              <ResourceListToolbar
+                search={machineList.search}
+                onSearchChange={machineList.setSearch}
+                sort={machineList.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={machineList.setSort}
+                placeholder="Search machine grants by name…"
+              />
+            ) : undefined
           }
         >
           <GrantMachineButton />
