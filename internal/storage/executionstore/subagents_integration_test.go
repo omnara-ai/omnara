@@ -8,7 +8,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -36,6 +35,10 @@ subagents:
     max_concurrent: 1
 max_subagents: 2
 `
+
+func intPtrForSubagentTest(value int) *int {
+	return &value
+}
 
 func spawnSubagentForTest(
 	t *testing.T,
@@ -82,9 +85,8 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-launch@example.com", "Subagent Launch")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "subagent-launch", "Subagent Launch", subagentParentYAML, now)
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "subagent-launch", "Subagent Launch", subagentParentYAML)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		ProfileID:      profile.ID,
@@ -97,7 +99,7 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	}
 	parent := parentLaunch.Agent
 
-	child, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-1", intPtr(1))
+	child, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-1", intPtrForSubagentTest(1))
 	if err != nil {
 		t.Fatalf("spawn subagent: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatal("child launch did not queue the task input")
 	}
 
-	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-2", "subagent-launch-child-2", intPtr(1)); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-2", "subagent-launch-child-2", intPtrForSubagentTest(1)); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("second spawn beyond max_concurrent: err = %v, want conflict", err)
 	}
 	if _, err := spawnSubagentForTest(t, ctx, store, parent, profile.CurrentConfigID, "worker-1", "subagent-launch-child-3", nil); !errors.Is(err, storeerr.ErrInvalidRequest) {
@@ -190,10 +192,9 @@ func TestSubagentArchiveNotifiesParent(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 9, 2, 13, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-notify@example.com", "Subagent Notify")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-notify", "Subagent Notify", subagentParentYAML, now,
+		t, ctx, store, "subagent-notify", "Subagent Notify", subagentParentYAML,
 	)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -245,10 +246,9 @@ func TestSubagentArchiveCompletesParentWait(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-wait@example.com", "Subagent Wait")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-wait", "Subagent Wait", subagentParentYAML, now,
+		t, ctx, store, "subagent-wait", "Subagent Wait", subagentParentYAML,
 	)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -372,10 +372,9 @@ func TestExpireToolCallsTimesOutParentWait(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-timeout@example.com", "Subagent Timeout")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-timeout", "Subagent Timeout", subagentParentYAML, now,
+		t, ctx, store, "subagent-timeout", "Subagent Timeout", subagentParentYAML,
 	)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -503,11 +502,18 @@ func TestExpireToolCallsTimesOutParentWait(t *testing.T) {
 	if waitCall.State != executionstore.ToolCallStateCompleted {
 		t.Fatalf("wait tool call state = %s, want completed", waitCall.State)
 	}
-	if !strings.Contains(string(waitCall.ResultContentParts), `"timed_out":true`) {
-		t.Fatalf("wait result = %s", waitCall.ResultContentParts)
+	var waitResult []struct {
+		Value executionstore.AgentWaitOutcome `json:"value"`
 	}
-	if !strings.Contains(string(waitCall.ResultContentParts), executionstore.SubagentMessageKindTimeout) {
-		t.Fatalf("wait result = %s", waitCall.ResultContentParts)
+	if err := json.Unmarshal(waitCall.ResultContentParts, &waitResult); err != nil {
+		t.Fatalf("decode wait result %s: %v", waitCall.ResultContentParts, err)
+	}
+	if len(waitResult) != 1 || !waitResult[0].Value.TimedOut {
+		t.Fatalf("wait result = %s, want timed_out", waitCall.ResultContentParts)
+	}
+	if len(waitResult[0].Value.Agents) != 1 ||
+		waitResult[0].Value.Agents[0].ResultKind != executionstore.SubagentMessageKindTimeout {
+		t.Fatalf("wait result = %s, want a timeout target", waitCall.ResultContentParts)
 	}
 	var waitState string
 	if err := pool.QueryRow(
@@ -553,10 +559,9 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 9, 2, 15, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-question@example.com", "Subagent Question")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-question", "Subagent Question", subagentParentYAML+"tools:\n  ask_question: {}\n", now,
+		t, ctx, store, "subagent-question", "Subagent Question", subagentParentYAML+"tools:\n  ask_question: {}\n",
 	)
 	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,

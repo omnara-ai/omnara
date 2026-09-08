@@ -206,7 +206,6 @@ WHERE call.agent_id = agent.id
   AND call.state = 'waiting'
   AND call.type = 'built_in'
   AND call.deadline_at IS NOT NULL
-  AND call.deadline_at <= statement_timestamp()
   AND projection.project_id = agent.project_id
   AND projection.agent_id = call.agent_id
   AND projection.id = call.id
@@ -1707,6 +1706,29 @@ func (q *Queries) ListToolCallsForModelContext(ctx context.Context, arg ListTool
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockExpiredToolCall = `-- name: LockExpiredToolCall :one
+SELECT call.id
+FROM tool_calls call
+WHERE call.agent_id = $1
+  AND call.id = $2
+  AND call.state = 'waiting'
+  AND call.deadline_at IS NOT NULL
+  AND call.deadline_at <= statement_timestamp()
+FOR UPDATE
+`
+
+type LockExpiredToolCallParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) LockExpiredToolCall(ctx context.Context, arg LockExpiredToolCallParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockExpiredToolCall, arg.AgentID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const markToolCallAwaitingPermission = `-- name: MarkToolCallAwaitingPermission :one
