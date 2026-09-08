@@ -1,9 +1,10 @@
 import { useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary } from '@omnara/sdk'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
 import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
+import { Button } from '@/components/ui/button'
 import { Field, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
@@ -12,30 +13,15 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
 
-type ModelOption = { kind: 'grant' } | { kind: 'model'; model: ConfiguredModelSummary }
-
-const grantModelsOption: ModelOption = { kind: 'grant' }
-
-const ModelCombobox = createResourceCombobox<ModelOption>({
-  itemKey: (option) => (option.kind === 'grant' ? 'grant-models' : option.model.id),
-  itemLabel: (option) =>
-    option.kind === 'grant'
-      ? 'Grant models…'
-      : `${option.model.name} · ${option.model.provider_config}`,
-  renderItem: (option) =>
-    option.kind === 'grant' ? (
-      <>
-        <PlusIcon className="size-4" />
-        <span>Grant models…</span>
-      </>
-    ) : (
-      <span className="flex min-w-0 items-baseline gap-1.5">
-        <span className="truncate">{option.model.name}</span>
-        <span className="text-muted-foreground truncate text-xs">
-          {option.model.provider_config}
-        </span>
-      </span>
-    ),
+const ModelCombobox = createResourceCombobox<ConfiguredModelSummary>({
+  itemKey: (model) => model.id,
+  itemLabel: (model) => `${model.name} · ${model.provider_config}`,
+  renderItem: (model) => (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className="truncate">{model.name}</span>
+      <span className="text-muted-foreground truncate text-xs">{model.provider_config}</span>
+    </span>
+  ),
   placeholder: 'Search granted models…',
   emptyMessage: 'No granted models found.',
 })
@@ -45,21 +31,7 @@ export interface ModelSelection {
   modelName: string
 }
 
-export function AgentConfigModelField({
-  orgId,
-  projectId,
-  value,
-  onChange,
-  onUnavailableChange,
-}: {
-  orgId: string
-  projectId: string
-  value: ModelSelection
-  onChange: (selection: ModelSelection) => void
-  onUnavailableChange?: (unavailable: boolean) => void
-}) {
-  const { project } = useProjectPage()
-  const [grantOpen, setGrantOpen] = useState(false)
+function useModelChoices(orgId: string, projectId: string, value: ModelSelection) {
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
     filters: search.filters,
@@ -81,12 +53,28 @@ export function AgentConfigModelField({
     listedSelected ?? completeSelection.items.map((item) => item.model).find(matchesValue) ?? null
   const displayedModels =
     selected && !models.some((model) => model.id === selected.id) ? [selected, ...models] : models
-  const modelOptions: ModelOption[] = displayedModels.map((model) => ({ kind: 'model', model }))
-  const selectedOption: ModelOption | null = selected ? { kind: 'model', model: selected } : null
-  const options = project?.access.can_manage_access
-    ? [grantModelsOption, ...modelOptions]
-    : modelOptions
   const unavailable = lookupEnabled && completeSelection.isComplete && selected === null
+  return { search, grantsQuery, selectedQuery, models, selected, displayedModels, unavailable }
+}
+
+export function AgentConfigModelField({
+  orgId,
+  projectId,
+  value,
+  onChange,
+  onUnavailableChange,
+}: {
+  orgId: string
+  projectId: string
+  value: ModelSelection
+  onChange: (selection: ModelSelection) => void
+  onUnavailableChange?: (unavailable: boolean) => void
+}) {
+  const { project } = useProjectPage()
+  const [grantOpen, setGrantOpen] = useState(false)
+  const modelTriggerRef = useRef<HTMLButtonElement>(null)
+  const { search, grantsQuery, selectedQuery, models, selected, displayedModels, unavailable } =
+    useModelChoices(orgId, projectId, value)
   useEffect(() => {
     onUnavailableChange?.(unavailable)
   }, [onUnavailableChange, unavailable])
@@ -97,17 +85,18 @@ export function AgentConfigModelField({
         <RequiredFieldLabel htmlFor="agent-config-model">Model</RequiredFieldLabel>
         <ModelCombobox
           id="agent-config-model"
+          triggerRef={modelTriggerRef}
           required
-          items={options}
-          value={selectedOption}
-          onValueChange={(option) => {
-            if (option?.kind === 'grant') {
-              setGrantOpen(true)
+          items={displayedModels}
+          value={selected}
+          onValueChange={(model) => {
+            if (model === null) {
+              onChange({ providerConfig: '', modelName: '' })
               return
             }
             onChange({
-              providerConfig: option?.model.provider_config ?? '',
-              modelName: option?.model.name ?? '',
+              providerConfig: model.provider_config,
+              modelName: model.name,
             })
           }}
           search={search}
@@ -120,6 +109,20 @@ export function AgentConfigModelField({
                 : 'Search granted models…'
           }
           disabled={grantsQuery.isError || selectedQuery.isError}
+          action={
+            project?.access.can_manage_access && (
+              <Button
+                variant="ghost"
+                className="h-9 w-full justify-start px-2"
+                onClick={() => {
+                  setGrantOpen(true)
+                }}
+              >
+                <PlusIcon className="size-4" />
+                Grant models…
+              </Button>
+            )
+          }
         />
         <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
         <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
@@ -159,6 +162,10 @@ export function AgentConfigModelField({
         )}
       </Field>
       <GrantProjectModelDialog
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          modelTriggerRef.current?.focus()
+        }}
         open={grantOpen}
         onOpenChange={setGrantOpen}
         orgId={orgId}

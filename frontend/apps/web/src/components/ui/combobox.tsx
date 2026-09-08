@@ -1,7 +1,8 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox'
-import type { ComponentProps, ReactNode } from 'react'
+import { type ComponentProps, type ReactNode, useContext } from 'react'
 
 import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from '@/components/icons'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 import { textFieldVariants } from '@/components/ui/text-field-variants'
 import { cn } from '@/lib/utils'
 
@@ -111,27 +112,20 @@ function ComboboxChip({
 const ComboboxValue = ComboboxPrimitive.Value
 
 function ComboboxContent({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.Popup>) {
+  const dialogContainer = useContext(DialogContainerContext)
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={dialogContainer}>
       <ComboboxPrimitive.Positioner
         className="pointer-events-auto isolate z-50"
         sideOffset={4}
         align="start"
+        collisionBoundary={dialogContainer ?? undefined}
       >
         <ComboboxPrimitive.Popup
           className={cn(
-            'bg-popover text-popover-foreground control-focus w-[var(--anchor-width)] min-w-64 overflow-hidden rounded-md border shadow-lg',
+            'bg-popover text-popover-foreground control-focus flex max-h-[var(--available-height)] w-[var(--anchor-width)] min-w-64 flex-col overflow-hidden rounded-md border shadow-lg',
             className,
           )}
-          // Radix modal dialogs cancel wheel/touch events that reach document
-          // from outside the dialog subtree, and this popup portals to <body>.
-          // Keep scroll events inside the popup so its list stays scrollable.
-          onWheel={(event) => {
-            event.stopPropagation()
-          }}
-          onTouchMove={(event) => {
-            event.stopPropagation()
-          }}
           {...props}
         />
       </ComboboxPrimitive.Positioner>
@@ -142,7 +136,7 @@ function ComboboxContent({ className, ...props }: ComponentProps<typeof Combobox
 function ComboboxList({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.List>) {
   return (
     <ComboboxPrimitive.List
-      className={cn('max-h-64 scroll-py-1 overflow-y-auto p-1', className)}
+      className={cn('max-h-64 min-h-0 scroll-py-1 overflow-y-auto p-1', className)}
       {...props}
     />
   )

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { type RefObject, useRef, useState } from 'react'
 
 import { XIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -30,13 +30,17 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     disabled,
     action,
     clearable = true,
+    triggerRef: externalTriggerRef,
   }: ResourceComboboxBaseProps<TItem> & {
     value: TItem | null
     onValueChange: (item: TItem | null) => void
     clearable?: boolean
+    triggerRef?: RefObject<HTMLButtonElement | null>
   }) {
     const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
-    const triggerRef = useRef<HTMLButtonElement>(null)
+    const localTriggerRef = useRef<HTMLButtonElement>(null)
+    const triggerRef = externalTriggerRef ?? localTriggerRef
+    const [open, setOpen] = useState(false)
     const canClear = clearable && value !== null
 
     return (
@@ -44,6 +48,8 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
         {...rootProps}
         id={id}
         required={required}
+        open={open}
+        onOpenChange={setOpen}
         value={value}
         onValueChange={onValueChange}
       >
@@ -53,6 +59,20 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
             id={id}
             aria-label={id ? undefined : config.placeholder}
             className={canClear ? '[&>span]:pr-8' : undefined}
+            onKeyDown={(event) => {
+              if (
+                event.key.length !== 1 ||
+                event.key === ' ' ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.altKey
+              )
+                return
+              event.preventDefault()
+              event.preventBaseUIHandler()
+              rootProps.onInputValueChange(event.key)
+              setOpen(true)
+            }}
           >
             <span className="truncate">{value ? config.itemLabel(value) : placeholder}</span>
           </ComboboxTrigger>

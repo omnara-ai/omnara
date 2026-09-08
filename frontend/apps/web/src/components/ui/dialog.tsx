@@ -1,7 +1,8 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useState } from 'react'
 
 import { XIcon } from '@/components/icons'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 import { cn } from '@/lib/utils'
 
 function Dialog({ ...props }: ComponentProps<typeof DialogPrimitive.Root>) {
@@ -40,6 +41,7 @@ function DialogContent({
   onSubmit,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & { showCloseButton?: boolean }) {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -54,14 +56,19 @@ function DialogContent({
           onSubmit?.(event)
         }}
         {...props}
+        asChild
       >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close className="control-focus data-[state=open]:bg-accent data-[state=open]:text-muted-foreground rounded-xs [&_svg:not([class*='size-'])]:size-4.5 absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0">
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+        <div ref={setContainer}>
+          <DialogContainerContext value={container}>
+            {children}
+            {showCloseButton && (
+              <DialogPrimitive.Close className="control-focus data-[state=open]:bg-accent data-[state=open]:text-muted-foreground rounded-xs [&_svg:not([class*='size-'])]:size-4.5 absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0">
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </DialogPrimitive.Close>
+            )}
+          </DialogContainerContext>
+        </div>
       </DialogPrimitive.Content>
     </DialogPortal>
   )
