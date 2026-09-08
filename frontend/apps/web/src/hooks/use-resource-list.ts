@@ -52,10 +52,10 @@ export function useResourceList<TSort extends string>(defaultSort: TSort) {
   }
 }
 
-/** Keep controls mounted until a successful result can update their visibility. */
+/** Preserve visibility during loading and errors; only successful results can hide controls. */
 export function useListToolbarVisibility(
   list: { search: string; isFiltering: boolean },
-  pagination: PaginationControls,
+  pagination: Pick<PaginationControls, 'page' | 'canNext'>,
   isSuccess: boolean,
 ): boolean {
   const [wasVisible, setWasVisible] = useState(false)
