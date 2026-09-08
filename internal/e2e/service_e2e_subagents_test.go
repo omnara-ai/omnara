@@ -1,0 +1,366 @@
+//go:build integration && servicee2e
+
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/publicid"
+)
+
+const subagentServiceE2ESourceYAML = `instruction: Coordinate helpers and report the outcome.
+model:
+  provider_config: openai-prod
+  name: service-e2e-local
+subagents:
+  helper:
+    type: self
+    instruction:
+      append: You are the helper subagent.
+`
+
+const assistantTextCountSQL = `
+SELECT count(*)
+FROM agent_events event
+JOIN agents agent ON agent.id = event.agent_id
+JOIN content_blocks block ON block.agent_id = event.agent_id
+  AND block.owner_model_output_id = event.model_output_id
+WHERE agent.project_id = $1
+  AND event.agent_id = $2
+  AND event.event_kind = 'model_output'
+  AND block.block_kind = 'text'
+  AND block.text_content = $3`
+
+func newSubagentServiceE2EModelServer(
+	t *testing.T,
+	handleParent func(w http.ResponseWriter, body map[string]any, request int64),
+	handleChild func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64),
+) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
+	var parentRequests, childRequests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode OpenAI request: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requestContainsTool(body, "spawn_agent") {
+			handleParent(w, body, parentRequests.Add(1))
+			return
+		}
+		handleChild(w, r, body, childRequests.Add(1))
+	}))
+	return server, &parentRequests, &childRequests
+}
+
+func requestToolResultText(body map[string]any, callID string) string {
+	input, ok := body["input"].([]any)
+	if !ok {
+		return ""
+	}
+	var text strings.Builder
+	for _, raw := range input {
+		item, ok := raw.(map[string]any)
+		if !ok || item["type"] != "function_call_output" || item["call_id"] != callID {
+			continue
+		}
+		parts, ok := item["output"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawPart := range parts {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			if partText, ok := part["text"].(string); ok {
+				text.WriteString(partText)
+				text.WriteString("\n")
+			}
+		}
+	}
+	return text.String()
+}
+
+func waitForParentWaitToPark(ctx context.Context, env *serviceE2EEnvironment, projectUUID, parentUUID string) bool {
+	for {
+		var parked int
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM tool_calls call JOIN agents agent ON agent.id = call.agent_id
+			 WHERE agent.project_id = $1 AND call.agent_id = $2 AND call.name = 'wait_agents' AND call.state = 'waiting'`,
+			projectUUID, parentUUID,
+		).Scan(&parked)
+		if err == nil && parked == 1 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func failSubagentServiceE2ERequest(t *testing.T) fakeModelFailureFunc {
+	return func(w http.ResponseWriter, status int, format string, args ...any) {
+		t.Errorf(format, args...)
+		http.Error(w, "fake model failure", status)
+	}
+}
+
+func waitForAssistantText(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID, text string,
+) {
+	t.Helper()
+	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
+		var count int
+		if err := env.db.QueryRow(ctx, assistantTextCountSQL, projectUUID, agentUUID, text).Scan(&count); err != nil {
+			return false, err.Error()
+		}
+		return count == 1, "assistant output not recorded yet"
+	})
+}
+
+func TestServiceE2EDeterministicSubagentSpawnWaitAndResult(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-wait")
+	fail := failSubagentServiceE2ERequest(t)
+	var parentIdentity atomic.Value
+	const childTask = "Summarize why the build failed."
+	const childText = "SUBAGENT_RESULT: the build failed because a test timed out"
+	const parentText = "parent finished after the helper reported"
+	openai, parentRequests, childRequests := newSubagentServiceE2EModelServer(
+		t,
+		func(w http.ResponseWriter, body map[string]any, request int64) {
+			switch request {
+			case 1:
+				writeOpenAIFunctionCall(w, fail, "resp_parent_spawn", "call_spawn", "spawn_agent", map[string]any{
+					"agent": "helper",
+					"task":  childTask,
+					"name":  "summarizer",
+				})
+			case 2:
+				if !requestContainsToolResult(body, "call_spawn", "summarizer") {
+					fail(w, http.StatusBadRequest, "second parent request lacks the spawn result: %s", mustJSONString(body))
+					return
+				}
+				writeOpenAIFunctionCall(w, fail, "resp_parent_wait", "call_wait", "wait_agents", map[string]any{
+					"agents": []string{"summarizer"},
+				})
+			case 3:
+				waitResult := requestToolResultText(body, "call_wait")
+				if !strings.Contains(waitResult, childText) || !strings.Contains(waitResult, `"result_kind":"result"`) {
+					fail(w, http.StatusBadRequest, "third parent request lacks the child result: %s", mustJSONString(body))
+					return
+				}
+				if strings.Contains(waitResult, `"timed_out":true`) {
+					fail(w, http.StatusBadRequest, "wait result reported a timeout: %s", mustJSONString(body))
+					return
+				}
+				writeOpenAIMessage(w, fail, "resp_parent_final", parentText)
+			default:
+				fail(w, http.StatusTeapot, "unexpected parent request %d: %s", request, mustJSONString(body))
+			}
+		},
+		func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64) {
+			if request != 1 {
+				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
+				return
+			}
+			identity, ok := parentIdentity.Load().([2]string)
+			if !ok || !waitForParentWaitToPark(r.Context(), env, identity[0], identity[1]) {
+				fail(w, http.StatusConflict, "child model call ran before the parent parked in wait_agents")
+				return
+			}
+			requestText := mustJSONString(body)
+			if !strings.Contains(requestText, childTask) || !strings.Contains(requestText, "You are the helper subagent.") {
+				fail(w, http.StatusBadRequest, "child request lacks its task or appended instruction: %s", requestText)
+				return
+			}
+			if requestContainsTool(body, "wait_agents") {
+				fail(w, http.StatusBadRequest, "self subagent must not expose subagent tools: %s", requestText)
+				return
+			}
+			writeOpenAIMessage(w, fail, "resp_child_final", childText)
+		},
+	)
+	defer openai.Close()
+
+	env.startAPI(t, ctx)
+	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-subagent-wait", subagentServiceE2ESourceYAML)
+	agentID := project.createAgent(t, ctx)
+	project.createInput(t, ctx, agentID, "delegate the summary to a helper and wait for it")
+	env.startWorker(
+		t,
+		ctx,
+		project.projectID,
+		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: openai.URL},
+	)
+	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
+	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
+	parentIdentity.Store([2]string{projectUUID, agentUUID})
+
+	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, parentText)
+	if got := parentRequests.Load(); got != 3 {
+		t.Fatalf("parent made %d model requests, want 3", got)
+	}
+	if got := childRequests.Load(); got != 1 {
+		t.Fatalf("child made %d model requests, want 1", got)
+	}
+
+	var childName, childHandle, childState string
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT name, subagent_handle, state FROM agents WHERE project_id = $1 AND parent_agent_id = $2`,
+		projectUUID, agentUUID,
+	).Scan(&childName, &childHandle, &childState); err != nil {
+		t.Fatalf("load spawned subagent: %v", err)
+	}
+	if childName != "summarizer" || childHandle != "helper" || childState != "active" {
+		t.Fatalf("subagent = %s/%s/%s, want summarizer/helper/active", childName, childHandle, childState)
+	}
+	var pendingTargets int
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_wait_targets WHERE project_id = $1 AND agent_id = $2 AND state = 'pending'`,
+		projectUUID, agentUUID,
+	).Scan(&pendingTargets); err != nil {
+		t.Fatalf("count pending wait targets: %v", err)
+	}
+	if pendingTargets != 0 {
+		t.Fatalf("pending wait targets = %d, want 0", pendingTargets)
+	}
+	listed := env.requestJSON(
+		t, ctx, http.MethodGet, project.projectPath+"/agents", nil, "", project.adminToken, http.StatusOK,
+	)
+	if items, _ := listed["data"].([]any); len(items) != 1 {
+		t.Fatalf("top-level agent list returned %d agents, want only the parent: %s", len(items), mustJSONString(listed))
+	}
+	listedWithChildren := env.requestJSON(
+		t, ctx, http.MethodGet, project.projectPath+"/agents?include_subagents=true", nil, "", project.adminToken, http.StatusOK,
+	)
+	if items, _ := listedWithChildren["data"].([]any); len(items) != 2 {
+		t.Fatalf("agent list with subagents returned %d agents, want 2: %s", len(items), mustJSONString(listedWithChildren))
+	}
+}
+
+func TestServiceE2EDeterministicSubagentWaitTimeoutAndStop(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-timeout")
+	fail := failSubagentServiceE2ERequest(t)
+	const parentText = "parent gave up on the slow helper and stopped it"
+	childReleased := make(chan struct{})
+	var childRequestAborted atomic.Bool
+	openai, parentRequests, childRequests := newSubagentServiceE2EModelServer(
+		t,
+		func(w http.ResponseWriter, body map[string]any, request int64) {
+			switch request {
+			case 1:
+				writeOpenAIFunctionCall(w, fail, "resp_parent_spawn", "call_spawn", "spawn_agent", map[string]any{
+					"agent": "helper",
+					"task":  "Take as long as you need.",
+					"name":  "slow",
+				})
+			case 2:
+				writeOpenAIFunctionCall(w, fail, "resp_parent_wait", "call_wait", "wait_agents", map[string]any{
+					"agents":          []string{"slow"},
+					"timeout_seconds": 1,
+				})
+			case 3:
+				waitResult := requestToolResultText(body, "call_wait")
+				if !strings.Contains(waitResult, `"timed_out":true`) {
+					fail(w, http.StatusBadRequest, "third parent request lacks a timed-out wait result: %s", mustJSONString(body))
+					return
+				}
+				if !strings.Contains(waitResult, `"result_kind":"timeout"`) {
+					fail(w, http.StatusBadRequest, "timed-out wait did not mark the target: %s", mustJSONString(body))
+					return
+				}
+				writeOpenAIFunctionCall(w, fail, "resp_parent_stop", "call_stop", "stop_agent", map[string]any{
+					"agent": "slow",
+				})
+			case 4:
+				if !requestContainsToolResult(body, "call_stop", "") {
+					fail(w, http.StatusBadRequest, "fourth parent request lacks the stop result: %s", mustJSONString(body))
+					return
+				}
+				writeOpenAIMessage(w, fail, "resp_parent_final", parentText)
+			default:
+				fail(w, http.StatusTeapot, "unexpected parent request %d: %s", request, mustJSONString(body))
+			}
+		},
+		func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64) {
+			if request != 1 {
+				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
+				return
+			}
+			select {
+			case <-r.Context().Done():
+				childRequestAborted.Store(true)
+			case <-childReleased:
+			}
+			http.Error(w, "child model call was stopped", http.StatusServiceUnavailable)
+		},
+	)
+	defer openai.Close()
+	defer close(childReleased)
+
+	env.startAPI(t, ctx)
+	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-subagent-timeout", subagentServiceE2ESourceYAML)
+	agentID := project.createAgent(t, ctx)
+	project.createInput(t, ctx, agentID, "delegate to a helper with a short timeout")
+	env.startWorker(
+		t,
+		ctx,
+		project.projectID,
+		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: openai.URL},
+	)
+	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
+	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
+
+	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, parentText)
+	if got := parentRequests.Load(); got != 4 {
+		t.Fatalf("parent made %d model requests, want 4", got)
+	}
+	if got := childRequests.Load(); got != 1 {
+		t.Fatalf("child made %d model requests, want 1", got)
+	}
+	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
+		var childState string
+		var locks int
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT agent.state,
+			        (SELECT count(*) FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = agent.id)
+			 FROM agents agent WHERE agent.project_id = $1 AND agent.parent_agent_id = $2`,
+			projectUUID, agentUUID,
+		).Scan(&childState, &locks); err != nil {
+			return false, err.Error()
+		}
+		if childState != "archived" {
+			return false, "subagent state is " + childState
+		}
+		return locks == 0, "subagent runtime lock still present"
+	})
+	if !childRequestAborted.Load() {
+		t.Fatal("stopping the subagent did not abort its in-flight model call")
+	}
+}
