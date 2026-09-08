@@ -17,9 +17,6 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 - Run the relevant checks described in the README's
   [Development section](README.md#development).
 
-See [Go test helpers](internal/testutil/README.md) for fixture ownership,
-assertion conventions, and tagged lint coverage.
-
 ## Generated files
 
 Do not edit generated files by hand. After changing the OpenAPI contract, run:
