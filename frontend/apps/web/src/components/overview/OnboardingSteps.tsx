@@ -12,6 +12,70 @@ export function OnboardingSteps({ children }: { children: ReactNode }) {
   )
 }
 
+function StepRail({ status, nextStatus }: { status: StepStatus; nextStatus: StepStatus }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-slot="step-rail"
+      className={cn(
+        'absolute -left-[43px] hidden w-px transition-colors duration-700 sm:block',
+        'top-[20px]',
+        status === 'done' && nextStatus === 'done'
+          ? '-bottom-[105px]'
+          : status === 'done' || nextStatus === 'done'
+            ? '-bottom-[81px]'
+            : '-bottom-[57px]',
+        status === 'done' && nextStatus === 'done' && 'bg-primary/60',
+        status === 'done' && nextStatus !== 'done' && 'to-border from-primary bg-gradient-to-b',
+        status !== 'done' && 'bg-border',
+      )}
+    />
+  )
+}
+
+function StepHeading({
+  title,
+  doneTitle,
+  description,
+  status,
+  pending,
+  completion,
+}: {
+  title: string
+  doneTitle: string
+  description: string
+  status: StepStatus
+  pending: boolean
+  completion?: ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6">
+      <div className="flex flex-col gap-1.5">
+        <h3 className="type-card-title flex items-center gap-2">
+          {status === 'done' ? doneTitle : title}
+          {pending && status !== 'done' && (
+            <span
+              role="status"
+              aria-label="Working"
+              data-slot="step-spinner"
+              className="border-muted-foreground/25 border-t-primary size-4 rounded-full border-2 motion-safe:animate-spin"
+            />
+          )}
+        </h3>
+        {status !== 'done' && <p className="text-muted-foreground text-sm">{description}</p>}
+      </div>
+      {status === 'done' && completion && (
+        <div
+          data-slot="step-completion"
+          className="text-link flex items-center text-sm font-medium"
+        >
+          {completion}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function OnboardingStep({
   index,
   title,
@@ -63,26 +127,7 @@ export function OnboardingStep({
           status === 'upcoming' && 'pointer-events-none select-none opacity-40',
         )}
       >
-        {nextStatus && (
-          <span
-            aria-hidden="true"
-            data-slot="step-rail"
-            className={cn(
-              'absolute -left-[43px] hidden w-px transition-colors duration-700 sm:block',
-              'top-[20px]',
-              status === 'done' && nextStatus === 'done'
-                ? '-bottom-[105px]'
-                : status === 'done' || nextStatus === 'done'
-                  ? '-bottom-[81px]'
-                  : '-bottom-[57px]',
-              status === 'done' && nextStatus === 'done' && 'bg-primary/60',
-              status === 'done' &&
-                nextStatus !== 'done' &&
-                'to-border bg-gradient-to-b from-blue-500',
-              status !== 'done' && 'bg-border',
-            )}
-          />
-        )}
+        {nextStatus && <StepRail status={status} nextStatus={nextStatus} />}
         <span
           aria-hidden="true"
           className={cn(
@@ -95,7 +140,7 @@ export function OnboardingStep({
         <div
           className={cn(
             'min-w-0 flex-1 rounded-2xl p-px sm:-m-6',
-            status === 'done' && 'bg-gradient-to-r from-blue-500/25 to-transparent',
+            status === 'done' && 'from-primary/25 bg-gradient-to-r to-transparent',
             status === 'done' && statusChanged && 'animate-in fade-in-0 duration-500',
           )}
         >
@@ -103,36 +148,18 @@ export function OnboardingStep({
             className={cn(
               'min-w-0 rounded-[15px] p-[15px] sm:p-[23px]',
               status === 'done' &&
-                'bg-background bg-gradient-to-r from-blue-500/[0.07] to-transparent',
+                'bg-background from-primary/[0.07] bg-gradient-to-r to-transparent',
             )}
           >
             <div className="flex min-w-0 flex-col gap-5 sm:gap-8">
-              <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6">
-                <div className="flex flex-col gap-1.5">
-                  <h3 className="type-card-title flex items-center gap-2">
-                    {status === 'done' ? doneTitle : title}
-                    {pending && status !== 'done' && (
-                      <span
-                        role="status"
-                        aria-label="Working"
-                        data-slot="step-spinner"
-                        className="border-muted-foreground/25 size-4 rounded-full border-2 border-t-blue-500 motion-safe:animate-spin"
-                      />
-                    )}
-                  </h3>
-                  {status !== 'done' && (
-                    <p className="text-muted-foreground text-sm">{description}</p>
-                  )}
-                </div>
-                {status === 'done' && completion && (
-                  <div
-                    data-slot="step-completion"
-                    className="text-link flex items-center text-sm font-medium"
-                  >
-                    {completion}
-                  </div>
-                )}
-              </div>
+              <StepHeading
+                title={title}
+                doneTitle={doneTitle}
+                description={description}
+                status={status}
+                pending={pending}
+                completion={completion}
+              />
               {children}
             </div>
           </div>
