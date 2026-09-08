@@ -48,6 +48,34 @@ func SplitMCPRuntimeToolName(name string) (serverKey string, remoteName string, 
 	return serverKey, remoteName, true
 }
 
+type MCPRuntimeToolNameTooLongError struct {
+	ServerKey  string
+	RemoteName string
+}
+
+func (e *MCPRuntimeToolNameTooLongError) RuntimeName() string {
+	return MCPRuntimeToolName(e.ServerKey, e.RemoteName)
+}
+
+func (e *MCPRuntimeToolNameTooLongError) MaxServerKeyLength() int {
+	return MaxMCPRuntimeToolNameLength - len(MCPRuntimeToolPrefix) - len(MCPToolNameSeparator) - len(e.RemoteName)
+}
+
+func (e *MCPRuntimeToolNameTooLongError) Error() string {
+	name := e.RuntimeName()
+	message := fmt.Sprintf(
+		"tool %q becomes %q (%d characters) once the server name is prefixed, but the model only accepts tool names of %d characters or fewer",
+		e.RemoteName,
+		name,
+		len(name),
+		MaxMCPRuntimeToolNameLength,
+	)
+	if maxKey := e.MaxServerKeyLength(); maxKey >= 1 {
+		return fmt.Sprintf("%s; shorten the server name %q to %d characters or fewer", message, e.ServerKey, maxKey)
+	}
+	return message + "; the tool name itself is too long to expose under any server name"
+}
+
 func ValidateMCPRuntimeToolName(serverKey, remoteName string) error {
 	if serverKey == "" {
 		return errors.New("mcp server key is required")
@@ -61,9 +89,8 @@ func ValidateMCPRuntimeToolName(serverKey, remoteName string) error {
 	if !mcpRemoteToolNamePattern.MatchString(remoteName) {
 		return fmt.Errorf("mcp tool name %q must match %s", remoteName, MCPRemoteToolNamePattern)
 	}
-	name := MCPRuntimeToolName(serverKey, remoteName)
-	if len(name) > MaxMCPRuntimeToolNameLength {
-		return fmt.Errorf("mcp runtime tool name %q must be %d characters or fewer", name, MaxMCPRuntimeToolNameLength)
+	if len(MCPRuntimeToolName(serverKey, remoteName)) > MaxMCPRuntimeToolNameLength {
+		return &MCPRuntimeToolNameTooLongError{ServerKey: serverKey, RemoteName: remoteName}
 	}
 	return nil
 }
