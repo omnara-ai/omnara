@@ -79,23 +79,19 @@ func expireToolCallTx(
 	qtx *dbsqlc.Queries,
 	projectID, agentID, toolCallID ID,
 ) (bool, error) {
-	waitRow, err := qtx.GetAgentWaitByToolCall(ctx, dbsqlc.GetAgentWaitByToolCallParams{
-		ProjectID:  projectID,
+	waitTargets, err := qtx.CountAgentWaitTargets(ctx, dbsqlc.CountAgentWaitTargetsParams{
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 	})
-	if err == nil && waitRow.State == "open" {
-		wait := agentWaitRecordFromSQLC(
-			waitRow.ID, waitRow.OrgID, waitRow.ProjectID, waitRow.AgentID,
-			waitRow.ToolCallID, waitRow.Mode, waitRow.State,
-		)
+	if err != nil {
+		return false, fmt.Errorf("count agent wait targets for tool call expiry: %w", err)
+	}
+	if waitTargets > 0 {
+		wait := AgentWaitRecord{ProjectID: projectID, AgentID: agentID, ToolCallID: toolCallID}
 		if err := timeOutAgentWaitTx(ctx, txNotifications, tx, qtx, wait); err != nil {
 			return false, err
 		}
 		return true, nil
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, fmt.Errorf("load agent wait for tool call expiry: %w", err)
 	}
 	result, err := marshalJSON(map[string]any{
 		"error_code": toolCallTimeoutErrorCode,

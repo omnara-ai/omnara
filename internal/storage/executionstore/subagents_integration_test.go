@@ -515,17 +515,18 @@ func TestExpireToolCallsTimesOutParentWait(t *testing.T) {
 		waitResult[0].Value.Agents[0].ResultKind != executionstore.SubagentMessageKindTimeout {
 		t.Fatalf("wait result = %s, want a timeout target", waitCall.ResultContentParts)
 	}
-	var waitState string
+	var pendingTargets int
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT state FROM agent_waits WHERE agent_id = $1 AND tool_call_id = $2`,
+		`SELECT count(*) FROM agent_wait_targets
+		 WHERE agent_id = $1 AND tool_call_id = $2 AND state = 'pending'`,
 		parent.ID,
 		waitToolCallID,
-	).Scan(&waitState); err != nil {
-		t.Fatalf("load agent wait: %v", err)
+	).Scan(&pendingTargets); err != nil {
+		t.Fatalf("count pending wait targets: %v", err)
 	}
-	if waitState != "completed" {
-		t.Fatalf("agent wait state = %s, want completed", waitState)
+	if pendingTargets != 0 {
+		t.Fatalf("pending wait targets = %d, want 0", pendingTargets)
 	}
 	expired, err = store.Execution().ExpireToolCalls(ctx, executionstore.ToolCallExpiryBatchSize)
 	if err != nil {

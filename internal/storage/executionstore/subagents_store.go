@@ -67,13 +67,10 @@ type SubagentStatus struct {
 }
 
 type AgentWaitRecord struct {
-	ID         ID
-	OrgID      ID
 	ProjectID  ID
 	AgentID    ID
 	ToolCallID ID
 	Mode       string
-	State      string
 }
 
 type AgentWaitTargetOutcome struct {
@@ -108,21 +105,6 @@ type AgentModelUsageSummary struct {
 	OutputTokensTotal       int64
 	ReasoningOutputTokens   int64
 	ProviderReportedCostUSD string
-}
-
-func agentWaitRecordFromSQLC(
-	id, orgID, projectID, agentID, toolCallID ID,
-	mode, state string,
-) AgentWaitRecord {
-	return AgentWaitRecord{
-		ID:         id,
-		OrgID:      orgID,
-		ProjectID:  projectID,
-		AgentID:    agentID,
-		ToolCallID: toolCallID,
-		Mode:       mode,
-		State:      state,
-	}
 }
 
 func SubagentActorParams(orgID ID, agent AgentRecord) (*ActorParams, error) {
@@ -529,20 +511,19 @@ func (t *toolCallTransaction) createAgentWait(
 	if input.Mode != AgentWaitModeAll && input.Mode != AgentWaitModeAny {
 		return AgentWaitOutcome{}, false, storeerr.InvalidRequest(fmt.Errorf("unsupported wait mode %q", input.Mode))
 	}
-	_, err := t.q.GetAgentWaitByToolCall(ctx, dbsqlc.GetAgentWaitByToolCallParams{
-		ProjectID:  t.input.ProjectID,
+	existingTargets, err := t.q.CountAgentWaitTargets(ctx, dbsqlc.CountAgentWaitTargetsParams{
 		AgentID:    t.input.AgentID,
 		ToolCallID: t.input.ToolCallID,
 	})
-	if err == nil {
+	if err != nil {
+		return AgentWaitOutcome{}, false, fmt.Errorf("count agent wait targets: %w", err)
+	}
+	if existingTargets > 0 {
 		t.hasDurableCompletionOwner = true
 		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return AgentWaitOutcome{}, false, err
 		}
 		return AgentWaitOutcome{}, true, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return AgentWaitOutcome{}, false, fmt.Errorf("load agent wait: %w", err)
 	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentWaitOutcome{}, false, err
@@ -599,19 +580,11 @@ func (t *toolCallTransaction) createAgentWait(
 	if satisfied {
 		return outcome, false, nil
 	}
-	wait, err := t.q.InsertAgentWait(ctx, dbsqlc.InsertAgentWaitParams{
-		ToolCallID: t.input.ToolCallID,
-		Mode:       input.Mode,
-		ProjectID:  t.input.ProjectID,
-		AgentID:    t.input.AgentID,
-	})
-	if err != nil {
-		return AgentWaitOutcome{}, false, fmt.Errorf("create agent wait: %w", err)
-	}
 	for _, entry := range outcome.Agents {
 		if err := t.q.InsertAgentWaitTarget(ctx, dbsqlc.InsertAgentWaitTargetParams{
-			WaitID:        wait.ID,
 			ProjectID:     t.input.ProjectID,
+			AgentID:       t.input.AgentID,
+			ToolCallID:    t.input.ToolCallID,
 			TargetAgentID: entry.AgentID,
 		}); err != nil {
 			return AgentWaitOutcome{}, false, fmt.Errorf("create agent wait target: %w", err)
@@ -622,7 +595,8 @@ func (t *toolCallTransaction) createAgentWait(
 		if _, err := t.q.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
 			ResultKind:    entry.ResultKind,
 			ResultText:    entry.Result,
-			WaitID:        wait.ID,
+			AgentID:       t.input.AgentID,
+			ToolCallID:    t.input.ToolCallID,
 			TargetAgentID: entry.AgentID,
 		}); err != nil {
 			return AgentWaitOutcome{}, false, fmt.Errorf("record settled agent wait target: %w", err)
@@ -657,18 +631,22 @@ func completeAgentWaitTx(
 	wait AgentWaitRecord,
 	timedOut bool,
 ) error {
-	changed, err := qtx.CompleteAgentWait(ctx, dbsqlc.CompleteAgentWaitParams{
-		State:     "completed",
-		ProjectID: wait.ProjectID,
-		ID:        wait.ID,
+	row, err := qtx.CompleteToolCallFromAgentWait(ctx, dbsqlc.CompleteToolCallFromAgentWaitParams{
+		ProjectID:  wait.ProjectID,
+		AgentID:    wait.AgentID,
+		ToolCallID: wait.ToolCallID,
+		Outcome:    string(ToolResultOutcomeSucceeded),
 	})
-	if err != nil {
-		return fmt.Errorf("complete agent wait: %w", err)
-	}
-	if changed == 0 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
-	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{WaitID: wait.ID})
+	if err != nil {
+		return fmt.Errorf("complete tool call from agent wait: %w", err)
+	}
+	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{
+		AgentID:    wait.AgentID,
+		ToolCallID: wait.ToolCallID,
+	})
 	if err != nil {
 		return fmt.Errorf("list agent wait targets: %w", err)
 	}
@@ -710,18 +688,6 @@ func completeAgentWaitTx(
 	if err != nil {
 		return err
 	}
-	row, err := qtx.CompleteToolCallFromAgentWait(ctx, dbsqlc.CompleteToolCallFromAgentWaitParams{
-		ProjectID: wait.ProjectID,
-		AgentID:   wait.AgentID,
-		WaitID:    wait.ID,
-		Outcome:   string(ToolResultOutcomeSucceeded),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("complete tool call from agent wait: %w", err)
-	}
 	record := toolCallRecordFromSQLC(
 		row.ID, row.ProjectID, row.AgentID, row.TurnID,
 		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
@@ -743,16 +709,6 @@ func completeAgentWaitTx(
 	return nil
 }
 
-func cancelOpenAgentWaitsTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) error {
-	if _, err := qtx.CancelOpenAgentWaitsForAgent(ctx, dbsqlc.CancelOpenAgentWaitsForAgentParams{
-		ProjectID: projectID,
-		AgentID:   agentID,
-	}); err != nil {
-		return fmt.Errorf("cancel open agent waits: %w", err)
-	}
-	return nil
-}
-
 // handleSubagentMessageTx delivers a subagent's outcome to its parent. When
 // the parent is parked in wait_agents on this subagent the outcome completes
 // that wait; otherwise it arrives as a queued input from the subagent.
@@ -767,6 +723,11 @@ func handleSubagentMessageTx(
 	if isNilID(child.ParentAgentID) {
 		return nil
 	}
+	if _, err := qtx.LockAgentInProject(
+		ctx, dbsqlc.LockAgentInProjectParams{ProjectID: child.ProjectID, ID: child.ParentAgentID},
+	); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("lock parent agent: %w", err)
+	}
 	waits, err := qtx.ListOpenAgentWaitsForTarget(ctx, dbsqlc.ListOpenAgentWaitsForTargetParams{
 		ProjectID:     child.ProjectID,
 		TargetAgentID: child.ID,
@@ -778,18 +739,25 @@ func handleSubagentMessageTx(
 		return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, message)
 	}
 	for _, row := range waits {
-		wait := agentWaitRecordFromSQLC(
-			row.ID, row.OrgID, row.ProjectID, row.AgentID, row.ToolCallID, row.Mode, row.State,
-		)
+		wait := AgentWaitRecord{
+			ProjectID:  row.ProjectID,
+			AgentID:    row.AgentID,
+			ToolCallID: row.ToolCallID,
+			Mode:       row.Mode,
+		}
 		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
 			ResultKind:    message.Kind,
 			ResultText:    message.Text,
-			WaitID:        wait.ID,
+			AgentID:       wait.AgentID,
+			ToolCallID:    wait.ToolCallID,
 			TargetAgentID: child.ID,
 		}); err != nil {
 			return fmt.Errorf("record agent wait target outcome: %w", err)
 		}
-		pending, err := qtx.CountPendingAgentWaitTargets(ctx, dbsqlc.CountPendingAgentWaitTargetsParams{WaitID: wait.ID})
+		pending, err := qtx.CountPendingAgentWaitTargets(ctx, dbsqlc.CountPendingAgentWaitTargetsParams{
+			AgentID:    wait.AgentID,
+			ToolCallID: wait.ToolCallID,
+		})
 		if err != nil {
 			return fmt.Errorf("count pending agent wait targets: %w", err)
 		}
@@ -1248,7 +1216,10 @@ func timeOutAgentWaitTx(
 	qtx *dbsqlc.Queries,
 	wait AgentWaitRecord,
 ) error {
-	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{WaitID: wait.ID})
+	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{
+		AgentID:    wait.AgentID,
+		ToolCallID: wait.ToolCallID,
+	})
 	if err != nil {
 		return fmt.Errorf("list agent wait targets: %w", err)
 	}
@@ -1259,7 +1230,8 @@ func timeOutAgentWaitTx(
 		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
 			ResultKind:    SubagentMessageKindTimeout,
 			ResultText:    "",
-			WaitID:        wait.ID,
+			AgentID:       wait.AgentID,
+			ToolCallID:    wait.ToolCallID,
 			TargetAgentID: target.TargetAgentID,
 		}); err != nil {
 			return fmt.Errorf("time out agent wait target: %w", err)

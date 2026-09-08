@@ -62,29 +62,10 @@ CREATE INDEX tool_calls_waiting_deadline_idx
     ON tool_calls(deadline_at)
     WHERE state = 'waiting' AND deadline_at IS NOT NULL;
 
-CREATE TABLE agent_waits (
-    id uuid PRIMARY KEY DEFAULT uuidv7(),
-    org_id uuid NOT NULL REFERENCES orgs(id),
+CREATE TABLE agent_wait_targets (
     project_id uuid NOT NULL,
     agent_id uuid NOT NULL,
     tool_call_id uuid NOT NULL,
-    mode text NOT NULL,
-    state text NOT NULL,
-    created_at timestamptz NOT NULL,
-    updated_at timestamptz NOT NULL,
-    completed_at timestamptz,
-    CHECK (mode IN ('all', 'any')),
-    CHECK (state IN ('open', 'completed', 'canceled')),
-    CHECK ((state = 'open') = (completed_at IS NULL)),
-    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
-    FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id),
-    UNIQUE (agent_id, tool_call_id),
-    UNIQUE (project_id, id)
-);
-
-CREATE TABLE agent_wait_targets (
-    wait_id uuid NOT NULL REFERENCES agent_waits(id),
-    project_id uuid NOT NULL,
     target_agent_id uuid NOT NULL,
     state text NOT NULL,
     result_kind text NOT NULL DEFAULT '',
@@ -96,9 +77,10 @@ CREATE TABLE agent_wait_targets (
     CHECK (result_kind IN (
         '', 'result', 'failed', 'waiting_on_parent', 'waiting_on_human', 'canceled', 'archived', 'timeout'
     )),
-    FOREIGN KEY (project_id, wait_id) REFERENCES agent_waits(project_id, id),
+    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
+    FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id),
     FOREIGN KEY (project_id, target_agent_id) REFERENCES agents(project_id, id),
-    PRIMARY KEY (wait_id, target_agent_id)
+    PRIMARY KEY (agent_id, tool_call_id, target_agent_id)
 );
 
 CREATE INDEX agent_wait_targets_pending_idx

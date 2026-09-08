@@ -188,37 +188,30 @@ WHERE interaction.project_id = sqlc.arg(project_id)
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: InsertAgentWait :one
-INSERT INTO agent_waits(org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at)
-SELECT agent.org_id, agent.project_id, agent.id, sqlc.arg(tool_call_id), sqlc.arg(mode), 'open',
-       statement_timestamp(), statement_timestamp()
-FROM agents agent
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND agent.id = sqlc.arg(agent_id)
-RETURNING id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at;
-
 -- name: InsertAgentWaitTarget :exec
-INSERT INTO agent_wait_targets(wait_id, project_id, target_agent_id, state)
-VALUES (sqlc.arg(wait_id), sqlc.arg(project_id), sqlc.arg(target_agent_id), 'pending');
+INSERT INTO agent_wait_targets(project_id, agent_id, tool_call_id, target_agent_id, state)
+VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(tool_call_id), sqlc.arg(target_agent_id), 'pending');
 
--- name: GetAgentWaitByToolCall :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, mode, state, created_at, updated_at, completed_at
-FROM agent_waits
-WHERE project_id = sqlc.arg(project_id)
-  AND agent_id = sqlc.arg(agent_id)
+-- name: CountAgentWaitTargets :one
+SELECT count(*)::integer
+FROM agent_wait_targets
+WHERE agent_id = sqlc.arg(agent_id)
   AND tool_call_id = sqlc.arg(tool_call_id);
 
 -- name: ListOpenAgentWaitsForTarget :many
-SELECT wait.id, wait.org_id, wait.project_id, wait.agent_id, wait.tool_call_id, wait.mode, wait.state,
-       wait.created_at, wait.updated_at, wait.completed_at
+SELECT target.project_id, target.agent_id, target.tool_call_id,
+       coalesce(call.input->>'mode', 'all')::text AS mode
 FROM agent_wait_targets target
-JOIN agent_waits wait ON wait.id = target.wait_id
+JOIN tool_calls call ON call.agent_id = target.agent_id
+  AND call.id = target.tool_call_id
+JOIN agents waiting_agent ON waiting_agent.project_id = target.project_id
+  AND waiting_agent.id = target.agent_id
 WHERE target.project_id = sqlc.arg(project_id)
   AND target.target_agent_id = sqlc.arg(target_agent_id)
   AND target.state = 'pending'
-  AND wait.state = 'open'
-ORDER BY wait.created_at, wait.id
-FOR UPDATE OF wait;
+  AND call.state = 'waiting'
+  AND waiting_agent.state <> 'archived'
+ORDER BY call.created_at, call.id;
 
 -- name: MarkAgentWaitTargetDone :execrows
 UPDATE agent_wait_targets
@@ -226,14 +219,16 @@ SET state = 'done',
     result_kind = sqlc.arg(result_kind),
     result_text = sqlc.arg(result_text),
     completed_at = statement_timestamp()
-WHERE wait_id = sqlc.arg(wait_id)
+WHERE agent_id = sqlc.arg(agent_id)
+  AND tool_call_id = sqlc.arg(tool_call_id)
   AND target_agent_id = sqlc.arg(target_agent_id)
   AND state = 'pending';
 
 -- name: CountPendingAgentWaitTargets :one
 SELECT count(*)::integer
 FROM agent_wait_targets
-WHERE wait_id = sqlc.arg(wait_id)
+WHERE agent_id = sqlc.arg(agent_id)
+  AND tool_call_id = sqlc.arg(tool_call_id)
   AND state = 'pending';
 
 -- name: ListAgentWaitTargets :many
@@ -247,17 +242,9 @@ SELECT target.target_agent_id,
 FROM agent_wait_targets target
 JOIN agents agent ON agent.project_id = target.project_id
   AND agent.id = target.target_agent_id
-WHERE target.wait_id = sqlc.arg(wait_id)
+WHERE target.agent_id = sqlc.arg(agent_id)
+  AND target.tool_call_id = sqlc.arg(tool_call_id)
 ORDER BY agent.created_at, agent.id;
-
--- name: CompleteAgentWait :execrows
-UPDATE agent_waits
-SET state = sqlc.arg(state),
-    completed_at = statement_timestamp(),
-    updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(id)
-  AND state = 'open';
 
 -- name: ListIdleSubagentsForArchive :many
 SELECT agent.project_id, agent.id
@@ -297,15 +284,14 @@ SET state = 'completed',
 FROM locked_agent agent
 CROSS JOIN tool_call_read_projection projection
 WHERE call.agent_id = agent.id
-  AND call.state IN ('running', 'waiting')
+  AND call.id = sqlc.arg(tool_call_id)
+  AND call.state = 'waiting'
   AND call.type = 'built_in'
   AND EXISTS (
     SELECT 1
-    FROM agent_waits wait
-    WHERE wait.agent_id = call.agent_id
-      AND wait.tool_call_id = call.id
-      AND wait.id = sqlc.arg(wait_id)
-      AND wait.state IN ('completed', 'canceled')
+    FROM agent_wait_targets target
+    WHERE target.agent_id = call.agent_id
+      AND target.tool_call_id = call.id
   )
   AND projection.project_id = agent.project_id
   AND projection.agent_id = call.agent_id
@@ -331,12 +317,3 @@ SELECT count(*)::integer AS model_call_count,
 FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = ANY(sqlc.arg(agent_ids)::uuid[]);
-
--- name: CancelOpenAgentWaitsForAgent :execrows
-UPDATE agent_waits
-SET state = 'canceled',
-    completed_at = statement_timestamp(),
-    updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
-  AND agent_id = sqlc.arg(agent_id)
-  AND state = 'open';
