@@ -2,6 +2,7 @@ import { Select as SelectPrimitive } from 'radix-ui'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@/components/icons'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 import { OverflowTooltip } from '@/components/ui/overflow-tooltip'
 import { cn } from '@/lib/utils'
 
@@ -89,7 +90,7 @@ function SelectContent({
               'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1',
           )}
         >
-          {children}
+          <DialogContainerContext value={null}>{children}</DialogContainerContext>
         </SelectPrimitive.Viewport>
         <SelectScrollDownButton />
       </SelectPrimitive.Content>
