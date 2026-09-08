@@ -57,6 +57,9 @@ func (s *Store) RecordModelCallErrorAndCompleteContext(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
+	if err := lockParentAgentTx(ctx, q, input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,

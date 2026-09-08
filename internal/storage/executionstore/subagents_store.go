@@ -28,11 +28,10 @@ const (
 	SubagentMessageKindCanceled = "canceled"
 	SubagentMessageKindArchived = "archived"
 
-	SubagentStateRunning         = "running"
-	SubagentStateIdle            = "idle"
-	SubagentStateWaitingOnParent = "waiting_on_parent"
-	SubagentStateWaitingOnHuman  = "waiting_on_human"
-	SubagentStateArchived        = "archived"
+	SubagentStateRunning        = "running"
+	SubagentStateIdle           = "idle"
+	SubagentStateWaitingOnHuman = "waiting_on_human"
+	SubagentStateArchived       = "archived"
 )
 
 type SubagentLaunch struct {
@@ -204,9 +203,7 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 	switch {
 	case status.Archived:
 		status.State = SubagentStateArchived
-	case status.HasOpenQuestion:
-		status.State = SubagentStateWaitingOnParent
-	case status.HasOpenPermission:
+	case status.HasOpenQuestion, status.HasOpenPermission:
 		status.State = SubagentStateWaitingOnHuman
 	case status.IsRunning:
 		status.State = SubagentStateRunning
@@ -298,15 +295,9 @@ func SubagentRef(agentID ID) string {
 
 const subagentRefLength = 8
 
-func renderQuestionForParent(interactionID ID, form interactionform.Form) (string, error) {
-	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
-	if err != nil {
-		return "", fmt.Errorf("encode interaction id: %w", err)
-	}
+func renderQuestionForParent(form interactionform.Form) string {
 	var builder strings.Builder
-	builder.WriteString("Question (interaction_id ")
-	builder.WriteString(interactionPublicID)
-	builder.WriteString("): ")
+	builder.WriteString("Question: ")
 	builder.WriteString(form.Title)
 	for _, item := range form.Context {
 		builder.WriteString("\n")
@@ -321,7 +312,30 @@ func renderQuestionForParent(interactionID ID, form interactionform.Form) (strin
 			builder.WriteString(option.Label)
 		}
 	}
-	return builder.String(), nil
+	return builder.String()
+}
+
+// lockParentAgentTx takes the parent's row lock before any of the child's
+// own locks so that every transaction touching a parent and its subagent
+// locks the ancestor first, matching the parent-initiated paths.
+func lockParentAgentTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) error {
+	parentID, err := qtx.GetAgentParentID(ctx, dbsqlc.GetAgentParentIDParams{ProjectID: projectID, ID: agentID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("load agent parent: %w", err)
+	}
+	if parentID == nil {
+		return nil
+	}
+	if _, err := qtx.LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: *parentID},
+	); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("lock parent agent: %w", err)
+	}
+	return nil
 }
 
 func notifyParentAgentTx(
@@ -398,7 +412,8 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 	case SubagentMessageKindFailed:
 		header = label + " failed:"
 	case SubagentMessageKindQuestion:
-		header = label + " asked a question. Answer it with send_agent_message using the interaction_id below."
+		header = label + " asked a question and is paused until a human answers it. " +
+			"Messaging it with send_agent_message cancels the question."
 	case SubagentMessageKindCanceled:
 		header = label + " was canceled."
 	case SubagentMessageKindArchived:
@@ -468,13 +483,9 @@ func handleSubagentQuestionTx(
 	if err != nil {
 		return err
 	}
-	text, err := renderQuestionForParent(interaction.ID, form)
-	if err != nil {
-		return err
-	}
 	return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, subagentMessage{
 		Kind:           SubagentMessageKindQuestion,
-		Text:           text,
+		Text:           renderQuestionForParent(form),
 		InteractionID:  interaction.ID,
 		IdempotencyKey: "question:" + interaction.ID.String(),
 	})
@@ -559,7 +570,6 @@ func (s *Store) ListAgentInteractions(
 type SendSubagentMessageInput struct {
 	TargetAgentID ID
 	Message       string
-	InteractionID ID
 }
 
 func SendSubagentMessageForToolCall(
@@ -599,43 +609,6 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	if err != nil {
 		return err
 	}
-	if !isNilID(input.InteractionID) {
-		existing, err := t.q.GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
-			ProjectID: child.ProjectID,
-			AgentID:   child.ID,
-			ID:        input.InteractionID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return storeerr.InvalidRequest(errors.New("interaction not found on subagent"))
-			}
-			return fmt.Errorf("load subagent interaction: %w", err)
-		}
-		if existing.InteractionKind != string(AgentInteractionKindQuestion) {
-			return storeerr.InvalidRequest(errors.New("interaction is not a question"))
-		}
-		if existing.State != string(AgentInteractionStateOpen) {
-			return storeerr.InvalidRequest(errors.New("question is no longer open"))
-		}
-		form, err := interactionform.Parse(existing.Request)
-		if err != nil {
-			return err
-		}
-		resolution, err := freeTextResolution(form, input.Message)
-		if err != nil {
-			return err
-		}
-		if _, err := resolveAgentInteractionTx(ctx, t.notifications, t.tx, t.q, ResolveAgentInteractionInput{
-			ProjectID:  child.ProjectID,
-			AgentID:    child.ID,
-			ID:         input.InteractionID,
-			Resolution: resolution,
-			Actor:      actor,
-		}); err != nil {
-			return err
-		}
-		return nil
-	}
 	contentBlocks, contentBlocksJSON, err := textInputContentBlocks(input.Message)
 	if err != nil {
 		return err
@@ -649,40 +622,19 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 		return fmt.Errorf("marshal parent message metadata: %w", err)
 	}
 	if _, err := createAgentContentInputTx(ctx, t.notifications, t.tx, t.q, child, CreateAgentContentInputInput{
-		ProjectID:        child.ProjectID,
-		AgentID:          child.ID,
-		Actor:            actor,
-		ContentBlocks:    contentBlocksJSON,
-		Metadata:         metadata,
-		DeliveryMode:     DeliveryModeQueued,
-		IdempotencyScope: subagentMessageIdempotencyScope,
-		IdempotencyKey:   "tool_call:" + t.input.ToolCallID.String(),
+		ProjectID:              child.ProjectID,
+		AgentID:                child.ID,
+		Actor:                  actor,
+		ContentBlocks:          contentBlocksJSON,
+		Metadata:               metadata,
+		DeliveryMode:           DeliveryModeSteering,
+		CancelOpenInteractions: true,
+		IdempotencyScope:       subagentMessageIdempotencyScope,
+		IdempotencyKey:         "tool_call:" + t.input.ToolCallID.String(),
 	}, contentBlocks); err != nil {
 		return fmt.Errorf("deliver message to subagent: %w", err)
 	}
 	return nil
-}
-
-func freeTextResolution(form interactionform.Form, text string) (interactionform.Resolution, error) {
-	resolution := interactionform.Resolution{Answers: make([]interactionform.Answer, 0, len(form.Questions))}
-	for _, question := range form.Questions {
-		textOption := -1
-		for index, option := range question.Options {
-			if option.AllowsText {
-				textOption = index
-			}
-		}
-		if textOption < 0 {
-			return interactionform.Resolution{}, storeerr.InvalidRequest(
-				errors.New("question does not accept a free-text answer"),
-			)
-		}
-		resolution.Answers = append(resolution.Answers, interactionform.Answer{
-			OptionIndices: []int{textOption},
-			Text:          text,
-		})
-	}
-	return interactionform.NormalizeResolution(form, resolution)
 }
 
 func StopSubagentForToolCall(
@@ -772,8 +724,8 @@ func (s *Store) archiveSubagentCandidates(
 }
 
 // ReadSubagentEvents returns one page of a subagent's event log for its
-// parent, forward from afterSequence or, when beforeSequence is set,
-// backward from that boundary (0 meaning the latest events).
+// parent: oldest first after afterSequence or, when beforeSequence is set,
+// newest first before that boundary (0 meaning the latest events).
 func (r *ToolCallReader) ReadSubagentEvents(
 	ctx context.Context,
 	reference string,

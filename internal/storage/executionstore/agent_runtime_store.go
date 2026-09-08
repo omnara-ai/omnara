@@ -425,27 +425,6 @@ func archiveAgentTx(
 	projectID, agentID ID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	if err := qtx.LockAgentMachineSources(
-		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-	); err != nil {
-		return nil, fmt.Errorf("lock archived agent machine sources: %w", err)
-	}
-	if err := qtx.LockAttachedAgentPoolMachines(
-		ctx,
-		dbsqlc.LockAttachedAgentPoolMachinesParams{ProjectID: projectID, AgentID: agentID},
-	); err != nil {
-		return nil, fmt.Errorf("lock archived agent pool machines: %w", err)
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, storeerr.ErrNotFound
-		}
-		return nil, fmt.Errorf("lock agent for archive: %w", err)
-	}
 	actorID, err := resolveActorTx(ctx, qtx, projectID, agentID, actor, NilID)
 	if err != nil {
 		return nil, err
@@ -525,6 +504,33 @@ func archiveAgentTx(
 	return machines, nil
 }
 
+// lockAgentForArchiveTx takes the machine-source advisory lock before the
+// agent row, the same order createPoolMachine and ChangeAgentConfig use.
+func lockAgentForArchiveTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) error {
+	if err := qtx.LockAgentMachineSources(
+		ctx,
+		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+	); err != nil {
+		return fmt.Errorf("lock archived agent machine sources: %w", err)
+	}
+	if err := qtx.LockAttachedAgentPoolMachines(
+		ctx,
+		dbsqlc.LockAttachedAgentPoolMachinesParams{ProjectID: projectID, AgentID: agentID},
+	); err != nil {
+		return fmt.Errorf("lock archived agent pool machines: %w", err)
+	}
+	if _, err := qtx.LockAgentInProject(
+		ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock agent for archive: %w", err)
+	}
+	return nil
+}
+
 // archiveAgentTreeTx archives an agent after archiving every active subagent
 // beneath it, then tells the parent (when asked) that the subagent is gone.
 func archiveAgentTreeTx(
@@ -536,14 +542,13 @@ func archiveAgentTreeTx(
 	actor *ActorParams,
 	notifyParentKind string,
 ) ([]MachineRecord, error) {
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, storeerr.ErrNotFound
+	if notifyParentKind != "" {
+		if err := lockParentAgentTx(ctx, qtx, projectID, agentID); err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("lock agent for archive: %w", err)
+	}
+	if err := lockAgentForArchiveTx(ctx, qtx, projectID, agentID); err != nil {
+		return nil, err
 	}
 	agent, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
 	if err != nil {

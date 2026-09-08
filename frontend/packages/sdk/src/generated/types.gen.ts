@@ -1347,7 +1347,7 @@ export type SubagentSummary = {
     id: AgentId;
     name: AgentName;
     key: string;
-    state: 'running' | 'idle' | 'waiting_on_parent' | 'archived';
+    state: 'running' | 'idle' | 'waiting_on_human' | 'archived';
     last_activity_at: Timestamp;
 };
 

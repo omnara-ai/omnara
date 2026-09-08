@@ -41,9 +41,8 @@ type subagentEventSummary struct {
 }
 
 type sendAgentMessageRequest struct {
-	AgentRef      string `json:"agent_ref"`
-	Message       string `json:"message"`
-	InteractionID string `json:"interaction_id,omitempty"`
+	AgentRef string `json:"agent_ref"`
+	Message  string `json:"message"`
 }
 
 type stopAgentRequest struct {
@@ -89,17 +88,11 @@ func resolveSendAgentMessageRequest(raw json.RawMessage) (sendAgentMessageReques
 		return sendAgentMessageRequest{}, err
 	}
 	input.AgentRef = strings.TrimSpace(input.AgentRef)
-	input.InteractionID = strings.TrimSpace(input.InteractionID)
 	if input.AgentRef == "" {
 		return sendAgentMessageRequest{}, errors.New("send_agent_message agent_ref is required")
 	}
 	if strings.TrimSpace(input.Message) == "" {
 		return sendAgentMessageRequest{}, errors.New("send_agent_message message is required")
-	}
-	if input.InteractionID != "" {
-		if _, err := publicid.Decode(publicid.KindAgentInteraction, input.InteractionID); err != nil {
-			return sendAgentMessageRequest{}, fmt.Errorf("send_agent_message interaction_id: %w", err)
-		}
 	}
 	return input, nil
 }
@@ -288,6 +281,15 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		},
 	})
 	if err != nil {
+		if errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied) {
+			content, contentErr := toolFailureContent(
+				storeerr.ManagedWorkAdmissionDeniedCode, storeerr.InsufficientOmnaraCreditsMessage, false,
+			)
+			if contentErr != nil {
+				return nil, contentErr
+			}
+			return failAsynchronously(content, err), nil
+		}
 		if subagentStorageErrorIsToolFailure(err) {
 			return failSubagentAsync("spawn_agent_failed", err)
 		}
@@ -458,14 +460,6 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 	if err != nil {
 		return failSubagentTransactionForStorageError("send_agent_message_failed", err)
 	}
-	interactionID := storage.NilID
-	if input.InteractionID != "" {
-		decoded, err := publicid.Decode(publicid.KindAgentInteraction, input.InteractionID)
-		if err != nil {
-			return nil, err
-		}
-		interactionID = decoded
-	}
 	targetPublicID, err := publicid.Encode(publicid.KindAgent, target.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("encode subagent id: %w", err)
@@ -474,7 +468,8 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 		"agent_id":  targetPublicID,
 		"name":      target.Name,
 		"delivered": true,
-		"message":   "Message delivered. The subagent's reply will arrive as a message from it.",
+		"message": "Message delivered. It interrupts the subagent's current work and cancels any open " +
+			"question or permission request. The reply arrives later as a message from it.",
 	})
 	if err != nil {
 		return nil, err
@@ -487,7 +482,6 @@ func sendAgentMessage(ctx context.Context, call transactionalToolContext) (trans
 		executionstore.SendSubagentMessageInput{
 			TargetAgentID: target.AgentID,
 			Message:       input.Message,
-			InteractionID: interactionID,
 		},
 		completion,
 	)

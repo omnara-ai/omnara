@@ -184,6 +184,9 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		}
 		return existing, nil
 	}
+	if err := lockParentAgentTx(ctx, t.q, t.input.ProjectID, t.input.AgentID); err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
