@@ -192,23 +192,23 @@ These tools are added automatically when the config declares [`subagents`](/agen
 
 ### `spawn_agent`
 
-Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` is an optional display label. Returns immediately with the subagent's `agent_id` and `agent_ref`, the short form the other subagent tools take. The subagent's final answer arrives later as a message from it.
 
 ### `read_agent`
 
-Reads a page of a subagent's timeline: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start; `before_sequence` pages backward, with 0 meaning the latest events. `limit` defaults to 20.
+Reads a page of a subagent's timeline by `agent_ref`: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start; `before_sequence` pages backward, with 0 meaning the latest events. `limit` defaults to 20.
 
 ### `send_agent_message`
 
-Delivers `message` to a subagent. Pass `interaction_id` to answer a question the subagent asked. The reply arrives as a message from the subagent.
+Delivers `message` to the subagent identified by `agent_ref`. Pass `interaction_id` to answer a question the subagent asked. The reply arrives as a message from the subagent.
 
 ### `stop_agent`
 
-Cancels and archives a subagent.
+Cancels and archives the subagent identified by `agent_ref`.
 
 ### `list_agents`
 
-Lists the agent's subagents with their name, key, state, and last activity.
+Lists the agent's subagents with their `agent_ref`, name, key, state, and last activity.
 
 ## Skills
 

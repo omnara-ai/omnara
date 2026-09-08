@@ -15,36 +15,28 @@ import (
 
 const countActiveChildAgentsForLaunch = `-- name: CountActiveChildAgentsForLaunch :one
 SELECT count(*)::integer AS total,
-       count(*) FILTER (WHERE agent.subagent_key = $1::text)::integer AS same_key,
-       coalesce(bool_or(agent.name = $2::text), false)::boolean AS name_exists
+       count(*) FILTER (WHERE agent.subagent_key = $1::text)::integer AS same_key
 FROM agents agent
-WHERE agent.project_id = $3
-  AND agent.parent_agent_id = $4
+WHERE agent.project_id = $2
+  AND agent.parent_agent_id = $3
   AND agent.state = 'active'
 `
 
 type CountActiveChildAgentsForLaunchParams struct {
 	SubagentKey   string
-	Name          string
 	ProjectID     uuid.UUID
 	ParentAgentID *uuid.UUID
 }
 
 type CountActiveChildAgentsForLaunchRow struct {
-	Total      int32
-	SameKey    int32
-	NameExists bool
+	Total   int32
+	SameKey int32
 }
 
 func (q *Queries) CountActiveChildAgentsForLaunch(ctx context.Context, arg CountActiveChildAgentsForLaunchParams) (CountActiveChildAgentsForLaunchRow, error) {
-	row := q.db.QueryRow(ctx, countActiveChildAgentsForLaunch,
-		arg.SubagentKey,
-		arg.Name,
-		arg.ProjectID,
-		arg.ParentAgentID,
-	)
+	row := q.db.QueryRow(ctx, countActiveChildAgentsForLaunch, arg.SubagentKey, arg.ProjectID, arg.ParentAgentID)
 	var i CountActiveChildAgentsForLaunchRow
-	err := row.Scan(&i.Total, &i.SameKey, &i.NameExists)
+	err := row.Scan(&i.Total, &i.SameKey)
 	return i, err
 }
 
@@ -309,8 +301,6 @@ FROM agents agent
 WHERE agent.project_id = $1
   AND agent.parent_agent_id = $2
   AND ($3::boolean OR agent.state = 'active')
-  AND ($4::uuid IS NULL OR agent.id = $4::uuid)
-  AND ($5::text = '' OR agent.name = $5::text)
 ORDER BY agent.created_at, agent.id
 `
 
@@ -318,8 +308,6 @@ type ListChildAgentsParams struct {
 	ProjectID       uuid.UUID
 	ParentAgentID   *uuid.UUID
 	IncludeArchived bool
-	AgentID         *uuid.UUID
-	Name            string
 }
 
 type ListChildAgentsRow struct {
@@ -334,13 +322,7 @@ type ListChildAgentsRow struct {
 }
 
 func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams) ([]ListChildAgentsRow, error) {
-	rows, err := q.db.Query(ctx, listChildAgents,
-		arg.ProjectID,
-		arg.ParentAgentID,
-		arg.IncludeArchived,
-		arg.AgentID,
-		arg.Name,
-	)
+	rows, err := q.db.Query(ctx, listChildAgents, arg.ProjectID, arg.ParentAgentID, arg.IncludeArchived)
 	if err != nil {
 		return nil, err
 	}
