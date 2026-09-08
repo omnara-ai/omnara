@@ -1,4 +1,8 @@
-import { normalizeMultiline } from '@/components/agents/agentConfigBasicExtract'
+import {
+  normalizeMultiline,
+  type SubagentEntry,
+  type SubagentModelEntry,
+} from '@/components/agents/agentConfigBasicExtract'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export type SubagentType = 'profile' | 'self'
@@ -12,7 +16,7 @@ export interface BasicSubagent {
   instructionAppend: string
   maxConcurrent: string
   archiveAfterIdleMinutes: string
-  modelOverride?: Record<string, unknown>
+  modelOverride?: SubagentModelEntry
 }
 
 export function newSubagent(): BasicSubagent {
@@ -76,8 +80,8 @@ export function subagentsValid(subagents: BasicSubagent[], maxSubagents: string)
   )
 }
 
-export function subagentWire(subagent: BasicSubagent): Record<string, unknown> {
-  const wire: Record<string, unknown> = { type: subagent.type }
+export function subagentWire(subagent: BasicSubagent): SubagentEntry {
+  const wire: SubagentEntry = { type: subagent.type }
   if (subagent.type === 'profile') wire.profile = normalizeResourceName(subagent.profileName)
   if (subagent.description.trim() !== '') wire.description = subagent.description.trim()
   if (subagent.modelOverride !== undefined) wire.model = subagent.modelOverride

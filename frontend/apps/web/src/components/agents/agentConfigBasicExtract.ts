@@ -105,15 +105,26 @@ export type ToolEntry = z.infer<typeof toolEntry>
 
 const optionalText = z.string().nullable().optional()
 
-const subagentEntry = z.looseObject({
+const subagentModelEntry = z.strictObject({
+  provider_config: z.string().optional(),
+  name: z.string().optional(),
+  context_window_tokens: positiveCount,
+  default_max_output_tokens: positiveCount,
+  cache_retention: z.string().optional(),
+  reasoning: z.strictObject({ effort: z.string() }).optional(),
+})
+export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
+
+const subagentEntry = z.strictObject({
   type: z.enum(['profile', 'self']),
   profile: z.string().optional(),
   description: z.string().optional(),
-  model: z.record(z.string(), z.unknown()).optional(),
+  model: subagentModelEntry.optional(),
   instruction: z.strictObject({ append: z.string().optional() }).optional(),
   max_concurrent: positiveCount,
   archive_after_idle_minutes: positiveCount,
 })
+export type SubagentEntry = z.infer<typeof subagentEntry>
 
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
