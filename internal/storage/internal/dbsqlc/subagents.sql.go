@@ -368,47 +368,6 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 	return items, nil
 }
 
-const listExpiredSubagents = `-- name: ListExpiredSubagents :many
-SELECT agent.project_id, agent.id
-FROM agents agent
-WHERE agent.parent_agent_id IS NOT NULL
-  AND agent.state = 'active'
-  AND agent.deadline_at IS NOT NULL
-  AND agent.deadline_at <= coalesce($1::timestamptz, statement_timestamp())
-ORDER BY agent.deadline_at, agent.id
-LIMIT $2::integer
-`
-
-type ListExpiredSubagentsParams struct {
-	AsOf     *time.Time
-	RowLimit int32
-}
-
-type ListExpiredSubagentsRow struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) ListExpiredSubagents(ctx context.Context, arg ListExpiredSubagentsParams) ([]ListExpiredSubagentsRow, error) {
-	rows, err := q.db.Query(ctx, listExpiredSubagents, arg.AsOf, arg.RowLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListExpiredSubagentsRow{}
-	for rows.Next() {
-		var i ListExpiredSubagentsRow
-		if err := rows.Scan(&i.ProjectID, &i.ID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listIdleSubagentsForArchive = `-- name: ListIdleSubagentsForArchive :many
 WITH RECURSIVE candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at

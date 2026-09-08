@@ -26,17 +26,6 @@ func TestSubagentToolInputValidation(t *testing.T) {
 			input:    `{"agent":"fork","task":"x","extra":1}`,
 			wantErr:  "unknown field",
 		},
-		{
-			name:     "spawn with timeout",
-			validate: validateSpawnAgentInput,
-			input:    `{"agent":"fork","task":"x","timeout_seconds":3600}`,
-		},
-		{
-			name:     "spawn bad timeout",
-			validate: validateSpawnAgentInput,
-			input:    `{"agent":"fork","task":"x","timeout_seconds":0}`,
-			wantErr:  "timeout_seconds",
-		},
 		{name: "read ok", validate: validateReadAgentInput, input: `{"agent":"a"}`},
 		{
 			name:     "read ok ranged",

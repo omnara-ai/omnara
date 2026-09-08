@@ -5,17 +5,13 @@ WITH inserted AS (
     INSERT INTO agents(
         org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
-        archive_after_idle_minutes, deadline_at, created_at, updated_at
+        archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
         sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
         sqlc.narg(archive_after_idle_minutes),
-        CASE
-          WHEN sqlc.narg(timeout_seconds)::integer IS NULL THEN NULL
-          ELSE transaction_timestamp() + make_interval(secs => sqlc.narg(timeout_seconds)::integer)
-        END,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id

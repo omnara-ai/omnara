@@ -27,7 +27,6 @@ const (
 	SubagentMessageKindQuestion = "question"
 	SubagentMessageKindCanceled = "canceled"
 	SubagentMessageKindArchived = "archived"
-	SubagentMessageKindTimeout  = "timeout"
 
 	SubagentStateRunning         = "running"
 	SubagentStateIdle            = "idle"
@@ -43,7 +42,6 @@ type SubagentLaunch struct {
 	MaxSubagents            *int
 	ShareParentMachines     bool
 	ArchiveAfterIdleMinutes *int
-	TimeoutSeconds          *int
 }
 
 type SubagentStatus struct {
@@ -401,8 +399,6 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 		header = label + " was canceled."
 	case SubagentMessageKindArchived:
 		header = label + " was archived."
-	case SubagentMessageKindTimeout:
-		header = label + " exceeded its timeout and was stopped."
 	default:
 		header = label + ":"
 	}
@@ -711,8 +707,6 @@ func StopSubagentForToolCall(
 	})
 }
 
-const SubagentExpiryBatchSize = 100
-
 type subagentArchiveCandidate struct {
 	ProjectID ID
 	ID        ID
@@ -737,25 +731,6 @@ func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit
 		candidates = append(candidates, subagentArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
 	}
 	return s.archiveSubagentCandidates(ctx, candidates, SubagentMessageKindArchived, "archive idle subagent")
-}
-
-func (s *Store) StopExpiredSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
-	return s.stopExpiredSubagents(ctx, nil, limit)
-}
-
-func (s *Store) stopExpiredSubagents(ctx context.Context, asOf *time.Time, limit int) ([]MachineRecord, int, error) {
-	if limit <= 0 {
-		limit = SubagentExpiryBatchSize
-	}
-	rows, err := s.q.ListExpiredSubagents(ctx, dbsqlc.ListExpiredSubagentsParams{AsOf: asOf, RowLimit: int32(limit)})
-	if err != nil {
-		return nil, 0, fmt.Errorf("list expired subagents: %w", err)
-	}
-	candidates := make([]subagentArchiveCandidate, 0, len(rows))
-	for _, row := range rows {
-		candidates = append(candidates, subagentArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
-	}
-	return s.archiveSubagentCandidates(ctx, candidates, SubagentMessageKindTimeout, "stop expired subagent")
 }
 
 func (s *Store) archiveSubagentCandidates(

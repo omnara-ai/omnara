@@ -4,27 +4,18 @@ ALTER TABLE agents
     ADD COLUMN parent_agent_id uuid,
     ADD COLUMN subagent_key text NOT NULL DEFAULT '',
     ADD COLUMN archive_after_idle_minutes integer,
-    ADD COLUMN deadline_at timestamptz,
     ADD CONSTRAINT agents_parent_agent_fk
         FOREIGN KEY (project_id, parent_agent_id) REFERENCES agents(project_id, id),
     ADD CONSTRAINT agents_subagent_key_check
         CHECK ((parent_agent_id IS NULL) = (subagent_key = '')),
     ADD CONSTRAINT agents_archive_after_idle_minutes_check
         CHECK (archive_after_idle_minutes IS NULL OR archive_after_idle_minutes >= 1),
-    ADD CONSTRAINT agents_deadline_requires_parent_check
-        CHECK (deadline_at IS NULL OR parent_agent_id IS NOT NULL),
     ADD CONSTRAINT agents_not_own_parent_check
         CHECK (parent_agent_id IS NULL OR parent_agent_id <> id);
 
 CREATE INDEX agents_parent_agent_idx
     ON agents(project_id, parent_agent_id, created_at, id)
     WHERE parent_agent_id IS NOT NULL;
-
-CREATE INDEX agents_subagent_deadline_idx
-    ON agents(deadline_at)
-    WHERE parent_agent_id IS NOT NULL
-      AND state = 'active'
-      AND deadline_at IS NOT NULL;
 
 CREATE INDEX agents_idle_archive_candidates_idx
     ON agents(created_at, id)

@@ -192,7 +192,7 @@ These tools are added automatically when the config declares [`subagents`](/agen
 
 ### `spawn_agent`
 
-Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it. `timeout_seconds` optionally caps the subagent's lifetime; when it elapses the subagent is stopped and the parent is notified. There is no default timeout.
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
 
 ### `read_agent`
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -190,14 +191,15 @@ func TestServiceE2EDeterministicSubagentResultArrivesAsMessage(t *testing.T) {
 	}
 }
 
-func TestServiceE2EDeterministicSubagentTimeoutStopsChild(t *testing.T) {
+func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-timeout")
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-stop")
 	fail := failSubagentServiceE2ERequest(t)
-	const delegatedText = "parent delegated with a one second cap"
-	const parentText = "parent noted the helper timed out"
+	const parentText = "parent stopped the slow helper"
 	childReleased := make(chan struct{})
+	childStarted := make(chan struct{})
+	var childStartedOnce sync.Once
 	var childRequestAborted atomic.Bool
 	openai, parentRequests, childRequests := newSubagentServiceE2EModelServer(
 		t,
@@ -205,17 +207,23 @@ func TestServiceE2EDeterministicSubagentTimeoutStopsChild(t *testing.T) {
 			switch request {
 			case 1:
 				writeOpenAIFunctionCall(w, fail, "resp_parent_spawn", "call_spawn", "spawn_agent", map[string]any{
-					"agent":           "helper",
-					"task":            "Take as long as you need.",
-					"name":            "slow",
-					"timeout_seconds": 1,
+					"agent": "helper",
+					"task":  "Take as long as you need.",
+					"name":  "slow",
 				})
 			case 2:
-				writeOpenAIMessage(w, fail, "resp_parent_delegated", delegatedText)
+				select {
+				case <-childStarted:
+				case <-ctx.Done():
+					fail(w, http.StatusServiceUnavailable, "child never started before the parent stopped it")
+					return
+				}
+				writeOpenAIFunctionCall(w, fail, "resp_parent_stop", "call_stop", "stop_agent", map[string]any{
+					"agent": "slow",
+				})
 			case 3:
-				requestText := mustJSONString(body)
-				if !strings.Contains(requestText, "exceeded its timeout and was stopped") {
-					fail(w, http.StatusBadRequest, "third parent request lacks the timeout message: %s", requestText)
+				if !requestContainsToolResult(body, "call_stop", "") {
+					fail(w, http.StatusBadRequest, "third parent request lacks the stop result: %s", mustJSONString(body))
 					return
 				}
 				writeOpenAIMessage(w, fail, "resp_parent_final", parentText)
@@ -228,6 +236,7 @@ func TestServiceE2EDeterministicSubagentTimeoutStopsChild(t *testing.T) {
 				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
 				return
 			}
+			childStartedOnce.Do(func() { close(childStarted) })
 			select {
 			case <-r.Context().Done():
 				childRequestAborted.Store(true)
@@ -240,9 +249,9 @@ func TestServiceE2EDeterministicSubagentTimeoutStopsChild(t *testing.T) {
 	defer close(childReleased)
 
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-subagent-timeout", subagentServiceE2ESourceYAML)
+	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-subagent-stop", subagentServiceE2ESourceYAML)
 	agentID := project.createAgent(t, ctx)
-	project.createInput(t, ctx, agentID, "delegate to a helper with a short timeout")
+	project.createInput(t, ctx, agentID, "delegate to a helper, then stop it")
 	env.startWorker(
 		t,
 		ctx,
@@ -252,7 +261,6 @@ func TestServiceE2EDeterministicSubagentTimeoutStopsChild(t *testing.T) {
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 
-	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, delegatedText)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, parentText)
 	if got := parentRequests.Load(); got != 3 {
 		t.Fatalf("parent made %d model requests, want 3", got)
