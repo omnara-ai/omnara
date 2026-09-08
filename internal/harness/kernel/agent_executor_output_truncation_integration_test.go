@@ -34,7 +34,9 @@ func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
 		content []model.ResponsePart
 	}{
 		{name: "empty"},
-		{name: "reasoning", content: []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "finished thinking"}}},
+		{name: "reasoning", content: []model.ResponsePart{
+			{Type: model.ResponsePartTypeReasoning, Text: "finished thinking"},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
