@@ -37,7 +37,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <Wordmark />
         </div>
         <div className="relative z-10 space-y-3">
-          <p className="text-foreground type-page-title">The API for production-grade agents.</p>
+          <p className="text-foreground type-title">The API for production-grade agents.</p>
           <p className="text-muted-foreground text-base">Omnara console</p>
         </div>
       </aside>
