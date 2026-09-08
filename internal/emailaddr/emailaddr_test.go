@@ -4,9 +4,26 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+	"unicode"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/text/unicode/bidi"
+	"golang.org/x/text/unicode/norm"
 )
+
+func TestReviewedUnicodeVersions(t *testing.T) {
+	t.Parallel()
+	for source, version := range map[string]string{
+		"Go":            unicode.Version,
+		"IDNA":          idna.UnicodeVersion,
+		"normalization": norm.Version,
+		"bidi":          bidi.UnicodeVersion,
+	} {
+		if version != "17.0.0" {
+			t.Errorf("%s uses Unicode %s; review email-key compatibility before updating this test", source, version)
+		}
+	}
+}
 
 func TestNormalize(t *testing.T) {
 	t.Parallel()
