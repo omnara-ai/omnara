@@ -3,7 +3,12 @@ import {
   useDeleteConfiguredModel,
   useModelProviders,
 } from '@omnara/react'
-import { ApiError, type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
+import {
+  ApiError,
+  type ConfiguredModel,
+  type ModelApiFormat,
+  type ModelProviderConfig,
+} from '@omnara/sdk'
 import { useEffect, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -29,7 +34,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 
 type ActiveDialog =
   | { kind: 'create' }
-  | { kind: 'edit'; model: ConfiguredModel }
+  | { kind: 'edit'; model: ConfiguredModel; apiFormat: ModelApiFormat }
   | { kind: 'grant'; model: ConfiguredModel }
   | null
 
@@ -141,7 +146,11 @@ export function ConfiguredModelsSection() {
                     onEdit={
                       option.model.management_kind === 'tenant'
                         ? () => {
-                            setActiveDialog({ kind: 'edit', model: option.model })
+                            setActiveDialog({
+                              kind: 'edit',
+                              model: option.model,
+                              apiFormat: option.provider.api_format,
+                            })
                           }
                         : undefined
                     }
@@ -273,6 +282,7 @@ function ConfiguredModelDialogs({
           }}
           orgId={orgId}
           model={activeDialog.model}
+          apiFormat={activeDialog.apiFormat}
         />
       )}
     </>

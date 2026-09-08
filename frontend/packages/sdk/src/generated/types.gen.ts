@@ -306,11 +306,11 @@ export type CreateConfiguredModelRequest = {
      */
     context_window_tokens: number;
     /**
-     * Optional known output-token ceiling. When omitted, Omnara uses model catalog metadata consistent with explicit settings; otherwise capacity remains unknown. Repeating creation with an omitted ceiling preserves the existing model's capacity, including subsequent edits. Explicit values must not exceed the provider's supported limit.
+     * Known output-token ceiling. Required for anthropic-messages models after best-effort catalog autofill; optional for other API formats. When omitted, Omnara uses catalog metadata consistent with explicit settings. Repeating creation with an omitted ceiling preserves the existing model's current capacity, provided it satisfies the API format's requirements. Explicit values must not exceed the provider's supported limit.
      */
     max_output_tokens?: number;
     /**
-     * Optional normal per-request output allowance. When omitted, requests use the known output ceiling, or the provider default when capacity is unknown and the API permits omission. Anthropic Messages requires an effective allowance from model, project, or agent configuration.
+     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling, or the provider default when capacity is unknown and the API permits omission. This allowance does not replace the anthropic-messages capacity requirement.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -358,7 +358,7 @@ export type UpdateConfiguredModelRequest = {
      */
     context_window_tokens?: number;
     /**
-     * Known output-token ceiling for this model. Omitted keeps the current value; null clears it to unknown.
+     * Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for other API formats; anthropic-messages models require a capacity and reject clearing it.
      */
     max_output_tokens?: number | null;
     /**

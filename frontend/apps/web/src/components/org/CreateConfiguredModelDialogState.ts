@@ -1,4 +1,4 @@
-import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
+import type { DiscoveredProviderModel, ModelApiFormat, ModelProviderConfig } from '@omnara/sdk'
 
 import { resourceNameSuggestion, resourceNameValid } from '@/lib/resource-name'
 
@@ -54,13 +54,6 @@ export function discoveredModelPrefill(
     'maxOutputTokens',
     model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
   ])
-  if (
-    model.max_output_tokens !== undefined &&
-    values.defaultMaxOutputTokens !== '' &&
-    Number(values.defaultMaxOutputTokens) > model.max_output_tokens
-  ) {
-    updates.push(['defaultMaxOutputTokens', ''])
-  }
   return updates
 }
 
@@ -79,31 +72,50 @@ export function providerChangeReset(
   return updates
 }
 
-export function configuredModelFormValid(
-  values: ConfiguredModelFormValues,
-  provider: ModelProviderConfig | undefined,
+export function configuredModelTokenLimitsError(
+  values: Pick<
+    ConfiguredModelFormValues,
+    'contextWindowTokens' | 'maxOutputTokens' | 'defaultMaxOutputTokens'
+  >,
+  apiFormat: ModelApiFormat,
 ) {
   const contextWindowTokensValue = Number(values.contextWindowTokens)
   const maxOutputTokensValue = Number(values.maxOutputTokens)
   const defaultMaxOutputTokensValue = Number(values.defaultMaxOutputTokens)
-  const maxOutputValid =
-    values.maxOutputTokens === '' ||
-    (Number.isInteger(maxOutputTokensValue) &&
-      maxOutputTokensValue > 0 &&
-      maxOutputTokensValue < contextWindowTokensValue)
-  const defaultOutputValid =
-    values.defaultMaxOutputTokens === '' ||
-    (Number.isInteger(defaultMaxOutputTokensValue) &&
-      defaultMaxOutputTokensValue > 0 &&
-      defaultMaxOutputTokensValue < contextWindowTokensValue &&
-      (values.maxOutputTokens === '' || defaultMaxOutputTokensValue <= maxOutputTokensValue))
+  if (!Number.isInteger(contextWindowTokensValue) || contextWindowTokensValue < 2) {
+    return 'Context window must be a whole number greater than one.'
+  }
+  if (apiFormat === 'anthropic-messages' && values.maxOutputTokens === '') {
+    return 'Max output is required for Anthropic Messages.'
+  }
+  if (
+    values.maxOutputTokens !== '' &&
+    (!Number.isInteger(maxOutputTokensValue) ||
+      maxOutputTokensValue <= 0 ||
+      maxOutputTokensValue >= contextWindowTokensValue)
+  ) {
+    return 'Max output must be a positive whole number below the context window.'
+  }
+  if (
+    values.defaultMaxOutputTokens !== '' &&
+    (!Number.isInteger(defaultMaxOutputTokensValue) ||
+      defaultMaxOutputTokensValue <= 0 ||
+      defaultMaxOutputTokensValue >= contextWindowTokensValue ||
+      (values.maxOutputTokens !== '' && defaultMaxOutputTokensValue > maxOutputTokensValue))
+  ) {
+    return 'Default output must be a positive whole number below the context window and no greater than max output.'
+  }
+  return ''
+}
+
+export function configuredModelFormValid(
+  values: ConfiguredModelFormValues,
+  provider: ModelProviderConfig | undefined,
+) {
   return (
-    Boolean(provider) &&
+    provider !== undefined &&
     resourceNameValid(values.name) &&
     values.providerModelSlug.trim() !== '' &&
-    Number.isInteger(contextWindowTokensValue) &&
-    contextWindowTokensValue > 1 &&
-    maxOutputValid &&
-    defaultOutputValid
+    !configuredModelTokenLimitsError(values, provider.api_format)
   )
 }

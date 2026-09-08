@@ -656,6 +656,12 @@ func validateConfiguredModelOptions(apiFormat modelprotocol.APIFormat, input con
 	if err := validateEffectiveModelOptions(apiFormat, input); err != nil {
 		return err
 	}
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages && input.MaxOutputTokens == nil {
+		return fmt.Errorf(
+			"max_output_tokens is required for anthropic-messages: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
 	if input.MaxOutputTokens != nil && input.ContextWindowTokens <= *input.MaxOutputTokens {
 		return fmt.Errorf(
 			"context_window_tokens must exceed max_output_tokens: %w",

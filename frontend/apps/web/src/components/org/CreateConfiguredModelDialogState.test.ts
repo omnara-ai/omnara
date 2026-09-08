@@ -5,6 +5,7 @@ import {
   configuredModelFormDefaults,
   configuredModelFormValid,
   configuredModelSuggestedName,
+  configuredModelTokenLimitsError,
   discoveredModelPrefill,
   providerChangeReset,
 } from './CreateConfiguredModelDialogState'
@@ -58,13 +59,13 @@ describe('generated configured model names', () => {
   })
 })
 
-describe('optional output capacity', () => {
+describe('configured model token limits', () => {
   const provider: ModelProviderConfig = {
     id: 'provider',
     org_id: 'org',
     management_kind: 'tenant',
     name: 'custom',
-    api_format: 'anthropic-messages',
+    api_format: 'openai-chat-completions',
     api_variant: 'default',
     base_url: 'https://api.example.com',
     endpoint_path: '/messages',
@@ -83,6 +84,55 @@ describe('optional output capacity', () => {
     contextWindowTokens: '100000',
   }
 
+  it.each([
+    { api_format: 'anthropic-messages', api_variant: 'default', required: true },
+    { api_format: 'anthropic-messages', api_variant: 'bedrock', required: true },
+    { api_format: 'openai-chat-completions', api_variant: 'default', required: false },
+    { api_format: 'openai-chat-completions', api_variant: 'openrouter', required: false },
+    { api_format: 'openai-chat-completions', api_variant: 'bedrock', required: false },
+    { api_format: 'openai-responses', api_variant: 'default', required: false },
+    { api_format: 'openai-responses', api_variant: 'bedrock', required: false },
+  ] as const)('requires capacity for $api_format / $api_variant: $required', (test) => {
+    const selectedProvider = { ...provider, ...test }
+    expect(configuredModelFormValid(values, selectedProvider)).toBe(!test.required)
+    expect(
+      configuredModelFormValid({ ...values, defaultMaxOutputTokens: '1000' }, selectedProvider),
+    ).toBe(!test.required)
+    expect(
+      configuredModelFormValid({ ...values, maxOutputTokens: '64000' }, selectedProvider),
+    ).toBe(true)
+  })
+
+  it.each(['', '1000', '20000'])(
+    'preserves explicit default %s on discovery selection',
+    (allowance) => {
+      const before = { ...values, defaultMaxOutputTokens: allowance }
+      const updates = discoveredModelPrefill(before, discoveredModel)
+      expect(updates.filter(([field]) => field === 'defaultMaxOutputTokens')).toEqual([])
+      const selected = { ...before, ...Object.fromEntries(updates) }
+      expect(configuredModelFormValid(selected, provider)).toBe(allowance !== '20000')
+      if (allowance === '20000') {
+        expect(configuredModelTokenLimitsError(selected, provider.api_format)).toContain(
+          'Default output must be',
+        )
+      }
+    },
+  )
+
+  it('requires manual Messages capacity when discovery has none', () => {
+    const selected = {
+      ...values,
+      ...Object.fromEntries(
+        discoveredModelPrefill(values, { slug: 'custom', context_window_tokens: 100000 }),
+      ),
+    }
+    const messagesProvider = { ...provider, api_format: 'anthropic-messages' } as const
+    expect(configuredModelFormValid(selected, messagesProvider)).toBe(false)
+    expect(
+      configuredModelFormValid({ ...selected, maxOutputTokens: '64000' }, messagesProvider),
+    ).toBe(true)
+  })
+
   it('accepts an unknown capacity and a separately chosen request allowance', () => {
     expect(configuredModelFormValid(values, provider)).toBe(true)
     expect(configuredModelFormValid({ ...values, defaultMaxOutputTokens: '64000' }, provider)).toBe(
@@ -100,6 +150,21 @@ describe('optional output capacity', () => {
       expect(
         configuredModelFormValid({ ...values, defaultMaxOutputTokens: allowance }, provider),
       ).toBe(false)
+    },
+  )
+
+  it.each(['0', '-1', '1.5', '100000', '100001'])(
+    'rejects invalid capacity %s for every format',
+    (capacity) => {
+      for (const apiFormat of [
+        'anthropic-messages',
+        'openai-chat-completions',
+        'openai-responses',
+      ] as const) {
+        expect(
+          configuredModelTokenLimitsError({ ...values, maxOutputTokens: capacity }, apiFormat),
+        ).toContain('Max output must be')
+      }
     },
   )
 

@@ -76,15 +76,15 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 <Tab title="Dashboard">
   In **Add models**, select the detected models you want, or click **Skip for now**. The detected slug is used as the configured model name. Agent YAML must use the configured model name exactly.
 
-  To add or tune a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and use the advanced section for token limits and capabilities. You can also attach project grants in this dialog.
+  To add a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and review the context window and maximum output capacity. Use **Advanced** to set an optional default output allowance. You can also attach project grants in this dialog.
 </Tab>
 </Tabs>
 
 Token settings have separate roles:
 
 - `context_window_tokens` is the shared input and output window and must be at least 2.
-- `max_output_tokens` is the model's known output capacity. It is optional on creation; a best-effort lookup in the cached model catalog fills an omitted value when available. A stale cache can require a catalog fetch during creation. An unknown capacity is returned as `null`. Updating it to `null` clears the stored capacity.
-- `default_max_output_tokens` is an optional request allowance. Without an override, Omnara uses the known capacity and fits the allowance to the remaining context. When neither is known, compatible APIs use their provider default. Anthropic Messages requires an allowance before a call can be sent; supply capacity or a default on the model, project grant, or agent.
+- `max_output_tokens` is the model's known output capacity. Models using Anthropic Messages require it on creation and updates, including Bedrock variants. A best-effort lookup in the cached model catalog fills an omitted creation value when compatible metadata is available; a stale cache can require a catalog fetch. Enter the capacity manually when discovery cannot supply it, such as for a custom or Bedrock model. Other API formats allow unknown capacity, returned as `null`, and support clearing it with a `null` update.
+- `default_max_output_tokens` is an optional request allowance, set only when explicitly configured. Discovery populates capacity and leaves this default unset. Without an override, Omnara uses the known capacity and fits the allowance to the remaining context. When neither is known, Chat Completions and Responses use their provider default. An explicit allowance does not replace the Messages capacity requirement.
 
 Project and agent context overrides can be smaller than an inherited output capacity; request preparation fits the allowance to that smaller window. An explicit default allowance must remain below the effective context window, including when inherited from the model or project.
 

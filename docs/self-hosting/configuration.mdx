@@ -160,8 +160,9 @@ organization owners configure providers themselves.
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
 
 Templates also define model capacity and optional request defaults. Omit
-`default_max_output_tokens` to use the model's capacity; omit `max_output_tokens`
-when the capacity is unknown. See [model output limits](/organization/model-providers)
+`default_max_output_tokens` to use the model's capacity. Templates using
+`anthropic-messages` must supply `max_output_tokens` for every model; other formats
+may omit it when capacity is unknown. See [model output limits](/organization/model-providers)
 for provider requirements and context budgeting.
 
 To reconcile configured defaults into existing organizations, run these commands

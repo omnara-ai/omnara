@@ -419,8 +419,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		Name:                  "claude-missing-max-output",
 		ProviderModelSlug:     "claude-missing-max-output",
 		ContextWindowTokens:   200000,
-	}); err != nil {
-		t.Fatalf("register unknown Anthropic output capacity: %v", err)
+	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf("missing Anthropic output capacity error = %v, want invalid configuration", err)
 	}
 	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 testOrgID,

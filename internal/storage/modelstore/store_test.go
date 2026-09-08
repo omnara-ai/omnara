@@ -80,6 +80,7 @@ func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 		{name: "window too small", context: 1, wantErr: true},
 	} {
 		for _, format := range []modelprotocol.APIFormat{
+			modelprotocol.APIFormatOpenAIChatCompletions,
 			modelprotocol.APIFormatOpenAIResponses,
 			modelprotocol.APIFormatAnthropicMessages,
 		} {
@@ -87,7 +88,7 @@ func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 				err := validateConfiguredModelOptions(format, configuredModelOptions{
 					ContextWindowTokens: tc.context, MaxOutputTokens: tc.capacity, DefaultMaxOutputTokens: tc.allowance,
 				})
-				if tc.wantErr {
+				if tc.wantErr || (format == modelprotocol.APIFormatAnthropicMessages && tc.capacity == nil) {
 					if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 						t.Fatalf("error = %v, want invalid configuration", err)
 					}

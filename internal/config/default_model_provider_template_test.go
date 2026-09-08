@@ -354,6 +354,48 @@ models:
 	}
 }
 
+func TestDefaultModelProviderTemplateOutputCapacity(t *testing.T) {
+	t.Parallel()
+	for _, format := range []modelprotocol.APIFormat{
+		modelprotocol.APIFormatOpenAIChatCompletions,
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIFormatAnthropicMessages,
+	} {
+		for _, known := range []bool{false, true} {
+			name := string(format) + "/unknown"
+			var capacity *int
+			if known {
+				name = string(format) + "/known"
+				capacity = new(64000)
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				template, err := defaultModelProviderTemplateFromFile(defaultModelProviderTemplateFile{
+					Provisioner: "custom", Name: "provider", CredentialSecretName: "provider-key",
+					APIFormat: string(format), BaseURL: "https://gateway.example.test/v1",
+					Models: []defaultConfiguredModelFile{{
+						Name: "model", ProviderModelSlug: "model", ContextWindowTokens: 128000,
+						MaxOutputTokens: capacity,
+					}},
+				}, "provider")
+				if format == modelprotocol.APIFormatAnthropicMessages && !known {
+					if err == nil || !strings.Contains(err.Error(), "max_output_tokens is required") {
+						t.Fatalf("template error = %v, want required output capacity", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				model := template.Models[0]
+				if model.DefaultMaxOutputTokens != nil || (model.MaxOutputTokens != nil) != known {
+					t.Fatalf("template changed output settings: %+v", model)
+				}
+			})
+		}
+	}
+}
+
 func writeDefaultModelProviderTemplateTestFile(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")

@@ -4,11 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
-import { configuredModelRequestForDiscoveredModel } from './CreateModelProviderDialogState'
+import {
+  canCreateDiscoveredModel,
+  configuredModelRequestForDiscoveredModel,
+} from './CreateModelProviderDialogState'
 
 const DiscoveredModelMultiCombobox = createResourceMultiCombobox<DiscoveredProviderModel>({
   itemKey: (model) => model.slug,
@@ -44,8 +47,8 @@ export function AddDiscoveredModelsStep({
   onDone: () => void
 }) {
   const createConfiguredModel = useCreateConfiguredModel(orgId)
-  const creatableModels = discoveredModels.filter(
-    (model) => model.context_window_tokens !== undefined && model.context_window_tokens > 1,
+  const creatableModels = discoveredModels.filter((model) =>
+    canCreateDiscoveredModel(model, provider.api_format),
   )
   const [state, setState] = useState(initialAddModelsState)
   const selectedSlugSet = new Set(state.selectedSlugs)
@@ -71,6 +74,7 @@ export function AddDiscoveredModelsStep({
             modelProviderConfigID: provider.id,
             ...configuredModelRequestForDiscoveredModel(
               creatableModels.find((model) => model.slug === slug) ?? { slug },
+              provider.api_format,
             ),
           }),
         ),
@@ -129,8 +133,18 @@ export function AddDiscoveredModelsStep({
                 selectedSlugs: models.map((model) => model.slug),
               }))
             }}
-            emptyMessage="All detected models selected."
+            emptyMessage={
+              creatableModels.length === 0
+                ? 'No detected models have valid token limits.'
+                : 'All detected models selected.'
+            }
           />
+          {creatableModels.length < discoveredModels.length && (
+            <FieldDescription>
+              Models without valid token limits are omitted. You can add them manually and enter
+              their capacity.
+            </FieldDescription>
+          )}
         </Field>
         {state.error && <p className="text-destructive text-sm">{state.error}</p>}
         <DialogFooter>

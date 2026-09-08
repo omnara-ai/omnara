@@ -1,5 +1,5 @@
 import { useUpdateConfiguredModel } from '@omnara/react'
-import { type ConfiguredModel } from '@omnara/sdk'
+import { type ConfiguredModel, type ModelApiFormat } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 
 import { Button } from '@/components/ui/button'
@@ -10,11 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { resourceNameValid } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
+
+import { configuredModelTokenLimitsError } from './CreateConfiguredModelDialogState'
 
 function optionalNumber(value: string) {
   return value.trim() === '' ? null : Number(value)
@@ -25,32 +27,42 @@ export function EditConfiguredModelDialog({
   onOpenChange,
   orgId,
   model,
+  apiFormat,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   model: ConfiguredModel
+  apiFormat: ModelApiFormat
 }) {
   const mutation = useUpdateConfiguredModel(orgId)
+  const defaultValues = {
+    name: model.name,
+    slug: model.provider_model_slug,
+    contextWindowTokens: String(model.context_window_tokens),
+    maxOutputTokens: model.max_output_tokens == null ? '' : String(model.max_output_tokens),
+    defaultMaxOutputTokens:
+      model.default_max_output_tokens == null ? '' : String(model.default_max_output_tokens),
+  }
+  const valid = (value: typeof defaultValues) =>
+    resourceNameValid(value.name) &&
+    value.slug.trim() !== '' &&
+    !configuredModelTokenLimitsError(value, apiFormat)
   const form = useForm({
-    defaultValues: {
-      name: model.name,
-      slug: model.provider_model_slug,
-      contextWindow: String(model.context_window_tokens),
-      maxOutput: model.max_output_tokens == null ? '' : String(model.max_output_tokens),
-      defaultOutput:
-        model.default_max_output_tokens == null ? '' : String(model.default_max_output_tokens),
-    },
+    defaultValues,
     onSubmit: async ({ value }) => {
+      if (!valid(value)) {
+        return
+      }
       try {
         await mutation.mutateAsync({
           modelProviderConfigID: model.model_provider_config_id,
           configuredModelID: model.id,
           name: value.name === model.name ? undefined : value.name,
           provider_model_slug: value.slug.trim(),
-          context_window_tokens: Number(value.contextWindow),
-          max_output_tokens: optionalNumber(value.maxOutput),
-          default_max_output_tokens: optionalNumber(value.defaultOutput),
+          context_window_tokens: Number(value.contextWindowTokens),
+          max_output_tokens: optionalNumber(value.maxOutputTokens),
+          default_max_output_tokens: optionalNumber(value.defaultMaxOutputTokens),
         })
         onOpenChange(false)
       } catch {
@@ -102,7 +114,7 @@ export function EditConfiguredModelDialog({
                 </Field>
               )}
             </form.Field>
-            <form.Field name="contextWindow">
+            <form.Field name="contextWindowTokens">
               {(field) => (
                 <Field>
                   <FieldLabel>Context window</FieldLabel>
@@ -118,29 +130,37 @@ export function EditConfiguredModelDialog({
               )}
             </form.Field>
             <div className="grid gap-4 sm:grid-cols-2">
-              <form.Field name="maxOutput">
+              <form.Field name="maxOutputTokens">
                 {(field) => (
                   <Field>
                     <FieldLabel>Maximum output</FieldLabel>
                     <Input
                       type="number"
                       min="1"
-                      placeholder="Unknown"
+                      step="1"
+                      required={apiFormat === 'anthropic-messages'}
+                      placeholder={apiFormat === 'anthropic-messages' ? 'Required' : 'Unknown'}
                       value={field.state.value}
                       onChange={(event) => {
                         field.handleChange(event.target.value)
                       }}
                     />
+                    <FieldDescription>
+                      {apiFormat === 'anthropic-messages'
+                        ? 'Max output is required for Anthropic Messages.'
+                        : 'Optional output capacity. Leave blank if unknown.'}
+                    </FieldDescription>
                   </Field>
                 )}
               </form.Field>
-              <form.Field name="defaultOutput">
+              <form.Field name="defaultMaxOutputTokens">
                 {(field) => (
                   <Field>
                     <FieldLabel>Default output</FieldLabel>
                     <Input
                       type="number"
                       min="1"
+                      step="1"
                       placeholder="Optional"
                       value={field.state.value}
                       onChange={(event) => {
@@ -151,13 +171,18 @@ export function EditConfiguredModelDialog({
                 )}
               </form.Field>
             </div>
+            <form.Subscribe
+              selector={(state) => configuredModelTokenLimitsError(state.values, apiFormat)}
+            >
+              {(error) => error && <p className="text-destructive text-sm">{error}</p>}
+            </form.Subscribe>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>
-              <form.Subscribe selector={(state) => [state.values.name, state.values.slug] as const}>
-                {([name, slug]) => (
+              <form.Subscribe selector={(state) => valid(state.values)}>
+                {(valid) => (
                   <Button
                     type="submit"
-                    disabled={mutation.isPending || !resourceNameValid(name) || slug.trim() === ''}
+                    disabled={mutation.isPending || !valid}
                     loading={mutation.isPending}
                   >
                     Save changes

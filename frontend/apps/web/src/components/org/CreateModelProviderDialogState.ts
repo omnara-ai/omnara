@@ -1,8 +1,15 @@
-import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
+import type {
+  CreateConfiguredModelRequest,
+  DiscoveredProviderModel,
+  ModelApiFormat,
+} from '@omnara/sdk'
 
 import { resourceNameValid } from '@/lib/resource-name'
 
-import { configuredModelSuggestedName } from './CreateConfiguredModelDialogState'
+import {
+  configuredModelSuggestedName,
+  configuredModelTokenLimitsError,
+} from './CreateConfiguredModelDialogState'
 
 export const modelProviderOptions = [
   { value: 'openai', label: 'OpenAI', keyPlaceholder: 'sk-…' },
@@ -76,9 +83,10 @@ export function providerSecretName(provider: ModelProviderOption) {
 
 export function configuredModelRequestForDiscoveredModel(
   model: DiscoveredProviderModel,
+  apiFormat: ModelApiFormat,
 ): CreateConfiguredModelRequest {
-  if (model.context_window_tokens === undefined || model.context_window_tokens < 2) {
-    throw new Error(`No context window was reported for ${model.slug}`)
+  if (!canCreateDiscoveredModel(model, apiFormat) || model.context_window_tokens === undefined) {
+    throw new Error(`Token limits are missing or invalid for ${model.slug}`)
   }
   const request: CreateConfiguredModelRequest = {
     name: configuredModelSuggestedName(model.slug),
@@ -89,4 +97,18 @@ export function configuredModelRequestForDiscoveredModel(
   }
   if (model.max_output_tokens !== undefined) request.max_output_tokens = model.max_output_tokens
   return request
+}
+
+export function canCreateDiscoveredModel(
+  model: DiscoveredProviderModel,
+  apiFormat: ModelApiFormat,
+) {
+  return !configuredModelTokenLimitsError(
+    {
+      contextWindowTokens: String(model.context_window_tokens ?? ''),
+      maxOutputTokens: String(model.max_output_tokens ?? ''),
+      defaultMaxOutputTokens: '',
+    },
+    apiFormat,
+  )
 }
