@@ -1,5 +1,12 @@
 -- +goose Up
 
+ALTER TABLE configured_model_revisions
+    ALTER COLUMN max_output_tokens DROP NOT NULL,
+    ADD CONSTRAINT configured_model_revisions_minimum_context
+    CHECK (context_window_tokens >= 2),
+    ADD CONSTRAINT configured_model_revisions_default_output_within_context
+    CHECK (default_max_output_tokens IS NULL OR default_max_output_tokens < context_window_tokens);
+
 -- Outputs recorded without explicit continuation intent never schedule recovery.
 ALTER TABLE model_outputs
     ADD COLUMN continue_after_truncation boolean NOT NULL DEFAULT false,
@@ -330,3 +337,8 @@ CROSS JOIN LATERAL (
       OR block.owner_tool_call_result_id = event.tool_call_result_id
     )
 ) block_projection;
+
+ALTER TABLE model_provider_configs
+    ALTER COLUMN request_timeout_ms SET DEFAULT 3600000,
+    ADD COLUMN idle_timeout_ms integer NOT NULL DEFAULT 300000
+        CHECK (idle_timeout_ms > 0);

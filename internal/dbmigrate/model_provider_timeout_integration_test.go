@@ -20,7 +20,7 @@ func TestModelProviderTimeoutMigrationPreservesConfiguredTotals(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer db.Close()
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 32))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 30))
 	orgID := uuid.New()
 	if _, err := db.ExecContext(
 		ctx,
