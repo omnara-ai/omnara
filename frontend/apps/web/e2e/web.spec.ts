@@ -76,7 +76,7 @@ async function signIn(page: Page, email: string, returnTo: string) {
 }
 
 async function selectConfiguredModel(page: Page) {
-  const modelPicker = page.getByRole('combobox', { name: 'Model' })
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.click()
   await page.getByPlaceholder('Search granted models…').fill(modelName)
   await page
@@ -230,7 +230,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await signIn(page, adminEmail, createAgentPath)
 
   await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Model' })).toHaveAttribute(
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveAttribute(
     'aria-required',
     'true',
   )
@@ -257,7 +257,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
   await selectConfiguredModel(page)
 
-  const modelPicker = page.getByRole('combobox', { name: 'Model' })
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.press('m')
   const modelSearch = page.getByPlaceholder('Search granted models…')
   await expect(modelSearch).toHaveValue('m')
@@ -335,7 +335,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
     }
   })
 
-  const modelPicker = page.getByRole('combobox', { name: 'Model' })
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.click()
   const grantModelsAction = page.getByRole('button', { name: 'Grant models…', exact: true })
   await expect(grantModelsAction).toBeVisible()
@@ -503,7 +503,7 @@ test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
-  await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
   const save = page.getByRole('button', { name: 'Save revision' })
