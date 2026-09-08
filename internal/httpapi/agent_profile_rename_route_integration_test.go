@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/http"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestRenameAgentProfileRoute(t *testing.T) {
@@ -33,11 +35,11 @@ func TestRenameAgentProfileRoute(t *testing.T) {
 		project,
 		"rename-profile",
 		"Original",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	profilePath := project.ProjectPath + "/agent-profiles/" + profile["id"].(string)
+	profilePath := project.ProjectPath + "/agent-profiles/" + testutil.RequireType[string](t, profile["id"])
 
 	renamed := requestJSONWithHeaders(
 		t,

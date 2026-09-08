@@ -101,7 +101,7 @@ machine_sources:
 `+machineSource+`tools:
   run_command: {}
   write_process: {}
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
 		ProfileID:      profile.ID,
@@ -308,7 +308,7 @@ func TestAttachedPoolMachineBindingIsExclusive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newIdlePoolMachineFixture(t, ctx, "binding-exclusive", idlePoolMachinePolicy{})
-	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, fixture.Now.Add(time.Millisecond))
+	secondAgentID := mustCreateAgent(t, ctx, fixture.Store)
 	var machineGrantID ID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT id
@@ -347,12 +347,25 @@ func TestExpiredIdlePoolMachinePolicyResolution(t *testing.T) {
 		{name: "pool", policy: idlePoolMachinePolicy{PoolMinutes: &five}, want: true},
 		{name: "grant_override", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &twenty}, want: false},
 		{name: "grant_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero}, want: false},
-		{name: "binding_disabled", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &five, BindingMinutes: &zero}, want: false},
-		{name: "binding_override", policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five}, want: true},
-		{name: "binding_reenables", policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero, BindingMinutes: &five}, want: true},
+		{
+			name:   "binding_disabled",
+			policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &five, BindingMinutes: &zero},
+			want:   false,
+		},
+		{
+			name:   "binding_override",
+			policy: idlePoolMachinePolicy{PoolMinutes: &twenty, GrantMinutes: &twenty, BindingMinutes: &five},
+			want:   true,
+		},
+		{
+			name:   "binding_reenables",
+			policy: idlePoolMachinePolicy{PoolMinutes: &five, GrantMinutes: &zero, BindingMinutes: &five},
+			want:   true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := newIdlePoolMachineFixture(t, ctx, "policy-resolution-"+test.name, test.policy)
 			backdateIdleMachineForTest(t, ctx, fixture, 10*time.Minute)
 			if got := idleMachineListedForTest(t, ctx, fixture); got != test.want {
@@ -447,6 +460,7 @@ func TestTerminalProcessActionRestartsIdleWindow(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := newIdlePoolMachineFixture(
 				t,
 				ctx,
@@ -500,6 +514,8 @@ SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 				_, err = fixture.Store.Execution().FailDaemonProcessAction(ctx, input)
 			case executionstore.ProcessActionStateUnknown:
 				_, err = fixture.Store.Execution().MarkDaemonProcessActionUnknown(ctx, input)
+			default:
+				t.Fatalf("unsupported terminal action state %q", test.state)
 			}
 			if err != nil {
 				t.Fatalf("complete idle test action as %s: %v", test.state, err)
@@ -514,7 +530,10 @@ SELECT last_activity_at, updated_at FROM processes WHERE id = $1
 				t.Fatalf("process activity after %s action = %s, want after %s", test.state, after, before)
 			}
 			if !updatedAtAfter.Equal(updatedAtBefore) {
-				t.Fatalf("process updated_at after %s action = %s, want unchanged at %s", test.state, updatedAtAfter, updatedAtBefore)
+				t.Fatalf(
+					"process updated_at after %s action = %s, want unchanged at %s", test.state, updatedAtAfter,
+					updatedAtBefore,
+				)
 			}
 			if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE processes

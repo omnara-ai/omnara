@@ -189,13 +189,16 @@ func TestCancelAgentNoOpsTerminalTurnWithUncanceledRuntime(t *testing.T) {
 			Usage:      modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
 		},
 	}
-	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, executionstore.RecordModelOutputAndCompleteContextInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		ModelCallContextID: modelClaim.Context.ID,
-		ProviderResponse:   providerResponse,
-	}); err != nil {
+	if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+		ctx,
+		executionstore.RecordModelOutputAndCompleteContextInput{
+			ProjectID:          testProjectID,
+			AgentID:            fixture.AgentID,
+			RuntimeLockID:      fixture.Lock.ID,
+			ModelCallContextID: modelClaim.Context.ID,
+			ProviderResponse:   providerResponse,
+		},
+	); err != nil {
 		t.Fatalf("record terminal model output: %v", err)
 	}
 
@@ -312,11 +315,14 @@ func TestCancelAgentWinsAgainstActiveModelCallAndRejectsLateAcceptance(t *testin
 			StopReason: modelenvelope.StopReasonEndTurn,
 		},
 	}
-	_, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, executionstore.RecordModelOutputAndCompleteContextInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID,
-		RuntimeLockID: fixture.Lock.ID, ModelCallContextID: modelClaim.Context.ID,
-		ProviderResponse: providerResponse,
-	})
+	_, err = fixture.Store.Execution().RecordModelOutputAndCompleteContext(
+		ctx,
+		executionstore.RecordModelOutputAndCompleteContextInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID,
+			RuntimeLockID: fixture.Lock.ID, ModelCallContextID: modelClaim.Context.ID,
+			ProviderResponse: providerResponse,
+		},
+	)
 	if err == nil {
 		t.Fatal("canceled model call accepted a late provider transition")
 	}
@@ -352,19 +358,22 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			wantErrorCode:    "provider_unavailable",
 		},
 	} {
-		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "archive_model_call_"+test.name)
 			now := fixture.Now.Add(time.Minute)
-			input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-				ProjectID:      testProjectID,
-				AgentID:        fixture.AgentID,
-				Actor:          mustOmnaraActorParams(t, fixture.UserID),
-				ContentBlocks:  json.RawMessage(`[{"type":"text","text":"archive durable model work"}]`),
-				IdempotencyKey: "archive-model-call-" + test.name,
-			})
+			input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+				ctx,
+				executionstore.CreateAgentContentInputInput{
+					ProjectID:      testProjectID,
+					AgentID:        fixture.AgentID,
+					Actor:          mustOmnaraActorParams(t, fixture.UserID),
+					ContentBlocks:  json.RawMessage(`[{"type":"text","text":"archive durable model work"}]`),
+					IdempotencyKey: "archive-model-call-" + test.name,
+				},
+			)
 			if err != nil {
 				t.Fatalf("create content input: %v", err)
 			}
@@ -396,17 +405,20 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 			}
 			if test.recordRetry {
 				failedAt := now.Add(3 * time.Second)
-				claim.Context, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, executionstore.RecordRecoverableModelCallFailureInput{
-					ProjectID:          testProjectID,
-					AgentID:            fixture.AgentID,
-					ModelCallContextID: claim.Context.ID,
-					RuntimeLockID:      fixture.Lock.ID,
-					ErrorKind:          "transient",
-					ErrorCode:          "provider_unavailable",
-					ErrorMessage:       "provider is temporarily unavailable",
-					ErrorDetails:       json.RawMessage(`{"test":"archive_retry"}`),
-					RetryDelay:         now.Add(time.Hour).Sub(failedAt),
-				})
+				claim.Context, err = fixture.Store.Execution().RecordRetryableModelCallFailure(
+					ctx,
+					executionstore.RecordRecoverableModelCallFailureInput{
+						ProjectID:          testProjectID,
+						AgentID:            fixture.AgentID,
+						ModelCallContextID: claim.Context.ID,
+						RuntimeLockID:      fixture.Lock.ID,
+						ErrorKind:          "transient",
+						ErrorCode:          "provider_unavailable",
+						ErrorMessage:       "provider is temporarily unavailable",
+						ErrorDetails:       json.RawMessage(`{"test":"archive_retry"}`),
+						RetryDelay:         now.Add(time.Hour).Sub(failedAt),
+					},
+				)
 				if err != nil {
 					t.Fatalf("record retryable failure: %v", err)
 				}
@@ -455,14 +467,25 @@ func TestArchiveAgentAtomicallyStopsDurableModelCallWork(t *testing.T) {
 				t.Fatalf("agent archive predates the existing retry outcome: agent=%+v context=%+v", archived, contextRecord)
 			}
 			if !test.recordRetry && contextRecord.CompletedAt.Before(*archived.ArchivedAt) {
-				t.Fatalf("archive-triggered model cancellation predates the agent archive: agent=%+v context=%+v", archived, contextRecord)
+				t.Fatalf(
+					"archive-triggered model cancellation predates the agent archive: agent=%+v context=%+v", archived,
+					contextRecord,
+				)
 			}
 			var activeContexts, wakeups int
-			if err := fixture.Store.pool.QueryRow(ctx, `SELECT count(*)::integer FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'started'`, testProjectID, fixture.AgentID).
+			if err := fixture.Store.pool.QueryRow(
+				ctx,
+				`SELECT count(*)::integer FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'started'`,
+				testProjectID, fixture.AgentID,
+			).
 				Scan(&activeContexts); err != nil {
 				t.Fatalf("count active contexts: %v", err)
 			}
-			if err := fixture.Store.pool.QueryRow(ctx, `SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, testProjectID, fixture.AgentID).
+			if err := fixture.Store.pool.QueryRow(
+				ctx,
+				`SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+				testProjectID, fixture.AgentID,
+			).
 				Scan(&wakeups); err != nil {
 				t.Fatalf("count wakeups: %v", err)
 			}
@@ -493,24 +516,30 @@ func TestCancelAgentCancelsSteeringButPreservesQueuedBacklogWhenActive(t *testin
 		fixture.Lock.ID,
 		true,
 	)
-	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued"}]`),
-		IdempotencyKey: "cancel-active-preserve-queued",
-	})
+	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued"}]`),
+			IdempotencyKey: "cancel-active-preserve-queued",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued input: %v", err)
 	}
-	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steering"}]`),
-		DeliveryMode:   "steering",
-		IdempotencyKey: "cancel-active-cancel-steering",
-	})
+	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steering"}]`),
+			DeliveryMode:   "steering",
+			IdempotencyKey: "cancel-active-cancel-steering",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create steering input: %v", err)
 	}
@@ -590,14 +619,17 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release runtime before cancel: %v", err)
 	}
-	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steer"}]`),
-		DeliveryMode:   "steering",
-		IdempotencyKey: "cancel-unstarted-turn-steering",
-	})
+	steeringInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steer"}]`),
+			DeliveryMode:   "steering",
+			IdempotencyKey: "cancel-unstarted-turn-steering",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create steering input: %v", err)
 	}
@@ -621,7 +653,10 @@ func TestCancelAgentStopsUnstartedTurnWithoutLiveRuntime(t *testing.T) {
 		)
 	}
 	var steeringState string
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT state FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`, testProjectID, fixture.AgentID, steeringInput.ID).
+	if err := fixture.Store.pool.QueryRow(
+		ctx, `SELECT state FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`, testProjectID,
+		fixture.AgentID, steeringInput.ID,
+	).
 		Scan(&steeringState); err != nil {
 		t.Fatalf("load steering state: %v", err)
 	}

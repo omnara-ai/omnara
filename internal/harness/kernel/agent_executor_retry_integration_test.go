@@ -857,14 +857,17 @@ WHERE context.project_id = $1
 	}
 
 	steeringAt := now.Add(3 * time.Millisecond)
-	steering, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      kernelTestProjectID,
-		AgentID:        agentID,
-		Actor:          kernelTestOmnaraActorParams(t, userID),
-		ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "steer to the new request"}}),
-		DeliveryMode:   executionstore.DeliveryModeSteering,
-		IdempotencyKey: "steering-supersedes-retry",
-	})
+	steering, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        agentID,
+			Actor:          kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "steer to the new request"}}),
+			DeliveryMode:   executionstore.DeliveryModeSteering,
+			IdempotencyKey: "steering-supersedes-retry",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create steering input during retry: %v", err)
 	}
@@ -889,7 +892,8 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if err != nil {
 		t.Fatalf("claim steering work: %v", err)
 	}
-	if !found || steeredWork.Kind != executionstore.AgentWorkModel || steeredWork.Model.ModelCallContextID != storage.NilID ||
+	if !found || steeredWork.Kind != executionstore.AgentWorkModel ||
+		steeredWork.Model.ModelCallContextID != storage.NilID ||
 		len(steeredWork.Model.InputIDs) != 2 || steeredWork.Model.InputIDs[0] != turn.InputIDs[0] ||
 		steeredWork.Model.InputIDs[1] != steering.ID ||
 		steeredWork.Model.TurnID == turn.TurnID {
@@ -950,7 +954,9 @@ func TestAgentExecutorConfigChangeRebuildsRetryingContextAtNewFrontier(t *testin
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	agentID, userID := fixture.createAgent(t, ctx, "openai/config-change-during-retry", now)
-	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "use the active configuration", now.Add(time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t, ctx, agentID, userID, "use the active configuration", now.Add(time.Millisecond),
+	)
 	retryAfterSeconds := int64(3600)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "config-change-during-retry",
@@ -1001,14 +1007,17 @@ WHERE context.project_id = $1
 		t.Fatalf("release retrying turn runtime: %v", err)
 	}
 
-	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      kernelTestProjectID,
-		AgentID:        agentID,
-		Actor:          kernelTestOmnaraActorParams(t, userID),
-		ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "wait for the active turn"}}),
-		DeliveryMode:   executionstore.DeliveryModeQueued,
-		IdempotencyKey: "queued-behind-config-change-retry",
-	})
+	queuedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        agentID,
+			Actor:          kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "wait for the active turn"}}),
+			DeliveryMode:   executionstore.DeliveryModeQueued,
+			IdempotencyKey: "queued-behind-config-change-retry",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued input during retry backoff: %v", err)
 	}
@@ -1065,16 +1074,20 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("claim config-change continuation: %v", err)
 	}
 	if !found || freshWork.Kind != executionstore.AgentWorkModel || freshWork.Model.ModelCallContextID != storage.NilID ||
-		freshWork.Model.TurnID != turn.TurnID || len(freshWork.Model.InputIDs) != 1 || freshWork.Model.InputIDs[0] != turn.InputIDs[0] {
+		freshWork.Model.TurnID != turn.TurnID || len(freshWork.Model.InputIDs) != 1 ||
+		freshWork.Model.InputIDs[0] != turn.InputIDs[0] {
 		t.Fatalf("config-change work = %+v found=%v, want a fresh context for the active turn", freshWork, found)
 	}
 
-	oldRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
-		ProjectID:                     kernelTestProjectID,
-		AgentID:                       agentID,
-		PredecessorModelCallContextID: oldContextID,
-		RuntimeLockID:                 freshWork.RuntimeLock.ID,
-	})
+	oldRetry, err := fixture.Store.Execution().ClaimNextModelCallContext(
+		ctx,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID:                     kernelTestProjectID,
+			AgentID:                       agentID,
+			PredecessorModelCallContextID: oldContextID,
+			RuntimeLockID:                 freshWork.RuntimeLock.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("probe stale context retry: %v", err)
 	}
@@ -1260,14 +1273,17 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("release retrying turn runtime: %v", err)
 	}
-	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      kernelTestProjectID,
-		AgentID:        agentID,
-		Actor:          kernelTestOmnaraActorParams(t, userID),
-		ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "newer request"}}),
-		DeliveryMode:   executionstore.DeliveryModeQueued,
-		IdempotencyKey: "queued-input-waits-for-retry",
-	})
+	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        agentID,
+			Actor:          kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "newer request"}}),
+			DeliveryMode:   executionstore.DeliveryModeQueued,
+			IdempotencyKey: "queued-input-waits-for-retry",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued input during retry backoff: %v", err)
 	}
@@ -1341,8 +1357,10 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	if err != nil {
 		t.Fatalf("claim queued input after retry turn: %v", err)
 	}
-	if !found || queuedWork.Kind != executionstore.AgentWorkModel || queuedWork.Model.ModelCallContextID != storage.NilID ||
-		len(queuedWork.Model.InputIDs) != 1 || queuedWork.Model.InputIDs[0] != newInput.ID || queuedWork.Model.TurnID == turn.TurnID {
+	if !found || queuedWork.Kind != executionstore.AgentWorkModel ||
+		queuedWork.Model.ModelCallContextID != storage.NilID ||
+		len(queuedWork.Model.InputIDs) != 1 || queuedWork.Model.InputIDs[0] != newInput.ID ||
+		queuedWork.Model.TurnID == turn.TurnID {
 		t.Fatalf("queued work = %+v found=%v, want a fresh input turn", queuedWork, found)
 	}
 	queuedTurn := modelWorkExecutionFromClaimForKernelTest(queuedWork, currentNow)

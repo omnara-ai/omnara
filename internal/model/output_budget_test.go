@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
@@ -96,13 +98,9 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 					MaxOutputTokens: tc.allowance,
 				}, ReserveFullOutputAllowance: tc.reserveFull, ErrorSource: "budget-test",
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			var wire RequestPolicy
-			if err := json.Unmarshal(prepared.Body, &wire); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, json.Unmarshal(prepared.Body, &wire))
 			if wire.MaxOutputTokens != tc.wantAllowance ||
 				prepared.MaxOutputTokens != tc.wantAllowance ||
 				prepared.InputBudget.UsableInputTokens != tc.wantUsable ||

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestModelProviderTimeoutAPI(t *testing.T) {
@@ -30,10 +32,11 @@ func TestModelProviderTimeoutAPI(t *testing.T) {
 	createPath := base + "/model-provider-configs"
 	body := fmt.Sprintf(
 		`{"name":"timeout-provider","preset":"openai","credential_secret_id":%q,"request_timeout_ms":30000,"idle_timeout_ms":45000}`,
-		secret["id"])
+		secret["id"],
+	)
 	created := request(http.MethodPost, createPath, body, http.StatusCreated)
 	provider := createdModelProviderConfig(t, created)
-	path := createPath + "/" + provider["id"].(string)
+	path := createPath + "/" + testutil.RequireType[string](t, provider["id"])
 	assertTimeouts(provider, 30000, 45000)
 	replay := fmt.Sprintf(`{"name":"timeout-provider","preset":"openai","credential_secret_id":%q}`, secret["id"])
 	replayed := request(http.MethodPost, createPath, replay, http.StatusOK)

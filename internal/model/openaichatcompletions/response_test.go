@@ -29,17 +29,25 @@ func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {
 		`"completion_tokens_details":{"reasoning_tokens":5}}}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Fatalf("missing auth header")
+			t.Errorf("missing auth header")
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if r.URL.Path != "/chat/completions" {
-			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+			t.Errorf("path = %q, want /chat/completions", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if r.Header.Get("Accept") != "text/event-stream" {
-			t.Fatalf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			t.Errorf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		requestBody, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read request body: %v", err)
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		sent = string(requestBody)
 		_, _ = w.Write([]byte(body))
@@ -537,7 +545,7 @@ func TestRespondSurfacesReasoningBeforeVisibleText(t *testing.T) {
 
 func TestRespondTreatsMalformedCompleteChatShapeAsRetryableUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_malformed_chat")
+		w.Header().Set("X-Request-ID", "req_malformed_chat")
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()

@@ -1,6 +1,6 @@
 module github.com/omnara-ai/omnara/tools/omnaralint
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2

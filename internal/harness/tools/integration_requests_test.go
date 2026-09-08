@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveIntegrationMessageRequest(t *testing.T) {
@@ -14,15 +15,11 @@ func TestResolveIntegrationMessageRequest(t *testing.T) {
 		publicid.KindArtifact,
 		integrationToolTestID("integration-message-artifact"),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	request, err := resolveIntegrationMessageRequest(
 		json.RawMessage(`{"text":" hello ","artifact_ids":["` + artifactID + `"]}`),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if request.Text != " hello " || len(request.ArtifactIDs) != 1 || request.ArtifactIDs[0] != artifactID {
 		t.Fatalf("request = %+v", request)
 	}
@@ -46,9 +43,7 @@ func TestResolveIntegrationTargetRequest(t *testing.T) {
 	request, err := resolveIntegrationTargetRequest(
 		json.RawMessage(`{"target_ref":"  SLACK-ABCD  "}`),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if request.TargetRef != "slack-abcd" {
 		t.Fatalf("target_ref = %q", request.TargetRef)
 	}

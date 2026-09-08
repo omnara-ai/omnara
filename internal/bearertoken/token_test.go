@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGoldenVectors(t *testing.T) {
@@ -82,9 +84,7 @@ func TestGenerateProducesCanonicalDistinctTokens(t *testing.T) {
 
 func TestParseRejectsMalformedTokens(t *testing.T) {
 	valid, err := format(KindPersonalAccess, strings.Repeat("A", secretLength))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	secretEnd := len(personalAccessPrefix) + secretLength
 	tests := []struct {
 		name  string
@@ -117,9 +117,7 @@ func TestParseRejectsMalformedTokens(t *testing.T) {
 
 func TestValidateRejectsWrongKind(t *testing.T) {
 	token, err := format(KindOrganization, strings.Repeat("B", secretLength))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := Validate(token, KindPersonalAccess); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Validate wrong kind error = %v, want ErrInvalid", err)
 	}

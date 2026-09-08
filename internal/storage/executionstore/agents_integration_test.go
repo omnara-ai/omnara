@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
@@ -29,7 +30,6 @@ func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 0, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "agent-profile-launch@example.com", DisplayName: "Agent Profile Launch"},
@@ -42,7 +42,7 @@ instruction: Start with the saved profile config.
 model:
   provider_config: openai-prod
   name: profile-launch
-`, now)
+`)
 
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -133,11 +133,12 @@ func TestProjectScopedAgentStorageHidesCrossProjectResources(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	otherProjectID := testID("cross_project_agent_storage")
 
-	if _, err := store.Execution().ListAgentEventsForRead(ctx, otherProjectID, agentID, 0, 10); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, err := store.Execution().ListAgentEventsForRead(
+		ctx, otherProjectID, agentID, 0, 10,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("list cross-project events error = %v, want ErrNotFound", err)
 	}
 	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
@@ -157,8 +158,7 @@ func TestSystemConfigChangeHasNoActor(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 15, 0, 0, time.UTC)
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "system-config-sender", now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,
 		CurrentConfigID: configID,
@@ -189,7 +189,7 @@ func TestAgentIdentityIsImmutable(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := NewStore(pool)
-	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC))
+	agentID := mustCreateAgent(t, ctx, store)
 	for _, column := range []string{"id", "org_id", "project_id"} {
 		_, err := pool.Exec(
 			ctx,
@@ -247,14 +247,13 @@ func TestAgentConfigHistoryTablesAreImmutable(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 20, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "history-immutable@example.com", "History Immutable")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "history-immutable", "History Immutable", `
 instruction: Initial immutable history config.
 model:
   provider_config: openai-prod
   name: history-immutable
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -268,12 +267,12 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	alternateConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "history-immutable-alternate", `
+	alternateConfig := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Alternate immutable history config.
 model:
   provider_config: openai-prod
   name: history-immutable
-`, now.Add(2*time.Second))
+`)
 	pinnedConfig, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, profile.CurrentConfigID)
 	if err != nil || !found {
 		t.Fatalf("load pinned agent config: found=%v err=%v", found, err)
@@ -439,14 +438,13 @@ func TestDeleteAgentProfileCascadesVersionsButKeepsConfigsAndAgents(t *testing.T
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 28, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "delete-profile@example.com", "Delete Profile")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-profile", "Delete Profile", `
 instruction: Deletable helper profile.
 model:
   provider_config: openai-prod
   name: delete-profile
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -481,7 +479,9 @@ WHERE project_id = $1 AND profile_id = $2
 	if _, err := store.Execution().GetAgentInProject(ctx, testProjectID, launch.Agent.ID); err != nil {
 		t.Fatalf("launched agent should survive profile deletion: %v", err)
 	}
-	if _, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, profile.CurrentConfigID); err != nil || !found {
+	if _, found, err := store.Execution().GetAgentConfig(
+		ctx, testProjectID, profile.CurrentConfigID,
+	); err != nil || !found {
 		t.Fatalf("profile config should survive profile deletion: %v", err)
 	}
 	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); !storeerr.IsNotFound(err) {
@@ -495,19 +495,18 @@ func TestDeleteAgentProfileSerializesWithRetarget(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 29, 0, 0, time.UTC)
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "delete-retarget", "Delete Retarget", `
 instruction: Initial profile.
 model:
   provider_config: openai-prod
   name: delete-retarget
-`, now)
-	retargetConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "delete-retarget-next", `
+`)
+	retargetConfig := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Retargeted profile.
 model:
   provider_config: openai-prod
   name: delete-retarget
-`, now.Add(time.Second))
+`)
 
 	blockingTx, err := pool.Begin(ctx)
 	if err != nil {
@@ -577,7 +576,6 @@ func TestAgentLaunchSerializesWithProfileDeletion(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 8, 5, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -585,12 +583,19 @@ func TestAgentLaunchSerializesWithProfileDeletion(t *testing.T) {
 		"launch-profile-delete@example.com",
 		"Launch Profile Delete",
 	)
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-profile-delete", "Launch Profile Delete", `
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"launch-profile-delete",
+		"Launch Profile Delete",
+		`
 instruction: Launch only from a live profile.
 model:
   provider_config: openai-prod
   name: launch-profile-delete
-`, now)
+`,
+	)
 
 	blockingTx, err := pool.Begin(ctx)
 	if err != nil {
@@ -654,14 +659,13 @@ func TestRenameAgentProfile(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
 	sourceYAML := `
 instruction: Profiles can be renamed.
 model:
   provider_config: openai-prod
   name: profile-rename
 `
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "profile-rename", sourceYAML, now)
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, sourceYAML)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            "Rename Me",
@@ -720,14 +724,13 @@ func TestCreateAgentProfileIdempotentReplayReturnsExistingProfile(t *testing.T) 
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 15, 30, 0, 0, time.UTC)
 	sourceYAML := `
 instruction: Profile creation should replay cleanly.
 model:
   provider_config: openai-prod
   name: profile-replay
 `
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "profile-replay", sourceYAML, now)
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, sourceYAML)
 	input := executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            "Replay Profile",
@@ -764,9 +767,7 @@ model:
 		t,
 		ctx,
 		store,
-		"profile-replay-retarget",
 		retargetYAML,
-		now.Add(2*time.Second),
 	)
 	retargeted, err := store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
 		ProjectID:               testProjectID,
@@ -802,9 +803,7 @@ model:
 		t,
 		ctx,
 		store,
-		"profile-replay-conflict",
 		conflictingRetargetYAML,
-		now.Add(2750*time.Millisecond),
 	)
 	if _, err := store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
 		ProjectID:               testProjectID,
@@ -836,7 +835,6 @@ func TestChangeAgentConfigCreatesConfigChangeEventAndIsIdempotent(t *testing.T) 
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 16, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "agent-config-change@example.com", "Agent Config Change")
 	otherUser := mustCreateProjectDeveloperUser(
 		t,
@@ -857,7 +855,7 @@ instruction: Original instruction.
 model:
   provider_config: openai-prod
   name: config-change
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -887,7 +885,7 @@ model:
   provider_config: openai-prod
   name: config-change
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -949,7 +947,7 @@ model:
   provider_config: openai-prod
   name: config-change
 `
-	secondCompiled := mustCompileAgentYAMLResolved(t, ctx, store, secondYAML, now.Add(4*time.Second))
+	secondCompiled := mustCompileAgentYAMLResolved(t, ctx, store, secondYAML)
 	secondChange, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1021,7 +1019,6 @@ func TestChangeAgentConfigExpectedCurrentConfigGuard(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 17, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -1033,7 +1030,7 @@ instruction: Original instruction.
 model:
   provider_config: openai-prod
   name: config-expected
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -1053,7 +1050,7 @@ model:
   provider_config: openai-prod
   name: config-expected
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	updatedInput := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -1081,7 +1078,7 @@ model:
   provider_config: openai-prod
   name: config-expected
 `
-	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML, now.Add(4*time.Second))
+	staleCompiled := mustCompileAgentYAMLResolved(t, ctx, store, staleYAML)
 	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1139,7 +1136,7 @@ instruction: Original instruction.
 model:
   provider_config: openai-prod
   name: config-capture
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -1216,9 +1213,12 @@ RETURNING id`, testProjectID, launch.Agent.ID, actorID, eventAt).Scan(&inputID);
 	}
 	var eventID ID
 	if err := tx.QueryRow(ctx, `
-INSERT INTO agent_events(id, agent_id, turn_id, sequence, event_kind, idempotency_key, agent_input_id, is_opening_event, created_at)
+INSERT INTO agent_events(id, agent_id, turn_id, sequence, event_kind, idempotency_key, agent_input_id,
+    is_opening_event, created_at)
 VALUES (uuidv7(), $1, $2, $3, 'agent_input', $4, $5, true, $6)
-RETURNING id`, launch.Agent.ID, turnID, sequence, "agent_input:"+inputID.String(), inputID, eventAt).Scan(&eventID); err != nil {
+RETURNING id`, launch.Agent.ID, turnID, sequence, "agent_input:"+inputID.String(), inputID, eventAt).Scan(
+		&eventID,
+	); err != nil {
 		t.Fatalf("insert blocked event: %v", err)
 	}
 	if _, err := tx.Exec(
@@ -1237,7 +1237,11 @@ WHERE project_id = $3 AND agent_id = $4 AND id = $5
 		t.Fatalf("resolve blocked input: %v", err)
 	}
 	var turnSequence int64
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`, testProjectID, launch.Agent.ID).
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT coalesce(max(turn.turn_sequence), 0) + 1 FROM agent_turns turn JOIN agents agent ON agent.id = turn.agent_id WHERE agent.project_id = $1 AND turn.agent_id = $2`,
+		testProjectID, launch.Agent.ID,
+	).
 		Scan(&turnSequence); err != nil {
 		t.Fatalf("next blocked turn sequence: %v", err)
 	}
@@ -1280,14 +1284,13 @@ func TestCaptureAgentConfigForEventWatermarkUsesConfigActiveAtSequence(t *testin
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 16, 45, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "watermark-config@example.com", "Watermark Config")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "watermark-config", "Watermark Config", `
 instruction: First watermark config.
 model:
   provider_config: openai-prod
   name: watermark
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -1303,12 +1306,12 @@ model:
 	}
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(
-			mustCreateAgentConfigFromYAML(t, ctx, store, "watermark-config-second", `
+			mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Second watermark config.
 model:
   provider_config: openai-prod
   name: watermark
-`, now.Add(2*time.Second))),
+`)),
 		AgentID:        launch.Agent.ID,
 		ActorType:      identitystore.PrincipalTypeUser,
 		ActorID:        user.ID,
@@ -1356,14 +1359,13 @@ func TestChangeAgentConfigAcceptsLiveMCPDiffs(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 16, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "agent-config-policy@example.com", "Agent Config Policy")
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "agent-config-policy", "Policy Profile", `
 instruction: Original instruction.
 model:
   provider_config: openai-prod
   name: config-policy
-`, now)
+`)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -1386,7 +1388,7 @@ mcp:
   docs:
     url: https://mcp.example.com
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, yaml, now.Add(2*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, yaml)
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1501,7 +1503,6 @@ tools:
 		"live-explicit",
 		"Live Explicit Sources",
 		initialYAML,
-		now,
 	)
 	launchInput := executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -1540,7 +1541,7 @@ machine_sources:
 tools:
   run_command: {}
 `
-	invalidConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "live-explicit-invalid", invalidYAML, now.Add(3*time.Second))
+	invalidConfig := mustCreateAgentConfigFromYAML(t, ctx, store, invalidYAML)
 	if err := store.Execution().ValidateAgentConfigMachineSources(
 		ctx,
 		testProjectID,
@@ -1613,7 +1614,6 @@ tools:
 		"live-explicit-valid",
 		validYAML,
 		"idem-live-explicit-valid",
-		now.Add(4*time.Second),
 	)
 	if len(changed.DeleteMachines) != 0 {
 		t.Fatalf("explicit change deleted machines: %+v", changed.DeleteMachines)
@@ -1682,7 +1682,6 @@ tools:
 		"live-explicit-reordered",
 		reorderedYAML,
 		"idem-live-explicit-reordered",
-		now.Add(5*time.Second),
 	)
 	if reorderedFirst := bindingForMachine(firstMachine.ID); !reorderedFirst.UpdatedAt.Equal(firstBinding.UpdatedAt) {
 		t.Fatalf("source reorder updated first binding at %v, want %v", reorderedFirst.UpdatedAt, firstBinding.UpdatedAt)
@@ -1729,7 +1728,11 @@ tools:
 	if err != nil {
 		t.Fatalf("acquire shared live source removal runtime lock: %v", err)
 	}
-	startRunningProcess := func(testName string, agentID, bindingID ID, lock executionstore.AgentRuntimeLockRecord) executionstore.ProcessRecord {
+	startRunningProcess := func(
+		testName string,
+		agentID, bindingID ID,
+		lock executionstore.AgentRuntimeLockRecord,
+	) executionstore.ProcessRecord {
 		t.Helper()
 		processAt := now.Add(5500 * time.Millisecond)
 		fixture := processDaemonFixture{
@@ -1798,7 +1801,6 @@ tools:
 		"live-explicit-remove",
 		secondOnlyYAML,
 		"idem-live-explicit-remove",
-		now.Add(6*time.Second),
 	)
 	released := getAgentMachineBindingForTest(t, ctx, store, testProjectID, launch.Agent.ID, firstBinding.ID)
 	if released.State != "released" {
@@ -1836,7 +1838,6 @@ tools:
 		"live-explicit-readd",
 		reorderedYAML,
 		"idem-live-explicit-readd",
-		now.Add(7*time.Second),
 	)
 	rebound := bindingForMachine(firstMachine.ID)
 	if rebound.ID == firstBinding.ID || rebound.MachineRef == firstBinding.MachineRef {
@@ -1862,7 +1863,6 @@ tools:
 		"live-explicit-remove-released",
 		secondOnlyYAML,
 		"idem-live-explicit-remove-released",
-		now.Add(9*time.Second),
 	)
 }
 
@@ -1873,9 +1873,8 @@ func TestAgentConfigDedupesOnlyEquivalentAuthoredConfigs(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 4, 29, 17, 0, 0, 0, time.UTC)
-	first := mustCreateAgentConfig(t, ctx, store, testProjectID, "dedupe-first", now)
-	second := mustCreateAgentConfig(t, ctx, store, testProjectID, "dedupe-second", now.Add(time.Second))
+	first := mustCreateAgentConfig(t, ctx, store, testProjectID)
+	second := mustCreateAgentConfig(t, ctx, store, testProjectID)
 	if first != second {
 		t.Fatalf("equivalent test configs should dedupe by hash: first=%s second=%s", first, second)
 	}
@@ -1891,8 +1890,8 @@ model:
   name: equivalent
 instruction: test
 `
-	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA, now.Add(time.Second))
-	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB, now.Add(time.Second))
+	compiledA := mustCompileAgentYAMLResolved(t, ctx, store, sourceA)
+	compiledB := mustCompileAgentYAMLResolved(t, ctx, store, sourceB)
 	if compiledA.Hash != compiledB.Hash || string(compiledA.CanonicalJSON) != string(compiledB.CanonicalJSON) {
 		t.Fatalf(
 			"test sources should compile to equivalent config: hash %q/%q json %s/%s",
@@ -1963,11 +1962,11 @@ func mustCreateConfigAndProfileBookmarkFromYAML(
 	ctx context.Context,
 	store *Store,
 	key, name, sourceYAML string,
-	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
-	config := mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            name,
@@ -1984,36 +1983,12 @@ func mustCreateAgentConfigFromYAML(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	key, sourceYAML string,
-	now time.Time,
+	sourceYAML string,
 ) executionstore.AgentConfigRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
-	return mustCreateAgentConfigFromCompiled(t, ctx, store, key, sourceYAML, compiled, now)
-}
-
-func mustCreateAgentConfigFromCompiled(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	key, source string,
-	compiled agentconfig.Result,
-	now time.Time,
-) executionstore.AgentConfigRecord {
-	t.Helper()
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  source,
-		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create agent config %s: %v", key, err)
-	}
-	return config
+	return storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 }
 
 func mustCompileAgentYAML(t *testing.T, sourceYAML string) agentconfig.Result {
@@ -2032,7 +2007,7 @@ func mustCompileAgentYAMLWithMachineSourceResolvers(
 	sourceYAML string,
 ) agentconfig.Result {
 	t.Helper()
-	return mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, time.Date(2026, 5, 21, 8, 0, 0, 0, time.UTC))
+	return mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 }
 
 func changeInputFromRecord(record executionstore.AgentConfigRecord) executionstore.CreateAgentConfigInput {
@@ -2053,10 +2028,9 @@ func changeAgentConfigFromYAMLForTest(
 	store *Store,
 	agentID, actorID ID,
 	key, sourceYAML, idempotencyKey string,
-	now time.Time,
 ) executionstore.ChangeAgentConfigResult {
 	t.Helper()
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, key, sourceYAML, now)
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, sourceYAML)
 	result, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(config),
 		AgentID:                agentID,

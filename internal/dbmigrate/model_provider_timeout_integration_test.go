@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelProviderTimeoutMigrationPreservesConfiguredTotals(t *testing.T) {
@@ -19,9 +20,7 @@ func TestModelProviderTimeoutMigrationPreservesConfiguredTotals(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer db.Close()
-	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 32); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 32))
 	orgID := uuid.New()
 	if _, err := db.ExecContext(
 		ctx,
@@ -33,33 +32,34 @@ func TestModelProviderTimeoutMigrationPreservesConfiguredTotals(t *testing.T) {
 	insert := `INSERT INTO model_provider_configs(
  org_id,management_kind,name,api_format,api_variant,base_url,endpoint_path,
  request_timeout_ms,auth_kind,auth_options,deleted_at,created_at,updated_at
- ) VALUES($1,'tenant',$2,'openai-responses','default','https://example.test','/responses',$3,'bearer_token','{}',now(),now(),now())`
+ ) VALUES($1,'tenant',$2,'openai-responses','default','https://example.test','/responses',$3,'bearer_token','{}',
+ now(),now(),now())`
 	for name, total := range map[string]int{"previous-default": 600000, "custom-total": 900000} {
 		if _, err := db.ExecContext(ctx, insert, orgID, name, total); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 	for name, want := range map[string]int{"previous-default": 600000, "custom-total": 900000} {
 		var total, idle int
-		if err := db.QueryRowContext(ctx, `SELECT request_timeout_ms,idle_timeout_ms FROM model_provider_configs WHERE org_id=$1 AND name=$2`, orgID, name).
-			Scan(&total, &idle); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(
+			t,
+			db.QueryRowContext(ctx, `SELECT request_timeout_ms,idle_timeout_ms
+FROM model_provider_configs WHERE org_id=$1 AND name=$2`, orgID, name).
+				Scan(&total, &idle),
+		)
 		if total != want || idle != 300000 {
 			t.Fatalf("%s total=%d idle=%d", name, total, idle)
 		}
 	}
 	var total, idle int
-	if err := db.QueryRowContext(ctx, `INSERT INTO model_provider_configs(
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO model_provider_configs(
  org_id,management_kind,name,api_format,api_variant,base_url,endpoint_path,
  auth_kind,auth_options,deleted_at,created_at,updated_at
- ) VALUES($1,'tenant','new-default','openai-responses','default','https://example.test','/responses','bearer_token','{}',now(),now(),now())
- RETURNING request_timeout_ms,idle_timeout_ms`, orgID).Scan(&total, &idle); err != nil {
-		t.Fatal(err)
-	}
+ ) VALUES($1,'tenant','new-default','openai-responses','default','https://example.test','/responses',
+ 'bearer_token','{}',
+ now(),now(),now())
+ RETURNING request_timeout_ms,idle_timeout_ms`, orgID).Scan(&total, &idle))
 	if total != 3600000 || idle != 300000 {
 		t.Fatalf("new defaults total=%d idle=%d", total, idle)
 	}

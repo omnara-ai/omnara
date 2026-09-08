@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestListIntegrationInstalls(t *testing.T) {
@@ -39,7 +40,7 @@ func TestListIntegrationInstalls(t *testing.T) {
 		project,
 		"list-installs-alpha",
 		"Alpha",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -49,12 +50,12 @@ func TestListIntegrationInstalls(t *testing.T) {
 		project,
 		"list-installs-beta",
 		"Beta",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	profileAlphaID := profileAlpha["id"].(string)
-	profileBetaID := profileBeta["id"].(string)
+	profileAlphaID := testutil.RequireType[string](t, profileAlpha["id"])
+	profileBetaID := testutil.RequireType[string](t, profileBeta["id"])
 
 	installAlpha := createListInstallsFixture(
 		t, ctx, project,
@@ -79,7 +80,7 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	data := listed["data"].([]any)
+	data := testutil.RequireType[[]any](t, listed["data"])
 	if len(data) != 2 {
 		t.Fatalf("expected 2 integration installs, got %d: %+v", len(data), data)
 	}
@@ -87,8 +88,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		t.Fatalf("single full page should have null next_cursor, got %v", listed["next_cursor"])
 	}
 
-	first := data[0].(map[string]any)
-	second := data[1].(map[string]any)
+	first := testutil.RequireType[map[string]any](t, data[0])
+	second := testutil.RequireType[map[string]any](t, data[1])
 	if first["provider_agent_display_name"] != "Beta App" || second["provider_agent_display_name"] != "Alpha App" {
 		t.Fatalf("expected newest-first ordering Beta App, Alpha App, got %+v", data)
 	}
@@ -119,12 +120,18 @@ func TestListIntegrationInstalls(t *testing.T) {
 	if _, ok := first["agent_id"]; ok {
 		t.Fatalf("profile-bound install should omit agent_id: %+v", first)
 	}
-	for _, hidden := range []string{"credential_secret_id", "provider_config", "provider_identity", "provider_metadata", "installed_by_user_id"} {
+	for _, hidden := range []string{
+		"credential_secret_id",
+		"provider_config",
+		"provider_identity",
+		"provider_metadata",
+		"installed_by_user_id",
+	} {
 		if _, ok := first[hidden]; ok {
 			t.Fatalf("install response should not expose %s: %+v", hidden, first)
 		}
 	}
-	if _, err := time.Parse(time.RFC3339Nano, first["created_at"].(string)); err != nil {
+	if _, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, first["created_at"])); err != nil {
 		t.Fatalf("parse install created_at: %v", err)
 	}
 
@@ -138,8 +145,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	firstPageData := firstPage["data"].([]any)
-	if len(firstPageData) != 1 || firstPageData[0].(map[string]any)["id"] != wantBetaID {
+	firstPageData := testutil.RequireType[[]any](t, firstPage["data"])
+	if len(firstPageData) != 1 || testutil.RequireType[map[string]any](t, firstPageData[0])["id"] != wantBetaID {
 		t.Fatalf("expected first page to hold only the Beta install, got %+v", firstPageData)
 	}
 	nextCursor, ok := firstPage["next_cursor"].(string)
@@ -156,8 +163,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	secondPageData := secondPage["data"].([]any)
-	if len(secondPageData) != 1 || secondPageData[0].(map[string]any)["id"] != wantAlphaID {
+	secondPageData := testutil.RequireType[[]any](t, secondPage["data"])
+	if len(secondPageData) != 1 || testutil.RequireType[map[string]any](t, secondPageData[0])["id"] != wantAlphaID {
 		t.Fatalf("expected second page to hold only the Alpha install, got %+v", secondPageData)
 	}
 	if secondPage["next_cursor"] != nil {
@@ -174,8 +181,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	filteredData := filtered["data"].([]any)
-	if len(filteredData) != 1 || filteredData[0].(map[string]any)["id"] != wantAlphaID {
+	filteredData := testutil.RequireType[[]any](t, filtered["data"])
+	if len(filteredData) != 1 || testutil.RequireType[map[string]any](t, filteredData[0])["id"] != wantAlphaID {
 		t.Fatalf("expected only the Alpha install for profile filter, got %+v", filteredData)
 	}
 
@@ -189,8 +196,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	namedData := named["data"].([]any)
-	if len(namedData) != 1 || namedData[0].(map[string]any)["id"] != wantBetaID {
+	namedData := testutil.RequireType[[]any](t, named["data"])
+	if len(namedData) != 1 || testutil.RequireType[map[string]any](t, namedData[0])["id"] != wantBetaID {
 		t.Fatalf("expected only the Beta install for name filter, got %+v", namedData)
 	}
 
@@ -235,8 +242,8 @@ func TestListIntegrationInstalls(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	afterDeleteData := afterDelete["data"].([]any)
-	if len(afterDeleteData) != 1 || afterDeleteData[0].(map[string]any)["id"] != wantBetaID {
+	afterDeleteData := testutil.RequireType[[]any](t, afterDelete["data"])
+	if len(afterDeleteData) != 1 || testutil.RequireType[map[string]any](t, afterDeleteData[0])["id"] != wantBetaID {
 		t.Fatalf("expected only the Beta install after delete, got %+v", afterDeleteData)
 	}
 

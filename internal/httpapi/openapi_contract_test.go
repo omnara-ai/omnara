@@ -1278,6 +1278,7 @@ func (*trackingReadCloser) Close() error {
 }
 
 func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+	t.Parallel()
 	validator, err := newOpenAPIRequestValidator()
 	if err != nil {
 		t.Fatalf("create openapi request validator: %v", err)
@@ -1286,14 +1287,20 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	source := &trackingReadCloser{reader: bytes.NewReader(body)}
 	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if source.bytesRead != 0 {
-			t.Fatalf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+			t.Errorf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		got, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read preserved body: %v", err)
+			t.Errorf("read preserved body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if !bytes.Equal(got, body) {
-			t.Fatalf("preserved body = %v, want %v", got, body)
+			t.Errorf("preserved body = %v, want %v", got, body)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -1312,6 +1319,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 }
 
 func TestOpenAPIValidationErrorsOmitRequestValues(t *testing.T) {
+	t.Parallel()
 	handler := newOpenAPIValidatorTestHandler(t)
 	orgID := "org_" + strings.Repeat("a", 26)
 	const sentinel = "sentinel-value-must-not-leak"

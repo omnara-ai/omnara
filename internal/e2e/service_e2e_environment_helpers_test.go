@@ -64,10 +64,12 @@ func newServiceE2EEnvironmentWithOptions(
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	uniqueSeed := fmt.Sprintf("%s-%d", seed, time.Now().UnixNano())
+	//nolint:usetesting // t.TempDir cleanup fails on Docker's root-owned files.
 	root, err := os.MkdirTemp("/tmp", "omnara-service-e2e-"+uniqueSeed+"-")
 	if err != nil {
 		t.Fatalf("create service e2e root: %v", err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	if requireDocker {
 		output, err := exec.CommandContext(ctx, "docker", "version").CombinedOutput()
 		if err != nil {
@@ -117,10 +119,6 @@ SELECT coalesce((
 	if err != nil {
 		t.Fatalf("open schema integration db: %v", err)
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		db.Close()
-		t.Fatalf("create service e2e root directory: %v", err)
-	}
 	ports := freePorts(t, 3)
 	apiPort := ports[0]
 	apiMetricsPort := ports[1]
@@ -162,9 +160,6 @@ func (e *serviceE2EEnvironment) cleanup() {
 			_, _ = db.Exec(ctx, `DROP SCHEMA IF EXISTS `+e.databaseSchema+` CASCADE;`)
 			db.Close()
 		}
-	}
-	if e.root != "" {
-		_ = os.RemoveAll(e.root)
 	}
 }
 

@@ -125,17 +125,6 @@ func (s *Store) createConfiguredModelTx(
 	); err != nil {
 		return ConfiguredModelRecord{}, err
 	}
-	// Catalog hints can change between otherwise identical CREATE attempts.
-	// Compare an existing model with caller intent before applying a new hint.
-	existing, err := qtx.GetConfiguredModelByName(ctx, dbsqlc.GetConfiguredModelByNameParams{
-		OrgID: input.OrgID, ModelProviderConfigID: input.ModelProviderConfigID, Name: input.Name,
-	})
-	if err == nil {
-		return configuredModelCreateReplay(configuredModelRecordFromGetByNameSQLC(existing), input, managementKind)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
-	}
 	resolved := input
 	if hint := input.DiscoveredMaxOutputTokens; resolved.MaxOutputTokens == nil && hint != nil &&
 		*hint > 0 && *hint < input.ContextWindowTokens &&
@@ -185,14 +174,8 @@ func (s *Store) createConfiguredModelTx(
 	if err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
 	}
-	return configuredModelCreateReplay(configuredModelRecordFromGetByNameSQLC(existingRow), input, managementKind)
-}
-
-func configuredModelCreateReplay(
-	record ConfiguredModelRecord,
-	input CreateConfiguredModelInput,
-	managementKind management.Kind,
-) (ConfiguredModelRecord, error) {
+	record := configuredModelRecordFromGetByNameSQLC(existingRow)
+	// Omitted capacity replays the stored choice even if discovery has changed.
 	if managementKind == management.Tenant && input.MaxOutputTokens == nil {
 		input.MaxOutputTokens = record.MaxOutputTokens
 	}

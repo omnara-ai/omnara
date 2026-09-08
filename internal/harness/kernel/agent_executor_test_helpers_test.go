@@ -19,6 +19,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -226,7 +227,10 @@ func (f kernelFixture) createNamedAgentWithModelOptions(
 		time.RFC3339Nano,
 	)
 	launchIdempotencyKey := agentProfileIdempotencyKey + "-launch"
-	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName + "\n  name: " + configuredModelName + "\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerConfigName +
+		"\n  name: " +
+		configuredModelName +
+		"\n"
 	if len(tools) > 0 {
 		sourceYAML += "tools:\n"
 		sort.Strings(tools)
@@ -335,7 +339,10 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	}
 	configuredModel := f.ensureModelSelection(t, ctx, source.Model.ProviderConfig, source.Model.Name, now, modelOptions)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil
 		},
 		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
@@ -371,7 +378,9 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	return compiled
 }
 
-func resolvedKernelAgentConfigModel(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
+func resolvedKernelAgentConfigModel(
+	configuredModel modelstore.ConfiguredModelRecord,
+) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
 		ConfiguredModelID: configuredModel.ID.String(),
@@ -890,10 +899,28 @@ func continueTurnOnNewLeaseForKernelTest(
 	if err != nil {
 		var wakeups, checkpoints, checkpointFrontiers, activeContexts int
 		var contexts string
-		_ = fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, prior.ProjectID, prior.AgentID).Scan(&wakeups)
-		_ = fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, prior.ProjectID, prior.AgentID).Scan(&checkpoints)
-		_ = fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_unconsumed_context_checkpoint_frontiers($1, $2)`, prior.ProjectID, prior.AgentID).Scan(&checkpointFrontiers)
-		_ = fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'started'`, prior.ProjectID, prior.AgentID).Scan(&activeContexts)
+		_ = fixture.Pool.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			prior.ProjectID,
+			prior.AgentID,
+		).Scan(&wakeups)
+		_ = fixture.Pool.QueryRow(
+			ctx,
+			`SELECT count(*) FROM context_checkpoints checkpoint JOIN agents agent ON agent.id = checkpoint.agent_id WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`,
+			prior.ProjectID,
+			prior.AgentID,
+		).Scan(&checkpoints)
+		_ = fixture.Pool.QueryRow(
+			ctx, `SELECT count(*) FROM agent_unconsumed_context_checkpoint_frontiers($1, $2)`, prior.ProjectID,
+			prior.AgentID,
+		).Scan(&checkpointFrontiers)
+		_ = fixture.Pool.QueryRow(
+			ctx,
+			`SELECT count(*) FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2 AND state = 'started'`,
+			prior.ProjectID,
+			prior.AgentID,
+		).Scan(&activeContexts)
 		_ = fixture.Pool.QueryRow(ctx, `
 			SELECT coalesce(string_agg(
 				context.operation_kind || ':' || context.state || ':' ||
@@ -1340,16 +1367,7 @@ func (kernelTestMachinePoolProviders) ResolveMachineProviderOptions(
 	_ string,
 	defaultOptions, projectOptions, agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{defaultOptions, projectOptions, agentOptions} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged, nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (kernelTestMachinePoolProviders) ValidatePool(string, executionstore.MachinePoolProviderPolicy) error {

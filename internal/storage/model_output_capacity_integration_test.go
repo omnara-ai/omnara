@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
@@ -74,17 +75,11 @@ func TestOutputCapacityConcurrentDiscoveryAndImmutableClear(t *testing.T) {
 	cleared, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 		OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, MaxOutputTokens: patch.NullableInt{Set: true},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	historical, err := store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, old.CurrentRevisionID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	current, err := store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, cleared.CurrentRevisionID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if cleared.MaxOutputTokens != nil ||
 		current.MaxOutputTokens != nil ||
 		current.DefaultMaxOutputTokens != nil ||

@@ -349,10 +349,20 @@ func mustCreateProjectRoleUser(
 	if err != nil {
 		t.Fatalf("create user %s: %v", email, err)
 	}
-	if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: user.ID, Role: "member"}); err != nil {
+	if _, err := store.Identity().AddOrgMembership(
+		ctx, identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: user.ID, Role: "member"},
+	); err != nil {
 		t.Fatalf("add org membership for %s: %v", email, err)
 	}
-	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{OrgID: testOrgID, ProjectID: testProjectID, UserID: user.ID, Role: projectRole}); err != nil {
+	if _, err := store.Identity().AddProjectMembership(
+		ctx,
+		identitystore.AddProjectMembershipInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			UserID:    user.ID,
+			Role:      projectRole,
+		},
+	); err != nil {
 		t.Fatalf("add project %s membership for %s: %v", projectRole, email, err)
 	}
 	return user
@@ -456,7 +466,7 @@ func newProcessDaemonFixtureInStore(
 	if err != nil {
 		t.Fatalf("register daemon runtime: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,
@@ -532,7 +542,7 @@ func newProcessMachineFixtureWithoutDaemonRuntime(
 	if err != nil {
 		t.Fatalf("create project machine grant: %v", err)
 	}
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	binding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,
@@ -748,26 +758,6 @@ func customProcessToolCallBatchItem(testName, toolName string) processToolCallBa
 	}
 }
 
-func createCustomReadyToolCallForProcessTest(
-	t *testing.T,
-	ctx context.Context,
-	fixture processDaemonFixture,
-	testName string,
-	toolName string,
-) ID {
-	t.Helper()
-	toolCallID := createTypedToolCallForProcessTest(
-		t,
-		ctx,
-		fixture,
-		testName,
-		toolName,
-		toolcatalog.ToolTypeCustom,
-		true,
-	)
-	return toolCallID
-}
-
 func createTypedToolCallForProcessTest(
 	t *testing.T,
 	ctx context.Context,
@@ -960,24 +950,6 @@ WHERE tool_call.project_id = $1 AND tool_call.agent_id = $2 AND tool_call.id = $
 		t.Fatalf("load tool call turn: %v", err)
 	}
 	return turnID
-}
-
-func providerCallIDForProcessToolCallTest(
-	t *testing.T,
-	ctx context.Context,
-	fixture processDaemonFixture,
-	toolCallID ID,
-) string {
-	t.Helper()
-	var providerCallID string
-	if err := fixture.Store.pool.QueryRow(ctx, `
-SELECT provider_call_id
-FROM tool_call_read_projection
-WHERE project_id = $1 AND agent_id = $2 AND id = $3
-`, testProjectID, fixture.AgentID, toolCallID).Scan(&providerCallID); err != nil {
-		t.Fatalf("load tool call provider call id: %v", err)
-	}
-	return providerCallID
 }
 
 func openingInputAndWatermarkForProcessToolCallTest(
@@ -1379,7 +1351,9 @@ WHERE agent.project_id = $1
 	if err != nil {
 		t.Fatalf("marshal forced tool result wakeup metadata: %v", err)
 	}
-	if err := dbsqlc.New(tx).MarkAgentWakeup(ctx, dbsqlc.MarkAgentWakeupParams{ProjectID: projectID, AgentID: agentID, Metadata: metadata}); err != nil {
+	if err := dbsqlc.New(tx).MarkAgentWakeup(
+		ctx, dbsqlc.MarkAgentWakeupParams{ProjectID: projectID, AgentID: agentID, Metadata: metadata},
+	); err != nil {
 		t.Fatalf("mark forced tool result wakeup: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

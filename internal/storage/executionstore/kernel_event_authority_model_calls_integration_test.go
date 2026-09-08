@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelCallRowConstraintsProtectImmutableEvidence(t *testing.T) {
@@ -161,6 +162,7 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"completed", "continued", "historical max_tokens"} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			continued := name == "continued"
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(t, ctx, "kernel_model_output_authority")
@@ -175,7 +177,11 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				ProviderReportedCostUSD:    "0.0000125",
 				ProviderMetadata: modelenvelope.ProviderMetadata{
 					RequestMaxOutputTokens: 64000,
-					OpenRouter:             modelenvelope.OpenRouterMetadata{Provider: "test-provider", FinishReason: "tool_calls", NativeFinishReason: "length"},
+					OpenRouter: modelenvelope.OpenRouterMetadata{
+						Provider:           "test-provider",
+						FinishReason:       "tool_calls",
+						NativeFinishReason: "length",
+					},
 				},
 				Normalized: modelenvelope.ResponseNormalized{
 					ID:         "resp_kernel_model_output_authority",
@@ -188,7 +194,13 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				providerResponse.Normalized.StopReason = modelenvelope.StopReasonMaxTokens
 			}
 			if continued {
-				providerResponse.Normalized.Content = append(providerResponse.Normalized.Content, modelenvelope.ResponsePart{Type: modelenvelope.ResponsePartTypeError, Text: "Continue with smaller tool calls."})
+				providerResponse.Normalized.Content = append(
+					providerResponse.Normalized.Content,
+					modelenvelope.ResponsePart{
+						Type: modelenvelope.ResponsePartTypeError,
+						Text: "Continue with smaller tool calls.",
+					},
+				)
 			}
 			actorID := fixture.omnaraActorID(t, ctx)
 			if _, err := fixture.Store.pool.Exec(ctx, `
@@ -242,14 +254,15 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load agent for model output fixture context: %v", err)
 			}
-			modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-				ProjectID:          testProjectID,
-				AgentID:            fixture.AgentID,
-				RuntimeLockID:      fixture.Lock.ID,
-				OpeningInputIDs:    []ID{inputID},
-				AgentConfigID:      agent.CurrentConfigID,
-				InputEventSequence: inputEvent.Event.Sequence,
-			})
+			modelClaim, err := fixture.Store.Execution().
+				ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
+					ProjectID:          testProjectID,
+					AgentID:            fixture.AgentID,
+					RuntimeLockID:      fixture.Lock.ID,
+					OpeningInputIDs:    []ID{inputID},
+					AgentConfigID:      agent.CurrentConfigID,
+					InputEventSequence: inputEvent.Event.Sequence,
+				})
 			if err != nil {
 				t.Fatalf("claim model output fixture context: %v", err)
 			}
@@ -278,14 +291,22 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 			if continued {
 				changedFlag := recordInput
 				changedFlag.ContinueAfterTruncation = false
-				if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, changedFlag); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+				if _, err := fixture.Store.Execution().
+					RecordModelOutputAndCompleteContext(ctx, changedFlag); !errors.Is(
+					err,
+					storeerr.ErrIdempotencyConflict,
+				) {
 					t.Fatalf("changed continuation flag replay error = %v", err)
 				}
 			}
 			var pending int
-			if err := fixture.Store.pool.QueryRow(ctx, `SELECT count(*) FROM agent_next_model_work($1,$2)`, testProjectID, fixture.AgentID).Scan(&pending); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(
+				t,
+				fixture.Store.pool.QueryRow(
+					ctx, `SELECT count(*) FROM agent_next_model_work($1,$2)`, testProjectID, fixture.AgentID,
+				).
+					Scan(&pending),
+			)
 			wantPending := 0
 			if continued {
 				wantPending = 1
@@ -299,16 +320,27 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				recordInput.ProviderResponse.Normalized.Content...,
 			)
 			conflictingInput.ProviderResponse.Normalized.Content[0].Text = "changed output"
-			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+			if _, err := fixture.Store.Execution().
+				RecordModelOutputAndCompleteContext(ctx, conflictingInput); !errors.Is(
+				err,
+				storeerr.ErrIdempotencyConflict,
+			) {
 				t.Fatalf("conflicting output replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 			}
 			conflictingCostInput := recordInput
 			conflictingCostInput.ProviderResponse.ProviderReportedCostUSD = "0.0000126"
-			if _, err := fixture.Store.Execution().RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+			if _, err := fixture.Store.Execution().
+				RecordModelOutputAndCompleteContext(ctx, conflictingCostInput); !errors.Is(
+				err,
+				storeerr.ErrIdempotencyConflict,
+			) {
 				t.Fatalf("conflicting cost replay error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
 			}
 			var modelOutputID ID
-			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).Scan(&modelOutputID); err != nil {
+			if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.model_output_id FROM agent_events event
+JOIN agents agent ON agent.id = event.agent_id
+WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.id = $3`, testProjectID, fixture.AgentID, event.ID).
+				Scan(&modelOutputID); err != nil {
 				t.Fatalf("load model output event pointer: %v", err)
 			}
 			if isNilID(modelOutputID) {
@@ -353,7 +385,8 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 					providerResponse.ProviderMetadata,
 				)
 			}
-			readEvents, err := fixture.Store.Execution().ListAgentEventsForRead(ctx, testProjectID, fixture.AgentID, 0, 100)
+			readEvents, err := fixture.Store.Execution().
+				ListAgentEventsForRead(ctx, testProjectID, fixture.AgentID, 0, 100)
 			if err != nil {
 				t.Fatalf("list agent events for read: %v", err)
 			}
@@ -559,13 +592,17 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
 	); err != nil {
 		t.Fatalf("stage succeeded typed-event context: %v", err)
 	}
-	if _, err := executionstore.IntegrationCreateModelOutputAuthorityTx(ctx, tx, executionstore.CreateModelOutputAuthorityInput{
-		ProjectID:               testProjectID,
-		AgentID:                 fixture.AgentID,
-		ModelCallContextID:      contextID,
-		ServedProviderModelSlug: providerModelSlug,
-		StopReason:              "end_turn",
-	}); err != nil {
+	if _, err := executionstore.IntegrationCreateModelOutputAuthorityTx(
+		ctx,
+		tx,
+		executionstore.CreateModelOutputAuthorityInput{
+			ProjectID:               testProjectID,
+			AgentID:                 fixture.AgentID,
+			ModelCallContextID:      contextID,
+			ServedProviderModelSlug: providerModelSlug,
+			StopReason:              "end_turn",
+		},
+	); err != nil {
 		t.Fatalf("create orphan model output fixture: %v", err)
 	}
 	if err := tx.Commit(ctx); !isPgCheckViolation(err) {

@@ -107,23 +107,46 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		query string
 		value any
 	}{
-		{name: "id", query: `UPDATE model_provider_configs SET id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-provider-config-id")},
-		{name: "organization", query: `UPDATE model_provider_configs SET org_id = $1 WHERE org_id = $2 AND id = $3`, value: testID("changed-provider-config-org")},
-		{name: "management kind", query: `UPDATE model_provider_configs SET management_kind = $1 WHERE org_id = $2 AND id = $3`, value: "cluster"},
-		{name: "API format", query: `UPDATE model_provider_configs SET api_format = $1 WHERE org_id = $2 AND id = $3`, value: "anthropic-messages"},
-		{name: "API variant", query: `UPDATE model_provider_configs SET api_variant = $1 WHERE org_id = $2 AND id = $3`, value: "openrouter"},
+		{
+			name:  "id",
+			query: `UPDATE model_provider_configs SET id = $1 WHERE org_id = $2 AND id = $3`,
+			value: testID("changed-provider-config-id"),
+		},
+		{
+			name:  "organization",
+			query: `UPDATE model_provider_configs SET org_id = $1 WHERE org_id = $2 AND id = $3`,
+			value: testID("changed-provider-config-org"),
+		},
+		{
+			name:  "management kind",
+			query: `UPDATE model_provider_configs SET management_kind = $1 WHERE org_id = $2 AND id = $3`,
+			value: "cluster",
+		},
+		{
+			name:  "API format",
+			query: `UPDATE model_provider_configs SET api_format = $1 WHERE org_id = $2 AND id = $3`,
+			value: "anthropic-messages",
+		},
+		{
+			name:  "API variant",
+			query: `UPDATE model_provider_configs SET api_variant = $1 WHERE org_id = $2 AND id = $3`,
+			value: "openrouter",
+		},
 	} {
 		if _, err := pool.Exec(ctx, test.query, test.value, config.OrgID, config.ID); !isPgCode(err, "25006") {
 			t.Fatalf("update model provider config %s error = %v, want SQLSTATE 25006", test.name, err)
 		}
 	}
-	normalizedBaseURLConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              testOrgID,
-		Name:               "openai-normalized-base-url",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		BaseURL:            "https://api.openai.com/v1/",
-		CredentialSecretID: credential.ID,
-	})
+	normalizedBaseURLConfig, err := store.Models().CreateModelProviderConfig(
+		ctx,
+		modelstore.CreateModelProviderConfigInput{
+			OrgID:              testOrgID,
+			Name:               "openai-normalized-base-url",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			BaseURL:            "https://api.openai.com/v1/",
+			CredentialSecretID: credential.ID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create provider config with trailing base_url slash: %v", err)
 	}
@@ -179,7 +202,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		replay, err := store.Models().CreateModelProviderConfig(ctx, replayInput)
-		if err != nil || replay.ID != config.ID || replay.Created || replay.RequestTimeoutMS != 30000 || replay.IdleTimeoutMS != idle {
+		if err != nil || replay.ID != config.ID || replay.Created || replay.RequestTimeoutMS != 30000 ||
+			replay.IdleTimeoutMS != idle {
 			t.Fatalf("omitted timeout replay=%+v error=%v", replay, err)
 		}
 	}
@@ -190,7 +214,11 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		} else {
 			conflicting.IdleTimeoutMS = 40000
 		}
-		if _, err := store.Models().CreateModelProviderConfig(ctx, conflicting); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		if _, err := store.Models().
+			CreateModelProviderConfig(ctx, conflicting); !errors.Is(
+			err,
+			storeerr.ErrIdempotencyConflict,
+		) {
 			t.Fatalf("explicit timeout conflict=%v", err)
 		}
 		for _, invalid := range []int{-1, 0, 2147483648} {
@@ -200,7 +228,11 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 			} else {
 				input.IdleTimeoutMS = &invalid
 			}
-			if _, err := store.Models().PatchModelProviderConfig(ctx, input); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+			if _, err := store.Models().
+				PatchModelProviderConfig(ctx, input); !errors.Is(
+				err,
+				storeerr.ErrInvalidModelProviderConfig,
+			) {
 				t.Fatalf("invalid timeout patch total=%t value=%d error=%v", total, invalid, err)
 			}
 		}
@@ -322,7 +354,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create anthropic provider config: %v", err)
 	}
-	if anthropicConfig.EndpointPath != "/messages" || anthropicConfig.AuthKind != modelstore.ModelProviderAuthKindAPIKeyHeader ||
+	if anthropicConfig.EndpointPath != "/messages" ||
+		anthropicConfig.AuthKind != modelstore.ModelProviderAuthKindAPIKeyHeader ||
 		!sameJSON(anthropicConfig.AuthOptions, json.RawMessage(`{"header_name":"x-api-key"}`)) {
 		t.Fatalf("unexpected anthropic provider defaults: %+v", anthropicConfig)
 	}
@@ -577,7 +610,11 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	}
 	if updatedModel.CurrentRevisionID == previousRevisionID ||
 		!sameJSON(updatedModel.APIVariantOptions, updatedAPIVariantOptions) {
-		t.Fatalf("api variant options update should create revision: before=%s after=%+v", previousRevisionID, updatedModel)
+		t.Fatalf(
+			"api variant options update should create revision: before=%s after=%+v",
+			previousRevisionID,
+			updatedModel,
+		)
 	}
 	previousRevision, err := store.Models().GetConfiguredModelRevisionDisplay(ctx, testOrgID, previousRevisionID)
 	if err != nil {
@@ -626,9 +663,15 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		t.Fatalf("rename configured model: %v", err)
 	}
 	if renamedModel.Name != renamedName || renamedModel.CurrentRevisionID != updatedModel.CurrentRevisionID {
-		t.Fatalf("pure configured model rename should not create revision: before=%+v after=%+v", updatedModel, renamedModel)
+		t.Fatalf(
+			"pure configured model rename should not create revision: before=%+v after=%+v",
+			updatedModel,
+			renamedModel,
+		)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, testOrgID, config.ID, updatedModel.Name); !storeerr.IsNotFound(err) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, testOrgID, config.ID, updatedModel.Name,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("old configured model name lookup error = %v, want not found", err)
 	}
 	if resolvedRenamed, err := store.Models().GetConfiguredModelByName(
@@ -711,7 +754,10 @@ model:
 		agentconfig.SourceFormatYAML,
 		[]byte(referencedSource),
 		agentconfig.CompileOptions{
-			ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+			ResolveModelSelection: func(
+				providerConfigName string,
+				configuredModelName string,
+			) (agentconfig.ResolvedModelSelection, error) {
 				return resolvedTestModelSelection(referencedModel), nil
 			},
 		},
@@ -966,7 +1012,6 @@ func TestDeleteConfiguredModelAllowsHistoricalAgentConfigReferences(t *testing.T
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 
 	sourceYAML := `
 instruction: test
@@ -974,7 +1019,7 @@ model:
   provider_config: openai-prod
   name: archive-test
 `
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "archived-model", sourceYAML, now)
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, sourceYAML)
 	configuredModel, err := store.Models().GetConfiguredModel(ctx, testOrgID, config.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("load configured model before archive: %v", err)
@@ -1005,7 +1050,10 @@ model:
 	if _, err := store.Models().GetConfiguredModelRevisionDisplay(ctx, testOrgID, revisionID); err != nil {
 		t.Fatalf("historical configured model revision display after archive: %v", err)
 	}
-	if _, err := store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, revisionID); !storeerr.IsNotFound(err) {
+	if _, err := store.Models().
+		GetConfiguredModelRevisionForUse(ctx, testOrgID, revisionID); !storeerr.IsNotFound(
+		err,
+	) {
 		t.Fatalf("configured model revision for use after archive error = %v, want not found", err)
 	}
 }
@@ -1018,12 +1066,12 @@ func TestDeleteConfiguredModelDoesNotRequireActiveProviderConfig(t *testing.T) {
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "archive-model-parent-archived", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: test
 model:
   provider_config: openai-prod
   name: archive-parent-test
-`, now)
+`)
 	configuredModel, err := store.Models().GetConfiguredModel(ctx, testOrgID, config.ConfiguredModelID)
 	if err != nil {
 		t.Fatalf("load configured model before archive: %v", err)
@@ -1113,7 +1161,10 @@ model:
   name: gpt-lock
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})
@@ -1282,7 +1333,10 @@ tools:
       parameters: {}
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})
@@ -1451,7 +1505,8 @@ DROP FUNCTION IF EXISTS test_pause_configured_model_revision_insert();
 	if err != nil {
 		t.Fatalf("load patched configured model: %v", err)
 	}
-	if current.ProviderModelSlug != "gpt-patch-v2" || (current.MaxOutputTokens == nil || *current.MaxOutputTokens != 16384) {
+	if current.ProviderModelSlug != "gpt-patch-v2" ||
+		(current.MaxOutputTokens == nil || *current.MaxOutputTokens != 16384) {
 		t.Fatalf("concurrent patches did not merge against locked current revision: %+v", current)
 	}
 }
@@ -1708,7 +1763,8 @@ DROP FUNCTION IF EXISTS test_pause_archive_race_revision_insert();
 		if result.err != nil {
 			t.Fatalf("archive configured model after concurrent patch: %v", result.err)
 		}
-		if result.record.DeletedAt == nil || (result.record.MaxOutputTokens == nil || *result.record.MaxOutputTokens != 16384) {
+		if result.record.DeletedAt == nil ||
+			(result.record.MaxOutputTokens == nil || *result.record.MaxOutputTokens != 16384) {
 			t.Fatalf("archive did not use patched current revision facts: %+v", result.record)
 		}
 	case <-time.After(5 * time.Second):
@@ -1771,7 +1827,10 @@ model:
   name: gpt-stale
 `
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
+		ResolveModelSelection: func(
+			providerConfigName string,
+			configuredModelName string,
+		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 	})

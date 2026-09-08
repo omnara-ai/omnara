@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelWindowForRequestUsesExactPolicy(t *testing.T) {
@@ -52,9 +53,7 @@ func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 			ErrorSource: "test_api",
 		},
 	)
-	if err != nil {
-		t.Fatalf("prepare small provider request from large neutral bundle: %v", err)
-	}
+	require.NoError(t, err, "prepare small provider request from large neutral bundle")
 	if string(prepared.Body) != string(body) ||
 		prepared.InputTokenEstimate != modelcontext.EstimatePreparedRequest(body, nil) {
 		t.Fatalf("prepared request / estimate = %s/%d", prepared.Body, prepared.InputTokenEstimate)
@@ -96,9 +95,7 @@ func TestPrepareForSendAssessesSerializedRequestEstimate(t *testing.T) {
 			ErrorSource: "test_api",
 		},
 	)
-	if err != nil {
-		t.Fatalf("prepare over-budget request: %v", err)
-	}
+	require.NoError(t, err, "prepare over-budget request")
 	if prepared.InputBudget.Fits() || prepared.InputBudget.EstimatedInputTokens != 900 ||
 		prepared.InputBudget.UsableInputTokens != 750 {
 		t.Fatalf("serialized request assessment = %+v, want 900 > 750", prepared.InputBudget)
@@ -113,9 +110,7 @@ func TestPrepareForSendAssessesSerializedRequestEstimate(t *testing.T) {
 			ErrorSource: "test_api",
 		},
 	)
-	if err != nil {
-		t.Fatalf("prepare fitting serialized request: %v", err)
-	}
+	require.NoError(t, err, "prepare fitting serialized request")
 	if prepared.InputTokenEstimate != 750 || !prepared.InputBudget.Fits() ||
 		string(prepared.Body) != `{"request":true}` {
 		t.Fatalf("exact-boundary prepared request / assessment = %s/%+v", prepared.Body, prepared.InputBudget)
@@ -441,9 +436,7 @@ func TestResponseEnvelopePreservesOrderedContentParts(t *testing.T) {
 		},
 		StopReason: modelenvelope.StopReasonEndTurn,
 	})
-	if err != nil {
-		t.Fatalf("response envelope: %v", err)
-	}
+	require.NoError(t, err, "response envelope")
 	if len(envelope.Normalized.Content) != 3 {
 		t.Fatalf("content parts = %+v, want 3", envelope.Normalized.Content)
 	}
@@ -459,9 +452,7 @@ func TestResponseEnvelopeAcceptsEmptySuccessfulContent(t *testing.T) {
 		ID:         "resp_empty",
 		StopReason: modelenvelope.StopReasonEndTurn,
 	})
-	if err != nil {
-		t.Fatalf("response envelope: %v", err)
-	}
+	require.NoError(t, err, "response envelope")
 	if len(envelope.Normalized.Content) != 0 ||
 		envelope.Normalized.StopReason != modelenvelope.StopReasonEndTurn {
 		t.Fatalf("empty successful response changed: %+v", envelope.Normalized)
@@ -477,9 +468,7 @@ func TestResponseEnvelopeAcceptsReasoningParts(t *testing.T) {
 		},
 		StopReason: modelenvelope.StopReasonEndTurn,
 	})
-	if err != nil {
-		t.Fatalf("response envelope: %v", err)
-	}
+	require.NoError(t, err, "response envelope")
 	if len(envelope.Normalized.Content) != 2 ||
 		envelope.Normalized.Content[0].Type != "reasoning" ||
 		envelope.Normalized.Content[0].Text != "visible summary" ||
@@ -504,9 +493,7 @@ func TestResponseEnvelopeAcceptsWholeOutputReplayAndRejectsNull(t *testing.T) {
 		Content:        []ResponsePart{{Type: "text", Text: "answer"}},
 		StopReason:     modelenvelope.StopReasonEndTurn,
 	})
-	if err != nil {
-		t.Fatalf("null replay should be treated as absent: %v", err)
-	}
+	require.NoError(t, err, "null replay should be treated as absent")
 }
 
 func TestValidateProviderJSONRejectsDatabaseUnsafeStrings(t *testing.T) {

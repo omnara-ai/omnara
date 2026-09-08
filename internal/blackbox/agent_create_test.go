@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 // Test 1: the happy path. Creating an agent from the suite profile and config
@@ -295,8 +297,12 @@ func TestCreateAgentConcurrent(t *testing.T) {
 					ID string `json:"id"`
 				} `json:"agent"`
 			}
-			if err := json.Unmarshal(res.body, &decoded); err != nil || decoded.Agent.ID == "" {
-				results[i].err = fmt.Errorf("decode launch response: %v\n%s", err, res.describe())
+			if err := json.Unmarshal(res.body, &decoded); err != nil {
+				results[i].err = fmt.Errorf("decode launch response: %w\n%s", err, res.describe())
+				return
+			}
+			if decoded.Agent.ID == "" {
+				results[i].err = fmt.Errorf("launch response is missing agent ID\n%s", res.describe())
 				return
 			}
 			results[i].agentID = decoded.Agent.ID
@@ -324,8 +330,8 @@ func TestCreateAgentConcurrent(t *testing.T) {
 		http.MethodGet, fx.projectPath+"/agents?limit=100", nil).
 		requireStatus(t, http.StatusOK).json(t)
 	inList := map[string]bool{}
-	for _, raw := range listed["data"].([]any) {
-		agent := raw.(map[string]any)
+	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
+		agent := testutil.RequireType[map[string]any](t, raw)
 		if id, ok := agent["id"].(string); ok {
 			inList[id] = true
 		}

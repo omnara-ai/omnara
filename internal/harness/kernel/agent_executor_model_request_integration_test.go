@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
@@ -263,7 +264,10 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 		t.Fatalf("execute reopened managed model work: %v", err)
 	}
 	if len(resolver.selections) != 1 || modelClient.respondedCount() != 1 {
-		t.Fatalf("reopened model resolver/responses = %d/%d, want 1/1", len(resolver.selections), modelClient.respondedCount())
+		t.Fatalf(
+			"reopened model resolver/responses = %d/%d, want 1/1", len(resolver.selections),
+			modelClient.respondedCount(),
+		)
 	}
 }
 
@@ -517,10 +521,23 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		launch.Agent.ID,
+		kernelTestUserID,
+		"hello",
+		now.Add(2*time.Millisecond),
+	)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "request-options-model",
-		responses:         []model.Response{{ID: "resp-options", Content: []model.ResponsePart{{Type: "text", Text: "done"}}, StopReason: model.StopReasonEndTurn}},
+		responses: []model.Response{
+			{
+				ID:         "resp-options",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	resolver := &selectionRecordingResolver{
 		client: modelClient,
@@ -895,24 +912,37 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/malformed-semantic-model", now, kernelConfiguredModelOptions{ContextWindowTokens: new(100000), MaxOutputTokens: new(90000)})
+	agentID, userID := fixture.createAgentWithModelOptions(
+		t,
+		ctx,
+		"openai/malformed-semantic-model",
+		now,
+		kernelConfiguredModelOptions{ContextWindowTokens: new(100000), MaxOutputTokens: new(90000)},
+	)
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug:          "malformed-semantic-model",
 		preparedInputTokenEstimate: 60000,
 		capabilities:               model.Capabilities{ContextWindowTokens: 100000, MaxOutputTokens: new(90000)},
-		responses: []model.Response{{
-			ID:                      "resp-malformed-semantic",
-			ServedProviderModelSlug: "served-malformed-semantic",
-			Content: []model.ResponsePart{{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: "call_1",
-				ToolInput:      json.RawMessage(`{}`),
-			}},
-			StopReason:       model.StopReasonToolUse,
-			Usage:            model.Usage{InputTokens: 17, OutputTokens: 5},
-			ProviderMetadata: modelenvelope.ProviderMetadata{OpenRouter: modelenvelope.OpenRouterMetadata{FinishReason: "tool_calls", NativeFinishReason: "unrecognized"}},
-		}},
+		responses: []model.Response{
+			{
+				ID:                      "resp-malformed-semantic",
+				ServedProviderModelSlug: "served-malformed-semantic",
+				Content: []model.ResponsePart{{
+					Type:           model.ResponsePartTypeToolCall,
+					ProviderCallID: "call_1",
+					ToolInput:      json.RawMessage(`{}`),
+				}},
+				StopReason: model.StopReasonToolUse,
+				Usage:      model.Usage{InputTokens: 17, OutputTokens: 5},
+				ProviderMetadata: modelenvelope.ProviderMetadata{
+					OpenRouter: modelenvelope.OpenRouterMetadata{
+						FinishReason:       "tool_calls",
+						NativeFinishReason: "unrecognized",
+					},
+				},
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -968,13 +998,15 @@ WHERE context.project_id = $1
 	}
 	var metadata modelenvelope.ProviderMetadata
 	var raw json.RawMessage
-	if err := fixture.Pool.QueryRow(ctx, `SELECT provider_metadata FROM model_call_contexts WHERE agent_id=$1 AND state='failed'`, agentID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &metadata); err != nil {
-		t.Fatal(err)
-	}
-	if metadata.RequestMaxOutputTokens != 35000 || metadata.OpenRouter.FinishReason != "tool_calls" || metadata.OpenRouter.NativeFinishReason != "unrecognized" {
+	require.NoError(
+		t,
+		fixture.Pool.QueryRow(ctx, `SELECT provider_metadata FROM model_call_contexts
+WHERE agent_id=$1 AND state='failed'`, agentID).
+			Scan(&raw),
+	)
+	require.NoError(t, json.Unmarshal(raw, &metadata))
+	if metadata.RequestMaxOutputTokens != 35000 || metadata.OpenRouter.FinishReason != "tool_calls" ||
+		metadata.OpenRouter.NativeFinishReason != "unrecognized" {
 		t.Fatalf("persisted malformed-success diagnostics=%+v", metadata)
 	}
 
@@ -1038,8 +1070,10 @@ WHERE context.project_id = $1
 	}
 	var toolCalls, modelOutputs int
 	if err := fixture.Pool.QueryRow(ctx, `
-	SELECT (SELECT count(*) FROM tool_calls call JOIN agents agent ON agent.id = call.agent_id WHERE agent.project_id = $1 AND call.agent_id = $2),
-	       (SELECT count(*) FROM model_outputs output JOIN agents agent ON agent.id = output.agent_id WHERE agent.project_id = $1 AND output.agent_id = $2)
+	SELECT (SELECT count(*) FROM tool_calls call JOIN agents agent ON agent.id = call.agent_id WHERE agent.project_id =
+	    $1 AND call.agent_id = $2),
+	       (SELECT count(*) FROM model_outputs output JOIN agents agent ON agent.id = output.agent_id WHERE
+	           agent.project_id = $1 AND output.agent_id = $2)
 `, kernelTestProjectID, agentID).Scan(&toolCalls, &modelOutputs); err != nil {
 		t.Fatalf("count durable output from contradictory refusal: %v", err)
 	}
@@ -1191,13 +1225,17 @@ func TestAgentExecutorRoutesSerializedProviderRequestOverflowThroughCompactionBe
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-compaction-summary",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Historical work completed."}},
+				ID: "resp-compaction-summary",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "Historical work completed."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-after-compaction",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued after compaction"}},
+				ID: "resp-after-compaction",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "continued after compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},

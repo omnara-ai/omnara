@@ -2,13 +2,14 @@ package main
 
 import (
 	"bytes"
-	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"io/fs"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebAssetsDefaultsToDisabled(t *testing.T) {
@@ -101,9 +102,7 @@ func TestDefaultReconciliationPrintsReviewableChanges(t *testing.T) {
 			},
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := "plan: change: update model settings\n" +
 		"plan: change: clear request allowance\n" +
 		"plan: warning: configuration is referenced\n" +

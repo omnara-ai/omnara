@@ -70,7 +70,9 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("max event sequence before interrupted compaction: %v", err)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(ctx, kernelTestProjectID, agentID, watermark)
+	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
+		ctx, kernelTestProjectID, agentID, watermark,
+	)
 	if err != nil {
 		t.Fatalf("capture config for interrupted compaction: %v", err)
 	}
@@ -261,7 +263,11 @@ LIMIT 1
 		t.Fatalf("recovery model prepared %d requests, want compaction and final call", recoveryModel.respondedCount())
 	}
 	var finalOutputs int
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after recovering interrupted compaction'`, kernelTestProjectID, agentID, retryTurn.TurnID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after recovering interrupted compaction'`,
+		kernelTestProjectID, agentID, retryTurn.TurnID,
+	).
 		Scan(&finalOutputs); err != nil {
 		t.Fatalf("count recovered interrupted compaction output: %v", err)
 	}
@@ -816,14 +822,17 @@ func TestAgentExecutorSteeringStartsFreshFrontierDuringCompactionRetry(t *testin
 		t.Fatalf("release compaction retry runtime: %v", err)
 	}
 
-	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      kernelTestProjectID,
-		AgentID:        agentID,
-		Actor:          kernelTestOmnaraActorParams(t, userID),
-		ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "newer input"}}),
-		DeliveryMode:   executionstore.DeliveryModeSteering,
-		IdempotencyKey: "steering-supersedes-compaction-retry",
-	})
+	newInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      kernelTestProjectID,
+			AgentID:        agentID,
+			Actor:          kernelTestOmnaraActorParams(t, userID),
+			ContentBlocks:  mustKernelJSON([]map[string]string{{"type": "text", "text": "newer input"}}),
+			DeliveryMode:   executionstore.DeliveryModeSteering,
+			IdempotencyKey: "steering-supersedes-compaction-retry",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create steering input during compaction retry: %v", err)
 	}

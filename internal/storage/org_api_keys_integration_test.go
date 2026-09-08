@@ -347,7 +347,6 @@ func TestOrgAPIKeyLaunchesAgentsAndChangesConfigs(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	store := NewStore(pool)
 	seedDefaultProject(t, ctx, store)
-	now := time.Date(2026, 6, 10, 9, 0, 0, 0, time.UTC)
 
 	creator := mustCreateIdentityUser(t, ctx, store, "key-launch-admin@example.com", "Key Launch Admin")
 	if _, err := store.Identity().AddOrgMembership(
@@ -386,7 +385,6 @@ model:
   provider_config: openai-prod
   name: gpt-test
 `,
-		now,
 	)
 	keyPrincipal := identitystore.PrincipalRecord{
 		Type:        identitystore.PrincipalTypeOrgAPIKey,
@@ -421,12 +419,12 @@ model:
 		t.Fatalf("key actor display name = %q, want key name", actorDisplayName)
 	}
 
-	updated := mustCreateAgentConfigFromYAML(t, ctx, store, "org-key-launch-v2", `
+	updated := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Updated by an org API key.
 model:
   provider_config: openai-prod
   name: gpt-test
-`, now.Add(2*time.Second))
+`)
 	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(updated),
 		AgentID:                launch.Agent.ID,

@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
@@ -35,7 +36,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 	createResponse := requestJSONWithHeaders(
 		t,
 		handler,
@@ -47,17 +48,17 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	providerConfig := createdModelProviderConfig(t, createResponse)
-	if createResponse["model_catalog"].(map[string]any)["status"] != "failed" {
+	if testutil.RequireType[map[string]any](t, createResponse["model_catalog"])["status"] != "failed" {
 		t.Fatalf("create with stubbed discoverer should report failed discovery: %+v", createResponse)
 	}
-	providerConfigID := providerConfig["id"].(string)
+	providerConfigID := testutil.RequireType[string](t, providerConfig["id"])
 	if providerConfig["management_kind"] != string(management.Tenant) {
 		t.Fatalf("unexpected tenant provider management fields: %+v", providerConfig)
 	}
 	if providerConfig["api_format"] != "openai-responses" || providerConfig["base_url"] != "https://api.openai.com/v1" ||
 		providerConfig["endpoint_path"] != "/responses" ||
 		providerConfig["auth_kind"] != "bearer_token" ||
-		len(providerConfig["auth_options"].(map[string]any)) != 0 ||
+		len(testutil.RequireType[map[string]any](t, providerConfig["auth_options"])) != 0 ||
 		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) ||
 		providerConfig["idle_timeout_ms"] != float64(modelstore.DefaultModelProviderIdleTimeoutMS) {
 		t.Fatalf("preset did not materialize OpenAI provider config: %+v", providerConfig)
@@ -72,7 +73,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	))
-	openRouterConfigID := openRouterConfig["id"].(string)
+	openRouterConfigID := testutil.RequireType[string](t, openRouterConfig["id"])
 	if openRouterConfig["api_format"] != "openai-chat-completions" ||
 		openRouterConfig["api_variant"] != "openrouter" ||
 		openRouterConfig["base_url"] != "https://openrouter.ai/api/v1" ||
@@ -125,7 +126,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		handler,
 		http.MethodPut,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerConfigID,
-		`{"base_url":"`+"https://proxy.example.test/v1"+`","endpoint_path":"/custom-responses","request_timeout_ms":30000,"auth_kind":"api_key_header","auth_options":{"header_name":"x-api-key"},"credential_secret_id":"`+updatedSecret["id"].(string)+`"}`,
+		`{"base_url":"`+"https://proxy.example.test/v1"+`","endpoint_path":"/custom-responses","request_timeout_ms":30000,"auth_kind":"api_key_header","auth_options":{"header_name":"x-api-key"},"credential_secret_id":"`+testutil.RequireType[string](t, updatedSecret["id"])+`"}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
@@ -134,8 +135,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		updatedProviderConfig["base_url"] != "https://proxy.example.test/v1" ||
 		updatedProviderConfig["endpoint_path"] != "/custom-responses" ||
 		updatedProviderConfig["auth_kind"] != "api_key_header" ||
-		updatedProviderConfig["auth_options"].(map[string]any)["header_name"] != "x-api-key" ||
-		updatedProviderConfig["credential_secret_id"] != updatedSecret["id"].(string) ||
+		testutil.RequireType[map[string]any](t, updatedProviderConfig["auth_options"])["header_name"] != "x-api-key" ||
+		updatedProviderConfig["credential_secret_id"] != testutil.RequireType[string](t, updatedSecret["id"]) ||
 		updatedProviderConfig["request_timeout_ms"] != float64(30000) {
 		t.Fatalf("provider config update mismatch: %+v", updatedProviderConfig)
 	}
@@ -152,8 +153,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 	if patchedProviderConfig["base_url"] != "https://proxy2.example.test/v1" ||
 		patchedProviderConfig["endpoint_path"] != "/custom-responses" ||
 		patchedProviderConfig["auth_kind"] != "api_key_header" ||
-		patchedProviderConfig["auth_options"].(map[string]any)["header_name"] != "x-api-key" ||
-		patchedProviderConfig["credential_secret_id"] != updatedSecret["id"].(string) ||
+		testutil.RequireType[map[string]any](t, patchedProviderConfig["auth_options"])["header_name"] != "x-api-key" ||
+		patchedProviderConfig["credential_secret_id"] != testutil.RequireType[string](t, updatedSecret["id"]) ||
 		patchedProviderConfig["request_timeout_ms"] != float64(30000) {
 		t.Fatalf("provider config patch should preserve omitted options: %+v", patchedProviderConfig)
 	}
@@ -182,7 +183,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		handler,
 		http.MethodPut,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerConfigID,
-		`{"api_format":"anthropic-messages","base_url":"https://api.anthropic.com/v1","credential_secret_id":"`+updatedSecret["id"].(string)+`"}`,
+		`{"api_format":"anthropic-messages","base_url":"https://api.anthropic.com/v1","credential_secret_id":"`+testutil.RequireType[string](t, updatedSecret["id"])+`"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -208,7 +209,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if resetAuthProviderConfig["auth_kind"] != "bearer_token" ||
-		len(resetAuthProviderConfig["auth_options"].(map[string]any)) != 0 {
+		len(testutil.RequireType[map[string]any](t, resetAuthProviderConfig["auth_options"])) != 0 {
 		t.Fatalf("auth_kind patch should reset omitted auth_options to defaults: %+v", resetAuthProviderConfig)
 	}
 	unknownConfiguredModel := requestJSONWithHeaders(
@@ -235,14 +236,14 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	configuredModelID := configuredModel["id"].(string)
+	configuredModelID := testutil.RequireType[string](t, configuredModel["id"])
 	if configuredModel["management_kind"] != string(management.Tenant) ||
 		configuredModel["name"] != "gpt-test" || configuredModel["provider_model_slug"] != "gpt-test" ||
 		configuredModel["supports_tools"] != true ||
 		configuredModel["supports_reasoning"] != true ||
 		configuredModel["default_reasoning_effort"] != "high" ||
-		configuredModel["supported_reasoning_efforts"].([]any)[2] != "high" ||
-		configuredModel["api_variant_options"].(map[string]any)["temperature"] != 0.2 {
+		testutil.RequireType[[]any](t, configuredModel["supported_reasoning_efforts"])[2] != "high" ||
+		testutil.RequireType[map[string]any](t, configuredModel["api_variant_options"])["temperature"] != 0.2 {
 		t.Fatalf("configured model capability/options response mismatch: %+v", configuredModel)
 	}
 	if _, ok := configuredModel["default_cache_retention"]; ok {
@@ -258,20 +259,22 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if openRouterModel["api_variant_options"].(map[string]any)["provider"].(map[string]any)["require_parameters"] != true {
+	if testutil.RequireType[map[string]any](
+		t, testutil.RequireType[map[string]any](t, openRouterModel["api_variant_options"])["provider"],
+	)["require_parameters"] != true {
 		t.Fatalf("openrouter configured model api_variant_options create mismatch: %+v", openRouterModel)
 	}
 	updatedOpenRouterModel := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPut,
-		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+openRouterConfigID+"/models/"+openRouterModel["id"].(string),
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+openRouterConfigID+"/models/"+testutil.RequireType[string](t, openRouterModel["id"]),
 		`{"api_variant_options":{"unknown":true}}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if updatedOpenRouterModel["api_variant_options"].(map[string]any)["unknown"] != true {
+	if testutil.RequireType[map[string]any](t, updatedOpenRouterModel["api_variant_options"])["unknown"] != true {
 		t.Fatalf("openrouter configured model should accept arbitrary flat options: %+v", updatedOpenRouterModel)
 	}
 	updatedOptionsModel := requestJSONWithHeaders(
@@ -284,7 +287,12 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if updatedOptionsModel["api_variant_options"].(map[string]any)["provider"].(map[string]any)["only"].([]any)[0] != "openai" {
+	if testutil.RequireType[[]any](
+		t,
+		testutil.RequireType[map[string]any](
+			t, testutil.RequireType[map[string]any](t, updatedOptionsModel["api_variant_options"])["provider"],
+		)["only"],
+	)[0] != "openai" {
 		t.Fatalf("configured model should accept provider passthrough options: %+v", updatedOptionsModel)
 	}
 	updatedConfiguredModel := requestJSONWithHeaders(
@@ -301,7 +309,12 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		updatedConfiguredModel["provider_model_slug"] != "gpt-test" ||
 		updatedConfiguredModel["default_max_output_tokens"] != float64(2048) ||
 		updatedConfiguredModel["default_reasoning_effort"] != "medium" ||
-		updatedConfiguredModel["api_variant_options"].(map[string]any)["provider"].(map[string]any)["only"].([]any)[0] != "openai" {
+		testutil.RequireType[[]any](
+			t,
+			testutil.RequireType[map[string]any](
+				t, testutil.RequireType[map[string]any](t, updatedConfiguredModel["api_variant_options"])["provider"],
+			)["only"],
+		)[0] != "openai" {
 		t.Fatalf("configured model update mismatch: %+v", updatedConfiguredModel)
 	}
 	patchedConfiguredModel := requestJSONWithHeaders(
@@ -319,7 +332,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		patchedConfiguredModel["supports_tools"] != true ||
 		patchedConfiguredModel["supports_reasoning"] != true ||
 		patchedConfiguredModel["default_reasoning_effort"] != "medium" ||
-		patchedConfiguredModel["supported_reasoning_efforts"].([]any)[1] != "medium" {
+		testutil.RequireType[[]any](t, patchedConfiguredModel["supported_reasoning_efforts"])[1] != "medium" {
 		t.Fatalf("configured model patch should preserve omitted fields: %+v", patchedConfiguredModel)
 	}
 	for _, body := range []string{
@@ -372,7 +385,13 @@ model:
 	)
 
 	grantBody := `{"configured_model_id":"` + configuredModelID + `","context_window_tokens":64000,"max_output_tokens":4096,"default_max_output_tokens":2048,"supports_tools":true,"supports_reasoning":true,"default_reasoning_effort":"medium","supported_reasoning_efforts":["low","medium"],"input_modalities":["text"],"output_modalities":["text"]}`
-	grant := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusCreated, authHeaders(project.AdminToken))["grant"].(map[string]any)
+	grant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusCreated,
+			authHeaders(project.AdminToken),
+		)["grant"],
+	)
 	if grant["configured_model_id"] != configuredModelID {
 		t.Fatalf("unexpected model grant response: %+v", grant)
 	}
@@ -381,23 +400,29 @@ model:
 		grant["supports_tools"] != true ||
 		grant["supports_reasoning"] != true ||
 		grant["default_reasoning_effort"] != "medium" ||
-		grant["supported_reasoning_efforts"].([]any)[1] != "medium" ||
-		grant["input_modalities"].([]any)[0] != "text" ||
-		grant["output_modalities"].([]any)[0] != "text" {
+		testutil.RequireType[[]any](t, grant["supported_reasoning_efforts"])[1] != "medium" ||
+		testutil.RequireType[[]any](t, grant["input_modalities"])[0] != "text" ||
+		testutil.RequireType[[]any](t, grant["output_modalities"])[0] != "text" {
 		t.Fatalf("model grant overlay response mismatch: %+v", grant)
 	}
 	if _, ok := grant["metadata"]; ok {
 		t.Fatalf("model grant response should not include metadata: %+v", grant)
 	}
-	replayedGrant := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK, authHeaders(project.AdminToken))["grant"].(map[string]any)
+	replayedGrant := testutil.RequireType[map[string]any](
+		t,
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK,
+			authHeaders(project.AdminToken),
+		)["grant"],
+	)
 	if replayedGrant["id"] != grant["id"] {
 		t.Fatalf("model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
 	}
 	if _, ok := replayedGrant["metadata"]; ok {
 		t.Fatalf("replayed model grant response should not include metadata: %+v", replayedGrant)
 	}
-	grantPath := project.ProjectPath + "/model-grants/" + grant["id"].(string)
-	patchedGrant := requestJSONWithHeaders(
+	grantPath := project.ProjectPath + "/model-grants/" + testutil.RequireType[string](t, grant["id"])
+	patchedGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPatch,
@@ -406,7 +431,7 @@ model:
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
-	)["grant"].(map[string]any)
+	)["grant"])
 	if patchedGrant["id"] != grant["id"] ||
 		patchedGrant["max_output_tokens"] != float64(2048) ||
 		patchedGrant["context_window_tokens"] != nil ||
@@ -460,13 +485,14 @@ model:
 		t,
 		handler,
 		http.MethodPatch,
-		project.ProjectPath+"/model-grants/"+testPublicID(t, publicid.KindProjectModelGrant, httpTestID("missing-model-grant")),
+		project.ProjectPath+"/model-grants/"+
+			testPublicID(t, publicid.KindProjectModelGrant, httpTestID("missing-model-grant")),
 		`{"max_output_tokens":1024}`,
 		"",
 		http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
-	restoredGrant := requestJSONWithHeaders(
+	restoredGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPatch,
@@ -475,7 +501,7 @@ model:
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
-	)["grant"].(map[string]any)
+	)["grant"])
 	if restoredGrant["max_output_tokens"] != float64(4096) ||
 		restoredGrant["context_window_tokens"] != float64(64000) ||
 		restoredGrant["supports_tools"] != true {
@@ -526,7 +552,7 @@ model:
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	model := config["model"].(map[string]any)
+	model := testutil.RequireType[map[string]any](t, config["model"])
 	if model["provider_config"] != "openai-secondary" || model["name"] != "gpt-test" ||
 		model["configured_model_id"] != configuredModelID ||
 		model["api_format"] != "openai-responses" {
@@ -537,7 +563,7 @@ model:
 		model["supports_tools"] != true ||
 		model["supports_reasoning"] != true ||
 		model["default_reasoning_effort"] != "medium" ||
-		model["supported_reasoning_efforts"].([]any)[1] != "medium" {
+		testutil.RequireType[[]any](t, model["supported_reasoning_efforts"])[1] != "medium" {
 		t.Fatalf("agent config model effective options mismatch: %+v", model)
 	}
 	if model["current_revision_id"] != patchedConfiguredModel["current_revision_id"] {
@@ -589,7 +615,7 @@ model:
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	renamedCompiledModel := renamedConfig["model"].(map[string]any)
+	renamedCompiledModel := testutil.RequireType[map[string]any](t, renamedConfig["model"])
 	if renamedCompiledModel["name"] != "gpt-renamed" || renamedCompiledModel["configured_model_id"] != configuredModelID {
 		t.Fatalf("renamed configured model projection mismatch: %+v", renamedCompiledModel)
 	}
@@ -597,7 +623,7 @@ model:
 		t,
 		handler,
 		http.MethodDelete,
-		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerConfigID+"/models/"+ungrantedConfiguredModel["id"].(string),
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerConfigID+"/models/"+testutil.RequireType[string](t, ungrantedConfiguredModel["id"]),
 		"",
 		"",
 		http.StatusNoContent,
@@ -628,7 +654,7 @@ model:
 		t,
 		handler,
 		http.MethodDelete,
-		project.ProjectPath+"/model-grants/"+grant["id"].(string),
+		project.ProjectPath+"/model-grants/"+testutil.RequireType[string](t, grant["id"]),
 		"",
 		"",
 		http.StatusNoContent,
@@ -671,13 +697,13 @@ model:
 		t,
 		handler,
 		http.MethodGet,
-		project.ProjectPath+"/agent-configs/"+config["id"].(string),
+		project.ProjectPath+"/agent-configs/"+testutil.RequireType[string](t, config["id"]),
 		"",
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	archivedModel := archivedConfig["model"].(map[string]any)
+	archivedModel := testutil.RequireType[map[string]any](t, archivedConfig["model"])
 	if archivedModel["provider_config"] != "openai-secondary" || archivedModel["name"] != "gpt-renamed" ||
 		archivedModel["configured_model_id"] != configuredModelID ||
 		archivedModel["api_format"] != "openai-responses" {
@@ -705,7 +731,7 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 
 	providerConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
 		t,
@@ -717,7 +743,7 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	))
-	providerConfigID := providerConfig["id"].(string)
+	providerConfigID := testutil.RequireType[string](t, providerConfig["id"])
 	for _, body := range []string{
 		`{"name":"local-http","api_format":"openai-responses","base_url":"http://localhost:8080/v1","credential_secret_id":"` + secretID + `"}`,
 		`{"name":"loopback-https","api_format":"openai-responses","base_url":"https://127.0.0.1:8443/v1","credential_secret_id":"` + secretID + `"}`,
@@ -858,22 +884,22 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+goodSecret["id"].(string)+`"}`,
+		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, goodSecret["id"])+`"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	discovery := created["model_catalog"].(map[string]any)
+	discovery := testutil.RequireType[map[string]any](t, created["model_catalog"])
 	if discovery["status"] != "ok" {
 		t.Fatalf("discovery should succeed against local models endpoint: %+v", created)
 	}
-	models := discovery["models"].([]any)
+	models := testutil.RequireType[[]any](t, discovery["models"])
 	if len(models) != 2 ||
-		models[0].(map[string]any)["slug"] != "gpt-a" ||
-		models[1].(map[string]any)["slug"] != "gpt-b" {
+		testutil.RequireType[map[string]any](t, models[0])["slug"] != "gpt-a" ||
+		testutil.RequireType[map[string]any](t, models[1])["slug"] != "gpt-b" {
 		t.Fatalf("discovery models mismatch: %+v", discovery)
 	}
-	firstModel := models[0].(map[string]any)
+	firstModel := testutil.RequireType[map[string]any](t, models[0])
 	if firstModel["context_window_tokens"] != float64(65536) ||
 		firstModel["max_output_tokens"] != float64(2048) {
 		t.Fatalf("discovery model token limits mismatch: %+v", firstModel)
@@ -894,19 +920,19 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"discovery-failed","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+badSecret["id"].(string)+`"}`,
+		`{"name":"discovery-failed","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, badSecret["id"])+`"}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	failedDiscovery := failedCreate["model_catalog"].(map[string]any)
+	failedDiscovery := testutil.RequireType[map[string]any](t, failedCreate["model_catalog"])
 	if failedDiscovery["status"] != "failed" {
 		t.Fatalf("discovery with a bad key should fail: %+v", failedCreate)
 	}
 	if message, _ := failedDiscovery["error"].(string); !strings.Contains(message, "invalid api key") {
 		t.Fatalf("discovery error should carry the provider message: %+v", failedDiscovery)
 	}
-	failedConfigID := createdModelProviderConfig(t, failedCreate)["id"].(string)
+	failedConfigID := testutil.RequireType[string](t, createdModelProviderConfig(t, failedCreate)["id"])
 	requestJSONWithHeaders(
 		t,
 		devHandler,
@@ -967,12 +993,12 @@ func TestGetModelCatalog(t *testing.T) {
 			devHandler,
 			http.MethodPost,
 			"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-			`{"name":"`+name+`","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+secret["id"].(string)+`"}`,
+			`{"name":"`+name+`","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, secret["id"])+`"}`,
 			"",
 			http.StatusCreated,
 			authHeaders(project.AdminToken),
 		)
-		return createdModelProviderConfig(t, created)["id"].(string)
+		return testutil.RequireType[string](t, createdModelProviderConfig(t, created)["id"])
 	}
 
 	goodConfigID := createProvider("catalog-ok", "catalog-good-key", "sk-good")
@@ -989,13 +1015,13 @@ func TestGetModelCatalog(t *testing.T) {
 	if catalog["status"] != "ok" {
 		t.Fatalf("model catalog should succeed against local models endpoint: %+v", catalog)
 	}
-	models := catalog["models"].([]any)
+	models := testutil.RequireType[[]any](t, catalog["models"])
 	if len(models) != 2 ||
-		models[0].(map[string]any)["slug"] != "gpt-a" ||
-		models[1].(map[string]any)["slug"] != "gpt-b" {
+		testutil.RequireType[map[string]any](t, models[0])["slug"] != "gpt-a" ||
+		testutil.RequireType[map[string]any](t, models[1])["slug"] != "gpt-b" {
 		t.Fatalf("model catalog models mismatch: %+v", catalog)
 	}
-	firstModel := models[0].(map[string]any)
+	firstModel := testutil.RequireType[map[string]any](t, models[0])
 	if firstModel["context_window_tokens"] != float64(65536) ||
 		firstModel["max_output_tokens"] != float64(2048) {
 		t.Fatalf("model catalog token limits mismatch: %+v", firstModel)

@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOutputContinuationProjectsHarnessFeedbackSeparately(t *testing.T) {
@@ -36,9 +37,7 @@ func TestOutputContinuationProjectsHarnessFeedbackSeparately(t *testing.T) {
 				ID: testIDN(9100), ModelCallContextID: testIDN(9101), Sequence: 42, Role: modelprotocol.RoleAssistant,
 				ContentParts: json.RawMessage(tc.content), HasOutputLimitFeedback: tc.hasFeedback,
 			}})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(messages) != tc.wantMessages {
 				t.Fatalf("messages=%+v", messages)
 			}
@@ -120,9 +119,7 @@ func TestProjectedMessageOrderStillRejectsReversalAndDuplicateIdentity(t *testin
 		Content:  json.RawMessage(`[{"type":"text","text":"continue"}]`),
 	}
 	base.Messages = []Message{first, second}
-	if err := (ProjectionNormalizer{}).Normalize(base); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, (ProjectionNormalizer{}).Normalize(base))
 	base.Messages[1].Sequence = 41
 	if err := (ProjectionNormalizer{}).Normalize(base); err == nil {
 		t.Fatal("reversed events accepted")

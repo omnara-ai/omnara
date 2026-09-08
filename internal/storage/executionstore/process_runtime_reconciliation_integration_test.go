@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func liveProcessReconciliationClaimForTest(
@@ -117,7 +118,10 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register first daemon runtime: %v", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive, executionstore.MachineConnectionStateOnline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive,
+		executionstore.MachineConnectionStateOnline,
+	)
 	assertMachineObservedPlatform(t, ctx, store, machine.ID, "linux", "amd64")
 	if _, err := store.Execution().HeartbeatDaemonRuntime(
 		ctx,
@@ -150,7 +154,10 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register replacement daemon runtime: %v", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive, executionstore.MachineConnectionStateOnline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive,
+		executionstore.MachineConnectionStateOnline,
+	)
 	if _, err := store.Execution().EndDaemonRuntime(
 		ctx,
 		executionstore.DaemonRuntimeAuthority{
@@ -167,7 +174,10 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	) {
 		t.Fatalf("ending superseded runtime error = %v, want ErrDaemonRuntimeUnregistered", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive, executionstore.MachineConnectionStateOnline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive,
+		executionstore.MachineConnectionStateOnline,
+	)
 	if _, err := store.Execution().EndDaemonRuntime(
 		ctx,
 		executionstore.DaemonRuntimeAuthority{
@@ -179,7 +189,10 @@ func TestDaemonRuntimeUpdatesMachineLifecycle(t *testing.T) {
 	); err != nil {
 		t.Fatalf("end active daemon runtime: %v", err)
 	}
-	assertMachineState(t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive, executionstore.MachineConnectionStateOffline)
+	assertMachineState(
+		t, ctx, store, machine.ID, executionstore.MachineLifecycleStateActive,
+		executionstore.MachineConnectionStateOffline,
+	)
 }
 
 func TestDaemonRuntimeVersionPersistsPerInstance(t *testing.T) {
@@ -345,7 +358,6 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 5, 18, 10, 30, 0, 0, time.UTC)
 	_, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "runtime-bindings@example.com", DisplayName: "Runtime Bindings Tester"},
@@ -376,8 +388,8 @@ func TestRegisterDaemonRuntimeLeavesReadyAgentMachineBindingsAttached(t *testing
 	if err != nil {
 		t.Fatalf("create project machine grant: %v", err)
 	}
-	firstAgent := mustCreateAgent(t, ctx, store, now.Add(time.Second))
-	secondAgent := mustCreateAgent(t, ctx, store, now.Add(2*time.Second))
+	firstAgent := mustCreateAgent(t, ctx, store)
+	secondAgent := mustCreateAgent(t, ctx, store)
 	if _, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		store.q,
@@ -660,7 +672,9 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 	}); !errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
 		t.Fatalf("old token heartbeat after transfer error = %v, want unregistered", err)
 	}
-	if _, err := fixture.Store.Execution().EndDaemonRuntime(ctx, oldAuthority); !errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
+	if _, err := fixture.Store.Execution().EndDaemonRuntime(
+		ctx, oldAuthority,
+	); !errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
 		t.Fatalf("old token end after transfer error = %v, want unregistered", err)
 	}
 	if _, err := fixture.Store.Execution().MarkProcessStarted(ctx, executionstore.MarkProcessStartedInput{
@@ -714,18 +728,24 @@ func TestDaemonRuntimeCredentialTransferRevokesOldRuntimeAuthority(t *testing.T)
 	); err != nil || len(offers) != 0 {
 		t.Fatalf("old token action offers after transfer = %+v err=%v, want none", offers, err)
 	}
-	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
-		Authority: oldAuthority,
-		ProcessID: process.ID,
-		ID:        action.ID,
-	}); err != nil || found {
+	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
+		ctx,
+		executionstore.AcceptDaemonProcessActionInput{
+			Authority: oldAuthority,
+			ProcessID: process.ID,
+			ID:        action.ID,
+		},
+	); err != nil || found {
 		t.Fatalf("old token action accept after transfer found=%v err=%v, want rejected", found, err)
 	}
-	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
-		Authority: replacementAuthority,
-		ProcessID: process.ID,
-		ID:        action.ID,
-	}); err != nil || !found {
+	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
+		ctx,
+		executionstore.AcceptDaemonProcessActionInput{
+			Authority: replacementAuthority,
+			ProcessID: process.ID,
+			ID:        action.ID,
+		},
+	); err != nil || !found {
 		t.Fatalf("replacement token action accept after transfer found=%v err=%v, want accepted", found, err)
 	}
 	report := executionstore.CompleteDaemonProcessActionInput{
@@ -807,11 +827,14 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 	if err != nil {
 		t.Fatalf("start queued process: %v", err)
 	}
-	replacementToken, err := fixture.Store.Execution().CreateBYOMachineDaemonToken(ctx, executionstore.CreateBYOMachineDaemonTokenInput{
-		OrgID:     fixture.OrgID,
-		MachineID: fixture.MachineID,
-		Name:      "contended-replacement-authority",
-	})
+	replacementToken, err := fixture.Store.Execution().CreateBYOMachineDaemonToken(
+		ctx,
+		executionstore.CreateBYOMachineDaemonTokenInput{
+			OrgID:     fixture.OrgID,
+			MachineID: fixture.MachineID,
+			Name:      "contended-replacement-authority",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create replacement daemon token: %v", err)
 	}
@@ -880,13 +903,16 @@ func TestDaemonRuntimeCredentialTransferFencesConcurrentOldTokenWork(t *testing.
 	}()
 	reportDone := make(chan error, 1)
 	go func() {
-		_, reportErr := fixture.Store.Execution().MarkProcessStarted(context.Background(), executionstore.MarkProcessStartedInput{
-			Authority:       fixture.authority(),
-			ProjectID:       testProjectID,
-			AgentID:         fixture.AgentID,
-			ID:              activeProcess.ID,
-			SourceStartedAt: fixture.Now.Add(time.Second),
-		})
+		_, reportErr := fixture.Store.Execution().MarkProcessStarted(
+			context.Background(),
+			executionstore.MarkProcessStartedInput{
+				Authority:       fixture.authority(),
+				ProjectID:       testProjectID,
+				AgentID:         fixture.AgentID,
+				ID:              activeProcess.ID,
+				SourceStartedAt: fixture.Now.Add(time.Second),
+			},
+		)
 		reportDone <- reportErr
 	}()
 	integrationdb.WaitForNamedLockWaiters(
@@ -978,6 +1004,7 @@ func TestRuntimeRegistrationReoffersTerminalRead(t *testing.T) {
 			name = "accepted"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(
 				t,
@@ -1324,7 +1351,9 @@ func TestReplacementRuntimeWithoutProcessClaimClosesQueuedReadAction(t *testing.
 	); err != nil {
 		t.Fatalf("register replacement runtime: %v", err)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, toolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get action by tool call: %v", err)
 	}
@@ -1604,7 +1633,9 @@ func TestReplacementDaemonRuntimeRedeliversAcceptedActionMissingLocally(t *testi
 		reconciled.ExecutionGrantedAt == nil {
 		t.Fatalf("process after reconnect = %+v, want granted running process", reconciled)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get reconciled action: %v", err)
 	}
@@ -1840,9 +1871,7 @@ func TestReplacementDaemonRuntimeReleasesServerResolvedTerminate(
 			Payload:    json.RawMessage(`{"data":"before exit\n"}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
 		fixture.Store,
@@ -1869,9 +1898,7 @@ func TestReplacementDaemonRuntimeReleasesServerResolvedTerminate(
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	exitCode := 0
 	if _, err := fixture.Store.Execution().CompleteDaemonProcess(
 		ctx,
@@ -2035,25 +2062,28 @@ func TestReplacementDaemonRuntimeSettlesAlreadyAppliedActionEvidence(t *testing.
 	); err != nil {
 		t.Fatalf("apply action before reconnect: %v", err)
 	}
-	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            fixture.OrgID,
-		MachineID:        fixture.MachineID,
-		DaemonTokenID:    fixture.TokenID,
-		DaemonInstanceID: testID(t.Name() + "-replacement"),
-		DaemonVersion:    "1.0.0",
-		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		ProcessClaims: []executionstore.ProcessReconciliationClaim{
-			liveProcessReconciliationClaimForTest(
-				process.ID,
-				executionstore.ProcessActionReconciliationClaim{
-					ProcessActionID: action.ID,
-					Seq:             action.Seq,
-					ActionKind:      action.ActionKind,
-					Position:        daemonprotocol.ActionPositionTerminal,
-				},
-			),
+	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: testID(t.Name() + "-replacement"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{
+				liveProcessReconciliationClaimForTest(
+					process.ID,
+					executionstore.ProcessActionReconciliationClaim{
+						ProcessActionID: action.ID,
+						Seq:             action.Seq,
+						ActionKind:      action.ActionKind,
+						Position:        daemonprotocol.ActionPositionTerminal,
+					},
+				),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("register replacement runtime with action report: %v", err)
 	}
@@ -2068,7 +2098,9 @@ func TestReplacementDaemonRuntimeSettlesAlreadyAppliedActionEvidence(t *testing.
 		disposition.Actions[0].Disposition != daemonprotocol.ActionDispositionSettle {
 		t.Fatalf("reconciliation disposition = %+v, want retain plus settle", disposition)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get action by tool call: %v", err)
 	}
@@ -2083,7 +2115,9 @@ func TestReplacementDaemonRuntimeSettlesAlreadyAppliedActionEvidence(t *testing.
 	if err != nil {
 		t.Fatalf("get action tool call: %v", err)
 	}
-	assertCompletedProcessActionResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateApplied)
+	assertCompletedProcessActionResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateApplied,
+	)
 	reconciled, err := fixture.Store.Execution().GetProcess(ctx, testProjectID, fixture.AgentID, process.ID)
 	if err != nil {
 		t.Fatalf("get reconciled process: %v", err)
@@ -2176,25 +2210,28 @@ func TestReplacementDaemonRuntimeSettlesFailedActionEvidence(t *testing.T) {
 		t.Fatalf("fail action before reconnect: %v", err)
 	}
 
-	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            fixture.OrgID,
-		MachineID:        fixture.MachineID,
-		DaemonTokenID:    fixture.TokenID,
-		DaemonInstanceID: testID(t.Name() + "-replacement"),
-		DaemonVersion:    "1.0.0",
-		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		ProcessClaims: []executionstore.ProcessReconciliationClaim{
-			liveProcessReconciliationClaimForTest(
-				process.ID,
-				executionstore.ProcessActionReconciliationClaim{
-					ProcessActionID: action.ID,
-					Seq:             action.Seq,
-					ActionKind:      action.ActionKind,
-					Position:        daemonprotocol.ActionPositionTerminal,
-				},
-			),
+	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: testID(t.Name() + "-replacement"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{
+				liveProcessReconciliationClaimForTest(
+					process.ID,
+					executionstore.ProcessActionReconciliationClaim{
+						ProcessActionID: action.ID,
+						Seq:             action.Seq,
+						ActionKind:      action.ActionKind,
+						Position:        daemonprotocol.ActionPositionTerminal,
+					},
+				),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("register replacement runtime with failed action report: %v", err)
 	}
@@ -2209,7 +2246,9 @@ func TestReplacementDaemonRuntimeSettlesFailedActionEvidence(t *testing.T) {
 		disposition.Actions[0].Disposition != daemonprotocol.ActionDispositionSettle {
 		t.Fatalf("reconciliation disposition = %+v, want retain plus settle", disposition)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get action by tool call: %v", err)
 	}
@@ -2221,7 +2260,9 @@ func TestReplacementDaemonRuntimeSettlesFailedActionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get action tool call: %v", err)
 	}
-	assertCompletedProcessActionResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateFailed)
+	assertCompletedProcessActionResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateFailed,
+	)
 }
 
 func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t *testing.T) {
@@ -2299,25 +2340,28 @@ func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t 
 	if len(ended) != 1 || ended[0].ID != fixture.RuntimeID {
 		t.Fatalf("ended expired daemon runtimes = %+v, want %s", ended, fixture.RuntimeID)
 	}
-	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            fixture.OrgID,
-		MachineID:        fixture.MachineID,
-		DaemonTokenID:    fixture.TokenID,
-		DaemonInstanceID: testID(t.Name() + "-replacement"),
-		DaemonVersion:    "1.0.0",
-		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		ProcessClaims: []executionstore.ProcessReconciliationClaim{
-			liveProcessReconciliationClaimForTest(
-				process.ID,
-				executionstore.ProcessActionReconciliationClaim{
-					ProcessActionID: action.ID,
-					Seq:             action.Seq,
-					ActionKind:      action.ActionKind,
-					Position:        daemonprotocol.ActionPositionTerminal,
-				},
-			),
+	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: testID(t.Name() + "-replacement"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{
+				liveProcessReconciliationClaimForTest(
+					process.ID,
+					executionstore.ProcessActionReconciliationClaim{
+						ProcessActionID: action.ID,
+						Seq:             action.Seq,
+						ActionKind:      action.ActionKind,
+						Position:        daemonprotocol.ActionPositionTerminal,
+					},
+				),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("register replacement runtime with expired-runtime action report: %v", err)
 	}
@@ -2360,7 +2404,9 @@ func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t 
 	); !errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
 		t.Fatalf("late retained-action report from expired runtime error = %v, want ErrDaemonRuntimeUnregistered", err)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get action by tool call: %v", err)
 	}
@@ -2375,7 +2421,9 @@ func TestReplacementDaemonRuntimeReportsTerminalActionGrantedByExpiredRuntime(t 
 	if err != nil {
 		t.Fatalf("get action tool call: %v", err)
 	}
-	assertCompletedProcessActionResult(t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateApplied)
+	assertCompletedProcessActionResult(
+		t, fixture.Store, fixture.AgentID, toolCall, executionstore.ProcessActionStateApplied,
+	)
 }
 
 func TestDaemonRuntimeEndPreservesLiveProcess(t *testing.T) {
@@ -2512,7 +2560,8 @@ func TestExpiredDaemonRuntimeHeartbeatRestoresSameRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get process after lease expiry: %v", err)
 	}
-	if afterExpiry.State != executionstore.ProcessStateStarting && afterExpiry.State != executionstore.ProcessStateRunning {
+	if afterExpiry.State != executionstore.ProcessStateStarting &&
+		afterExpiry.State != executionstore.ProcessStateRunning {
 		t.Fatalf("lease expiry should not terminalize process, got %+v", afterExpiry)
 	}
 	heartbeat, err := fixture.Store.Execution().HeartbeatDaemonRuntime(
@@ -2959,17 +3008,20 @@ func TestTerminalReportBeforeReconnectCompletesToolCallWithOutputResult(t *testi
 	); err != nil {
 		t.Fatalf("apply terminal report before reconnect: %v", err)
 	}
-	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            fixture.OrgID,
-		MachineID:        fixture.MachineID,
-		DaemonTokenID:    fixture.TokenID,
-		DaemonInstanceID: testID(t.Name() + "-replacement"),
-		DaemonVersion:    "1.0.0",
-		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		ProcessClaims: []executionstore.ProcessReconciliationClaim{
-			terminalProcessReconciliationClaimForTest(process.ID),
+	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: testID(t.Name() + "-replacement"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{
+				terminalProcessReconciliationClaimForTest(process.ID),
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("reconcile terminal process: %v", err)
 	}
@@ -3101,14 +3153,17 @@ func TestRuntimeRegistrationReconciliationLocksAgentBeforeProcessAndReadMutation
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := newIntegrationStore(writerPool).Execution().RegisterDaemonRuntimeWithReconciliation(context.Background(), executionstore.RegisterDaemonRuntimeInput{
-			OrgID:            fixture.OrgID,
-			MachineID:        fixture.MachineID,
-			DaemonTokenID:    fixture.TokenID,
-			DaemonInstanceID: testID(t.Name() + "-replacement"),
-			DaemonVersion:    "1.0.0",
-			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		})
+		_, err := newIntegrationStore(writerPool).Execution().RegisterDaemonRuntimeWithReconciliation(
+			context.Background(),
+			executionstore.RegisterDaemonRuntimeInput{
+				OrgID:            fixture.OrgID,
+				MachineID:        fixture.MachineID,
+				DaemonTokenID:    fixture.TokenID,
+				DaemonInstanceID: testID(t.Name() + "-replacement"),
+				DaemonVersion:    "1.0.0",
+				LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			},
+		)
 		done <- err
 	}()
 
@@ -3177,20 +3232,23 @@ func TestRuntimeRegistrationClosesPreparationForStillQueuedProcess(t *testing.T)
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            fixture.OrgID,
-		MachineID:        fixture.MachineID,
-		DaemonTokenID:    fixture.TokenID,
-		DaemonInstanceID: testID(t.Name() + "-replacement"),
-		DaemonVersion:    "1.0.0",
-		LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
-		ProcessClaims: []executionstore.ProcessReconciliationClaim{{
-			ProcessID:            process.ID,
-			SupervisorInstanceID: "test-preparation-supervisor-instance",
-			Phase:                daemonprotocol.ProcessPhasePrepared,
-			SupervisorLive:       true,
-		}},
-	})
+	registration, err := fixture.Store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            fixture.OrgID,
+			MachineID:        fixture.MachineID,
+			DaemonTokenID:    fixture.TokenID,
+			DaemonInstanceID: testID(t.Name() + "-replacement"),
+			DaemonVersion:    "1.0.0",
+			LeaseTimeout:     testDaemonRuntimeLeaseTimeout,
+			ProcessClaims: []executionstore.ProcessReconciliationClaim{{
+				ProcessID:            process.ID,
+				SupervisorInstanceID: "test-preparation-supervisor-instance",
+				Phase:                daemonprotocol.ProcessPhasePrepared,
+				SupervisorLive:       true,
+			}},
+		},
+	)
 	if err != nil {
 		t.Fatalf("register replacement runtime: %v", err)
 	}
@@ -3855,18 +3913,21 @@ func TestExpiredAgentRuntimeLockRetainsAcceptedProcessAction(t *testing.T) {
 		)
 	}
 
-	applied, err := fixture.Store.Execution().ApplyDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
-		ProjectID: testProjectID,
-		AgentID:   fixture.AgentID,
-		ProcessID: process.ID,
-		ID:        acceptedAction.ID,
-		Authority: fixture.authority(),
-		Result: json.RawMessage(
-			`{"process_id":"` +
-				publicResourceID(publicid.KindProcess, process.ID) +
-				`","output":"","cursor":0,"next_cursor":0,"truncated":false}`,
-		),
-	})
+	applied, err := fixture.Store.Execution().ApplyDaemonProcessAction(
+		ctx,
+		executionstore.CompleteDaemonProcessActionInput{
+			ProjectID: testProjectID,
+			AgentID:   fixture.AgentID,
+			ProcessID: process.ID,
+			ID:        acceptedAction.ID,
+			Authority: fixture.authority(),
+			Result: json.RawMessage(
+				`{"process_id":"` +
+					publicResourceID(publicid.KindProcess, process.ID) +
+					`","output":"","cursor":0,"next_cursor":0,"truncated":false}`,
+			),
+		},
+	)
 	if err != nil || !applied.ToolResultCommitted ||
 		applied.Action.State != executionstore.ProcessActionStateApplied {
 		t.Fatalf("apply accepted process action: %v", err)

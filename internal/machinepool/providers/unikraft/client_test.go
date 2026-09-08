@@ -15,43 +15,63 @@ func TestUnikraftRESTClientCreatePayloadAndDelete(t *testing.T) {
 	var sawDelete bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Fatalf("authorization header = %q", r.Header.Get("Authorization"))
+			t.Errorf("authorization header = %q", r.Header.Get("Authorization"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/instances":
 			sawCreate = true
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode create body: %v", err)
+				t.Errorf("decode create body: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if _, ok := body["scale_to_zero"]; ok {
-				t.Fatalf("create body must omit scale_to_zero: %+v", body)
+				t.Errorf("create body must omit scale_to_zero: %+v", body)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if _, ok := body["timeout_s"]; ok {
-				t.Fatalf("create body must omit timeout_s: %+v", body)
+				t.Errorf("create body must omit timeout_s: %+v", body)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if body["restart_policy"] != "never" {
-				t.Fatalf("restart_policy = %v", body["restart_policy"])
+				t.Errorf("restart_policy = %v", body["restart_policy"])
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if body["vcpus"] != float64(1) || body["cpu"] != nil {
-				t.Fatalf("create body cpu fields = %+v, want vcpus only", body)
+				t.Errorf("create body cpu fields = %+v, want vcpus only", body)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if body["volumes"] != nil {
-				t.Fatalf("create body must omit volumes: %+v", body)
+				t.Errorf("create body must omit volumes: %+v", body)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			_, _ = w.Write([]byte(`{"status":"success","data":{"instances":[{"uuid":"uuid-1","name":"omnara-test"}]}}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/v1/instances/uuid-1":
 			sawDelete = true
 			raw, err := io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("read delete body: %v", err)
+				t.Errorf("read delete body: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if len(raw) != 0 {
-				t.Fatalf("delete body = %s, want empty", raw)
+				t.Errorf("delete body = %s, want empty", raw)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			_, _ = w.Write([]byte(`{"status":"success","data":{"instances":[{"uuid":"uuid-1"}]}}`))
 		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -110,23 +130,33 @@ func TestUnikraftRESTClientValidatesBaseURL(t *testing.T) {
 func TestUnikraftRESTClientNameLookupUsesExactServerSideFilter(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if got := r.URL.Query().Get("details"); got != "false" {
-			t.Fatalf("details query = %q, want false", got)
+			t.Errorf("details query = %q, want false", got)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read lookup body: %v", err)
+			t.Errorf("read lookup body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		var lookup []struct {
 			Name string `json:"name,omitempty"`
 		}
 		if err := json.Unmarshal(raw, &lookup); err != nil {
-			t.Fatalf("decode lookup body: %v", err)
+			t.Errorf("decode lookup body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if len(lookup) != 1 || lookup[0].Name != "omnara-wanted" {
-			t.Fatalf("lookup body = %+v, want exact name lookup", lookup)
+			t.Errorf("lookup body = %+v, want exact name lookup", lookup)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write(
 			[]byte(
@@ -152,7 +182,9 @@ func TestUnikraftRESTClientNameLookupUsesExactServerSideFilter(t *testing.T) {
 func TestUnikraftRESTClientNameLookupTreatsItemNotFoundAsMissing(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write(
 			[]byte(
@@ -179,7 +211,9 @@ func TestUnikraftRESTClientNameLookupTreatsItemNotFoundAsMissing(t *testing.T) {
 func TestUnikraftRESTClientNameLookupRejectsTopLevelErrors(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write(
 			[]byte(
@@ -239,7 +273,9 @@ func TestUnikraftRESTClientNameLookupRejectsAmbiguousResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
-					t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				_, _ = w.Write([]byte(tt.response))
 			}))
@@ -262,18 +298,26 @@ func TestUnikraftRESTClientRuntimeBatchLookupRequestsStateAndPreservesPartialRes
 ) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if got := r.URL.Query().Get("details"); got != "true" {
-			t.Fatalf("details query = %q, want true", got)
+			t.Errorf("details query = %q, want true", got)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		var lookups []instanceUUIDLookup
 		if err := json.NewDecoder(r.Body).Decode(&lookups); err != nil {
-			t.Fatalf("decode batch lookup: %v", err)
+			t.Errorf("decode batch lookup: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if len(lookups) != 2 || lookups[0].UUID != "uuid-running" ||
 			lookups[1].UUID != "uuid-missing" {
-			t.Fatalf("batch lookup = %+v", lookups)
+			t.Errorf("batch lookup = %+v", lookups)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write([]byte(
 			`{"status":"partial_success","data":{"instances":[` +
@@ -341,7 +385,9 @@ func TestUnikraftRESTClientRuntimeBatchPreservesMalformedErrorEnvelopeForFailOpe
 func TestUnikraftRESTClientUUIDLookupTreatsTypedErrorNotFoundAsMissing(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/instances/uuid-missing" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write([]byte(
 			`{"status":"error","data":{"instances":[` +
@@ -426,7 +472,9 @@ func TestUnikraftRESTClientUUIDLookupRejectsMismatchedNotFoundIdentity(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet || r.URL.Path != "/v1/instances/uuid-wanted" {
-					t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				_, _ = w.Write([]byte(tt.response))
 			}))

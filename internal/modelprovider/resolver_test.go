@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCapabilitiesForRevisionMapsRuntimePolicyFields(t *testing.T) {
@@ -307,9 +308,7 @@ func TestUnknownCapacityUsesProjectAndAgentAllowancesForAnthropic(t *testing.T) 
 				}
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if tc.capacity == nil && effective.MaxOutputTokens != nil {
 				t.Fatal("request allowance manufactured a capacity")
 			}
@@ -398,15 +397,11 @@ func prepareAnthropicRequest(t *testing.T, caps model.Capabilities) model.Prepar
 		}}},
 		Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var body struct {
 		MaxTokens int `json:"max_tokens"`
 	}
-	if err := json.Unmarshal(prepared.Body, &body); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(prepared.Body, &body))
 	if body.MaxTokens != prepared.MaxOutputTokens {
 		t.Fatalf("wire allowance=%d, recorded=%d", body.MaxTokens, prepared.MaxOutputTokens)
 	}

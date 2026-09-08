@@ -110,6 +110,7 @@ ON CONFLICT (org_id) DO UPDATE SET
 	}
 }
 
+//nolint:tparallel // invalid inserts must be checked before the parent deletes the organization
 func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -383,7 +384,9 @@ FROM generate_series(1, $3::integer) AS n
 		UserID: testDefaultProviderAdminUserID,
 		Name:   "Second limited token",
 	}
-	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(ctx, secondInput); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx, secondInput,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("personal access token over limit error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Identity().RevokePersonalAccessToken(
@@ -502,7 +505,7 @@ func TestAgentResourceLimitsPreserveReplays(t *testing.T) {
 		"max_active_agents_per_project":         agentLimit,
 	})
 	now := time.Date(2026, 7, 24, 14, 0, 0, 0, time.UTC)
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "resource-limit", now)
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
 
 	profileInput := executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
@@ -616,7 +619,7 @@ model:
   provider_config: openai-prod
   name: test
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now.Add(4*time.Second))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML)
 	if _, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -838,7 +841,9 @@ FROM generate_series(1, $4::integer) AS n
 	secondTokenInput := executionstore.CreateBYOMachineDaemonTokenInput{
 		OrgID: testOrgID, MachineID: machine.ID, Name: "Second daemon token",
 	}
-	if _, err := store.Execution().CreateBYOMachineDaemonToken(ctx, secondTokenInput); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err := store.Execution().CreateBYOMachineDaemonToken(
+		ctx, secondTokenInput,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("daemon token over limit error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Execution().RevokeBYOMachineDaemonToken(

@@ -317,7 +317,9 @@ func TestProcessCompletionDoesNotOverwriteCompletedObservationToolCall(t *testin
 	); err != nil {
 		t.Fatalf("complete process with completed observation tool call: %v", err)
 	}
-	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get read action: %v", err)
 	}

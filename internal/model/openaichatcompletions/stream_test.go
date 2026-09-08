@@ -302,14 +302,20 @@ func TestChatCompletionsClientRespondStreamsWhenSinkPresent(t *testing.T) {
 	var sent map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Accept") != "text/event-stream" {
-			t.Fatalf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			t.Errorf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read request: %v", err)
+			t.Errorf("read request: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if err := json.Unmarshal(body, &sent); err != nil {
-			t.Fatalf("decode request: %v", err)
+			t.Errorf("decode request: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(chatCompletionsSSE(

@@ -943,6 +943,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("process completion only touches built-in calls", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "running_tool_authority_process")
 		toolCallIDs := createToolCallBatchForProcessTest(
 			t,
@@ -999,6 +1000,7 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 	})
 
 	t.Run("process completion rejects a linked custom call", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "running_tool_authority_mislinked")
 		toolCallIDs := createToolCallBatchForProcessTest(
 			t,
@@ -1170,6 +1172,7 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 }
 
 func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name           string
 		createArtifact bool
@@ -1657,11 +1660,14 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 		t.Fatalf("get revoked-grant tool call: %v", err)
 	}
 	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, "project_machine_grant_revoked")
-	newGrant, _, err := fixture.Store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
-		OrgID:     testOrgID,
-		ProjectID: testProjectID,
-		MachineID: fixture.MachineID,
-	})
+	newGrant, _, err := fixture.Store.Execution().CreateProjectMachineGrant(
+		ctx,
+		executionstore.CreateProjectMachineGrantInput{
+			OrgID:     testOrgID,
+			ProjectID: testProjectID,
+			MachineID: fixture.MachineID,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create replacement grant: %v", err)
 	}

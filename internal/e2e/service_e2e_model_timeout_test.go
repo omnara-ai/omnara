@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
@@ -29,7 +31,7 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "invalid request", 400)
+			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
 		write := func(delta map[string]any, finish any) {
@@ -43,7 +45,7 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSONString(chunk))
-			w.(http.Flusher).Flush()
+			_ = http.NewResponseController(w).Flush()
 		}
 		switch requests.Add(1) {
 		case 1:
@@ -71,8 +73,8 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 				}
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			w.WriteHeader(200)
-			w.(http.Flusher).Flush()
+			w.WriteHeader(http.StatusOK)
+			_ = http.NewResponseController(w).Flush()
 			// A response with heartbeat bytes can outlast its configured idle window.
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
@@ -82,7 +84,7 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 				select {
 				case <-ticker.C:
 					_, _ = fmt.Fprint(w, ": heartbeat\n\n")
-					w.(http.Flusher).Flush()
+					_ = http.NewResponseController(w).Flush()
 				case <-timer.C:
 					write(map[string]any{"role": "assistant", "content": finalText}, "stop")
 					_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
@@ -92,7 +94,7 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 				}
 			}
 		default:
-			http.Error(w, "unexpected retry", 400)
+			http.Error(w, "unexpected retry", http.StatusBadRequest)
 		}
 	}))
 	defer router.Close()
@@ -109,10 +111,10 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 	path := "/api/v1/orgs/" + project.orgID + "/model-provider-configs"
 	listed := env.requestJSON(t, ctx, http.MethodGet, path, nil, "", project.adminToken, http.StatusOK)
 	providerID := ""
-	for _, item := range listed["data"].([]any) {
-		provider := item.(map[string]any)
+	for _, item := range testutil.RequireType[[]any](t, listed["data"]) {
+		provider := testutil.RequireType[map[string]any](t, item)
 		if provider["name"] == "openrouter-prod" {
-			providerID = provider["id"].(string)
+			providerID = testutil.RequireType[string](t, provider["id"])
 		}
 	}
 	if providerID == "" {
@@ -144,18 +146,22 @@ func TestServiceE2EProviderIdleTimeoutRetriesAndCompletes(t *testing.T) {
 	waitForServiceE2ETextOutput(t, ctx, env, projectUUID, agentUUID, finalText, failures, worker)
 	waitForServiceE2EAgentIdle(t, ctx, env, projectUUID, agentUUID)
 	var failed, succeeded, continued, toolCalls int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE state='failed' AND recovery_kind='retry' AND error_kind='transient' AND error_code='provider_idle_timeout'),count(*) FILTER(WHERE state='succeeded') FROM model_call_contexts WHERE agent_id=$1`, agentUUID).
-		Scan(&failed, &succeeded); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM model_outputs WHERE agent_id=$1 AND (continue_after_truncation OR stop_reason='max_tokens')`, agentUUID).
-		Scan(&continued); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM tool_calls WHERE agent_id=$1`, agentUUID).
-		Scan(&toolCalls); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(
+		t,
+		env.db.QueryRow(ctx, `SELECT count(*) FILTER(WHERE state='failed' AND recovery_kind='retry'
+ AND error_kind='transient' AND error_code='provider_idle_timeout'),
+ count(*) FILTER(WHERE state='succeeded')
+FROM model_call_contexts WHERE agent_id=$1`, agentUUID).
+			Scan(&failed, &succeeded),
+	)
+	require.NoError(
+		t,
+		env.db.QueryRow(ctx, `SELECT count(*) FROM model_outputs
+WHERE agent_id=$1 AND (continue_after_truncation OR stop_reason='max_tokens')`, agentUUID).
+			Scan(&continued),
+	)
+	require.NoError(t, env.db.QueryRow(ctx, `SELECT count(*) FROM tool_calls WHERE agent_id=$1`, agentUUID).
+		Scan(&toolCalls))
 	if requests.Load() != 2 || failed != 1 || succeeded != 1 || continued != 0 || toolCalls != 0 {
 		t.Fatalf(
 			"requests=%d failed=%d succeeded=%d continued=%d tools=%d",

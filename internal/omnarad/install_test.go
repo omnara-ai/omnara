@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInstallDaemonFreshAndReuse(t *testing.T) {
@@ -143,9 +144,7 @@ func TestInstallDaemonRejectsUnknownState(t *testing.T) {
 			name: "canonical without receipt",
 			setup: func(home string) {
 				path := canonicalDaemonPath(home)
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
 				writeTestExecutable(t, path, "#!/bin/sh\nprintf '9.9.9\\n'\n")
 			},
 			want: "unrecognized installation state",
@@ -153,47 +152,37 @@ func TestInstallDaemonRejectsUnknownState(t *testing.T) {
 		{
 			name: "daemon state without receipt",
 			setup: func(home string) {
-				if err := os.MkdirAll(filepath.Join(home, localstore.InstallationsDirName, "existing"), 0o700); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.MkdirAll(filepath.Join(home, localstore.InstallationsDirName, "existing"), 0o700))
 			},
 			want: "unrecognized installation state",
 		},
 		{
 			name: "damaged receipt",
 			setup: func(home string) {
-				if err := os.MkdirAll(home, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(home, installReceiptFileName), []byte("{\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, os.MkdirAll(home, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(home, installReceiptFileName), []byte("{\n"), 0o600))
 			},
 			want: "inspect install receipt",
 		},
 		{
 			name: "future receipt",
 			setup: func(home string) {
-				if err := localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
+				require.NoError(t, localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
 					SchemaVersion:      2,
 					InstallMethod:      installReceiptMethod,
 					ReleaseManifestURL: manifestURL,
-				}, 0o600); err != nil {
-					t.Fatal(err)
-				}
+				}, 0o600))
 			},
 			want: "not an Omnara-managed install receipt",
 		},
 		{
 			name: "foreign install method",
 			setup: func(home string) {
-				if err := localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
+				require.NoError(t, localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
 					SchemaVersion:      installReceiptVersion,
 					InstallMethod:      "package-manager",
 					ReleaseManifestURL: manifestURL,
-				}, 0o600); err != nil {
-					t.Fatal(err)
-				}
+				}, 0o600))
 			},
 			want: "not an Omnara-managed install receipt",
 		},
@@ -362,9 +351,7 @@ func TestRunInstallHoldsInstallLockThroughConfiguration(t *testing.T) {
 	); code != 0 {
 		t.Fatalf("install exit code = %d, stderr = %q", code, stderr.String())
 	}
-	if err := <-observed; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-observed)
 }
 
 func TestRunInstallRestartsCanonicalDaemon(t *testing.T) {

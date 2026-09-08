@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLockCanBeAdoptedAcrossExec(t *testing.T) {
@@ -21,29 +23,19 @@ func TestLockCanBeAdoptedAcrossExec(t *testing.T) {
 		switch stage {
 		case "prepare":
 			lock, err := TryAcquireLock(path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			fd, restore, err := lock.PrepareForExec()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			defer restore()
 			t.Setenv(stageEnv, "adopt")
 			t.Setenv(fdEnv, strconv.Itoa(fd))
 			args := []string{os.Args[0], "-test.run=^TestLockCanBeAdoptedAcrossExec$"}
-			if err := syscall.Exec(os.Args[0], args, os.Environ()); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, syscall.Exec(os.Args[0], args, os.Environ()))
 		case "adopt":
 			fd, err := strconv.Atoi(os.Getenv(fdEnv))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			lock, err := AdoptLock(path, fd)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			defer func() { _ = lock.Release() }()
 			contender, err := TryAcquireLock(path)
 			if contender != nil {

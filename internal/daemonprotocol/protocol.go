@@ -60,8 +60,6 @@ const (
 // Message is the in-process normalized form for daemon websocket messages. The
 // wire contract is the typed envelope implemented by MarshalJSON and
 // UnmarshalJSON, not the struct field layout below.
-//
-//nolint:recvcheck // MarshalJSON must work for both Message values and pointers; UnmarshalJSON must mutate a pointer.
 type Message struct {
 	Type                 MessageType
 	ProcessID            string

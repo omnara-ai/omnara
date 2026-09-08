@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
@@ -525,18 +526,14 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 					1,
 				)),
 			)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if result.State != RunCompleted || len(client.requests) != 1 || len(store.terminalFailures) != 0 {
 				t.Fatalf("result=%+v requests=%d failures=%+v", result, len(client.requests), store.terminalFailures)
 			}
 			var sent struct {
 				MaxOutputTokens int `json:"max_output_tokens"`
 			}
-			if err := json.Unmarshal(client.requests[0].ProviderRequest, &sent); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, json.Unmarshal(client.requests[0].ProviderRequest, &sent))
 			if sent.MaxOutputTokens != tc.want {
 				t.Fatalf("summary allowance=%d, want %d", sent.MaxOutputTokens, tc.want)
 			}

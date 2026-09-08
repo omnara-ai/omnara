@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRoundTripEveryKind(t *testing.T) {
@@ -43,9 +44,7 @@ func TestRoundTripEveryKind(t *testing.T) {
 func TestEncodingIsStableLowercaseNoPadding(t *testing.T) {
 	id := uuid.MustParse("019535d9-3df7-79fb-b466-fa907fa17f9e")
 	encoded, err := Encode(KindAgent, id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if encoded != "agt_agktlwj56547xndg7kih7il7ty" {
 		t.Fatalf("encoded = %q", encoded)
 	}
@@ -54,9 +53,7 @@ func TestEncodingIsStableLowercaseNoPadding(t *testing.T) {
 func TestDecodeRejectsWrongPrefix(t *testing.T) {
 	id := uuid.MustParse("019535d9-3df7-79fb-b466-fa907fa17f9e")
 	encoded, err := Encode(KindAgent, id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	_, err = Decode(KindProject, encoded)
 	var wrong WrongPrefixError
 	if !errors.As(err, &wrong) {

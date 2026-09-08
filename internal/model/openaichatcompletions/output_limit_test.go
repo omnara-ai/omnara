@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
@@ -145,17 +146,13 @@ func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
 					first, marshalErr := json.Marshal(map[string]any{
 						"id": "chatcmpl_limit", "choices": []any{firstChoice},
 					})
-					if marshalErr != nil {
-						t.Fatal(marshalErr)
-					}
+					require.NoError(t, marshalErr)
 					// OpenRouter can report the native reason with final usage, after
 					// the normalized tool_calls reason and all argument deltas.
 					last, marshalErr := json.Marshal(map[string]any{
 						"id": "chatcmpl_limit", "usage": usage, "choices": []any{lastChoice},
 					})
-					if marshalErr != nil {
-						t.Fatal(marshalErr)
-					}
+					require.NoError(t, marshalErr)
 					response, err = consumeChatCompletionsStream(t,
 						chatCompletionsSSE(string(first), string(last), "[DONE]"), &chatRecordingSink{}, tc.variant)
 				} else {
@@ -164,9 +161,7 @@ func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
 							"index": 0, "message": message, "finish_reason": tc.finish, "native_finish_reason": tc.native,
 						}},
 					})
-					if marshalErr != nil {
-						t.Fatal(marshalErr)
-					}
+					require.NoError(t, marshalErr)
 					response, err = (protocol{client: Client{APIVariant: tc.variant}}).ParseResponse(
 						context.Background(), route.Response{StatusCode: http.StatusOK, Body: body})
 				}
@@ -178,9 +173,7 @@ func TestOutputLimitReasonsBeforeToolValidation(t *testing.T) {
 						t.Fatalf("malformed response lost its classification: %+v, %v", providerErr, err)
 					}
 				} else {
-					if err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, err)
 					if tc.wantLimit {
 						if response.StopReason != model.StopReasonMaxTokens ||
 							response.HasToolCalls() ||

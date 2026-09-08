@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/modelprovider"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
@@ -42,11 +43,14 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 		request(
 			http.MethodPost,
 			orgPath+"/model-provider-configs",
-			`{"name":"capacity-provider","preset":"openai","credential_secret_id":"`+secret["id"].(string)+`"}`,
+			`{"name":"capacity-provider","preset":"openai","credential_secret_id":"`+testutil.RequireType[string](
+				t,
+				secret["id"],
+			)+`"}`,
 			http.StatusCreated,
 		),
 	)
-	modelsPath := orgPath + "/model-provider-configs/" + provider["id"].(string) + "/models"
+	modelsPath := orgPath + "/model-provider-configs/" + testutil.RequireType[string](t, provider["id"]) + "/models"
 	for _, tc := range []struct {
 		name string
 		hint int
@@ -85,9 +89,8 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 			t.Fatalf("discovered capacity=%v", created["max_output_tokens"])
 		}
 		if !known {
-			var ok bool
-			unknownModelID, ok = created["id"].(string)
-			if !ok || unknownModelID == "" {
+			unknownModelID = testutil.RequireType[string](t, created["id"])
+			if unknownModelID == "" {
 				t.Fatalf("created model ID=%v, want a nonempty string", created["id"])
 			}
 			if capacity, present := created["max_output_tokens"]; !present || capacity != nil {
@@ -141,10 +144,7 @@ func TestOptionalOutputCapacityCreationReplayAndPatch(t *testing.T) {
 		agentConfigSourceBody("instruction: Test.\nmodel:\n  provider_config: capacity-provider\n  name: unknown\n"),
 		http.StatusCreated,
 	)
-	effective, ok := config["model"].(map[string]any)
-	if !ok {
-		t.Fatalf("effective model=%v, want an object", config["model"])
-	}
+	effective := testutil.RequireType[map[string]any](t, config["model"])
 	if value, present := effective["max_output_tokens"]; !present || value != nil {
 		t.Fatalf("effective unknown capacity=%v present=%v", value, present)
 	}

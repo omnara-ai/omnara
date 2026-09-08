@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -23,7 +24,9 @@ func TestListOrgMembers(t *testing.T) {
 
 	project := bootstrapPublicHTTPProject(t, handler, "members")
 
-	member, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: "members-second@example.com", DisplayName: "Second"})
+	member, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "members-second@example.com", DisplayName: "Second"},
+	)
 	if err != nil {
 		t.Fatalf("create member: %v", err)
 	}
@@ -83,7 +86,7 @@ func TestListOrgMembers(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	data := listed["data"].([]any)
+	data := testutil.RequireType[[]any](t, listed["data"])
 	if len(data) != 3 {
 		t.Fatalf("expected 3 members, got %d: %+v", len(data), data)
 	}
@@ -95,8 +98,8 @@ func TestListOrgMembers(t *testing.T) {
 	}
 	byName := map[string]map[string]any{}
 	for _, raw := range data {
-		row := raw.(map[string]any)
-		byName[row["display_name"].(string)] = row
+		row := testutil.RequireType[map[string]any](t, raw)
+		byName[testutil.RequireType[string](t, row["display_name"])] = row
 	}
 	owner, ok := byName["Owner"]
 	if !ok {
@@ -137,7 +140,7 @@ func TestListOrgMembers(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	nameSortedRows := orderedMemberNames(t, nameSorted["data"].([]any))
+	nameSortedRows := orderedMemberNames(t, testutil.RequireType[[]any](t, nameSorted["data"]))
 	if len(nameSortedRows) != 3 || nameSortedRows[0] != "Owner" ||
 		nameSortedRows[1] != "Second" || nameSortedRows[2] != "Split" {
 		t.Fatalf("name-sorted members = %v, want Owner, Second, Split", nameSortedRows)
@@ -153,7 +156,7 @@ func TestListOrgMembers(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	filteredRows := orderedMemberNames(t, filtered["data"].([]any))
+	filteredRows := orderedMemberNames(t, testutil.RequireType[[]any](t, filtered["data"]))
 	if len(filteredRows) != 1 || filteredRows[0] != "Second" {
 		t.Fatalf("filtered members = %v, want only Second", filteredRows)
 	}
@@ -208,7 +211,7 @@ func orderedMemberNames(t *testing.T, data []any) []string {
 	t.Helper()
 	names := make([]string, 0, len(data))
 	for _, raw := range data {
-		names = append(names, raw.(map[string]any)["display_name"].(string))
+		names = append(names, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["display_name"]))
 	}
 	return names
 }
@@ -217,7 +220,10 @@ func assertMembersNewestFirst(t *testing.T, data []any) {
 	t.Helper()
 	var prev time.Time
 	for i, raw := range data {
-		ts, err := time.Parse(time.RFC3339Nano, raw.(map[string]any)["created_at"].(string))
+		ts, err := time.Parse(
+			time.RFC3339Nano,
+			testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, raw)["created_at"]),
+		)
 		if err != nil {
 			t.Fatalf("parse created_at for member %d: %v", i, err)
 		}
@@ -248,18 +254,18 @@ func pageThroughMembers(t *testing.T, handler http.Handler, membersPath, token s
 			path += "&cursor=" + cursor
 		}
 		page := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK, authHeaders(token))
-		rows := page["data"].([]any)
+		rows := testutil.RequireType[[]any](t, page["data"])
 		if len(rows) > 1 {
 			t.Fatalf("page returned %d members, want <= limit 1", len(rows))
 		}
 		for _, raw := range rows {
-			row := raw.(map[string]any)
-			id := row["user_id"].(string)
+			row := testutil.RequireType[map[string]any](t, raw)
+			id := testutil.RequireType[string](t, row["user_id"])
 			if seen[id] {
 				t.Fatalf("cursor paging returned duplicate member %s", id)
 			}
 			seen[id] = true
-			got = append(got, row["display_name"].(string))
+			got = append(got, testutil.RequireType[string](t, row["display_name"]))
 		}
 		if pages > 5 {
 			t.Fatalf("pagination did not terminate; got=%v", got)
@@ -271,7 +277,7 @@ func pageThroughMembers(t *testing.T, handler http.Handler, membersPath, token s
 		if next == nil {
 			break
 		}
-		cursor = next.(string)
+		cursor = testutil.RequireType[string](t, next)
 	}
 	return got
 }

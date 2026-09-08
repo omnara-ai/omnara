@@ -13,6 +13,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/stretchr/testify/require"
 )
 
 type idleTestBody struct {
@@ -131,9 +132,7 @@ func TestStreamingTimeouts(t *testing.T) {
 						time.Sleep(tc.processing) //nolint:omnaralint // Advance synctest's virtual clock.
 						return nil
 					})
-					if closeErr := resp.Body.Close(); closeErr != nil {
-						t.Fatal(closeErr)
-					}
+					require.NoError(t, resp.Body.Close())
 					if !closed {
 						t.Fatal("body was not closed")
 					}
@@ -185,9 +184,7 @@ func TestStreamingIdleTracksBytesWithinOneSSELine(t *testing.T) {
 			nil,
 			ServerSentEventsMediaType,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		var events []SSEEvent
 		err = ReadSSEEvents(
@@ -240,9 +237,7 @@ func TestIdleBodyCloseUnblocksRead(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { var p [1]byte; _, err := body.Read(p[:]); done <- err }()
 		synctest.Wait()
-		if err := body.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, body.Close())
 		if err := <-done; !errors.Is(err, context.Canceled) {
 			t.Fatalf("read error=%v", err)
 		}
@@ -424,14 +419,10 @@ func TestIdleTimeoutIsolatesHTTP2Streams(t *testing.T) {
 	defer server.Close()
 	transport := HTTPTransport{Client: server.Client(), IdleTimeout: time.Second}
 	idle, err := transport.StreamingDo(ctx, server.URL+"/idle", []byte(`{}`), nil, ServerSentEventsMediaType)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer idle.Body.Close()
 	healthy, err := transport.StreamingDo(ctx, server.URL+"/healthy", []byte(`{}`), nil, ServerSentEventsMediaType)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer healthy.Body.Close()
 	idleError := make(chan error, 1)
 	go func() { _, err := io.ReadAll(idle.Body); idleError <- err; close(idleDone) }()
@@ -443,9 +434,7 @@ func TestIdleTimeoutIsolatesHTTP2Streams(t *testing.T) {
 		t.Fatalf("idle error=%v", err)
 	}
 	reused, err := transport.StreamingDo(ctx, server.URL+"/reused", []byte(`{}`), nil, ServerSentEventsMediaType)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	data, _, err = ReadAllAndClose(reused, 100)
 	if err != nil || string(data) != "data: reused\n\n" {
 		t.Fatalf("reused body=%q error=%v", data, err)

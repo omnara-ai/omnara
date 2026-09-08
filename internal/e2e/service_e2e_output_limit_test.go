@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
@@ -125,12 +126,19 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 	}))
 	defer router.Close()
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(t, ctx, "output-limit-recovery", "openrouter-prod", modelName,
+	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
+		t,
+		ctx,
+		"output-limit-recovery",
+		"openrouter-prod",
+		modelName,
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openrouter-prod", ConfiguredModelName: modelName}: {
 				ContextWindowTokens: 128000, MaxOutputTokens: 65536, DefaultMaxOutputTokens: 65536,
 			},
-		}, "list_machines")
+		},
+		"list_machines",
+	)
 	agentID := project.createAgent(t, ctx)
 	project.createInput(t, ctx, agentID, "Check available machines.")
 	worker := env.startWorker(
@@ -147,44 +155,34 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughTool(t *testing.T) {
 	waitForServiceE2ETextOutput(t, ctx, env, projectUUID, agentUUID, finalText, failures, worker)
 	waitForServiceE2EAgentIdle(t, ctx, env, projectUUID, agentUUID)
 	var succeeded, failed, turns, truncated, calls, results int
-	if err := env.db.QueryRow(
+	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(*) FILTER(WHERE state='succeeded'),count(*) FILTER(WHERE state='failed') FROM model_call_contexts WHERE agent_id=$1`,
 		agentUUID,
 	).Scan(
 		&succeeded,
 		&failed,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(
+	))
+	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(DISTINCT turn_id) FROM agent_events WHERE agent_id=$1 AND event_kind='model_output'`,
 		agentUUID,
-	).Scan(&turns); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(
+	).Scan(&turns))
+	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(*) FROM model_outputs output JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.continue_after_truncation AND output.provider_replay IS NULL AND context.provider_metadata->>'request_max_output_tokens'='65536' AND context.provider_metadata->'openrouter'->>'finish_reason'='tool_calls' AND context.provider_metadata->'openrouter'->>'native_finish_reason'='length'`,
 		agentUUID,
-	).Scan(&truncated); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(
+	).Scan(&truncated))
+	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(*) FROM tool_calls WHERE agent_id=$1`,
 		agentUUID,
-	).Scan(&calls); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.db.QueryRow(
+	).Scan(&calls))
+	require.NoError(t, env.db.QueryRow(
 		ctx,
 		`SELECT count(*) FROM tool_call_results result JOIN tool_calls call ON call.agent_id=result.agent_id AND call.id=result.tool_call_id WHERE result.agent_id=$1 AND call.provider_call_id='accepted-call' AND result.outcome='succeeded'`,
 		agentUUID,
-	).Scan(&results); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&results))
 	if requests.Load() != 3 ||
 		succeeded != 3 ||
 		failed != 0 ||

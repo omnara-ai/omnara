@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 type defaultReconciliationMachinePoolProviders struct {
@@ -72,11 +73,37 @@ func TestReconcileDefaults(t *testing.T) {
 		EndpointPath:         "/chat/completions",
 		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
 		Models: []modelstore.DefaultConfiguredModelTemplate{
-			{Name: "update-model", ProviderModelSlug: "example/old", ContextWindowTokens: 8192, MaxOutputTokens: new(1024), DefaultMaxOutputTokens: new(512)},
-			{Name: "remove-model", ProviderModelSlug: "example/remove", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
-			{Name: "retained-model", ProviderModelSlug: "example/retain", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
-			{Name: "active-agent-model", ProviderModelSlug: "example/active", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
-			{Name: "profile-model", ProviderModelSlug: "example/profile", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+			{
+				Name:                   "update-model",
+				ProviderModelSlug:      "example/old",
+				ContextWindowTokens:    8192,
+				MaxOutputTokens:        new(1024),
+				DefaultMaxOutputTokens: new(512),
+			},
+			{
+				Name:                "remove-model",
+				ProviderModelSlug:   "example/remove",
+				ContextWindowTokens: 8192,
+				MaxOutputTokens:     new(1024),
+			},
+			{
+				Name:                "retained-model",
+				ProviderModelSlug:   "example/retain",
+				ContextWindowTokens: 8192,
+				MaxOutputTokens:     new(1024),
+			},
+			{
+				Name:                "active-agent-model",
+				ProviderModelSlug:   "example/active",
+				ContextWindowTokens: 8192,
+				MaxOutputTokens:     new(1024),
+			},
+			{
+				Name:                "profile-model",
+				ProviderModelSlug:   "example/profile",
+				ContextWindowTokens: 8192,
+				MaxOutputTokens:     new(1024),
+			},
 		},
 	}
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
@@ -136,17 +163,13 @@ func TestReconcileDefaults(t *testing.T) {
 		OrgID: created.Org.ID, OwnerKind: secretstore.SecretOwnerOrg, Name: "tenant-timeout-key",
 		Material: secrets.GenericMaterial{Value: "tenant-test-key"}, Actor: userPrincipal(user.ID),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	tenantProvider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID: created.Org.ID, Name: "tenant-timeouts", APIFormat: modelprotocol.APIFormatOpenAIResponses,
 		BaseURL: "https://example.test", CredentialSecretID: tenantCredential.ID,
 		RequestTimeoutMS: 600000, IdleTimeoutMS: 700000,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	updateModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
 	if err != nil {
 		t.Fatalf("get update model: %v", err)
@@ -331,9 +354,19 @@ model:
 	desiredProvider.RequestTimeoutMS = 120000
 	desiredProvider.IdleTimeoutMS = 45000
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
-		{Name: "update-model", ProviderModelSlug: "example/new", ContextWindowTokens: 16384, MaxOutputTokens: new(2048)},
+		{
+			Name:                "update-model",
+			ProviderModelSlug:   "example/new",
+			ContextWindowTokens: 16384,
+			MaxOutputTokens:     new(2048),
+		},
 		{Name: "add-model", ProviderModelSlug: "example/add", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
-		{Name: "tenant-model", ProviderModelSlug: "example/cluster-collision", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+		{
+			Name:                "tenant-model",
+			ProviderModelSlug:   "example/cluster-collision",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     new(1024),
+		},
 	}
 	input := orglifecycle.ReconcileDefaultsInput{
 		DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
@@ -388,9 +421,9 @@ model:
 		poolRecord.DeleteAfterIdleMinutes == nil || *poolRecord.DeleteAfterIdleMinutes != 30 {
 		t.Fatalf("unexpected reconciled pool: %+v", poolRecord)
 	}
-	assertJSONRawEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
-	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
-	assertJSONRawEqual(
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineEnv, `{"ORG":"value"}`)
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
+	assertDecodedJSONEqual(
 		t,
 		poolRecord.DefaultMachineProviderOptions,
 		`{"image":"new","sleep_after_ms":30000}`,
@@ -412,16 +445,21 @@ model:
 	if err != nil {
 		t.Fatalf("get reconciled provider: %v", err)
 	}
-	if reconciledProvider.BaseURL != desiredProvider.BaseURL || reconciledProvider.RequestTimeoutMS != 120000 || reconciledProvider.IdleTimeoutMS != 45000 ||
+	if reconciledProvider.BaseURL != desiredProvider.BaseURL || reconciledProvider.RequestTimeoutMS != 120000 ||
+		reconciledProvider.IdleTimeoutMS != 45000 ||
 		reconciledProvider.CredentialSecretID != provider.CredentialSecretID {
 		t.Fatalf("unexpected reconciled provider: %+v", reconciledProvider)
 	}
 	updatedModel, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
-	if err != nil || updatedModel.DefaultMaxOutputTokens != nil || updatedModel.ProviderModelSlug != "example/new" || (updatedModel.MaxOutputTokens == nil || *updatedModel.MaxOutputTokens != 2048) {
+	if err != nil || updatedModel.DefaultMaxOutputTokens != nil || updatedModel.ProviderModelSlug != "example/new" ||
+		(updatedModel.MaxOutputTokens == nil || *updatedModel.MaxOutputTokens != 2048) {
 		t.Fatalf("unexpected updated model: %+v, err %v", updatedModel, err)
 	}
-	historicalRevision, err := store.Models().GetConfiguredModelRevisionForUse(ctx, created.Org.ID, updateModel.CurrentRevisionID)
-	if err != nil || historicalRevision.DefaultMaxOutputTokens == nil || *historicalRevision.DefaultMaxOutputTokens != 512 || updatedModel.CurrentRevisionID == updateModel.CurrentRevisionID {
+	historicalRevision, err := store.Models().
+		GetConfiguredModelRevisionForUse(ctx, created.Org.ID, updateModel.CurrentRevisionID)
+	if err != nil || historicalRevision.DefaultMaxOutputTokens == nil ||
+		*historicalRevision.DefaultMaxOutputTokens != 512 ||
+		updatedModel.CurrentRevisionID == updateModel.CurrentRevisionID {
 		t.Fatalf("default removal mutated history: %+v err=%v", historicalRevision, err)
 	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
@@ -438,7 +476,9 @@ model:
 	); err != nil {
 		t.Fatalf("get added model default grant: %v", err)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "remove-model"); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "remove-model",
+	); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("get removed model error = %v, want no rows", err)
 	}
 	if _, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
@@ -468,7 +508,9 @@ model:
 	}); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("launch agent from deleted model config error = %v, want ErrNotFound", err)
 	}
-	if _, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "retained-model"); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := store.Models().GetConfiguredModelByName(
+		ctx, created.Org.ID, provider.ID, "retained-model",
+	); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("get manually granted removed model error = %v, want no rows", err)
 	}
 	if _, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
@@ -539,7 +581,12 @@ model:
 	desiredPool.Description = "pool without default project"
 	desiredProvider.Models = []modelstore.DefaultConfiguredModelTemplate{
 		{Name: "update-model", ProviderModelSlug: "example/without-project", ContextWindowTokens: 16384},
-		{Name: "missing-project-model", ProviderModelSlug: "example/missing-project", ContextWindowTokens: 8192, MaxOutputTokens: new(1024)},
+		{
+			Name:                "missing-project-model",
+			ProviderModelSlug:   "example/missing-project",
+			ContextWindowTokens: 8192,
+			MaxOutputTokens:     new(1024),
+		},
 	}
 	input.DefaultMachinePools = []executionstore.DefaultMachinePoolTemplate{desiredPool}
 	input.DefaultModelProvider = &desiredProvider
@@ -559,9 +606,10 @@ model:
 	if poolRecord.Description != desiredPool.Description {
 		t.Fatalf("machine pool description = %q, want %q", poolRecord.Description, desiredPool.Description)
 	}
-	assertJSONRawEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
+	assertDecodedJSONEqual(t, poolRecord.DefaultMachineSecretEnv, string(organizationSecretEnv))
 	updatedModel, err = store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, "update-model")
-	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" || updatedModel.MaxOutputTokens != nil {
+	if err != nil || updatedModel.ProviderModelSlug != "example/without-project" ||
+		updatedModel.MaxOutputTokens != nil {
 		t.Fatalf("unexpected model updated without default project: %+v, err %v", updatedModel, err)
 	}
 	if _, err := store.Models().GetConfiguredModelByName(

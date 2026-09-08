@@ -108,8 +108,13 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		}},
 		responses: []model.Response{
 			{
-				ID:         "resp_live_grant_shrink_summary",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "The earlier durable context was summarized after the model window shrank."}},
+				ID: "resp_live_grant_shrink_summary",
+				Content: []model.ResponsePart{
+					{
+						Type: model.ResponsePartTypeText,
+						Text: "The earlier durable context was summarized after the model window shrank.",
+					},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
@@ -207,11 +212,16 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 			retryModel.respondedCount(),
 		)
 	}
-	if summaryRequest := string(retryModel.responded[1].ProviderRequest); !strings.Contains(summaryRequest, historyMarker) {
+	if summaryRequest := string(
+		retryModel.responded[1].ProviderRequest,
+	); !strings.Contains(summaryRequest, historyMarker) {
 		t.Fatalf("compaction request omitted prior durable history: %s", summaryRequest)
 	}
 	if len(retryResolver.resolutions) != 3 {
-		t.Fatalf("live policy resolutions after compaction = %+v, want normal, retry, and compaction", retryResolver.resolutions)
+		t.Fatalf(
+			"live policy resolutions after compaction = %+v, want normal, retry, and compaction",
+			retryResolver.resolutions,
+		)
 	}
 	for index, resolution := range retryResolver.resolutions[1:] {
 		if resolution.ContextWindowTokens != shrunkWindow {

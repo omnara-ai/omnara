@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
@@ -17,9 +19,7 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 	const fdEnv = "OMNARA_CHILD_LOCK_TEST_FD"
 	if os.Getenv(stageEnv) == "child" {
 		fd, err := strconv.Atoi(os.Getenv(fdEnv))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if _, err := os.Stdout.Write([]byte("R")); err != nil {
 			t.Fatal(err)
 		}
@@ -28,9 +28,7 @@ func TestChildLockInheritanceHasNoOwnershipGap(t *testing.T) {
 			t.Fatal(err)
 		}
 		lock, err := AdoptLock(os.Getenv(pathEnv), fd)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		defer func() { _ = lock.Release() }()
 		if _, err := os.Stdout.Write([]byte("A")); err != nil {
 			t.Fatal(err)

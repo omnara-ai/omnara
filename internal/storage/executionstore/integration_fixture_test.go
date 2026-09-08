@@ -4,19 +4,17 @@ package executionstore_test
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
 var (
@@ -54,23 +52,7 @@ func executeToolCallCommandForTest[T any](
 	input executionstore.ExecuteToolCallInput,
 	command executionstore.ToolCallCommand,
 ) (T, error) {
-	execution, err := store.Execution().ExecuteToolCall(
-		ctx,
-		input,
-		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-			return command, nil
-		},
-	)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	result, ok := execution.CommandResult.(T)
-	if !ok {
-		var zero T
-		return zero, fmt.Errorf("tool call command returned %T", execution.CommandResult)
-	}
-	return result, nil
+	return storagetest.ExecuteToolCallCommand[T](ctx, store.Execution(), input, command)
 }
 
 func startAsyncToolCallForTest(
@@ -112,7 +94,10 @@ func openIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 }
 
-func machineProvisioningFromRecordForTest(t *testing.T, machine executionstore.MachineRecord) executionstore.MachineProvisioningConfig {
+func machineProvisioningFromRecordForTest(
+	t *testing.T,
+	machine executionstore.MachineRecord,
+) executionstore.MachineProvisioningConfig {
 	t.Helper()
 	machineProvisioning, err := executionstore.MachineProvisioningFromRecord(machine)
 	if err != nil {
@@ -243,69 +228,14 @@ WHERE org_id = $1 AND project_id = $2 AND machine_id = $3
 
 func seedDefaultProject(t *testing.T, ctx context.Context, store *Store) {
 	t.Helper()
-	now := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
-	if _, err := store.pool.Exec(
-		ctx,
-		`INSERT INTO users(id, display_name, created_at, updated_at)
-		 VALUES ($1, 'Default Provider Admin', $2, $2)`,
-		testDefaultProviderAdminUserID,
-		now,
-	); err != nil {
-		t.Fatalf("seed default-provider admin: %v", err)
-	}
-	if _, err := store.pool.Exec(
-		ctx,
-		`
-INSERT INTO orgs(id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, 'Test Org', 'idem-test-org', $2, $2)
-`,
-		testOrgID,
-		now,
-	); err != nil {
-		t.Fatalf("seed org: %v", err)
-	}
-	if _, err := store.pool.Exec(
-		ctx,
-		`
-INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, 'Test Project', 'idem-test-project', $3, $3)
-`,
-		testProjectID,
-		testOrgID,
-		now,
-	); err != nil {
-		t.Fatalf("seed project: %v", err)
-	}
-	if _, err := store.pool.Exec(
-		ctx,
-		`
-WITH seeded_user AS (
-  INSERT INTO users(id, display_name, created_at, updated_at)
-  VALUES ($2, 'Default Provider Admin', $6, $6)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret AS (
-  INSERT INTO secrets(id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at)
-  VALUES ($3, $1, 'tenant', 'org', 'default-provider-key', 'generic', '{}'::jsonb, $4, $6, $6)
-  ON CONFLICT (id) DO NOTHING
-),
-seeded_secret_version AS (
-  INSERT INTO secret_versions(id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at)
-  VALUES ($4, $1, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'), decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $6)
-  ON CONFLICT (id) DO NOTHING
-)
-INSERT INTO model_provider_configs(id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, auth_kind, credential_secret_id, created_at, updated_at)
-VALUES ($5, $1, 'tenant', 'openai-prod', 'openai-responses', 'default', 'https://api.openai.com/v1', '/responses', 'bearer_token', $3, $6, $6)
-ON CONFLICT (id) DO NOTHING`,
-		testOrgID,
-		testDefaultProviderAdminUserID,
-		testDefaultProviderCredentialSecretID,
-		testDefaultProviderCredentialSecretVersion,
-		testDefaultProviderConfigID(),
-		now,
-	); err != nil {
-		t.Fatalf("seed default model provider config: %v", err)
-	}
+	storagefixture.SeedProject(t, ctx, store.pool, storagefixture.ProjectIDs{
+		OrgID:                   testOrgID,
+		ProjectID:               testProjectID,
+		ProviderAdminUserID:     testDefaultProviderAdminUserID,
+		ProviderSecretID:        testDefaultProviderCredentialSecretID,
+		ProviderSecretVersionID: testDefaultProviderCredentialSecretVersion,
+		ProviderConfigID:        testDefaultProviderConfigID(),
+	}, time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC))
 }
 
 func seedAdditionalProjectForTest(
@@ -316,19 +246,8 @@ func seedAdditionalProjectForTest(
 ) ID {
 	t.Helper()
 	projectID := testID("project_" + seed)
-	now := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
-	if _, err := pool.Exec(
-		ctx,
-		`INSERT INTO projects(id, org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $5)`,
-		projectID,
-		testOrgID,
-		"Test Project "+seed,
-		"idem-test-project-"+seed,
-		now,
-	); err != nil {
-		t.Fatalf("seed additional project %q: %v", seed, err)
-	}
+	storagefixture.InsertProject(t, ctx, pool, testOrgID, projectID,
+		"Test Project "+seed, "idem-test-project-"+seed, time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC))
 	return projectID
 }
 
@@ -336,65 +255,14 @@ func testDefaultProviderConfigID() ID {
 	return testID("default_provider_config")
 }
 
-func ensureTestConfiguredModel(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	providerConfigName, configuredModelName string,
-	now time.Time,
-) modelstore.ConfiguredModelRecord {
-	t.Helper()
-	if providerConfigName == "" {
-		providerConfigName = "openai-prod"
-	}
-	if configuredModelName == "" {
-		configuredModelName = "gpt-test"
-	}
-	providerConfig, err := store.Models().GetModelProviderConfigByName(ctx, testOrgID, providerConfigName)
-	if err != nil {
-		t.Fatalf("load test provider config %q: %v", providerConfigName, err)
-	}
-	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  testOrgID,
-		ModelProviderConfigID:  providerConfig.ID,
-		Name:                   configuredModelName,
-		ProviderModelSlug:      configuredModelName,
-		ContextWindowTokens:    128000,
-		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
-	})
-	if err != nil {
-		t.Fatalf("create test configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             testOrgID,
-		ProjectID:         testProjectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant test configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	return configuredModel
-}
-
-func testAgentModelSource(t *testing.T, sourceYAML string) agentconfig.AgentConfigModelSource {
-	t.Helper()
-	source, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, []byte(sourceYAML))
-	if err != nil {
-		t.Fatalf("parse agent config source model: %v", err)
-	}
-	return source.Model
-}
-
 func ensureTestConfiguredModelForSource(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
 	sourceYAML string,
-	now time.Time,
 ) modelstore.ConfiguredModelRecord {
 	t.Helper()
-	modelSource := testAgentModelSource(t, sourceYAML)
-	return ensureTestConfiguredModel(t, ctx, store, modelSource.ProviderConfig, modelSource.Name, now)
+	return storagefixture.SeedModelForAgentYAML(t, ctx, store.Models(), testOrgID, testProjectID, sourceYAML)
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) ID {
@@ -404,15 +272,6 @@ func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) ID {
 		t.Fatalf("parse compiled configured model id: %v", err)
 	}
 	return id
-}
-
-func configuredModelIDForRevision(t *testing.T, ctx context.Context, store *Store, revisionID ID) ID {
-	t.Helper()
-	revision, err := store.Models().GetConfiguredModelRevisionForUse(ctx, testOrgID, revisionID)
-	if err != nil {
-		t.Fatalf("load configured model revision %s: %v", revisionID, err)
-	}
-	return revision.ConfiguredModelID
 }
 
 func resolvedTestModelSelection(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
@@ -428,129 +287,22 @@ func mustCompileAgentYAMLResolved(
 	ctx context.Context,
 	store *Store,
 	sourceYAML string,
-	now time.Time,
 ) agentconfig.Result {
 	t.Helper()
-	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, sourceYAML, now)
-	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
-		ResolveModelSelection: func(providerConfigName string, configuredModelName string) (agentconfig.ResolvedModelSelection, error) {
-			return resolvedTestModelSelection(configuredModel), nil
-		},
-		ResolveMachineName: func(machineName string) (string, error) {
-			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, testProjectID, machineName)
-			if err != nil {
-				return "", err
-			}
-			return publicid.Encode(publicid.KindMachine, machineID)
-		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
-			machinePoolID, err := store.Execution().ResolveAgentConfigMachinePoolName(ctx, testOrgID, testProjectID, machinePoolName)
-			if err != nil {
-				return "", err
-			}
-			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
-		},
-	})
-	if err != nil {
-		t.Fatalf("compile resolved agent yaml: %v", err)
-	}
-	return compiled
+	return storagefixture.SeedModelAndCompileAgentYAML(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 }
 
-func assertProjectAllowed(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	principal identitystore.PrincipalRecord,
-	action string,
-	want bool,
-) {
+func mustCreateAgent(t *testing.T, ctx context.Context, store *Store) ID {
 	t.Helper()
-	allowed, err := store.Identity().AuthorizeProject(ctx, identitystore.AuthorizeProjectInput{
-		Principal: principal,
-		OrgID:     testOrgID,
-		ProjectID: testProjectID,
-		Action:    action,
+	configID := mustCreateAgentConfig(t, ctx, store, testProjectID)
+	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID:       testProjectID,
+		CurrentConfigID: configID,
 	})
-	if err != nil {
-		t.Fatalf("authorize project action %s for %+v: %v", action, principal, err)
-	}
-	if allowed != want {
-		t.Fatalf("authorize project action %s for %+v: expected %v, got %v", action, principal, want, allowed)
-	}
-}
-
-func assertOrgAllowed(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	principal identitystore.PrincipalRecord,
-	action string,
-	want bool,
-) {
-	t.Helper()
-	allowed, err := store.Identity().AuthorizeOrg(ctx, identitystore.AuthorizeOrgInput{
-		Principal: principal,
-		OrgID:     testOrgID,
-		Action:    action,
-	})
-	if err != nil {
-		t.Fatalf("authorize org action %s for %+v: %v", action, principal, err)
-	}
-	if allowed != want {
-		t.Fatalf("authorize org action %s for %+v: expected %v, got %v", action, principal, want, allowed)
-	}
-}
-
-func assertMachineAllowed(
-	t *testing.T,
-	ctx context.Context,
-	store *Store,
-	principal identitystore.PrincipalRecord,
-	machineID ID,
-	action string,
-	want bool,
-) {
-	t.Helper()
-	allowed, err := store.Execution().AuthorizeMachine(ctx, executionstore.AuthorizeMachineInput{
-		Principal: principal,
-		OrgID:     testOrgID,
-		MachineID: machineID,
-		Action:    action,
-	})
-	if err != nil {
-		t.Fatalf("authorize machine action %s for %+v: %v", action, principal, err)
-	}
-	if allowed != want {
-		t.Fatalf("authorize machine action %s for %+v: expected %v, got %v", action, principal, want, allowed)
-	}
-}
-
-func mustCreateAgent(t *testing.T, ctx context.Context, store *Store, now time.Time) ID {
-	t.Helper()
-	configID := mustCreateAgentConfig(t, ctx, store, testProjectID, "default", now)
-	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: configID})
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
-	}
-	sourceYAML := testAgentConfigYAML()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
-	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
-			Source:                  sourceYAML,
-			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
-			EffectiveDefinitionHash: compiled.Hash,
-		},
-		AgentID:        agent.ID,
-		ActorType:      identitystore.PrincipalTypeSystem,
-		Reason:         "test_create",
-		IdempotencyKey: "test-agent-config-change-" + agent.ID.String(),
-	}); err != nil {
-		t.Fatalf("activate agent config: %v", err)
 	}
 	return agent.ID
 }
@@ -560,35 +312,11 @@ func mustCreateAgentConfig(
 	ctx context.Context,
 	store *Store,
 	projectID ID,
-	key string,
-	now time.Time,
 ) ID {
 	t.Helper()
-	sourceYAML := testAgentConfigYAML()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, now)
-	configuredModelID := parseConfiguredModelID(t, compiled)
-	if _, err := store.Models().CreateProjectModelGrant(
-		ctx,
-		modelstore.CreateProjectModelGrantInput{
-			OrgID:             testOrgID,
-			ProjectID:         projectID,
-			ConfiguredModelID: configuredModelID,
-		},
-	); err != nil {
-		t.Fatalf("grant configured model for agent config %s: %v", key, err)
-	}
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               projectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  sourceYAML,
-		ConfiguredModelID:       configuredModelID,
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create agent config %s: %v", key, err)
-	}
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, projectID, testAgentConfigYAML(),
+	)
 	return config.ID
 }
 
@@ -609,19 +337,9 @@ func createLaunchTestAgent(
 	sourceYAML string,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, sourceYAML, time.Date(2026, 5, 21, 8, 0, 0, 0, time.UTC))
-	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               testProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
-		Source:                  sourceYAML,
-		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
-		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
-	})
-	if err != nil {
-		t.Fatalf("create launch agent config: %v", err)
-	}
+	config := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, sourceYAML,
+	)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       testProjectID,
 		Name:            "Launch Agent",
@@ -632,24 +350,4 @@ func createLaunchTestAgent(
 		t.Fatalf("create launch agent profile: %v", err)
 	}
 	return profile
-}
-
-func assertEventTypes(t *testing.T, ctx context.Context, store *Store, agentID ID, want []string) {
-	t.Helper()
-	events, err := store.Execution().ListAgentEventsForRead(ctx, testProjectID, agentID, 0, 100)
-	if err != nil {
-		t.Fatalf("list events: %v", err)
-	}
-	got := make([]string, 0, len(events))
-	for _, event := range events {
-		got = append(got, event.EventKind)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("event count mismatch: got %v want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("event %d mismatch: got %v want %v", i, got, want)
-		}
-	}
 }

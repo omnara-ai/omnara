@@ -257,7 +257,9 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 	}
 	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(keyWrapper))
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{DisplayName: "Resolver Tester", Email: "resolver@example.com"})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{DisplayName: "Resolver Tester", Email: "resolver@example.com"},
+	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -374,7 +376,8 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolved client timeout = %+v, want 45s", openAIClient.HTTPClient)
 	}
 	capabilities := openAIClient.Capabilities()
-	if capabilities.ContextWindowTokens != agentContextWindow || (capabilities.MaxOutputTokens == nil || *capabilities.MaxOutputTokens != grantMaxOutput) ||
+	if capabilities.ContextWindowTokens != agentContextWindow ||
+		(capabilities.MaxOutputTokens == nil || *capabilities.MaxOutputTokens != grantMaxOutput) ||
 		capabilities.DefaultMaxOutputTokens != agentMaxOutput ||
 		capabilities.DefaultCacheRetention != model.CacheRetentionShort ||
 		capabilities.DefaultReasoningEffort != "high" ||
@@ -428,15 +431,21 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("prepare provider replay with original credential: %v", err)
 	}
 	if !strings.Contains(string(preparedWithOriginalCredential.Body), "enc_old_credential") {
-		t.Fatalf("original credential did not replay compatible provider state: %s", preparedWithOriginalCredential.Body)
+		t.Fatalf(
+			"original credential did not replay compatible provider state: %s",
+			preparedWithOriginalCredential.Body,
+		)
 	}
 
-	rotatedCredential, rotatedVersion, err := store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
-		OrgID:    created.Org.ID,
-		SecretID: credential.ID,
-		Material: secrets.GenericMaterial{Value: "sk-resolver-rotated"},
-		Actor:    modelProviderUserPrincipal(user.ID),
-	})
+	rotatedCredential, rotatedVersion, err := store.Secrets().CreateSecretVersion(
+		ctx,
+		secretstore.CreateSecretVersionInput{
+			OrgID:    created.Org.ID,
+			SecretID: credential.ID,
+			Material: secrets.GenericMaterial{Value: "sk-resolver-rotated"},
+			Actor:    modelProviderUserPrincipal(user.ID),
+		},
+	)
 	if err != nil {
 		t.Fatalf("rotate credential secret: %v", err)
 	}
@@ -541,7 +550,11 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		(currentCapabilities.MaxOutputTokens == nil || *currentCapabilities.MaxOutputTokens != grantMaxOutput) ||
 		currentCapabilities.DefaultMaxOutputTokens != grantDefaultMaxOutput ||
 		currentCapabilities.SupportsReasoning != false {
-		t.Fatalf("resolved current revision mismatch: client=%+v capabilities=%+v", currentOpenAIClient, currentCapabilities)
+		t.Fatalf(
+			"resolved current revision mismatch: client=%+v capabilities=%+v",
+			currentOpenAIClient,
+			currentCapabilities,
+		)
 	}
 	preparedForNewModel, err := currentOpenAIClient.Prepare(ctx, model.PrepareInput{Context: replayBundle})
 	if err != nil {
@@ -637,10 +650,14 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolve pinned revision while another model is granted: %v", err)
 	}
 	resolvedWithOtherGrantClient, ok := resolvedWithOtherGrant.Client.(openairesponses.Client)
-	if !ok || (resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens == nil || *resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens != replacementMaxOutput) {
+	if !ok ||
+		resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens == nil ||
+		*resolvedWithOtherGrantClient.Capabilities().MaxOutputTokens != replacementMaxOutput {
 		t.Fatalf("unrelated grant changed resolved capabilities: %+v", resolvedWithOtherGrant.Client)
 	}
-	if _, err := store.Models().DeleteProjectModelGrant(ctx, created.Org.ID, created.Project.ID, otherGrant.ID); err != nil {
+	if _, err := store.Models().DeleteProjectModelGrant(
+		ctx, created.Org.ID, created.Project.ID, otherGrant.ID,
+	); err != nil {
 		t.Fatalf("revoke other configured model grant: %v", err)
 	}
 	_, err = integrationResolver(store).Resolve(ctx, model.Selection{
@@ -705,13 +722,14 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolve archived configured model revision error = %v, want not found", err)
 	}
 
-	providerArchiveConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              created.Org.ID,
-		Name:               "openai-provider-archived",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		BaseURL:            "https://provider-archived.example.test/v1",
-		CredentialSecretID: credential.ID,
-	})
+	providerArchiveConfig, err := store.Models().
+		CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+			OrgID:              created.Org.ID,
+			Name:               "openai-provider-archived",
+			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+			BaseURL:            "https://provider-archived.example.test/v1",
+			CredentialSecretID: credential.ID,
+		})
 	if err != nil {
 		t.Fatalf("create provider archive config: %v", err)
 	}

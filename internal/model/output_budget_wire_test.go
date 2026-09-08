@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/stretchr/testify/require"
 )
 
 func outputWireClients(capabilities model.Capabilities) []struct {
@@ -55,9 +56,7 @@ func outputWireClients(capabilities model.Capabilities) []struct {
 
 func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 	content, err := json.Marshal([]map[string]string{{"type": "text", "text": strings.Repeat("input detail ", 6000)}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	bundle := modelcontext.Bundle{
 		Messages: []modelcontext.Message{
 			{
@@ -95,16 +94,12 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 					}
 					return
 				}
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				if !prepared.InputBudget.Fits() {
 					t.Fatalf("budget=%+v", prepared.InputBudget)
 				}
 				var wire map[string]json.RawMessage
-				if err := json.Unmarshal(prepared.Body, &wire); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, json.Unmarshal(prepared.Body, &wire))
 				if !known {
 					for _, field := range []string{"max_tokens", "max_output_tokens", "max_completion_tokens"} {
 						if _, found := wire[field]; found {
@@ -114,9 +109,7 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 					return
 				}
 				var allowance int
-				if err := json.Unmarshal(wire[tc.field], &allowance); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, json.Unmarshal(wire[tc.field], &allowance))
 				remaining := caps.ContextWindowTokens -
 					modelcontext.DefaultSafetyMarginTokens(caps.ContextWindowTokens) - prepared.InputTokenEstimate
 				if allowance <= 32768 ||
@@ -174,13 +167,9 @@ func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
 						ErrorSource: tc.name,
 					},
 				)
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 				var wire map[string]json.RawMessage
-				if err := json.Unmarshal(prepared.Body, &wire); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, json.Unmarshal(prepared.Body, &wire))
 				field := "messages"
 				if tc.name == "responses" {
 					field = "input"
@@ -189,9 +178,7 @@ func TestAdaptersKeepOutputFeedbackAfterPartialAssistant(t *testing.T) {
 					Role    string          `json:"role"`
 					Content json.RawMessage `json:"content"`
 				}
-				if err := json.Unmarshal(wire[field], &messages); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, json.Unmarshal(wire[field], &messages))
 				assistantCount := 0
 				for _, message := range messages {
 					if message.Role == "assistant" {
