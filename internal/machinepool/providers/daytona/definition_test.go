@@ -20,7 +20,9 @@ func TestDaytonaPrepareProvisioningResolvesSnapshotResources(t *testing.T) {
 			return
 		}
 		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		_ = json.NewEncoder(w).Encode(snapshot{
 			Name:      "team-snapshot",

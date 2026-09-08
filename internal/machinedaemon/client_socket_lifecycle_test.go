@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/skillsync"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 type blockingPrepareLauncher struct {
@@ -338,9 +339,7 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 		t.Fatal("invalid command did not produce process acceptance")
 	}
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	process, found, err := store.Process(ctx, processID)
 	if err != nil || !found ||
 		process.Phase != statedb.ProcessPrepared ||
@@ -352,15 +351,13 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 			err,
 		)
 	}
-	if err := transport.handleMessage(
+	require.NoError(t, transport.handleMessage(
 		ctx,
 		daemonprotocol.Message{
 			Type:      "process_accept_ack",
 			ProcessID: processID,
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	for {
 		select {
 		case fatalErr := <-transport.fatal:
@@ -368,9 +365,7 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 		default:
 		}
 		process, found, err = store.Process(ctx, processID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if found && process.Phase == statedb.ProcessTerminal &&
 			process.LocalClosed {
 			break
@@ -387,17 +382,13 @@ func TestCommandValidationFailureReportsAfterAcceptance(
 		t.Fatalf("known start failure crossed spawn boundary: %+v", process)
 	}
 	reports, err := store.ReportsForProcess(ctx, processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(reports) != 1 ||
 		reports[0].Kind != statedb.ReportProcessTerminal {
 		t.Fatalf("known start failure reports = %+v", reports)
 	}
 	var event daemonReportedEvent
-	if err := json.Unmarshal(reports[0].Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(reports[0].Body, &event))
 	if event.State != "failed" ||
 		event.StateReasonCode != "start_failed" ||
 		!strings.Contains(event.StateReasonMessage, `unsupported io_mode "`+invalidMode+`"`) {
@@ -438,23 +429,13 @@ func TestTransientPreparationFailureCleansLocalStateWithoutAcceptance(
 	}
 	defer client.closeState()
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	outputPath, err := machine.OutputBufferPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(filepath.Dir(outputPath)); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(outputPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(filepath.Dir(outputPath)))
+	require.NoError(t, os.Mkdir(outputPath, 0o700))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	transport := newDaemonSocketTransport(
 		&client,
 		DaemonRuntime{},
@@ -484,9 +465,7 @@ func TestTransientPreparationFailureCleansLocalStateWithoutAcceptance(
 		t.Fatal("transient preparation cleanup did not finish")
 	}
 	_, found, err := store.Process(ctx, processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	transport.mu.Lock()
 	pending := transport.pendingProcesses[processID]
 	transport.mu.Unlock()
@@ -563,31 +542,19 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 	}
 	defer client.closeState()
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.ProcessesDir()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(machine.RunDir()))
+	require.NoError(t, localstore.EnsurePrivateDir(machine.ProcessesDir()))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-rejected-accept",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
 	runner := &recordingProcessRunner{
 		closeCalls:   make(chan struct{}, 1),
 		releaseClose: make(chan struct{}),
@@ -623,9 +590,7 @@ func TestRejectedProcessAcceptanceClosesPreparedState(
 	close(runner.releaseClose)
 	for {
 		_, found, err := store.Process(ctx, processID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if !found {
 			break
 		}
@@ -668,17 +633,11 @@ func TestRejectedProcessAcceptanceLockTimeoutRetainsCleanup(
 		MachineID:      "mch_rejected_accept_lock_timeout",
 	}
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lockPath, err := machine.LifetimeLockPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lock, err := localstore.TryAcquireLock(lockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Release() }()
 	releaseClose := make(chan struct{})
 	close(releaseClose)
@@ -748,31 +707,19 @@ func TestRejectedProcessOfferWhilePreparationFinishesClosesState(
 	}
 	defer client.closeState()
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.ProcessesDir()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(machine.RunDir()))
+	require.NoError(t, localstore.EnsurePrivateDir(machine.ProcessesDir()))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-rejected-during-prepare",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
 	runner := &recordingProcessRunner{
 		closeCalls: make(chan struct{}, 1),
 		done:       make(chan struct{}),
@@ -822,9 +769,7 @@ func TestRejectedProcessOfferWhilePreparationFinishesClosesState(
 	}
 	for {
 		_, found, err := store.Process(ctx, processID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if !found {
 			break
 		}
@@ -970,21 +915,15 @@ func TestTerminationDuringAcceptedStartIsNotDropped(t *testing.T) {
 	}
 	defer client.closeState()
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-terminate-during-start",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
 	runner := &recordingProcessRunner{
 		startCalls:     make(chan struct{}, 1),
 		releaseStart:   make(chan struct{}),
@@ -1093,9 +1032,7 @@ func TestReconnectDispatchesAcceptedActionsAcrossMoreThan64Processes(
 		installationID,
 		machineID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer store.Close()
 
 	runner := &recordingProcessRunner{
@@ -1347,9 +1284,7 @@ func TestSocketShutdownWaitsForSkillOfferWorker(t *testing.T) {
 		"ins_skill_shutdown",
 		"mch_skill_shutdown",
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	transport.skillsync = skillsync.NewManager(
 		machine,
 		transportSkillSender{transport: transport},

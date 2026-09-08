@@ -28,7 +28,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 
 	// Fake Exa endpoint (keyed path) and a fetchable page.
 	exaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-api-key") != kernelTestExaSecret {
+		if r.Header.Get("X-Api-Key") != kernelTestExaSecret {
 			t.Errorf("missing x-api-key header")
 		}
 		_, _ = w.Write(
@@ -241,7 +241,11 @@ func TestAgentExecutorWebSearchRemovesRunningToolCallFromToolWork(t *testing.T) 
 					{ID: "call_gated_search", Name: "web_search", Input: json.RawMessage(`{"query":"gated"}`)},
 				}),
 			},
-			{ID: "resp_gated_final", Content: []model.ResponsePart{{Type: "text", Text: "gated search finished"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp_gated_final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "gated search finished"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	executor := AgentExecutor{

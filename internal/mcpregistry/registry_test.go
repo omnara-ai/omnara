@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func fixtureServers() []Server {
@@ -206,16 +208,12 @@ func TestLoadSnapshotErrors(t *testing.T) {
 		t.Fatalf("missing: %v", err)
 	}
 	corrupt := filepath.Join(dir, "corrupt.json")
-	if err := os.WriteFile(corrupt, []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(corrupt, []byte("{"), 0o644))
 	if _, err := LoadSnapshot(corrupt); err == nil {
 		t.Fatal("corrupt snapshot loaded")
 	}
 	empty := filepath.Join(dir, "empty.json")
-	if err := os.WriteFile(empty, []byte(`{"servers":[]}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(empty, []byte(`{"servers":[]}`), 0o644))
 	if _, err := LoadSnapshot(empty); !errors.Is(err, errEmptySnapshot) {
 		t.Fatalf("empty: %v", err)
 	}

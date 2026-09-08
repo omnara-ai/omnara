@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSystemdStartReconcilesService(t *testing.T) {
@@ -359,13 +361,9 @@ func TestSystemdUninstallRemovesMatchingService(t *testing.T) {
 		t.Fatalf("write systemd unit: %v", err)
 	}
 	wantsDir := filepath.Join(unitDir, "default.target.wants")
-	if err := os.Mkdir(wantsDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(wantsDir, 0o700))
 	wantsPath := filepath.Join(wantsDir, systemdServiceName)
-	if err := os.Symlink(filepath.Join("..", systemdServiceName), wantsPath); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Symlink(filepath.Join("..", systemdServiceName), wantsPath))
 	commands := filepath.Join(t.TempDir(), "commands")
 	commandDir := t.TempDir()
 	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
@@ -406,17 +404,11 @@ func TestSystemdUninstallRejectsLoadedForeignDefinition(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	configHome := filepath.Join(t.TempDir(), "config-home")
 	unitDir := filepath.Join(configHome, "systemd", "user")
-	if err := os.MkdirAll(unitDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(unitDir, 0o700))
 	unit, err := renderSystemdUnit(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	unitPath := filepath.Join(unitDir, systemdServiceName)
-	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(unitPath, unit, 0o600))
 	commands := filepath.Join(t.TempDir(), "commands")
 	commandDir := t.TempDir()
 	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
@@ -454,9 +446,7 @@ func TestSystemdUninstallRecoversInterruptedUnitRemoval(t *testing.T) {
 	configHome := filepath.Join(t.TempDir(), "config-home")
 	unitPath := filepath.Join(configHome, "systemd", "user", systemdServiceName)
 	stale := filepath.Join(t.TempDir(), "stale")
-	if err := os.WriteFile(stale, []byte("stale\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(stale, []byte("stale\n"), 0o600))
 	commands := filepath.Join(t.TempDir(), "commands")
 	commandDir := t.TempDir()
 	writeTestExecutable(t, filepath.Join(commandDir, "systemctl"), fmt.Sprintf(`#!/bin/sh
@@ -494,17 +484,11 @@ func TestSystemdUninstallRejectsUnavailableManager(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	configHome := filepath.Join(t.TempDir(), "config-home")
 	unitDir := filepath.Join(configHome, "systemd", "user")
-	if err := os.MkdirAll(unitDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(unitDir, 0o700))
 	unit, err := renderSystemdUnit(home, userHome, "/opt/omnarad", filepath.Join(home, "daemon.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	unitPath := filepath.Join(unitDir, systemdServiceName)
-	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(unitPath, unit, 0o600))
 	t.Setenv("HOME", userHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("PATH", t.TempDir())
@@ -522,17 +506,11 @@ func TestSystemdUninstallRejectsDifferentHome(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	configHome := filepath.Join(t.TempDir(), "config-home")
 	unitDir := filepath.Join(configHome, "systemd", "user")
-	if err := os.MkdirAll(unitDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(unitDir, 0o700))
 	unit, err := renderSystemdUnit("/other/home", userHome, "/opt/omnarad", "/tmp/daemon.log")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	unitPath := filepath.Join(unitDir, systemdServiceName)
-	if err := os.WriteFile(unitPath, unit, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(unitPath, unit, 0o600))
 	t.Setenv("HOME", userHome)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("PATH", t.TempDir())

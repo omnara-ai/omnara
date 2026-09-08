@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMachineOnlineIntervalTrackingStartsAtMigration(t *testing.T) {
@@ -117,9 +118,7 @@ func executionMigrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 	t.Helper()
 	const migrationsDir = "../../../migrations"
 	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	migrations := make(fstest.MapFS)
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
@@ -137,9 +136,7 @@ func executionMigrationFilesThrough(t *testing.T, maximum int) fstest.MapFS {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
 	}
 	return migrations

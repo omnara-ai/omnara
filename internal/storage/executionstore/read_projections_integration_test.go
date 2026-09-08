@@ -60,6 +60,7 @@ WHERE agent_id = $1 AND id = $2`,
 	}
 	for _, projection := range projections {
 		t.Run(projection.name, func(t *testing.T) {
+			t.Parallel()
 			var projectID ID
 			if err := fixture.Store.pool.QueryRow(
 				ctx,

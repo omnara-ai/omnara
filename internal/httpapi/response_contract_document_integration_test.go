@@ -67,7 +67,9 @@ func TestResponseContractDocumentAwareErrorEnvelope(t *testing.T) {
 	if err := contract.body.validateBody(visibleMachinesPath, http.MethodGet, http.StatusTeapot, valid); err != nil {
 		t.Fatalf("valid Error envelope rejected by 4XX range response: %v", err)
 	}
-	if err := contract.body.validateBody(visibleMachinesPath, http.MethodGet, http.StatusTeapot, []byte(`{"message":"missing"}`)); err == nil {
+	if err := contract.body.validateBody(
+		visibleMachinesPath, http.MethodGet, http.StatusTeapot, []byte(`{"message":"missing"}`),
+	); err == nil {
 		t.Fatal("non-Error envelope passed the 4XX range response")
 	}
 }

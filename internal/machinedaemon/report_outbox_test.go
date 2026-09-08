@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 type rejectingReportTransport struct {
@@ -94,24 +95,16 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 		"ins_outbox",
 		"mch_outbox",
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer store.Close()
 	process := statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      supervisorToken,
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	supervisor, err := statedb.OpenSupervisor(
 		ctx,
 		dbPath,
@@ -121,22 +114,18 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 		supervisorInstanceID,
 		supervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer supervisor.Close()
 	if execute, err := supervisor.AuthorizeSpawnOnce(
 		ctx,
 	); err != nil || !execute {
 		t.Fatalf("commit execution: execute=%t err=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		"123",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	started := freezeOutboxReport(
 		t,
@@ -183,9 +172,7 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 			}),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	sent := make(chan statedb.Report, 2)
 	client := New(Config{}, nil, nil)
@@ -227,9 +214,7 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 	}
 
 	reports, err := client.outboxReports(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(reports) != 0 {
 		t.Fatalf(
 			"unforced rejected predecessor did not block later reports: %+v",
@@ -240,9 +225,7 @@ func TestOutboxForcedReportKeepsLifecycleOrder(t *testing.T) {
 		ctx,
 		map[string]struct{}{started.ID: {}},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(reports) != 2 ||
 		reports[0].ID != started.ID ||
 		reports[1].ID != actionReport.ID {
@@ -294,25 +277,17 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		"ins_rejected_action_terminal",
 		"mch_rejected_action_terminal",
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer store.Close()
-	if err := store.ReserveProcess(
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      supervisorToken,
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	supervisor, err := statedb.OpenSupervisor(
 		ctx,
 		dbPath,
@@ -322,22 +297,18 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		supervisorInstanceID,
 		supervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer supervisor.Close()
 	if execute, err := supervisor.AuthorizeSpawnOnce(
 		ctx,
 	); err != nil || !execute {
 		t.Fatalf("commit execution: execute=%t err=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		"123",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	action := statedb.Action{
 		ID:        "act_rejected_action_terminal",
 		ProcessID: processID,
@@ -364,9 +335,7 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 			}),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	terminalReport, err := supervisor.FreezeTerminalReport(
 		ctx,
 		statedb.Report{
@@ -380,30 +349,22 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 			}),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	const (
 		barrierProcessID   = "prc_zz_settlement_barrier"
 		barrierInstanceID  = "supervisor-instance-settlement-barrier"
 		barrierSupervisorT = "supervisor-token-settlement-barrier"
 	)
-	if err := store.ReserveProcess(
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            barrierProcessID,
 			SupervisorInstanceID: barrierInstanceID,
 			SupervisorToken:      barrierSupervisorT,
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, barrierProcessID, barrierInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, barrierProcessID, barrierInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, barrierProcessID, barrierInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, barrierProcessID, barrierInstanceID))
 	barrierSupervisor, err := statedb.OpenSupervisor(
 		ctx,
 		dbPath,
@@ -413,22 +374,18 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		barrierInstanceID,
 		barrierSupervisorT,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer barrierSupervisor.Close()
 	if execute, err := barrierSupervisor.AuthorizeSpawnOnce(
 		ctx,
 	); err != nil || !execute {
 		t.Fatalf("commit barrier execution: execute=%t err=%v", execute, err)
 	}
-	if err := barrierSupervisor.RecordSpawned(
+	require.NoError(t, barrierSupervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		"456",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	barrierReport := freezeOutboxReport(
 		t,
 		barrierSupervisor.FreezeStartedReport,
@@ -512,9 +469,7 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 		)
 	}
 	actions, err := store.Actions(ctx, processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(actions) != 1 || actions[0].ID != action.ID {
 		t.Fatalf("rejected action evidence was released: %+v", actions)
 	}
@@ -523,9 +478,7 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 func mustOutboxJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	body, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return body
 }
 
@@ -540,8 +493,6 @@ func freezeOutboxReport(
 ) statedb.Report {
 	t.Helper()
 	frozen, err := freeze(ctx, report)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return frozen
 }

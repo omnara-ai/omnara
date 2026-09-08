@@ -6,7 +6,11 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 
 export function AgentsSection({
   orgId,
@@ -50,7 +54,7 @@ export function AgentsTable({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 

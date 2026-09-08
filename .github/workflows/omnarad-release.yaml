@@ -223,9 +223,18 @@ jobs:
           # Generate categorized release notes (.github/release.yml) against the
           # previous omnarad tag. Tags from other release families (cluster-v*,
           # cli-v*, sdk-v*) share this repo, so the baseline must be explicit.
-          prev_tag=$(gh api "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' | { grep '^omnarad-v' || true; } | { grep -Fxv "$GITHUB_REF_NAME" || true; } | head -n 1)
+          # Search all published releases and select the greatest version below
+          # this tag, so reruns cannot diff against a newer release or a draft.
+          prev_tag=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' |
+            jq -Rrs --arg current "$GITHUB_REF_NAME" '
+              def version: ltrimstr("omnarad-v") | split(".") | map(tonumber);
+              ($current | version) as $current_version |
+              split("\n") | map(select(test("^omnarad-v[0-9]+\\.[0-9]+\\.[0-9]+$"))) |
+              map({tag: ., version: version}) | map(select(.version < $current_version)) |
+              sort_by(.version) | last.tag // empty
+            ')
           {
-            echo "Canonical omnarad $VERSION binaries built from $RELEASE_SHA."
+            echo "Canonical omnarad $VERSION binaries built from $RELEASE_SHA. macOS binaries require macOS 13 or later."
             echo
             gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" ${prev_tag:+-f previous_tag_name="$prev_tag"} --jq .body
           } > "$RUNNER_TEMP/release-notes.md"

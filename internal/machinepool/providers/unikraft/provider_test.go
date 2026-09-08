@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnikraftProviderProvisionCreatesDisposableInstance(t *testing.T) {
@@ -461,9 +462,7 @@ func TestUnikraftProviderInspectMachineByUUIDRejectsMissingUUID(t *testing.T) {
 func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 	machineID := uuid.New()
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		"uuid-1":       {UUID: "uuid-1", Name: name},
 		"uuid-foreign": {UUID: "uuid-foreign", Name: "other"},
@@ -525,9 +524,7 @@ func TestUnikraftProviderDeleteByUUID(t *testing.T) {
 func TestUnikraftProviderDeleteUsesOnlyImmutableMetroFromStoredProvisioning(t *testing.T) {
 	machineID := uuid.New()
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	api := &fakeAPI{instancesByUUID: map[string]instance{
 		"uuid-existing": {UUID: "uuid-existing", Name: name},
 	}}

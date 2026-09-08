@@ -343,7 +343,7 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
 
 	seedModel := &sequenceKernelModel{providerModelSlug: "kernel-test"}
-	for index := 0; index < 4; index++ {
+	for index := range 4 {
 		suffix := strconv.Itoa(index + 1)
 		seedModel.responses = append(seedModel.responses, model.Response{
 			ID: "resp_progressive_exhaustion_seed_" + suffix,
@@ -556,7 +556,9 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		SELECT count(*)
 		FROM context_checkpoints checkpoint
 		JOIN agents agent ON agent.id = checkpoint.agent_id
-		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(
+		&checkpoints,
+	); err != nil {
 		t.Fatalf("count bounded progressive checkpoints: %v", err)
 	}
 	if err := fixture.Pool.QueryRow(ctx, `

@@ -20,12 +20,16 @@ func TestUploadFile(t *testing.T) {
 		switch r.URL.Path {
 		case "/files.getUploadURLExternal":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse upload URL request: %v", err)
+				t.Errorf("parse upload URL request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if r.Header.Get("Authorization") != "Bearer xoxb-test" ||
 				r.Form.Get("filename") != "report.txt" ||
 				r.Form.Get("length") != "17" {
-				t.Fatalf("upload URL request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+				t.Errorf("upload URL request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeSlackTestJSON(w, map[string]any{
 				"ok":         true,
@@ -34,22 +38,32 @@ func TestUploadFile(t *testing.T) {
 			})
 		case "/upload/v1/test":
 			if auth := r.Header.Get("Authorization"); auth != "" {
-				t.Fatalf("file upload authorization = %q, want none", auth)
+				t.Errorf("file upload authorization = %q, want none", auth)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if r.Header.Get("Content-Type") != "application/octet-stream" || r.ContentLength != int64(len(content)) {
-				t.Fatalf("file upload content type=%q length=%d", r.Header.Get("Content-Type"), r.ContentLength)
+				t.Errorf("file upload content type=%q length=%d", r.Header.Get("Content-Type"), r.ContentLength)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("read file upload: %v", err)
+				t.Errorf("read file upload: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if string(body) != string(content) {
-				t.Fatalf("file upload body = %q", body)
+				t.Errorf("file upload body = %q", body)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			w.WriteHeader(http.StatusOK)
 		case "/files.completeUploadExternal":
 			if r.Header.Get("Authorization") != "Bearer xoxb-test" {
-				t.Fatalf("complete upload authorization = %q", r.Header.Get("Authorization"))
+				t.Errorf("complete upload authorization = %q", r.Header.Get("Authorization"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			var payload struct {
 				Files []struct {
@@ -61,17 +75,23 @@ func TestUploadFile(t *testing.T) {
 				InitialComment string `json:"initial_comment"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode completion request: %v", err)
+				t.Errorf("decode completion request: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if len(payload.Files) != 2 || payload.Files[0].ID != "F123" || payload.Files[0].Title != "report.txt" ||
 				payload.Files[1].ID != "F456" || payload.Files[1].Title != "chart.png" ||
 				payload.ChannelID != "C123" || payload.ThreadTS != "111.222" ||
 				payload.InitialComment != "here is the report" {
-				t.Fatalf("completion payload = %+v", payload)
+				t.Errorf("completion payload = %+v", payload)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeSlackTestJSON(w, map[string]any{"ok": true})
 		default:
-			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+			t.Errorf("unexpected Slack path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -113,7 +133,9 @@ func TestCompleteFileUploadsServerErrorIsDeliveryUnknown(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/files.completeUploadExternal" {
-			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+			t.Errorf("unexpected Slack path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		requests++
 		w.WriteHeader(http.StatusInternalServerError)
@@ -206,10 +228,14 @@ func TestDownloadEventFilesHydratesMissingPrivateURL(t *testing.T) {
 		switch r.URL.Path {
 		case "/files.info":
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse files.info form: %v", err)
+				t.Errorf("parse files.info form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if r.Header.Get("Authorization") != "Bearer xoxb-token" || r.Form.Get("file") != "F_MISSING_URL" {
-				t.Fatalf("unexpected files.info request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+				t.Errorf("unexpected files.info request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			writeSlackTestJSON(w, map[string]any{
 				"ok": true,
@@ -223,12 +249,16 @@ func TestDownloadEventFilesHydratesMissingPrivateURL(t *testing.T) {
 			})
 		case "/files/pixel.png":
 			if r.Header.Get("Authorization") != "Bearer xoxb-token" {
-				t.Fatalf("file download authorization = %q", r.Header.Get("Authorization"))
+				t.Errorf("file download authorization = %q", r.Header.Get("Authorization"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(content)
 		default:
-			t.Fatalf("unexpected slack test path %s", r.URL.Path)
+			t.Errorf("unexpected slack test path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -260,7 +290,9 @@ func TestDownloadEventFilesResultUsesSlackErrorCode(t *testing.T) {
 		case "/files.info":
 			writeSlackTestJSON(w, map[string]any{"ok": false, "error": "file_not_found"})
 		default:
-			t.Fatalf("unexpected slack test path %s", r.URL.Path)
+			t.Errorf("unexpected slack test path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -331,7 +363,8 @@ func TestAttachmentMediaTypePrefersUTF8CSVFilename(t *testing.T) {
 func TestDownloadEventFilesSkipsDeclaredOversize(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("unexpected slack test path %s", r.URL.Path)
+		t.Errorf("unexpected slack test path %s", r.URL.Path)
+		http.Error(w, "test handler failed", http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
@@ -368,7 +401,9 @@ func TestDownloadEventFilesSkipsDownloadedOversize(t *testing.T) {
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(make([]byte, 1025))
 		default:
-			t.Fatalf("unexpected slack test path %s", r.URL.Path)
+			t.Errorf("unexpected slack test path %s", r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -443,7 +478,9 @@ func TestDownloadEventFilesReturnsErrorForRetryableFailures(t *testing.T) {
 			handler: func(t *testing.T, w http.ResponseWriter, r *http.Request) {
 				t.Helper()
 				if r.URL.Path != "/files.info" {
-					t.Fatalf("unexpected slack test path %s", r.URL.Path)
+					t.Errorf("unexpected slack test path %s", r.URL.Path)
+					http.Error(w, "unexpected test request", http.StatusNotFound)
+					return
 				}
 				w.WriteHeader(http.StatusTooManyRequests)
 			},
@@ -462,7 +499,9 @@ func TestDownloadEventFilesReturnsErrorForRetryableFailures(t *testing.T) {
 			handler: func(t *testing.T, w http.ResponseWriter, r *http.Request) {
 				t.Helper()
 				if r.URL.Path != "/files/transient.png" {
-					t.Fatalf("unexpected slack test path %s", r.URL.Path)
+					t.Errorf("unexpected slack test path %s", r.URL.Path)
+					http.Error(w, "unexpected test request", http.StatusNotFound)
+					return
 				}
 				w.WriteHeader(http.StatusInternalServerError)
 			},

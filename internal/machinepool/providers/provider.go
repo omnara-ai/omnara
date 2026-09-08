@@ -111,27 +111,6 @@ type Definition interface {
 	) (executionstore.MachineProvisioningConfig, error)
 }
 
-func MergeOptions(
-	defaultOptions map[string]json.RawMessage,
-	projectOptions map[string]json.RawMessage,
-	agentOptions map[string]json.RawMessage,
-) map[string]json.RawMessage {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{
-		defaultOptions,
-		projectOptions,
-		agentOptions,
-	} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged
-}
-
 func MachineAllocationName(installationID, machineID storage.ID) (string, error) {
 	if installationID == storage.NilID || machineID == storage.NilID {
 		return "", errors.New("installation and machine ids are required")

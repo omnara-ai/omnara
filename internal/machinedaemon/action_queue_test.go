@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStartupProcessesWithoutActionsDoNotCreateQueueWorkers(t *testing.T) {
@@ -146,24 +147,16 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 		installationID,
 		machineID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer store.Close()
 	process := statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      supervisorToken,
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	supervisor, err := statedb.OpenSupervisor(
 		ctx,
 		dbPath,
@@ -173,22 +166,18 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 		supervisorInstanceID,
 		supervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer supervisor.Close()
 	if execute, err := supervisor.AuthorizeSpawnOnce(
 		ctx,
 	); err != nil || !execute {
 		t.Fatalf("commit execution: execute=%t err=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		"123",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	first := statedb.Action{
 		ID:        "act_action_frontier_1",
@@ -207,9 +196,7 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 		ProcessID:       processID,
 		ProcessActionID: first.ID,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	firstReport, err := supervisor.FreezeActionReport(
 		ctx,
 		first.ID,
@@ -220,9 +207,7 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 			Body:      firstBody,
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	runner := &frontierTestRunner{
 		supervisor:           supervisor,
@@ -270,12 +255,10 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 	default:
 	}
 
-	if err := store.AcknowledgeReport(
+	require.NoError(t, store.AcknowledgeReport(
 		ctx,
 		firstReport.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	select {
 	case <-runner.applied:
 	case <-time.After(testTimeout):
@@ -290,12 +273,10 @@ func TestActionQueueWaitsForReconciledPredecessorReport(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("later action report: found=%t err=%v", found, err)
 	}
-	if err := store.AcknowledgeReport(
+	require.NoError(t, store.AcknowledgeReport(
 		ctx,
 		nextReport.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	transport.workers.Wait()
 	transport.mu.Lock()

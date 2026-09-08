@@ -237,7 +237,10 @@ func TestMain(m *testing.M) {
 	token := os.Getenv("OMNARA_BLACKBOX_TOKEN")
 	if baseURL == "" || token == "" {
 		fmt.Fprintln(os.Stderr, "blackbox suite: OMNARA_BLACKBOX_API_URL and OMNARA_BLACKBOX_TOKEN must be set")
-		fmt.Fprintln(os.Stderr, "example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_v1_... make test-blackbox")
+		fmt.Fprintln(
+			os.Stderr,
+			"example: OMNARA_BLACKBOX_API_URL=https://api.example.com OMNARA_BLACKBOX_TOKEN=omnara_pat_v1_... make test-blackbox",
+		)
 		os.Exit(2)
 	}
 
@@ -258,13 +261,22 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "blackbox suite: bootstrap against %s failed: %v\n", baseURL, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "blackbox suite: target=%s run=%s org=%s project=%s\nblackbox suite: full request/response log: %s\n",
-		baseURL, fx.runID, fx.orgID, fx.projectID, log.path)
+	fmt.Fprintf(
+		os.Stderr,
+		"blackbox suite: target=%s run=%s org=%s project=%s\nblackbox suite: full request/response log: %s\n",
+		baseURL,
+		fx.runID,
+		fx.orgID,
+		fx.projectID,
+		log.path,
+	)
 
 	code := m.Run()
 	fx.sweepAgents()
 	if !fx.teardownModelStacks() && code == 0 {
-		fmt.Fprintln(os.Stderr, "blackbox suite: teardown left resources (possibly credentials) on the target; failing the run")
+		fmt.Fprintln(
+			os.Stderr, "blackbox suite: teardown left resources (possibly credentials) on the target; failing the run",
+		)
 		code = 1
 	}
 	log.printf("suite", "run finished: exit code %d", code)
@@ -693,7 +705,7 @@ func (c *apiClient) do(ctx context.Context, method, path string, body any, opts 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	result.status = resp.StatusCode
-	result.body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	result.body, err = io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
 		c.log.printf(scope, "%s %s -> read error: %v", method, path, err)
 		return result, fmt.Errorf("%s %s: read response body: %w", method, path, err)
@@ -1022,11 +1034,11 @@ func streamAgentEventUntilMatch(
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 		t.Fatalf("event stream: unexpected status %d\n%s", resp.StatusCode, string(body))
 	}
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	eventName := ""
 	var data []string
 	for scanner.Scan() {

@@ -16,7 +16,11 @@ import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -28,6 +32,7 @@ export function MachinesSection() {
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const deleteMachine = useDeleteMachine(activeOrg.id)
   const grantMachineMutation = useGrantMachineToProject(activeOrg.id)
   const [connectOpen, setConnectOpen] = useState(false)
@@ -50,14 +55,16 @@ export function MachinesSection() {
         <SearchHeader
           title="Machines"
           toolbar={
-            <ResourceListToolbar
-              search={list.search}
-              onSearchChange={list.setSearch}
-              sort={list.sort}
-              sortOptions={resourceSortOptions}
-              onSortChange={list.setSort}
-              placeholder="Search machines by name…"
-            />
+            showToolbar ? (
+              <ResourceListToolbar
+                search={list.search}
+                onSearchChange={list.setSearch}
+                sort={list.sort}
+                sortOptions={resourceSortOptions}
+                onSortChange={list.setSort}
+                placeholder="Search machines by name…"
+              />
+            ) : undefined
           }
         >
           {connectButton()}

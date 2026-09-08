@@ -17,7 +17,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 type daemonSocketRouteTestSubscription struct {
@@ -139,7 +140,11 @@ func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaWakeups(
 	}}, nil
 }
 
-func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaInbox(context.Context, uuid.UUID, func(context.Context, []byte)) (notifications.Subscription, error) {
+func (b *daemonSocketRouteTestBus) SubscribeDaemonReplicaInbox(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, []byte),
+) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
 
@@ -179,7 +184,11 @@ func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaWakeups(
 ) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
-func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaInbox(context.Context, uuid.UUID, func(context.Context, []byte)) (notifications.Subscription, error) {
+func (daemonSocketRouteFailingPublishBus) SubscribeDaemonReplicaInbox(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, []byte),
+) (notifications.Subscription, error) {
 	return daemonSocketRouteTestSubscription{}, nil
 }
 
@@ -978,7 +987,7 @@ func TestDaemonSocketRouteHeartbeatRenewalDrainsQueuedWorkAfterExpiredReconnect(
 			ObservedPlatform: json.RawMessage(`{"os":"darwin","arch":"arm64"}`),
 		},
 	)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		msg := readSocketMessage(t, ctx, conn)
 		if msg.Type == "process_offer" && msg.ProcessID == process.ProcessID {
 			return
@@ -994,14 +1003,10 @@ type daemonRuntimeLeaseForTest struct {
 	leaseExpiresAt time.Time
 }
 
-type queryRower interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
 func loadDaemonRuntimeLeaseForTest(
 	t *testing.T,
 	ctx context.Context,
-	pool queryRower,
+	pool *pgxpool.Pool,
 	runtimeID storage.ID,
 ) daemonRuntimeLeaseForTest {
 	t.Helper()
@@ -1019,10 +1024,12 @@ func loadDaemonRuntimeLeaseForTest(
 func expireDaemonRuntimeForHTTPTest(
 	t *testing.T,
 	ctx context.Context,
-	pool queryRower,
+	pool *pgxpool.Pool,
 	runtimeID storage.ID,
 ) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var leaseExpiresAt time.Time
 	if err := pool.QueryRow(ctx, `
 UPDATE daemon_runtimes
@@ -1035,15 +1042,9 @@ RETURNING lease_expires_at
 `, runtimeID).Scan(&leaseExpiresAt); err != nil {
 		t.Fatalf("shorten daemon runtime lease: %v", err)
 	}
-	for {
-		var databaseNow time.Time
-		if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&databaseNow); err != nil {
-			t.Fatalf("load database time: %v", err)
-		}
-		if databaseNow.After(leaseExpiresAt) {
-			return
-		}
-		time.Sleep(leaseExpiresAt.Sub(databaseNow) + time.Millisecond)
+	// Wait on the database clock that owns the lease; last_seen_at cannot regress.
+	if _, err := pool.Exec(ctx, `SELECT pg_sleep_until($1)`, leaseExpiresAt.Add(time.Microsecond)); err != nil {
+		t.Fatalf("wait for daemon runtime lease expiration: %v", err)
 	}
 }
 
@@ -1511,9 +1512,7 @@ func TestDaemonSocketAcceptRejectsCanceledOffersExplicitly(
 				Payload:    json.RawMessage(`{"data":"x"}`),
 			},
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if _, err := store.Execution().CancelAgent(
 			ctx,
 			executionstore.CancelAgentInput{

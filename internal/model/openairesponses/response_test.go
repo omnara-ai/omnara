@@ -18,14 +18,20 @@ func TestRespondSendsStoredBytesAndParsesToolCalls(t *testing.T) {
 	var sent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
-			t.Fatalf("missing auth header")
+			t.Errorf("missing auth header")
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if r.Header.Get("Accept") != "text/event-stream" {
-			t.Fatalf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			t.Errorf("Accept = %q, want text/event-stream", r.Header.Get("Accept"))
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read request body: %v", err)
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		sent = string(body)
 		_, _ = w.Write(
@@ -444,7 +450,7 @@ func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 
 func TestRespondTreatsNonTerminalStatusAsAmbiguous(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_in_progress")
+		w.Header().Set("X-Request-ID", "req_in_progress")
 		_, _ = w.Write([]byte(
 			`{"id":"resp_in_progress","status":"in_progress","request_id":"req_in_progress","output":[]}`,
 		))
@@ -772,7 +778,7 @@ func TestRespondClassifiesCompleteMid200ResponsesError(t *testing.T) {
 
 func TestRespondTreatsMalformedCompleteResponseAsRetryableUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_malformed")
+		w.Header().Set("X-Request-ID", "req_malformed")
 		_, _ = w.Write([]byte(`{"id":`))
 	}))
 	defer server.Close()

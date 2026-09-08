@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBlaxelSleepPlatformAwakeProcessLifecycle(t *testing.T) {
@@ -18,9 +19,7 @@ func TestBlaxelSleepPlatformAwakeProcessLifecycle(t *testing.T) {
 	supervisorStartTime := "987654"
 	awakeProcessName := daemonprotocol.BlaxelAwakeProcessName(supervisorPID)
 	awakeProcessCommand, err := blaxelAwakeProcessCommand(supervisorPID, supervisorStartTime)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var mu sync.Mutex
 	var process *blaxelProcessResponse
 	postCalls := 0
@@ -38,11 +37,15 @@ func TestBlaxelSleepPlatformAwakeProcessLifecycle(t *testing.T) {
 		case http.MethodPost:
 			var request blaxelProcessRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				t.Fatal(err)
+				t.Error(err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if request.Name != awakeProcessName || request.Command != awakeProcessCommand ||
 				!request.KeepAlive || request.Timeout != 0 || request.WaitForCompletion {
-				t.Fatalf("unexpected awake process request: %+v", request)
+				t.Errorf("unexpected awake process request: %+v", request)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			postCalls++
 			process = &blaxelProcessResponse{Status: "running", KeepAlive: true}
@@ -56,7 +59,9 @@ func TestBlaxelSleepPlatformAwakeProcessLifecycle(t *testing.T) {
 			process = nil
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 	}))
 	defer server.Close()
@@ -189,9 +194,7 @@ func TestBlaxelSleepPlatformPreservesSupervisorReadError(t *testing.T) {
 
 func TestBlaxelAwakeProcessCommand(t *testing.T) {
 	command, err := blaxelAwakeProcessCommand(321, "987654")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, value := range []string{
 		"supervisor_pid=321",
 		"supervisor_start=987654",
@@ -212,9 +215,7 @@ func TestBlaxelAwakeProcessCommand(t *testing.T) {
 func TestParseBlaxelProcessStartTime(t *testing.T) {
 	stat := "123 (process with spaces) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 20"
 	startTime, err := parseBlaxelProcessStartTime(stat)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if startTime != "987654" {
 		t.Fatalf("start time = %q, want 987654", startTime)
 	}

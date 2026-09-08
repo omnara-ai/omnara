@@ -52,7 +52,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 		machineID,
 		PresenceOwner{RuntimeID: uuid.New(), ReplicaID: testReplicaA, ConnectionID: connectionID},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("refresh wrong runtime error = %v, want ErrPresenceNotOwned", err)
 	}
 	if err := store.Refresh(
@@ -60,7 +60,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 		machineID,
 		PresenceOwner{RuntimeID: runtimeID, ReplicaID: testReplicaB, ConnectionID: connectionID},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("refresh wrong replica error = %v, want ErrPresenceNotOwned", err)
 	}
 	if err := store.Refresh(
@@ -68,7 +68,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 		machineID,
 		PresenceOwner{RuntimeID: runtimeID, ReplicaID: testReplicaA, ConnectionID: uuid.New()},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("refresh wrong connection error = %v, want ErrPresenceNotOwned", err)
 	}
 	if err := store.Refresh(
@@ -114,7 +114,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 		machineID,
 		PresenceOwner{RuntimeID: runtimeID, ReplicaID: testReplicaA, ConnectionID: connectionID},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("refresh missing presence error = %v, want ErrPresenceNotOwned", err)
 	}
 	if err := store.PutIfRuntime(
@@ -134,7 +134,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 			PresenceOwner: PresenceOwner{ReplicaID: testReplicaMissing, RuntimeID: runtimeID, ConnectionID: uuid.New()},
 		},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("put-if-missing existing presence error = %v, want ErrPresenceNotOwned", err)
 	}
 	if err := store.PutIfRuntime(
@@ -144,7 +144,7 @@ func TestRedisPresenceStoreOwnerCAS(t *testing.T) {
 			PresenceOwner: PresenceOwner{ReplicaID: testReplicaB, RuntimeID: uuid.New(), ConnectionID: uuid.New()},
 		},
 		time.Minute,
-	); err != ErrPresenceNotOwned {
+	); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("put-if-runtime wrong runtime error = %v, want ErrPresenceNotOwned", err)
 	}
 	unchanged, ok, err := store.Get(ctx, machineID)
@@ -335,7 +335,7 @@ func TestRedisPresenceStorePutRuntimeIfMissingDoesNotReplaceOwner(t *testing.T) 
 	if err := store.PutRuntimeIfMissing(ctx, runtimeID, first, time.Minute); err != nil {
 		t.Fatalf("put first runtime presence: %v", err)
 	}
-	if err := store.PutRuntimeIfMissing(ctx, runtimeID, second, time.Minute); err != ErrPresenceNotOwned {
+	if err := store.PutRuntimeIfMissing(ctx, runtimeID, second, time.Minute); !errors.Is(err, ErrPresenceNotOwned) {
 		t.Fatalf("put second runtime presence error = %v, want ErrPresenceNotOwned", err)
 	}
 	stored, ok, err := store.GetRuntime(ctx, runtimeID)

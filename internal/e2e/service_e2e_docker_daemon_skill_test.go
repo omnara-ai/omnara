@@ -138,7 +138,9 @@ func TestServiceE2EDockerDaemonSkillBroadcastDeterministic(t *testing.T) {
 			verificationProcesses <- processID
 			writeOpenAIMessage(w, failModelRequest, "resp_done", "SKILL_E2E_DONE_"+nonce)
 		case 4:
-			writeOpenAIFunctionCall(w, failModelRequest, "resp_skill_v2", "call_skill_v2", "skill", map[string]any{"name": skillName})
+			writeOpenAIFunctionCall(
+				w, failModelRequest, "resp_skill_v2", "call_skill_v2", "skill", map[string]any{"name": skillName},
+			)
 		case 5:
 			if !fakeModelToolOutputContains(w, body, failModelRequest, "call_skill_v2", "Installed on:") {
 				return
@@ -220,9 +222,16 @@ func TestServiceE2EDockerDaemonSkillBroadcastDeterministic(t *testing.T) {
 			return true, ""
 		}
 		var wakeups, locks, inputs int
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).Scan(&wakeups)
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID,
+			agentUUID,
+		).Scan(&wakeups)
 		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).Scan(&locks)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).Scan(&inputs)
+		_ = env.db.QueryRow(
+			ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID,
+		).Scan(&inputs)
 		var toolStates string
 		_ = env.db.QueryRow(ctx, `
 SELECT coalesce(string_agg(call.name || ':' || call.state, ',' ORDER BY call.created_at), '')
@@ -354,6 +363,8 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 			return false, err.Error()
 		}
 		switch state {
+		case executionstore.ProcessStateQueued, executionstore.ProcessStateStarting, executionstore.ProcessStateRunning:
+			return false, fmt.Sprintf("skill verification process state=%q", state)
 		case executionstore.ProcessStateExited:
 			if exitCode != 0 {
 				t.Fatalf("skill verification process exited with code %d", exitCode)

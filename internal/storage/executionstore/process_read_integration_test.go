@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) {
@@ -46,9 +47,7 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	implicitGrant, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -124,9 +123,7 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 			Payload:    json.RawMessage(`{"cursor":0}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -196,9 +193,7 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	terminalGrant, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -239,9 +234,7 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 		fixture.AgentID,
 		terminalToolCallID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	completed := completedToolCallForTest(
 		t,
 		fixture.Store,
@@ -258,9 +251,7 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 			StateReasonCode string                      `json:"state_reason_code"`
 		} `json:"value"`
 	}
-	if err := json.Unmarshal(completed.ResultContentParts, &parts); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(completed.ResultContentParts, &parts))
 	if len(parts) != 1 ||
 		parts[0].Type != "structured_data" ||
 		parts[0].Value.State != executionstore.ProcessStateExited ||
@@ -306,9 +297,7 @@ func TestLateImplicitReadDoesNotAdvanceCursorWhenAnotherResultWon(t *testing.T) 
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -344,9 +333,7 @@ func TestLateImplicitReadDoesNotAdvanceCursorWhenAnotherResultWon(t *testing.T) 
 			),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if application.ToolResultCommitted ||
 		application.Action.State != executionstore.ProcessActionStateApplied {
 		t.Fatalf("late implicit read application = %+v", application)
@@ -359,9 +346,7 @@ func TestLateImplicitReadDoesNotAdvanceCursorWhenAnotherResultWon(t *testing.T) 
 		fixture.AgentID,
 		toolCallID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if toolCall.Outcome != executionstore.ToolResultOutcomeCanceled {
 		t.Fatalf("winning tool call outcome = %q, want canceled", toolCall.Outcome)
 	}
@@ -394,9 +379,7 @@ func TestFastTerminalResultAdvancesInitialOutputCursor(t *testing.T) {
 			Cwd:                   "/work",
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := acceptDaemonProcessForTest(
 		ctx,
 		fixture.Store,
@@ -464,9 +447,7 @@ func TestImplicitReadObservationBeforeGrantedCursorIsRejected(t *testing.T) {
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	grant, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -496,9 +477,7 @@ func TestImplicitReadObservationBeforeGrantedCursorIsRejected(t *testing.T) {
 			),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if application.ToolResultCommitted ||
 		application.Action.State != executionstore.ProcessActionStateFailed ||
 		application.Action.StateReasonCode != "invalid_read_observation" {
@@ -558,9 +537,7 @@ func TestFailedTerminalReadPreservesProcessFactsAndCursor(t *testing.T) {
 			Payload:    json.RawMessage(`{}`),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(
 		ctx,
 		executionstore.AcceptDaemonProcessActionInput{
@@ -596,9 +573,7 @@ func TestFailedTerminalReadPreservesProcessFactsAndCursor(t *testing.T) {
 		fixture.AgentID,
 		toolCallID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	completed := completedToolCallForTest(
 		t,
 		fixture.Store,
@@ -618,9 +593,7 @@ func TestFailedTerminalReadPreservesProcessFactsAndCursor(t *testing.T) {
 			StateReasonMessage string                      `json:"state_reason_message"`
 		} `json:"value"`
 	}
-	if err := json.Unmarshal(completed.ResultContentParts, &parts); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(completed.ResultContentParts, &parts))
 	if len(parts) != 1 ||
 		parts[0].Type != "structured_data" ||
 		parts[0].Value.ErrorCode != "output_unavailable" ||
@@ -666,9 +639,7 @@ func startRunningProcessForReadTest(
 			Cwd:                   "/work",
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, found, err := acceptDaemonProcessForTest(
 		ctx,
 		fixture.Store,
@@ -689,9 +660,7 @@ func startRunningProcessForReadTest(
 			SourceStartedAt: fixture.Now.Add(2 * time.Second),
 		},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !application.ToolResultCommitted {
 		t.Fatalf("started process result was not committed: %+v", application)
 	}
@@ -712,9 +681,7 @@ func assertProcessDefaultOutputCursor(
 		fixture.AgentID,
 		processID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if process.DefaultOutputCursor != want {
 		t.Fatalf(
 			"process default output cursor = %d, want %d",

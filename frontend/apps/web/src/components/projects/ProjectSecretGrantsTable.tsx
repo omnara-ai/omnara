@@ -7,7 +7,11 @@ import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 import { secretSubtitle } from '@/lib/secrets'
 
@@ -34,22 +38,25 @@ export function ProjectSecretGrantsTable({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
 
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Secret grants"
         toolbar={
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            sort={list.sort}
-            sortOptions={resourceSortOptions}
-            onSortChange={list.setSort}
-            placeholder="Search secret grants by name…"
-          />
+          showToolbar ? (
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={list.sort}
+              sortOptions={resourceSortOptions}
+              onSortChange={list.setSort}
+              placeholder="Search secret grants by name…"
+            />
+          ) : undefined
         }
-      ></SearchHeader>
+      />
       <DataTable
         columns={[
           {

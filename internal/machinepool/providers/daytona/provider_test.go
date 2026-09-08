@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDaytonaProviderProvisionCreatesSandboxAndDaemonSession(t *testing.T) {
@@ -244,9 +245,7 @@ func TestDaytonaProviderInspectAndDelete(t *testing.T) {
 	installationID := uuid.New()
 	machineID := uuid.New()
 	name, err := providers.MachineAllocationName(installationID, machineID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	api.sandbox.Name = name
 	api.sandbox.Labels = map[string]string{"omnara-machine": name}
 	resourceID, found, err := provider.InspectMachine(

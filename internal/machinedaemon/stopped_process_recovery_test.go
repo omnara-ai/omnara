@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStoppedSupervisorRecoveryPreservesDurableOutput(
@@ -20,22 +21,18 @@ func TestStoppedSupervisorRecoveryPreservesDurableOutput(
 	client, store, process, outputPath := stoppedRecoveryFixture(t)
 	const baseOffset = int64(7)
 	const durableOutput = "durable output before supervisor loss"
-	if err := writeProcessOutputFile(
+	require.NoError(t, writeProcessOutputFile(
 		outputPath,
 		[]byte(durableOutput),
 		baseOffset,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
-	if err := client.recoverStoppedReleasedProcess(
+	require.NoError(t, client.recoverStoppedReleasedProcess(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
 		nil,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	event, result := recoveredTerminalResult(t, store, process.ProcessID)
 	if event.StateReasonCode != "local_process_unrecoverable" {
 		t.Fatalf("terminal reason = %q", event.StateReasonCode)
@@ -57,18 +54,14 @@ func TestStoppedSupervisorRecoveryMakesCorruptOutputExplicit(
 	t.Parallel()
 
 	client, store, process, outputPath := stoppedRecoveryFixture(t)
-	if err := os.WriteFile(outputPath, []byte("not an output buffer"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(outputPath, []byte("not an output buffer"), 0o600))
 
-	if err := client.recoverStoppedReleasedProcess(
+	require.NoError(t, client.recoverStoppedReleasedProcess(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
 		nil,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	event, result := recoveredTerminalResult(t, store, process.ProcessID)
 	if event.StateReasonCode != "local_process_and_output_unrecoverable" {
 		t.Fatalf("terminal reason = %q", event.StateReasonCode)
@@ -85,18 +78,14 @@ func TestStoppedSupervisorRecoveryMakesMissingOutputExplicit(
 	t.Parallel()
 
 	client, store, process, outputPath := stoppedRecoveryFixture(t)
-	if err := os.Remove(filepath.Dir(outputPath)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Remove(filepath.Dir(outputPath)))
 
-	if err := client.recoverStoppedReleasedProcess(
+	require.NoError(t, client.recoverStoppedReleasedProcess(
 		context.Background(),
 		process.ProcessID,
 		process.SupervisorInstanceID,
 		nil,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	event, result := recoveredTerminalResult(t, store, process.ProcessID)
 	if event.StateReasonCode != "local_process_and_output_unrecoverable" {
 		t.Fatalf("terminal reason = %q", event.StateReasonCode)
@@ -126,18 +115,14 @@ func stoppedRecoveryFixture(
 		MachineID:      machineID,
 	}
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	store, err := statedb.Open(
 		ctx,
 		machine.StateDBPath(),
 		installationID,
 		machineID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	client.state = store
 
@@ -146,15 +131,9 @@ func stoppedRecoveryFixture(
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      supervisorToken,
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	supervisor, err := statedb.OpenSupervisor(
 		ctx,
 		machine.StateDBPath(),
@@ -164,9 +143,7 @@ func stoppedRecoveryFixture(
 		supervisorInstanceID,
 		supervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
 	if err != nil || !execute {
 		_ = supervisor.Close()
@@ -184,20 +161,12 @@ func stoppedRecoveryFixture(
 		_ = supervisor.Close()
 		t.Fatal(err)
 	}
-	if err := supervisor.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkServerReleased(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, supervisor.Close())
+	require.NoError(t, store.MarkServerReleased(ctx, processID, supervisorInstanceID))
 
 	outputPath, err := machine.OutputBufferPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(filepath.Dir(outputPath)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(filepath.Dir(outputPath)))
 	return &client, store, process, outputPath
 }
 
@@ -234,17 +203,13 @@ func recoveredTerminalResult(
 		Result          json.RawMessage `json:"result"`
 		EndedAt         time.Time       `json:"ended_at"`
 	}
-	if err := json.Unmarshal(report.Body, &event); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(report.Body, &event))
 	var result struct {
 		Output     string `json:"output"`
 		Cursor     int64  `json:"cursor"`
 		NextCursor int64  `json:"next_cursor"`
 		Truncated  bool   `json:"truncated"`
 	}
-	if err := json.Unmarshal(event.Result, &result); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(event.Result, &result))
 	return event, result
 }

@@ -15,7 +15,7 @@ FROM nginxinc/nginx-unprivileged:1.29.5-alpine@sha256:42a7d7f2ee23e9f5a1dcdf3647
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
 
-FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS go-base
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS go-base
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -38,7 +38,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-maintenance ./cmd/maintenance
 
-FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS mcp-registry-snapshot
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS mcp-registry-snapshot
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY internal/mcpregistry internal/mcpregistry

@@ -27,6 +27,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -442,24 +443,32 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 				)
 			case "/users.info":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse users.info form: %v", err)
+					t.Errorf("parse users.info form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				mu.Lock()
 				userLookups[r.Form.Get("user")]++
 				mu.Unlock()
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/conversations.info":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse conversations.info form: %v", err)
+					t.Errorf("parse conversations.info form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				mu.Lock()
 				channelLookups[r.Form.Get("channel")]++
 				mu.Unlock()
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -802,6 +811,7 @@ func TestSlackEventsMentionedMessageCopyDefersToAppMention(t *testing.T) {
 }
 
 func TestSlackEventsOpenInteractionContinuesWithNewMessage(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"question", "permission"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
@@ -1373,7 +1383,7 @@ func TestSlackEventsRejectWrongSignedIdentity(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	slackServer := newSlackEventsTestServer(t)
-	defer slackServer.Close()
+	t.Cleanup(slackServer.Close)
 	fixture := newSlackEventsIntegrationFixture(
 		t,
 		ctx,
@@ -1416,6 +1426,7 @@ func TestSlackEventsRejectWrongSignedIdentity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			requestJSONWithHeaders(
 				t,
 				fixture.Handler,
@@ -1461,7 +1472,7 @@ func TestSlackEventsStableCallbackUsesInstallSigningSecret(t *testing.T) {
 	profileID := mustPublicHTTPID(
 		t,
 		publicid.KindAgentProfile,
-		profile["id"].(string),
+		testutil.RequireType[string](t, profile["id"]),
 	)
 	installA := createSlackHTTPInstall(
 		t,
@@ -1624,9 +1635,12 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse reaction form: %v", err)
+					t.Errorf("parse reaction form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				reactionForms <- map[string]string{
 					"authorization": r.Header.Get("Authorization"),
@@ -1636,7 +1650,9 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 				}
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -1720,13 +1736,18 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/files.info":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse files.info form: %v", err)
+					t.Errorf("parse files.info form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if r.Header.Get("Authorization") != "Bearer xoxb-events-token" ||
 					r.Form.Get("file") != "F123" {
-					t.Fatalf("unexpected files.info request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+					t.Errorf("unexpected files.info request auth=%q form=%v", r.Header.Get("Authorization"), r.Form)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				writeJSON(w, http.StatusOK, map[string]any{
 					"ok": true,
@@ -1740,14 +1761,18 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 				})
 			case "/files/pixel.png":
 				if r.Header.Get("Authorization") != "Bearer xoxb-events-token" {
-					t.Fatalf("file download authorization = %q", r.Header.Get("Authorization"))
+					t.Errorf("file download authorization = %q", r.Header.Get("Authorization"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write(testPNGBytes)
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -1830,7 +1855,7 @@ func TestSlackEventsDMFileCreatesArtifactInput(t *testing.T) {
 		t.Fatalf("artifact metadata=%+v want image/png pixel.png", artifact)
 	}
 	if string(content) != string(testPNGBytes) {
-		t.Fatalf("artifact content mismatch")
+		t.Fatalf("artifact bytes = %x, want %x", content, testPNGBytes)
 	}
 }
 
@@ -1849,10 +1874,13 @@ func TestSlackEventsSkippedFileCreatesInputWithoutArtifact(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -1966,8 +1994,7 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	var slackServer *httptest.Server
-	slackServer = httptest.NewServer(
+	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/oauth.v2.access":
@@ -1978,9 +2005,12 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/files/delayed.png":
 				if r.Header.Get("Authorization") != "Bearer xoxb-events-token" {
-					t.Fatalf("file download authorization = %q", r.Header.Get("Authorization"))
+					t.Errorf("file download authorization = %q", r.Header.Get("Authorization"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write(testPNGBytes)
@@ -1989,7 +2019,9 @@ func TestSlackEventsDelayedFileShareCreatesNeutralArtifactInput(t *testing.T) {
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2109,8 +2141,7 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	var slackServer *httptest.Server
-	slackServer = httptest.NewServer(
+	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/oauth.v2.access":
@@ -2121,9 +2152,12 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/files/first.png":
 				if r.Header.Get("Authorization") != "Bearer xoxb-events-token" {
-					t.Fatalf("file download authorization = %q", r.Header.Get("Authorization"))
+					t.Errorf("file download authorization = %q", r.Header.Get("Authorization"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write(testPNGBytes)
@@ -2132,7 +2166,9 @@ func TestSlackEventsFileShareBeforeAppMentionSuppressesMentionDuplicate(t *testi
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2211,8 +2247,7 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	var slackServer *httptest.Server
-	slackServer = httptest.NewServer(
+	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/oauth.v2.access":
@@ -2223,9 +2258,12 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/files/thread.png":
 				if r.Header.Get("Authorization") != "Bearer xoxb-events-token" {
-					t.Fatalf("file download authorization = %q", r.Header.Get("Authorization"))
+					t.Errorf("file download authorization = %q", r.Header.Get("Authorization"))
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write(testPNGBytes)
@@ -2234,7 +2272,9 @@ func TestSlackEventsMentionedThreadFileShareCreatesArtifactInput(t *testing.T) {
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2331,8 +2371,11 @@ func TestSlackEventsUnmappedRootFileShareIgnored(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2388,6 +2431,7 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				reactionAttempts <- struct{}{}
 				writeJSON(
@@ -2396,7 +2440,9 @@ func TestSlackEventsReactionFailureStillAcceptsInput(t *testing.T) {
 					map[string]any{"ok": false, "error": "missing_scope"},
 				)
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2473,7 +2519,9 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 			case "/conversations.replies":
 				historyCalls++
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse history form: %v", err)
+					t.Errorf("parse history form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				historyForm = map[string]string{
 					"channel":   r.Form.Get("channel"),
@@ -2498,10 +2546,13 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2603,10 +2654,13 @@ func TestSlackEventsHistoryRateLimitContinues(t *testing.T) {
 				w.WriteHeader(http.StatusTooManyRequests)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2726,10 +2780,13 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 				)
 			case "/users.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/chat.postMessage":
 				var payload map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-					t.Fatalf("decode slack launch failure message: %v", err)
+					t.Errorf("decode slack launch failure message: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				postedMessages <- payload
 				writeJSON(w, http.StatusOK, map[string]any{
@@ -2738,7 +2795,9 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 					"ts":      "222.333",
 				})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -2831,7 +2890,7 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 		fixture.Handler,
 		http.MethodPost,
 		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
-		`{"config":"`+config["id"].(string)+`","expected_current_config_id":"`+currentConfigID+`"}`,
+		`{"config":"`+testutil.RequireType[string](t, config["id"])+`","expected_current_config_id":"`+currentConfigID+`"}`,
 		"idem-slack-events-launch-failure-config",
 		http.StatusOK,
 		authHeaders(fixture.Project.AdminToken),
@@ -2978,7 +3037,7 @@ func TestSlackEventsRejectsNewTargetWhenIntegrationSendToolIsDisabled(
 		fixture.Handler,
 		http.MethodPost,
 		fixture.Project.ProjectPath+"/agent-profiles/"+profileID+"/config",
-		`{"config":"`+config["id"].(string)+`","expected_current_config_id":"`+currentConfigID+`"}`,
+		`{"config":"`+testutil.RequireType[string](t, config["id"])+`","expected_current_config_id":"`+currentConfigID+`"}`,
 		"idem-slack-events-disabled-send-tool-config",
 		http.StatusOK,
 		authHeaders(fixture.Project.AdminToken),
@@ -3131,19 +3190,25 @@ func TestSlackEventsSlowLookupsStillAcceptInput(t *testing.T) {
 				)
 			case "/users.info":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse users.info form: %v", err)
+					t.Errorf("parse users.info form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				if r.Form.Get("user") != "U_BOT" {
 					blockUntilReleased(r)
 				}
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/conversations.info":
 				blockUntilReleased(r)
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -3756,7 +3821,7 @@ func newSlackEventsIntegrationFixture(
 		t,
 		handler,
 		project,
-		profile["id"].(string),
+		testutil.RequireType[string](t, profile["id"]),
 		seed+"-browser",
 		seed+"-code",
 	)
@@ -3823,13 +3888,16 @@ func newSlackEventsTestServerWithReactionAttempts(
 				)
 			case "/users.info", "/conversations.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			case "/reactions.add":
 				if reactionAttempts != nil {
 					reactionAttempts <- struct{}{}
 				}
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack test path %s", r.URL.Path)
+				t.Errorf("unexpected slack test path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -3838,7 +3906,9 @@ func newSlackEventsTestServerWithReactionAttempts(
 func writeSlackLookupTestResponse(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
 	if err := r.ParseForm(); err != nil {
-		t.Fatalf("parse slack lookup form: %v", err)
+		t.Errorf("parse slack lookup form: %v", err)
+		http.Error(w, "invalid lookup form", http.StatusBadRequest)
+		return
 	}
 	switch r.URL.Path {
 	case "/users.info":
@@ -3863,7 +3933,8 @@ func writeSlackLookupTestResponse(t *testing.T, w http.ResponseWriter, r *http.R
 			},
 		})
 	default:
-		t.Fatalf("unexpected slack lookup path %s", r.URL.Path)
+		t.Errorf("unexpected slack lookup path %s", r.URL.Path)
+		http.Error(w, "unexpected lookup path", http.StatusNotFound)
 	}
 }
 

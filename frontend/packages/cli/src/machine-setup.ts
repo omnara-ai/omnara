@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { accessSync, constants, existsSync, readdirSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { type ConnectByoMachineResponse, sdk } from '@omnara/sdk'
@@ -86,10 +86,12 @@ function daemonHome(): string {
 
 const supportedPlatforms = new Set<NodeJS.Platform>(['darwin', 'linux'])
 const supportedArchitectures = new Set<NodeJS.Architecture>(['x64', 'arm64'])
+const macOS13DarwinMajor = 22
 
 export function ensureSupportedPlatform(
   platform: NodeJS.Platform,
   architecture: NodeJS.Architecture,
+  osRelease: string,
 ): void {
   if (!supportedPlatforms.has(platform)) {
     throw new CliInputError(`omnarad supports macOS and Linux; this machine reports ${platform}`)
@@ -98,6 +100,12 @@ export function ensureSupportedPlatform(
     throw new CliInputError(
       `omnarad supports amd64 and arm64; this machine reports ${architecture}`,
     )
+  }
+  if (platform === 'darwin') {
+    const darwinMajor = Number(osRelease.split('.')[0])
+    if (!Number.isInteger(darwinMajor) || darwinMajor < macOS13DarwinMajor) {
+      throw new CliInputError('omnarad requires macOS 13 or later; update macOS before installing')
+    }
   }
 }
 
@@ -177,7 +185,7 @@ class DaemonExitError extends Error {}
 
 export async function runMachineCreateLocal(context: MachineSetupContext): Promise<void> {
   const { report, apiUrl } = context
-  ensureSupportedPlatform(process.platform, process.arch)
+  ensureSupportedPlatform(process.platform, process.arch, release())
   ensureDaemonApiUrl(apiUrl)
   const home = daemonHome()
   const existing = describeExistingInstallation(home)

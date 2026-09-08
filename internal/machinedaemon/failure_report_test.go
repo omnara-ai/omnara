@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFailureReportTruncation(t *testing.T) {
@@ -40,9 +42,7 @@ func TestFailureReportTruncation(t *testing.T) {
 			}))
 			defer server.Close()
 			client := New(Config{APIURL: server.URL}, server.Client(), nil)
-			if err := report(&client); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, report(&client))
 		})
 	}
 }
