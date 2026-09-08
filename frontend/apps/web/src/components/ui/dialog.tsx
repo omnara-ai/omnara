@@ -48,7 +48,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-4 shadow-lg duration-[var(--duration-panel)] sm:max-w-lg sm:p-6',
+          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed left-[50%] top-[50%] z-50 flex max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col border shadow-lg duration-[var(--duration-panel)] sm:max-w-lg',
           className,
         )}
         onSubmit={(event) => {
@@ -60,7 +60,9 @@ function DialogContent({
       >
         <div ref={setContainer}>
           <DialogContainerContext value={container}>
-            {children}
+            <div className="grid min-h-0 gap-4 overflow-y-auto rounded-[inherit] p-4 sm:p-6">
+              {children}
+            </div>
             {showCloseButton && (
               <DialogPrimitive.Close className="control-focus data-[state=open]:bg-accent data-[state=open]:text-muted-foreground rounded-xs [&_svg:not([class*='size-'])]:size-4.5 absolute right-4 top-4 opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0">
                 <XIcon />

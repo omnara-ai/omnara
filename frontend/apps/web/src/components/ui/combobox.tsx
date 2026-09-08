@@ -3,6 +3,7 @@ import { type ComponentProps, type ReactNode, useContext } from 'react'
 
 import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from '@/components/icons'
 import { DialogContainerContext } from '@/components/ui/dialog-container-context'
+import { OverflowTooltip } from '@/components/ui/overflow-tooltip'
 import { textFieldVariants } from '@/components/ui/text-field-variants'
 import { cn } from '@/lib/utils'
 
@@ -38,17 +39,19 @@ function ComboboxTrigger({
   ...props
 }: ComponentProps<typeof ComboboxPrimitive.Trigger>) {
   return (
-    <ComboboxPrimitive.Trigger
-      className={cn(
-        textFieldVariants(),
-        'control-transition hover:bg-(--secondary-hover) data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <ChevronsUpDownIcon className="text-muted-foreground size-4 shrink-0" />
-    </ComboboxPrimitive.Trigger>
+    <OverflowTooltip>
+      <ComboboxPrimitive.Trigger
+        className={cn(
+          textFieldVariants(),
+          'control-transition hover:bg-(--secondary-hover) data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <ChevronsUpDownIcon className="text-muted-foreground size-4 shrink-0" />
+      </ComboboxPrimitive.Trigger>
+    </OverflowTooltip>
   )
 }
 
@@ -91,21 +94,23 @@ function ComboboxChip({
   removeLabel: string
 }) {
   return (
-    <ComboboxPrimitive.Chip
-      className={cn(
-        'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
-        className,
-      )}
-      {...props}
-    >
-      <span className="truncate">{children}</span>
-      <ComboboxPrimitive.ChipRemove
-        aria-label={removeLabel}
-        className="hover:bg-foreground/10 inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
+    <OverflowTooltip>
+      <ComboboxPrimitive.Chip
+        className={cn(
+          'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
+          className,
+        )}
+        {...props}
       >
-        <XIcon className="size-3" />
-      </ComboboxPrimitive.ChipRemove>
-    </ComboboxPrimitive.Chip>
+        <span className="truncate">{children}</span>
+        <ComboboxPrimitive.ChipRemove
+          aria-label={removeLabel}
+          className="hover:bg-foreground/10 inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
+        >
+          <XIcon className="size-3" />
+        </ComboboxPrimitive.ChipRemove>
+      </ComboboxPrimitive.Chip>
+    </OverflowTooltip>
   )
 }
 
@@ -119,7 +124,6 @@ function ComboboxContent({ className, ...props }: ComponentProps<typeof Combobox
         className="pointer-events-auto isolate z-50"
         sideOffset={4}
         align="start"
-        collisionBoundary={dialogContainer ?? undefined}
       >
         <ComboboxPrimitive.Popup
           className={cn(
@@ -148,18 +152,20 @@ function ComboboxItem({
   ...props
 }: ComponentProps<typeof ComboboxPrimitive.Item>) {
   return (
-    <ComboboxPrimitive.Item
-      className={cn(
-        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <ComboboxPrimitive.ItemIndicator className="absolute right-2">
-        <CheckIcon className="size-4" />
-      </ComboboxPrimitive.ItemIndicator>
-    </ComboboxPrimitive.Item>
+    <OverflowTooltip>
+      <ComboboxPrimitive.Item
+        className={cn(
+          'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <ComboboxPrimitive.ItemIndicator className="absolute right-2">
+          <CheckIcon className="size-4" />
+        </ComboboxPrimitive.ItemIndicator>
+      </ComboboxPrimitive.Item>
+    </OverflowTooltip>
   )
 }
 

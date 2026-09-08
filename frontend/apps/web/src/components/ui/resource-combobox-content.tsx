@@ -36,7 +36,9 @@ export function ResourceComboboxContent<TItem>({
       <ComboboxList>
         {(item: TItem) => (
           <ComboboxItem key={config.itemKey(item)} value={item}>
-            {config.renderItem?.(item) ?? config.itemLabel(item)}
+            {config.renderItem?.(item) ?? (
+              <span className="truncate">{config.itemLabel(item)}</span>
+            )}
           </ComboboxItem>
         )}
       </ComboboxList>
