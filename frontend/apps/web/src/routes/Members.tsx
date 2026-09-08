@@ -117,7 +117,7 @@ export function Members() {
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold tracking-tight">Members</h2>
+          <h2 className="type-title">Members</h2>
           {canManage ? (
             <Button
               size="sm"

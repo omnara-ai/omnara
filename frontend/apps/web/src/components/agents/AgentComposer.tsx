@@ -100,7 +100,7 @@ function SelectedAttachment({
       )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{attachment.file.name}</span>
-        <span className="text-muted-foreground block text-[11px]">
+        <span className="text-muted-foreground block text-xs">
           {attachmentSize(attachment.file.size)}
         </span>
       </span>

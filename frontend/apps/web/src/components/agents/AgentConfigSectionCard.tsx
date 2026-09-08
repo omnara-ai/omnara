@@ -12,7 +12,7 @@ export function AgentConfigSectionCard({
   return (
     <section className="bg-card rounded-xl border">
       <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <h3 className="type-label">{title}</h3>
         {action}
       </div>
       {children ? <div className="border-t">{children}</div> : null}

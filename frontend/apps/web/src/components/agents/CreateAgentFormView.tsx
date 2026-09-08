@@ -229,7 +229,7 @@ export function CreateAgentFormView({
           />
           <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-2">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">New agent</h1>
+              <h1 className="type-title">New agent</h1>
               <p className="text-muted-foreground mt-0.5 text-sm">
                 Define a reusable agent profile for this project.
               </p>

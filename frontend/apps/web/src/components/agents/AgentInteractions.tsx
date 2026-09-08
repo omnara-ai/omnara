@@ -86,7 +86,7 @@ function InteractionFormCard({
     <Card className="border-primary/35 bg-primary/[0.04] min-w-0 gap-3 shadow-none">
       <CardHeader className="min-w-0 gap-1">
         {isPermission ? (
-          <CardTitle className="wrap-anywhere flex flex-wrap items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+          <CardTitle className="wrap-anywhere text-link flex flex-wrap items-center gap-2 text-sm">
             <KeyRound className="size-4 shrink-0" />
             {toolName == null ? (
               interaction.request.title

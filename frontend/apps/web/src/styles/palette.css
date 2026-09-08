@@ -1,0 +1,36 @@
+/* Store RGB channels separately so Tailwind opacity modifiers can compose with each color. */
+:root {
+  --palette-primary: 80 111 207;
+  --palette-primary-hover: 61 91 181;
+  --palette-primary-active: 61 91 181;
+  --palette-on-primary: 255 255 255;
+
+  --palette-dark-bg: 11 12 16;
+  --palette-dark-fg: 255 255 255;
+  --palette-dark-surface: 15 16 21;
+  --palette-dark-surface-2: 23 24 33;
+  --palette-dark-surface-3: 31 33 41;
+  --palette-dark-line: 47 51 64;
+  --palette-dark-line-strong: 63 68 84;
+  --palette-dark-accent: 133 160 230;
+  --palette-dark-accent-strong: 166 187 239;
+  --palette-dark-accent-soft: 193 207 244;
+  --palette-dark-destructive: oklch(0.7 0.19 22);
+  --palette-dark-success: 98 207 158;
+
+  --palette-light-bg: 235 236 240;
+  --palette-light-fg: 17 18 24;
+  --palette-light-surface: 243 244 247;
+  --palette-light-surface-2: 226 228 235;
+  --palette-light-surface-3: 214 217 226;
+  --palette-light-line: 200 204 216;
+  --palette-light-line-strong: 172 178 196;
+  --palette-light-accent: 61 94 181;
+  --palette-light-accent-strong: 51 81 164;
+  --palette-light-accent-soft: 112 140 217;
+  --palette-light-destructive: oklch(0.58 0.24 27);
+  --palette-light-success: 13 122 79;
+
+  /* Keep grain beneath content so texture opacity never affects text contrast. */
+  --palette-dark-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='.05'/%3E%3C/svg%3E");
+}

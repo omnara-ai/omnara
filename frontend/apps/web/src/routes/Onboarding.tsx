@@ -55,14 +55,14 @@ export function Onboarding() {
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-8 p-6">
-      <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+      <div className="type-card-title flex items-center gap-2 text-base">
         <BrandMark />
         Omnara
       </div>
 
       <div className="flex w-full max-w-md flex-col gap-6">
         <div className="flex flex-col gap-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Welcome to Omnara</h1>
+          <h1 className="type-title">Welcome to Omnara</h1>
           <p className="text-muted-foreground text-sm">
             {pending.length > 0
               ? 'Accept an invitation or create your own organization'

@@ -26,7 +26,7 @@ export function SearchHeader({
   const showToolbar = toolbar !== undefined || onChange !== undefined || children !== undefined
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+      <h2 className="type-title">{title}</h2>
       {showToolbar && (
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {toolbar}

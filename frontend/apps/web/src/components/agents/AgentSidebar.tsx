@@ -26,7 +26,7 @@ import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export const sidebarToggleActiveClass =
-  'bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-400'
+  'bg-accent text-link hover:bg-primary/15 hover:text-link-hover'
 
 export function AgentSidebarToggle() {
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar()

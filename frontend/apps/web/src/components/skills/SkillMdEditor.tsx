@@ -4,15 +4,12 @@ import type * as Monaco from 'monaco-editor'
 import { use, useEffect, useEffectEvent, useRef } from 'react'
 
 import { cn } from '@/lib/utils'
+import { editorAppearance } from '@/styles/editor'
 
 const monacoPromise = Promise.all([
   import('monaco-editor'),
   import('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js'),
 ]).then(([module]) => module)
-
-function monacoThemeFromDocument() {
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
-}
 
 export function SkillMdEditor({
   id,
@@ -48,21 +45,20 @@ export function SkillMdEditor({
       model,
       ariaLabel: 'SKILL.md',
       automaticLayout: true,
-      fontFamily: 'var(--font-mono)',
-      fontSize: 12,
-      lineHeight: 18,
+      ...editorAppearance(monaco, editorElementRef.current),
       minimap: { enabled: false },
       padding: { top: 12, bottom: 12 },
       readOnly: initialReadOnlyRef.current,
       scrollBeyondLastLine: false,
       stickyScroll: { enabled: false },
-      theme: monacoThemeFromDocument(),
       wordWrap: 'on',
       wrappingIndent: 'same',
     })
 
     const themeObserver = new MutationObserver(() => {
-      editorRef.current?.updateOptions({ theme: monacoThemeFromDocument() })
+      if (editorElementRef.current) {
+        editorRef.current?.updateOptions(editorAppearance(monaco, editorElementRef.current))
+      }
     })
     themeObserver.observe(document.documentElement, {
       attributeFilter: ['class'],
@@ -99,7 +95,7 @@ export function SkillMdEditor({
       id={id}
       ref={editorElementRef}
       className={cn(
-        'border-input bg-background h-80 overflow-hidden rounded-md border text-xs',
+        'border-input bg-card type-code rounded-control h-80 overflow-hidden border',
         className,
       )}
     />

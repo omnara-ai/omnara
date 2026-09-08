@@ -75,7 +75,7 @@ export function OnboardingStep({
                 : status === 'done' || nextStatus === 'done'
                   ? '-bottom-[81px]'
                   : '-bottom-[57px]',
-              status === 'done' && nextStatus === 'done' && 'bg-blue-500/60',
+              status === 'done' && nextStatus === 'done' && 'bg-primary/60',
               status === 'done' &&
                 nextStatus !== 'done' &&
                 'to-border bg-gradient-to-b from-blue-500',
@@ -87,7 +87,7 @@ export function OnboardingStep({
           aria-hidden="true"
           className={cn(
             'bg-background absolute -left-12 top-[9px] hidden size-[11px] rounded-full border-2 transition-colors duration-500 sm:block',
-            status === 'done' && 'border-blue-500/80',
+            status === 'done' && 'border-primary/80',
             status === 'active' && 'border-foreground',
             status === 'upcoming' && 'border-muted-foreground',
           )}
@@ -109,14 +109,14 @@ export function OnboardingStep({
             <div className="flex min-w-0 flex-col gap-5 sm:gap-8">
               <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-6">
                 <div className="flex flex-col gap-1.5">
-                  <h3 className="flex items-center gap-2 text-lg font-semibold tracking-tight sm:text-xl">
+                  <h3 className="type-card-title flex items-center gap-2">
                     {status === 'done' ? doneTitle : title}
                     {pending && status !== 'done' && (
                       <span
                         role="status"
                         aria-label="Working"
                         data-slot="step-spinner"
-                        className="border-muted-foreground/25 size-4 animate-spin rounded-full border-2 border-t-blue-500"
+                        className="border-muted-foreground/25 size-4 rounded-full border-2 border-t-blue-500 motion-safe:animate-spin"
                       />
                     )}
                   </h3>
@@ -127,7 +127,7 @@ export function OnboardingStep({
                 {status === 'done' && completion && (
                   <div
                     data-slot="step-completion"
-                    className="flex items-center text-sm font-medium text-blue-600/70 dark:text-blue-300/70"
+                    className="text-link flex items-center text-sm font-medium"
                   >
                     {completion}
                   </div>

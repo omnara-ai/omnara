@@ -1,0 +1,64 @@
+:root {
+  --background: rgb(var(--palette-light-bg));
+  --foreground: rgb(var(--palette-light-fg));
+  --card: rgb(var(--palette-light-surface));
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: rgb(var(--palette-primary));
+  --primary-foreground: rgb(var(--palette-on-primary));
+  --primary-hover: rgb(var(--palette-primary-hover));
+  --primary-active: rgb(var(--palette-primary-active));
+  --secondary: var(--card);
+  --secondary-hover: rgb(var(--palette-light-surface-2));
+  --secondary-foreground: var(--foreground);
+  --muted: rgb(var(--palette-light-surface-2));
+  --muted-foreground: color-mix(in oklab, var(--foreground) 64%, var(--background));
+  --accent: color-mix(in oklab, var(--primary) 10%, var(--background));
+  --accent-foreground: var(--foreground);
+  --link: rgb(var(--palette-light-accent));
+  --link-hover: rgb(var(--palette-light-accent-strong));
+  --destructive: var(--palette-light-destructive);
+  --destructive-foreground: rgb(var(--palette-on-primary));
+  --success: rgb(var(--palette-light-success));
+  --warning: oklch(0.55 0.17 40);
+  --overlay: oklch(0 0 0 / 50%);
+  --border: rgb(var(--palette-light-line));
+  --input: rgb(var(--palette-light-line-strong));
+  --ring: var(--link);
+  --chart-1: var(--primary);
+  --chart-2: var(--link-hover);
+  --chart-3: var(--muted-foreground);
+  --chart-4: rgb(var(--palette-light-accent-soft));
+  --chart-5: var(--foreground);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--link);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --page-texture: none;
+  color-scheme: light;
+}
+
+.dark {
+  --background: rgb(var(--palette-dark-bg));
+  --foreground: rgb(var(--palette-dark-fg));
+  --card: rgb(var(--palette-dark-surface));
+  --secondary-hover: rgb(var(--palette-dark-surface-3));
+  --muted: rgb(var(--palette-dark-surface-2));
+  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, var(--background));
+  --accent: color-mix(in oklab, var(--primary) 13%, var(--background));
+  --link: rgb(var(--palette-dark-accent));
+  --link-hover: rgb(var(--palette-dark-accent-strong));
+  --destructive: var(--palette-dark-destructive);
+  --success: rgb(var(--palette-dark-success));
+  --warning: oklch(0.72 0.16 45);
+  --border: rgb(var(--palette-dark-line));
+  --input: rgb(var(--palette-dark-line-strong));
+  --chart-4: rgb(var(--palette-dark-accent-soft));
+  --page-texture: var(--palette-dark-texture);
+  color-scheme: dark;
+}

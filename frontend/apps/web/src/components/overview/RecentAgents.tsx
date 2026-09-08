@@ -31,9 +31,7 @@ export function RecentAgentsSection({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold tracking-tight">
-            {showProfiles ? 'Recent profiles' : 'Recent agents'}
-          </h2>
+          <h2 className="type-title">{showProfiles ? 'Recent profiles' : 'Recent agents'}</h2>
           {showProfiles && (
             <p className="text-muted-foreground text-sm">
               No agents running right now. Open a profile to launch one.

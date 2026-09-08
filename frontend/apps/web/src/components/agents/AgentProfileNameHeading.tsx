@@ -60,7 +60,7 @@ export function AgentProfileNameHeading({
               aria-label="Profile name"
               required
               value={nameDraft}
-              className="border-border focus-visible:border-border -mx-1 h-auto w-full min-w-0 max-w-96 rounded-none border-0 border-b px-1 py-0 text-2xl font-bold tracking-tight shadow-none focus-visible:ring-0 sm:h-auto md:text-2xl dark:bg-transparent"
+              className="border-border focus-visible:border-border type-title -mx-1 h-auto w-full min-w-0 max-w-96 rounded-none border-0 border-b px-1 py-0 text-2xl shadow-none focus-visible:ring-0 sm:h-auto md:text-2xl dark:bg-transparent"
               onChange={(event) => {
                 setNameDraft(event.target.value)
               }}
@@ -92,7 +92,7 @@ export function AgentProfileNameHeading({
         </div>
       ) : (
         <div className="flex items-center gap-1">
-          <h1 className="text-2xl font-bold tracking-tight">{profile.name}</h1>
+          <h1 className="type-title">{profile.name}</h1>
           {canManage && (
             <Button
               size="icon"

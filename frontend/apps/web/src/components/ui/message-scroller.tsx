@@ -92,7 +92,7 @@ function MessageScrollerButton({
       data-size={size}
       direction={direction}
       className={cn(
-        'inset-s-1/2 border-border bg-background text-foreground hover:bg-muted hover:text-foreground data-[active=false]:duration-400 absolute -translate-x-1/2 transition-[translate,scale,opacity] duration-200 data-[active=false]:pointer-events-none data-[direction=end]:bottom-4 data-[direction=start]:top-4 data-[active=true]:translate-y-0 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:data-[active=false]:-translate-y-full data-[active=false]:scale-95 data-[active=true]:scale-100 data-[active=false]:opacity-0 data-[active=true]:opacity-100 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180',
+        'inset-s-1/2 border-border bg-background text-foreground hover:bg-muted hover:text-foreground data-[active=false]:duration-400 duration-(--duration-panel) absolute -translate-x-1/2 transition-[translate,scale,opacity] data-[active=false]:pointer-events-none data-[direction=end]:bottom-4 data-[direction=start]:top-4 data-[active=true]:translate-y-0 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:data-[active=false]:-translate-y-full data-[active=false]:scale-95 data-[active=true]:scale-100 data-[active=false]:opacity-0 data-[active=true]:opacity-100 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180',
         className,
       )}
       render={render ?? <Button variant={variant} size={size} />}

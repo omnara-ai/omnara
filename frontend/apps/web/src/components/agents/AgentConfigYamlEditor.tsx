@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { issueMarkers } from '@/lib/agent-config-issues'
 import { cn } from '@/lib/utils'
+import { editorAppearance } from '@/styles/editor'
 
 import agentConfigSchemaSource from '../../../../../../internal/agentconfig/generated/agent_config.schema.json?raw'
 
@@ -17,10 +18,6 @@ const agentConfigSchema = z.record(z.string(), z.json()).parse(JSON.parse(agentC
 const agentConfigSchemaUri = 'https://omnara.local/schemas/agent-config.schema.json'
 const agentConfigYamlFileMatches = ['*.yaml', '*.yml']
 let yamlConfiguration: MonacoYaml | undefined
-
-function monacoThemeFromDocument() {
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
-}
 
 function yamlOptions(): MonacoYamlOptions {
   return {
@@ -138,9 +135,7 @@ export function AgentConfigYamlEditor({
       ariaLabel: agentConfigYamlAriaLabel(initialReadOnlyRef.current),
       ariaRequired: !initialReadOnlyRef.current,
       automaticLayout: true,
-      fontFamily: 'var(--font-mono)',
-      fontSize: 12,
-      lineHeight: 18,
+      ...editorAppearance(monaco, editorElementRef.current),
       minimap: { enabled: false },
       padding: { top: 12, bottom: 12 },
       placeholder: agentConfigYamlPlaceholder,
@@ -149,13 +144,14 @@ export function AgentConfigYamlEditor({
       scrollBeyondLastLine: false,
       stickyScroll: { enabled: false },
       tabSize: 2,
-      theme: monacoThemeFromDocument(),
       wordWrap: 'on',
       wrappingIndent: 'same',
     })
 
     const themeObserver = new MutationObserver(() => {
-      editorRef.current?.updateOptions({ theme: monacoThemeFromDocument() })
+      if (editorElementRef.current) {
+        editorRef.current?.updateOptions(editorAppearance(monaco, editorElementRef.current))
+      }
     })
     themeObserver.observe(document.documentElement, {
       attributeFilter: ['class'],
@@ -224,7 +220,7 @@ export function AgentConfigYamlEditor({
         id={id}
         ref={editorElementRef}
         className={cn(
-          'border-input bg-background h-[28rem] overflow-hidden rounded-md border text-xs',
+          'border-input bg-card type-code rounded-control h-[28rem] overflow-hidden border',
           className,
         )}
       />

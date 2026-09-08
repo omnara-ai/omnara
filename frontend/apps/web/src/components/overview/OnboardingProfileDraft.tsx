@@ -106,7 +106,7 @@ export function ProfileDraftStep({
                 'flex flex-col gap-2 rounded-xl border p-4 text-left transition-all sm:min-h-36 sm:p-6',
                 'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-[3px]',
                 selected
-                  ? 'border-blue-500/40 bg-gradient-to-br from-blue-500/[0.06] via-blue-500/[0.02] to-transparent'
+                  ? 'border-primary/40 from-primary/[0.06] via-primary/[0.02] bg-gradient-to-br to-transparent'
                   : 'border-border bg-card hover:bg-muted/50',
               )}
               onClick={() => {
@@ -114,7 +114,7 @@ export function ProfileDraftStep({
                 setCustomDraft(null)
               }}
             >
-              <span className="text-sm font-semibold">{candidate.name}</span>
+              <span className="type-label">{candidate.name}</span>
               <span className="text-muted-foreground text-xs leading-snug">
                 {candidate.description}
               </span>
