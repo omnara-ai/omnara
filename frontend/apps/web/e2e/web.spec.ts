@@ -337,6 +337,7 @@ test('granting a model from the Builder does not create a profile or agent', asy
 
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.click()
+  await expect(page.getByPlaceholder('Search granted models…')).toHaveValue('')
   const grantModelsAction = page.getByRole('button', { name: 'Grant models…', exact: true })
   await expect(grantModelsAction).toBeVisible()
   const providerListResponse = page.waitForResponse((response) => {

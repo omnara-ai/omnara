@@ -31,6 +31,7 @@ export function OverflowTooltip({ children }: { children: ReactElement }) {
   return (
     <Tooltip
       delayDuration={500}
+      disableHoverableContent
       open={text !== null}
       onOpenChange={(open) => {
         const trigger = triggerRef.current
@@ -45,7 +46,7 @@ export function OverflowTooltip({ children }: { children: ReactElement }) {
       >
         <TooltipTarget>{children}</TooltipTarget>
       </TooltipTrigger>
-      <TooltipContent className="pointer-events-auto max-w-[min(28rem,calc(100vw-2rem))] whitespace-pre-wrap break-all text-left">
+      <TooltipContent className="wrap-break-word max-w-[min(28rem,calc(100vw-2rem))] whitespace-pre-wrap text-left">
         {text}
       </TooltipContent>
     </Tooltip>
