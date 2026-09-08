@@ -26,7 +26,7 @@ const LazySkillMdEditor = lazy(async () => {
 function SkillMdEditorFallback() {
   return (
     <div
-      className="border-input bg-background flex h-[65vh] items-center justify-center overflow-hidden rounded-md border"
+      className="border-input bg-card type-code rounded-control flex h-[65vh] items-center justify-center overflow-hidden border"
       role="status"
       aria-live="polite"
     >

@@ -25,7 +25,7 @@ function AgentConfigYamlEditorFallback({
     <div
       id={id}
       className={cn(
-        'border-input bg-background flex h-[28rem] items-center justify-center overflow-hidden rounded-md border text-xs',
+        'border-input bg-card type-code rounded-control flex h-[28rem] items-center justify-center overflow-hidden border',
         className,
       )}
       role="status"

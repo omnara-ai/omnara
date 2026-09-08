@@ -86,7 +86,7 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          'w-(--sidebar-width) duration-(--duration-control) relative bg-transparent transition-[width] ease-out',
+          'w-(--sidebar-width) relative bg-transparent transition-[width] duration-[var(--duration-control)] ease-out',
           'group-data-[collapsible=offcanvas]:w-0',
           'group-data-[side=right]:rotate-180',
           variant === 'floating' || variant === 'inset'
@@ -97,7 +97,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          'w-(--sidebar-width) duration-(--duration-control) fixed inset-y-0 z-10 hidden h-svh transition-[left,right,width] ease-out md:flex',
+          'w-(--sidebar-width) fixed inset-y-0 z-10 hidden h-svh transition-[left,right,width] duration-[var(--duration-control)] ease-out md:flex',
           side === 'left'
             ? 'left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]'
             : 'right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]',
@@ -260,7 +260,7 @@ function SidebarGroupLabel({
       data-slot="sidebar-group-label"
       data-sidebar="group-label"
       className={cn(
-        'text-sidebar-foreground/70 control-focus [&>svg]:size-4.5 duration-(--duration-panel) flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium transition-[margin,opacity] ease-linear [&>svg]:shrink-0',
+        'text-sidebar-foreground/70 control-focus [&>svg]:size-4.5 flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium transition-[margin,opacity] duration-[var(--duration-panel)] ease-linear [&>svg]:shrink-0',
         'group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0',
         className,
       )}
