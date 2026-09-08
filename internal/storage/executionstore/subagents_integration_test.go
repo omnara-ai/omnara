@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -534,6 +535,116 @@ func TestExpireToolCallsTimesOutParentWait(t *testing.T) {
 	}
 	if expired != 0 {
 		t.Fatalf("expired %d tool calls on the second pass, want 0", expired)
+	}
+}
+
+func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-idle@example.com", "Subagent Idle")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-idle", "Subagent Idle", subagentParentYAML,
+	)
+	topLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-idle-top",
+	})
+	if err != nil {
+		t.Fatalf("launch top-level agent: %v", err)
+	}
+	top := topLaunch.Agent
+	middle, err := spawnSubagentForTest(
+		t, ctx, store, top, profile.CurrentConfigID, "middle", "subagent-idle-middle", nil,
+		func(input *executionstore.LaunchAgentInput) {
+			input.Subagent.ArchiveAfterIdleMinutes = intPtrForSubagentTest(1)
+		},
+	)
+	if err != nil {
+		t.Fatalf("spawn middle subagent: %v", err)
+	}
+	leaf, err := spawnSubagentForTest(
+		t, ctx, store, middle.Agent, profile.CurrentConfigID, "leaf", "subagent-idle-leaf", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn leaf subagent: %v", err)
+	}
+	for _, agentID := range []ID{middle.Agent.ID, leaf.Agent.ID} {
+		if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, agentID); err != nil {
+			t.Fatalf("clear wakeup: %v", err)
+		}
+	}
+	leafLock, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx,
+		testProjectID,
+		leaf.Agent.ID,
+		testWorkerProcessID,
+		testAgentRuntimeLockLeaseDuration,
+	)
+	if err != nil {
+		t.Fatalf("acquire leaf runtime lock: %v", err)
+	}
+	asOf := time.Now().Add(2 * time.Hour)
+
+	_, archived, err := store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents while leaf is running: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d subagents while a grandchild held a runtime lock, want 0", archived)
+	}
+
+	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, leaf.Agent.ID, leafLock.ID); err != nil {
+		t.Fatalf("release leaf runtime lock: %v", err)
+	}
+	if err := store.Execution().MarkAgentWakeup(ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`)); err != nil {
+		t.Fatalf("mark leaf wakeup: %v", err)
+	}
+	_, archived, err = store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents while leaf has a wakeup: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d subagents while a grandchild had a pending wakeup, want 0", archived)
+	}
+
+	if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, leaf.Agent.ID); err != nil {
+		t.Fatalf("clear leaf wakeup: %v", err)
+	}
+	_, archived, err = store.Execution().ArchiveIdleSubagents(ctx, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents before the idle window: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d subagents before the idle window elapsed, want 0", archived)
+	}
+	_, archived, err = store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	if err != nil {
+		t.Fatalf("archive idle subagents: %v", err)
+	}
+	if archived != 1 {
+		t.Fatalf("archived %d subagents, want 1", archived)
+	}
+	for _, agentID := range []ID{middle.Agent.ID, leaf.Agent.ID} {
+		record, err := store.Execution().GetAgentInProject(ctx, testProjectID, agentID)
+		if err != nil {
+			t.Fatalf("load agent: %v", err)
+		}
+		if record.State != executionstore.AgentStateArchived {
+			t.Fatalf("agent %s state = %s, want archived", agentID, record.State)
+		}
+	}
+	topRecord, err := store.Execution().GetAgentInProject(ctx, testProjectID, top.ID)
+	if err != nil {
+		t.Fatalf("load top-level agent: %v", err)
+	}
+	if topRecord.State != executionstore.AgentStateActive {
+		t.Fatalf("top-level agent state = %s, want active", topRecord.State)
 	}
 }
 

@@ -583,3 +583,11 @@ func IntegrationAppendToolResultEventTx(
 ) (events.Event, error) {
 	return appendToolResultEventTx(ctx, txNotifications, tx, record)
 }
+
+func (s *Store) ArchiveIdleSubagentsAsOf(
+	ctx context.Context,
+	asOf time.Time,
+	limit int,
+) ([]MachineRecord, int, error) {
+	return s.archiveIdleSubagents(ctx, &asOf, limit)
+}

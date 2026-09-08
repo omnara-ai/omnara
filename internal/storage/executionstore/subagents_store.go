@@ -1229,11 +1229,15 @@ func timeOutAgentWaitTx(
 }
 
 func (s *Store) ArchiveIdleSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
+	return s.archiveIdleSubagents(ctx, nil, limit)
+}
+
+func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit int) ([]MachineRecord, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	candidates, err := s.q.ListIdleSubagentsForArchive(
-		ctx, dbsqlc.ListIdleSubagentsForArchiveParams{RowLimit: int32(limit)},
+		ctx, dbsqlc.ListIdleSubagentsForArchiveParams{AsOf: asOf, RowLimit: int32(limit)},
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list idle subagents: %w", err)

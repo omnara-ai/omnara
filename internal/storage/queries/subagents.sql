@@ -247,27 +247,57 @@ WHERE target.agent_id = sqlc.arg(agent_id)
 ORDER BY agent.created_at, agent.id;
 
 -- name: ListIdleSubagentsForArchive :many
-SELECT agent.project_id, agent.id
-FROM agents agent
-WHERE agent.parent_agent_id IS NOT NULL
-  AND agent.state = 'active'
-  AND agent.archive_after_idle_minutes IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1
-    FROM agent_runtime_locks runtime_lock
-    WHERE runtime_lock.agent_id = agent.id
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM agent_wakeups wake
-    WHERE wake.agent_id = agent.id
-  )
-  AND coalesce((
-    SELECT max(event.created_at)
-    FROM agent_events event
-    WHERE event.agent_id = agent.id
-  ), agent.created_at) < statement_timestamp() - make_interval(mins => agent.archive_after_idle_minutes)
-ORDER BY agent.created_at, agent.id
+WITH RECURSIVE candidate AS (
+  SELECT agent.project_id, agent.id, agent.created_at
+  FROM agents agent
+  WHERE agent.parent_agent_id IS NOT NULL
+    AND agent.state = 'active'
+    AND agent.archive_after_idle_minutes IS NOT NULL
+    AND coalesce((
+      SELECT event.created_at
+      FROM agent_events event
+      WHERE event.agent_id = agent.id
+      ORDER BY event.sequence DESC
+      LIMIT 1
+    ), agent.created_at) < coalesce(sqlc.narg(as_of)::timestamptz, statement_timestamp())
+      - make_interval(mins => agent.archive_after_idle_minutes)
+), subtree AS (
+  SELECT candidate.id AS root_id, candidate.project_id, candidate.id, 1 AS depth
+  FROM candidate
+  UNION ALL
+  SELECT subtree.root_id, child.project_id, child.id, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.parent_agent_id = subtree.id
+  WHERE child.project_id = subtree.project_id
+    AND child.state = 'active'
+    AND subtree.depth < 64
+)
+SELECT candidate.project_id, candidate.id
+FROM candidate
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM subtree
+  WHERE subtree.root_id = candidate.id
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM agent_runtime_locks runtime_lock
+        WHERE runtime_lock.agent_id = subtree.id
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM agent_wakeups wake
+        WHERE wake.agent_id = subtree.id
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM tool_calls call
+        WHERE call.agent_id = subtree.id
+          AND call.state IN ('running', 'waiting')
+      )
+    )
+)
+ORDER BY candidate.created_at, candidate.id
 LIMIT sqlc.arg(row_limit)::integer;
 
 -- name: CompleteToolCallFromAgentWait :one

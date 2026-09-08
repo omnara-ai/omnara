@@ -20,6 +20,12 @@ CREATE INDEX agents_parent_agent_idx
     ON agents(project_id, parent_agent_id, created_at, id)
     WHERE parent_agent_id IS NOT NULL;
 
+CREATE INDEX agents_idle_archive_candidates_idx
+    ON agents(created_at, id)
+    WHERE parent_agent_id IS NOT NULL
+      AND state = 'active'
+      AND archive_after_idle_minutes IS NOT NULL;
+
 CREATE UNIQUE INDEX agents_spawn_tool_call_idx
     ON agents(project_id, parent_agent_id, spawn_tool_call_id)
     WHERE spawn_tool_call_id IS NOT NULL;
