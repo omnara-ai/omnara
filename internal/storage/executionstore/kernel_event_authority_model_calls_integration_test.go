@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -165,14 +164,15 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 	} {
 		t.Run(string(stopReason), func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
-			fixture := newProcessDaemonFixture(t, ctx, "kernel_model_output_authority")
+			ctx := t.Context()
+			fixture, _, modelClaim := newStartedNormalModelCallTestFixture(t, ctx, "kernel_model_output_authority")
 			now := fixture.Now.Add(time.Minute)
-			turnID := testID("turn_kernel_model_output_authority")
-			inputID := testID("input_kernel_model_output_authority")
+			providerModelSlug := modelProviderSlugForContext(
+				t, ctx, fixture.Store, testProjectID, fixture.AgentID, modelClaim.Context.ID,
+			)
 			providerResponse := modelenvelope.ResponseEnvelope{
-				RequestedProviderModelSlug: "test",
-				ServedProviderModelSlug:    "test",
+				RequestedProviderModelSlug: providerModelSlug,
+				ServedProviderModelSlug:    providerModelSlug,
 				APIFormat:                  modelprotocol.APIFormatOpenAIResponses,
 				APIVariant:                 modelprotocol.APIVariantDefault,
 				ProviderReportedCostUSD:    "0.0000125",
@@ -190,70 +190,6 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 					StopReason: stopReason,
 					Usage:      modelenvelope.Usage{InputTokens: 1, UncachedInputTokens: 1, OutputTokens: 1},
 				},
-			}
-			actorID := fixture.omnaraActorID(t, ctx)
-			if _, err := fixture.Store.pool.Exec(ctx, `
-		INSERT INTO agent_inputs(id, project_id, agent_id, state, delivery_mode, actor_id, input_kind, queued_at, metadata)
-		VALUES ($1, $2, $3, 'received', 'queued', $4, 'content', $5, '{}'::jsonb)
-	`, inputID, testProjectID, fixture.AgentID, actorID, now); err != nil {
-				t.Fatalf("insert model output fixture input: %v", err)
-			}
-			turnTx, err := fixture.Store.pool.Begin(ctx)
-			if err != nil {
-				t.Fatalf("begin model output fixture turn: %v", err)
-			}
-			defer func() { _ = turnTx.Rollback(ctx) }()
-			inputEvent, err := executionstore.IntegrationAppendTypedAgentEventTx(
-				ctx,
-				notifications.NewTxNotifications(),
-				turnTx,
-				executionstore.AppendTypedAgentEventInput{
-					ProjectID:      testProjectID,
-					AgentID:        fixture.AgentID,
-					TurnID:         turnID,
-					IsOpeningEvent: true,
-					Kind:           events.KindAgentInput,
-					IdempotencyKey: "agent_input:" + inputID.String(),
-					AgentInputID:   inputID,
-				},
-			)
-			if err != nil {
-				t.Fatalf("append model output fixture input event: %v", err)
-			}
-			if _, err := turnTx.Exec(ctx, `
-		UPDATE agent_inputs
-		SET state = 'resolved',
-		    admitted_event_id = $4,
-		    admitted_at = $5,
-		    resolved_at = $5
-		WHERE id = $1 AND project_id = $2 AND agent_id = $3
-	`, inputID, testProjectID, fixture.AgentID, inputEvent.Event.ID, now); err != nil {
-				t.Fatalf("resolve model output fixture input: %v", err)
-			}
-			if _, err := turnTx.Exec(ctx, `
-		INSERT INTO agent_turns(id, agent_id, turn_sequence, latest_event_id, latest_semantic_event_id)
-		VALUES ($1, $2, 100, $3, $3)
-	`, turnID, fixture.AgentID, inputEvent.Event.ID); err != nil {
-				t.Fatalf("insert model output fixture turn: %v", err)
-			}
-			if err := turnTx.Commit(ctx); err != nil {
-				t.Fatalf("commit model output fixture turn: %v", err)
-			}
-			agent, err := fixture.Store.Execution().GetAgentInProject(ctx, testProjectID, fixture.AgentID)
-			if err != nil {
-				t.Fatalf("load agent for model output fixture context: %v", err)
-			}
-			modelClaim, err := fixture.Store.Execution().
-				ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-					ProjectID:          testProjectID,
-					AgentID:            fixture.AgentID,
-					RuntimeLockID:      fixture.Lock.ID,
-					OpeningInputIDs:    []ID{inputID},
-					AgentConfigID:      agent.CurrentConfigID,
-					InputEventSequence: inputEvent.Event.Sequence,
-				})
-			if err != nil {
-				t.Fatalf("claim model output fixture context: %v", err)
 			}
 			recordInput := executionstore.RecordModelOutputAndCompleteContextInput{
 				ProjectID:          testProjectID,
