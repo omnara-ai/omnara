@@ -10,7 +10,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
-	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -294,15 +293,10 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 		}
 		return nil, err
 	}
-	if len(launch.ProvisionMachineIDs) > 0 && executor.MachinePoolManager != nil {
-		for _, machineID := range launch.ProvisionMachineIDs {
-			attemptCtx, cancel := context.WithTimeout(ctx, machinepool.DefaultImmediateProvisioningTimeout)
-			err := executor.MachinePoolManager.ProvisionMachine(attemptCtx, launch.Agent.OrgID, machineID)
-			cancel()
-			if err != nil {
-				return nil, fmt.Errorf("provision subagent machine: %w", err)
-			}
-		}
+	if executor.MachinePoolManager != nil {
+		executor.MachinePoolManager.StartLaunchProvisioning(
+			ctx, executor.logger(), launch.Agent.OrgID, launch.ProvisionMachineIDs,
+		)
 	}
 	childPublicID, err := publicid.Encode(publicid.KindAgent, launch.Agent.ID)
 	if err != nil {
