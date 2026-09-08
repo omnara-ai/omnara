@@ -34,7 +34,6 @@
 }
 
 @layer base {
-  /* Programmatically focused headings do not need a control focus outline. */
   :where(
     a[href],
     button,

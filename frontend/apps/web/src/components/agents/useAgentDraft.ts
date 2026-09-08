@@ -54,7 +54,6 @@ export function useAgentDraft(
 
   function applyTemplate(template: AgentTemplate) {
     const next = agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
-    // Keep a model the user already picked; templates only fill the gap.
     if (form.model.providerConfig !== '' && form.model.modelName !== '') {
       next.providerConfig = form.model.providerConfig
       next.modelName = form.model.modelName
