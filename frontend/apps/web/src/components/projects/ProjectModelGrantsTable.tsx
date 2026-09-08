@@ -16,7 +16,11 @@ import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { createdResourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  createdResourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { formatDateTime } from '@/lib/format'
 
 export function ProjectModelGrantsTable({
@@ -32,6 +36,7 @@ export function ProjectModelGrantsTable({
     sort: list.sort,
   })
   const grantsPaged = usePagedQuery(grantsQuery, list.queryKey)
+  const showToolbar = useListToolbarVisibility(list, grantsPaged.pagination, grantsQuery.isSuccess)
   const deleteGrant = useDeleteProjectModelGrant(orgId, projectId)
   const [editing, setEditing] = useState<ProjectModelGrantListItem | null>(null)
 
@@ -40,14 +45,16 @@ export function ProjectModelGrantsTable({
       <SearchHeader
         title="Model grants"
         toolbar={
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            sort={list.sort}
-            sortOptions={createdResourceSortOptions}
-            onSortChange={list.setSort}
-            placeholder="Search model grants by name…"
-          />
+          showToolbar ? (
+            <ResourceListToolbar
+              search={list.search}
+              onSearchChange={list.setSearch}
+              sort={list.sort}
+              sortOptions={createdResourceSortOptions}
+              onSortChange={list.setSort}
+              placeholder="Search model grants by name…"
+            />
+          ) : undefined
         }
       >
         <Button asChild size="sm" variant="ghost">
