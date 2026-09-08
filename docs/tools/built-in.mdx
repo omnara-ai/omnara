@@ -192,11 +192,11 @@ These tools are added automatically when the config declares [`subagents`](/agen
 
 ### `spawn_agent`
 
-Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it.
+Starts a subagent from a configured `subagents` key with a clean context. Requires `agent` (the key) and `task`; `name` optionally labels the subagent for later messages. Returns immediately with the subagent's id. The subagent's final answer arrives later as a message from it. `timeout_seconds` optionally caps the subagent's lifetime; when it elapses the subagent is stopped and the parent is notified. There is no default timeout.
 
-### `wait_agents`
+### `read_agent`
 
-Parks the tool call until subagents finish. `agents` lists names or ids; omit it to wait for every running subagent. `mode` is `all` (default) or `any`; `timeout_seconds` bounds the wait. The result carries each subagent's state and final answer, or the question it is waiting on.
+Reads a page of a subagent's timeline: inputs, model outputs, and tool results with their text. `after_sequence` pages forward from the start; `before_sequence` pages backward, with 0 meaning the latest events. `limit` defaults to 20.
 
 ### `send_agent_message`
 
@@ -208,7 +208,7 @@ Cancels and archives a subagent.
 
 ### `list_agents`
 
-Lists the agent's subagents with their key, state, and last activity.
+Lists the agent's subagents with their name, key, state, and last activity.
 
 ## Skills
 

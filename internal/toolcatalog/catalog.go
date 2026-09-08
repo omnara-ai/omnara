@@ -273,7 +273,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameSpawnAgent], err = spawnAgentTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWaitAgents], err = waitAgentsTool(); err != nil {
+	if entries[ToolNameReadAgent], err = readAgentTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameSendAgentMessage], err = sendAgentMessageTool(); err != nil {

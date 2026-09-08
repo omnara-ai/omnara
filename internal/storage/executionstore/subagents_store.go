@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 const (
@@ -23,23 +22,18 @@ const (
 
 	subagentMessageIdempotencyScope = "subagent_message"
 
-	SubagentMessageKindResult          = "result"
-	SubagentMessageKindFailed          = "failed"
-	SubagentMessageKindQuestion        = "question"
-	SubagentMessageKindCanceled        = "canceled"
-	SubagentMessageKindArchived        = "archived"
-	SubagentMessageKindWaitingOnParent = "waiting_on_parent"
-	SubagentMessageKindWaitingOnHuman  = "waiting_on_human"
-	SubagentMessageKindTimeout         = "timeout"
+	SubagentMessageKindResult   = "result"
+	SubagentMessageKindFailed   = "failed"
+	SubagentMessageKindQuestion = "question"
+	SubagentMessageKindCanceled = "canceled"
+	SubagentMessageKindArchived = "archived"
+	SubagentMessageKindTimeout  = "timeout"
 
 	SubagentStateRunning         = "running"
 	SubagentStateIdle            = "idle"
 	SubagentStateWaitingOnParent = "waiting_on_parent"
 	SubagentStateWaitingOnHuman  = "waiting_on_human"
 	SubagentStateArchived        = "archived"
-
-	AgentWaitModeAll = "all"
-	AgentWaitModeAny = "any"
 )
 
 type SubagentLaunch struct {
@@ -49,6 +43,7 @@ type SubagentLaunch struct {
 	MaxSubagents            *int
 	ShareParentMachines     bool
 	ArchiveAfterIdleMinutes *int
+	TimeoutSeconds          *int
 }
 
 type SubagentStatus struct {
@@ -61,45 +56,13 @@ type SubagentStatus struct {
 	IsRunning         bool
 	HasOpenQuestion   bool
 	HasOpenPermission bool
-	HasModelOutput    bool
-}
-
-type AgentWaitRecord struct {
-	ProjectID  ID
-	AgentID    ID
-	ToolCallID ID
-	Mode       string
-}
-
-type AgentWaitTargetOutcome struct {
-	AgentID    ID     `json:"-"`
-	PublicID   string `json:"agent_id"`
-	Name       string `json:"name,omitempty"`
-	Key        string `json:"key"`
-	State      string `json:"state"`
-	ResultKind string `json:"result_kind"`
-	Result     string `json:"result,omitempty"`
-}
-
-type AgentWaitOutcome struct {
-	Agents   []AgentWaitTargetOutcome `json:"agents"`
-	TimedOut bool                     `json:"timed_out"`
 }
 
 type subagentMessage struct {
 	Kind           string
-	WaitKind       string
-	WaitOnly       bool
 	Text           string
 	InteractionID  ID
 	IdempotencyKey string
-}
-
-func (message subagentMessage) waitResultKind() string {
-	if message.WaitKind != "" {
-		return message.WaitKind
-	}
-	return message.Kind
 }
 
 func SubagentActorParams(orgID ID, agent AgentRecord) (*ActorParams, error) {
@@ -248,7 +211,6 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		IsRunning:         row.IsRunning,
 		HasOpenQuestion:   row.HasOpenQuestion,
 		HasOpenPermission: row.HasOpenPermission,
-		HasModelOutput:    row.HasModelOutput,
 	}
 	switch {
 	case status.Archived:
@@ -263,13 +225,6 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		status.State = SubagentStateIdle
 	}
 	return status
-}
-
-func (status SubagentStatus) settled() bool {
-	if status.Archived || status.HasOpenQuestion || status.HasOpenPermission {
-		return true
-	}
-	return !status.IsRunning && status.HasModelOutput
 }
 
 func listChildAgentsTx(
@@ -344,60 +299,6 @@ func resolveSubagentReferenceTx(
 	}
 }
 
-func latestModelOutputTextTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) (string, error) {
-	text, err := qtx.LatestModelOutputTextForAgent(ctx, dbsqlc.LatestModelOutputTextForAgentParams{
-		ProjectID: projectID,
-		AgentID:   agentID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("load latest subagent output: %w", err)
-	}
-	return text, nil
-}
-
-func openInteractionTextTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID ID,
-	kind AgentInteractionKind,
-) (string, error) {
-	row, err := qtx.GetOpenInteractionForAgentByKind(ctx, dbsqlc.GetOpenInteractionForAgentByKindParams{
-		ProjectID:       projectID,
-		AgentID:         agentID,
-		InteractionKind: string(kind),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("load open subagent %s: %w", kind, err)
-	}
-	if kind == AgentInteractionKindPermission {
-		return renderPermissionForParent(row.ID, row.Request)
-	}
-	form, err := interactionform.Parse(row.Request)
-	if err != nil {
-		return "", err
-	}
-	return renderQuestionForParent(row.ID, form)
-}
-
-func renderPermissionForParent(interactionID ID, request json.RawMessage) (string, error) {
-	parsed, err := toolpermission.ParseRequest(request)
-	if err != nil {
-		return "", err
-	}
-	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
-	if err != nil {
-		return "", fmt.Errorf("encode interaction id: %w", err)
-	}
-	return fmt.Sprintf(
-		"Waiting for a human to approve tool %q (interaction_id %s). Only a person can resolve it from the console.",
-		parsed.Authorization.ToolName,
-		interactionPublicID,
-	), nil
-}
-
 func renderQuestionForParent(interactionID ID, form interactionform.Form) (string, error) {
 	interactionPublicID, err := publicid.Encode(publicid.KindAgentInteraction, interactionID)
 	if err != nil {
@@ -422,323 +323,6 @@ func renderQuestionForParent(interactionID ID, form interactionform.Form) (strin
 		}
 	}
 	return builder.String(), nil
-}
-
-func subagentTargetOutcomeTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID ID,
-	status SubagentStatus,
-) (string, string, error) {
-	switch {
-	case status.Archived:
-		return SubagentMessageKindArchived, "", nil
-	case status.HasOpenQuestion:
-		text, err := openInteractionTextTx(ctx, qtx, projectID, status.AgentID, AgentInteractionKindQuestion)
-		return SubagentMessageKindWaitingOnParent, text, err
-	case status.HasOpenPermission:
-		text, err := openInteractionTextTx(ctx, qtx, projectID, status.AgentID, AgentInteractionKindPermission)
-		return SubagentMessageKindWaitingOnHuman, text, err
-	default:
-		text, err := latestModelOutputTextTx(ctx, qtx, projectID, status.AgentID)
-		return SubagentMessageKindResult, text, err
-	}
-}
-
-type CreateAgentWaitInput struct {
-	TargetAgentIDs []ID
-	Mode           string
-	TimeoutSeconds *int
-}
-
-func CreateAgentWaitForToolCall(
-	input CreateAgentWaitInput,
-	completion ToolCallCompletionBuilder[AgentWaitOutcome],
-) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		if completion == nil {
-			return nil, errors.New("agent wait completion builder is required")
-		}
-		outcome, waiting, err := tx.createAgentWait(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-		if waiting {
-			return nil, nil
-		}
-		toolCompletion, err := completion(outcome)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.completeToolCall(ctx, toolCompletion); err != nil {
-			return nil, err
-		}
-		return outcome, nil
-	})
-}
-
-func (t *toolCallTransaction) createAgentWait(
-	ctx context.Context,
-	input CreateAgentWaitInput,
-) (AgentWaitOutcome, bool, error) {
-	if input.Mode != AgentWaitModeAll && input.Mode != AgentWaitModeAny {
-		return AgentWaitOutcome{}, false, storeerr.InvalidRequest(fmt.Errorf("unsupported wait mode %q", input.Mode))
-	}
-	existingTargets, err := t.q.CountAgentWaitTargets(ctx, dbsqlc.CountAgentWaitTargetsParams{
-		AgentID:    t.input.AgentID,
-		ToolCallID: t.input.ToolCallID,
-	})
-	if err != nil {
-		return AgentWaitOutcome{}, false, fmt.Errorf("count agent wait targets: %w", err)
-	}
-	if existingTargets > 0 {
-		t.hasDurableCompletionOwner = true
-		if err := t.lockOrAcceptExisting(ctx); err != nil {
-			return AgentWaitOutcome{}, false, err
-		}
-		return AgentWaitOutcome{}, true, nil
-	}
-	if err := t.lockForMutation(ctx); err != nil {
-		return AgentWaitOutcome{}, false, err
-	}
-	children, err := listChildAgentsTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, true)
-	if err != nil {
-		return AgentWaitOutcome{}, false, err
-	}
-	byID := make(map[ID]SubagentStatus, len(children))
-	for _, child := range children {
-		byID[child.AgentID] = child
-	}
-	targets := make([]SubagentStatus, 0, len(input.TargetAgentIDs))
-	if len(input.TargetAgentIDs) == 0 {
-		for _, child := range children {
-			if !child.Archived {
-				targets = append(targets, child)
-			}
-		}
-	} else {
-		for _, id := range input.TargetAgentIDs {
-			child, ok := byID[id]
-			if !ok {
-				return AgentWaitOutcome{}, false, storeerr.InvalidRequest(
-					fmt.Errorf("agent %s is not a subagent of this agent", id),
-				)
-			}
-			targets = append(targets, child)
-		}
-	}
-	if len(targets) == 0 {
-		return AgentWaitOutcome{}, false, storeerr.InvalidRequest(errors.New("there are no running subagents to wait for"))
-	}
-	outcome := AgentWaitOutcome{Agents: make([]AgentWaitTargetOutcome, 0, len(targets))}
-	settledCount := 0
-	for _, target := range targets {
-		entry, err := waitTargetOutcome(target)
-		if err != nil {
-			return AgentWaitOutcome{}, false, err
-		}
-		if target.settled() {
-			kind, text, err := subagentTargetOutcomeTx(ctx, t.q, t.input.ProjectID, target)
-			if err != nil {
-				return AgentWaitOutcome{}, false, err
-			}
-			entry.ResultKind = kind
-			entry.Result = text
-			settledCount++
-		}
-		outcome.Agents = append(outcome.Agents, entry)
-	}
-	satisfied := (input.Mode == AgentWaitModeAny && settledCount > 0) ||
-		(input.Mode == AgentWaitModeAll && settledCount == len(targets))
-	if satisfied {
-		return outcome, false, nil
-	}
-	for _, entry := range outcome.Agents {
-		if err := t.q.InsertAgentWaitTarget(ctx, dbsqlc.InsertAgentWaitTargetParams{
-			ProjectID:     t.input.ProjectID,
-			AgentID:       t.input.AgentID,
-			ToolCallID:    t.input.ToolCallID,
-			TargetAgentID: entry.AgentID,
-		}); err != nil {
-			return AgentWaitOutcome{}, false, fmt.Errorf("create agent wait target: %w", err)
-		}
-		if entry.ResultKind == "" {
-			continue
-		}
-		if _, err := t.q.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
-			ResultKind:    entry.ResultKind,
-			ResultText:    entry.Result,
-			AgentID:       t.input.AgentID,
-			ToolCallID:    t.input.ToolCallID,
-			TargetAgentID: entry.AgentID,
-		}); err != nil {
-			return AgentWaitOutcome{}, false, fmt.Errorf("record settled agent wait target: %w", err)
-		}
-	}
-	t.hasDurableCompletionOwner = true
-	if err := t.startToolCallWithTimeout(ctx, false, input.TimeoutSeconds); err != nil {
-		return AgentWaitOutcome{}, false, err
-	}
-	return AgentWaitOutcome{}, true, nil
-}
-
-func waitTargetOutcome(status SubagentStatus) (AgentWaitTargetOutcome, error) {
-	agentPublicID, err := publicid.Encode(publicid.KindAgent, status.AgentID)
-	if err != nil {
-		return AgentWaitTargetOutcome{}, fmt.Errorf("encode subagent id: %w", err)
-	}
-	return AgentWaitTargetOutcome{
-		AgentID:  status.AgentID,
-		PublicID: agentPublicID,
-		Name:     status.Name,
-		Key:      status.Key,
-		State:    status.State,
-	}, nil
-}
-
-func completeAgentWaitTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	wait AgentWaitRecord,
-	timedOut bool,
-) error {
-	row, err := qtx.CompleteWaitingBuiltInToolCall(ctx, dbsqlc.CompleteWaitingBuiltInToolCallParams{
-		ProjectID: wait.ProjectID,
-		AgentID:   wait.AgentID,
-		ID:        wait.ToolCallID,
-		Outcome:   string(ToolResultOutcomeSucceeded),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("complete tool call from agent wait: %w", err)
-	}
-	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{
-		AgentID:    wait.AgentID,
-		ToolCallID: wait.ToolCallID,
-	})
-	if err != nil {
-		return fmt.Errorf("list agent wait targets: %w", err)
-	}
-	outcome := AgentWaitOutcome{TimedOut: timedOut, Agents: make([]AgentWaitTargetOutcome, 0, len(targets))}
-	for _, target := range targets {
-		agentPublicID, err := publicid.Encode(publicid.KindAgent, target.TargetAgentID)
-		if err != nil {
-			return fmt.Errorf("encode subagent id: %w", err)
-		}
-		state := subagentStateForResultKind(target.ResultKind)
-		if target.AgentState == string(AgentStateArchived) {
-			state = SubagentStateArchived
-		}
-		outcome.Agents = append(outcome.Agents, AgentWaitTargetOutcome{
-			AgentID:    target.TargetAgentID,
-			PublicID:   agentPublicID,
-			Name:       target.Name,
-			Key:        target.SubagentKey,
-			State:      state,
-			ResultKind: target.ResultKind,
-			Result:     target.ResultText,
-		})
-	}
-	result, err := marshalJSON(outcome)
-	if err != nil {
-		return fmt.Errorf("marshal agent wait result: %w", err)
-	}
-	contentParts, err := ToolResultContentParts(result)
-	if err != nil {
-		return err
-	}
-	_, err = finishCompletedToolCallTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		toolCallRecordFromWaitingCompleteSQLC(row),
-		toolCallResultInput{Outcome: ToolResultOutcomeSucceeded, ResultContentParts: contentParts},
-	)
-	return err
-}
-
-func subagentStateForResultKind(kind string) string {
-	switch kind {
-	case SubagentMessageKindArchived:
-		return SubagentStateArchived
-	case SubagentMessageKindWaitingOnParent:
-		return SubagentStateWaitingOnParent
-	case SubagentMessageKindWaitingOnHuman:
-		return SubagentStateWaitingOnHuman
-	case SubagentMessageKindResult, SubagentMessageKindFailed, SubagentMessageKindCanceled:
-		return SubagentStateIdle
-	default:
-		return SubagentStateRunning
-	}
-}
-
-// handleSubagentMessageTx delivers a subagent's outcome to its parent. When
-// the parent is parked in wait_agents on this subagent the outcome completes
-// that wait; otherwise it arrives as a queued input from the subagent.
-func handleSubagentMessageTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	child AgentRecord,
-	message subagentMessage,
-) error {
-	if isNilID(child.ParentAgentID) {
-		return nil
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx, dbsqlc.LockAgentInProjectParams{ProjectID: child.ProjectID, ID: child.ParentAgentID},
-	); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("lock parent agent: %w", err)
-	}
-	waits, err := qtx.ListOpenAgentWaitsForTarget(ctx, dbsqlc.ListOpenAgentWaitsForTargetParams{
-		ProjectID:     child.ProjectID,
-		TargetAgentID: child.ID,
-	})
-	if err != nil {
-		return fmt.Errorf("list open agent waits: %w", err)
-	}
-	if len(waits) == 0 {
-		if message.WaitOnly {
-			return nil
-		}
-		return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, message)
-	}
-	for _, row := range waits {
-		wait := AgentWaitRecord{
-			ProjectID:  row.ProjectID,
-			AgentID:    row.AgentID,
-			ToolCallID: row.ToolCallID,
-			Mode:       row.Mode,
-		}
-		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
-			ResultKind:    message.waitResultKind(),
-			ResultText:    message.Text,
-			AgentID:       wait.AgentID,
-			ToolCallID:    wait.ToolCallID,
-			TargetAgentID: child.ID,
-		}); err != nil {
-			return fmt.Errorf("record agent wait target outcome: %w", err)
-		}
-		pending, err := qtx.CountPendingAgentWaitTargets(ctx, dbsqlc.CountPendingAgentWaitTargetsParams{
-			AgentID:    wait.AgentID,
-			ToolCallID: wait.ToolCallID,
-		})
-		if err != nil {
-			return fmt.Errorf("count pending agent wait targets: %w", err)
-		}
-		if wait.Mode == AgentWaitModeAny || pending == 0 {
-			if err := completeAgentWaitTx(ctx, txNotifications, tx, qtx, wait, false); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func notifyParentAgentTx(
@@ -817,6 +401,8 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 		header = label + " was canceled."
 	case SubagentMessageKindArchived:
 		header = label + " was archived."
+	case SubagentMessageKindTimeout:
+		header = label + " exceeded its timeout and was stopped."
 	default:
 		header = label + ":"
 	}
@@ -848,7 +434,7 @@ func handleSubagentTurnEndedTx(
 	if err != nil {
 		return err
 	}
-	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, message)
+	return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, message)
 }
 
 func textInputContentBlocks(text string) ([]CreateContentBlockInput, json.RawMessage, error) {
@@ -886,41 +472,11 @@ func handleSubagentQuestionTx(
 	if err != nil {
 		return err
 	}
-	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, subagentMessage{
+	return notifyParentAgentTx(ctx, txNotifications, tx, qtx, child, subagentMessage{
 		Kind:           SubagentMessageKindQuestion,
-		WaitKind:       SubagentMessageKindWaitingOnParent,
 		Text:           text,
 		InteractionID:  interaction.ID,
 		IdempotencyKey: "question:" + interaction.ID.String(),
-	})
-}
-
-// handleSubagentPermissionTx only settles a parent parked in wait_agents;
-// a pending human permission is never announced to the parent model.
-func handleSubagentPermissionTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	interaction AgentInteractionRecord,
-) error {
-	child, err := loadAgentInProjectTx(ctx, tx, interaction.ProjectID, interaction.AgentID)
-	if err != nil {
-		return err
-	}
-	if isNilID(child.ParentAgentID) {
-		return nil
-	}
-	text, err := renderPermissionForParent(interaction.ID, interaction.Request)
-	if err != nil {
-		return err
-	}
-	return handleSubagentMessageTx(ctx, txNotifications, tx, qtx, child, subagentMessage{
-		Kind:           SubagentMessageKindWaitingOnHuman,
-		WaitOnly:       true,
-		Text:           text,
-		InteractionID:  interaction.ID,
-		IdempotencyKey: "permission:" + interaction.ID.String(),
 	})
 }
 
@@ -1144,7 +700,7 @@ func StopSubagentForToolCall(
 		if child.ParentAgentID != tx.input.AgentID {
 			return nil, storeerr.InvalidRequest(errors.New("target agent is not a subagent of this agent"))
 		}
-		machines, err := archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil, false)
+		machines, err := archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil, "")
 		if err != nil {
 			return nil, err
 		}
@@ -1155,35 +711,11 @@ func StopSubagentForToolCall(
 	})
 }
 
-func timeOutAgentWaitTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	qtx *dbsqlc.Queries,
-	wait AgentWaitRecord,
-) error {
-	targets, err := qtx.ListAgentWaitTargets(ctx, dbsqlc.ListAgentWaitTargetsParams{
-		AgentID:    wait.AgentID,
-		ToolCallID: wait.ToolCallID,
-	})
-	if err != nil {
-		return fmt.Errorf("list agent wait targets: %w", err)
-	}
-	for _, target := range targets {
-		if target.State != "pending" {
-			continue
-		}
-		if _, err := qtx.MarkAgentWaitTargetDone(ctx, dbsqlc.MarkAgentWaitTargetDoneParams{
-			ResultKind:    SubagentMessageKindTimeout,
-			ResultText:    "",
-			AgentID:       wait.AgentID,
-			ToolCallID:    wait.ToolCallID,
-			TargetAgentID: target.TargetAgentID,
-		}); err != nil {
-			return fmt.Errorf("time out agent wait target: %w", err)
-		}
-	}
-	return completeAgentWaitTx(ctx, txNotifications, tx, qtx, wait, true)
+const SubagentExpiryBatchSize = 100
+
+type subagentArchiveCandidate struct {
+	ProjectID ID
+	ID        ID
 }
 
 func (s *Store) ArchiveIdleSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
@@ -1194,22 +726,54 @@ func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit
 	if limit <= 0 {
 		limit = 50
 	}
-	candidates, err := s.q.ListIdleSubagentsForArchive(
+	rows, err := s.q.ListIdleSubagentsForArchive(
 		ctx, dbsqlc.ListIdleSubagentsForArchiveParams{AsOf: asOf, RowLimit: int32(limit)},
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list idle subagents: %w", err)
 	}
+	candidates := make([]subagentArchiveCandidate, 0, len(rows))
+	for _, row := range rows {
+		candidates = append(candidates, subagentArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
+	}
+	return s.archiveSubagentCandidates(ctx, candidates, SubagentMessageKindArchived, "archive idle subagent")
+}
+
+func (s *Store) StopExpiredSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
+	return s.stopExpiredSubagents(ctx, nil, limit)
+}
+
+func (s *Store) stopExpiredSubagents(ctx context.Context, asOf *time.Time, limit int) ([]MachineRecord, int, error) {
+	if limit <= 0 {
+		limit = SubagentExpiryBatchSize
+	}
+	rows, err := s.q.ListExpiredSubagents(ctx, dbsqlc.ListExpiredSubagentsParams{AsOf: asOf, RowLimit: int32(limit)})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list expired subagents: %w", err)
+	}
+	candidates := make([]subagentArchiveCandidate, 0, len(rows))
+	for _, row := range rows {
+		candidates = append(candidates, subagentArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
+	}
+	return s.archiveSubagentCandidates(ctx, candidates, SubagentMessageKindTimeout, "stop expired subagent")
+}
+
+func (s *Store) archiveSubagentCandidates(
+	ctx context.Context,
+	candidates []subagentArchiveCandidate,
+	notifyParentKind string,
+	commitScope string,
+) ([]MachineRecord, int, error) {
 	var machines []MachineRecord
 	archived := 0
 	for _, candidate := range candidates {
 		txNotifications := s.newTxNotifications()
 		tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
-			return machines, archived, fmt.Errorf("begin archive idle subagent: %w", err)
+			return machines, archived, fmt.Errorf("begin %s: %w", commitScope, err)
 		}
 		released, err := archiveAgentTreeTx(
-			ctx, tx, dbsqlc.New(tx), txNotifications, candidate.ProjectID, candidate.ID, nil, true,
+			ctx, tx, dbsqlc.New(tx), txNotifications, candidate.ProjectID, candidate.ID, nil, notifyParentKind,
 		)
 		if err != nil {
 			_ = tx.Rollback(ctx)
@@ -1218,7 +782,7 @@ func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit
 			}
 			return machines, archived, err
 		}
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "archive idle subagent"); err != nil {
+		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, commitScope); err != nil {
 			_ = tx.Rollback(ctx)
 			return machines, archived, err
 		}
@@ -1226,6 +790,52 @@ func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit
 		archived++
 	}
 	return machines, archived, nil
+}
+
+// ReadSubagentEvents returns one page of a subagent's event log for its
+// parent, forward from afterSequence or, when beforeSequence is set,
+// backward from that boundary (0 meaning the latest events).
+func (r *ToolCallReader) ReadSubagentEvents(
+	ctx context.Context,
+	reference string,
+	afterSequence, beforeSequence int64,
+	limit int32,
+) (SubagentStatus, []AgentEventReadRecord, error) {
+	status, err := r.ResolveSubagentReference(ctx, reference)
+	if err != nil {
+		return SubagentStatus{}, nil, err
+	}
+	if limit <= 0 {
+		limit = defaultAgentEventsReadLimit
+	}
+	if limit > maxAgentEventsReadLimit {
+		limit = maxAgentEventsReadLimit
+	}
+	projectID := r.transaction.input.ProjectID
+	var rows []dbsqlc.AgentEventReadProjection
+	if beforeSequence >= 0 && afterSequence == 0 {
+		rows, err = r.transaction.q.ListAgentEventsBeforeForRead(ctx, dbsqlc.ListAgentEventsBeforeForReadParams{
+			ProjectID:      projectID,
+			AgentID:        status.AgentID,
+			BeforeSequence: beforeSequence,
+			PageLimit:      limit,
+		})
+	} else {
+		rows, err = r.transaction.q.ListAgentEventsForRead(ctx, dbsqlc.ListAgentEventsForReadParams{
+			ProjectID:     projectID,
+			AgentID:       status.AgentID,
+			AfterSequence: afterSequence,
+			PageLimit:     limit,
+		})
+	}
+	if err != nil {
+		return SubagentStatus{}, nil, fmt.Errorf("read subagent events: %w", err)
+	}
+	events := make([]AgentEventReadRecord, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, agentEventReadRecordFromSQLC(row))
+	}
+	return status, events, nil
 }
 
 func (s *Store) ListSubagents(ctx context.Context, projectID, parentAgentID ID) ([]SubagentStatus, error) {

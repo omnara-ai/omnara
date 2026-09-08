@@ -5,14 +5,14 @@ const (
 		"to run in parallel. Pick `agent` from the configured subagent keys listed below: `self` keys copy your own " +
 		"configuration and `profile` keys use another agent profile. The subagent starts with a clean context, so " +
 		"`task` must be complete and self-contained. Returns immediately with the subagent's id. It runs in the " +
-		"background and its final answer arrives later as a message from it, or through wait_agents. Never guess " +
-		"or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. Give " +
-		"it a `name` to address it later."
-	waitAgentsToolDescription = "Block until subagents finish their current work, then return each one's final " +
-		"answer or the question it is waiting on. Pass subagent names or ids in `agents`, or omit it to wait for " +
-		"every running subagent. `mode` `all` (default) waits for every listed subagent; `any` returns when the " +
-		"first finishes. Set `timeout_seconds` to give up and get a report of which subagents are still running. " +
-		"Use this instead of polling list_agents."
+		"background and its final answer arrives later as a message from it; read_agent shows its progress. Never " +
+		"guess or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. " +
+		"Give it a `name` to address it later. Set `timeout_seconds` only when the work must be bounded; the " +
+		"subagent is stopped when it elapses."
+	readAgentToolDescription = "Read a subagent's timeline: its inputs, model outputs, and tool results, in " +
+		"sequence order with text content. Use it to check on progress or to fetch a finished subagent's answer " +
+		"without waiting for its message. Page forward with `after_sequence` or backward from the end with " +
+		"`before_sequence`. Never guess at a subagent's result; read it or wait for its message."
 	sendAgentMessageToolDescription = "Send a message to one of your subagents by name or id. Your plain text " +
 		"output is not visible to subagents; this tool is the only way to reach them. Use it for follow-up " +
 		"instructions, or to answer a question a subagent asked by passing its `interaction_id`. Messaging a " +
@@ -20,9 +20,9 @@ const (
 	stopAgentToolDescription = "Stop a subagent by name or id. Cancels its current work and archives it, after " +
 		"which it can no longer be messaged. Use it to end a subagent you no longer need or one that is taking " +
 		"too long."
-	listAgentsToolDescription = "List the subagents you can message, wait on, or stop, with each one's name, " +
-		"key, state, and last activity. Names are the address for the other subagent tools. Do not poll this " +
-		"to check progress; use wait_agents."
+	listAgentsToolDescription = "List the subagents you can read, message, or stop, with each one's name, key, " +
+		"state, and last activity. Names are the address for the other subagent tools. Subagent results arrive " +
+		"as messages, so do not poll this to check progress."
 	subagentReferenceDescription = "Subagent name or id (agt_...)."
 )
 
@@ -48,31 +48,42 @@ func spawnAgentTool() (Entry, error) {
 				"maxLength":   64,
 				"description": "Optional name for addressing the subagent later. Must be unique among your active subagents.",
 			},
+			"timeout_seconds": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     604800,
+				"description": "Optional lifetime cap. The subagent is stopped and archived when it elapses, and you are notified. Omit it unless the work must be bounded.",
+			},
 		},
 	)
 }
 
-func waitAgentsTool() (Entry, error) {
+func readAgentTool() (Entry, error) {
 	return toolEntry(
-		ToolNameWaitAgents,
-		waitAgentsToolDescription,
-		nil,
+		ToolNameReadAgent,
+		readAgentToolDescription,
+		[]string{"agent"},
 		map[string]any{
-			"agents": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string", "minLength": 1},
-				"description": "Subagent names or ids to wait for. Omit to wait for all running subagents.",
-			},
-			"mode": map[string]any{
+			"agent": map[string]any{
 				"type":        "string",
-				"enum":        []string{"all", "any"},
-				"description": "Return when all listed subagents are done (default) or when any one is.",
+				"minLength":   1,
+				"description": subagentReferenceDescription,
 			},
-			"timeout_seconds": map[string]any{
+			"after_sequence": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"description": "Return events after this sequence, oldest first. Omit or pass 0 to start from the beginning.",
+			},
+			"before_sequence": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"description": "Return events before this sequence, newest page. Pass 0 for the latest events. Ignored when after_sequence is set.",
+			},
+			"limit": map[string]any{
 				"type":        "integer",
 				"minimum":     1,
-				"maximum":     86400,
-				"description": "Give up after this many seconds and report which subagents are still running.",
+				"maximum":     100,
+				"description": "Maximum events to return. Defaults to 20.",
 			},
 		},
 	)

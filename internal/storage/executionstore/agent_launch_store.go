@@ -140,6 +140,7 @@ func (s *Store) launchAgentOnce(
 		insertInput.ParentAgentID = input.Subagent.ParentAgentID
 		insertInput.SubagentKey = input.Subagent.Key
 		insertInput.ArchiveAfterIdleMinutes = input.Subagent.ArchiveAfterIdleMinutes
+		insertInput.TimeoutSeconds = input.Subagent.TimeoutSeconds
 		if input.Subagent.ShareParentMachines {
 			machineSources = nil
 		}

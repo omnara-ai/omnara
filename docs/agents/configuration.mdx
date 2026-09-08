@@ -159,7 +159,7 @@ Environment names beginning with `OMNARA_` are reserved case-insensitively and c
 
 ## Subagents
 
-`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key implicitly adds the five subagent tools (`spawn_agent`, `wait_agents`, `send_agent_message`, `stop_agent`, `list_agents`); list one under `tools` only to disable it or change its permission mode.
+`subagents` declares the helpers an agent may spawn, keyed by a name the agent passes to the `spawn_agent` tool. Declaring at least one key implicitly adds the five subagent tools (`spawn_agent`, `read_agent`, `send_agent_message`, `stop_agent`, `list_agents`); list one under `tools` only to disable it or change its permission mode.
 
 ```yaml
 subagents:
@@ -192,7 +192,7 @@ max_subagents: 8
 | `archive_after_idle_minutes` | Archive subagents from this key once they have been idle this long. |
 | `max_subagents` | Top-level cap on active subagents across every key. |
 
-Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. `self` subagents share the parent's attached machines; `profile` subagents provision their own from the profile's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent, or completes a pending `wait_agents` call. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
+Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. `self` subagents share the parent's attached machines; `profile` subagents provision their own from the profile's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
 ## Create a config
 

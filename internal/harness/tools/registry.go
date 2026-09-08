@@ -252,9 +252,9 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameWaitAgents,
-			semanticInputValidator: validateWaitAgentsInput,
-			handler:                toolHandler{Transactional: waitAgents},
+			name:                   toolcatalog.ToolNameReadAgent,
+			semanticInputValidator: validateReadAgentInput,
+			handler:                toolHandler{Transactional: readAgent},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{

@@ -20,7 +20,7 @@ func (s *Store) ArchiveAgentTx(
 	projectID, agentID ID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	return archiveAgentTreeTx(ctx, tx, s.q.WithTx(tx), txNotifications, projectID, agentID, actor, false)
+	return archiveAgentTreeTx(ctx, tx, s.q.WithTx(tx), txNotifications, projectID, agentID, actor, "")
 }
 
 func (s *Store) ProvisionOrganizationDefaultsTx(

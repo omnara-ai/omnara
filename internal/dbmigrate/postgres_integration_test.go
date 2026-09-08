@@ -217,7 +217,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
-		"agent_profiles,agent_wait_targets,agents,cron_triggers,integration_installs,integration_targets," +
+		"agent_profiles,agents,cron_triggers,integration_installs,integration_targets," +
 		"model_call_contexts,process_actions,processes,project_machine_grants," +
 		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
