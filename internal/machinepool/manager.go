@@ -465,6 +465,25 @@ func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.M
 }
 
 func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error {
+	return m.deleteMachineWithCause(ctx, candidate, nil)
+}
+
+// DeleteMachineNeverCreated cleans up a machine whose create the provider is
+// known to have refused outright, so no resource exists to find or wait for.
+// The caller vouches for that knowledge; a create whose outcome was merely
+// not observed must go through DeleteMachine and its grace period instead.
+func (m Manager) DeleteMachineNeverCreated(
+	ctx context.Context,
+	candidate executionstore.PoolMachineCleanupCandidate,
+) error {
+	return m.deleteMachineWithCause(ctx, candidate, providers.ErrResourceNotCreated)
+}
+
+func (m Manager) deleteMachineWithCause(
+	ctx context.Context,
+	candidate executionstore.PoolMachineCleanupCandidate,
+	cause error,
+) error {
 	preClaimMachine := candidate.Machine
 	claim, claimed, err := m.Execution.ClaimPoolMachineDeletion(ctx, executionstore.MachineDeletingInput{
 		OrgID:                    preClaimMachine.OrgID,
@@ -475,6 +494,9 @@ func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.Poo
 	})
 	if err != nil || !claimed {
 		return err
+	}
+	if claim.Machine.ProviderResourceID == "" && errors.Is(cause, providers.ErrResourceNotCreated) {
+		claim.CanFinalizeMissingProviderResource = true
 	}
 	_, err = m.deleteClaimedMachine(ctx, claim, nil)
 	return err
@@ -751,11 +773,15 @@ func (m Manager) cleanupFailedProvision(
 	if !marked {
 		return cause
 	}
-	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{
+	// When the provider observed its create being refused outright, it says
+	// so with ErrResourceNotCreated and there is nothing to find or wait for.
+	// Any other failure, such as a timeout, leaves open whether a create went
+	// through, and the missing-resource grace period guards that case.
+	if err := m.deleteMachineWithCause(ctx, executionstore.PoolMachineCleanupCandidate{
 		Machine:       deleting,
 		ReasonCode:    deleting.LifecycleReasonCode,
 		ReasonMessage: deleting.LifecycleReasonMessage,
-	}); err != nil {
+	}, cause); err != nil {
 		return err
 	}
 	return cause

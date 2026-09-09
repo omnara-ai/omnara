@@ -281,6 +281,71 @@ describe('machine pool edit state', () => {
     expect(request).not.toHaveProperty('default_machine_memory_mb')
   })
 
+  it('serializes a boxd pool without a snapshot as the base image', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'boxd' as const,
+      name: 'boxd-pool',
+      location: '',
+      secretId: 'secret_1',
+      cpu: '2',
+      memoryGb: '8',
+      maxMachines: '2',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, image: 'team-workspace' })).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'boxd',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 8192,
+      default_machine_provider_options: {},
+      max_total_cpu: 4,
+      max_total_memory_mb: 16384,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 8192,
+    })
+    expect(machinePoolCreateRequest(values).provider_config).toBeUndefined()
+    expect(
+      machinePoolCreateRequest({ ...values, image: ' team-workspace ', startupScript: 'echo hi' }),
+    ).toMatchObject({
+      default_machine_provider_options: { snapshot: 'team-workspace', startup_script: 'echo hi' },
+    })
+  })
+
+  it('round-trips a boxd pool and drops a cleared snapshot on update', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: 4,
+      default_machine_memory_mb: 16384,
+      default_machine_provider_options: { snapshot: 'team-workspace', extra: 'kept' },
+      max_total_cpu: 8,
+      max_total_memory_mb: 32768,
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+
+    const values = machinePoolFormFromPool(pool)
+
+    if (values === null) throw new Error('expected boxd form values')
+    expect(values).toMatchObject({
+      provider: 'boxd',
+      image: 'team-workspace',
+      location: '',
+      cpu: '4',
+      memoryGb: '16',
+    })
+    expect(machinePoolUpdateRequest(pool, values)).toMatchObject({
+      default_machine_cpu: 4,
+      default_machine_memory_mb: 16384,
+      default_machine_provider_options: { snapshot: 'team-workspace', extra: 'kept' },
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+    const cleared = machinePoolUpdateRequest(pool, { ...values, image: '' })
+    expect(cleared.default_machine_provider_options).toEqual({ extra: 'kept' })
+  })
+
   it('serializes only organization-editable fields for a cluster pool', () => {
     const pool = machinePool({
       management_kind: 'cluster',

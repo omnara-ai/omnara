@@ -1356,6 +1356,145 @@ func TestPublicDaytonaMachinePoolAcceptsOptionalDefaultsWithoutProviderResolutio
 	}
 }
 
+func TestPublicBoxdMachinePoolConfiguresWithoutProviderResolution(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool, WithPublicURL("https://app.omnara.test"))
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "boxd-machine-pool")
+	providerAuthSecretID := createPublicHTTPMachinePoolProviderAuthSecret(
+		t,
+		handler,
+		project,
+		"boxd-provider-auth",
+		"bxd_boxd-token",
+	)
+	// An unroutable API endpoint proves pool configuration never dials boxd.
+	const providerConfig = `{"api_url":"boxd.invalid:9443","allowed_snapshots":["*"]}`
+	poolResponse := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools",
+		`{"name":"boxd","provider":"boxd","default_machine_cpu":2,"default_machine_memory_mb":8192,`+
+			`"default_machine_env":{},"default_machine_provider_options":{},`+
+			`"provider_config":`+providerConfig+`,"provider_auth_secret_id":"`+providerAuthSecretID+`",`+
+			`"runtime_protection_enabled":true,`+
+			`"max_total_machines":2,"max_total_cpu":8,"max_total_memory_mb":32768,`+
+			`"max_machine_cpu":4,"max_machine_memory_mb":16384}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	if poolResponse["default_machine_cpu"] != float64(2) ||
+		poolResponse["default_machine_memory_mb"] != float64(8192) ||
+		poolResponse["runtime_protection_enabled"] != true {
+		t.Fatalf("boxd configured pool = %+v", poolResponse)
+	}
+	options := testutil.RequireType[map[string]any](t, poolResponse["default_machine_provider_options"])
+	if len(options) != 0 {
+		t.Fatalf("boxd base-image pool options = %+v, want none", options)
+	}
+	poolID := testutil.RequireType[string](t, poolResponse["id"])
+	stored, err := store.Execution().GetMachinePool(
+		ctx,
+		project.OrgUUID,
+		mustPublicHTTPID(t, publicid.KindMachinePool, poolID),
+	)
+	if err != nil {
+		t.Fatalf("get boxd machine pool: %v", err)
+	}
+	if stored.DefaultMachineCPU == nil || *stored.DefaultMachineCPU != 2 ||
+		stored.DefaultMachineMemoryMB == nil || *stored.DefaultMachineMemoryMB != 8192 ||
+		!stored.RuntimeProtectionEnabled {
+		t.Fatalf(
+			"stored boxd pool = cpu %v memory %v runtime protection %t",
+			stored.DefaultMachineCPU,
+			stored.DefaultMachineMemoryMB,
+			stored.RuntimeProtectionEnabled,
+		)
+	}
+	updated := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+poolID,
+		`{"default_machine_provider_options":{"snapshot":"team-workspace"},`+
+			`"default_machine_cpu":4,"default_machine_memory_mb":16384}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if updated["default_machine_cpu"] != float64(4) ||
+		updated["default_machine_memory_mb"] != float64(16384) ||
+		testutil.RequireType[map[string]any](t, updated["default_machine_provider_options"])["snapshot"] != "team-workspace" {
+		t.Fatalf("updated boxd pool = %+v", updated)
+	}
+}
+
+func TestPublicBoxdMachinePoolRejectsInvalidConfiguration(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool, WithPublicURL("https://app.omnara.test"))
+	project := bootstrapPublicHTTPProject(t, handler, "boxd-machine-pool-invalid")
+	providerAuthSecretID := createPublicHTTPMachinePoolProviderAuthSecret(
+		t,
+		handler,
+		project,
+		"boxd-provider-auth",
+		"bxd_boxd-token",
+	)
+	const caps = `"max_total_machines":1,"max_total_cpu":4,"max_total_memory_mb":16384,` +
+		`"max_machine_cpu":4,"max_machine_memory_mb":16384`
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "size outside a boxd class",
+			body: `{"name":"boxd-bad-size","provider":"boxd","default_machine_cpu":2,` +
+				`"default_machine_memory_mb":4096,"default_machine_env":{},` +
+				`"default_machine_provider_options":{},"provider_config":{},` +
+				`"provider_auth_secret_id":"` + providerAuthSecretID + `",` + caps + `}`,
+		},
+		{
+			name: "unknown provider option",
+			body: `{"name":"boxd-bad-option","provider":"boxd","default_machine_env":{},` +
+				`"default_machine_provider_options":{"image":"ubuntu"},"provider_config":{},` +
+				`"provider_auth_secret_id":"` + providerAuthSecretID + `",` + caps + `}`,
+		},
+		{
+			name: "api url with a scheme",
+			body: `{"name":"boxd-bad-url","provider":"boxd","default_machine_env":{},` +
+				`"default_machine_provider_options":{},"provider_config":{"api_url":"https://boxd.sh:9443"},` +
+				`"provider_auth_secret_id":"` + providerAuthSecretID + `",` + caps + `}`,
+		},
+		{
+			name: "snapshot outside the allowlist",
+			body: `{"name":"boxd-bad-snapshot","provider":"boxd","default_machine_env":{},` +
+				`"default_machine_provider_options":{"snapshot":"other"},` +
+				`"provider_config":{"allowed_snapshots":["team-workspace"]},` +
+				`"provider_auth_secret_id":"` + providerAuthSecretID + `",` + caps + `}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requestJSONWithHeaders(
+				t,
+				handler,
+				http.MethodPost,
+				"/api/v1/orgs/"+project.OrgID+"/machine-pools",
+				test.body,
+				"",
+				http.StatusBadRequest,
+				authHeaders(project.AdminToken),
+			)
+		})
+	}
+}
+
 func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

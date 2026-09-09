@@ -185,6 +185,16 @@ linters:
           - lll
           - misspell
           - usestdlibvars
+      # protoc-gen-go output for the boxd provider's gRPC bindings.
+      - path: internal/machinepool/providers/boxd/boxdv1/
+        linters:
+          - errcheck
+          - forcetypeassert
+          - lll
+          - misspell
+          - recvcheck
+          - staticcheck
+          - unused
       - path: _test\.go
         linters:
           - errcheck

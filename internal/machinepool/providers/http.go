@@ -107,6 +107,18 @@ func (e retryAfterError) ProviderRetryAfter() time.Duration {
 	return e.delay
 }
 
+// WithRetryDelay attaches an explicit retry hint to a provider error. A
+// provider uses it when it knows a condition will not clear on the caller's
+// immediate-retry schedule, such as an account at its machine limit: a delay
+// beyond the provisioning deadline ends the in-attempt retry loop at once and
+// leaves the retry to the slower reconciliation backoff.
+func WithRetryDelay(err error, delay time.Duration) error {
+	if err == nil {
+		return nil
+	}
+	return retryAfterError{err: err, delay: delay}
+}
+
 // WithRetryAfter preserves a provider's Retry-After response hint without
 // coupling provider adapters to reconciliation policy.
 func WithRetryAfter(err error, header http.Header) error {

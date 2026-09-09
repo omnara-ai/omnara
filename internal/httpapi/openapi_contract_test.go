@@ -891,6 +891,26 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "boxd without resource defaults",
+			body: `{"provider":"boxd",` + common +
+				`,"max_total_cpu":4,"max_total_memory_mb":16384,"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "boxd with optional resource defaults",
+			body: `{"provider":"boxd",` + common +
+				`,"default_machine_cpu":2,"default_machine_memory_mb":8192,` +
+				`"max_total_cpu":4,"max_total_memory_mb":16384,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "boxd missing memory limit",
+			body: `{"provider":"boxd",` + common +
+				`,"max_total_cpu":4,"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "blaxel missing memory",
 			body: `{"provider":"blaxel",` + common + `}`,
 			want: http.StatusBadRequest,
