@@ -3,13 +3,17 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -300,7 +304,8 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 
 func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	var logs bytes.Buffer
+	ctx := log.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
@@ -336,6 +341,23 @@ func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
 	}
 	if _, ok := blobs.content[blobs.putKeys[1]]; !ok {
 		t.Fatal("failed cleanup unexpectedly removed the duplicate blob")
+	}
+	var event map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
+		t.Fatalf("decode cleanup warning: %v; logs=%s", err, logs.String())
+	}
+	for key, want := range map[string]string{
+		"event.name":    "artifact.replay.cleanup",
+		"level":         "WARN",
+		"project.id":    input.ProjectID.String(),
+		"agent.id":      agentID.String(),
+		"artifact.id":   first.ID.String(),
+		"blob.key":      blobs.putKeys[1],
+		"error.message": blobs.deleteErr.Error(),
+	} {
+		if event[key] != want {
+			t.Errorf("cleanup warning %s = %v, want %q", key, event[key], want)
+		}
 	}
 }
 

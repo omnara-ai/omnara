@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -94,6 +95,16 @@ func (s *Store) CreateArtifact(
 		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
 		if err != nil && cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
+		} else if cleanupErr != nil {
+			event := log.NewEvent(ctx, "artifact.replay.cleanup", log.Fields{
+				"project.id":  input.ProjectID,
+				"agent.id":    input.AgentID,
+				"artifact.id": record.ID,
+				"blob.key":    artifactKey,
+			})
+			event.Level(log.WarnLevel)
+			event.Error(cleanupErr)
+			event.Done(ctx)
 		}
 	}
 	return record, err
