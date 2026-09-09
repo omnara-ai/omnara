@@ -408,18 +408,12 @@ model:
 	if _, ok := grant["metadata"]; ok {
 		t.Fatalf("model grant response should not include metadata: %+v", grant)
 	}
-	replayedGrant := testutil.RequireType[map[string]any](
-		t,
-		requestJSONWithHeaders(
-			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK,
-			authHeaders(project.AdminToken),
-		)["grant"],
+	duplicate := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusConflict,
+		authHeaders(project.AdminToken),
 	)
-	if replayedGrant["id"] != grant["id"] {
-		t.Fatalf("model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
-	}
-	if _, ok := replayedGrant["metadata"]; ok {
-		t.Fatalf("replayed model grant response should not include metadata: %+v", replayedGrant)
+	if duplicate["code"] != "conflict" {
+		t.Fatalf("duplicate grant error = %v, want conflict", duplicate)
 	}
 	grantPath := project.ProjectPath + "/model-grants/" + testutil.RequireType[string](t, grant["id"])
 	patchedGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(

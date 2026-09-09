@@ -16,7 +16,6 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'
 WHERE org.id = sqlc.arg(org_id)
-ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
           credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms;
@@ -178,7 +177,6 @@ configured_model AS (
          ids.revision_id, statement_timestamp(), statement_timestamp()
   FROM ids
   JOIN parent_config config ON true
-  ON CONFLICT (model_provider_config_id, name) WHERE deleted_at IS NULL DO NOTHING
   RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
             deleted_at, created_at, updated_at
 ),
@@ -508,7 +506,7 @@ SELECT EXISTS (
     AND model_grant.configured_model_id = sqlc.arg(id)
 ) AS has_active_grants;
 
--- name: UpsertProjectModelGrant :one
+-- name: InsertProjectModelGrant :one
 INSERT INTO project_model_grants(
   org_id, project_id, configured_model_id,
   context_window_tokens, max_output_tokens, default_max_output_tokens,
@@ -534,14 +532,12 @@ JOIN model_provider_configs provider_config ON provider_config.org_id = configur
   AND provider_config.deleted_at IS NULL
 WHERE project.org_id = sqlc.arg(org_id)
   AND project.id = sqlc.arg(project_id)
-ON CONFLICT (project_id, configured_model_id)
-DO UPDATE SET id = project_model_grants.id
 RETURNING id, org_id, project_id, configured_model_id,
           context_window_tokens, max_output_tokens, default_max_output_tokens,
           default_cache_retention, supports_tools, supports_reasoning,
           default_reasoning_effort, supported_reasoning_efforts,
           input_modalities, output_modalities,
-          created_at, updated_at, xmax = 0 AS created;
+          created_at, updated_at;
 
 -- name: GetActiveProjectModelGrantForConfiguredModel :one
 SELECT grant_row.id, grant_row.org_id, grant_row.project_id,

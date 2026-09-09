@@ -34,35 +34,33 @@ func (s *Store) CreateModelProviderConfig(
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	if record.Created {
-		if err := resourceguard.Lock(
-			ctx,
-			qtx,
-			resourceModelProviderConfigs,
-			input.OrgID.String(),
-		); err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
-			ctx,
-			dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	if err := resourceguard.Lock(
+		ctx,
+		qtx,
+		resourceModelProviderConfigs,
+		input.OrgID.String(),
+	); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
+		ctx,
+		dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	)
+	if err != nil {
+		return ModelProviderConfigRecord{}, fmt.Errorf(
+			"count tenant model provider configs: %w",
+			err,
 		)
-		if err != nil {
-			return ModelProviderConfigRecord{}, fmt.Errorf(
-				"count tenant model provider configs: %w",
-				err,
-			)
-		}
-		if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
-			return ModelProviderConfigRecord{}, resourceLimitExceeded(
-				"active model provider configs",
-				limits.MaxActiveTenantModelProviderConfigsPerOrg,
-			)
-		}
+	}
+	if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
+		return ModelProviderConfigRecord{}, resourceLimitExceeded(
+			"active model provider configs",
+			limits.MaxActiveTenantModelProviderConfigsPerOrg,
+		)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("commit create model provider config: %w", err)
@@ -106,7 +104,6 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	requestedTimeoutMS, requestedIdleTimeoutMS := input.RequestTimeoutMS, input.IdleTimeoutMS
 	input.RequestTimeoutMS = normalizeModelProviderTimeoutMS(input.RequestTimeoutMS, DefaultModelProviderRequestTimeoutMS)
 	input.IdleTimeoutMS = normalizeModelProviderTimeoutMS(input.IdleTimeoutMS, DefaultModelProviderIdleTimeoutMS)
 	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
@@ -144,44 +141,15 @@ func (s *Store) createModelProviderConfigTx(
 			CredentialSecretID: &input.CredentialSecretID,
 		},
 	)
-	if err == nil {
-		record := modelProviderConfigRecordFromSQLC(row)
-		record.Created = true
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		if storeutil.IsUniqueViolation(err) {
-			return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
+	if err != nil {
+		if storeutil.IsUniqueViolationOnConstraint(err, "model_provider_configs_active_name_idx") {
+			return ModelProviderConfigRecord{}, storeerr.Tag(storeerr.ErrConflict, fmt.Errorf(
+				"a model provider config named %q already exists", input.Name,
+			))
 		}
 		return ModelProviderConfigRecord{}, fmt.Errorf("insert model provider config: %w", err)
 	}
-	existingRow, err := qtx.GetModelProviderConfigByName(
-		ctx,
-		dbsqlc.GetModelProviderConfigByNameParams{OrgID: input.OrgID, Name: input.Name},
-	)
-	if err != nil {
-		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config by name: %w", err)
-	}
-	record := modelProviderConfigRecordFromSQLC(existingRow)
-	// Omitted timeouts accept the existing values when replaying creation.
-	if requestedTimeoutMS == 0 {
-		input.RequestTimeoutMS = record.RequestTimeoutMS
-	}
-	if requestedIdleTimeoutMS == 0 {
-		input.IdleTimeoutMS = record.IdleTimeoutMS
-	}
-	if !sameModelProviderConfigIntent(record, input) {
-		return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
-	}
-	return record, nil
-}
-
-func modelProviderConfigNameConflict(name string) error {
-	return fmt.Errorf(
-		"a model provider config named %q already exists with a different configuration: %w",
-		name,
-		storeerr.ErrIdempotencyConflict,
-	)
+	return modelProviderConfigRecordFromSQLC(row), nil
 }
 
 func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id ID) (ModelProviderConfigRecord, error) {

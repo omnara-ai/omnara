@@ -303,7 +303,7 @@ export const zSkillGrantId = z.string().regex(/^skg_[a-z2-7]{26}$/);
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 /**
- * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format. Replaying creation by name with omitted timeouts preserves the existing timeout values.
+ * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export const zCreateModelProviderConfigRequest = z.object({
     name: zResourceName,
@@ -4132,7 +4132,7 @@ export const zCreateModelProviderConfigPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateModelProviderConfigResponse2 = zCreateModelProviderConfigResponse;
 
@@ -4201,7 +4201,7 @@ export const zCreateConfiguredModelPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateConfiguredModelResponse = zConfiguredModel;
 
@@ -4254,7 +4254,7 @@ export const zCreateProjectModelGrantPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateProjectModelGrantResponse = zProjectModelGrantEnvelope;
 

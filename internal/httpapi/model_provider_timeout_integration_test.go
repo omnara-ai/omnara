@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelProviderTimeoutAPI(t *testing.T) {
@@ -38,9 +39,13 @@ func TestModelProviderTimeoutAPI(t *testing.T) {
 	provider := createdModelProviderConfig(t, created)
 	path := createPath + "/" + testutil.RequireType[string](t, provider["id"])
 	assertTimeouts(provider, 30000, 45000)
-	replay := fmt.Sprintf(`{"name":"timeout-provider","preset":"openai","credential_secret_id":%q}`, secret["id"])
-	replayed := request(http.MethodPost, createPath, replay, http.StatusOK)
-	assertTimeouts(createdModelProviderConfig(t, replayed), 30000, 45000)
+	for _, duplicate := range []string{body, fmt.Sprintf(
+		`{"name":"timeout-provider","preset":"openai","credential_secret_id":%q}`, secret["id"],
+	)} {
+		result := request(http.MethodPost, createPath, duplicate, http.StatusConflict)
+		require.Equal(t, "conflict", result["code"])
+	}
+	assertTimeouts(request(http.MethodGet, path, "", http.StatusOK), 30000, 45000)
 	assertTimeouts(request(http.MethodPut, path, `{"idle_timeout_ms":60000}`, http.StatusOK), 30000, 60000)
 	assertTimeouts(request(http.MethodPut, path, `{"request_timeout_ms":90000}`, http.StatusOK), 90000, 60000)
 	for _, field := range []string{"request_timeout_ms", "idle_timeout_ms"} {

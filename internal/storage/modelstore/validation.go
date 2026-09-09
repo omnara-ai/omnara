@@ -160,21 +160,6 @@ func nonNilStringSlice(value []string) []string {
 	return value
 }
 
-func sameProjectModelGrantIntent(record ProjectModelGrantRecord, input CreateProjectModelGrantInput) bool {
-	return record.ProjectID == input.ProjectID &&
-		record.ConfiguredModelID == input.ConfiguredModelID &&
-		storeutil.SameIntPtr(record.ContextWindowTokens, input.ContextWindowTokens) &&
-		storeutil.SameIntPtr(record.MaxOutputTokens, input.MaxOutputTokens) &&
-		storeutil.SameIntPtr(record.DefaultMaxOutputTokens, input.DefaultMaxOutputTokens) &&
-		record.DefaultCacheRetention == input.DefaultCacheRetention &&
-		sameBoolPtr(record.SupportsTools, input.SupportsTools) &&
-		sameBoolPtr(record.SupportsReasoning, input.SupportsReasoning) &&
-		record.DefaultReasoningEffort == input.DefaultReasoningEffort &&
-		slices.Equal(record.SupportedReasoningEfforts, input.SupportedReasoningEfforts) &&
-		slices.Equal(record.InputModalities, input.InputModalities) &&
-		slices.Equal(record.OutputModalities, input.OutputModalities)
-}
-
 func normalizeProjectModelGrantInput(input CreateProjectModelGrantInput) CreateProjectModelGrantInput {
 	input.DefaultCacheRetention,
 		input.DefaultReasoningEffort,
@@ -188,13 +173,6 @@ func normalizeProjectModelGrantInput(input CreateProjectModelGrantInput) CreateP
 		input.OutputModalities,
 	)
 	return input
-}
-
-func sameBoolPtr(left, right *bool) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }
 
 func validateModelProviderAPIFormat(apiFormat modelprotocol.APIFormat) error {

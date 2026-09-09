@@ -162,7 +162,7 @@ export type ModelApiVariantOptions = {
 export type ModelCacheRetention = 'none' | 'short' | 'long';
 
 /**
- * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format. Replaying creation by name with omitted timeouts preserves the existing timeout values.
+ * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
  */
 export type CreateModelProviderConfigRequest = {
     name: ResourceName;
@@ -306,7 +306,7 @@ export type CreateConfiguredModelRequest = {
      */
     context_window_tokens: number;
     /**
-     * Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Repeating creation with an omitted ceiling preserves the existing model's current capacity. Explicit values must not exceed the provider's supported limit.
+     * Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Explicit values must not exceed the provider's supported limit.
      */
     max_output_tokens?: number;
     /**
@@ -11233,10 +11233,6 @@ export type CreateModelProviderConfigError = CreateModelProviderConfigErrors[key
 
 export type CreateModelProviderConfigResponses = {
     /**
-     * Route response.
-     */
-    200: CreateModelProviderConfigResponse;
-    /**
      * Created route response.
      */
     201: CreateModelProviderConfigResponse;
@@ -11654,10 +11650,6 @@ export type CreateConfiguredModelError = CreateConfiguredModelErrors[keyof Creat
 
 export type CreateConfiguredModelResponses = {
     /**
-     * Route response.
-     */
-    200: ConfiguredModel;
-    /**
      * Created route response.
      */
     201: ConfiguredModel;
@@ -11945,10 +11937,6 @@ export type CreateProjectModelGrantErrors = {
 export type CreateProjectModelGrantError = CreateProjectModelGrantErrors[keyof CreateProjectModelGrantErrors];
 
 export type CreateProjectModelGrantResponses = {
-    /**
-     * Route response.
-     */
-    200: ProjectModelGrantEnvelope;
     /**
      * Created route response.
      */

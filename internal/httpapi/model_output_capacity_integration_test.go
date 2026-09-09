@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOutputCapacityCreationReplayAndPatch(t *testing.T) {
+func TestOutputCapacityCreationAndPatch(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name, format, variant string
@@ -83,10 +83,8 @@ func TestOutputCapacityCreationReplayAndPatch(t *testing.T) {
 					require.Nil(t, created["max_output_tokens"])
 					patchModelID, patchCreateBody = id, body
 				}
-				replay := request(http.MethodPost, modelsPath, body, http.StatusOK)
-				for _, field := range []string{"id", "current_revision_id", "max_output_tokens", "default_max_output_tokens"} {
-					require.Equal(t, created[field], replay[field], "creation replay changed %s", field)
-				}
+				duplicate := request(http.MethodPost, modelsPath, body, http.StatusConflict)
+				require.Equal(t, "conflict", duplicate["code"])
 				request(http.MethodPost, modelsPath, fmt.Sprintf(
 					`{"name":%q,"provider_model_slug":"capacity-model","context_window_tokens":128000,"default_max_output_tokens":16000}`,
 					name,
@@ -106,18 +104,17 @@ func TestOutputCapacityCreationReplayAndPatch(t *testing.T) {
 				require.Equal(t, float64(96000), preserved["max_output_tokens"])
 				require.Equal(t, float64(32000), preserved["default_max_output_tokens"])
 			}
-			replay := request(http.MethodPost, modelsPath, patchCreateBody, http.StatusOK)
-			require.Equal(t, set["current_revision_id"], replay["current_revision_id"])
-			require.Equal(t, float64(96000), replay["max_output_tokens"])
+			request(http.MethodPost, modelsPath, patchCreateBody, http.StatusConflict)
+			listed := request(http.MethodGet, modelsPath, "", http.StatusOK)
+			require.Contains(t, testutil.RequireType[[]any](t, listed["data"]), set)
 			cleared := request(http.MethodPut, modelPath, `{"max_output_tokens":null}`, http.StatusOK)
 			require.Contains(t, cleared, "max_output_tokens")
 			require.Nil(t, cleared["max_output_tokens"])
 			require.Equal(t, float64(32000), cleared["default_max_output_tokens"])
 			require.NotEqual(t, set["current_revision_id"], cleared["current_revision_id"])
-			replay = request(http.MethodPost, modelsPath, patchCreateBody, http.StatusOK)
-			require.Equal(t, cleared["current_revision_id"], replay["current_revision_id"])
-			require.Contains(t, replay, "max_output_tokens")
-			require.Nil(t, replay["max_output_tokens"])
+			request(http.MethodPost, modelsPath, patchCreateBody, http.StatusConflict)
+			listed = request(http.MethodGet, modelsPath, "", http.StatusOK)
+			require.Contains(t, testutil.RequireType[[]any](t, listed["data"]), cleared)
 			renamed := request(http.MethodPut, modelPath, `{"name":"patch-model"}`, http.StatusOK)
 			require.Equal(t, cleared["current_revision_id"], renamed["current_revision_id"])
 			require.Equal(t, "patch-model", renamed["name"])

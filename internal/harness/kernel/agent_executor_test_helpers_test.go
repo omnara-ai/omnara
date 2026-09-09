@@ -407,7 +407,14 @@ func (f kernelFixture) ensureModelSelection(
 	if options.MaxOutputTokens != nil {
 		input.MaxOutputTokens = options.MaxOutputTokens
 	}
-	return storagefixture.SeedModel(t, ctx, f.Store.Models(), kernelTestProjectID, input)
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, f.Store.Models(), kernelTestProjectID, input)
+	if options.ContextWindowTokens != nil {
+		require.Equal(t, *options.ContextWindowTokens, configuredModel.ContextWindowTokens)
+	}
+	if options.MaxOutputTokens != nil {
+		require.Equal(t, options.MaxOutputTokens, configuredModel.MaxOutputTokens)
+	}
+	return configuredModel
 }
 
 func (f kernelFixture) provisionClusterModel(

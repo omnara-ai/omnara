@@ -819,7 +819,6 @@ configured_model AS (
          ids.revision_id, statement_timestamp(), statement_timestamp()
   FROM ids
   JOIN parent_config config ON true
-  ON CONFLICT (model_provider_config_id, name) WHERE deleted_at IS NULL DO NOTHING
   RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
             deleted_at, created_at, updated_at
 ),
@@ -971,7 +970,6 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'
 WHERE org.id = $12
-ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
           credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms
@@ -1025,6 +1023,94 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IdleTimeoutMs,
+	)
+	return i, err
+}
+
+const insertProjectModelGrant = `-- name: InsertProjectModelGrant :one
+INSERT INTO project_model_grants(
+  org_id, project_id, configured_model_id,
+  context_window_tokens, max_output_tokens, default_max_output_tokens,
+  default_cache_retention, supports_tools, supports_reasoning,
+  default_reasoning_effort, supported_reasoning_efforts,
+  input_modalities, output_modalities,
+  created_at, updated_at
+)
+SELECT project.org_id, project.id, configured_model.id,
+       $1, $2,
+       $3,
+       $4, $5,
+       $6, $7::text,
+       $8::text[],
+       $9::text[], $10::text[],
+       statement_timestamp(), statement_timestamp()
+FROM projects project
+JOIN configured_models configured_model ON configured_model.org_id = project.org_id
+  AND configured_model.id = $11
+  AND configured_model.deleted_at IS NULL
+JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
+  AND provider_config.id = configured_model.model_provider_config_id
+  AND provider_config.deleted_at IS NULL
+WHERE project.org_id = $12
+  AND project.id = $13
+RETURNING id, org_id, project_id, configured_model_id,
+          context_window_tokens, max_output_tokens, default_max_output_tokens,
+          default_cache_retention, supports_tools, supports_reasoning,
+          default_reasoning_effort, supported_reasoning_efforts,
+          input_modalities, output_modalities,
+          created_at, updated_at
+`
+
+type InsertProjectModelGrantParams struct {
+	ContextWindowTokens       *int32
+	MaxOutputTokens           *int32
+	DefaultMaxOutputTokens    *int32
+	DefaultCacheRetention     *string
+	SupportsTools             *bool
+	SupportsReasoning         *bool
+	DefaultReasoningEffort    string
+	SupportedReasoningEfforts []string
+	InputModalities           []string
+	OutputModalities          []string
+	ConfiguredModelID         uuid.UUID
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+}
+
+func (q *Queries) InsertProjectModelGrant(ctx context.Context, arg InsertProjectModelGrantParams) (ProjectModelGrant, error) {
+	row := q.db.QueryRow(ctx, insertProjectModelGrant,
+		arg.ContextWindowTokens,
+		arg.MaxOutputTokens,
+		arg.DefaultMaxOutputTokens,
+		arg.DefaultCacheRetention,
+		arg.SupportsTools,
+		arg.SupportsReasoning,
+		arg.DefaultReasoningEffort,
+		arg.SupportedReasoningEfforts,
+		arg.InputModalities,
+		arg.OutputModalities,
+		arg.ConfiguredModelID,
+		arg.OrgID,
+		arg.ProjectID,
+	)
+	var i ProjectModelGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ConfiguredModelID,
+		&i.ContextWindowTokens,
+		&i.MaxOutputTokens,
+		&i.DefaultMaxOutputTokens,
+		&i.DefaultCacheRetention,
+		&i.SupportsTools,
+		&i.SupportsReasoning,
+		&i.DefaultReasoningEffort,
+		&i.SupportedReasoningEfforts,
+		&i.InputModalities,
+		&i.OutputModalities,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -2094,117 +2180,6 @@ func (q *Queries) UpdateProjectModelGrant(ctx context.Context, arg UpdateProject
 		&i.OutputModalities,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertProjectModelGrant = `-- name: UpsertProjectModelGrant :one
-INSERT INTO project_model_grants(
-  org_id, project_id, configured_model_id,
-  context_window_tokens, max_output_tokens, default_max_output_tokens,
-  default_cache_retention, supports_tools, supports_reasoning,
-  default_reasoning_effort, supported_reasoning_efforts,
-  input_modalities, output_modalities,
-  created_at, updated_at
-)
-SELECT project.org_id, project.id, configured_model.id,
-       $1, $2,
-       $3,
-       $4, $5,
-       $6, $7::text,
-       $8::text[],
-       $9::text[], $10::text[],
-       statement_timestamp(), statement_timestamp()
-FROM projects project
-JOIN configured_models configured_model ON configured_model.org_id = project.org_id
-  AND configured_model.id = $11
-  AND configured_model.deleted_at IS NULL
-JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
-  AND provider_config.id = configured_model.model_provider_config_id
-  AND provider_config.deleted_at IS NULL
-WHERE project.org_id = $12
-  AND project.id = $13
-ON CONFLICT (project_id, configured_model_id)
-DO UPDATE SET id = project_model_grants.id
-RETURNING id, org_id, project_id, configured_model_id,
-          context_window_tokens, max_output_tokens, default_max_output_tokens,
-          default_cache_retention, supports_tools, supports_reasoning,
-          default_reasoning_effort, supported_reasoning_efforts,
-          input_modalities, output_modalities,
-          created_at, updated_at, xmax = 0 AS created
-`
-
-type UpsertProjectModelGrantParams struct {
-	ContextWindowTokens       *int32
-	MaxOutputTokens           *int32
-	DefaultMaxOutputTokens    *int32
-	DefaultCacheRetention     *string
-	SupportsTools             *bool
-	SupportsReasoning         *bool
-	DefaultReasoningEffort    string
-	SupportedReasoningEfforts []string
-	InputModalities           []string
-	OutputModalities          []string
-	ConfiguredModelID         uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-}
-
-type UpsertProjectModelGrantRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	ConfiguredModelID         uuid.UUID
-	ContextWindowTokens       *int32
-	MaxOutputTokens           *int32
-	DefaultMaxOutputTokens    *int32
-	DefaultCacheRetention     *string
-	SupportsTools             *bool
-	SupportsReasoning         *bool
-	DefaultReasoningEffort    string
-	SupportedReasoningEfforts []string
-	InputModalities           []string
-	OutputModalities          []string
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-	Created                   bool
-}
-
-func (q *Queries) UpsertProjectModelGrant(ctx context.Context, arg UpsertProjectModelGrantParams) (UpsertProjectModelGrantRow, error) {
-	row := q.db.QueryRow(ctx, upsertProjectModelGrant,
-		arg.ContextWindowTokens,
-		arg.MaxOutputTokens,
-		arg.DefaultMaxOutputTokens,
-		arg.DefaultCacheRetention,
-		arg.SupportsTools,
-		arg.SupportsReasoning,
-		arg.DefaultReasoningEffort,
-		arg.SupportedReasoningEfforts,
-		arg.InputModalities,
-		arg.OutputModalities,
-		arg.ConfiguredModelID,
-		arg.OrgID,
-		arg.ProjectID,
-	)
-	var i UpsertProjectModelGrantRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.ConfiguredModelID,
-		&i.ContextWindowTokens,
-		&i.MaxOutputTokens,
-		&i.DefaultMaxOutputTokens,
-		&i.DefaultCacheRetention,
-		&i.SupportsTools,
-		&i.SupportsReasoning,
-		&i.DefaultReasoningEffort,
-		&i.SupportedReasoningEfforts,
-		&i.InputModalities,
-		&i.OutputModalities,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Created,
 	)
 	return i, err
 }

@@ -2123,7 +2123,7 @@ func compileToolsAgentYAMLResolved(
 	}
 	provider := storagefixture.EnsureModelProvider(t, ctx, store.Models(), store.Secrets(),
 		storagefixture.ModelProviderInput{OrgID: toolsTestOrgID, UserID: userID, Name: source.Model.ProviderConfig})
-	configuredModel := storagefixture.SeedModel(t, ctx, store.Models(), toolsTestProjectID,
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), toolsTestProjectID,
 		storagefixture.DefaultModelInput(toolsTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(

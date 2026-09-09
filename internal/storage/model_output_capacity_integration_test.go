@@ -26,61 +26,32 @@ func TestOutputCapacityConcurrentCreationAndImmutableClear(t *testing.T) {
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := newIntegrationStore(pool)
-			providerID := testDefaultProviderConfigID()
-			if format == modelprotocol.APIFormatAnthropicMessages {
-				provider, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-					OrgID: testOrgID, Name: "capacity-messages", APIFormat: format,
+			provider := requireSingleConcurrentCreate(t, func() (modelstore.ModelProviderConfigRecord, error) {
+				return store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+					OrgID: testOrgID, Name: "capacity-provider", APIFormat: format,
 					BaseURL: "https://example.test", CredentialSecretID: testDefaultProviderCredentialSecretID,
 				})
-				require.NoError(t, err)
-				providerID = provider.ID
-			}
-			type creation struct {
-				model modelstore.ConfiguredModelRecord
-				err   error
-			}
-			results := make(chan creation, 2)
-			start := make(chan struct{})
-			for range 2 {
-				go func() {
-					<-start
-					record, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-						OrgID:                 testOrgID,
-						ModelProviderConfigID: providerID,
-						Name:                  "optional-capacity-model",
-						ProviderModelSlug:     "test-model",
-						ContextWindowTokens:   128000,
-					})
-					results <- creation{record, err}
-				}()
-			}
-			close(start)
-			first, second := <-results, <-results
-			if first.err != nil || second.err != nil {
-				t.Fatalf("concurrent errors=%v / %v", first.err, second.err)
-			}
-			if first.model.ID != second.model.ID ||
-				first.model.CurrentRevisionID != second.model.CurrentRevisionID ||
-				first.model.Created == second.model.Created ||
-				first.model.MaxOutputTokens != nil ||
-				second.model.MaxOutputTokens != nil ||
-				first.model.DefaultMaxOutputTokens != nil ||
-				second.model.DefaultMaxOutputTokens != nil {
-				t.Fatal("concurrent omitted-capacity creation did not converge")
-			}
-			created := first.model
+			})
+			providerID := provider.ID
+			created := requireSingleConcurrentCreate(t, func() (modelstore.ConfiguredModelRecord, error) {
+				return store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+					OrgID: testOrgID, ModelProviderConfigID: providerID, Name: "optional-capacity-model",
+					ProviderModelSlug: "test-model", ContextWindowTokens: 128000,
+				})
+			})
+			require.Nil(t, created.MaxOutputTokens)
+			require.Nil(t, created.DefaultMaxOutputTokens)
 			old, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 				OrgID: testOrgID, ModelProviderConfigID: providerID, ID: created.ID,
 				MaxOutputTokens: patch.NullableInt{Set: true, Value: new(64000)},
 			})
 			require.NoError(t, err)
-			grant, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-				OrgID: testOrgID, ProjectID: testProjectID, ConfiguredModelID: old.ID,
-				ContextWindowTokens: new(32000),
+			grant := requireSingleConcurrentCreate(t, func() (modelstore.ProjectModelGrantRecord, error) {
+				return store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+					OrgID: testOrgID, ProjectID: testProjectID, ConfiguredModelID: old.ID,
+					ContextWindowTokens: new(32000),
+				})
 			})
-			if err != nil {
-				t.Fatalf("narrow context with inherited capacity: %v", err)
-			}
 			if grant.ContextWindowTokens == nil || *grant.ContextWindowTokens != 32000 || grant.MaxOutputTokens != nil {
 				t.Fatalf("grant bounds changed: %+v", grant)
 			}
@@ -108,15 +79,14 @@ func TestOutputCapacityConcurrentCreationAndImmutableClear(t *testing.T) {
 				old.CurrentRevisionID == cleared.CurrentRevisionID {
 				t.Fatal("nullable revision changed immutable history")
 			}
-			replay, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+			_, err = store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 				OrgID: testOrgID, ModelProviderConfigID: providerID, Name: old.Name,
 				ProviderModelSlug: old.ProviderModelSlug, ContextWindowTokens: old.ContextWindowTokens,
 			})
+			require.ErrorIs(t, err, storeerr.ErrConflict)
+			unchanged, err := store.Models().GetConfiguredModelByName(ctx, testOrgID, providerID, old.Name)
 			require.NoError(t, err)
-			if replay.Created || replay.ID != cleared.ID || replay.CurrentRevisionID != cleared.CurrentRevisionID ||
-				replay.MaxOutputTokens != nil || replay.DefaultMaxOutputTokens != nil {
-				t.Fatal("creation replay changed cleared capacity or appended a revision")
-			}
+			require.Equal(t, cleared, unchanged, "duplicate creation must preserve cleared capacity and current revision")
 			for _, name := range []*string{nil, new("renamed-null-capacity")} {
 				updated, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 					OrgID: testOrgID, ModelProviderConfigID: providerID, ID: old.ID, Name: name,
@@ -163,4 +133,29 @@ func TestOutputCapacityConcurrentCreationAndImmutableClear(t *testing.T) {
 			}
 		})
 	}
+}
+
+func requireSingleConcurrentCreate[T any](t *testing.T, create func() (T, error)) T {
+	t.Helper()
+	type result struct {
+		record T
+		err    error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			record, err := create()
+			results <- result{record, err}
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if first.err != nil {
+		first, second = second, first
+	}
+	require.NoError(t, first.err, "one concurrent creation must succeed")
+	require.ErrorIs(t, second.err, storeerr.ErrConflict, "the duplicate must conflict")
+	return first.record
 }

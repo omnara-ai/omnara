@@ -80,7 +80,6 @@ type ModelProviderConfigRecord struct {
 	DeletedAt          *time.Time               `json:"deleted_at,omitempty"`
 	CreatedAt          time.Time                `json:"created_at"`
 	UpdatedAt          time.Time                `json:"updated_at"`
-	Created            bool                     `json:"-"`
 }
 
 type CreateConfiguredModelInput struct {
@@ -162,7 +161,6 @@ type ConfiguredModelRecord struct {
 	CreatedAt                 time.Time       `json:"created_at"`
 	UpdatedAt                 time.Time       `json:"updated_at"`
 	RevisionCreatedAt         time.Time       `json:"revision_created_at"`
-	Created                   bool            `json:"-"`
 }
 
 type ConfiguredModelRevisionRecord struct {
@@ -242,7 +240,6 @@ type ProjectModelGrantRecord struct {
 	OutputModalities          []string  `json:"output_modalities"`
 	CreatedAt                 time.Time `json:"created_at"`
 	UpdatedAt                 time.Time `json:"updated_at"`
-	Created                   bool      `json:"-"`
 }
 
 type ListProjectModelGrantsInput struct {

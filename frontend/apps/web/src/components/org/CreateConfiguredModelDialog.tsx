@@ -49,7 +49,9 @@ export function CreateConfiguredModelDialog({
   const createConfiguredModel = useCreateConfiguredModel(orgId)
   const createProjectModelGrant = useCreateProjectModelGrant(orgId)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [phase, setPhase] = useState<RetryGrantsPhase<ConfiguredModel>>({
+  const [phase, setPhase] = useState<
+    RetryGrantsPhase<{ model: ConfiguredModel; grantedProjectIds: string[] }>
+  >({
     kind: 'form',
     error: '',
   })
@@ -62,7 +64,8 @@ export function CreateConfiguredModelDialog({
       }
       setPhase((prev) => ({ ...prev, error: '' }))
       try {
-        let model = phase.kind === 'retry-grants' ? phase.created : null
+        const created = phase.kind === 'retry-grants' ? phase.created : null
+        let model = created?.model
         if (!model && provider) {
           const request: CreateConfiguredModelRequest = {
             name: value.name,
@@ -93,7 +96,15 @@ export function CreateConfiguredModelDialog({
           form.setFieldValue('projectGrantIds', failures.failedProjectIds)
           setPhase({
             kind: 'retry-grants',
-            created: model,
+            created: {
+              model,
+              grantedProjectIds: [
+                ...(created?.grantedProjectIds ?? []),
+                ...value.projectGrantIds.filter(
+                  (_, index) => grantResults[index]?.status === 'fulfilled',
+                ),
+              ],
+            },
             error: `The model was created, but ${failures.message}`,
           })
           return
@@ -120,6 +131,7 @@ export function CreateConfiguredModelDialog({
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
+      if (phase.kind === 'retry-grants') form.reset()
       setAdvancedOpen(false)
       setPhase({ kind: 'form', error: '' })
     }
@@ -275,6 +287,9 @@ export function CreateConfiguredModelDialog({
                       value={field.state.value}
                       onChange={field.handleChange}
                       disabled={isSubmitting}
+                      excludedProjectIds={
+                        phase.kind === 'retry-grants' ? phase.created.grantedProjectIds : undefined
+                      }
                     />
                   )}
                 </form.Subscribe>

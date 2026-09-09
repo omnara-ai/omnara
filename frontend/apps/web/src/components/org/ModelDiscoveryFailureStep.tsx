@@ -6,12 +6,10 @@ import { errorMessage } from '@/lib/submit-status'
 
 export function ModelDiscoveryFailureStep({
   deleting,
-  providerCreated,
   onBack,
   onContinue,
 }: {
   deleting: boolean
-  providerCreated: boolean
   onBack: () => Promise<void>
   onContinue: () => void
 }) {
@@ -31,9 +29,7 @@ export function ModelDiscoveryFailureStep({
       <DialogHeader>
         <DialogTitle>Unable to fetch models</DialogTitle>
         <DialogDescription>
-          {providerCreated
-            ? 'The model provider was created, but its available models could not be fetched.'
-            : 'The model provider already exists, but its available models could not be fetched.'}
+          The model provider was created, but its available models could not be fetched.
         </DialogDescription>
       </DialogHeader>
       <div role="alert" className="text-sm text-amber-600 dark:text-amber-500">

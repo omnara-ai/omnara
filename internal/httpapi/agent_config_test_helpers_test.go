@@ -118,7 +118,7 @@ func compileHTTPAgentYAMLResolved(
 	}
 	provider := storagefixture.EnsureModelProvider(t, ctx, store.Models(), store.Secrets(),
 		storagefixture.ModelProviderInput{OrgID: orgID, UserID: userID, Name: source.Model.ProviderConfig})
-	configuredModel := storagefixture.SeedModel(t, ctx, store.Models(), projectID,
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), projectID,
 		storagefixture.DefaultModelInput(orgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(

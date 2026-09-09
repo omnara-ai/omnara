@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelProviderConfigStorageLifecycle(t *testing.T) {
@@ -84,18 +85,19 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		t.Fatal("non-generic org secret should not be accepted as provider config credential")
 	}
 
-	config, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+	providerInput := modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
 		Name:               "openai-lifecycle",
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
 		BaseURL:            "https://api.openai.com/v1",
 		RequestTimeoutMS:   30000,
 		CredentialSecretID: credential.ID,
-	})
+	}
+	config, err := store.Models().CreateModelProviderConfig(ctx, providerInput)
 	if err != nil {
 		t.Fatalf("create provider config: %v", err)
 	}
-	if !config.Created || config.APIVariant != "default" || config.CredentialSecretID != credential.ID ||
+	if config.APIVariant != "default" || config.CredentialSecretID != credential.ID ||
 		config.EndpointPath != "/responses" ||
 		config.AuthKind != modelstore.ModelProviderAuthKindBearerToken ||
 		config.RequestTimeoutMS != 30000 ||
@@ -175,52 +177,20 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if localHTTPConfig.BaseURL != "http://localhost:8080/v1" {
 		t.Fatalf("local HTTP base_url = %q, want http://localhost:8080/v1", localHTTPConfig.BaseURL)
 	}
-	replayedConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              testOrgID,
-		Name:               "openai-lifecycle",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		BaseURL:            "https://api.openai.com/v1",
-		RequestTimeoutMS:   30000,
-		CredentialSecretID: credential.ID,
-	})
-	if err != nil {
-		t.Fatalf("replay provider config: %v", err)
-	}
-	if replayedConfig.ID != config.ID || replayedConfig.Created {
-		t.Fatalf("provider config replay mismatch: first=%+v replay=%+v", config, replayedConfig)
-	}
+	_, err = store.Models().CreateModelProviderConfig(ctx, providerInput)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	unchangedProvider, err := store.Models().GetModelProviderConfig(ctx, testOrgID, config.ID)
+	require.NoError(t, err)
+	require.Equal(t, config, unchangedProvider, "duplicate creation must not update the provider")
 
-	// Omission reuses stored timeouts, even after defaults or PATCH values change.
-	replayInput := modelstore.CreateModelProviderConfigInput{
-		OrgID: testOrgID, Name: "openai-lifecycle", APIFormat: modelprotocol.APIFormatOpenAIResponses,
-		BaseURL: "https://api.openai.com/v1", CredentialSecretID: credential.ID,
-	}
-	for _, idle := range []int{300000, 45000} {
-		if _, err := store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
-			OrgID: testOrgID, ID: config.ID, IdleTimeoutMS: &idle,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		replay, err := store.Models().CreateModelProviderConfig(ctx, replayInput)
-		if err != nil || replay.ID != config.ID || replay.Created || replay.RequestTimeoutMS != 30000 ||
-			replay.IdleTimeoutMS != idle {
-			t.Fatalf("omitted timeout replay=%+v error=%v", replay, err)
-		}
-	}
+	updatedProvider, err := store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+		OrgID: testOrgID, ID: config.ID, IdleTimeoutMS: new(45000),
+	})
+	require.NoError(t, err)
+	providerInput.RequestTimeoutMS = 0
+	_, err = store.Models().CreateModelProviderConfig(ctx, providerInput)
+	require.ErrorIs(t, err, storeerr.ErrConflict, "omitted timeouts do not make duplicate creation succeed")
 	for _, total := range []bool{false, true} {
-		conflicting := replayInput
-		if total {
-			conflicting.RequestTimeoutMS = 40000
-		} else {
-			conflicting.IdleTimeoutMS = 40000
-		}
-		if _, err := store.Models().
-			CreateModelProviderConfig(ctx, conflicting); !errors.Is(
-			err,
-			storeerr.ErrIdempotencyConflict,
-		) {
-			t.Fatalf("explicit timeout conflict=%v", err)
-		}
 		for _, invalid := range []int{-1, 0, 2147483648} {
 			input := modelstore.PatchModelProviderConfigInput{OrgID: testOrgID, ID: config.ID}
 			if total {
@@ -238,17 +208,16 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		}
 	}
 	preserved, err := store.Models().GetModelProviderConfig(ctx, testOrgID, config.ID)
-	if err != nil || preserved.RequestTimeoutMS != 30000 || preserved.IdleTimeoutMS != 45000 {
-		t.Fatalf("invalid patch changed timeouts=%+v error=%v", preserved, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, updatedProvider, preserved, "duplicate creation and invalid patches must preserve the provider")
 	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
 		Name:               "openai-lifecycle",
 		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
 		BaseURL:            "https://api.anthropic.com",
 		CredentialSecretID: credential.ID,
-	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting provider config replay error = %v, want ErrIdempotencyConflict", err)
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("duplicate provider config error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
@@ -445,7 +414,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		t.Fatalf("anthropic reasoning options error = %v, want ErrInvalidModelProviderConfig", err)
 	}
 
-	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+	modelInput := modelstore.CreateConfiguredModelInput{
 		OrgID:                     testOrgID,
 		ModelProviderConfigID:     config.ID,
 		Name:                      "gpt-5.4",
@@ -460,7 +429,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		SupportedReasoningEfforts: []string{"low", "medium", "high"},
 		InputModalities:           []string{"text", "image"},
 		OutputModalities:          []string{"text"},
-	})
+	}
+	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelInput)
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
 	}
@@ -520,28 +490,8 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		!slices.Equal(configuredModel.OutputModalities, []string{"text"}) {
 		t.Fatalf("unexpected configured model: %+v", configuredModel)
 	}
-	replayedModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                     testOrgID,
-		ModelProviderConfigID:     config.ID,
-		Name:                      "gpt-5.4",
-		ProviderModelSlug:         "gpt-5.4",
-		ContextWindowTokens:       200000,
-		MaxOutputTokens:           new(64000),
-		DefaultMaxOutputTokens:    intPtr(32000),
-		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
-		SupportsTools:             boolPtr(true),
-		SupportsReasoning:         true,
-		DefaultReasoningEffort:    "high",
-		SupportedReasoningEfforts: []string{"low", "medium", "high"},
-		InputModalities:           []string{"text", "image"},
-		OutputModalities:          []string{"text"},
-	})
-	if err != nil {
-		t.Fatalf("replay configured model: %v", err)
-	}
-	if replayedModel.ID != configuredModel.ID || replayedModel.Created {
-		t.Fatalf("configured model replay mismatch: first=%+v replay=%+v", configuredModel, replayedModel)
-	}
+	_, err = store.Models().CreateConfiguredModel(ctx, modelInput)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
 	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
 		OrgID:                 testOrgID,
 		ModelProviderConfigID: config.ID,
@@ -549,9 +499,12 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ProviderModelSlug:     "gpt-5.4",
 		ContextWindowTokens:   200000,
 		MaxOutputTokens:       new(1),
-	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting configured model replay error = %v, want ErrIdempotencyConflict", err)
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("duplicate configured model error = %v, want ErrConflict", err)
 	}
+	afterDuplicateModel, err := store.Models().GetConfiguredModelByName(ctx, testOrgID, config.ID, configuredModel.Name)
+	require.NoError(t, err)
+	require.Equal(t, configuredModel, afterDuplicateModel, "duplicate creation must not update the configured model")
 	invalidName := " invalid model "
 	if _, err := store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
 		OrgID:                 testOrgID,
@@ -813,7 +766,7 @@ model:
 		)
 	}
 
-	grant, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+	grantInput := modelstore.CreateProjectModelGrantInput{
 		OrgID:                     testOrgID,
 		ProjectID:                 testProjectID,
 		ConfiguredModelID:         configuredModel.ID,
@@ -827,7 +780,8 @@ model:
 		SupportedReasoningEfforts: []string{"low", "medium"},
 		InputModalities:           []string{"text"},
 		OutputModalities:          []string{"text"},
-	})
+	}
+	grant, err := store.Models().CreateProjectModelGrant(ctx, grantInput)
 	if err != nil {
 		t.Fatalf("create project model grant: %v", err)
 	}
@@ -849,33 +803,13 @@ model:
 		!slices.Equal(grant.OutputModalities, []string{"text"}) {
 		t.Fatalf("project model grant overlay mismatch: %+v", grant)
 	}
-	if !grant.Created {
-		t.Fatalf("project model grant should report Created on first create: %+v", grant)
-	}
-	replayedGrant, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:                     testOrgID,
-		ProjectID:                 testProjectID,
-		ConfiguredModelID:         configuredModel.ID,
-		ContextWindowTokens:       intPtr(200000),
-		MaxOutputTokens:           intPtr(64000),
-		DefaultMaxOutputTokens:    intPtr(32000),
-		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
-		SupportsTools:             boolPtr(true),
-		SupportsReasoning:         boolPtr(true),
-		DefaultReasoningEffort:    "medium",
-		SupportedReasoningEfforts: []string{"low", "medium"},
-		InputModalities:           []string{"text"},
-		OutputModalities:          []string{"text"},
-	})
-	if err != nil {
-		t.Fatalf("replay project model grant: %v", err)
-	}
-	if replayedGrant.ID != grant.ID {
-		t.Fatalf("project model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
-	}
-	if replayedGrant.Created {
-		t.Fatalf("project model grant replay should not report Created: %+v", replayedGrant)
-	}
+	_, err = store.Models().CreateProjectModelGrant(ctx, grantInput)
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	unchangedGrant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx, testOrgID, testProjectID, configuredModel.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, grant, unchangedGrant, "duplicate creation must not update the project grant")
 	grantUpdatedAt := now.Add(10250 * time.Millisecond)
 	if _, err := pool.Exec(
 		ctx,
@@ -888,6 +822,15 @@ model:
 		grantUpdatedAt,
 	); err != nil {
 		t.Fatalf("update project model grant: %v", err)
+	}
+	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID:                  testOrgID,
+		ProjectID:              testProjectID,
+		ConfiguredModelID:      configuredModel.ID,
+		MaxOutputTokens:        intPtr(48000),
+		DefaultMaxOutputTokens: intPtr(24000),
+	}); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("duplicate project model grant after update error = %v, want ErrConflict", err)
 	}
 	var updatedMaxOutputTokens int
 	var storedGrantUpdatedAt time.Time
@@ -908,15 +851,6 @@ model:
 			storedGrantUpdatedAt,
 			grantUpdatedAt,
 		)
-	}
-	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:                  testOrgID,
-		ProjectID:              testProjectID,
-		ConfiguredModelID:      configuredModel.ID,
-		MaxOutputTokens:        intPtr(48000),
-		DefaultMaxOutputTokens: intPtr(24000),
-	}); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("conflicting project model grant replay error = %v, want ErrConflict", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO project_model_grants(
@@ -987,6 +921,13 @@ model:
 	if _, err := store.Models().DeleteConfiguredModel(ctx, testOrgID, configuredModel.ID); err != nil {
 		t.Fatalf("archive configured model after grants revoked: %v", err)
 	}
+	modelInput.Name = configuredModel.Name
+	recreatedModel, err := store.Models().CreateConfiguredModel(ctx, modelInput)
+	require.NoError(t, err, "an archived model name can be reused under the same provider")
+	require.NotEqual(t, configuredModel.ID, recreatedModel.ID)
+	require.NotEqual(t, configuredModel.CurrentRevisionID, recreatedModel.CurrentRevisionID)
+	_, err = store.Models().DeleteConfiguredModel(ctx, testOrgID, recreatedModel.ID)
+	require.NoError(t, err)
 	if _, err := store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID); err != nil {
 		t.Fatalf("archive provider config: %v", err)
 	}
@@ -1004,6 +945,9 @@ model:
 	if _, err := store.Models().GetConfiguredModel(ctx, testOrgID, configuredModel.ID); err == nil {
 		t.Fatal("configured model under archived provider config should not resolve")
 	}
+	recreatedProvider, err := store.Models().CreateModelProviderConfig(ctx, providerInput)
+	require.NoError(t, err, "an archived provider name can be reused in the same organization")
+	require.NotEqual(t, config.ID, recreatedProvider.ID)
 }
 
 func TestDeleteConfiguredModelAllowsHistoricalAgentConfigReferences(t *testing.T) {

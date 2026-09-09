@@ -32,35 +32,33 @@ func (s *Store) CreateConfiguredModel(
 	if err != nil {
 		return ConfiguredModelRecord{}, err
 	}
-	if record.Created {
-		if err := resourceguard.Lock(
-			ctx,
-			qtx,
-			resourceConfiguredModels,
-			input.OrgID.String()+":"+input.ModelProviderConfigID.String(),
-		); err != nil {
-			return ConfiguredModelRecord{}, err
-		}
-		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return ConfiguredModelRecord{}, err
-		}
-		modelCount, err := qtx.CountActiveConfiguredModelsForProvider(
-			ctx,
-			dbsqlc.CountActiveConfiguredModelsForProviderParams{
-				OrgID:                 input.OrgID,
-				ModelProviderConfigID: input.ModelProviderConfigID,
-			},
+	if err := resourceguard.Lock(
+		ctx,
+		qtx,
+		resourceConfiguredModels,
+		input.OrgID.String()+":"+input.ModelProviderConfigID.String(),
+	); err != nil {
+		return ConfiguredModelRecord{}, err
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return ConfiguredModelRecord{}, err
+	}
+	modelCount, err := qtx.CountActiveConfiguredModelsForProvider(
+		ctx,
+		dbsqlc.CountActiveConfiguredModelsForProviderParams{
+			OrgID:                 input.OrgID,
+			ModelProviderConfigID: input.ModelProviderConfigID,
+		},
+	)
+	if err != nil {
+		return ConfiguredModelRecord{}, fmt.Errorf("count active configured models: %w", err)
+	}
+	if modelCount > limits.MaxActiveConfiguredModelsPerProvider {
+		return ConfiguredModelRecord{}, resourceLimitExceeded(
+			"active configured models",
+			limits.MaxActiveConfiguredModelsPerProvider,
 		)
-		if err != nil {
-			return ConfiguredModelRecord{}, fmt.Errorf("count active configured models: %w", err)
-		}
-		if modelCount > limits.MaxActiveConfiguredModelsPerProvider {
-			return ConfiguredModelRecord{}, resourceLimitExceeded(
-				"active configured models",
-				limits.MaxActiveConfiguredModelsPerProvider,
-			)
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ConfiguredModelRecord{}, fmt.Errorf("commit create configured model: %w", err)
@@ -145,45 +143,15 @@ func (s *Store) createConfiguredModelTx(
 			ApiVariantOptions:         input.APIVariantOptions,
 		},
 	)
-	if err == nil {
-		record := configuredModelRecordFromInsertSQLC(row)
-		record.Created = true
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		if storeutil.IsUniqueViolation(err) {
-			return ConfiguredModelRecord{}, configuredModelNameConflict(input.Name)
+	if err != nil {
+		if storeutil.IsUniqueViolationOnConstraint(err, "configured_models_active_name_idx") {
+			return ConfiguredModelRecord{}, storeerr.Tag(storeerr.ErrConflict, fmt.Errorf(
+				"a configured model named %q already exists under this provider config", input.Name,
+			))
 		}
 		return ConfiguredModelRecord{}, fmt.Errorf("insert configured model: %w", err)
 	}
-	existingRow, err := qtx.GetConfiguredModelByName(
-		ctx,
-		dbsqlc.GetConfiguredModelByNameParams{
-			OrgID:                 input.OrgID,
-			ModelProviderConfigID: input.ModelProviderConfigID,
-			Name:                  input.Name,
-		},
-	)
-	if err != nil {
-		return ConfiguredModelRecord{}, fmt.Errorf("get configured model by name: %w", err)
-	}
-	record := configuredModelRecordFromGetByNameSQLC(existingRow)
-	// Omitted capacity replays the stored choice, including later edits or clearing.
-	if managementKind == management.Tenant && input.MaxOutputTokens == nil {
-		input.MaxOutputTokens = record.MaxOutputTokens
-	}
-	if record.ManagementKind != managementKind || !sameConfiguredModelIntent(record, input) {
-		return ConfiguredModelRecord{}, configuredModelNameConflict(input.Name)
-	}
-	return record, nil
-}
-
-func configuredModelNameConflict(name string) error {
-	return fmt.Errorf(
-		"a configured model named %q already exists under this provider config with a different configuration: %w",
-		name,
-		storeerr.ErrIdempotencyConflict,
-	)
+	return configuredModelRecordFromInsertSQLC(row), nil
 }
 
 func (s *Store) PatchConfiguredModel(

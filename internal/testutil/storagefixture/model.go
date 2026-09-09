@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +58,32 @@ func SeedModelForAgentYAML(
 	require.NoError(t, err, "load test provider config %q", providerConfigName)
 	input := DefaultModelInput(orgID, providerConfig.ID, configuredModelName)
 	input.DefaultMaxOutputTokens = new(4096)
-	return SeedModel(t, ctx, models, projectID, input)
+	return EnsureModelAccess(t, ctx, models, projectID, input)
+}
+
+// EnsureModelAccess preserves existing model and grant settings, using seed only
+// when the selected fixture model does not exist.
+func EnsureModelAccess(
+	t testing.TB,
+	ctx context.Context,
+	models *modelstore.Store,
+	projectID uuid.UUID,
+	seed modelstore.CreateConfiguredModelInput,
+) modelstore.ConfiguredModelRecord {
+	t.Helper()
+	configuredModel, err := models.GetConfiguredModelByName(ctx, seed.OrgID, seed.ModelProviderConfigID, seed.Name)
+	if storeerr.IsNotFound(err) {
+		return SeedModel(t, ctx, models, projectID, seed)
+	}
+	require.NoError(t, err, "load existing fixture model %q", seed.Name)
+	_, err = models.GetActiveProjectModelGrantForConfiguredModel(ctx, seed.OrgID, projectID, configuredModel.ID)
+	if storeerr.IsNotFound(err) {
+		_, err = models.CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+			OrgID: seed.OrgID, ProjectID: projectID, ConfiguredModelID: configuredModel.ID,
+		})
+	}
+	require.NoError(t, err, "grant fixture access to configured model %q", seed.Name)
+	return configuredModel
 }
 
 func SeedModelAndCompileAgentYAML(

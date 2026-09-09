@@ -297,7 +297,7 @@ func grantDefaultConfiguredModelToProjectTx(
 	if err := validateProjectModelGrantForConfiguredModel(apiFormat, model, input); err != nil {
 		return fmt.Errorf("validate default configured model grant: %w", err)
 	}
-	if _, err := qtx.UpsertProjectModelGrant(ctx, dbsqlc.UpsertProjectModelGrantParams{
+	if _, err := qtx.InsertProjectModelGrant(ctx, dbsqlc.InsertProjectModelGrantParams{
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,
 		ConfiguredModelID:         input.ConfiguredModelID,

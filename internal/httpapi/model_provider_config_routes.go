@@ -330,10 +330,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		Config:       configResponse,
 		ModelCatalog: s.providerModelCatalog(ctx, org.ID, record),
 	}
-	if record.Created {
-		return openapigen.CreateModelProviderConfig201JSONResponse(response), nil
-	}
-	return openapigen.CreateModelProviderConfig200JSONResponse(response), nil
+	return openapigen.CreateModelProviderConfig201JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) providerModelCatalog(
@@ -565,10 +562,7 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 	if err != nil {
 		return nil, err
 	}
-	if record.Created {
-		return openapigen.CreateConfiguredModel201JSONResponse(response), nil
-	}
-	return openapigen.CreateConfiguredModel200JSONResponse(response), nil
+	return openapigen.CreateConfiguredModel201JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) ListConfiguredModels(
@@ -831,12 +825,7 @@ func (s strictOpenAPIServer) CreateProjectModelGrant(
 	if err != nil {
 		return nil, err
 	}
-	if record.Created {
-		return openapigen.CreateProjectModelGrant201JSONResponse(
-			openapigen.ProjectModelGrantEnvelope{Grant: response},
-		), nil
-	}
-	return openapigen.CreateProjectModelGrant200JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
+	return openapigen.CreateProjectModelGrant201JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
 }
 
 func (s strictOpenAPIServer) ListProjectModelGrants(

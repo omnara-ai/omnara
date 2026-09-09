@@ -5088,12 +5088,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateModelProviderConfigRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateModelProviderConfigResponse'
         '201':
           description: Created route response.
           content:
@@ -5332,12 +5326,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateConfiguredModelRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConfiguredModel'
         '201':
           description: Created route response.
           content:
@@ -5507,12 +5495,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateProjectModelGrantRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProjectModelGrantEnvelope'
         '201':
           description: Created route response.
           content:
@@ -7040,7 +7022,7 @@ components:
       enum: [none, short, long]
     CreateModelProviderConfigRequest:
       type: object
-      description: Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format. Replaying creation by name with omitted timeouts preserves the existing timeout values.
+      description: Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
       additionalProperties: false
       required: [name, credential_secret_id]
       properties:
@@ -7249,7 +7231,7 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Repeating creation with an omitted ceiling preserves the existing model's current capacity. Explicit values must not exceed the provider's supported limit.
+          description: Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Explicit values must not exceed the provider's supported limit.
         default_max_output_tokens:
           type: integer
           minimum: 1

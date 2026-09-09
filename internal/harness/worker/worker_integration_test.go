@@ -1939,7 +1939,7 @@ func compileWorkerAgentYAMLResolved(
 		storagefixture.ModelProviderInput{
 			OrgID: workerTestOrgID, UserID: workerTestUserID, Name: source.Model.ProviderConfig,
 		})
-	configuredModel := storagefixture.SeedModel(t, ctx, store.Models(), projectID,
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), projectID,
 		storagefixture.DefaultModelInput(workerTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(
