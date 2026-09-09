@@ -42,12 +42,12 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	}
 }
 
-func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testing.T) {
-	const summaryOutputFloorTokens = 2_048
+func TestRunnerStopsBeforeSendWhenSmallestSourceDoesNotFit(t *testing.T) {
+	const summaryOutputTokens = 2_048
 	caps := model.Capabilities{
-		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputFloorTokens,
+		ContextWindowTokens:    preferredSummaryOutputTokens + summaryOutputTokens,
 		MaxOutputTokens:        new(preferredSummaryOutputTokens),
-		DefaultMaxOutputTokens: summaryOutputFloorTokens,
+		DefaultMaxOutputTokens: summaryOutputTokens,
 	}
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
 		textCompactionEvent(1, "only closed semantic unit"),
@@ -56,9 +56,8 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 		caps: caps,
 		sourceInputTokens: model.UsableInputTokensForRequest(
 			caps,
-			model.RequestPolicy{MaxOutputTokens: summaryOutputFloorTokens - 1},
+			model.RequestPolicy{MaxOutputTokens: summaryOutputTokens - 1},
 		),
-		outputTokenMinimum: summaryOutputFloorTokens,
 	}
 
 	result, err := testRunner(store, client).
@@ -69,7 +68,6 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 	if result.State != RunTerminal || len(store.terminalFailures) != 1 ||
 		store.terminalFailures[0].ErrorKind != model.ErrorKindContextWindow ||
 		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
-		!strings.Contains(store.terminalFailures[0].ErrorMessage, "minimum summary allowance") ||
 		len(client.requests) != 0 ||
 		len(store.replacements) != 0 || len(store.retryFailures) != 0 ||
 		len(store.publishInputs) != 0 {
@@ -84,125 +82,9 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceRequiresSubFloorOutput(t *testin
 			store.publishInputs,
 		)
 	}
-	sawFloor := false
+	require.NotEmpty(t, client.preparedPolicies)
 	for _, policy := range client.preparedPolicies {
-		if policy.MaxOutputTokens < summaryOutputFloorTokens {
-			t.Fatalf(
-				"prepared output allowance = %d, below safe floor %d",
-				policy.MaxOutputTokens,
-				summaryOutputFloorTokens,
-			)
-		}
-		if policy.MaxOutputTokens == summaryOutputFloorTokens {
-			sawFloor = true
-		}
-	}
-	if !sawFloor {
-		t.Fatalf("prepared policies = %+v, want enforced floor", client.preparedPolicies)
-	}
-}
-
-func TestRunnerReducesSummaryOutputToConfiguredFloor(t *testing.T) {
-	const configuredOutputTokens = 1_024
-	contextWindow := preferredSummaryOutputTokens + configuredOutputTokens
-	caps := model.Capabilities{
-		ContextWindowTokens:    contextWindow,
-		MaxOutputTokens:        new(preferredSummaryOutputTokens),
-		DefaultMaxOutputTokens: configuredOutputTokens,
-	}
-	inputTokens := model.UsableInputTokensForRequest(
-		caps,
-		model.RequestPolicy{MaxOutputTokens: configuredOutputTokens},
-	)
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("compactable source context ", 40)),
-	}}
-	client := &summaryModel{
-		caps:              caps,
-		sourceInputTokens: inputTokens,
-	}
-
-	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
-	if err != nil {
-		t.Fatalf("run narrow-window compaction: %v", err)
-	}
-	if result.State != RunCompleted || len(client.requests) != 1 ||
-		len(store.publishInputs) != 1 || len(store.terminalFailures) != 0 {
-		t.Fatalf(
-			"narrow-window result=%+v requests=%d publications=%+v terminal=%+v",
-			result,
-			len(client.requests),
-			store.publishInputs,
-			store.terminalFailures,
-		)
-	}
-	initialSummaryOutput := client.preparedPolicies[0].MaxOutputTokens
-	usedConfiguredFloor := false
-	for index, policy := range client.preparedPolicies {
-		if client.preparedBundles[index].ContextCheckpoint == nil &&
-			policy.MaxOutputTokens == configuredOutputTokens {
-			usedConfiguredFloor = true
-			break
-		}
-	}
-	if !usedConfiguredFloor {
-		t.Fatalf(
-			"summary policies = %+v, want configured floor below %d",
-			client.preparedPolicies,
-			initialSummaryOutput,
-		)
-	}
-}
-
-func TestRunnerUsesExactOutputReductionBetweenPreferredAndFloor(t *testing.T) {
-	const configuredOutputTokens = 1_024
-	adjustedOutputTokens := configuredOutputTokens +
-		(preferredSummaryOutputTokens-configuredOutputTokens)/2
-	caps := model.Capabilities{
-		ContextWindowTokens:    64_000,
-		MaxOutputTokens:        new(preferredSummaryOutputTokens),
-		DefaultMaxOutputTokens: configuredOutputTokens,
-	}
-	inputTokens := model.UsableInputTokensForRequest(
-		caps,
-		model.RequestPolicy{MaxOutputTokens: adjustedOutputTokens},
-	)
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("compactable source context ", 40)),
-	}}
-	client := &summaryModel{
-		caps:              caps,
-		sourceInputTokens: inputTokens,
-	}
-
-	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
-	if err != nil {
-		t.Fatalf("run compaction with partial output adjustment: %v", err)
-	}
-	if result.State != RunCompleted || len(client.requests) != 1 ||
-		len(store.publishInputs) != 1 || len(store.terminalFailures) != 0 {
-		t.Fatalf(
-			"partial-adjustment result=%+v requests=%d publications=%+v terminal=%+v",
-			result,
-			len(client.requests),
-			store.publishInputs,
-			store.terminalFailures,
-		)
-	}
-	var sent struct {
-		MaxOutputTokens int `json:"max_output_tokens"`
-	}
-	if err := json.Unmarshal(client.requests[0].ProviderRequest, &sent); err != nil {
-		t.Fatalf("decode sent compaction request: %v", err)
-	}
-	if sent.MaxOutputTokens != adjustedOutputTokens {
-		t.Fatalf(
-			"sent max output tokens = %d, want exact adjusted allowance %d",
-			sent.MaxOutputTokens,
-			adjustedOutputTokens,
-		)
+		require.Equal(t, summaryOutputTokens, policy.MaxOutputTokens)
 	}
 }
 
@@ -484,14 +366,13 @@ func TestRunnerDurablyRetriesOpenSourceRange(t *testing.T) {
 
 func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 	for _, tc := range []struct {
-		name                            string
-		capacity                        *int
-		allowance, minimum, input, want int
+		name                   string
+		capacity               *int
+		allowance, input, want int
 	}{
-		{"explicit small normal allowance", new(9000), 1000, 1, 4000, 4976},
-		{"inherited large capacity", new(9000), 0, 1, 3000, 5000},
-		{"unknown capacity with large allowance", nil, 9000, 1, 3000, 5000},
-		{"thinking minimum above half window", new(9000), 0, 6000, 1000, 6000},
+		{"explicit small normal allowance", new(9000), 1000, 4000, 1000},
+		{"inherited large capacity", new(9000), 0, 3000, 5000},
+		{"unknown capacity with large allowance", nil, 9000, 3000, 5000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeStore{
@@ -511,7 +392,7 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 					MaxOutputTokens:        tc.capacity,
 					DefaultMaxOutputTokens: tc.allowance,
 				},
-				sourceInputTokens: tc.input, outputTokenMinimum: tc.minimum,
+				sourceInputTokens: tc.input,
 			}
 			result, err := testRunner(
 				store,

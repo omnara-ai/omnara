@@ -177,11 +177,8 @@ func TestKernelRecordModelOutputWritesTypedAuthority(t *testing.T) {
 				APIVariant:                 modelprotocol.APIVariantDefault,
 				ProviderReportedCostUSD:    "0.0000125",
 				ProviderMetadata: modelenvelope.ProviderMetadata{
-					RequestMaxOutputTokens: 64000,
 					OpenRouter: modelenvelope.OpenRouterMetadata{
-						Provider:           "test-provider",
-						FinishReason:       "tool_calls",
-						NativeFinishReason: "length",
+						Provider: "test-provider",
 					},
 				},
 				Normalized: modelenvelope.ResponseNormalized{

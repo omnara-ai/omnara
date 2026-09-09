@@ -20,18 +20,18 @@ func TestProviderMetadataJSONShape(t *testing.T) {
 			want:     `{"openrouter":{"provider":"Moonshot AI"}}`,
 		},
 		{
-			name: "conflicting finish reasons",
+			name: "provider with null character omitted",
 			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
-				FinishReason: "tool_calls", NativeFinishReason: "length",
+				Provider: "bad\x00provider",
 			}},
-			want: `{"openrouter":{"finish_reason":"tool_calls","native_finish_reason":"length"}}`,
+			want: `{}`,
 		},
 		{
-			name: "invalid diagnostics omitted independently",
+			name: "oversized provider omitted",
 			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
-				Provider: "Moonshot AI", FinishReason: "bad\x00reason", NativeFinishReason: strings.Repeat("x", 257),
+				Provider: strings.Repeat("x", maxProviderNameBytes+1),
 			}},
-			want: `{"openrouter":{"provider":"Moonshot AI"}}`,
+			want: `{}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

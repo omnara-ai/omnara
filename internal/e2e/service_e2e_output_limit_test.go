@@ -182,7 +182,10 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.
 	))
 	require.NoError(t, env.db.QueryRow(
 		ctx,
-		`SELECT count(*) FROM model_outputs output JOIN model_call_contexts context ON context.agent_id=output.agent_id AND context.id=output.model_call_context_id WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.provider_replay IS NOT NULL AND context.provider_metadata->>'request_max_output_tokens'='65536' AND context.provider_metadata->'openrouter'->>'finish_reason'='tool_calls' AND context.provider_metadata->'openrouter'->>'native_finish_reason'='length'`,
+		`SELECT count(*) FROM model_outputs output
+WHERE output.agent_id=$1 AND output.stop_reason='max_tokens' AND output.provider_replay IS NOT NULL
+  AND EXISTS (SELECT 1 FROM tool_calls call
+              WHERE call.agent_id=output.agent_id AND call.model_output_id=output.id)`,
 		agentUUID,
 	).Scan(&truncated))
 	require.NoError(t, env.db.QueryRow(

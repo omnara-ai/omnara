@@ -415,6 +415,15 @@ func TestRespondMaxTokensRejectsOnlyFinalContentBlockToolUse(t *testing.T) {
 			},
 		},
 		{
+			name: "final tool with valid object",
+			tail: `{"type":"tool_use","id":"toolu_last","name":"run_command","input":{"command":"true"}}`,
+			want: model.ResponsePart{
+				Type: model.ResponsePartTypeToolCall, ProviderCallID: "toolu_last",
+				ToolName: "run_command", ToolInput: json.RawMessage(`{"command":"true"}`),
+				ToolCallError: model.IncompleteToolCallError,
+			},
+		},
+		{
 			name: "tool before trailing text",
 			tail: `{"type":"text","text":"after the call"}`,
 			want: model.ResponsePart{Type: model.ResponsePartTypeText, Text: "after the call"},

@@ -291,7 +291,6 @@ func (e AgentExecutor) executeModelStep(
 		}
 	}
 	response, err := client.Respond(ctx, request)
-	response.ProviderMetadata.RequestMaxOutputTokens = prepared.MaxOutputTokens
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
@@ -306,17 +305,6 @@ func (e AgentExecutor) executeModelStep(
 			resolved,
 			policy,
 			err,
-			response,
-		)
-	}
-	if err := model.ValidateProviderResponse(response); err != nil {
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			claim,
-			resolved,
-			model.MalformedProviderResponse(string(apiFormat), err),
-			true,
 			response,
 		)
 	}

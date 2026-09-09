@@ -129,12 +129,12 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 		}
 		if client.preparedBundles[index].ContextCheckpoint == nil {
 			sawSummaryRequest = true
-			if policy.MaxOutputTokens != preferredSummaryOutputTokens {
+			if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
 				t.Fatalf(
 					"summary policy %d output = %d, want %d",
 					index,
 					policy.MaxOutputTokens,
-					preferredSummaryOutputTokens,
+					client.Capabilities().DefaultMaxOutputTokens,
 				)
 			}
 			continue

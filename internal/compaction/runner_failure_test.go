@@ -17,16 +17,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T) {
+func TestCompactionModelHonorsOutputLimits(t *testing.T) {
 	supportsTools := false
 	tests := []struct {
 		name       string
 		caps       model.Capabilities
 		wantOutput int
-		wantFloor  int
 	}{
 		{
-			name: "summary cap changes only output policy",
+			name: "explicit default wins with a known maximum",
 			caps: model.Capabilities{
 				ContextWindowTokens:       200000,
 				MaxOutputTokens:           new(64_000),
@@ -37,21 +36,18 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 				DefaultReasoningEffort:    "high",
 				SupportedReasoningEfforts: []string{"low", "medium", "high"},
 			},
-			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  2_048,
+			wantOutput: 2_048,
 		},
 		{
 			name: "model output limit below summary cap is retained",
 			caps: model.Capabilities{
 				ContextWindowTokens:       200000,
 				MaxOutputTokens:           new(8_192),
-				DefaultMaxOutputTokens:    2_048,
 				SupportsReasoning:         true,
 				DefaultReasoningEffort:    "low",
 				SupportedReasoningEfforts: []string{"low", "high"},
 			},
 			wantOutput: 8_192,
-			wantFloor:  2_048,
 		},
 		{
 			name: "default output limit is used when model maximum is unavailable",
@@ -63,13 +59,21 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 				SupportedReasoningEfforts: []string{"vendor-deep"},
 			},
 			wantOutput: 2_048,
-			wantFloor:  2_048,
 		},
 		{
 			name:       "runtime allowance with unknown capacity retains preferred summary size",
 			caps:       model.Capabilities{ContextWindowTokens: 200000, DefaultMaxOutputTokens: 64000},
 			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  preferredSummaryOutputTokens,
+		},
+		{
+			name:       "unknown allowance retains summary cap",
+			caps:       model.Capabilities{ContextWindowTokens: 200_000},
+			wantOutput: preferredSummaryOutputTokens,
+		},
+		{
+			name:       "small context reserves at most half for output",
+			caps:       model.Capabilities{ContextWindowTokens: 8_192},
+			wantOutput: 4_096,
 		},
 	}
 	for _, test := range tests {
@@ -78,7 +82,7 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 				ProviderModelSlug: "policy-test",
 				ModelCapabilities: test.caps,
 			}
-			got, floor, err := compactionRequestPolicy(client, "test")
+			_, got, err := compactionModel(client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -87,67 +91,6 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 			want.CacheRetention = model.CacheRetentionNone
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Fatalf("compaction request policy mismatch (-want +got):\n%s", diff)
-			}
-			if floor != test.wantFloor {
-				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
-			}
-		})
-	}
-}
-
-func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testing.T) {
-	supportsTools := false
-	baseCapabilities := model.Capabilities{
-		ContextWindowTokens:       200_000,
-		MaxOutputTokens:           new(64_000),
-		DefaultMaxOutputTokens:    32_768,
-		DefaultCacheRetention:     model.CacheRetentionShort,
-		SupportsTools:             &supportsTools,
-		SupportsReasoning:         false,
-		DefaultReasoningEffort:    "",
-		SupportedReasoningEfforts: nil,
-	}
-	tests := []struct {
-		name       string
-		client     model.Client
-		wantOutput int
-		wantFloor  int
-	}{
-		{
-			name: "Anthropic preferred total already valid",
-			client: anthropicmessages.Client{
-				ProviderModelSlug: "claude-sonnet-4",
-				ModelCapabilities: baseCapabilities,
-				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":8192}}`),
-			},
-			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  preferredSummaryOutputTokens,
-		},
-		{
-			name: "Anthropic raises summary allowance to thinking minimum",
-			client: anthropicmessages.Client{
-				ProviderModelSlug: "claude-sonnet-4",
-				ModelCapabilities: baseCapabilities,
-				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
-			},
-			wantOutput: 24_577,
-			wantFloor:  24_577,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, floor, err := compactionRequestPolicy(test.client, "test")
-			if err != nil {
-				t.Fatalf("compaction request policy: %v", err)
-			}
-			want := model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client))
-			want.MaxOutputTokens = test.wantOutput
-			want.CacheRetention = model.CacheRetentionNone
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Fatalf("compaction request policy mismatch (-want +got):\n%s", diff)
-			}
-			if floor != test.wantFloor {
-				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
 			}
 		})
 	}
@@ -181,7 +124,7 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 				},
 				APIVariantOptions: test.options,
 			}
-			_, _, err := compactionRequestPolicy(client, "anthropic_messages")
+			_, _, err := compactionModel(client, "anthropic_messages")
 			var providerErr model.ProviderError
 			if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
 				!errors.As(err, &providerErr) ||

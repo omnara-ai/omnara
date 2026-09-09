@@ -172,7 +172,6 @@ func largestFittingCompactionRequest(
 	groups []executionstore.CompactionAtomicGroupRecord,
 	client model.Client,
 	policy model.RequestPolicy,
-	summaryOutputFloorTokens int,
 	errorSource string,
 ) (preparedCompactionRequest, error) {
 	candidates := safeCompactionSourceEndsWithWitness(
@@ -183,7 +182,7 @@ func largestFittingCompactionRequest(
 	if len(candidates) == 0 {
 		return preparedCompactionRequest{}, nil
 	}
-	prepareCandidate := func(end int64, candidatePolicy model.RequestPolicy) (preparedCompactionRequest, error) {
+	prepareCandidate := func(end int64) (preparedCompactionRequest, error) {
 		count := int(end-input.Plan.EventSequenceStart) + 1
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
@@ -201,7 +200,7 @@ func largestFittingCompactionRequest(
 			client,
 			model.PrepareForSendInput{
 				Context:                    bundle,
-				Policy:                     candidatePolicy,
+				Policy:                     policy,
 				ReserveFullOutputAllowance: true,
 				ErrorSource:                errorSource,
 			},
@@ -215,36 +214,19 @@ func largestFittingCompactionRequest(
 			sourceText: sourceText,
 		}, nil
 	}
-	adjustedPolicy := policy
-	smallest, err := prepareCandidate(candidates[0], adjustedPolicy)
+	smallest, err := prepareCandidate(candidates[0])
 	if err != nil {
 		return preparedCompactionRequest{}, err
 	}
-	for smallest.prepared.InputBudget.OverBudget() {
-		if adjustedPolicy.MaxOutputTokens <= summaryOutputFloorTokens {
-			return preparedCompactionRequest{}, nil
-		}
-		excess := smallest.prepared.InputBudget.EstimatedInputTokens -
-			smallest.prepared.InputBudget.UsableInputTokens
-		nextOutput := adjustedPolicy.MaxOutputTokens - excess
-		if nextOutput < summaryOutputFloorTokens {
-			nextOutput = summaryOutputFloorTokens
-		}
-		if nextOutput >= adjustedPolicy.MaxOutputTokens {
-			return preparedCompactionRequest{}, nil
-		}
-		adjustedPolicy.MaxOutputTokens = nextOutput
-		smallest, err = prepareCandidate(candidates[0], adjustedPolicy)
-		if err != nil {
-			return preparedCompactionRequest{}, err
-		}
+	if smallest.prepared.InputBudget.OverBudget() {
+		return preparedCompactionRequest{}, nil
 	}
 
 	bestRequest := smallest
 	low, high := 1, len(candidates)-1
 	for low <= high {
 		mid := low + (high-low)/2
-		candidate, err := prepareCandidate(candidates[mid], adjustedPolicy)
+		candidate, err := prepareCandidate(candidates[mid])
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}

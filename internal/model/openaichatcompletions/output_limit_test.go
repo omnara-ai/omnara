@@ -130,13 +130,6 @@ func TestOutputLimitReasonsAndPerCallValidation(t *testing.T) {
 				require.NotEmpty(t, response.ProviderReplay)
 				require.Contains(t, response.Text(), "partial")
 				require.Equal(t, tc.output, response.Usage.OutputTokens)
-				if tc.variant == modelprotocol.APIVariantOpenRouter {
-					native, _ := tc.native.(string)
-					if response.ProviderMetadata.OpenRouter.FinishReason != tc.finish ||
-						response.ProviderMetadata.OpenRouter.NativeFinishReason != native {
-						t.Fatalf("finish evidence lost: %+v", response.ProviderMetadata)
-					}
-				}
 			})
 		}
 	}

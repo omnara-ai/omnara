@@ -355,7 +355,6 @@ type summaryModel struct {
 	prepareErrs                 []error
 	requests                    []model.Request
 	results                     []summaryResult
-	outputTokenMinimum          int
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -385,10 +384,6 @@ func (m *summaryModel) Capabilities() model.Capabilities {
 		caps.DefaultMaxOutputTokens = 2_048
 	}
 	return caps
-}
-
-func (m *summaryModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
-	return model.OutputTokenLimits{Minimum: m.outputTokenMinimum}, nil
 }
 
 func (m *summaryModel) Prepare(

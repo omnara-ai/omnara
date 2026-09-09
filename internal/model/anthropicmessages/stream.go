@@ -140,12 +140,17 @@ type anthropicStreamAccumulator struct {
 	stopReasonRaw  string
 	usageRaw       usage
 	content        []json.RawMessage
-	toolInputs     []string
+	toolInputs     []anthropicStreamToolInput
 	activeBlock    *anthropicStreamBlock
 	activeBlockIdx int
 	nextBlockIdx   int
 	sawMessageStop bool
 	streamErr      error
+}
+
+type anthropicStreamToolInput struct {
+	blockIndex int
+	rawInput   string
 }
 
 func (a *anthropicStreamAccumulator) partialResponse() model.Response {
@@ -395,7 +400,10 @@ func (a *anthropicStreamAccumulator) closeBlock(ctx context.Context, index int) 
 		a.content = append(a.content, rawBlock)
 	}
 	if block.kind == model.StreamBlockToolUse {
-		a.toolInputs = append(a.toolInputs, strings.TrimSpace(block.toolInputJSON.String()))
+		a.toolInputs = append(a.toolInputs, anthropicStreamToolInput{
+			blockIndex: index,
+			rawInput:   strings.TrimSpace(block.toolInputJSON.String()),
+		})
 	}
 	if block.kind != "" {
 		a.emit.BlockStop(ctx, index)
@@ -421,12 +429,13 @@ func (a *anthropicStreamAccumulator) rejectIncompleteToolInputs(response *model.
 		if toolIndex >= len(a.toolInputs) {
 			return
 		}
-		raw := a.toolInputs[toolIndex]
+		input := a.toolInputs[toolIndex]
 		toolIndex++
-		if raw == "" && response.StopReason != model.StopReasonMaxTokens {
+		if input.rawInput == "" &&
+			(response.StopReason != model.StopReasonMaxTokens || input.blockIndex != a.nextBlockIdx-1) {
 			continue
 		}
-		if raw == "" || modelenvelope.ValidateToolInput(json.RawMessage(raw)) != nil {
+		if input.rawInput == "" || modelenvelope.ValidateToolInput(json.RawMessage(input.rawInput)) != nil {
 			part.ToolCallError = model.IncompleteToolCallError
 		}
 	}

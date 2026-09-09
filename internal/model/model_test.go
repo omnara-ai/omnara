@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestModelWindowForRequestUsesExactPolicy(t *testing.T) {
+func TestModelWindowForRequestReservesSmallerRequestAllowance(t *testing.T) {
 	capabilities := Capabilities{
 		ContextWindowTokens:    200000,
 		MaxOutputTokens:        new(64000),
@@ -24,7 +24,7 @@ func TestModelWindowForRequestUsesExactPolicy(t *testing.T) {
 	policy := RequestPolicy{MaxOutputTokens: 32_000}
 	window := modelWindowForRequest(capabilities, policy)
 	if window.OutputReserveTokens != 32_000 || window.SafetyMarginTokens == 0 {
-		t.Fatalf("request window = %+v, want exact policy max and safety margin", window)
+		t.Fatalf("request window = %+v, want smaller request allowance and safety margin", window)
 	}
 	if usable := UsableInputTokensForRequest(capabilities, policy); usable != 159_808 {
 		t.Fatalf("usable input tokens = %d, want 159808", usable)

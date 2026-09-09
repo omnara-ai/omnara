@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -145,6 +146,24 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 			outputField:      "max_tokens",
 			wantAbsentFields: []string{"reasoning", "reasoning_effort", "thinking"},
 		},
+		{
+			name: "Anthropic adaptive thinking",
+			client: anthropicmessages.Client{
+				EndpointPath: "/messages", ProviderModelSlug: "claude-test", ModelCapabilities: highReasoning,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"adaptive"}}`),
+			},
+			outputField: "max_tokens",
+			wantFields:  map[string]string{"thinking": `{"type":"adaptive"}`},
+		},
+		{
+			name: "Anthropic future thinking mode",
+			client: anthropicmessages.Client{
+				EndpointPath: "/messages", ProviderModelSlug: "claude-test", ModelCapabilities: highReasoning,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"future","budget_tokens":24576}}`),
+			},
+			outputField: "max_tokens",
+			wantFields:  map[string]string{"thinking": `{"type":"future","budget_tokens":24576}`},
+		},
 	}
 	bundle := modelcontext.Bundle{
 		SystemPrompt: "Summarize the closed history.",
@@ -156,13 +175,13 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			compactionPolicy, _, err := compactionRequestPolicy(test.client, "test")
+			summaryClient, compactionPolicy, err := compactionModel(test.client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
 			compactionBody := preparePolicyWireBody(
 				t,
-				test.client,
+				summaryClient,
 				bundle,
 				compactionPolicy,
 			)
@@ -172,8 +191,8 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 				bundle,
 				model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client)),
 			)
-			if got := string(compactionBody[test.outputField]); got != "16384" {
-				t.Fatalf("wire %s = %s, want 16384", test.outputField, got)
+			if got := string(compactionBody[test.outputField]); got != "2048" {
+				t.Fatalf("wire %s = %s, want 2048", test.outputField, got)
 			}
 			for _, field := range []string{"reasoning", "reasoning_effort", "include", "thinking"} {
 				compactionValue, compactionHasField := compactionBody[field]
@@ -190,9 +209,7 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 				}
 			}
 			for field, want := range test.wantFields {
-				if got := string(compactionBody[field]); got != want {
-					t.Fatalf("wire %s = %s, want %s", field, got, want)
-				}
+				require.JSONEq(t, want, string(compactionBody[field]), "wire field %s", field)
 			}
 			for _, field := range test.wantAbsentFields {
 				if _, found := compactionBody[field]; found {
@@ -226,8 +243,18 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
 			},
 			outputField: "max_tokens",
-			optionField: "thinking",
-			wantOutput:  24_577,
+			absentField: "thinking",
+			wantOutput:  preferredSummaryOutputTokens,
+		},
+		{
+			name: "Bedrock Messages pointer client",
+			client: &anthropicmessages.Client{
+				EndpointPath: "/messages", ProviderModelSlug: "claude-test", ModelCapabilities: capabilities,
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576},"temperature":1}`),
+			},
+			outputField: "max_tokens", absentField: "thinking", optionField: "temperature",
+			wantOutput: preferredSummaryOutputTokens,
 		},
 		{
 			name: "OpenRouter Chat Completions",
@@ -258,7 +285,7 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 	}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			policy, _, err := compactionRequestPolicy(test.client, "test")
+			summaryClient, policy, err := compactionModel(test.client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -267,7 +294,7 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 			}
 			prepared, err := model.PrepareForSend(
 				context.Background(),
-				test.client,
+				summaryClient,
 				model.PrepareForSendInput{
 					Context:     bundle,
 					Policy:      policy,
@@ -290,8 +317,14 @@ func TestCompactionPolicyUsesReconciledOutputLimitForWireAndAdmission(t *testing
 					t.Fatalf("alternate output field %s remained on wire: %s", test.absentField, prepared.Body)
 				}
 			}
-			if _, found := body[test.optionField]; !found {
+			if _, found := body[test.optionField]; test.optionField != "" && !found {
 				t.Fatalf("provider-owned %s option was removed: %s", test.optionField, prepared.Body)
+			}
+			if test.absentField == "thinking" {
+				normalBody := preparePolicyWireBody(t, test.client, bundle, model.RequestPolicyFromCapabilities(capabilities))
+				if _, found := normalBody["thinking"]; !found {
+					t.Fatal("compaction mutated the ordinary client's thinking configuration")
+				}
 			}
 			wantUsable := model.UsableInputTokensForRequest(capabilities, policy)
 			if prepared.InputBudget.UsableInputTokens != wantUsable ||
@@ -365,7 +398,7 @@ func TestCompactionPolicyDisablesPromptCacheControls(t *testing.T) {
 	cacheFields := []string{"cache_control", "session_id", "prompt_cache_key", "prompt_cache_retention"}
 	for _, client := range clients {
 		t.Run(string(client.APIFormat())+"/"+string(client.ModelAPIVariant()), func(t *testing.T) {
-			compactionPolicy, _, err := compactionRequestPolicy(client, "test")
+			summaryClient, compactionPolicy, err := compactionModel(client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -375,7 +408,7 @@ func TestCompactionPolicyDisablesPromptCacheControls(t *testing.T) {
 				bundle,
 				model.RequestPolicyFromCapabilities(capabilities),
 			))
-			compactionBody := wireBodyText(t, preparePolicyWireBody(t, client, bundle, compactionPolicy))
+			compactionBody := wireBodyText(t, preparePolicyWireBody(t, summaryClient, bundle, compactionPolicy))
 			normalHasCacheField := false
 			for _, field := range cacheFields {
 				normalHasCacheField = normalHasCacheField || strings.Contains(normalBody, field)

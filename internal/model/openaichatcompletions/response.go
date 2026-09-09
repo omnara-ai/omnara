@@ -165,10 +165,6 @@ func (p protocol) chatResponseEvidence(
 			logent.ModelResponseProviderCostBYOKComponentMissing(ctx)
 		}
 	}
-	if p.client.compat().reportsNativeFinishReason && len(response.Choices) == 1 {
-		out.ProviderMetadata.OpenRouter.FinishReason = response.Choices[0].FinishReason
-		out.ProviderMetadata.OpenRouter.NativeFinishReason = string(response.Choices[0].NativeFinishReason)
-	}
 	return out
 }
 

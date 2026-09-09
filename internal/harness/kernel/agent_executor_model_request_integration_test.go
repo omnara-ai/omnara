@@ -20,7 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
@@ -911,18 +910,10 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgentWithModelOptions(
-		t,
-		ctx,
-		"openai/malformed-semantic-model",
-		now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(100000), MaxOutputTokens: new(90000)},
-	)
+	agentID, userID := fixture.createAgent(t, ctx, "openai/malformed-semantic-model", now)
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
-		providerModelSlug:          "malformed-semantic-model",
-		preparedInputTokenEstimate: 60000,
-		capabilities:               model.Capabilities{ContextWindowTokens: 100000, MaxOutputTokens: new(90000)},
+		providerModelSlug: "malformed-semantic-model",
 		responses: []model.Response{
 			{
 				ID:                      "resp-malformed-semantic",
@@ -936,8 +927,7 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 				Usage:      model.Usage{InputTokens: 17, OutputTokens: 5},
 				ProviderMetadata: modelenvelope.ProviderMetadata{
 					OpenRouter: modelenvelope.OpenRouterMetadata{
-						FinishReason:       "tool_calls",
-						NativeFinishReason: "unrecognized",
+						Provider: "test-provider",
 					},
 				},
 			},
@@ -955,7 +945,7 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 
 	var state executionstore.ModelCallState
 	var recoveryKind executionstore.ModelCallRecoveryKind
-	var errorCode, responseID string
+	var errorCode, responseID, servingProvider string
 	var errorDetails json.RawMessage
 	var inputTokens, outputTokens int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -963,6 +953,7 @@ SELECT context.state,
 	       context.recovery_kind,
 	       context.error_code,
 	       context.provider_response_id,
+	       coalesce(context.provider_metadata->'openrouter'->>'provider', ''),
 	       context.error_details,
 	       coalesce(context.input_tokens_total, 0),
 	       coalesce(context.output_tokens_total, 0)
@@ -975,6 +966,7 @@ WHERE context.project_id = $1
 		&recoveryKind,
 		&errorCode,
 		&responseID,
+		&servingProvider,
 		&errorDetails,
 		&inputTokens,
 		&outputTokens,
@@ -995,20 +987,9 @@ WHERE context.project_id = $1
 	if inputTokens != 17 || outputTokens != 5 {
 		t.Fatalf("malformed response usage = input %d output %d", inputTokens, outputTokens)
 	}
-	var metadata modelenvelope.ProviderMetadata
-	var raw json.RawMessage
-	require.NoError(
-		t,
-		fixture.Pool.QueryRow(ctx, `SELECT provider_metadata FROM model_call_contexts
-WHERE agent_id=$1 AND state='failed'`, agentID).
-			Scan(&raw),
-	)
-	require.NoError(t, json.Unmarshal(raw, &metadata))
-	if metadata.RequestMaxOutputTokens != 35000 || metadata.OpenRouter.FinishReason != "tool_calls" ||
-		metadata.OpenRouter.NativeFinishReason != "unrecognized" {
-		t.Fatalf("persisted malformed-success diagnostics=%+v", metadata)
+	if servingProvider != "test-provider" {
+		t.Fatalf("malformed response serving provider = %q, want test-provider", servingProvider)
 	}
-
 }
 
 func TestAgentExecutorRetriesRefusalWithToolCallsAsMalformedSuccess(t *testing.T) {

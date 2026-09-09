@@ -463,15 +463,22 @@ func TestAnthropicConsumeStreamMaxTokensIsSuccessful(t *testing.T) {
 
 func TestAnthropicConsumeStreamValidatesToolInputAtCompletion(t *testing.T) {
 	for _, test := range []struct {
-		name         string
-		stopReason   string
-		input        string
-		wantRejected bool
+		name          string
+		stopReason    string
+		input         string
+		followingText *string
+		wantRejected  bool
 	}{
 		{name: "malformed tool use", stopReason: "tool_use", input: `{"city":`, wantRejected: true},
 		{name: "malformed cutoff", stopReason: "max_tokens", input: `{"city":`, wantRejected: true},
 		{name: "cutoff without arguments", stopReason: "max_tokens", wantRejected: true},
 		{name: "cutoff with explicit empty object", stopReason: "max_tokens", input: `{}`},
+		{name: "completed empty tool before text cutoff", stopReason: "max_tokens", followingText: new("partial")},
+		{name: "completed empty tool before empty text cutoff", stopReason: "max_tokens", followingText: new("")},
+		{
+			name: "malformed tool before text cutoff", stopReason: "max_tokens", input: `{"city":`,
+			followingText: new("partial"), wantRejected: true,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			events := [][2]string{
@@ -486,14 +493,26 @@ func TestAnthropicConsumeStreamValidatesToolInputAtCompletion(t *testing.T) {
 					`{"index":0,"delta":{"type":"input_json_delta","partial_json":%q}}`, test.input,
 				)})
 			}
+			events = append(events, [2]string{"content_block_stop", `{"index":0}`})
+			if test.followingText != nil {
+				events = append(events,
+					[2]string{"content_block_start", `{"index":1,"content_block":{"type":"text","text":""}}`},
+					[2]string{"content_block_delta", fmt.Sprintf(
+						`{"index":1,"delta":{"type":"text_delta","text":%q}}`, *test.followingText,
+					)},
+					[2]string{"content_block_stop", `{"index":1}`},
+				)
+			}
 			events = append(events,
-				[2]string{"content_block_stop", `{"index":0}`},
 				[2]string{"message_delta", `{"delta":{"stop_reason":"` + test.stopReason + `"},"usage":{"output_tokens":4}}`},
 				[2]string{"message_stop", `{}`},
 			)
 			resp, err := consumeAnthropicStream(t, anthropicSSE(events...), &recordingSink{})
 			require.NoError(t, err)
-			require.Len(t, resp.Content, 1)
+			require.Len(t, resp.ToolCalls(), 1)
+			if test.followingText != nil {
+				require.Equal(t, *test.followingText, resp.Text())
+			}
 			if got := resp.Content[0].ToolCallError != ""; got != test.wantRejected {
 				t.Errorf("rejected = %t, want %t (error %q)", got, test.wantRejected, resp.Content[0].ToolCallError)
 			}

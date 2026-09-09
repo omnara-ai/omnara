@@ -1749,7 +1749,7 @@ export type ModelOutputEvent = {
     content_blocks: Array<ModelOutputContentBlock>;
     usage?: ModelUsage;
     /**
-     * Sanitized request and response diagnostics. `request_max_output_tokens` records the allowance sent when specified. Provider-specific facts are keyed by provider; `openrouter` can include the serving provider and normalized and native finish reasons. Omitted when empty.
+     * Facts the provider reported about this call, keyed by provider (for example `openrouter.provider` names the upstream that served an OpenRouter request). Present only when the provider reported something.
      */
     provider_metadata?: {
         [key: string]: unknown;

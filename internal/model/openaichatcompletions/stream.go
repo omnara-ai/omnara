@@ -175,19 +175,11 @@ type chatStreamAccumulator struct {
 }
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
-	var choices []chatChoice
-	for _, index := range sortedChoiceIndexes(a.choices) {
-		state := a.choices[index]
-		choices = append(choices, chatChoice{
-			Index: index, FinishReason: state.finishReason, NativeFinishReason: state.nativeFinishReason,
-		})
-	}
 	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
 		ID:       a.id,
 		Model:    a.servedModel,
 		Provider: a.provider,
 		Usage:    a.usage,
-		Choices:  choices,
 	})
 }
 

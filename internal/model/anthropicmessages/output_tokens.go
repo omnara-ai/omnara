@@ -13,6 +13,20 @@ const minimumManualThinkingBudgetTokens = 1_024
 
 var _ model.OutputTokenLimitProvider = Client{}
 
+func (c Client) WithoutManualThinking() (model.Client, error) {
+	_, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
+	if err != nil || !enabled {
+		return c, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(c.APIVariantOptions, &fields); err != nil {
+		return c, err
+	}
+	delete(fields, "thinking")
+	c.APIVariantOptions, err = json.Marshal(fields)
+	return c, err
+}
+
 func (c Client) OutputTokenLimits() (model.OutputTokenLimits, error) {
 	budget, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
 	if err != nil {

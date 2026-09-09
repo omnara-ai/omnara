@@ -165,7 +165,7 @@ func (r Runner) run(
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
 	errorSource := modelErrorSourceForAPIFormat(apiFormat)
-	policy, summaryOutputFloor, err := compactionRequestPolicy(client, errorSource)
+	summaryClient, policy, err := compactionModel(client, errorSource)
 	if err != nil {
 		return r.recordPreSendFailure(
 			ctx, input, claim, err,
@@ -213,9 +213,8 @@ func (r Runner) run(
 		boundaryWindow.sourceEvents,
 		boundaryWindow.witnessEvents,
 		boundaryWindow.atomicGroups,
-		client,
+		summaryClient,
 		policy,
-		summaryOutputFloor,
 		errorSource,
 	)
 	if err != nil {
@@ -234,7 +233,7 @@ func (r Runner) run(
 			input,
 			claim,
 			irreducibleCompactionError(
-				"no safe closed source prefix fits while preserving the minimum summary allowance",
+				"no safe closed source prefix fits with the summary output allowance",
 			),
 			providerAttempt,
 		)
@@ -257,13 +256,12 @@ func (r Runner) run(
 	prepared := preparedRequest.prepared
 	sourceText := preparedRequest.sourceText
 
-	response, err := client.Respond(
+	response, err := summaryClient.Respond(
 		ctx,
 		model.Request{
 			ProviderRequest: prepared.Body,
 		},
 	)
-	response.ProviderMetadata.RequestMaxOutputTokens = prepared.MaxOutputTokens
 	providerAttempt.ProviderRequestStarted = true
 	providerAttempt.Response = response
 	if err != nil {
