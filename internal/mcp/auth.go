@@ -304,11 +304,20 @@ func probeMCPAuth(ctx context.Context, endpoint string, client *http.Client) (*h
 	if err != nil {
 		return nil, err
 	}
-	if response.StatusCode == http.StatusUnauthorized || (response.StatusCode >= 200 && response.StatusCode <= 299) {
+	switch {
+	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
 		return response, nil
+	case response.StatusCode >= 200 && response.StatusCode <= 299:
+		body, _ := io.ReadAll(io.LimitReader(response.Body, statusErrorDecodeBytes))
+		_ = response.Body.Close()
+		if rpcErr, ok := decodeRPCErrorBody(body); !ok || !IndicatesLegacyServer(rpcErr) {
+			response.Body = io.NopCloser(bytes.NewReader(body))
+			return response, nil
+		}
+	default:
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
+		_ = response.Body.Close()
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
-	_ = response.Body.Close()
 	return sendAuthProbe(ctx, endpoint, client, legacyAuthProbe)
 }
 

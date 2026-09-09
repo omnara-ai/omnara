@@ -41,7 +41,7 @@ func (m Manager) DiscoverTools(
 			dropToolsWithInvalidHeaders(ctx, contents.Listing.Tools),
 		)
 	}
-	catalog, err := m.refreshCatalog(ctx, identity, false, fetch)
+	catalog, err := m.refreshCatalogUntil(ctx, identity, false, alwaysFetchCatalog, fetch)
 	if err != nil {
 		return DiscoveredServer{}, ClarifyTransportError(err, endpointURL)
 	}

@@ -295,10 +295,28 @@ func catalogUsable(catalog executionstore.MCPServerCatalogRecord, stateless bool
 	return catalog.Fetched() && IsStatelessProtocolVersion(catalog.ProtocolVersion) == stateless
 }
 
+func catalogServes(catalog executionstore.MCPServerCatalogRecord, statelessOnly bool) bool {
+	return catalog.Fetched() && (!statelessOnly || IsStatelessProtocolVersion(catalog.ProtocolVersion))
+}
+
 func (m Manager) refreshCatalog(
 	ctx context.Context,
 	identity executionstore.MCPServerCatalogIdentity,
 	statelessOnly bool,
+	fetch catalogFetch,
+) (executionstore.MCPServerCatalogRecord, error) {
+	return m.refreshCatalogUntil(ctx, identity, statelessOnly, func(current executionstore.MCPServerCatalogRecord) bool {
+		return catalogServes(current, statelessOnly) && current.ToolsFreshAt(m.now())
+	}, fetch)
+}
+
+func alwaysFetchCatalog(executionstore.MCPServerCatalogRecord) bool { return false }
+
+func (m Manager) refreshCatalogUntil(
+	ctx context.Context,
+	identity executionstore.MCPServerCatalogIdentity,
+	statelessOnly bool,
+	refreshed func(executionstore.MCPServerCatalogRecord) bool,
 	fetch catalogFetch,
 ) (executionstore.MCPServerCatalogRecord, error) {
 	maxWaits := m.CatalogRefreshMaxWaits
@@ -328,13 +346,22 @@ func (m Manager) refreshCatalog(
 			)
 		}
 		if acquired {
+			if refreshed(current) {
+				_ = m.Execution.ReleaseMCPServerCatalogRefreshLease(
+					context.WithoutCancel(ctx),
+					identity.OrgID,
+					current.ID,
+					owner,
+				)
+				return current, nil
+			}
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - catalogRefreshOwnerHeadroom
 			return m.fetchCatalogAsLeaseOwner(ctx, identity, current, owner, ownerTimeout, fetch)
 		}
 		if current.RefreshError != "" {
 			return executionstore.MCPServerCatalogRecord{}, errors.New(current.RefreshError)
 		}
-		if current.Fetched() && (!statelessOnly || IsStatelessProtocolVersion(current.ProtocolVersion)) {
+		if catalogServes(current, statelessOnly) {
 			return current, nil
 		}
 		if attempt >= maxWaits {
@@ -482,11 +509,22 @@ func (m Manager) refreshCatalogNow(
 	if err != nil {
 		return ConnectionResult{}, err
 	}
-	catalog, err := m.refreshCatalog(ctx, identity, true, m.statelessCatalogFetch(wireConn, nil))
+	sameCatalog := func(catalog executionstore.MCPServerCatalogRecord) bool {
+		return conn.CatalogID != nil && *conn.CatalogID == catalog.ID
+	}
+	catalog, err := m.refreshCatalogUntil(ctx, identity, true, func(current executionstore.MCPServerCatalogRecord) bool {
+		if sameCatalog(current) {
+			return current.Revision > conn.CatalogRevision
+		}
+		return catalogServes(current, true) && current.ToolsFreshAt(m.now())
+	}, m.statelessCatalogFetch(wireConn, nil))
 	if err != nil {
 		return ConnectionResult{}, err
 	}
-	if conn.CatalogID != nil && *conn.CatalogID == catalog.ID {
+	if sameCatalog(catalog) {
+		if catalog.Revision <= conn.CatalogRevision {
+			return ConnectionResult{}, fmt.Errorf("mcp catalog for %q was not refreshed", conn.ServerKey)
+		}
 		refreshed, found, err := m.Execution.GetMCPConnectionByID(ctx, projectID, agentID, conn.ID)
 		if err != nil {
 			return ConnectionResult{}, err

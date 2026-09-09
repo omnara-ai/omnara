@@ -5,6 +5,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -1253,12 +1254,20 @@ mcp:
 		tools:           []*sdkmcp.Tool{nil, {Name: "greet", InputSchema: map[string]any{"type": "object"}}},
 	}
 	var clockSkew time.Duration
+	var nextClockSkews []time.Duration
 	manager := mcp.Manager{
 		Execution: fixture.Store.Execution(),
 		Secrets:   fixture.Store.Secrets(),
 		Client:    client,
 		Backoff:   func(int) time.Duration { return 0 },
-		Now:       func() time.Time { return time.Now().Add(clockSkew) },
+		Now: func() time.Time {
+			if len(nextClockSkews) != 0 {
+				skew := nextClockSkews[0]
+				nextClockSkews = nextClockSkews[1:]
+				return time.Now().Add(skew)
+			}
+			return time.Now().Add(clockSkew)
+		},
 	}
 	server := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://cutover.example.com/mcp", DefaultEnabled: true}
 	expireTools := func() { clockSkew = mcp.DefaultCatalogMinFreshness + time.Minute }
@@ -1411,6 +1420,78 @@ mcp:
 			t.Fatalf("failure not recorded: %+v", failed)
 		}
 		ensureReady(t, load(t))
+	})
+
+	t.Run("lease owner adopts a catalog refreshed while it waited", func(t *testing.T) {
+		restoreClock()
+		ready := ensureReady(t, load(t)).Conn
+		nextClockSkews = []time.Duration{mcp.DefaultCatalogMinFreshness + time.Minute}
+		lists := client.listToolsCount
+		adopted := ensureReady(t, ready).Conn
+		if len(nextClockSkews) != 0 {
+			t.Fatal("stale clock reading was not consumed")
+		}
+		if client.listToolsCount != lists {
+			t.Fatalf("lists = %d, want %d", client.listToolsCount, lists)
+		}
+		if adopted.CatalogRevision != ready.CatalogRevision {
+			t.Fatalf("revision = %d, want %d", adopted.CatalogRevision, ready.CatalogRevision)
+		}
+		if catalog := load(t); catalog.State != executionstore.MCPConnectionStateReady {
+			t.Fatalf("connection = %+v", catalog)
+		}
+	})
+
+	t.Run("header mismatch retries only after the catalog changes", func(t *testing.T) {
+		restoreClock()
+		ready := ensureReady(t, load(t)).Conn
+		mismatch := &mcp.RPCError{Code: mcp.CodeHeaderMismatch, Message: "stale headers", HTTPStatus: http.StatusBadRequest}
+		client.callToolResult = &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hi"}}}
+		call := func(t *testing.T) (*sdkmcp.CallToolResult, error) {
+			t.Helper()
+			return manager.CallTool(ctx, mcp.ToolCallInput{
+				OrgID:     kernelTestOrgID,
+				ProjectID: kernelTestProjectID,
+				AgentID:   launch.Agent.ID,
+				Conn:      load(t),
+				Server:    server,
+				Name:      "greet",
+				Arguments: json.RawMessage(`{}`),
+			})
+		}
+		if _, err := fixture.Pool.Exec(ctx,
+			`UPDATE mcp_server_catalogs
+			 SET refresh_owner_token = $2,
+			     refresh_lease_expires_at = statement_timestamp() + interval '1 minute'
+			 WHERE id = $1`, *ready.CatalogID, uuid.New(),
+		); err != nil {
+			t.Fatal(err)
+		}
+		client.callToolErrors = []error{mismatch}
+		calls, lists := client.callToolCount, client.listToolsCount
+		if _, err := call(t); !errors.Is(err, mismatch) {
+			t.Fatalf("call with a held refresh lease: %v", err)
+		}
+		if client.callToolCount != calls+1 || client.listToolsCount != lists {
+			t.Fatalf("calls = %d lists = %d, want %d and %d", client.callToolCount, client.listToolsCount, calls+1, lists)
+		}
+		if _, err := fixture.Pool.Exec(ctx,
+			`UPDATE mcp_server_catalogs
+			 SET refresh_owner_token = NULL, refresh_lease_expires_at = NULL
+			 WHERE id = $1`, *ready.CatalogID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		client.callToolErrors = []error{mismatch}
+		if _, err := call(t); err != nil {
+			t.Fatalf("call after refresh: %v", err)
+		}
+		if client.callToolCount != calls+3 || client.listToolsCount != lists+1 {
+			t.Fatalf("calls = %d lists = %d, want %d and %d", client.callToolCount, client.listToolsCount, calls+3, lists+1)
+		}
+		if refreshed := load(t); refreshed.CatalogRevision != ready.CatalogRevision+1 {
+			t.Fatalf("revision = %d, want %d", refreshed.CatalogRevision, ready.CatalogRevision+1)
+		}
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {

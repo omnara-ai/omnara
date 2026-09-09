@@ -1032,3 +1032,57 @@ func TestDetectAuthFallsBackToInitializeForSessionBasedServers(t *testing.T) {
 		t.Fatalf("probe methods = %v, want discover then initialize", methods)
 	}
 }
+
+func TestDetectAuthFallsBackToInitializeWhenDiscoverReturnsMethodNotFound(t *testing.T) {
+	var methods []string
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := readBody(r)
+		var envelope struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &envelope)
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		methods = append(methods, envelope.Method)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if envelope.Method != "initialize" {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":-2,"error":{"code":-32601,"message":"method not found"}}`))
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="mcp"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(ts.Close)
+
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if !errors.Is(err, mcp.ErrOAuthMetadataUnavailable) {
+		t.Fatalf("DetectAuth error = %v, want the initialize challenge without OAuth metadata", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) != 2 || methods[0] != "server/discover" || methods[1] != "initialize" {
+		t.Fatalf("probe methods = %v, want discover then initialize", methods)
+	}
+}
+
+func TestDetectAuthTreatsForbiddenDiscoverAsFinal(t *testing.T) {
+	var requests atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	t.Cleanup(ts.Close)
+
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("DetectAuth error = %v, want unexpected HTTP 403 error", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("probe requests = %d, want 1", got)
+	}
+}

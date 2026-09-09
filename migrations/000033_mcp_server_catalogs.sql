@@ -44,6 +44,10 @@ CREATE TABLE mcp_server_catalogs (
     FOREIGN KEY (secret_id, secret_version_id) REFERENCES secret_versions(secret_id, id) ON DELETE CASCADE
 );
 
+CREATE INDEX mcp_server_catalogs_org_secret_idx
+    ON mcp_server_catalogs(org_id, secret_id)
+    WHERE secret_id IS NOT NULL;
+
 CREATE INDEX mcp_server_catalogs_secret_version_idx
     ON mcp_server_catalogs(secret_id, secret_version_id);
 
