@@ -2089,6 +2089,11 @@ func TestMachinePoolDeletionAndGrantRevocationSerialize(t *testing.T) {
 			if remainingGrants != 0 {
 				t.Fatalf("remaining pool grants = %d, want zero", remainingGrants)
 			}
+			if _, err := store.Execution().DeleteProjectMachinePoolGrant(
+				ctx, testOrgID, testProjectID, poolGrant.ID,
+			); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("repeat grant deletion = %v, want not found", err)
+			}
 		})
 	}
 }

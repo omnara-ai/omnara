@@ -1766,111 +1766,167 @@ func TestIntegrationInputDedupeTargetProgressionAndDisable(t *testing.T) {
 	}
 }
 
-func TestIntegrationInputAdmissionSerializesWithInstallDisable(t *testing.T) {
+func TestIntegrationInputAdmissionSerializesWithInstallDisableAndDeletion(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newSecretIntegrationStore(pool)
-	targetService := integration.New(store.Execution(), store.Integrations())
-	admin := createIntegrationProjectAdmin(t, ctx, store, "input-disable-race@example.com")
-	profile := createIntegrationTestProfile(t, ctx, store, "input-disable-race-profile")
-	agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "input-disable-race-agent")
-	credentialID := createIntegrationCredential(
-		t,
-		ctx,
-		store,
-		testProjectID,
-		admin.ID,
-		"input-disable-race",
-	)
-	installInput := slackIntegrationInstallInput(
-		NilID,
-		agent.ID,
-		admin.ID,
-		credentialID,
-		"A_INPUT_DISABLE_RACE",
-		"T_INPUT_DISABLE_RACE",
-	)
-	installInput.IntegrationKind = "workspace_single_agent"
-	install := mustCreateIntegrationInstall(t, ctx, store, installInput)
-	target, _, err := targetService.GetOrCreateTarget(ctx, integration.GetOrCreateTargetInput{
-		IntegrationInstallID: install.ID,
-		ProviderRef:          "D_INPUT_DISABLE_RACE",
-		ProviderRefKind:      "dm",
-	})
-	if err != nil {
-		t.Fatalf("create integration target: %v", err)
-	}
-	mustCreateIntegrationInput(
-		t,
-		ctx,
-		store,
-		install,
-		target,
-		"U_INPUT_DISABLE_RACE",
-		"Ev-input-disable-seed",
-		"seed",
-	)
-
-	controlTx := integrationdb.BeginTx(t, ctx, pool)
-	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
-	); err != nil {
-		t.Fatalf("lock integration target agent: %v", err)
-	}
-
-	idempotencyKey := "Ev-input-disable-race"
-	inputDone := integrationdb.RunAsyncError(func() error {
-		_, _, createErr := store.Execution().CreateIntegrationTargetContentInput(
-			context.Background(),
-			executionstore.CreateIntegrationTargetContentInput{
+	for _, tc := range []struct {
+		name          string
+		deleteInstall bool
+		inputWins     bool
+		wantErr       error
+	}{
+		{"disable wins", false, false, storeerr.ErrUnauthorized},
+		{"deletion wins", true, false, storeerr.ErrNotFound},
+		{"input wins", true, true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newSecretIntegrationStore(pool)
+			targetService := integration.New(store.Execution(), store.Integrations())
+			admin := createIntegrationProjectAdmin(t, ctx, store, "input-disable-race@example.com")
+			profile := createIntegrationTestProfile(t, ctx, store, "input-disable-race-profile")
+			agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "input-disable-race-agent")
+			credentialID := createIntegrationCredential(
+				t,
+				ctx,
+				store,
+				testProjectID,
+				admin.ID,
+				"input-disable-race",
+			)
+			installInput := slackIntegrationInstallInput(
+				NilID,
+				agent.ID,
+				admin.ID,
+				credentialID,
+				"A_INPUT_DISABLE_RACE",
+				"T_INPUT_DISABLE_RACE",
+			)
+			installInput.IntegrationKind = "workspace_single_agent"
+			install := mustCreateIntegrationInstall(t, ctx, store, installInput)
+			target, _, err := targetService.GetOrCreateTarget(ctx, integration.GetOrCreateTargetInput{
 				IntegrationInstallID: install.ID,
-				IntegrationTargetID:  target.ID,
-				ProviderTenantID:     install.ProviderTenantID,
-				ProviderUserID:       "U_INPUT_DISABLE_RACE",
-				ContentBlocks:        json.RawMessage(`[{"type":"text","text":"late"}]`),
-				IdempotencyKey:       idempotencyKey,
-			},
-		)
-		return createErr
-	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
-	applied, err := store.Integrations().DisableIntegrationInstall(
-		ctx,
-		integrationstore.DisableIntegrationInstallInput{
-			ProjectID:           install.ProjectID,
-			ID:                  install.ID,
-			ExpectedOAuthFlowID: &install.LastOAuthFlowID,
-		},
-	)
-	if err != nil {
-		t.Fatalf("disable integration install: %v", err)
-	}
-	if !applied {
-		t.Fatal("integration install disable was not applied")
-	}
-	if err := controlTx.Commit(ctx); err != nil {
-		t.Fatalf("release integration input control transaction: %v", err)
-	}
-	if err := integrationdb.Await(t, inputDone, "integration input admission"); !errors.Is(err, storeerr.ErrUnauthorized) {
-		t.Fatalf("input admitted after install disable error = %v, want ErrUnauthorized", err)
-	}
+				ProviderRef:          "D_INPUT_DISABLE_RACE",
+				ProviderRefKind:      "dm",
+			})
+			if err != nil {
+				t.Fatalf("create integration target: %v", err)
+			}
+			mustCreateIntegrationInput(
+				t,
+				ctx,
+				store,
+				install,
+				target,
+				"U_INPUT_DISABLE_RACE",
+				"Ev-input-disable-seed",
+				"seed",
+			)
 
-	_, found, err := store.Execution().GetIntegrationTargetInputByIdempotency(
-		ctx,
-		executionstore.GetIntegrationTargetInputByIdempotencyInput{
-			IntegrationInstallID: install.ID,
-			IntegrationTargetID:  target.ID,
-			IdempotencyKey:       idempotencyKey,
-		},
-	)
-	if err != nil {
-		t.Fatalf("check rejected integration input: %v", err)
-	}
-	if found {
-		t.Fatal("disabled integration install retained a newly admitted input")
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockAgentInProject(
+				ctx,
+				dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.ID},
+			); err != nil {
+				t.Fatalf("lock integration target agent: %v", err)
+			}
+
+			idempotencyKey := "Ev-input-install-race"
+			createInput := func() (executionstore.AgentInputRecord, error) {
+				record, _, err := store.Execution().CreateIntegrationTargetContentInput(
+					ctx,
+					executionstore.CreateIntegrationTargetContentInput{
+						IntegrationInstallID: install.ID,
+						IntegrationTargetID:  target.ID,
+						ProviderTenantID:     install.ProviderTenantID,
+						ProviderUserID:       "U_INPUT_DISABLE_RACE",
+						ContentBlocks:        json.RawMessage(`[{"type":"text","text":"late"}]`),
+						IdempotencyKey:       idempotencyKey,
+					},
+				)
+				return record, err
+			}
+			changeInstall := func() error {
+				if tc.deleteInstall {
+					return store.Integrations().DeleteIntegrationInstallOnceForIntegration(ctx, testProjectID, install.ID)
+				}
+				applied, err := store.Integrations().DisableIntegrationInstall(
+					ctx,
+					integrationstore.DisableIntegrationInstallInput{
+						ProjectID:           install.ProjectID,
+						ID:                  install.ID,
+						ExpectedOAuthFlowID: &install.LastOAuthFlowID,
+					},
+				)
+				if err == nil && !applied {
+					return errors.New("integration install disable was not applied")
+				}
+				return err
+			}
+			var inputDone <-chan integrationdb.AsyncResult[executionstore.AgentInputRecord]
+			var changeDone <-chan error
+			if !tc.deleteInstall {
+				inputDone = integrationdb.RunAsync(createInput)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+				if err := changeInstall(); err != nil {
+					t.Fatalf("disable install: %v", err)
+				}
+			} else {
+				if tc.inputWins {
+					inputDone = integrationdb.RunAsync(createInput)
+				} else {
+					changeDone = integrationdb.RunAsyncError(changeInstall)
+				}
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+				if tc.inputWins {
+					changeDone = integrationdb.RunAsyncError(changeInstall)
+				} else {
+					inputDone = integrationdb.RunAsync(createInput)
+				}
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+			}
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release integration input control transaction: %v", err)
+			}
+			outcome := integrationdb.Await(t, inputDone, "integration input admission")
+			if !errors.Is(outcome.Err, tc.wantErr) {
+				t.Fatalf("input admission error = %v, want %v", outcome.Err, tc.wantErr)
+			}
+			if tc.inputWins && outcome.Value.ID == NilID {
+				t.Fatal("successful input admission returned no input")
+			}
+			if changeDone != nil {
+				if err := integrationdb.Await(t, changeDone, "install deletion"); err != nil {
+					t.Fatalf("delete install: %v", err)
+				}
+			}
+
+			var inputCount int
+			var targetCleared, installDeleted, targetDeleted bool
+			if err := pool.QueryRow(ctx, `
+SELECT (SELECT count(*) FROM agent_inputs WHERE agent_id = $1 AND input_idempotency_key = $2),
+       agent.integration_target_id IS NULL, install.deleted_at IS NOT NULL, target.deleted_at IS NOT NULL
+FROM agents agent
+JOIN integration_targets target ON target.agent_id = agent.id AND target.id = $3
+JOIN integration_installs install ON install.id = target.integration_install_id
+WHERE agent.id = $1`, agent.ID, idempotencyKey, target.ID).Scan(
+				&inputCount, &targetCleared, &installDeleted, &targetDeleted,
+			); err != nil {
+				t.Fatalf("read input and install effects: %v", err)
+			}
+			wantInputs := 0
+			if tc.inputWins {
+				wantInputs = 1
+			}
+			if inputCount != wantInputs || targetCleared != tc.deleteInstall ||
+				installDeleted != tc.deleteInstall || targetDeleted != tc.deleteInstall {
+				t.Fatalf("inputs=%d target_cleared=%t install_deleted=%t target_deleted=%t; want %d, %t, %t, %t",
+					inputCount, targetCleared, installDeleted, targetDeleted,
+					wantInputs, tc.deleteInstall, tc.deleteInstall, tc.deleteInstall)
+			}
+		})
 	}
 }
 
