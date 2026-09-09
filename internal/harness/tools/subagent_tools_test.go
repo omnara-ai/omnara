@@ -1,9 +1,15 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestSubagentToolInputValidation(t *testing.T) {
@@ -63,5 +69,63 @@ func TestSubagentToolInputValidation(t *testing.T) {
 				t.Fatalf("error = %v, want mention of %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+type recordingPoolMachineManager struct {
+	deleted [][]executionstore.MachineRecord
+}
+
+func (m *recordingPoolMachineManager) ProvisionMachine(context.Context, storage.ID, storage.ID) error {
+	return nil
+}
+
+func (m *recordingPoolMachineManager) StartLaunchProvisioning(
+	context.Context,
+	*slog.Logger,
+	storage.ID,
+	[]storage.ID,
+) {
+}
+
+func (m *recordingPoolMachineManager) DeleteMachine(
+	context.Context,
+	executionstore.PoolMachineCleanupCandidate,
+) error {
+	return nil
+}
+
+func (m *recordingPoolMachineManager) DeleteMachines(
+	_ context.Context,
+	machines []executionstore.MachineRecord,
+) (int, error) {
+	m.deleted = append(m.deleted, machines)
+	return len(machines), nil
+}
+
+func (m *recordingPoolMachineManager) WakeMachine(context.Context, storage.ID, storage.ID) (bool, error) {
+	return false, nil
+}
+
+func TestStopAgentInBackgroundDeletesReleasedMachines(t *testing.T) {
+	manager := &recordingPoolMachineManager{}
+	machines := []executionstore.MachineRecord{{ID: uuid.New()}, {ID: uuid.New()}}
+	err := stopAgentInBackground(context.Background(), backgroundToolContext{
+		Executor:      Executor{MachinePoolManager: manager},
+		CommandResult: machines,
+	})
+	if err != nil {
+		t.Fatalf("stop agent background: %v", err)
+	}
+	if len(manager.deleted) != 1 || len(manager.deleted[0]) != 2 {
+		t.Fatalf("deleted batches = %+v, want one batch of two machines", manager.deleted)
+	}
+	if err := stopAgentInBackground(context.Background(), backgroundToolContext{
+		Executor: Executor{MachinePoolManager: manager},
+	}); err != nil {
+		t.Fatalf("stop agent background without machines: %v", err)
+	}
+	if len(manager.deleted) != 1 {
+		t.Fatalf("a stop that released no machines must not call delete, got %d batches", len(manager.deleted))
 	}
 }

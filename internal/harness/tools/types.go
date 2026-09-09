@@ -96,6 +96,7 @@ type machinePoolManager interface {
 	ProvisionMachine(ctx context.Context, orgID, machineID storage.ID) error
 	StartLaunchProvisioning(parent context.Context, logger *slog.Logger, orgID storage.ID, machineIDs []storage.ID)
 	DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error
+	DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error)
 	WakeMachine(ctx context.Context, orgID, machineID storage.ID) (bool, error)
 }
 

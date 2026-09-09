@@ -10,6 +10,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
+	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -530,6 +531,21 @@ func stopAgent(ctx context.Context, call transactionalToolContext) (transactiona
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failSubagentTransactionForStorageError("stop_agent_failed", err)
 	}), nil
+}
+
+// stopAgentInBackground deletes the pool machines the archive released,
+// matching the immediate deletion the API archive path starts.
+func stopAgentInBackground(ctx context.Context, call backgroundToolContext) error {
+	machines, ok := call.CommandResult.([]executionstore.MachineRecord)
+	if !ok || len(machines) == 0 || call.Executor.MachinePoolManager == nil {
+		return nil
+	}
+	attemptCtx, cancel := context.WithTimeout(ctx, machinepool.DefaultImmediateDeletionTimeout)
+	defer cancel()
+	if _, err := call.Executor.MachinePoolManager.DeleteMachines(attemptCtx, machines); err != nil {
+		return fmt.Errorf("delete stopped subagent machines: %w", err)
+	}
+	return nil
 }
 
 func listAgents(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
