@@ -282,6 +282,20 @@ func (r Runner) run(
 			providerAttempt,
 		)
 	}
+	if response.StopReason == model.StopReasonMaxTokens {
+		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
+		if err != nil {
+			return RunResult{}, err
+		}
+		if nextEnd > 0 {
+			return r.replaceCompactionSource(ctx, input, claim, model.ProviderError{
+				Kind:    model.ErrorKindTransient,
+				Source:  errorSource,
+				Code:    compactionErrorCodeSummaryTruncated,
+				Message: "compaction summary was truncated before completion",
+			}, providerAttempt, nextEnd)
+		}
+	}
 	summary, err := validateCompactionResponse(errorSource, response)
 	if err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)

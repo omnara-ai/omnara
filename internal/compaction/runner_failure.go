@@ -19,8 +19,7 @@ import (
 type compactionFailureReason uint8
 
 const (
-	compactionFailureSummaryTruncated compactionFailureReason = iota + 1
-	compactionFailureSummaryNotReduced
+	compactionFailureSummaryNotReduced compactionFailureReason = iota + 1
 	compactionFailureSourceIrreducible
 )
 
@@ -228,13 +227,7 @@ func (r Runner) replaceCompactionSource(
 func shrinkableCompactionFailure(err error) bool {
 	reason, hasReason := reasonForCompactionFailure(err)
 	if hasReason {
-		switch reason {
-		case compactionFailureSummaryTruncated, compactionFailureSummaryNotReduced:
-			return true
-		case compactionFailureSourceIrreducible:
-			return false
-		}
-		return false
+		return reason == compactionFailureSummaryNotReduced
 	}
 	providerErr, ok := model.ClassifyError(err)
 	if !ok {
@@ -247,8 +240,6 @@ func shrinkableCompactionFailure(err error) bool {
 func irreducibleCompactionFailureDetail(err error) string {
 	reason, _ := reasonForCompactionFailure(err)
 	switch reason {
-	case compactionFailureSummaryTruncated:
-		return "the smallest closed source prefix produced a truncated summary"
 	case compactionFailureSummaryNotReduced:
 		return "the smallest closed source prefix did not produce a smaller summary"
 	default:
@@ -300,13 +291,6 @@ func compactionModel(
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {
 	stopReason := model.NormalizeStopReason(response.StopReason, false)
 	switch stopReason {
-	case model.StopReasonMaxTokens:
-		return "", withCompactionFailureReason(compactionFailureSummaryTruncated, model.ProviderError{
-			Kind:    model.ErrorKindTransient,
-			Source:  errorSource,
-			Code:    compactionErrorCodeSummaryTruncated,
-			Message: "compaction summary was truncated before completion",
-		})
 	case model.StopReasonContextWindow:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindContextWindow,
@@ -323,7 +307,7 @@ func validateCompactionResponse(errorSource string, response model.Response) (st
 				nil,
 			)
 		}
-	case model.StopReasonEndTurn:
+	case model.StopReasonEndTurn, model.StopReasonMaxTokens:
 	default:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,

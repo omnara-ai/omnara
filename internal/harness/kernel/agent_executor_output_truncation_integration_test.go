@@ -28,75 +28,112 @@ func truncatedKernelResponse() model.Response {
 	}
 }
 
-func TestLargeOutputLimitCompactsWithinAvailableContextAndContinues(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/large-output", fixture.Now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(32_000), MaxOutputTokens: new(24_000)})
-	largeText := strings.Repeat("work ", 19_200)
-	const summary = `## Goal
+func TestLargeOutputCompactsWithinAvailableContextAndContinues(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		sourceStopReason model.StopReason
+		partialSummary   bool
+	}{
+		{name: "completed summary", sourceStopReason: model.StopReasonMaxTokens},
+		{name: "partial summary after answer cutoff", sourceStopReason: model.StopReasonMaxTokens, partialSummary: true},
+		{name: "partial summary after completed answer", sourceStopReason: model.StopReasonEndTurn, partialSummary: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newKernelFixture(t, ctx)
+			agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/large-output", fixture.Now,
+				kernelConfiguredModelOptions{ContextWindowTokens: new(32_000), MaxOutputTokens: new(24_000)})
+			largeText := strings.Repeat("work ", 19_200)
+			const summary = `## Goal
 Complete the requested work and confirm completion.
 ## Instructions
 Finish the task before reporting success.
 ## Progress
-A large response was produced and stopped at the output limit. Check what remains before concluding.
+A large response was produced. Check what remains before concluding.
 ## Relevant Artifacts
 The previous response contains the work so far. No external artifacts were created.
 ## Next Steps
 Finish any remaining work and provide a concise completion message.`
-	client := &sequenceKernelModel{
-		providerModelSlug: "large-output",
-		capabilities:      model.Capabilities{ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000)},
-		responses: []model.Response{
-			{ID: "large-cutoff", StopReason: model.StopReasonMaxTokens,
-				Content: []model.ResponsePart{{Type: "text", Text: largeText}},
-				Usage:   model.Usage{InputTokens: 1_000, OutputTokens: 24_000}},
-			completeProgressiveSummaryResponse(summary),
-			{ID: "finished", StopReason: model.StopReasonEndTurn,
-				Content: []model.ResponsePart{{Type: "text", Text: "Task finished."}}},
-		},
-	}
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
-		"Complete the work and then confirm it is finished.", fixture.Now)
-	for range 3 {
-		require.NoError(t, executor.ExecuteModelWork(ctx, work))
-		fixture.releaseModelRuntimeLock(t, ctx, work)
-		if pendingModelWork(t, ctx, fixture, agentID) == 0 {
-			break
-		}
-		claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
-		work = modelWorkExecutionFromClaimForKernelTest(claim, work.Now.Add(time.Second))
-	}
-	require.Equal(t, 3, client.respondedCount())
-	require.Equal(t, 24_000, client.responded[0].Policy.MaxOutputTokens)
-	largeSummary, continuation := client.responded[1], client.responded[2]
-	require.True(t, isCompactionRequestBundle(largeSummary.Bundle))
-	require.True(t, strings.Contains(string(largeSummary.ProviderRequest), strings.TrimSpace(largeText)),
-		"summary request must retain the complete large output")
-	require.Positive(t, largeSummary.Policy.MaxOutputTokens)
-	require.Less(t, largeSummary.Policy.MaxOutputTokens, 16_000)
-	summaryInput := modelcontext.EstimatePreparedRequest(largeSummary.ProviderRequest, nil)
-	require.Greater(t, summaryInput, 24_000)
-	margin := modelcontext.DefaultSafetyMarginTokens(32_000)
-	require.LessOrEqual(t, summaryInput+largeSummary.Policy.MaxOutputTokens+margin, 32_000)
-	require.NotNil(t, continuation.Bundle.ContextCheckpoint)
-	require.True(t, continuation.Bundle.ContextCheckpoint.EndsWithOutputLimit)
-	require.False(t, strings.Contains(string(continuation.ProviderRequest), strings.TrimSpace(largeText)),
-		"continuation should use the checkpoint")
-	require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
-	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
-	var preserved, finished, failed int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `
-		SELECT count(*) FILTER (WHERE block.text_content = $2 AND output.stop_reason = 'max_tokens'),
+			summaryResponse := completeProgressiveSummaryResponse(summary)
+			responses := []model.Response{
+				{ID: "large-source", StopReason: tc.sourceStopReason,
+					Content: []model.ResponsePart{{Type: "text", Text: largeText}},
+					Usage:   model.Usage{InputTokens: 1_000, OutputTokens: 24_000}},
+			}
+			if tc.partialSummary {
+				summaryResponse.StopReason = model.StopReasonMaxTokens
+				responses = append(responses, summaryResponse, completeProgressiveSummaryResponse("Finish the task."))
+			}
+			responses = append(responses, summaryResponse, model.Response{
+				ID: "finished", StopReason: model.StopReasonEndTurn,
+				Content: []model.ResponsePart{{Type: "text", Text: "Task finished."}},
+			})
+			client := &sequenceKernelModel{
+				providerModelSlug: "large-output",
+				capabilities:      model.Capabilities{ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000)},
+				responses:         responses,
+			}
+			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
+				"Complete the work and then confirm it is finished.", fixture.Now)
+			for step := range 5 {
+				require.NoError(t, executor.ExecuteModelWork(ctx, work))
+				fixture.releaseModelRuntimeLock(t, ctx, work)
+				if step == 0 && tc.sourceStopReason == model.StopReasonEndTurn {
+					work = fixture.admitContentInputTurn(t, ctx, agentID, userID, "Continue the task.", fixture.Now.Add(time.Second))
+					continue
+				}
+				if pendingModelWork(t, ctx, fixture, agentID) == 0 {
+					break
+				}
+				claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
+				work = modelWorkExecutionFromClaimForKernelTest(claim, work.Now.Add(time.Second))
+			}
+			wantRequests := 3
+			if tc.partialSummary {
+				wantRequests = 5
+			}
+			require.Equal(t, wantRequests, client.respondedCount())
+			require.Equal(t, 24_000, client.responded[0].Policy.MaxOutputTokens)
+			largeSummary, continuation := client.responded[wantRequests-2], client.responded[wantRequests-1]
+			require.True(t, isCompactionRequestBundle(largeSummary.Bundle))
+			require.True(t, strings.Contains(string(largeSummary.ProviderRequest), strings.TrimSpace(largeText)),
+				"summary request must retain the complete large output")
+			require.Positive(t, largeSummary.Policy.MaxOutputTokens)
+			require.Less(t, largeSummary.Policy.MaxOutputTokens, 16_000)
+			summaryInput := modelcontext.EstimatePreparedRequest(largeSummary.ProviderRequest, nil)
+			require.Greater(t, summaryInput, 24_000)
+			margin := modelcontext.DefaultSafetyMarginTokens(32_000)
+			require.LessOrEqual(t, summaryInput+largeSummary.Policy.MaxOutputTokens+margin, 32_000)
+			require.NotNil(t, continuation.Bundle.ContextCheckpoint)
+			require.Equal(t, summary, continuation.Bundle.ContextCheckpoint.Summary)
+			wantCutoffNotice := tc.sourceStopReason == model.StopReasonMaxTokens
+			require.Equal(t, wantCutoffNotice, continuation.Bundle.ContextCheckpoint.EndsWithOutputLimit)
+			checkpointText := modelcontext.ProjectedCheckpointContent(*continuation.Bundle.ContextCheckpoint)
+			require.Equal(t, wantCutoffNotice, strings.Contains(checkpointText, "[Automatic Omnara harness notice]"))
+			require.False(t, strings.Contains(string(continuation.ProviderRequest), strings.TrimSpace(largeText)),
+				"continuation should use the checkpoint")
+			require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
+			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+			var preserved, finished, failed, cutoffs int
+			require.NoError(t, fixture.Pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE block.text_content = $2),
 		       count(*) FILTER (WHERE block.text_content = 'Task finished.' AND output.stop_reason = 'end_turn'),
-		       count(*) FILTER (WHERE output.stop_reason = 'error')
+		       count(*) FILTER (WHERE output.stop_reason = 'error'),
+		       count(*) FILTER (WHERE output.stop_reason = 'max_tokens')
 		FROM model_outputs output
 		LEFT JOIN content_blocks block ON block.agent_id = output.agent_id AND block.owner_model_output_id = output.id
-		WHERE output.agent_id = $1`, agentID, largeText).Scan(&preserved, &finished, &failed))
-	require.Equal(t, 1, preserved)
-	require.Equal(t, 1, finished)
-	require.Zero(t, failed)
+		WHERE output.agent_id = $1`, agentID, largeText).Scan(&preserved, &finished, &failed, &cutoffs))
+			require.Equal(t, 1, preserved)
+			require.Equal(t, 1, finished)
+			require.Zero(t, failed)
+			wantCutoffs := 0
+			if wantCutoffNotice {
+				wantCutoffs = 1
+			}
+			require.Equal(t, wantCutoffs, cutoffs)
+		})
+	}
 }
 
 func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
