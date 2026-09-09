@@ -25,9 +25,9 @@ func TestBuildHTTPPreparesSigV4Request(t *testing.T) {
 	request, err := (&httpClient{}).buildHTTP(ctx, Conn{
 		EndpointURL:     "https://example.execute-api.us-west-2.amazonaws.com/mcp",
 		MCPSessionID:    "session",
-		ProtocolVersion: ProtocolVersion,
+		ProtocolVersion: LegacyProtocolVersion,
 		prepareRequest:  signer.Sign,
-	}, body)
+	}, body, nil)
 	if err != nil {
 		t.Fatalf("build signed request: %v", err)
 	}

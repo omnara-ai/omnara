@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -1158,6 +1159,8 @@ type fakeKernelMCPClient struct {
 	initializeAgentIDs      []string
 	lastAgentID             string
 	protocolVersion         string
+	stateless               bool
+	toolsTTLMs              int
 	tools                   []*sdkmcp.Tool
 	failInitializeEndpoints map[string]error
 	failInitializeSequences map[string][]error
@@ -1165,11 +1168,53 @@ type fakeKernelMCPClient struct {
 	callToolErrors          []error
 	callToolResult          *sdkmcp.CallToolResult
 	callToolConns           []mcp.Conn
+	callToolCalls           []mcp.ToolCall
 
-	initializeCount int
-	notifyCount     int
-	listToolsCount  int
-	callToolCount   int
+	discoverCount     int
+	initializeCount   int
+	notifyCount       int
+	listToolsCount    int
+	listToolsDeadline time.Time
+	callToolCount     int
+}
+
+func (c *fakeKernelMCPClient) Discover(
+	_ context.Context,
+	conn mcp.Conn,
+	protocolVersion string,
+) (mcp.DiscoverResult, error) {
+	c.mu.Lock()
+	c.discoverCount++
+	stateless := c.stateless
+	var err error
+	if sequence := c.failInitializeSequences[conn.EndpointURL]; stateless && len(sequence) != 0 {
+		err = sequence[0]
+		c.failInitializeSequences[conn.EndpointURL] = sequence[1:]
+	}
+	if stateless && err == nil {
+		err = c.failInitializeEndpoints[conn.EndpointURL]
+	}
+	c.mu.Unlock()
+	if !stateless {
+		return mcp.DiscoverResult{}, &mcp.HTTPError{
+			Status: http.StatusBadRequest,
+			Body:   []byte("Bad Request: session required"),
+		}
+	}
+	if err != nil {
+		return mcp.DiscoverResult{}, err
+	}
+	if !mcp.IsStatelessProtocolVersion(protocolVersion) || conn.MCPSessionID != "" {
+		return mcp.DiscoverResult{}, fmt.Errorf("unexpected discover conn: %+v version %q", conn, protocolVersion)
+	}
+	return mcp.DiscoverResult{
+		ProtocolVersion:    protocolVersion,
+		SupportedVersions:  []string{protocolVersion},
+		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
+		ServerInfo:         json.RawMessage(`{"name":"fake-mcp","version":"v0"}`),
+		Instructions:       "fake stateless server",
+		Cache:              mcp.CacheHint{TTLMs: c.toolsTTLMs, CacheScope: "private"},
+	}, nil
 }
 
 func (c *fakeKernelMCPClient) Initialize(
@@ -1230,13 +1275,14 @@ func (c *fakeKernelMCPClient) Call(context.Context, mcp.Conn, string, json.RawMe
 }
 
 func (c *fakeKernelMCPClient) ListTools(
-	_ context.Context,
+	ctx context.Context,
 	conn mcp.Conn,
 	requestID int64,
 	_ string,
 ) (mcp.ToolsPage, error) {
 	c.mu.Lock()
 	c.listToolsCount++
+	c.listToolsDeadline, _ = ctx.Deadline()
 	agentID := c.expectedAgentIDLocked()
 	var err error
 	if len(c.listToolsErrors) != 0 {
@@ -1250,6 +1296,12 @@ func (c *fakeKernelMCPClient) ListTools(
 	if requestID <= 0 {
 		return mcp.ToolsPage{}, fmt.Errorf("request id = %d, want positive", requestID)
 	}
+	if c.stateless {
+		if conn.MCPSessionID != "" || !conn.Stateless() {
+			return mcp.ToolsPage{}, fmt.Errorf("unexpected stateless list conn: %+v", conn)
+		}
+		return mcp.ToolsPage{Tools: c.tools, TTLMs: c.toolsTTLMs, CacheScope: "private"}, nil
+	}
 	if conn.MCPSessionID != agentID || conn.ProtocolVersion != c.protocolVersion {
 		return mcp.ToolsPage{}, fmt.Errorf("unexpected list conn: %+v", conn)
 	}
@@ -1260,12 +1312,12 @@ func (c *fakeKernelMCPClient) CallTool(
 	_ context.Context,
 	conn mcp.Conn,
 	_ int64,
-	_ string,
-	_ json.RawMessage,
+	call mcp.ToolCall,
 ) (*sdkmcp.CallToolResult, error) {
 	c.mu.Lock()
 	c.callToolCount++
 	c.callToolConns = append(c.callToolConns, conn)
+	c.callToolCalls = append(c.callToolCalls, call)
 	var err error
 	if len(c.callToolErrors) != 0 {
 		err = c.callToolErrors[0]

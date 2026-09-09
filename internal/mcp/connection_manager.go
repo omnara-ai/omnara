@@ -2,9 +2,9 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -41,6 +41,13 @@ type Manager struct {
 	OAuthRefreshLeaseTTL time.Duration
 	OAuthRefreshWait     func(attempt int) time.Duration
 	OAuthRefreshMaxWaits int
+
+	CatalogRefreshLeaseTTL time.Duration
+	CatalogRefreshWait     func(attempt int) time.Duration
+	CatalogRefreshMaxWaits int
+	CatalogMinFreshness    time.Duration
+
+	Now func() time.Time
 }
 
 type ConnectionResult struct {
@@ -82,7 +89,59 @@ func InitializationRecorded(err error) bool {
 	return errors.As(err, &initErr) && initErr.Recorded
 }
 
-func (m Manager) InitializePending(
+type ConnectionTrigger uint8
+
+const (
+	TriggerTurnStart ConnectionTrigger = iota + 1
+	TriggerTurnResume
+	TriggerTurnContinue
+)
+
+func (m Manager) EnsureConnection(
+	ctx context.Context,
+	orgID, projectID, agentID storage.ID,
+	conn executionstore.MCPConnectionRecord,
+	server agentconfig.RuntimeMCPServer,
+	trigger ConnectionTrigger,
+) (ConnectionResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	switch conn.State {
+	case executionstore.MCPConnectionStateInitializing, executionstore.MCPConnectionStateExpired:
+		return m.initializePending(ctx, orgID, projectID, agentID, conn, server)
+	case executionstore.MCPConnectionStateFailed:
+		if trigger == TriggerTurnStart {
+			return m.initializePending(ctx, orgID, projectID, agentID, conn, server)
+		}
+	case executionstore.MCPConnectionStateReady:
+		if trigger == TriggerTurnContinue {
+			break
+		}
+		if !conn.UsesCatalog() {
+			return m.refreshExpired(ctx, orgID, projectID, agentID, conn, server)
+		}
+		if trigger == TriggerTurnStart {
+			return m.refreshReadyOrMarkFailed(ctx, orgID, projectID, agentID, conn, server)
+		}
+	}
+	return ConnectionResult{Conn: conn, Ready: conn.State == executionstore.MCPConnectionStateReady}, nil
+}
+
+func (m Manager) refreshReadyOrMarkFailed(
+	ctx context.Context,
+	orgID, projectID, agentID storage.ID,
+	conn executionstore.MCPConnectionRecord,
+	server agentconfig.RuntimeMCPServer,
+) (ConnectionResult, error) {
+	result, err := m.refreshReadyCatalog(ctx, orgID, projectID, agentID, conn, server)
+	var initErr *InitializationError
+	if err == nil || errors.As(err, &initErr) {
+		return result, err
+	}
+	return m.markConnectionFailed(ctx, projectID, agentID, conn, err)
+}
+
+func (m Manager) initializePending(
 	ctx context.Context,
 	orgID, projectID, agentID storage.ID,
 	conn executionstore.MCPConnectionRecord,
@@ -95,12 +154,12 @@ func (m Manager) InitializePending(
 	if !changed {
 		return ConnectionResult{}, nil
 	}
-	result, err := m.InitializeOrMarkFailed(ctx, orgID, projectID, agentID, begun, server)
+	result, err := m.initializeOrMarkFailed(ctx, orgID, projectID, agentID, begun, server)
 	result.Changed = true
 	return result, err
 }
 
-func (m Manager) RefreshExpired(
+func (m Manager) refreshExpired(
 	ctx context.Context,
 	orgID, projectID, agentID storage.ID,
 	conn executionstore.MCPConnectionRecord,
@@ -128,21 +187,32 @@ func (m Manager) RefreshExpired(
 		ready, err := m.readyConnectionByID(ctx, projectID, agentID, conn.ID)
 		return ConnectionResult{Conn: ready, Ready: true}, err
 	}
-	result, err := m.InitializeOrMarkFailed(ctx, orgID, projectID, agentID, begun, server)
+	result, err := m.initializeOrMarkFailed(ctx, orgID, projectID, agentID, begun, server)
 	result.Changed = true
 	return result, err
 }
 
-func (m Manager) InitializeOrMarkFailed(
+func (m Manager) initializeOrMarkFailed(
 	ctx context.Context,
 	orgID, projectID, agentID storage.ID,
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 ) (ConnectionResult, error) {
-	ready, cause := m.InitializeWithRetry(ctx, orgID, projectID, agentID, conn, server)
+	ready, cause := m.initializeWithRetry(ctx, orgID, projectID, agentID, conn, server)
 	if cause == nil {
 		return ConnectionResult{Conn: ready, Ready: true}, nil
 	}
+	return m.markConnectionFailed(ctx, projectID, agentID, conn, cause)
+}
+
+func (m Manager) markConnectionFailed(
+	ctx context.Context,
+	projectID, agentID storage.ID,
+	conn executionstore.MCPConnectionRecord,
+	cause error,
+) (ConnectionResult, error) {
+	ctx, cancel := failureRecordContext(ctx)
+	defer cancel()
 	failed, markErr := m.Execution.MarkMCPConnectionFailed(
 		ctx,
 		projectID,
@@ -158,7 +228,7 @@ func (m Manager) InitializeOrMarkFailed(
 			Err:      fmt.Errorf("%w: %w", cause, markErr),
 		}
 	}
-	return ConnectionResult{Conn: failed}, &InitializationError{Cause: cause, Recorded: true, Err: cause}
+	return ConnectionResult{Conn: failed, Changed: true}, &InitializationError{Cause: cause, Recorded: true, Err: cause}
 }
 
 func sanitizeInitializationError(value string) string {
@@ -167,7 +237,7 @@ func sanitizeInitializationError(value string) string {
 	return textutil.TruncateRunes(strings.TrimSpace(value), maxInitializationErrorRunes)
 }
 
-func (m Manager) InitializeWithRetry(
+func (m Manager) initializeWithRetry(
 	ctx context.Context,
 	orgID, projectID, agentID storage.ID,
 	conn executionstore.MCPConnectionRecord,
@@ -184,7 +254,13 @@ func (m Manager) InitializeWithRetry(
 		if attempt == InitializeMaxAttempts || !IsRetryableConnectionFailure(cause) {
 			break
 		}
-		backoff := defaultMCPInitializationBackoff(attempt)
+		backoff := time.Second
+		switch attempt {
+		case 1:
+			backoff = 250 * time.Millisecond
+		case 2:
+			backoff = 500 * time.Millisecond
+		}
 		if m.Backoff != nil {
 			backoff = m.Backoff(attempt)
 		}
@@ -244,63 +320,29 @@ func (m Manager) initialize(
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 ) (executionstore.MCPConnectionRecord, error) {
-	wireConn, err := m.Connection(ctx, orgID, projectID, conn, server, "", "")
+	wireConn, identity, err := m.Connection(ctx, orgID, projectID, conn, server, "", "")
 	if err != nil {
 		return executionstore.MCPConnectionRecord{}, err
 	}
-	mcpSessionID, result, err := m.Client.Initialize(ctx, wireConn, ProtocolVersion)
+	catalog, _, err := m.Execution.GetMCPServerCatalog(ctx, identity)
 	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf("initialize mcp server %q: %w", conn.ServerKey, err)
+		return executionstore.MCPConnectionRecord{}, err
 	}
-	negotiatedProtocol := result.ProtocolVersion
-	if negotiatedProtocol == "" {
-		negotiatedProtocol = ProtocolVersion
-	}
-	wireConn.MCPSessionID = mcpSessionID
-	wireConn.ProtocolVersion = negotiatedProtocol
-	if err := m.Client.Notify(ctx, wireConn, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf(
-			"send mcp initialized notification for %q: %w",
-			conn.ServerKey,
-			err,
+	if catalogUsable(catalog, true) {
+		return m.initializeStateless(
+			ctx, projectID, agentID, conn, server, identity, catalog, m.statelessCatalogFetch(wireConn, nil),
 		)
 	}
-	tools, err := listAllTools(ctx, m.Client, wireConn, func(ctx context.Context) (int64, error) {
-		seq, err := m.Execution.NextMCPRequestSequence(ctx, projectID, agentID, conn.ID)
-		if err != nil {
-			return 0, fmt.Errorf("allocate mcp tools/list request sequence for %q: %w", conn.ServerKey, err)
-		}
-		return seq, nil
-	})
+	probe, err := m.probeServer(ctx, wireConn)
 	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf("list mcp tools for %q: %w", conn.ServerKey, err)
+		return executionstore.MCPConnectionRecord{}, fmt.Errorf("probe mcp server %q: %w", conn.ServerKey, err)
 	}
-	if err := validateDiscoveredTools(server, tools); err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf(
-			"validate mcp tools for %q: %w",
-			conn.ServerKey,
-			err,
+	if probe.Stateless {
+		return m.initializeStateless(
+			ctx, projectID, agentID, conn, server, identity, catalog, m.statelessCatalogFetch(wireConn, &probe.Discover),
 		)
 	}
-	toolsSnapshot, err := json.Marshal(tools)
-	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf("marshal mcp tools snapshot for %q: %w", conn.ServerKey, err)
-	}
-	ready, err := m.Execution.MarkMCPConnectionReady(ctx, executionstore.MarkMCPConnectionReadyInput{
-		ProjectID:          projectID,
-		AgentID:            agentID,
-		ID:                 conn.ID,
-		GenerationObserved: conn.Generation,
-		MCPSessionID:       mcpSessionID,
-		ProtocolVersion:    negotiatedProtocol,
-		ServerCapabilities: result.ServerCapabilities,
-		ServerInfo:         result.ServerInfo,
-		ToolsSnapshot:      toolsSnapshot,
-	})
-	if err != nil {
-		return executionstore.MCPConnectionRecord{}, fmt.Errorf("mark mcp connection %q ready: %w", conn.ServerKey, err)
-	}
-	return ready, nil
+	return m.initializeLegacy(ctx, projectID, agentID, conn, server, wireConn, identity)
 }
 
 func validateDiscoveredTools(server agentconfig.RuntimeMCPServer, tools []*sdkmcp.Tool) error {
@@ -328,9 +370,9 @@ func (m Manager) Connection(
 	conn executionstore.MCPConnectionRecord,
 	server agentconfig.RuntimeMCPServer,
 	sessionID, protocolVersion string,
-) (Conn, error) {
+) (Conn, executionstore.MCPServerCatalogIdentity, error) {
 	if server.Auth != nil && server.ServerKey != "" && server.ServerKey != conn.ServerKey {
-		return Conn{}, fmt.Errorf(
+		return Conn{}, executionstore.MCPServerCatalogIdentity{}, fmt.Errorf(
 			"mcp auth server key mismatch: connection %q config %q",
 			conn.ServerKey,
 			server.ServerKey,
@@ -345,18 +387,19 @@ func (m Manager) connection(
 	serverKey, endpointURL string,
 	auth *agentconfig.RuntimeMCPAuth,
 	sessionID, protocolVersion string,
-) (Conn, error) {
+) (Conn, executionstore.MCPServerCatalogIdentity, error) {
 	wireConn := Conn{EndpointURL: endpointURL, MCPSessionID: sessionID, ProtocolVersion: protocolVersion}
+	identity := executionstore.MCPServerCatalogIdentity{OrgID: orgID, EndpointURL: endpointURL}
 	if auth == nil {
-		return wireConn, nil
+		return wireConn, identity, nil
 	}
 	secretID, err := publicid.Decode(publicid.KindSecret, auth.SecretID)
 	if err != nil {
-		return Conn{}, fmt.Errorf("decode mcp auth secret id for %q: %w", serverKey, err)
+		return Conn{}, identity, fmt.Errorf("decode mcp auth secret id for %q: %w", serverKey, err)
 	}
 	kind, err := mcpAuthSecretKind(auth.Type)
 	if err != nil {
-		return Conn{}, fmt.Errorf("resolve mcp auth secret kind for %q: %w", serverKey, err)
+		return Conn{}, identity, fmt.Errorf("resolve mcp auth secret kind for %q: %w", serverKey, err)
 	}
 	secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 		ctx,
@@ -368,19 +411,27 @@ func (m Manager) connection(
 		},
 	)
 	if err != nil {
-		return Conn{}, fmt.Errorf("read mcp auth secret for %q: %w", serverKey, err)
+		return Conn{}, identity, fmt.Errorf("read mcp auth secret for %q: %w", serverKey, err)
 	}
 	payload := secretPayload.Payload
+	credential := &executionstore.MCPServerCatalogCredential{
+		SecretID:        secretID,
+		SecretVersionID: secretPayload.CurrentVersionID,
+	}
+	identity.Credential = credential
 	switch auth.Type {
 	case agentconfig.MCPAuthTypeBearer:
 		wireConn.BearerToken = payload[secrets.KeyValue]
 	case agentconfig.MCPAuthTypeOAuth:
-		token, err := m.oauthBearerToken(ctx, serverKey, orgID, projectID, secretID, secretPayload)
+		token, versionID, err := m.oauthBearerToken(ctx, serverKey, orgID, projectID, secretID, secretPayload)
 		if err != nil {
-			return Conn{}, err
+			return Conn{}, identity, err
 		}
 		wireConn.BearerToken = token
+		credential.SecretVersionID = versionID
 	case agentconfig.MCPAuthTypeSigV4:
+		credential.AWSRegion = auth.Region
+		credential.AWSService = auth.Service
 		provider, err := sigv4.ResolveCredentialProvider(
 			m.SigV4CredentialCache,
 			secretID,
@@ -389,21 +440,21 @@ func (m Manager) connection(
 			payload,
 		)
 		if err != nil {
-			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
+			return Conn{}, identity, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
 		}
 		signer, err := sigv4.NewSigner(auth.Service, auth.Region, provider)
 		if err != nil {
-			return Conn{}, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
+			return Conn{}, identity, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
 		}
 		wireConn.prepareRequest = signer.Sign
-		return wireConn, nil
+		return wireConn, identity, nil
 	default:
-		return Conn{}, fmt.Errorf("unsupported mcp auth type %q", auth.Type)
+		return Conn{}, identity, fmt.Errorf("unsupported mcp auth type %q", auth.Type)
 	}
 	if wireConn.BearerToken == "" {
-		return Conn{}, fmt.Errorf("mcp auth secret for %q is missing bearer token material", serverKey)
+		return Conn{}, identity, fmt.Errorf("mcp auth secret for %q is missing bearer token material", serverKey)
 	}
-	return wireConn, nil
+	return wireConn, identity, nil
 }
 
 const oauthRefreshSkew = time.Minute
@@ -421,13 +472,13 @@ func (m Manager) oauthBearerToken(
 	serverKey string,
 	orgID, projectID, secretID storage.ID,
 	secretPayload secretstore.SecretPayloadRecord,
-) (string, error) {
+) (string, storage.ID, error) {
 	token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 	if err != nil {
-		return "", err
+		return "", storage.NilID, err
 	}
 	if fresh {
-		return token, nil
+		return token, secretPayload.CurrentVersionID, nil
 	}
 	return m.refreshOAuthBearerTokenWithLease(ctx, serverKey, orgID, projectID, secretID)
 }
@@ -436,13 +487,16 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 	ctx context.Context,
 	serverKey string,
 	orgID, projectID, secretID storage.ID,
-) (string, error) {
+) (string, storage.ID, error) {
 	maxWaits := m.OAuthRefreshMaxWaits
 	if maxWaits <= 0 {
 		maxWaits = defaultOAuthRefreshMaxWaits
 	}
+	leaseTTL := m.OAuthRefreshLeaseTTL
+	if leaseTTL <= 0 {
+		leaseTTL = defaultOAuthRefreshLeaseTTL
+	}
 	for attempt := 0; ; attempt++ {
-		leaseTTL := m.oauthRefreshLeaseTTL()
 		leaseAttemptStarted := time.Now()
 		lease, acquired, err := m.Secrets.AcquireProjectOAuthRefreshLease(
 			ctx,
@@ -454,7 +508,7 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err)
+			return "", storage.NilID, fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err)
 		}
 		if acquired {
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - oauthRefreshOwnerHeadroom
@@ -467,10 +521,14 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			)
 		}
 		if attempt >= maxWaits {
-			return "", fmt.Errorf("mcp oauth refresh lease for %q is busy", serverKey)
+			return "", storage.NilID, fmt.Errorf("mcp oauth refresh lease for %q is busy", serverKey)
 		}
-		if err := sleepBackoff(ctx, m.oauthRefreshWait(attempt)); err != nil {
-			return "", err
+		wait := min(defaultOAuthRefreshWait*time.Duration(attempt+1), maxDefaultOAuthRefreshWait)
+		if m.OAuthRefreshWait != nil {
+			wait = m.OAuthRefreshWait(attempt)
+		}
+		if err := sleepBackoff(ctx, wait); err != nil {
+			return "", storage.NilID, err
 		}
 		secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 			ctx,
@@ -482,14 +540,14 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", serverKey, err)
+			return "", storage.NilID, fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", serverKey, err)
 		}
 		token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 		if err != nil {
-			return "", err
+			return "", storage.NilID, err
 		}
 		if fresh {
-			return token, nil
+			return token, secretPayload.CurrentVersionID, nil
 		}
 	}
 }
@@ -500,13 +558,13 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 	projectID storage.ID,
 	lease secretstore.OAuthRefreshLeaseRecord,
 	timeout time.Duration,
-) (string, error) {
+) (string, storage.ID, error) {
 	defer func() { _ = m.Secrets.ReleaseProjectOAuthRefreshLease(context.WithoutCancel(callerCtx), lease) }()
 	if timeout <= 0 {
-		return "", fmt.Errorf("mcp oauth refresh lease for %q has insufficient remaining time", serverKey)
+		return "", storage.NilID, fmt.Errorf("mcp oauth refresh lease for %q has insufficient remaining time", serverKey)
 	}
 	if err := callerCtx.Err(); err != nil {
-		return "", err
+		return "", storage.NilID, err
 	}
 	leaseOwnerCtx, cancel := context.WithTimeout(context.WithoutCancel(callerCtx), timeout)
 	defer cancel()
@@ -520,21 +578,21 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		},
 	)
 	if err != nil {
-		return "", fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", serverKey, err)
+		return "", storage.NilID, fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", serverKey, err)
 	}
 	payload := secretPayload.Payload
 	token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 	if err != nil {
-		return "", err
+		return "", storage.NilID, err
 	}
 	if fresh {
-		return token, nil
+		return token, secretPayload.CurrentVersionID, nil
 	}
 	if secretPayload.CurrentVersionID != lease.ExpectedCurrentVersionID {
-		return "", fmt.Errorf("mcp oauth refresh lease for %q no longer owns the current secret version", serverKey)
+		return "", storage.NilID, fmt.Errorf("mcp oauth refresh lease for %q no longer owns the current secret version", serverKey)
 	}
 	if payload[secrets.KeyRefreshToken] == "" {
-		return "", fmt.Errorf("mcp oauth secret for %q is expired and has no refresh token", serverKey)
+		return "", storage.NilID, fmt.Errorf("mcp oauth secret for %q is expired and has no refresh token", serverKey)
 	}
 	refreshed, err := RefreshOAuthToken(leaseOwnerCtx, OAuthRefreshInput{
 		TokenEndpoint: payload[secrets.KeyTokenEndpoint],
@@ -545,9 +603,9 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		HTTPClient:    m.OAuthHTTPClient,
 	})
 	if err != nil {
-		return "", fmt.Errorf("refresh mcp oauth token for %q: %w", serverKey, err)
+		return "", storage.NilID, fmt.Errorf("refresh mcp oauth token for %q: %w", serverKey, err)
 	}
-	refreshedPayload := cloneSecretPayload(payload)
+	refreshedPayload := maps.Clone(payload)
 	refreshedPayload[secrets.KeyAccessToken] = refreshed.AccessToken
 	if refreshed.RefreshToken != "" {
 		refreshedPayload[secrets.KeyRefreshToken] = refreshed.RefreshToken
@@ -564,16 +622,17 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		refreshed.AccessTokenLifetime(),
 	)
 	if err != nil {
-		return "", fmt.Errorf("normalize refreshed mcp oauth token for %q: %w", serverKey, err)
+		return "", storage.NilID, fmt.Errorf("normalize refreshed mcp oauth token for %q: %w", serverKey, err)
 	}
-	if _, err := m.Secrets.RotateProjectAvailableOAuthSecret(
+	rotated, err := m.Secrets.RotateProjectAvailableOAuthSecret(
 		leaseOwnerCtx,
 		secretstore.RotateProjectAvailableOAuthSecretInput{
 			ProjectID: projectID,
 			Lease:     lease,
 			Material:  material,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, storeerr.ErrConflict) {
 			current, readErr := m.Secrets.ReadProjectAvailableSecretPayload(
 				leaseOwnerCtx,
@@ -587,13 +646,13 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 			if readErr == nil {
 				currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current)
 				if tokenErr == nil && fresh {
-					return currentToken, nil
+					return currentToken, current.CurrentVersionID, nil
 				}
 			}
 		}
-		return "", fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err)
+		return "", storage.NilID, fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err)
 	}
-	return refreshed.AccessToken, nil
+	return refreshed.AccessToken, rotated.CurrentVersionID, nil
 }
 
 func (m Manager) oauthAccessToken(
@@ -608,32 +667,6 @@ func (m Manager) oauthAccessToken(
 		return accessToken, true, nil
 	}
 	return accessToken, false, nil
-}
-
-func (m Manager) oauthRefreshLeaseTTL() time.Duration {
-	if m.OAuthRefreshLeaseTTL > 0 {
-		return m.OAuthRefreshLeaseTTL
-	}
-	return defaultOAuthRefreshLeaseTTL
-}
-
-func (m Manager) oauthRefreshWait(attempt int) time.Duration {
-	if m.OAuthRefreshWait != nil {
-		return m.OAuthRefreshWait(attempt)
-	}
-	wait := defaultOAuthRefreshWait * time.Duration(attempt+1)
-	if wait > maxDefaultOAuthRefreshWait {
-		return maxDefaultOAuthRefreshWait
-	}
-	return wait
-}
-
-func cloneSecretPayload(payload secrets.Payload) secrets.Payload {
-	cloned := make(secrets.Payload, len(payload))
-	for key, value := range payload {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func mcpAuthSecretKind(authType string) (secrets.Kind, error) {
@@ -660,16 +693,5 @@ func sleepBackoff(ctx context.Context, d time.Duration) error {
 		return ctx.Err()
 	case <-timer.C:
 		return nil
-	}
-}
-
-func defaultMCPInitializationBackoff(attempt int) time.Duration {
-	switch attempt {
-	case 1:
-		return 250 * time.Millisecond
-	case 2:
-		return 500 * time.Millisecond
-	default:
-		return time.Second
 	}
 }

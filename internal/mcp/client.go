@@ -20,8 +20,6 @@ import (
 )
 
 const (
-	ProtocolVersion = "2025-11-25"
-
 	headerSessionID       = "Mcp-Session-Id"
 	headerProtocolVersion = "Mcp-Protocol-Version"
 
@@ -32,11 +30,14 @@ const (
 	defaultBodyLimit = 4 * 1024 * 1024
 
 	initializeRequestID = -1
+	discoverRequestID   = -2
 )
 
-// Client is an MCP client that can reconnect to an existing session ID without
-// reinitializing.
+// Client is an MCP client that speaks both the stateless protocol (per-request
+// metadata, no session) and the legacy initialize handshake, where it can
+// reconnect to an existing session ID without reinitializing.
 type Client interface {
+	Discover(ctx context.Context, conn Conn, protocolVersion string) (DiscoverResult, error)
 	Initialize(
 		ctx context.Context,
 		conn Conn,
@@ -55,14 +56,15 @@ type Client interface {
 		ctx context.Context,
 		conn Conn,
 		requestID int64,
-		toolName string,
-		args json.RawMessage,
+		call ToolCall,
 	) (*sdkmcp.CallToolResult, error)
 }
 
 type ToolsPage struct {
 	Tools      []*sdkmcp.Tool `json:"tools"`
 	NextCursor string         `json:"nextCursor,omitempty"`
+	TTLMs      int            `json:"ttlMs,omitempty"`
+	CacheScope string         `json:"cacheScope,omitempty"`
 }
 
 type InitializeResult struct {
@@ -80,6 +82,14 @@ type Conn struct {
 }
 
 func (c Conn) HasSession() bool { return c.MCPSessionID != "" }
+
+func (c Conn) Stateless() bool { return IsStatelessProtocolVersion(c.ProtocolVersion) }
+
+func (c Conn) withoutSession() Conn {
+	c.MCPSessionID = ""
+	c.ProtocolVersion = ""
+	return c
+}
 
 func marshalObject(value any) (json.RawMessage, error) {
 	if value == nil {
@@ -149,6 +159,13 @@ func (c *httpClient) Initialize(
 	if strings.TrimSpace(clientProtocolVersion) == "" {
 		return "", InitializeResult{}, errors.New("mcp: clientProtocolVersion is required")
 	}
+	if IsStatelessProtocolVersion(clientProtocolVersion) {
+		return "", InitializeResult{}, fmt.Errorf(
+			"mcp: protocol version %s has no initialize handshake; use Discover",
+			clientProtocolVersion,
+		)
+	}
+	conn.ProtocolVersion = ""
 
 	params, err := json.Marshal(map[string]any{
 		"protocolVersion": clientProtocolVersion,
@@ -159,7 +176,11 @@ func (c *httpClient) Initialize(
 		return "", InitializeResult{}, fmt.Errorf("mcp: marshal initialize params: %w", err)
 	}
 
-	sessionID, resultJSON, err := c.doRequest(ctx, conn, "initialize", params, initializeRequestID)
+	sessionID, resultJSON, err := c.doRequest(ctx, conn, wireRequest{
+		method:    "initialize",
+		params:    params,
+		requestID: initializeRequestID,
+	})
 	if err != nil {
 		return "", InitializeResult{}, err
 	}
@@ -183,7 +204,65 @@ func (c *httpClient) Initialize(
 	}, nil
 }
 
+func (c *httpClient) Discover(ctx context.Context, conn Conn, protocolVersion string) (DiscoverResult, error) {
+	if !IsStatelessProtocolVersion(protocolVersion) {
+		return DiscoverResult{}, fmt.Errorf("mcp: protocol version %q does not support server/discover", protocolVersion)
+	}
+	conn.ProtocolVersion = protocolVersion
+	conn.MCPSessionID = ""
+	_, resultJSON, err := c.doRequest(ctx, conn, wireRequest{
+		method:    "server/discover",
+		params:    json.RawMessage(`{}`),
+		requestID: discoverRequestID,
+	})
+	if err != nil {
+		return DiscoverResult{}, err
+	}
+	var result struct {
+		SupportedVersions []string        `json:"supportedVersions"`
+		Capabilities      json.RawMessage `json:"capabilities"`
+		Instructions      string          `json:"instructions"`
+		TTLMs             int             `json:"ttlMs"`
+		CacheScope        string          `json:"cacheScope"`
+		Meta              json.RawMessage `json:"_meta"`
+	}
+	if err := json.Unmarshal(resultJSON, &result); err != nil {
+		return DiscoverResult{}, fmt.Errorf("mcp: decode server/discover result: %w", err)
+	}
+	negotiated, ok := NegotiateStatelessProtocolVersion(result.SupportedVersions)
+	if !ok {
+		data, err := json.Marshal(map[string]any{"supported": result.SupportedVersions, "requested": protocolVersion})
+		if err != nil {
+			return DiscoverResult{}, err
+		}
+		return DiscoverResult{}, &RPCError{
+			Code:    CodeUnsupportedProtocolVersion,
+			Message: "server/discover advertised no mutually supported stateless protocol version",
+			Data:    data,
+		}
+	}
+	capabilities := result.Capabilities
+	if len(capabilities) == 0 || string(capabilities) == "null" {
+		capabilities = json.RawMessage(`{}`)
+	}
+	serverInfo, err := serverInfoFromMeta(result.Meta)
+	if err != nil {
+		return DiscoverResult{}, err
+	}
+	return DiscoverResult{
+		ProtocolVersion:    negotiated,
+		SupportedVersions:  result.SupportedVersions,
+		ServerCapabilities: capabilities,
+		ServerInfo:         serverInfo,
+		Instructions:       result.Instructions,
+		Cache:              CacheHint{TTLMs: max(result.TTLMs, 0), CacheScope: result.CacheScope},
+	}, nil
+}
+
 func (c *httpClient) Notify(ctx context.Context, conn Conn, method string, params json.RawMessage) error {
+	if conn.Stateless() {
+		return fmt.Errorf("mcp: protocol version %s defines no client notifications over HTTP", conn.ProtocolVersion)
+	}
 	body, err := jsonrpc.EncodeMessage(&jsonrpc.Request{
 		Method: method,
 		Params: params,
@@ -192,10 +271,13 @@ func (c *httpClient) Notify(ctx context.Context, conn Conn, method string, param
 		return fmt.Errorf("mcp: marshal notification: %w", err)
 	}
 
-	ctx, cancel := c.withDefaultTimeout(ctx)
-	defer cancel()
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
 
-	req, err := c.buildHTTP(ctx, conn, body)
+	req, err := c.buildHTTP(ctx, conn, body, nil)
 	if err != nil {
 		return err
 	}
@@ -224,7 +306,7 @@ func (c *httpClient) Call(
 	params json.RawMessage,
 	requestID int64,
 ) (json.RawMessage, error) {
-	_, result, err := c.doRequest(ctx, conn, method, params, requestID)
+	_, result, err := c.doRequest(ctx, conn, wireRequest{method: method, params: params, requestID: requestID})
 	return result, err
 }
 
@@ -257,20 +339,30 @@ func (c *httpClient) CallTool(
 	ctx context.Context,
 	conn Conn,
 	requestID int64,
-	toolName string,
-	args json.RawMessage,
+	call ToolCall,
 ) (*sdkmcp.CallToolResult, error) {
+	if call.Name == "" {
+		return nil, errors.New("mcp: tool name is required")
+	}
+	args := call.Arguments
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
 	params, err := json.Marshal(map[string]any{
-		"name":      toolName,
+		"name":      call.Name,
 		"arguments": args,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mcp: marshal tools/call params: %w", err)
 	}
-	result, err := c.Call(ctx, conn, "tools/call", params, requestID)
+	request := wireRequest{method: "tools/call", params: params, requestID: requestID, name: call.Name}
+	if conn.Stateless() {
+		request.paramHeaders, err = toolHeaderValues(call.Headers, args)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, result, err := c.doRequest(ctx, conn, request)
 	if err != nil {
 		return nil, err
 	}
@@ -281,27 +373,45 @@ func (c *httpClient) CallTool(
 	return &out, nil
 }
 
+type wireRequest struct {
+	method       string
+	params       json.RawMessage
+	requestID    int64
+	name         string
+	paramHeaders map[string]string
+}
+
 func (c *httpClient) doRequest(
 	ctx context.Context,
 	conn Conn,
-	method string,
-	params json.RawMessage,
-	requestID int64,
+	request wireRequest,
 ) (string, json.RawMessage, error) {
-	id, err := jsonrpc.MakeID(float64(requestID))
+	id, err := jsonrpc.MakeID(float64(request.requestID))
 	if err != nil {
 		return "", nil, fmt.Errorf("mcp: build request id: %w", err)
 	}
+	params := request.params
+	var headers http.Header
+	if conn.Stateless() {
+		params, err = withRequestMeta(params, conn.ProtocolVersion, c.clientInfo)
+		if err != nil {
+			return "", nil, err
+		}
+		headers, err = statelessRequestHeaders(request.method, request.name, request.paramHeaders)
+		if err != nil {
+			return "", nil, err
+		}
+	}
 	body, err := jsonrpc.EncodeMessage(&jsonrpc.Request{
 		ID:     id,
-		Method: method,
+		Method: request.method,
 		Params: params,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("mcp: marshal request: %w", err)
 	}
 
-	httpReq, cancel, err := c.buildHTTPForResponse(ctx, conn, body)
+	httpReq, cancel, err := c.buildHTTPForResponse(ctx, conn, body, headers)
 	if err != nil {
 		return "", nil, err
 	}
@@ -326,19 +436,32 @@ func (c *httpClient) doRequest(
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %q", ErrUnsupportedResponse, resp.Header.Get("Content-Type"))
 	}
+	var result json.RawMessage
 	switch mediaType {
 	case mediaTypeJSON:
-		result, err := c.handleJSON(resp.Body, requestID)
-		return sessionID, result, err
+		result, err = c.handleJSON(resp.Body, request.requestID)
 	case mediaTypeSSE:
-		result, err := c.handleSSE(ctx, resp.Body, requestID)
-		return sessionID, result, err
+		result, err = c.handleSSE(ctx, resp.Body, request.requestID)
 	default:
 		return "", nil, fmt.Errorf("%w: %q", ErrUnsupportedResponse, mediaType)
 	}
+	if err != nil {
+		return "", nil, err
+	}
+	if conn.Stateless() {
+		if err := checkResultType(result); err != nil {
+			return "", nil, err
+		}
+	}
+	return sessionID, result, nil
 }
 
-func (c *httpClient) buildHTTP(ctx context.Context, conn Conn, body []byte) (*http.Request, error) {
+func (c *httpClient) buildHTTP(
+	ctx context.Context,
+	conn Conn,
+	body []byte,
+	extra http.Header,
+) (*http.Request, error) {
 	if conn.EndpointURL == "" {
 		return nil, errors.New("mcp: empty endpoint URL")
 	}
@@ -348,11 +471,16 @@ func (c *httpClient) buildHTTP(ctx context.Context, conn Conn, body []byte) (*ht
 	}
 	req.Header.Set("Content-Type", mediaTypeJSON)
 	req.Header.Set("Accept", acceptHeader)
-	if conn.MCPSessionID != "" {
+	if conn.MCPSessionID != "" && !conn.Stateless() {
 		req.Header.Set(headerSessionID, conn.MCPSessionID)
 	}
 	if conn.ProtocolVersion != "" {
 		req.Header.Set(headerProtocolVersion, conn.ProtocolVersion)
+	}
+	for name, values := range extra {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
 	}
 	if conn.BearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+conn.BearerToken)
@@ -369,14 +497,15 @@ func (c *httpClient) buildHTTPForResponse(
 	ctx context.Context,
 	conn Conn,
 	body []byte,
+	extra http.Header,
 ) (*http.Request, context.CancelFunc, error) {
 	if _, ok := ctx.Deadline(); ok {
-		req, err := c.buildHTTP(ctx, conn, body)
+		req, err := c.buildHTTP(ctx, conn, body, extra)
 		return req, func() {}, err
 	}
 
 	reqCtx, cancel := context.WithCancel(ctx)
-	req, err := c.buildHTTP(reqCtx, conn, body)
+	req, err := c.buildHTTP(reqCtx, conn, body, extra)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -438,13 +567,6 @@ func (c *httpClient) doHTTPWithResponseTimeout(
 		}
 		return nil, ctx.Err()
 	}
-}
-
-func (c *httpClient) withDefaultTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, c.requestTimeout)
 }
 
 func (c *httpClient) handleJSON(body io.Reader, wantID int64) (json.RawMessage, error) {
@@ -561,9 +683,39 @@ func resolveResponse(resp *jsonrpc.Response) (json.RawMessage, error) {
 	return resp.Result, nil
 }
 
+const (
+	statusErrorPreviewBytes = 512
+	statusErrorDecodeBytes  = 8 * 1024
+)
+
 func (c *httpClient) statusError(resp *http.Response) error {
-	preview, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, statusErrorDecodeBytes))
+	if rpcErr, ok := decodeRPCErrorBody(body); ok {
+		rpcErr.HTTPStatus = resp.StatusCode
+		return rpcErr
+	}
+	preview := body
+	if len(preview) > statusErrorPreviewBytes {
+		preview = preview[:statusErrorPreviewBytes]
+	}
 	return &HTTPError{Status: resp.StatusCode, Body: bytes.TrimSpace(preview)}
+}
+
+func decodeRPCErrorBody(body []byte) (*RPCError, bool) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false
+	}
+	msg, decodeErr := jsonrpc.DecodeMessage(trimmed)
+	if decodeErr == nil {
+		if resp, ok := msg.(*jsonrpc.Response); ok {
+			var rpcErr *RPCError
+			if _, err := resolveResponse(resp); errors.As(err, &rpcErr) {
+				return rpcErr, true
+			}
+		}
+	}
+	return nil, false
 }
 
 type countingReader struct {

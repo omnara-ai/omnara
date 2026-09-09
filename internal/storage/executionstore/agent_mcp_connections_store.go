@@ -35,11 +35,76 @@ type MCPConnectionRecord struct {
 	ServerCapabilities json.RawMessage    `json:"server_capabilities"`
 	ServerInfo         json.RawMessage    `json:"server_info"`
 	ToolsSnapshot      json.RawMessage    `json:"tools_snapshot"`
+	Instructions       string             `json:"instructions"`
 	InitializeError    string             `json:"initialize_error"`
 	Generation         int64              `json:"generation"`
 	RequestSequence    int64              `json:"request_sequence"`
+	CatalogID          *ID                `json:"catalog_id,omitempty"`
+	CatalogRevision    int64              `json:"catalog_revision"`
 	CreatedAt          time.Time          `json:"created_at"`
 	UpdatedAt          time.Time          `json:"updated_at"`
+}
+
+func (r MCPConnectionRecord) UsesCatalog() bool { return r.CatalogID != nil }
+
+func (r MCPConnectionRecord) withCatalog(catalogs map[ID]MCPServerCatalogRecord) MCPConnectionRecord {
+	if r.CatalogID == nil {
+		return r
+	}
+	catalog, found := catalogs[*r.CatalogID]
+	if !found {
+		return r
+	}
+	if catalog.RefreshError != "" {
+		r.State = MCPConnectionStateFailed
+		r.InitializeError = catalog.RefreshError
+		r.ToolsSnapshot = json.RawMessage(`[]`)
+		return r
+	}
+	r.ServerCapabilities = catalog.ServerCapabilities
+	r.ServerInfo = catalog.ServerInfo
+	r.ToolsSnapshot = catalog.ToolsSnapshot
+	r.Instructions = catalog.Instructions
+	r.CatalogRevision = catalog.Revision
+	return r
+}
+
+func (s *Store) attachMCPConnectionCatalogs(
+	ctx context.Context,
+	projectID, agentID ID,
+	connections []MCPConnectionRecord,
+) ([]MCPConnectionRecord, error) {
+	needsCatalog := false
+	for _, connection := range connections {
+		if connection.UsesCatalog() {
+			needsCatalog = true
+			break
+		}
+	}
+	if !needsCatalog {
+		return connections, nil
+	}
+	catalogs, err := s.listAgentMCPConnectionCatalogs(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MCPConnectionRecord, 0, len(connections))
+	for _, connection := range connections {
+		out = append(out, connection.withCatalog(catalogs))
+	}
+	return out, nil
+}
+
+func (s *Store) attachMCPConnectionCatalog(
+	ctx context.Context,
+	projectID, agentID ID,
+	connection MCPConnectionRecord,
+) (MCPConnectionRecord, error) {
+	attached, err := s.attachMCPConnectionCatalogs(ctx, projectID, agentID, []MCPConnectionRecord{connection})
+	if err != nil {
+		return MCPConnectionRecord{}, err
+	}
+	return attached[0], nil
 }
 
 func (s *Store) ReconcileAgentMCPConnections(
@@ -81,7 +146,7 @@ func (s *Store) ReconcileAgentMCPConnections(
 		}
 	}
 	if reconciled && len(connections) == len(servers) && len(current) > 0 {
-		return connections, nil
+		return s.attachMCPConnectionCatalogs(ctx, projectID, agentID, connections)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -129,7 +194,7 @@ func (s *Store) ReconcileAgentMCPConnections(
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit agent mcp reconciliation: %w", err)
 	}
-	return connections, nil
+	return s.attachMCPConnectionCatalogs(ctx, projectID, agentID, connections)
 }
 
 func (s *Store) GetMCPConnection(
@@ -152,7 +217,11 @@ func (s *Store) GetMCPConnection(
 	if err != nil {
 		return MCPConnectionRecord{}, false, fmt.Errorf("get mcp connection: %w", err)
 	}
-	return mcpConnectionRecordFromSQLC(row), true, nil
+	record, err := s.attachMCPConnectionCatalog(ctx, projectID, agentID, mcpConnectionRecordFromSQLC(row))
+	if err != nil {
+		return MCPConnectionRecord{}, false, err
+	}
+	return record, true, nil
 }
 
 func (s *Store) ListAgentMCPConnections(
@@ -173,7 +242,7 @@ func (s *Store) ListAgentMCPConnections(
 	for _, row := range rows {
 		out = append(out, mcpConnectionRecordFromSQLC(row))
 	}
-	return out, nil
+	return s.attachMCPConnectionCatalogs(ctx, projectID, agentID, out)
 }
 
 func (s *Store) GetMCPConnectionByID(
@@ -195,7 +264,11 @@ func (s *Store) GetMCPConnectionByID(
 	if err != nil {
 		return MCPConnectionRecord{}, false, fmt.Errorf("get mcp connection by id: %w", err)
 	}
-	return mcpConnectionRecordFromSQLC(row), true, nil
+	record, err := s.attachMCPConnectionCatalog(ctx, projectID, agentID, mcpConnectionRecordFromSQLC(row))
+	if err != nil {
+		return MCPConnectionRecord{}, false, err
+	}
+	return record, true, nil
 }
 
 type MarkMCPConnectionReadyInput struct {
@@ -205,9 +278,7 @@ type MarkMCPConnectionReadyInput struct {
 	GenerationObserved int64
 	MCPSessionID       string
 	ProtocolVersion    string
-	ServerCapabilities json.RawMessage
-	ServerInfo         json.RawMessage
-	ToolsSnapshot      json.RawMessage
+	CatalogID          ID
 }
 
 func (s *Store) MarkMCPConnectionReady(
@@ -220,6 +291,9 @@ func (s *Store) MarkMCPConnectionReady(
 	if input.GenerationObserved <= 0 {
 		return MCPConnectionRecord{}, errors.New("observed generation must be positive")
 	}
+	if isNilID(input.CatalogID) || input.ProtocolVersion == "" {
+		return MCPConnectionRecord{}, errors.New("catalog id and protocol version are required")
+	}
 	row, err := s.q.MarkMCPConnectionReady(ctx, dbsqlc.MarkMCPConnectionReadyParams{
 		ProjectID:          input.ProjectID,
 		AgentID:            input.AgentID,
@@ -227,9 +301,7 @@ func (s *Store) MarkMCPConnectionReady(
 		GenerationObserved: input.GenerationObserved,
 		McpSessionID:       input.MCPSessionID,
 		ProtocolVersion:    input.ProtocolVersion,
-		ServerCapabilities: normalizedJSON(input.ServerCapabilities),
-		ServerInfo:         normalizedJSON(input.ServerInfo),
-		ToolsSnapshot:      normalizedJSONArray(input.ToolsSnapshot),
+		CatalogID:          input.CatalogID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MCPConnectionRecord{}, storeerr.ErrStateTransitionConflict
@@ -237,7 +309,48 @@ func (s *Store) MarkMCPConnectionReady(
 	if err != nil {
 		return MCPConnectionRecord{}, fmt.Errorf("mark mcp connection ready: %w", err)
 	}
-	return mcpConnectionRecordFromSQLC(row), nil
+	return s.attachMCPConnectionCatalog(ctx, input.ProjectID, input.AgentID, mcpConnectionRecordFromSQLC(row))
+}
+
+type SetMCPConnectionCatalogInput struct {
+	ProjectID          ID
+	AgentID            ID
+	ID                 ID
+	GenerationObserved int64
+	MCPSessionID       string
+	ProtocolVersion    string
+	CatalogID          ID
+}
+
+func (s *Store) SetMCPConnectionCatalog(
+	ctx context.Context,
+	input SetMCPConnectionCatalogInput,
+) (MCPConnectionRecord, error) {
+	if isNilID(input.ProjectID) || isNilID(input.AgentID) || isNilID(input.ID) || isNilID(input.CatalogID) {
+		return MCPConnectionRecord{}, errors.New("project, agent, connection id, and catalog id are required")
+	}
+	if input.GenerationObserved <= 0 {
+		return MCPConnectionRecord{}, errors.New("observed generation must be positive")
+	}
+	if input.ProtocolVersion == "" {
+		return MCPConnectionRecord{}, errors.New("protocol version is required")
+	}
+	row, err := s.q.SetMCPConnectionCatalog(ctx, dbsqlc.SetMCPConnectionCatalogParams{
+		ProtocolVersion:    input.ProtocolVersion,
+		McpSessionID:       input.MCPSessionID,
+		CatalogID:          input.CatalogID,
+		ProjectID:          input.ProjectID,
+		AgentID:            input.AgentID,
+		ID:                 input.ID,
+		GenerationObserved: input.GenerationObserved,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MCPConnectionRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if err != nil {
+		return MCPConnectionRecord{}, fmt.Errorf("set mcp connection catalog: %w", err)
+	}
+	return s.attachMCPConnectionCatalog(ctx, input.ProjectID, input.AgentID, mcpConnectionRecordFromSQLC(row))
 }
 
 func (s *Store) BeginMCPConnectionInitialization(
@@ -371,6 +484,7 @@ func mcpConnectionRecordFromSQLC(row dbsqlc.AgentMcpConnection) MCPConnectionRec
 		InitializeError:    row.InitializeError,
 		Generation:         row.Generation,
 		RequestSequence:    row.RequestSequence,
+		CatalogID:          row.CatalogID,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
 	}

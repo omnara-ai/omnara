@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -76,7 +78,7 @@ mcp:
 	}
 	mcpClient := &fakeKernelMCPClient{
 		agentID:         "remote-session",
-		protocolVersion: mcp.ProtocolVersion,
+		protocolVersion: mcp.LegacyProtocolVersion,
 		tools: []*sdkmcp.Tool{{
 			Name:        "greet",
 			Description: "say hi",
@@ -120,7 +122,7 @@ mcp:
 		t.Fatal("expected mcp connection")
 	}
 	if conn.State != executionstore.MCPConnectionStateReady || conn.MCPSessionID != "remote-session" ||
-		conn.ProtocolVersion != mcp.ProtocolVersion {
+		conn.ProtocolVersion != mcp.LegacyProtocolVersion {
 		t.Fatalf("unexpected initialized mcp connection: %+v", conn)
 	}
 	if conn.RequestSequence != 2 {
@@ -267,7 +269,7 @@ mcp:
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
-		protocolVersion: mcp.ProtocolVersion,
+		protocolVersion: mcp.LegacyProtocolVersion,
 		failInitializeSequences: map[string][]error{
 			"https://example.com/mcp": {
 				&mcp.HTTPError{Status: http.StatusServiceUnavailable},
@@ -378,7 +380,7 @@ mcp:
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
-		protocolVersion:    mcp.ProtocolVersion,
+		protocolVersion:    mcp.LegacyProtocolVersion,
 		initializeAgentIDs: []string{"remote-session-1", "remote-session-2", "remote-session-3"},
 		listToolsErrors: []error{
 			&mcp.HTTPError{Status: http.StatusServiceUnavailable},
@@ -467,7 +469,7 @@ mcp:
 				{ID: "final", StopReason: model.StopReasonEndTurn, Content: []model.ResponsePart{{Type: "text", Text: "done"}}},
 			}}
 			mcpClient := &fakeKernelMCPClient{
-				protocolVersion: mcp.ProtocolVersion, initializeAgentIDs: []string{"session-1", "session-2", "session-3"},
+				protocolVersion: mcp.LegacyProtocolVersion, initializeAgentIDs: []string{"session-1", "session-2", "session-3"},
 				tools:          []*sdkmcp.Tool{{Name: "greet", InputSchema: map[string]any{"type": "object"}}},
 				callToolErrors: []error{mcp.ErrSessionExpired, tc.retryError},
 				callToolResult: &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hello"}}},
@@ -508,7 +510,7 @@ mcp:
 			require.Equal(t, executionstore.ModelWorkContinue, next.Kind)
 			require.Equal(t, tc.wantInitializes, mcpClient.initializeCount)
 			require.Equal(t, tc.wantInitializes, mcpClient.notifyCount)
-			require.Equal(t, tc.wantInitializes, mcpClient.listToolsCount)
+			require.Equal(t, 1, mcpClient.listToolsCount)
 			require.Equal(t, 2, mcpClient.callToolCount)
 			require.Len(t, mcpClient.callToolConns, 2)
 			require.Equal(t, "session-1", mcpClient.callToolConns[0].MCPSessionID)
@@ -611,7 +613,7 @@ mcp:
 		},
 	}
 	mcpClient := &fakeKernelMCPClient{
-		protocolVersion:    mcp.ProtocolVersion,
+		protocolVersion:    mcp.LegacyProtocolVersion,
 		initializeAgentIDs: []string{"remote-session-1", "remote-session-2"},
 		tools: []*sdkmcp.Tool{
 			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
@@ -752,7 +754,7 @@ mcp:
 	}
 	mcpClient := &fakeKernelMCPClient{
 		agentID:            "remote-session-recovered",
-		protocolVersion:    mcp.ProtocolVersion,
+		protocolVersion:    mcp.LegacyProtocolVersion,
 		initializeAgentIDs: []string{"remote-session-1"},
 		tools: []*sdkmcp.Tool{
 			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
@@ -898,7 +900,7 @@ mcp:
 	}
 	mcpClient := &fakeKernelMCPClient{
 		agentID:         "remote-session",
-		protocolVersion: mcp.ProtocolVersion,
+		protocolVersion: mcp.LegacyProtocolVersion,
 		tools: []*sdkmcp.Tool{
 			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
 		},
@@ -957,4 +959,466 @@ SELECT count(*)
 	if count != 0 {
 		t.Fatalf("mcp initialization failure should not append unsupported inline error events, got %d", count)
 	}
+}
+
+func TestAgentExecutorSharesStatelessCatalogAcrossAgents(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	user, err := storagetest.CreateVerifiedUser(
+		ctx,
+		fixture.Pool,
+		storagetest.CreateVerifiedUserInput{
+			Email:       "kernel-mcp-stateless@example.com",
+			DisplayName: "Kernel MCP Stateless User",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sourceYAML := `
+instruction: Use MCP tools.
+model:
+  provider_config: openai-prod
+  name: test-model
+mcp:
+  docs:
+    url: https://stateless.example.com/mcp
+    permission:
+      mode: always_allow
+`
+	mcpClient := &fakeKernelMCPClient{
+		stateless:  true,
+		toolsTTLMs: 60_000,
+		tools: []*sdkmcp.Tool{
+			{Name: "greet", Description: "say hi", InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":   map[string]any{"type": "string"},
+					"region": map[string]any{"type": "string", "x-mcp-header": "Region"},
+				},
+			}},
+		},
+		callToolResult: &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hello"}},
+		},
+	}
+	launchAgent := func(name, key string) executionstore.LaunchAgentResult {
+		t.Helper()
+		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML, now)
+		launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+			ProjectID:      kernelTestProjectID,
+			ProfileID:      agent.ID,
+			AgentConfigID:  agent.CurrentConfigID,
+			LaunchedBy:     kernelTestUserPrincipal(user.ID),
+			IdempotencyKey: key,
+		})
+		if err != nil {
+			t.Fatalf("launch %s: %v", name, err)
+		}
+		return launch
+	}
+	first := launchAgent("Kernel MCP Stateless A", "kernel-mcp-stateless-a")
+	second := launchAgent("Kernel MCP Stateless B", "kernel-mcp-stateless-b")
+
+	firstInput := fixture.admitContentInputTurn(
+		t, ctx, first.Agent.ID, kernelTestUserID, "use mcp", now.Add(2*time.Millisecond),
+	)
+	firstModel := &sequenceKernelModel{
+		providerModelSlug: "test-model",
+		responses: []model.Response{
+			{
+				ID:         "resp-stateless-tool",
+				StopReason: model.StopReasonToolUse,
+				Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
+					{
+						ID:    "call_stateless_greet",
+						Name:  toolcatalog.MCPRuntimeToolName("docs", "greet"),
+						Input: json.RawMessage(`{"name":"Ada","region":"us-west1"}`),
+					},
+				}),
+			},
+			{
+				ID:         "resp-stateless-final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done after stateless mcp"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
+	}
+	firstExecutor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, firstModel),
+		MCP:           mcpClient,
+		ToolExecutor:  tools.Executor{Store: fixture.Store, MCP: mcpClient},
+		Now:           func() time.Time { return now.Add(3 * time.Millisecond) },
+	}
+	_ = executeAsyncToolTurn(t, ctx, fixture, firstExecutor, firstInput)
+
+	if mcpClient.discoverCount != 1 || mcpClient.listToolsCount != 1 || mcpClient.initializeCount != 0 ||
+		mcpClient.notifyCount != 0 || mcpClient.callToolCount != 1 {
+		t.Fatalf(
+			"unexpected mcp calls after first agent: discover=%d list=%d initialize=%d notify=%d call=%d",
+			mcpClient.discoverCount, mcpClient.listToolsCount, mcpClient.initializeCount,
+			mcpClient.notifyCount, mcpClient.callToolCount,
+		)
+	}
+	if len(mcpClient.callToolConns) != 1 || mcpClient.callToolConns[0].MCPSessionID != "" ||
+		!mcpClient.callToolConns[0].Stateless() {
+		t.Fatalf("stateless tool call used a session: %+v", mcpClient.callToolConns)
+	}
+	call := mcpClient.callToolCalls[0]
+	if call.Name != "greet" || len(call.Headers) != 1 || call.Headers[0].Name != "Region" {
+		t.Fatalf("stateless tool call did not carry header annotations: %+v", call)
+	}
+	firstConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, first.Agent.ID, "docs")
+	if err != nil || !found {
+		t.Fatalf("load first connection: found=%t err=%v", found, err)
+	}
+	if firstConn.State != executionstore.MCPConnectionStateReady || firstConn.MCPSessionID != "" ||
+		firstConn.ProtocolVersion != mcp.StatelessProtocolVersion || !firstConn.UsesCatalog() ||
+		firstConn.RequestSequence != 1 || firstConn.Instructions != "fake stateless server" {
+		t.Fatalf("unexpected stateless connection: %+v", firstConn)
+	}
+
+	secondInput := fixture.admitContentInputTurn(
+		t, ctx, second.Agent.ID, kernelTestUserID, "hello", now.Add(4*time.Millisecond),
+	)
+	secondModel := &sequenceKernelModel{
+		providerModelSlug: "test-model",
+		responses: []model.Response{
+			{
+				ID:         "resp-stateless-b",
+				Content:    []model.ResponsePart{{Type: "text", Text: "done"}},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
+	}
+	secondExecutor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, secondModel),
+		MCP:           mcpClient,
+		Now:           func() time.Time { return now.Add(5 * time.Millisecond) },
+	}
+	if err := secondExecutor.ExecuteModelWork(ctx, secondInput); err != nil {
+		t.Fatalf("execute second agent turn: %v", err)
+	}
+	if mcpClient.discoverCount != 1 || mcpClient.listToolsCount != 1 {
+		t.Fatalf(
+			"second agent should reuse the cached catalog: discover=%d list=%d",
+			mcpClient.discoverCount, mcpClient.listToolsCount,
+		)
+	}
+	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 1 ||
+		secondModel.prepared[0].ToolSpecs[0].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+		t.Fatalf("second agent did not expose the cached mcp tool: %+v", secondModel.prepared)
+	}
+	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
+	if err != nil || !found {
+		t.Fatalf("load second connection: found=%t err=%v", found, err)
+	}
+	if !secondConn.UsesCatalog() || *secondConn.CatalogID != *firstConn.CatalogID ||
+		secondConn.State != executionstore.MCPConnectionStateReady {
+		t.Fatalf("second agent bound a different catalog: first=%+v second=%+v", firstConn, secondConn)
+	}
+}
+
+func TestAgentExecutorSharesSessionBasedCatalogAcrossAgents(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	now := fixture.Now
+	user, err := storagetest.CreateVerifiedUser(
+		ctx,
+		fixture.Pool,
+		storagetest.CreateVerifiedUserInput{
+			Email:       "kernel-mcp-legacy-shared@example.com",
+			DisplayName: "Kernel MCP Legacy Shared User",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sourceYAML := `
+instruction: Use MCP tools.
+model:
+  provider_config: openai-prod
+  name: test-model
+mcp:
+  docs:
+    url: https://legacy.example.com/mcp
+    permission:
+      mode: always_allow
+`
+	mcpClient := &fakeKernelMCPClient{
+		agentID:            "shared-session",
+		initializeAgentIDs: []string{"session-a", "session-b"},
+		protocolVersion:    mcp.LegacyProtocolVersion,
+		tools: []*sdkmcp.Tool{
+			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
+		},
+	}
+	runAgent := func(name, key string, at time.Duration) executionstore.MCPConnectionRecord {
+		t.Helper()
+		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML, now)
+		launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+			ProjectID:      kernelTestProjectID,
+			ProfileID:      agent.ID,
+			AgentConfigID:  agent.CurrentConfigID,
+			LaunchedBy:     kernelTestUserPrincipal(user.ID),
+			IdempotencyKey: key,
+		})
+		if err != nil {
+			t.Fatalf("launch %s: %v", name, err)
+		}
+		input := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(at))
+		modelClient := &sequenceKernelModel{
+			providerModelSlug: "test-model",
+			responses: []model.Response{
+				{
+					ID:         "resp-" + key,
+					Content:    []model.ResponsePart{{Type: "text", Text: "done"}},
+					StopReason: model.StopReasonEndTurn,
+				},
+			},
+		}
+		executor := AgentExecutor{
+			Store:         fixture.Store,
+			ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
+			MCP:           mcpClient,
+			Now:           func() time.Time { return now.Add(at + time.Millisecond) },
+		}
+		if err := executor.ExecuteModelWork(ctx, input); err != nil {
+			t.Fatalf("execute %s: %v", name, err)
+		}
+		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 1 {
+			t.Fatalf("%s did not expose the mcp tool: %+v", name, modelClient.prepared)
+		}
+		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
+		if err != nil || !found {
+			t.Fatalf("load %s connection: found=%t err=%v", name, found, err)
+		}
+		return conn
+	}
+	first := runAgent("Kernel MCP Legacy A", "kernel-mcp-legacy-a", 2*time.Millisecond)
+	second := runAgent("Kernel MCP Legacy B", "kernel-mcp-legacy-b", 4*time.Millisecond)
+
+	if mcpClient.discoverCount != 2 || mcpClient.initializeCount != 2 || mcpClient.notifyCount != 2 ||
+		mcpClient.listToolsCount != 1 {
+		t.Fatalf(
+			"unexpected mcp calls: discover=%d initialize=%d notify=%d list=%d",
+			mcpClient.discoverCount, mcpClient.initializeCount, mcpClient.notifyCount, mcpClient.listToolsCount,
+		)
+	}
+	if first.MCPSessionID != "session-a" || second.MCPSessionID != "session-b" {
+		t.Fatalf("each agent must keep its own session: first=%q second=%q", first.MCPSessionID, second.MCPSessionID)
+	}
+	if !first.UsesCatalog() || !second.UsesCatalog() || *first.CatalogID != *second.CatalogID {
+		t.Fatalf("agents did not share the catalog: first=%+v second=%+v", first, second)
+	}
+	if first.RequestSequence != 2 || second.RequestSequence != 1 {
+		t.Fatalf(
+			"request sequences: first=%d want 2 (tools/list), second=%d want 1 (cached)",
+			first.RequestSequence, second.RequestSequence,
+		)
+	}
+}
+
+func TestMCPManagerCatalogRecoveryAndProtocolCutover(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	source := `
+instruction: Use MCP tools.
+model:
+  provider_config: openai-prod
+  name: test-model
+mcp:
+  docs:
+    url: https://cutover.example.com/mcp
+    permission:
+      mode: always_allow
+`
+	profile := fixture.createConfigAndProfileBookmark(t, ctx, "MCP cutover", "mcp-cutover", source, fixture.Now)
+	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      kernelTestProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
+		IdempotencyKey: "mcp-cutover",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeKernelMCPClient{
+		agentID:         "legacy-session",
+		protocolVersion: mcp.LegacyProtocolVersion,
+		tools:           []*sdkmcp.Tool{nil, {Name: "greet", InputSchema: map[string]any{"type": "object"}}},
+	}
+	var clockSkew time.Duration
+	manager := mcp.Manager{
+		Execution: fixture.Store.Execution(),
+		Secrets:   fixture.Store.Secrets(),
+		Client:    client,
+		Backoff:   func(int) time.Duration { return 0 },
+		Now:       func() time.Time { return time.Now().Add(clockSkew) },
+	}
+	server := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://cutover.example.com/mcp", DefaultEnabled: true}
+	expireTools := func() { clockSkew = mcp.DefaultCatalogMinFreshness + time.Minute }
+	restoreClock := func() { clockSkew = 0 }
+	load := func(t *testing.T) executionstore.MCPConnectionRecord {
+		t.Helper()
+		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
+		if err != nil || !found {
+			t.Fatalf("load connection: found=%v err=%v", found, err)
+		}
+		return conn
+	}
+	ensure := func(conn executionstore.MCPConnectionRecord) (mcp.ConnectionResult, error) {
+		return manager.EnsureConnection(
+			ctx, kernelTestOrgID, kernelTestProjectID, launch.Agent.ID, conn, server, mcp.TriggerTurnStart,
+		)
+	}
+	ensureReady := func(t *testing.T, conn executionstore.MCPConnectionRecord) mcp.ConnectionResult {
+		t.Helper()
+		result, err := ensure(conn)
+		if err != nil || !result.Ready {
+			t.Fatalf("ensure ready: %+v %v", result, err)
+		}
+		return result
+	}
+	ensureFailed := func(t *testing.T, conn executionstore.MCPConnectionRecord, wantError string) {
+		t.Helper()
+		result, err := ensure(conn)
+		if err == nil || result.Ready || result.Conn.State != executionstore.MCPConnectionStateFailed {
+			t.Fatalf("ensure failed: %+v %v", result, err)
+		}
+		if got := load(t).InitializeError; !strings.Contains(got, wantError) {
+			t.Fatalf("initialize error = %q, want containing %q", got, wantError)
+		}
+	}
+	var legacy executionstore.MCPConnectionRecord
+
+	t.Run("legacy initialize drops null tools and bounds the fetch", func(t *testing.T) {
+		legacy = ensureReady(t, launch.MCPConnections[0]).Conn
+		if legacy.MCPSessionID != "legacy-session" {
+			t.Fatalf("session = %q", legacy.MCPSessionID)
+		}
+		if strings.Contains(string(legacy.ToolsSnapshot), "null") {
+			t.Fatalf("null tool persisted: %s", legacy.ToolsSnapshot)
+		}
+		if client.listToolsDeadline.IsZero() || time.Until(client.listToolsDeadline) > 15*time.Second {
+			t.Fatalf("catalog fetch bypassed 15s timeout: %v", client.listToolsDeadline)
+		}
+	})
+
+	t.Run("legacy connection upgrades when the server turns stateless", func(t *testing.T) {
+		client.stateless = true
+		expireTools()
+		upgraded := ensureReady(t, legacy).Conn
+		if upgraded.ProtocolVersion != mcp.StatelessProtocolVersion || upgraded.MCPSessionID != "" {
+			t.Fatalf("upgrade legacy: %+v", upgraded)
+		}
+	})
+
+	t.Run("stale legacy record adopts the upgrade without listing tools", func(t *testing.T) {
+		restoreClock()
+		lists := client.listToolsCount
+		adopted := ensureReady(t, legacy).Conn
+		if adopted.ProtocolVersion != mcp.StatelessProtocolVersion || adopted.MCPSessionID != "" {
+			t.Fatalf("adopt existing upgrade: %+v", adopted)
+		}
+		if client.listToolsCount != lists {
+			t.Fatalf("lists = %d, want %d", client.listToolsCount, lists)
+		}
+	})
+
+	t.Run("rollback to legacy fails without opening a session", func(t *testing.T) {
+		client.stateless = false
+		expireTools()
+		initializations := client.initializeCount
+		ensureFailed(t, load(t), "no longer speaks a stateless")
+		if client.initializeCount != initializations {
+			t.Fatalf("initializes = %d, want %d", client.initializeCount, initializations)
+		}
+	})
+
+	t.Run("recovers once the server is stateless again", func(t *testing.T) {
+		client.stateless = true
+		restoreClock()
+		ensureReady(t, load(t))
+	})
+
+	t.Run("preview failure supersedes the cached snapshot for every reader", func(t *testing.T) {
+		client.listToolsErrors = []error{&mcp.HTTPError{Status: http.StatusUnauthorized, Body: []byte("token revoked")}}
+		_, err := manager.DiscoverTools(ctx, kernelTestOrgID, kernelTestProjectID, server.URL, nil)
+		if err == nil || !strings.Contains(err.Error(), "token revoked") {
+			t.Fatalf("preview hid failure: %v", err)
+		}
+		failed := load(t)
+		if failed.State != executionstore.MCPConnectionStateFailed ||
+			!strings.Contains(failed.InitializeError, "token revoked") ||
+			string(failed.ToolsSnapshot) != "[]" {
+			t.Fatalf("newer error did not supersede catalog: %+v", failed)
+		}
+		if recovered := ensureReady(t, failed).Conn; recovered.InitializeError != "" {
+			t.Fatalf("recover newer catalog: %+v", recovered)
+		}
+	})
+
+	t.Run("detached connection reconnects instead of using an empty tool set", func(t *testing.T) {
+		if _, err := fixture.Pool.Exec(
+			ctx, `DELETE FROM mcp_server_catalogs WHERE id = $1`, *load(t).CatalogID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		detached := load(t)
+		if detached.UsesCatalog() {
+			t.Fatal("catalog was not detached")
+		}
+		if reconnected := ensureReady(t, detached).Conn; !reconnected.UsesCatalog() {
+			t.Fatalf("reconnect orphan: %+v", reconnected)
+		}
+	})
+
+	t.Run("executor surfaces a recorded refresh failure on an established connection", func(t *testing.T) {
+		reconciled, err := fixture.Store.Execution().ReconcileAgentMCPConnections(
+			ctx, kernelTestProjectID, launch.Agent.ID, []agentconfig.RuntimeMCPServer{server},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		established := ensureReady(t, reconciled[0]).Conn
+		if _, err := fixture.Pool.Exec(ctx,
+			`UPDATE mcp_server_catalogs
+			 SET tools_expires_at = statement_timestamp() - interval '1 second'
+			 WHERE id = $1`, *established.CatalogID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		client.listToolsErrors = []error{
+			&mcp.HTTPError{Status: http.StatusUnauthorized, Body: []byte("credentials rejected")},
+		}
+		executor := AgentExecutor{Store: fixture.Store, MCP: client}
+		err = executor.ensureMCPConnections(
+			ctx,
+			kernelTestOrgID,
+			ModelWorkExecution{ProjectID: kernelTestProjectID, AgentID: launch.Agent.ID},
+			agentconfig.RuntimeContract{MCPServers: []agentconfig.RuntimeMCPServer{server}},
+			mcp.TriggerTurnStart,
+		)
+		if err == nil || !strings.Contains(err.Error(), "credentials rejected") {
+			t.Fatalf("executor hid an established connection failure: %v", err)
+		}
+		if failed := load(t); failed.State != executionstore.MCPConnectionStateFailed {
+			t.Fatalf("failure not recorded: %+v", failed)
+		}
+		ensureReady(t, load(t))
+	})
+
+	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
+		secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
+		if err != nil {
+			t.Fatal(err)
+		}
+		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: secretID}
+		ensureFailed(t, load(t), "read mcp auth secret")
+	})
 }

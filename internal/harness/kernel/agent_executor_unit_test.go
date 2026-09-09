@@ -216,30 +216,6 @@ func TestMCPInitializationRetryableFailureClassification(t *testing.T) {
 	}
 }
 
-func TestShouldInitializeMCPConnectionPreservesRetryRecoveryWithoutRevivingFailures(t *testing.T) {
-	for _, state := range []executionstore.MCPConnectionState{
-		executionstore.MCPConnectionStateInitializing,
-		executionstore.MCPConnectionStateFailed,
-		executionstore.MCPConnectionStateExpired,
-	} {
-		if !shouldInitializeMCPConnection(mcpInitializationOpening, state) {
-			t.Fatalf("opening mode excluded %q connection", state)
-		}
-	}
-	if !shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateInitializing) ||
-		!shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateExpired) {
-		t.Fatal("recovery mode excluded recoverable connection")
-	}
-	if shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateFailed) {
-		t.Fatal("recovery mode revived failed connection")
-	}
-	for _, mode := range []mcpInitializationMode{mcpInitializationOpening, mcpInitializationRecovery} {
-		if shouldInitializeMCPConnection(mode, executionstore.MCPConnectionStateReady) {
-			t.Fatal("ready connection should be reused")
-		}
-	}
-}
-
 func TestShouldPostIntegrationRuntimeError(t *testing.T) {
 	baseCtx := context.Background()
 	canceledCtx, cancelCanceled := context.WithCancel(baseCtx)

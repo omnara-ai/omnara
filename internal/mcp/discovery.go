@@ -8,6 +8,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type DiscoveredServer struct {
@@ -22,41 +23,63 @@ func (m Manager) DiscoverTools(
 	endpointURL string,
 	auth *agentconfig.RuntimeMCPAuth,
 ) (DiscoveredServer, error) {
-	wireConn, err := m.connection(ctx, orgID, projectID, endpointURL, endpointURL, auth, "", "")
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	wireConn, identity, err := m.connection(ctx, orgID, projectID, endpointURL, endpointURL, auth, "", "")
 	if err != nil {
 		return DiscoveredServer{}, err
 	}
-	mcpSessionID, result, err := m.Client.Initialize(ctx, wireConn, ProtocolVersion)
-	if err != nil {
-		return DiscoveredServer{}, fmt.Errorf("initialize mcp server: %w", ClarifyTransportError(err, endpointURL))
-	}
-	negotiatedProtocol := result.ProtocolVersion
-	if negotiatedProtocol == "" {
-		negotiatedProtocol = ProtocolVersion
-	}
-	wireConn.MCPSessionID = mcpSessionID
-	wireConn.ProtocolVersion = negotiatedProtocol
-	if err := m.Client.Notify(ctx, wireConn, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
-		return DiscoveredServer{}, fmt.Errorf(
-			"send mcp initialized notification: %w",
-			ClarifyTransportError(err, endpointURL),
+	fetch := m.negotiatedCatalogFetch(wireConn, m.ephemeralLegacyCatalogFetch(wireConn, endpointURL))
+	if m.Execution == nil {
+		contents, err := fetch(ctx, executionstore.MCPServerCatalogRecord{})
+		if err != nil {
+			return DiscoveredServer{}, ClarifyTransportError(err, endpointURL)
+		}
+		return newDiscoveredServer(
+			contents.ProtocolVersion,
+			contents.ServerInfo,
+			dropToolsWithInvalidHeaders(ctx, contents.Listing.Tools),
 		)
 	}
-	var requestID int64
-	tools, err := listAllTools(ctx, m.Client, wireConn, func(context.Context) (int64, error) {
-		requestID++
-		return requestID, nil
-	})
+	catalog, err := m.refreshCatalog(ctx, identity, false, fetch)
 	if err != nil {
-		return DiscoveredServer{}, fmt.Errorf("list mcp tools: %w", ClarifyTransportError(err, endpointURL))
+		return DiscoveredServer{}, ClarifyTransportError(err, endpointURL)
 	}
+	tools, err := decodeToolsSnapshot(catalog.ToolsSnapshot)
+	if err != nil {
+		return DiscoveredServer{}, fmt.Errorf("decode cached mcp tools: %w", err)
+	}
+	return newDiscoveredServer(catalog.ProtocolVersion, catalog.ServerInfo, tools)
+}
+
+func (m Manager) ephemeralLegacyCatalogFetch(wireConn Conn, label string) catalogFetch {
+	return func(ctx context.Context, current executionstore.MCPServerCatalogRecord) (catalogContents, error) {
+		session, result, err := m.openLegacySession(ctx, wireConn)
+		if err != nil {
+			return catalogContents{}, err
+		}
+		var requestID int64
+		return m.legacyCatalogFetch(legacySession{
+			Conn:  session,
+			Label: label,
+			NextRequestID: func(context.Context) (int64, error) {
+				requestID++
+				return requestID, nil
+			},
+			ServerCapabilities: result.ServerCapabilities,
+			ServerInfo:         result.ServerInfo,
+		})(ctx, current)
+	}
+}
+
+func newDiscoveredServer(
+	protocolVersion string,
+	serverInfoJSON json.RawMessage,
+	tools []*sdkmcp.Tool,
+) (DiscoveredServer, error) {
 	var serverInfo sdkmcp.Implementation
-	if err := json.Unmarshal(result.ServerInfo, &serverInfo); err != nil {
+	if err := json.Unmarshal(serverInfoJSON, &serverInfo); err != nil {
 		return DiscoveredServer{}, fmt.Errorf("decode mcp server info: %w", err)
 	}
-	return DiscoveredServer{
-		ProtocolVersion: negotiatedProtocol,
-		ServerInfo:      serverInfo,
-		Tools:           tools,
-	}, nil
+	return DiscoveredServer{ProtocolVersion: protocolVersion, ServerInfo: serverInfo, Tools: tools}, nil
 }

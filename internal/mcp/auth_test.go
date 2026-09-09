@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -955,4 +956,79 @@ func cloneForm(values url.Values) url.Values {
 		out[key] = append([]string(nil), value...)
 	}
 	return out
+}
+
+func TestDetectAuthProbesStatelessServersWithoutInitialize(t *testing.T) {
+	var methods []string
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := readBody(r)
+		var envelope struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &envelope)
+		mu.Lock()
+		methods = append(methods, envelope.Method)
+		mu.Unlock()
+		if envelope.Method != "server/discover" || r.Header.Get("Mcp-Method") != "server/discover" ||
+			r.Header.Get("Mcp-Protocol-Version") != mcp.StatelessProtocolVersion {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":-1,"error":{"code":-32601,"message":"not supported"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(
+			`{"jsonrpc":"2.0","id":-2,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{}}}`,
+		))
+	}))
+	t.Cleanup(ts.Close)
+
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if err != nil {
+		t.Fatalf("DetectAuth: %v", err)
+	}
+	if req.Required {
+		t.Fatal("Required = true, want false")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) != 1 || methods[0] != "server/discover" {
+		t.Fatalf("probe methods = %v, want a single server/discover", methods)
+	}
+}
+
+func TestDetectAuthFallsBackToInitializeForSessionBasedServers(t *testing.T) {
+	var methods []string
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := readBody(r)
+		var envelope struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &envelope)
+		mu.Lock()
+		methods = append(methods, envelope.Method)
+		mu.Unlock()
+		if envelope.Method != "initialize" {
+			http.Error(w, "Bad Request: Unsupported protocol version", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":-1,"result":{"protocolVersion":"2025-11-25","capabilities":{}}}`))
+	}))
+	t.Cleanup(ts.Close)
+
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if err != nil {
+		t.Fatalf("DetectAuth: %v", err)
+	}
+	if req.Required {
+		t.Fatal("Required = true, want false")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(methods) != 2 || methods[0] != "server/discover" || methods[1] != "initialize" {
+		t.Fatalf("probe methods = %v, want discover then initialize", methods)
+	}
 }
