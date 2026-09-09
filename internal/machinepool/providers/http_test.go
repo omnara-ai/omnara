@@ -121,3 +121,18 @@ func TestDoHTTPRequestRejectsOversizedResponse(t *testing.T) {
 		t.Fatalf("request error = %v, want response limit error", err)
 	}
 }
+
+func TestWithRetryDelayCarriesAnExplicitHint(t *testing.T) {
+	base := errors.New("org is full")
+	err := WithRetryDelay(base, 10*time.Minute)
+	if !errors.Is(err, base) {
+		t.Fatalf("retry delay error does not wrap its cause: %v", err)
+	}
+	delay, ok := RetryAfter(err)
+	if !ok || delay != 10*time.Minute {
+		t.Fatalf("retry hint = %v ok %v, want 10m", delay, ok)
+	}
+	if WithRetryDelay(nil, time.Minute) != nil {
+		t.Fatal("a nil error must stay nil")
+	}
+}

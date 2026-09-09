@@ -16,6 +16,7 @@ import (
 const (
 	Arker     = "arker"
 	Blaxel    = "blaxel"
+	Boxd      = "boxd"
 	Daytona   = "daytona"
 	Freestyle = "freestyle"
 	Modal     = "modal"
@@ -39,6 +40,14 @@ type ProvisionMachineResult struct {
 var ErrResourceReplaced = errors.New("provider resource was replaced")
 
 var ErrPermanent = errors.New("permanent provider error")
+
+// ErrResourceNotCreated signals that the provider refused the create
+// synchronously, so no resource can exist for the machine. A provider wraps it
+// only when it observed the refusal itself; a timeout or a dropped connection
+// must not use it, because the create may still have gone through. Cleanup
+// finalizes such a machine at once instead of holding it for the
+// missing-resource grace period that guards the ambiguous case.
+var ErrResourceNotCreated = errors.New("provider did not create the resource")
 
 type WakeMachineInput struct {
 	ProviderResourceID string

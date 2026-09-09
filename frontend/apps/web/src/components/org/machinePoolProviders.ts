@@ -216,6 +216,27 @@ const arker: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
+const boxd: MachinePoolProviderDefinition = {
+  label: 'boxd',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot (optional)',
+    placeholder: 'Leave empty for the boxd base image',
+    description:
+      'Machines boot the boxd base image unless a snapshot saved with `boxd snapshots save` is named. Sizes must be 1 vCPU with 4 GB, 2 with 8 GB, or 4 with 16 GB.',
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+    optional: true,
+  },
+  credential: {
+    label: 'boxd API key',
+    placeholder: 'Search secrets for your boxd API key…',
+    emptyDescription: 'No secrets yet — use New secret to store your boxd API key.',
+    defaultSecretName: 'boxd-api-key',
+    secretValuePlaceholder: 'bxd_...',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -224,6 +245,7 @@ export const machinePoolProviderDefinitions = {
   freestyle,
   tenki,
   arker,
+  boxd,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
