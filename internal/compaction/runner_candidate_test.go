@@ -19,8 +19,9 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	}
 	store := &fakeStore{events: events}
 	client := &summaryModel{caps: model.Capabilities{
-		ContextWindowTokens: 8_000,
-		MaxOutputTokens:     new(1_024),
+		ContextWindowTokens:    8_000,
+		MaxOutputTokens:        new(1_024),
+		DefaultMaxOutputTokens: 1_024,
 	}}
 	result, err := testRunner(store, client).
 		Run(context.Background(), runInput(testPlan(1, 8, 8)))
@@ -40,6 +41,9 @@ func TestRunnerShrinksOversizedSourceBeforeProviderSend(t *testing.T) {
 	if len(client.requests) != 1 {
 		t.Fatalf("provider requests = %d, want only the fitting replacement", len(client.requests))
 	}
+	var sent model.RequestPolicy
+	require.NoError(t, json.Unmarshal(client.requests[0].ProviderRequest, &sent))
+	require.Equal(t, 1_024, sent.MaxOutputTokens)
 }
 
 func TestRunnerStopsBeforeSendWhenSmallestSourceDoesNotFit(t *testing.T) {
@@ -53,11 +57,8 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceDoesNotFit(t *testing.T) {
 		textCompactionEvent(1, "only closed semantic unit"),
 	}}
 	client := &summaryModel{
-		caps: caps,
-		sourceInputTokens: model.UsableInputTokensForRequest(
-			caps,
-			model.RequestPolicy{MaxOutputTokens: summaryOutputTokens - 1},
-		),
+		caps:              caps,
+		sourceInputTokens: caps.ContextWindowTokens,
 	}
 
 	result, err := testRunner(store, client).
@@ -81,10 +82,6 @@ func TestRunnerStopsBeforeSendWhenSmallestSourceDoesNotFit(t *testing.T) {
 			store.retryFailures,
 			store.publishInputs,
 		)
-	}
-	require.NotEmpty(t, client.preparedPolicies)
-	for _, policy := range client.preparedPolicies {
-		require.Equal(t, summaryOutputTokens, policy.MaxOutputTokens)
 	}
 }
 
@@ -373,19 +370,13 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 		{"explicit small normal allowance", new(9000), 1000, 4000, 1000},
 		{"inherited large capacity", new(9000), 0, 3000, 5000},
 		{"unknown capacity with large allowance", nil, 9000, 3000, 5000},
+		{"large source without default", new(9000), 0, 8000, 976},
+		{"large source with small default", new(9000), 1000, 8500, 476},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeStore{
-				events: []executionstore.CompactionSourceEventRecord{
-					textCompactionEvent(
-						1,
-						strings.Repeat(
-							"source detail ",
-							100,
-						),
-					),
-				},
-			}
+			store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+				textCompactionEvent(1, strings.Repeat("source detail ", 100)),
+			}}
 			client := &summaryModel{
 				caps: model.Capabilities{
 					ContextWindowTokens:    10000,
@@ -394,32 +385,109 @@ func TestRunnerReservesFittingSummaryAllowanceForSmallWindow(t *testing.T) {
 				},
 				sourceInputTokens: tc.input,
 			}
-			result, err := testRunner(
-				store,
-				summaryModelWithExplicitCapabilities{
-					client,
-				},
-			).Run(
-				context.Background(),
-				runInput(testPlan(
-					1,
-					1,
-					1,
-				)),
-			)
+			result, err := testRunner(store, summaryModelWithExplicitCapabilities{client}).
+				Run(context.Background(), runInput(testPlan(1, 1, 1)))
 			require.NoError(t, err)
-			if result.State != RunCompleted || len(client.requests) != 1 || len(store.terminalFailures) != 0 {
-				t.Fatalf("result=%+v requests=%d failures=%+v", result, len(client.requests), store.terminalFailures)
-			}
-			var sent struct {
-				MaxOutputTokens int `json:"max_output_tokens"`
-			}
+			require.Equal(t, RunCompleted, result.State)
+			require.Len(t, client.requests, 1)
+			require.Empty(t, store.terminalFailures)
+			var sent model.RequestPolicy
 			require.NoError(t, json.Unmarshal(client.requests[0].ProviderRequest, &sent))
-			if sent.MaxOutputTokens != tc.want {
-				t.Fatalf("summary allowance=%d, want %d", sent.MaxOutputTokens, tc.want)
+			require.Equal(t, tc.want, sent.MaxOutputTokens)
+		})
+	}
+}
+
+func TestCompactionAllowanceFitRespectsMinimumAndFinalInput(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		input, minimum, growth, wantOutput int
+	}{
+		{name: "minimum fits", input: 29_376, minimum: 1_024, wantOutput: 1_024},
+		{name: "below minimum", input: 29_377, minimum: 1_024},
+		{name: "no room for output", input: 30_400},
+		{name: "final input grows", input: 24_000, growth: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := summaryModelWithOutputMinimum{
+				summaryModelWithExplicitCapabilities: summaryModelWithExplicitCapabilities{&summaryModel{
+					caps: model.Capabilities{ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000)},
+					preparedEstimate: func(input model.PrepareInput, _ []byte) int {
+						if input.Policy.MaxOutputTokens < 16_000 {
+							return tc.input + tc.growth
+						}
+						return tc.input
+					},
+				}},
+				minimum: tc.minimum,
+			}
+			prepared, err := largestFittingCompactionRequest(
+				context.Background(), runInput(testPlan(1, 1, 1)), "",
+				[]executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
+				nil, nil, client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction")
+			require.NoError(t, err)
+			if tc.wantOutput == 0 {
+				require.Zero(t, prepared.sourceEnd)
+				return
+			}
+			require.Equal(t, int64(1), prepared.sourceEnd)
+			require.True(t, prepared.prepared.InputBudget.Fits())
+			require.Equal(t, tc.wantOutput, prepared.prepared.MaxOutputTokens)
+		})
+	}
+}
+
+func TestCompactionAllowanceFitPrefersWholeTurnAndPreservesPartialProgress(t *testing.T) {
+	largeText := strings.Repeat("work ", 19_200)
+	for _, tc := range []struct {
+		name, firstText, secondText, firstKind string
+		separateTurns, wantReduced             bool
+		wantEnd                                int64
+	}{
+		{name: "whole turn fits reduced allowance", firstText: "short request", secondText: largeText,
+			firstKind: string(events.KindAgentInput), wantEnd: 2, wantReduced: true},
+		{name: "oversized turn keeps preferred partial", firstText: "short request", secondText: largeText + largeText,
+			firstKind: string(events.KindAgentInput), wantEnd: 1},
+		{name: "oversized turn keeps reduced partial", firstText: largeText, secondText: largeText,
+			firstKind: string(events.KindModelOutput), wantEnd: 1, wantReduced: true},
+		{name: "preferred whole turn wins", firstText: "small output", secondText: largeText,
+			firstKind: string(events.KindModelOutput), separateTurns: true, wantEnd: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := []executionstore.CompactionSourceEventRecord{
+				textCompactionEvent(1, tc.firstText), textCompactionEvent(2, tc.secondText),
+			}
+			source[0].Kind = tc.firstKind
+			source[0].TurnID, source[1].TurnID = testIDN(812), testIDN(812)
+			if tc.separateTurns {
+				source[1].TurnID = testIDN(813)
+			}
+			client := summaryModelWithExplicitCapabilities{&summaryModel{caps: model.Capabilities{
+				ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000),
+			}}}
+			prepared, err := largestFittingCompactionRequest(
+				context.Background(), runInput(testPlan(1, 2, 2)), "", source, source, nil,
+				client, model.RequestPolicy{MaxOutputTokens: 16_000}, "compaction")
+			require.NoError(t, err)
+			require.Equal(t, tc.wantEnd, prepared.sourceEnd)
+			require.True(t, prepared.prepared.InputBudget.Fits())
+			require.Positive(t, prepared.prepared.MaxOutputTokens)
+			if tc.wantReduced {
+				require.Less(t, prepared.prepared.MaxOutputTokens, 16_000)
+			} else {
+				require.Equal(t, 16_000, prepared.prepared.MaxOutputTokens)
 			}
 		})
 	}
+}
+
+type summaryModelWithOutputMinimum struct {
+	summaryModelWithExplicitCapabilities
+	minimum int
+}
+
+func (m summaryModelWithOutputMinimum) OutputTokenLimits() (model.OutputTokenLimits, error) {
+	return model.OutputTokenLimits{Minimum: m.minimum}, nil
 }
 
 type summaryModelWithExplicitCapabilities struct{ *summaryModel }

@@ -182,7 +182,7 @@ func largestFittingCompactionRequest(
 	if len(candidates) == 0 {
 		return preparedCompactionRequest{}, nil
 	}
-	prepareCandidate := func(end int64) (preparedCompactionRequest, error) {
+	prepareCandidate := func(end int64, policy model.RequestPolicy) (preparedCompactionRequest, error) {
 		count := int(end-input.Plan.EventSequenceStart) + 1
 		if count <= 0 || count > len(events) {
 			return preparedCompactionRequest{}, errors.New("compaction source candidates do not match loaded events")
@@ -214,19 +214,11 @@ func largestFittingCompactionRequest(
 			sourceText: sourceText,
 		}, nil
 	}
-	smallest, err := prepareCandidate(candidates[0])
-	if err != nil {
-		return preparedCompactionRequest{}, err
-	}
-	if smallest.prepared.InputBudget.OverBudget() {
-		return preparedCompactionRequest{}, nil
-	}
-
-	bestRequest := smallest
-	low, high := 1, len(candidates)-1
+	var bestRequest preparedCompactionRequest
+	low, high := 0, len(candidates)-1
 	for low <= high {
 		mid := low + (high-low)/2
-		candidate, err := prepareCandidate(candidates[mid])
+		candidate, err := prepareCandidate(candidates[mid], policy)
 		if err != nil {
 			return preparedCompactionRequest{}, err
 		}
@@ -236,6 +228,39 @@ func largestFittingCompactionRequest(
 		}
 		bestRequest = candidate
 		low = mid + 1
+	}
+
+	targets := []int64{candidates[0]}
+	if turns := completeTurnSourceEnds(events, witnessEvents, candidates); len(turns) > 0 && turns[0] != targets[0] {
+		targets = []int64{turns[0], targets[0]}
+	}
+	limits, err := model.OutputTokenLimitsForClient(client, errorSource)
+	if err != nil {
+		return preparedCompactionRequest{}, err
+	}
+	for _, end := range targets {
+		if end <= bestRequest.sourceEnd {
+			continue
+		}
+		candidate, err := prepareCandidate(end, policy)
+		if err != nil {
+			return preparedCompactionRequest{}, err
+		}
+		if candidate.prepared.InputBudget.OverBudget() {
+			fittedPolicy := policy
+			budget := candidate.prepared.InputBudget
+			fittedPolicy.MaxOutputTokens -= budget.EstimatedInputTokens - budget.UsableInputTokens
+			if fittedPolicy.MaxOutputTokens < max(1, limits.Minimum) {
+				continue
+			}
+			candidate, err = prepareCandidate(end, fittedPolicy)
+			if err != nil {
+				return preparedCompactionRequest{}, err
+			}
+		}
+		if candidate.prepared.InputBudget.Fits() {
+			return candidate, nil
+		}
 	}
 	return bestRequest, nil
 }
