@@ -504,6 +504,68 @@ tools: {}
     expect(parse(updated)).toMatchObject({ tools: {} })
   })
 
+  it.each([
+    `  list_channels: &shared {}
+  ask_question: *shared # Keep this tool.
+  run_command: *shared
+`,
+    `  list_channels:
+    permission: &approval
+      mode: always_ask
+  ask_question:
+    permission: *approval
+  run_command:
+    permission: *approval
+`,
+  ])('preserves aliases when removing legacy channel tools: %s', (tools) => {
+    const source = `${minimalYaml}tools:\n${tools}`
+    const session = createBasicConfigSession(source)
+    const config = session.initialDraft
+    if (config == null) throw new Error('expected the aliased config to deserialize')
+    expect(config.tools.map((tool) => tool.name)).toEqual(['ask_question', 'run_command'])
+
+    const updated = session.apply({ ...config, instruction: 'Updated instruction.' })
+    expect(updated).not.toContain('list_channels')
+    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
+    if (source.includes('# Keep this tool.')) expect(updated).toContain('# Keep this tool.')
+  })
+
+  it('preserves references to an entire removed tools map', () => {
+    const source = `${minimalYaml}tools: &shared {list_channels: {}}
+mcp:
+  remote:
+    url: https://example.test/mcp
+    tools: *shared
+`
+    const config = mustDeserialize(source)
+    expect(config.tools).toEqual([])
+    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
+    expect(parse(updated)).toMatchObject({ mcp: { remote: { tools: { list_channels: {} } } } })
+    expect(mustDeserialize(updated)).toMatchObject({
+      ...config,
+      instruction: 'Updated instruction.',
+      // Builder field IDs are regenerated on every parse.
+      mcpServers: config.mcpServers.map(({ name, url, tools }) => ({ name, url, tools })),
+    })
+  })
+
+  it('preserves alias targets when a removed entry has a shadowed nested anchor', () => {
+    const source = `${minimalYaml}tools:
+  list_channels: &entry {permission: &p {mode: always_allow}}
+  ask_question: {permission: &p {mode: always_ask}}
+  run_command: *entry
+  shell: {permission: *p}
+`
+    const config = mustDeserialize(source)
+    expect(config.tools.map((tool) => tool.permission?.mode)).toEqual([
+      'always_ask',
+      'always_allow',
+      'always_ask',
+    ])
+    const updated = applyToSource(source, { ...config, instruction: 'Updated instruction.' })
+    expect(mustDeserialize(updated)).toEqual({ ...config, instruction: 'Updated instruction.' })
+  })
+
   it('rewrites only the entries that changed, preserving everything else', () => {
     const config = mustDeserialize(commentedYaml)
     const updated = applyToSource(commentedYaml, {
