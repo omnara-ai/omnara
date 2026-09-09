@@ -9,6 +9,7 @@ interact with each agent.
 [Omnara Cloud](https://app.omnara.com) ·
 [Documentation](https://docs.omnara.com/introduction) ·
 [API](https://docs.omnara.com/api/overview) ·
+[Changelog](https://docs.omnara.com/changelog) ·
 [Discord](https://discord.gg/Dc46sYk6e3)
 
 ## Who it is for

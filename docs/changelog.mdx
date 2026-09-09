@@ -9,14 +9,14 @@ mode: "center"
   label="September 9, 2026"
   description="Introducing Omnara"
   rss={{
-    title: "Introducing Omnara: the open-source platform for production-grade agents",
-    description: "Durable agents from a YAML config, bring-your-own models and machines, tools and MCP, human-in-the-loop controls, Slack, scheduling, CLI and SDK, and self-hosting."
+    title: "Introducing Omnara",
+    description: "Run agents that keep their history, use your choice of models and tools, and work with people in your product or in Slack."
   }}
 >
 
-## Introducing Omnara: the open-source platform for production-grade agents
+## Introducing Omnara
 
-On August 5 we relaunched Omnara as an open-source platform for running managed agents. Omnara handles execution and state; you choose the models, tools, machines, and how people reach each agent — through the dashboard, Slack, or your own product via the API. This first entry rounds up what has shipped since the relaunch.
+On September 2, we relaunched Omnara as the open-source alternative to Claude Managed Agents. Run agents for yourself or your team, or build them into your product through the API. Omnara handles durable execution, sandboxes, and conversation history while you choose how each agent works. Here’s what we’ve shipped so far.
 
 <Frame>
   <iframe
@@ -29,49 +29,40 @@ On August 5 we relaunched Omnara as an open-source platform for running managed 
   ></iframe>
 </Frame>
 
-### Durable agents, defined in YAML
+### Agents that pick up where they left off
 
-An agent is a single durable conversation. Its state is committed atomically to Postgres, so agents recover from crashes, restarts, and machine disconnects and continue where they left off. You define the instruction, model, tools, permissions, and machines in a small YAML or JSON [config](/agents/configuration). Configs are immutable, and [profiles](/agents/configuration#profiles) give a config a stable name with revision history — updating a profile changes future launches without disturbing agents already running. Launch from the dashboard (a Builder form with templates and a live YAML preview, or the YAML editor), the [CLI](/quickstart), or the API, and [switch an agent's config mid-conversation](/events/sending-input#change-the-config-mid-conversation) when its job changes.
+Agents keep their conversation history across crashes, restarts, and machine disconnects, so work can resume without starting a new conversation. Set one up in the dashboard or with a small [configuration file](/agents/configuration). Save that setup as a profile to reuse it whenever you need a new agent.
 
-### Bring your own models
+### Choose your models and machines
 
-Connect OpenAI, Anthropic, OpenRouter, or Amazon Bedrock, or point Omnara at any OpenAI- or Anthropic-compatible endpoint such as LiteLLM, vLLM, or Ollama. Omnara discovers the provider's model catalog, keeps [configured models](/organization/model-providers) central with revisions, and grants them to projects with optional tighter limits. New organizations start with `omnara-openrouter` and frontier models ready to use. Prompt caching is handled per provider route so long conversations stay fast and inexpensive, and per-call model costs are recorded.
+Use models from OpenAI, Anthropic, OpenRouter, or Amazon Bedrock, or connect a compatible model you host yourself. You can choose the [model](/organization/model-providers) that fits each agent's work.
 
-### Machines: bring your own, or sandboxes on demand
+When an agent needs to run commands, it can use an Omnara-managed sandbox or a [machine you connect](/machines/overview), such as a laptop or server. You can also bring your own Blaxel, Unikraft Cloud, or Daytona account. Agents can create sandboxes when they need them and release them when the work is done.
 
-Agents run commands on [machines](/machines/overview). Register a laptop, VM, or container by installing the `omnarad` daemon — it connects outbound, so there are no inbound ports or SSH keys — or let Omnara create sandboxes on demand from Blaxel, Unikraft Cloud, or Daytona [pools](/machines/pools). Omnara-managed pools work out of the box; connect your own provider account to use custom images. An agent can run with no machine, one, or several, and can create and release pool machines mid-conversation. Machines never own the agent: a dropped connection leaves the conversation intact, and idle pool machines are deleted automatically.
+### Connect tools and share skills
 
-### Tools, MCP servers, and skills
+Agents can search the web, run commands, and work with files using built-in tools. Connect [MCP servers](/tools/mcp) to give them access to your services and data, or add custom tools for actions in your own application. You can browse available MCP servers and their tools in the dashboard.
 
-- **[Built-in tools](/tools/built-in)** — web search and fetch, shell commands with live process control, machine management, artifact upload and download, questions for humans, and integration messaging.
-- **[Custom tools](/tools/custom)** — describe an operation your own system performs; Omnara waits for your result.
-- **[MCP servers](/tools/mcp)** — connect with bearer tokens, OAuth (Omnara runs the whole authorization flow), or AWS SigV4. Browse the MCP registry, search servers, and discover their tools from the dashboard; config changes apply to running agents.
-- **[Skills](/tools/skills)** — versioned packages of instructions and files that agents load on demand, shareable across projects and editable in the dashboard.
+[Skills](/tools/skills) let you package instructions and supporting files for work your agents do regularly. Upload and edit them in the dashboard, then reuse them across agents and projects.
 
-Every tool has a [permission mode](/tools/permissions) — run immediately, ask a person first, or deny — and MCP tools ask by default.
+### Work with agents as they run
 
-### Humans in the loop
+Follow an agent's progress live, send a correction while it's working, or queue up its next task. You can decide which [actions need approval](/tools/permissions), and agents can pause to ask questions when they need your input.
 
-When a tool requires approval or the agent asks a question, it pauses and a card appears in the conversation; answer in the dashboard, in Slack, or over the API and the agent resumes. While an agent is busy, queue a follow-up or [steer](/events/sending-input#queued-vs-steering) it with a correction that lands at the next model call, reorder or cancel waiting inputs, or stop the current turn. Attach images, PDFs, spreadsheets, and documents to messages; agents return files as [artifacts](/events/artifacts) and can pull them onto their machines. Tool calls [stream live](/events/streaming), and messages relayed from your own users are attributed to them through actors.
+You can also attach images and documents to a conversation. Agents can return reports, spreadsheets, and other files for you to view or download.
 
-### Agents in Slack
+### Slack and scheduled work
 
-Deploy an agent profile to [Slack](/integrations/slack) in a few clicks — Omnara creates and configures the Slack app for you. Each thread or DM gets its own agent with independent history, approvals and questions can be answered in Slack, and agents deliver messages and artifacts into the conversation.
+Connect an agent profile to [Slack](/integrations/slack) so your team can work with it in threads and DMs. Each conversation keeps its own history, and people can answer questions, approve actions, and receive files directly in Slack.
 
-### Scheduled agents
+For recurring work, schedules can start a new agent or send a task to an existing one. We've included [examples](/examples/overview) that collect updates from X, Reddit, LinkedIn, and PostHog and deliver a digest to Slack.
 
-Cron triggers run on a schedule in your timezone: target a profile to launch a fresh agent on each firing, or target a running agent to send it a message with queued or steering delivery. Manage them from the dashboard, the CLI, or the API. The repository includes complete [examples](/examples/overview) — daily digests from X, Reddit, LinkedIn, and PostHog, delivered to Slack.
+### Build agents into your product
 
-### CLI, TypeScript SDK, and REST API
+The [REST API](/api/overview), TypeScript SDK, and CLI let you launch agents, send messages, follow their progress, and respond to requests for input. You can build these interactions into your own application or work with agents from your terminal.
 
-`npx omnara` is a full CLI generated from the OpenAPI spec. Sign in through your browser with device-flow login (the first command that needs your account prompts you), then manage profiles, agents, secrets, models, pools, and grants; chat with agents and stream their events from the terminal; authorize MCP OAuth servers and set up Slack interactively; and install the daemon on a machine. `@omnara/sdk` is the TypeScript SDK, with browser, TanStack Query, and Zod entry points. Everything is available over the [REST API](/api/overview) at `/api/v1`, defined in OpenAPI with an interactive reference.
+For teams, projects and roles control who can manage or use agents and shared resources. Store credentials as secrets and choose which projects can access your models, machines, and skills.
 
-### Organizations, projects, and access control
-
-Organizations own shared resources — model providers, machines and pools, [secrets](/organization/secrets), and skills — and contain projects. A project uses a resource only through an explicit grant, so sharing is deliberate and scoped. Roles on users and API keys separate who manages access, configures agents, operates them, or only views them. Secrets are versioned and scoped to the org, a project, or a user, so rotating a credential never touches a config. Invitations, configurable resource limits, and branded transactional emails round out team setup.
-
-### Cloud or self-hosted
-
-Use Omnara Cloud at [app.omnara.com](https://app.omnara.com), or [self-host](/self-hosting/deployment) under Apache 2.0 with Docker Compose from signed, published images. Self-hosted deployments can query agent history directly in Postgres for analytics, evals, and training datasets. The dashboard works on mobile, and the source is at [github.com/omnara-ai/omnara](https://github.com/omnara-ai/omnara).
+Get started on [Omnara Cloud](https://app.omnara.com) or [self-host](/self-hosting/deployment) on your own infrastructure. Omnara is open source under Apache 2.0. The [quickstart](/quickstart) walks through launching your first agent.
 
 </Update>
