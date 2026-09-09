@@ -1694,11 +1694,13 @@ model:
 	var state string
 	var currentConfigID ID
 	var rejectedInputs int
+	var hasWakeup bool
 	if err := fixture.pool.QueryRow(
 		ctx,
 		`SELECT agent.state,
 		        agent.current_config_id,
-		        count(input.id)::integer
+		        count(input.id)::integer,
+		        EXISTS (SELECT 1 FROM agent_wakeups wake WHERE wake.agent_id = agent.id)
 		 FROM agents agent
 		 LEFT JOIN agent_inputs input ON input.agent_id = agent.id
 		   AND input.idempotency_scope = 'agent_config_change'
@@ -1707,15 +1709,17 @@ model:
 		 GROUP BY agent.id`,
 		fixture.agent.ID,
 		rejectedInput.IdempotencyKey,
-	).Scan(&state, &currentConfigID, &rejectedInputs); err != nil {
+	).Scan(&state, &currentConfigID, &rejectedInputs, &hasWakeup); err != nil {
 		t.Fatalf("load config archive outcome: %v", err)
 	}
-	if state != string(executionstore.AgentStateArchived) || currentConfigID != config.ID || rejectedInputs != 0 {
+	if state != string(executionstore.AgentStateArchived) || currentConfigID != config.ID ||
+		rejectedInputs != 0 || hasWakeup {
 		t.Fatalf(
-			"config archive outcome: state=%q current_config=%s rejected_inputs=%d",
+			"config archive outcome: state=%q current_config=%s rejected_inputs=%d has_wakeup=%t",
 			state,
 			currentConfigID,
 			rejectedInputs,
+			hasWakeup,
 		)
 	}
 }
