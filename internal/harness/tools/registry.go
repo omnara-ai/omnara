@@ -266,8 +266,11 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameStopAgent,
 			semanticInputValidator: validateStopAgentInput,
-			handler:                toolHandler{Transactional: stopAgent},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler: toolHandler{
+				Transactional: stopAgent,
+				Background:    stopAgentInBackground,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameListAgents,

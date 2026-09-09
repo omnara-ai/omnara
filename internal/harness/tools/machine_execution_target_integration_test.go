@@ -2062,6 +2062,18 @@ func (m testPoolMachineManager) DeleteMachine(
 	return m.delete(ctx, candidate)
 }
 
+func (m testPoolMachineManager) DeleteMachines(
+	ctx context.Context,
+	machines []executionstore.MachineRecord,
+) (int, error) {
+	for _, machine := range machines {
+		if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: machine}); err != nil {
+			return 0, err
+		}
+	}
+	return len(machines), nil
+}
+
 func (m testPoolMachineManager) WakeMachine(
 	ctx context.Context,
 	orgID, machineID storage.ID,
