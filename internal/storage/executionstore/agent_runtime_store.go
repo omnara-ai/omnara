@@ -354,7 +354,7 @@ func (s *Store) ArchiveAgent(
 		agent    AgentRecord
 		machines []MachineRecord
 	}
-	result, err := storeutil.RetryTransaction(ctx, func() (archiveAgentResult, error) {
+	result, err := storeutil.RetryTransaction(ctx, "archive_agent", func() (archiveAgentResult, error) {
 		agent, machines, archiveErr := s.archiveAgentOnce(
 			ctx,
 			project.OrgID,

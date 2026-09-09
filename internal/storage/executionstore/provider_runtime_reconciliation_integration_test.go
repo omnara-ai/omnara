@@ -371,13 +371,15 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 	ctx := context.Background()
 	fixture := newProviderRuntimeStorageFixture(t, ctx, "wake-org-delete", true)
 	machine := fixture.insertInactiveMachine(t, ctx, "wake-org-delete")
+	attached := fixture.createProcessFixture(t, ctx, machine, "wake-org-delete")
 
+	// Hold deletion after its resource locks, before it archives the attached agent.
 	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
-	if _, err := dbsqlc.New(controlTx).LockMachineForLifecycle(
+	if _, err := dbsqlc.New(controlTx).LockAgentInProject(
 		ctx,
-		dbsqlc.LockMachineForLifecycleParams{OrgID: testOrgID, ID: machine.machineID},
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: attached.AgentID},
 	); err != nil {
-		t.Fatalf("lock machine before organization deletion: %v", err)
+		t.Fatalf("lock attached agent before organization deletion: %v", err)
 	}
 
 	actor := mustOmnaraActorParams(t, fixture.adminID)
@@ -389,10 +391,10 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 		)
 		return deleteErr
 	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockMachineForLifecycle", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
 	wakeDone := integrationdb.RunAsync(func() (executionstore.MachineWakeDisposition, error) {
-		return fixture.store.Execution().BeginMachineWake(
+		return fixture.store.Execution().IntegrationBeginMachineWakeOnce(
 			ctx,
 			testOrgID,
 			machine.machineID,
@@ -418,18 +420,23 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 	}
 
 	var wakeAttemptCount int
+	var agentState, machineState string
 	if err := fixture.pool.QueryRow(
 		ctx,
-		`SELECT count(*)::int
-		 FROM machines
-		 WHERE org_id = $1 AND id = $2 AND wake_attempt_expires_at IS NOT NULL`,
+		`SELECT
+		   (SELECT count(*)::int FROM machines
+		    WHERE org_id = $1 AND id = $2 AND wake_attempt_expires_at IS NOT NULL),
+		   (SELECT state FROM agents WHERE id = $3),
+		   (SELECT lifecycle_state FROM machines WHERE org_id = $1 AND id = $2)`,
 		testOrgID,
 		machine.machineID,
-	).Scan(&wakeAttemptCount); err != nil {
+		attached.AgentID,
+	).Scan(&wakeAttemptCount, &agentState, &machineState); err != nil {
 		t.Fatalf("count wake attempts after organization deletion: %v", err)
 	}
-	if wakeAttemptCount != 0 {
-		t.Fatalf("wake attempts beneath deleted organization = %d, want 0", wakeAttemptCount)
+	if wakeAttemptCount != 0 || agentState != "archived" || machineState != "deleting" {
+		t.Fatalf("deleted scope: wake attempts=%d agent=%s machine=%s; want zero, archived, deleting",
+			wakeAttemptCount, agentState, machineState)
 	}
 }
 

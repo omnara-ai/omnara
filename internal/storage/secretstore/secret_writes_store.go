@@ -479,7 +479,7 @@ func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (Secr
 	if err := s.authorizeSecretManage(ctx, record, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
-	return storeutil.RetryTransaction(ctx, func() (SecretRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_secret", func() (SecretRecord, error) {
 		return s.deleteSecretOnce(ctx, input, record)
 	})
 }

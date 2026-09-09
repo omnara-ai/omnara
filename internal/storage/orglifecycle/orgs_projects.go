@@ -417,7 +417,7 @@ func (s *Service) DeleteProject(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, func() ([]executionstore.MachineRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_project", func() ([]executionstore.MachineRecord, error) {
 		return s.deleteProjectOnce(ctx, orgID, projectID, actor)
 	})
 }
@@ -503,7 +503,7 @@ func (s *Service) DeleteOrganization(
 	if err != nil {
 		return nil, err
 	}
-	return storeutil.RetryTransaction(ctx, func() ([]executionstore.MachineRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_organization", func() ([]executionstore.MachineRecord, error) {
 		return s.deleteOrganizationOnce(ctx, orgID, actor)
 	})
 }

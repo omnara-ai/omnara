@@ -6,15 +6,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -964,210 +967,284 @@ func TestManagerUsesArchivedPoolProviderConfigForCleanup(t *testing.T) {
 	}
 }
 
-func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
-	ctx := context.Background()
-	pool := openManagerIntegrationDB(t, ctx)
+func TestManagerWakeMachineRetriesDatabaseAndProviderWork(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, sqlstate     string
+		failures, attempts int
+		wantError          bool
+	}{
+		{"no database conflict", "40001", 0, 1, false},
+		{"deadlock recovery", "40P01", 2, 3, false},
+		{"serialization recovery", "40001", 2, 3, false},
+		{"deadlock exhaustion", "40P01", 3, 3, true},
+		{"serialization exhaustion", "40001", 3, 3, true},
+		{"nonretryable failure", "23505", 1, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openManagerIntegrationDB(t, ctx)
 
-	store := storage.NewStore(
-		pool,
-		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
-		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
-	)
-	now := time.Date(2026, 6, 2, 9, 30, 0, 0, time.UTC)
-	orgID := seedManagerOrg(t, ctx, pool, "provider-wake", now)
-	providerAuthSecretID := createProviderAuthSecretForManagerTest(
-		t,
-		ctx,
-		pool,
-		store,
-		orgID,
-		"provider-wake-auth",
-		"pool-token",
-	)
-	machinePool, err := store.Execution().CreateMachinePool(
-		ctx,
-		machinePoolInputWithDefaultMachineForManagerTest(
-			t,
-			executionstore.CreateMachinePoolInput{
-				OrgID:                orgID,
-				Name:                 "Provider Wake Pool",
-				Provider:             "capture",
-				ProviderConfig:       json.RawMessage(`{}`),
-				ProviderAuthSecretID: providerAuthSecretID,
-				MaxTotalMachines:     1,
-				MaxTotalCPU:          intPtrForManagerTest(1),
-				MaxTotalMemoryMB:     intPtrForManagerTest(1024),
-				MaxMachineCPU:        intPtrForManagerTest(1),
-				MaxMachineMemoryMB:   intPtrForManagerTest(1024),
-			},
-			1,
-			1024,
-			nil,
-			nil,
-			map[string]any{},
-		),
-	)
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	machineID := insertPoolMachineForManagerTest(
-		t,
-		ctx,
-		pool,
-		machinePool,
-		"active",
-		"resource-1",
-		now,
-	)
-	sandboxURL := "https://sandbox.example.test"
-	wakeErr := errors.New("provider wake failed")
-	provider := &captureProvider{wakeErrors: []error{wakeErr, wakeErr}}
-	manager := Manager{
-		Execution:    store.Execution(),
-		Identity:     store.Identity(),
-		Catalog:      testProviderCatalog(&testProviderDefinition{provider: provider}),
-		PublicAPIURL: "https://api.omnara.test/v1",
-	}
+			publisher := &wakeNotificationRecorder{}
+			store := storage.NewStore(
+				pool,
+				storage.WithPostCommitPublisher(publisher),
+				storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+				storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+			)
+			now := time.Date(2026, 6, 2, 9, 30, 0, 0, time.UTC)
+			orgID := seedManagerOrg(t, ctx, pool, "provider-wake", now)
+			providerAuthSecretID := createProviderAuthSecretForManagerTest(
+				t,
+				ctx,
+				pool,
+				store,
+				orgID,
+				"provider-wake-auth",
+				"pool-token",
+			)
+			machinePool, err := store.Execution().CreateMachinePool(
+				ctx,
+				machinePoolInputWithDefaultMachineForManagerTest(
+					t,
+					executionstore.CreateMachinePoolInput{
+						OrgID:                orgID,
+						Name:                 "Provider Wake Pool",
+						Provider:             "capture",
+						ProviderConfig:       json.RawMessage(`{}`),
+						ProviderAuthSecretID: providerAuthSecretID,
+						MaxTotalMachines:     1,
+						MaxTotalCPU:          intPtrForManagerTest(1),
+						MaxTotalMemoryMB:     intPtrForManagerTest(1024),
+						MaxMachineCPU:        intPtrForManagerTest(1),
+						MaxMachineMemoryMB:   intPtrForManagerTest(1024),
+					},
+					1,
+					1024,
+					nil,
+					nil,
+					map[string]any{},
+				),
+			)
+			if err != nil {
+				t.Fatalf("create machine pool: %v", err)
+			}
+			machineID := insertPoolMachineForManagerTest(
+				t,
+				ctx,
+				pool,
+				machinePool,
+				"active",
+				"resource-1",
+				now,
+			)
+			sandboxURL := "https://sandbox.example.test"
+			wakeErr := errors.New("provider wake failed")
+			provider := &captureProvider{wakeErrors: []error{wakeErr, wakeErr}}
+			manager := Manager{
+				Execution:    store.Execution(),
+				Identity:     store.Identity(),
+				Catalog:      testProviderCatalog(&testProviderDefinition{provider: provider}),
+				PublicAPIURL: "https://api.omnara.test/v1",
+			}
 
-	shouldRetry, err := manager.WakeMachine(ctx, orgID, machineID)
-	if err != nil {
-		t.Fatalf("wake non-asleep machine: %v", err)
-	}
-	if shouldRetry {
-		t.Fatal("should retry = true for offline machine")
-	}
-	if len(provider.wakeInputs) != 0 {
-		t.Fatalf("offline wake attempts = %d, want 0", len(provider.wakeInputs))
-	}
+			shouldRetry, err := manager.WakeMachine(ctx, orgID, machineID)
+			if err != nil {
+				t.Fatalf("wake non-asleep machine: %v", err)
+			}
+			if shouldRetry {
+				t.Fatal("should retry = true for offline machine")
+			}
+			if len(provider.wakeInputs) != 0 {
+				t.Fatalf("offline wake attempts = %d, want 0", len(provider.wakeInputs))
+			}
 
-	tokenID := uuid.New()
-	if _, err := pool.Exec(
-		ctx,
-		`INSERT INTO machine_daemon_tokens(id, org_id, machine_id, name, token_hash, created_at)
+			tokenID := uuid.New()
+			if _, err := pool.Exec(
+				ctx,
+				`INSERT INTO machine_daemon_tokens(id, org_id, machine_id, name, token_hash, created_at)
 		 VALUES ($1, $2, $3, 'provider-wake', $4, $5)`,
-		tokenID,
-		orgID,
-		machineID,
-		uuid.NewString(),
-		now,
-	); err != nil {
-		t.Fatalf("insert daemon token: %v", err)
-	}
-	registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(
-		ctx,
-		executionstore.RegisterDaemonRuntimeInput{
-			OrgID:            orgID,
-			MachineID:        machineID,
-			DaemonTokenID:    tokenID,
-			DaemonInstanceID: uuid.New(),
-			DaemonVersion:    "1.0.0",
-		},
-	)
-	if err != nil {
-		t.Fatalf("register daemon runtime: %v", err)
-	}
-	runtime := registration.Runtime
-	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-	if err != nil {
-		t.Fatalf("wake online machine: %v", err)
-	}
-	if !shouldRetry {
-		t.Fatal("should retry = false for online machine")
-	}
-	if len(provider.wakeInputs) != 0 {
-		t.Fatalf("online wake attempts = %d, want 0", len(provider.wakeInputs))
-	}
-	if _, err := store.Execution().EndDaemonRuntime(ctx, executionstore.DaemonRuntimeAuthority{
-		OrgID:           orgID,
-		MachineID:       machineID,
-		DaemonRuntimeID: runtime.ID,
-		DaemonTokenID:   tokenID,
-	}); err != nil {
-		t.Fatalf("end daemon runtime: %v", err)
-	}
+				tokenID,
+				orgID,
+				machineID,
+				uuid.NewString(),
+				now,
+			); err != nil {
+				t.Fatalf("insert daemon token: %v", err)
+			}
+			registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(
+				ctx,
+				executionstore.RegisterDaemonRuntimeInput{
+					OrgID:            orgID,
+					MachineID:        machineID,
+					DaemonTokenID:    tokenID,
+					DaemonInstanceID: uuid.New(),
+					DaemonVersion:    "1.0.0",
+				},
+			)
+			if err != nil {
+				t.Fatalf("register daemon runtime: %v", err)
+			}
+			runtime := registration.Runtime
+			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+			if err != nil {
+				t.Fatalf("wake online machine: %v", err)
+			}
+			if !shouldRetry {
+				t.Fatal("should retry = false for online machine")
+			}
+			if len(provider.wakeInputs) != 0 {
+				t.Fatalf("online wake attempts = %d, want 0", len(provider.wakeInputs))
+			}
+			if _, err := store.Execution().EndDaemonRuntime(ctx, executionstore.DaemonRuntimeAuthority{
+				OrgID:           orgID,
+				MachineID:       machineID,
+				DaemonRuntimeID: runtime.ID,
+				DaemonTokenID:   tokenID,
+			}); err != nil {
+				t.Fatalf("end daemon runtime: %v", err)
+			}
 
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE machines SET sandbox_url = $1, asleep_since = $2 WHERE org_id = $3 AND id = $4`,
-		sandboxURL,
-		now,
-		orgID,
-		machineID,
-	); err != nil {
-		t.Fatalf("mark machine asleep: %v", err)
-	}
-	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-	if err != nil {
-		t.Fatalf("wake machine: %v", err)
-	}
-	if !shouldRetry {
-		t.Fatal("should retry = false after successful wake")
-	}
-	if len(provider.wakeInputs) != machineWakeAttempts {
-		t.Fatalf("wake attempts = %d, want %d", len(provider.wakeInputs), machineWakeAttempts)
-	}
-	for _, input := range provider.wakeInputs {
-		if input.ProviderResourceID != "resource-1" || input.SandboxURL != sandboxURL {
-			t.Fatalf("wake input = %+v", input)
-		}
-	}
-	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-	if err != nil || !shouldRetry {
-		t.Fatalf("repeat pending wake = (%t, %v), want true/nil", shouldRetry, err)
-	}
-	if len(provider.wakeInputs) != machineWakeAttempts {
-		t.Fatalf("pending wake made another provider call: %d attempts", len(provider.wakeInputs))
-	}
+			if _, err := pool.Exec(
+				ctx,
+				`UPDATE machines SET sandbox_url = $1, asleep_since = $2 WHERE org_id = $3 AND id = $4`,
+				sandboxURL,
+				now,
+				orgID,
+				machineID,
+			); err != nil {
+				t.Fatalf("mark machine asleep: %v", err)
+			}
+			// A deferred constraint trigger rejects the claim at commit, after its UPDATE.
+			// The sequence counts aborted attempts; the audit row commits only with the claim.
+			installWakeCommitFailure(t, ctx, pool, tc.sqlstate, tc.failures)
+			provider.beforeWake = func(ctx context.Context) error {
+				var committed bool
+				if err := pool.QueryRow(ctx, `
+SELECT wake_attempt_expires_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM test_committed_wakes WHERE machine_id = $1)
+FROM machines WHERE id = $1`, machineID).Scan(&committed); err != nil {
+					return err
+				}
+				if !committed {
+					return errors.New("provider wake preceded committed wake intent")
+				}
+				return nil
+			}
+			beforeNotifications := publisher.count
+			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+			var attempts, commits, processCount int
+			var wakeExpiresAt *time.Time
+			if queryErr := pool.QueryRow(ctx, `
+SELECT (SELECT last_value FROM test_wake_attempts),
+       (SELECT count(*) FROM test_committed_wakes),
+       (SELECT count(*) FROM processes WHERE machine_id = $1),
+       wake_attempt_expires_at
+FROM machines WHERE id = $1`, machineID).Scan(
+				&attempts, &commits, &processCount, &wakeExpiresAt,
+			); queryErr != nil {
+				t.Fatalf("read wake retry effects: %v", queryErr)
+			}
+			if attempts != tc.attempts || processCount != 0 || publisher.count != beforeNotifications {
+				t.Fatalf("wake attempts=%d processes=%d notifications=%d; want %d, zero, unchanged",
+					attempts, processCount, publisher.count-beforeNotifications, tc.attempts)
+			}
+			if tc.wantError {
+				var pgErr *pgconn.PgError
+				if !errors.As(err, &pgErr) || pgErr.Code != tc.sqlstate || shouldRetry {
+					t.Fatalf("failed database wake = (%t, %v), want false/SQLSTATE %s", shouldRetry, err, tc.sqlstate)
+				}
+				if commits != 0 || wakeExpiresAt != nil || len(provider.wakeInputs) != 0 {
+					t.Fatalf("failed wake leaked effects: commits=%d marker=%v provider calls=%d",
+						commits, wakeExpiresAt, len(provider.wakeInputs))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("wake machine: %v", err)
+			}
+			if commits != 1 || wakeExpiresAt == nil {
+				t.Fatalf("successful wake commits=%d marker=%v, want one committed intent", commits, wakeExpiresAt)
+			}
+			if !shouldRetry {
+				t.Fatal("should retry = false after successful wake")
+			}
+			if len(provider.wakeInputs) != machineWakeAttempts {
+				t.Fatalf("wake attempts = %d, want %d", len(provider.wakeInputs), machineWakeAttempts)
+			}
+			for _, input := range provider.wakeInputs {
+				if input.ProviderResourceID != "resource-1" || input.SandboxURL != sandboxURL {
+					t.Fatalf("wake input = %+v", input)
+				}
+			}
+			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+			if err != nil || !shouldRetry {
+				t.Fatalf("repeat pending wake = (%t, %v), want true/nil", shouldRetry, err)
+			}
+			if len(provider.wakeInputs) != machineWakeAttempts {
+				t.Fatalf("pending wake made another provider call: %d attempts", len(provider.wakeInputs))
+			}
+			var replayExpiresAt *time.Time
+			if err := pool.QueryRow(ctx, `SELECT wake_attempt_expires_at FROM machines WHERE id = $1`,
+				machineID).Scan(&replayExpiresAt); err != nil {
+				t.Fatalf("read pending wake marker: %v", err)
+			}
+			if replayExpiresAt == nil || !replayExpiresAt.Equal(*wakeExpiresAt) {
+				t.Fatalf("pending wake changed intent from %v to %v", wakeExpiresAt, replayExpiresAt)
+			}
 
-	runtimeProtectionEnabled := true
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID:                    orgID,
-		ID:                       machinePool.ID,
-		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
-	}); err != nil {
-		t.Fatalf("enable runtime protection: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
+			runtimeProtectionEnabled := true
+			if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+				OrgID:                    orgID,
+				ID:                       machinePool.ID,
+				RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+			}); err != nil {
+				t.Fatalf("enable runtime protection: %v", err)
+			}
+			if _, err := pool.Exec(ctx, `
 UPDATE machines
 SET wake_attempt_expires_at = statement_timestamp() - interval '1 millisecond'
 WHERE org_id = $1 AND id = $2
 `, orgID, machineID); err != nil {
-		t.Fatalf("expire protected wake attempt: %v", err)
-	}
-	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-	if !errors.Is(err, storeerr.ErrMachineWakeUnresolved) || shouldRetry {
-		t.Fatalf("unresolved protected wake = (%t, %v), want false/unresolved", shouldRetry, err)
-	}
-	if len(provider.wakeInputs) != machineWakeAttempts {
-		t.Fatalf("unresolved protected wake made another provider call: %d attempts", len(provider.wakeInputs))
-	}
-	runtimeProtectionEnabled = false
-	if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID:                    orgID,
-		ID:                       machinePool.ID,
-		RuntimeProtectionEnabled: &runtimeProtectionEnabled,
-	}); err != nil {
-		t.Fatalf("disable runtime protection: %v", err)
-	}
+				t.Fatalf("expire protected wake attempt: %v", err)
+			}
+			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+			if !errors.Is(err, storeerr.ErrMachineWakeUnresolved) || shouldRetry {
+				t.Fatalf("unresolved protected wake = (%t, %v), want false/unresolved", shouldRetry, err)
+			}
+			if len(provider.wakeInputs) != machineWakeAttempts {
+				t.Fatalf("unresolved protected wake made another provider call: %d attempts", len(provider.wakeInputs))
+			}
+			runtimeProtectionEnabled = false
+			if _, err := store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+				OrgID:                    orgID,
+				ID:                       machinePool.ID,
+				RuntimeProtectionEnabled: &runtimeProtectionEnabled,
+			}); err != nil {
+				t.Fatalf("disable runtime protection: %v", err)
+			}
 
-	provider.wakeInputs = nil
-	provider.wakeErrors = []error{wakeErr, wakeErr, wakeErr}
-	if _, err := pool.Exec(ctx, `
+			provider.wakeInputs = nil
+			provider.wakeErrors = []error{wakeErr, wakeErr, wakeErr}
+			if _, err := pool.Exec(ctx, `
 UPDATE machines
 SET wake_attempt_expires_at = statement_timestamp() - interval '5 minutes'
 WHERE org_id = $1 AND id = $2
 `, orgID, machineID); err != nil {
-		t.Fatalf("expire unprotected wake intent: %v", err)
-	}
-	shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-	if !errors.Is(err, wakeErr) {
-		t.Fatalf("wake error = %v, want %v", err, wakeErr)
-	}
-	if shouldRetry {
-		t.Fatal("should retry = true after failed wake")
-	}
-	if len(provider.wakeInputs) != machineWakeAttempts {
-		t.Fatalf("failed wake attempts = %d, want %d", len(provider.wakeInputs), machineWakeAttempts)
+				t.Fatalf("expire unprotected wake intent: %v", err)
+			}
+			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
+			if !errors.Is(err, wakeErr) {
+				t.Fatalf("wake error = %v, want %v", err, wakeErr)
+			}
+			if shouldRetry {
+				t.Fatal("should retry = true after failed wake")
+			}
+			if len(provider.wakeInputs) != machineWakeAttempts {
+				t.Fatalf("failed wake attempts = %d, want %d", len(provider.wakeInputs), machineWakeAttempts)
+			}
+		})
 	}
 }
 
@@ -2150,6 +2227,7 @@ type captureProvider struct {
 	deletedResourceIDs    []string
 	wakeInputs            []providers.WakeMachineInput
 	wakeErrors            []error
+	beforeWake            func(context.Context) error
 }
 
 func (*captureProvider) ProvisioningTimeout() time.Duration {
@@ -2188,10 +2266,15 @@ func (p *captureProvider) ProvisionMachine(
 }
 
 func (p *captureProvider) WakeMachine(
-	_ context.Context,
+	ctx context.Context,
 	input providers.WakeMachineInput,
 ) error {
 	p.wakeInputs = append(p.wakeInputs, input)
+	if p.beforeWake != nil {
+		if err := p.beforeWake(ctx); err != nil {
+			return err
+		}
+	}
 	attempt := len(p.wakeInputs) - 1
 	if attempt < len(p.wakeErrors) {
 		return p.wakeErrors[attempt]
@@ -2222,4 +2305,34 @@ func (p *captureProvider) DeleteMachine(
 	p.deleteMachineID = machineID
 	p.deletedResourceIDs = append(p.deletedResourceIDs, providerResourceID)
 	return nil
+}
+
+// Only this test database contains the trigger and its nontransactional counter.
+func installWakeCommitFailure(t *testing.T, ctx context.Context, pool *pgxpool.Pool, code string, failures int) {
+	t.Helper()
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE SEQUENCE test_wake_attempts;
+CREATE TABLE test_committed_wakes (machine_id uuid PRIMARY KEY);
+CREATE FUNCTION test_wake_commit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO test_committed_wakes VALUES (NEW.id);
+  IF nextval('test_wake_attempts') <= %d THEN
+    RAISE EXCEPTION USING ERRCODE = '%s', MESSAGE = 'test wake transaction conflict';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER test_wake_commit_failure
+AFTER UPDATE ON machines DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW WHEN (OLD.wake_attempt_expires_at IS NULL AND NEW.wake_attempt_expires_at IS NOT NULL)
+EXECUTE FUNCTION test_wake_commit_failure();`, failures, code))
+	if err != nil {
+		t.Fatalf("install wake commit failure: %v", err)
+	}
+}
+
+type wakeNotificationRecorder struct{ count int }
+
+func (p *wakeNotificationRecorder) PublishPostCommit(context.Context, notifications.PostCommitIntent) {
+	p.count++
 }

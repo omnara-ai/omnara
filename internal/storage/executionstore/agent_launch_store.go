@@ -60,7 +60,7 @@ func (s *Store) LaunchAgent(
 		}
 		input.Name = &name
 	}
-	return storeutil.RetryTransaction(ctx, func() (LaunchAgentResult, error) {
+	return storeutil.RetryTransaction(ctx, "launch_agent", func() (LaunchAgentResult, error) {
 		return s.launchAgentOnce(ctx, input)
 	})
 }

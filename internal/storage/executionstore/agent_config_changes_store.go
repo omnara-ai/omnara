@@ -52,7 +52,7 @@ func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigIn
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
-	return storeutil.RetryTransaction(ctx, func() (ChangeAgentConfigResult, error) {
+	return storeutil.RetryTransaction(ctx, "change_agent_config", func() (ChangeAgentConfigResult, error) {
 		return s.changeAgentConfigOnce(ctx, input)
 	})
 }

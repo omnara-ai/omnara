@@ -758,9 +758,10 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 	if isNilID(orgID) || isNilID(projectID) || isNilID(id) {
 		return DeleteProjectMachinePoolGrantResult{}, errors.New("pool grant org, project, and id are required")
 	}
-	return storeutil.RetryTransaction(ctx, func() (DeleteProjectMachinePoolGrantResult, error) {
-		return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, id)
-	})
+	return storeutil.RetryTransaction(ctx, "delete_project_machine_pool_grant",
+		func() (DeleteProjectMachinePoolGrantResult, error) {
+			return s.deleteProjectMachinePoolGrantOnce(ctx, orgID, projectID, id)
+		})
 }
 
 func (s *Store) deleteProjectMachinePoolGrantOnce(

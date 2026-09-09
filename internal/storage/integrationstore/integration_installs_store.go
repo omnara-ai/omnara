@@ -337,7 +337,7 @@ func (s *Store) DeleteIntegrationInstall(ctx context.Context, projectID, id ID) 
 	if isNilID(projectID) || isNilID(id) {
 		return errors.New("project and integration install are required")
 	}
-	_, err := storeutil.RetryTransaction(ctx, func() (struct{}, error) {
+	_, err := storeutil.RetryTransaction(ctx, "delete_integration_install", func() (struct{}, error) {
 		return struct{}{}, s.deleteIntegrationInstallOnce(ctx, projectID, id)
 	})
 	return err

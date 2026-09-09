@@ -70,7 +70,7 @@ func (s *Store) ExecuteToolCall(
 	if plan == nil {
 		return ExecuteToolCallResult{}, errors.New("tool call plan is required")
 	}
-	return storeutil.RetryTransaction(ctx, func() (ExecuteToolCallResult, error) {
+	return storeutil.RetryTransaction(ctx, "execute_tool_call", func() (ExecuteToolCallResult, error) {
 		return s.executeToolCallOnce(ctx, input, plan)
 	})
 }

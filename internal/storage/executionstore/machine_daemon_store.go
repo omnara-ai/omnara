@@ -348,7 +348,7 @@ func (s *Store) UpdateMachine(ctx context.Context, input UpdateMachineInput) (Ma
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	return storeutil.RetryTransaction(ctx, func() (MachineRecord, error) {
+	return storeutil.RetryTransaction(ctx, "update_machine", func() (MachineRecord, error) {
 		return s.updateMachineOnce(ctx, input)
 	})
 }
@@ -536,7 +536,7 @@ func (s *Store) DeleteMachine(
 	if isNilID(input.OrgID) || isNilID(input.MachineID) {
 		return MachineRecord{}, errors.New("org and machine are required")
 	}
-	return storeutil.RetryTransaction(ctx, func() (MachineRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_machine", func() (MachineRecord, error) {
 		return s.deleteMachineOnce(ctx, input)
 	})
 }
@@ -983,7 +983,7 @@ func (s *Store) DeleteProjectMachineGrant(
 	ctx context.Context,
 	orgID, projectID, id ID,
 ) (ProjectMachineGrantRecord, error) {
-	return storeutil.RetryTransaction(ctx, func() (ProjectMachineGrantRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_project_machine_grant", func() (ProjectMachineGrantRecord, error) {
 		return s.deleteProjectMachineGrantOnce(ctx, orgID, projectID, id)
 	})
 }

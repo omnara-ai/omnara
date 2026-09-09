@@ -15,8 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 func TestEventDoneLogsOnce(t *testing.T) {
@@ -162,7 +160,7 @@ func TestParentEventFields(t *testing.T) {
 	}
 }
 
-func TestFieldsUseZerologSerialization(t *testing.T) {
+func TestFieldsSerializeStructuredValues(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := WithLogger(context.Background(), testLogger(&buf))
 	event := NewEvent(ctx, "test.event", Fields{
@@ -172,7 +170,7 @@ func TestFieldsUseZerologSerialization(t *testing.T) {
 		"duration": time.Second,
 		"instant":  time.Unix(1, 0).UTC(),
 		"id":       testID(9),
-		"nil":      storage.NilID,
+		"nil":      uuid.Nil,
 	})
 	event.Done(context.Background())
 
@@ -492,6 +490,6 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	return records
 }
 
-func testID(seed byte) storage.ID {
+func testID(seed byte) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte{seed})
 }

@@ -984,7 +984,7 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
-	return storeutil.RetryTransaction(ctx, func() ([]MachineRecord, error) {
+	return storeutil.RetryTransaction(ctx, "delete_machine_pool", func() ([]MachineRecord, error) {
 		return s.deleteMachinePoolOnce(ctx, orgID, id)
 	})
 }

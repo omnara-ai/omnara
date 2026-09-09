@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -131,4 +132,12 @@ func (s *Store) CreateAgentFixture(ctx context.Context, input AgentFixtureInput)
 		return AgentRecord{}, err
 	}
 	return record, nil
+}
+
+func (s *Store) IntegrationBeginMachineWakeOnce(
+	ctx context.Context,
+	orgID, machineID, machinePoolID ID,
+	wakeTimeout time.Duration,
+) (MachineWakeDisposition, error) {
+	return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
 }
