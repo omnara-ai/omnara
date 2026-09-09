@@ -221,36 +221,9 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if err != nil {
 		return nil, err
 	}
-	baseConfig, err := executor.subagentBaseConfig(ctx, call.Turn, subagent)
+	childConfigID, childProfileID, err := executor.subagentLaunchConfig(ctx, call.Turn, parent, subagent)
 	if err != nil {
 		return failSubagentAsync("spawn_agent_failed", err)
-	}
-	baseSource, err := agentconfig.ParseSource(
-		agentconfig.SourceFormat(baseConfig.SourceFormat),
-		[]byte(baseConfig.Source),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("parse base agent config source: %w", err)
-	}
-	childSource, err := json.Marshal(agentconfig.SubagentSource(baseSource, subagent))
-	if err != nil {
-		return nil, fmt.Errorf("encode subagent config source: %w", err)
-	}
-	body, err := agentconfigcompile.Compile(
-		ctx,
-		executor.Store,
-		parent.OrgID,
-		parent.ProjectID,
-		executor.AgentConfigOptions,
-		agentconfig.SourceFormatJSON,
-		string(childSource),
-	)
-	if err != nil {
-		return failSubagentAsync("spawn_agent_failed", fmt.Errorf("compile subagent config: %w", err))
-	}
-	childConfig, err := executor.Store.Execution().CreateAgentConfig(ctx, body.CreateInput(parent.ProjectID))
-	if err != nil {
-		return nil, fmt.Errorf("store subagent config: %w", err)
 	}
 	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
 	if err != nil {
@@ -262,7 +235,8 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	}
 	launch, err := executor.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:     parent.ProjectID,
-		AgentConfigID: childConfig.ID,
+		ProfileID:     childProfileID,
+		AgentConfigID: childConfigID,
 		LaunchedBy: identitystore.PrincipalRecord{
 			Type: identitystore.PrincipalTypeSystem,
 			ID:   parent.ID,
@@ -319,46 +293,83 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	return completeAsynchronously(content), nil
 }
 
-func (e Executor) subagentBaseConfig(
+// subagentLaunchConfig picks the config a spawned subagent launches from. A
+// profile subagent with no overrides launches the profile's current config
+// and stays linked to the profile; any other subagent launches a derived,
+// unlinked config compiled from its base with the key's overrides applied.
+func (e Executor) subagentLaunchConfig(
 	ctx context.Context,
 	turn Turn,
+	parent executionstore.AgentRecord,
 	subagent agentconfig.SubagentCompiled,
-) (executionstore.AgentConfigRecord, error) {
+) (storage.ID, storage.ID, error) {
+	var baseConfig executionstore.AgentConfigRecord
 	switch subagent.Type {
 	case agentconfig.SubagentTypeSelf:
 		contextRow, found, err := e.Store.Execution().GetModelCallContext(
 			ctx, turn.ProjectID, turn.AgentID, turn.ModelCallContextID,
 		)
 		if err != nil {
-			return executionstore.AgentConfigRecord{}, err
+			return storage.NilID, storage.NilID, err
 		}
 		if !found {
-			return executionstore.AgentConfigRecord{}, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
+			return storage.NilID, storage.NilID, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
 		}
 		config, found, err := e.Store.Execution().GetAgentConfig(ctx, turn.ProjectID, contextRow.AgentConfigID)
 		if err != nil {
-			return executionstore.AgentConfigRecord{}, err
+			return storage.NilID, storage.NilID, err
 		}
 		if !found {
-			return executionstore.AgentConfigRecord{}, fmt.Errorf("agent config %s not found", contextRow.AgentConfigID)
+			return storage.NilID, storage.NilID, fmt.Errorf("agent config %s not found", contextRow.AgentConfigID)
 		}
-		return config, nil
+		baseConfig = config
 	case agentconfig.SubagentTypeProfile:
 		profileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
 		if err != nil {
-			return executionstore.AgentConfigRecord{}, fmt.Errorf("decode subagent profile id: %w", err)
+			return storage.NilID, storage.NilID, fmt.Errorf("decode subagent profile id: %w", err)
 		}
 		profile, err := e.Store.Execution().GetAgentProfile(ctx, turn.ProjectID, profileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return executionstore.AgentConfigRecord{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
+				return storage.NilID, storage.NilID, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
 			}
-			return executionstore.AgentConfigRecord{}, err
+			return storage.NilID, storage.NilID, err
 		}
-		return profile.CurrentConfig, nil
+		if subagent.Model == nil && subagent.InstructionAppend == "" {
+			return profile.CurrentConfig.ID, profile.ID, nil
+		}
+		baseConfig = profile.CurrentConfig
 	default:
-		return executionstore.AgentConfigRecord{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
+		return storage.NilID, storage.NilID, fmt.Errorf("unsupported subagent type %q", subagent.Type)
 	}
+	baseSource, err := agentconfig.ParseSource(
+		agentconfig.SourceFormat(baseConfig.SourceFormat),
+		[]byte(baseConfig.Source),
+	)
+	if err != nil {
+		return storage.NilID, storage.NilID, fmt.Errorf("parse base agent config source: %w", err)
+	}
+	childSource, err := json.Marshal(agentconfig.SubagentSource(baseSource, subagent))
+	if err != nil {
+		return storage.NilID, storage.NilID, fmt.Errorf("encode subagent config source: %w", err)
+	}
+	body, err := agentconfigcompile.Compile(
+		ctx,
+		e.Store,
+		parent.OrgID,
+		parent.ProjectID,
+		e.AgentConfigOptions,
+		agentconfig.SourceFormatJSON,
+		string(childSource),
+	)
+	if err != nil {
+		return storage.NilID, storage.NilID, fmt.Errorf("compile subagent config: %w", err)
+	}
+	childConfig, err := e.Store.Execution().CreateAgentConfig(ctx, body.CreateInput(parent.ProjectID))
+	if err != nil {
+		return storage.NilID, storage.NilID, fmt.Errorf("store subagent config: %w", err)
+	}
+	return childConfig.ID, storage.NilID, nil
 }
 
 func readAgent(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {

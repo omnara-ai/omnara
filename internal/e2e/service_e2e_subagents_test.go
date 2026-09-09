@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 const subagentServiceE2ESourceYAML = `instruction: Coordinate helpers and report the outcome.
@@ -338,5 +339,135 @@ func TestServiceE2EDeterministicSubagentStopAbortsChild(t *testing.T) {
 	})
 	if !childRequestAborted.Load() {
 		t.Fatal("stopping the subagent did not abort its in-flight model call")
+	}
+}
+
+func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-subagent-profile")
+	fail := failSubagentServiceE2ERequest(t)
+	const childText = "PROFILE_SUBAGENT_RESULT: done"
+	const delegatedText = "parent delegated to the helper profile"
+	const parentText = "parent relayed the helper profile's result"
+	var parentIdentity atomic.Value
+	openai, parentRequests, childRequests := newSubagentServiceE2EModelServer(
+		t,
+		func(w http.ResponseWriter, body map[string]any, request int64) {
+			switch request {
+			case 1:
+				writeOpenAIFunctionCall(w, fail, "resp_parent_spawn", "call_spawn", "spawn_agent", map[string]any{
+					"agent": "worker",
+					"task":  "Do the profile work.",
+				})
+			case 2:
+				writeOpenAIMessage(w, fail, "resp_parent_delegated", delegatedText)
+			case 3:
+				if !strings.Contains(mustJSONString(body), childText) {
+					fail(w, http.StatusBadRequest, "third parent request lacks the child result: %s", mustJSONString(body))
+					return
+				}
+				writeOpenAIMessage(w, fail, "resp_parent_final", parentText)
+			default:
+				fail(w, http.StatusTeapot, "unexpected parent request %d: %s", request, mustJSONString(body))
+			}
+		},
+		func(w http.ResponseWriter, r *http.Request, body map[string]any, request int64) {
+			if request != 1 {
+				fail(w, http.StatusTeapot, "unexpected child request %d: %s", request, mustJSONString(body))
+				return
+			}
+			identity, ok := parentIdentity.Load().([2]string)
+			if !ok || !blockUntilAssistantText(r.Context(), env, identity[0], identity[1], delegatedText) {
+				fail(w, http.StatusConflict, "child model call ran before the parent finished delegating")
+				return
+			}
+			if !strings.Contains(mustJSONString(body), "You are the helper profile.") {
+				fail(w, http.StatusBadRequest, "child did not run the helper profile config: %s", mustJSONString(body))
+				return
+			}
+			writeOpenAIMessage(w, fail, "resp_child_final", childText)
+		},
+	)
+	defer openai.Close()
+
+	env.startAPI(t, ctx)
+	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "deterministic-subagent-profile", subagentServiceE2ESourceYAML)
+	helperConfig := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		project.projectPath+"/agent-configs",
+		map[string]any{
+			"source_format": "yaml",
+			"source": strings.Join([]string{
+				"instruction: You are the helper profile.",
+				"model:",
+				"  provider_config: openai-prod",
+				"  name: service-e2e-local",
+				"",
+			}, "\n"),
+		},
+		"",
+		project.adminToken,
+		http.StatusCreated,
+	)
+	helperProfile := env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		project.projectPath+"/agent-profiles",
+		map[string]any{"name": "helper-profile", "config": testutil.RequireType[string](t, helperConfig["id"])},
+		"idem-deterministic-subagent-profile-helper",
+		project.adminToken,
+		http.StatusCreated,
+	)
+	helperProfileID := testutil.RequireType[string](t, helperProfile["id"])
+	agentID := project.createAgent(t, ctx)
+	project.updateConfig(t, ctx, agentID, strings.Join([]string{
+		"instruction: Coordinate helpers and report the outcome.",
+		"model:",
+		"  provider_config: openai-prod",
+		"  name: service-e2e-local",
+		"subagents:",
+		"  worker:",
+		"    type: profile",
+		"    profile: helper-profile",
+		"",
+	}, "\n"))
+	project.createInput(t, ctx, agentID, "delegate to the helper profile")
+	env.startWorker(
+		t,
+		ctx,
+		project.projectID,
+		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: openai.URL},
+	)
+	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
+	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
+	parentIdentity.Store([2]string{projectUUID, agentUUID})
+
+	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, delegatedText)
+	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, parentText)
+	if got := parentRequests.Load(); got != 3 {
+		t.Fatalf("parent made %d model requests, want 3", got)
+	}
+	if got := childRequests.Load(); got != 1 {
+		t.Fatalf("child made %d model requests, want 1", got)
+	}
+	var childProfileID, childConfigID string
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT coalesce(agent_profile_id::text, ''), current_config_id::text
+		 FROM agents WHERE project_id = $1 AND parent_agent_id = $2`,
+		projectUUID, agentUUID,
+	).Scan(&childProfileID, &childConfigID); err != nil {
+		t.Fatalf("load profile subagent: %v", err)
+	}
+	if childProfileID != mustDecodeServiceE2EPublicID(t, publicid.KindAgentProfile, helperProfileID) {
+		t.Fatalf("profile subagent agent_profile_id = %q, want the helper profile", childProfileID)
+	}
+	helperConfigID := testutil.RequireType[string](t, helperConfig["id"])
+	if childConfigID != mustDecodeServiceE2EPublicID(t, publicid.KindAgentConfig, helperConfigID) {
+		t.Fatalf("profile subagent config = %q, want the helper profile's current config", childConfigID)
 	}
 }

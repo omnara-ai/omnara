@@ -182,7 +182,7 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
       patch({ mcpServers })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
-      patch({ subagents })
+      patch(subagents.length === 0 ? { subagents, maxSubagents: '' } : { subagents })
     },
     setMaxSubagents: (maxSubagents: string) => {
       patch({ maxSubagents })
