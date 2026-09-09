@@ -180,3 +180,49 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		t.Fatalf("started process result = %s", result)
 	}
 }
+
+func TestIsUploadArtifactToolCall(t *testing.T) {
+	tests := []struct {
+		name string
+		call ToolCallRecord
+		want bool
+	}{
+		{
+			name: "legacy",
+			call: ToolCallRecord{Type: toolcatalog.ToolTypeBuiltIn, Name: toolcatalog.ToolNameUploadArtifact},
+			want: true,
+		},
+		{
+			name: "vfs artifact",
+			call: ToolCallRecord{
+				Type:  toolcatalog.ToolTypeBuiltIn,
+				Name:  toolcatalog.ToolNameUploadFile,
+				Input: json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`),
+			},
+			want: true,
+		},
+		{
+			name: "future vfs resource",
+			call: ToolCallRecord{
+				Type:  toolcatalog.ToolTypeBuiltIn,
+				Name:  toolcatalog.ToolNameUploadFile,
+				Input: json.RawMessage(`{"path":"/memory/notes.md","source":"notes.md"}`),
+			},
+		},
+		{
+			name: "custom collision",
+			call: ToolCallRecord{
+				Type:  toolcatalog.ToolTypeCustom,
+				Name:  toolcatalog.ToolNameUploadFile,
+				Input: json.RawMessage(`{"path":"/artifacts"}`),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isUploadArtifactToolCall(test.call); got != test.want {
+				t.Fatalf("isUploadArtifactToolCall() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}

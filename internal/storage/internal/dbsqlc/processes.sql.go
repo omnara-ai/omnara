@@ -520,7 +520,8 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 const getDaemonArtifactProcessScope = `-- name: GetDaemonArtifactProcessScope :one
 SELECT process.project_id,
        process.agent_id,
-       COALESCE(tool_call.input->>'artifact_id', '')::text AS artifact_id
+       tool_call.name AS tool_name,
+       COALESCE(tool_call.input->>'artifact_id', tool_call.input->>'path', '')::text AS artifact_locator
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
   AND tool_call.id = process.tool_call_id
@@ -530,20 +531,21 @@ WHERE process.org_id = $1
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
   AND tool_call.type = 'built_in'
-  AND tool_call.name = $4
+  AND tool_call.name = ANY($4::text[])
 `
 
 type GetDaemonArtifactProcessScopeParams struct {
 	OrgID      uuid.UUID
 	MachineID  uuid.UUID
 	ToolCallID uuid.UUID
-	ToolName   string
+	ToolNames  []string
 }
 
 type GetDaemonArtifactProcessScopeRow struct {
-	ProjectID  uuid.UUID
-	AgentID    uuid.UUID
-	ArtifactID string
+	ProjectID       uuid.UUID
+	AgentID         uuid.UUID
+	ToolName        string
+	ArtifactLocator string
 }
 
 func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaemonArtifactProcessScopeParams) (GetDaemonArtifactProcessScopeRow, error) {
@@ -551,10 +553,15 @@ func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaem
 		arg.OrgID,
 		arg.MachineID,
 		arg.ToolCallID,
-		arg.ToolName,
+		arg.ToolNames,
 	)
 	var i GetDaemonArtifactProcessScopeRow
-	err := row.Scan(&i.ProjectID, &i.AgentID, &i.ArtifactID)
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.ToolName,
+		&i.ArtifactLocator,
+	)
 	return i, err
 }
 

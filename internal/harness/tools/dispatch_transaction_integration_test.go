@@ -9,15 +9,111 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type backgroundRunnerFunc func(string, func(context.Context) error) bool
+
+func TestSkillDownloadAsyncMachineFailurePersistsGuidance(t *testing.T) {
+	ctx := context.Background()
+	fixture := newIntegrationToolFixture(t, ctx, "skill-machine-failure")
+	call := fixture.recordToolCall(
+		t, ctx, "call_skill_machine_failure", "download_file",
+		`{"path":"/skills/deploy"}`, fixture.Now.Add(20*time.Second),
+	)
+	toolCallID := fixture.toolCallID(t, ctx, call.ID)
+	if _, err := fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+		ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+		ToolCallID: toolCallID, RuntimeLockID: fixture.Lock.ID,
+	}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		return executionstore.StartToolCallAsync(), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	executor := Executor{Store: fixture.Store}
+	if err := executor.executeAsyncTool(ctx, asyncToolContext{
+		Executor: executor, Turn: fixture.turn(), Call: call, ToolCallID: toolCallID,
+	}, toolHandler{Async: runDownloadFileAsync}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, toolCallID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parts []struct {
+		Value struct {
+			ErrorCode  string `json:"error_code"`
+			NextAction string `json:"next_action"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(record.ResultContentParts, &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || parts[0].Value.ErrorCode != ErrNoActiveAgentMachineBinding.Error() ||
+		parts[0].Value.NextAction != "list_machines" {
+		t.Fatalf("persisted machine failure = %s", record.ResultContentParts)
+	}
+	assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
+	assertDispatchTestToolOutcome(t, ctx, fixture, call.ID, "failed")
+}
+
+func TestDownloadFileAsyncCapacityOnlyAppliesToSkills(t *testing.T) {
+	artifactID, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		input   string
+		limited bool
+	}{
+		{"artifact", `{"path":"/artifacts/` + artifactID + `","destination":"out"}`, false},
+		{"skill", `{"path":"/skills/deploy"}`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newIntegrationToolFixture(t, ctx, "download-capacity-"+test.name)
+			call := fixture.recordToolCall(
+				t, ctx, "call_download_capacity", "download_file", test.input, fixture.Now.Add(20*time.Second),
+			)
+			scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
+			ctx = WithAsyncExecutionScope(ctx, scope)
+			occupied, err := ReserveAsyncExecution(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer occupied.Done(nil)
+			ctx, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
+			implementation, _, err := toolImplementationFor("download_file")
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := (Executor{Store: fixture.Store}).dispatchToolHandler(
+				ctx, fixture.turn(), call, fixture.toolCallID(t, ctx, call.ID), implementation.handler,
+			)
+			if test.limited {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("skill dispatch error = %v, want capacity wait timeout", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("artifact dispatch waited for async capacity: %v", err)
+			}
+			if _, ok := result.(toolDispatchFailed); !ok {
+				t.Fatalf("artifact dispatch = %T, want transactional missing-machine result", result)
+			}
+		})
+	}
+}
 
 func (f backgroundRunnerFunc) Submit(label string, task func(context.Context) error) bool {
 	return f(label, task)

@@ -1,7 +1,7 @@
 import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { defaultAgentTools } from './agentTemplates'
+import { agentTemplateConfig, agentTemplates, defaultAgentTools } from './agentTemplates'
 
 function catalogEntry(name: string, mode: string): ToolCatalogEntry {
   return {
@@ -13,6 +13,27 @@ function catalogEntry(name: string, mode: string): ToolCatalogEntry {
 }
 
 describe('defaultAgentTools', () => {
+  it('uses file tools in templates even when legacy aliases are available', () => {
+    const permission = {
+      default_permission: { mode: 'always_allow', parameters: {} },
+      permission_modes: [],
+    }
+    const catalog: ToolCatalog = {
+      built_in_tools: ['upload_file', 'download_file', 'upload_artifact', 'download_artifact'].map(
+        (name) => catalogEntry(name, 'always_allow'),
+      ),
+      custom_tool_permissions: permission,
+      mcp_tool_permissions: permission,
+    }
+
+    for (const template of agentTemplates) {
+      expect(agentTemplateConfig(template, catalog).tools.map((tool) => tool.name)).toEqual([
+        'upload_file',
+        'download_file',
+      ])
+    }
+  })
+
   it('selects default tools in order with catalog permissions', () => {
     const webFetch = catalogEntry('web_fetch', 'always_allow')
     const webSearch = catalogEntry('web_search', 'always_ask')

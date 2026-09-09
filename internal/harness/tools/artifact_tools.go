@@ -66,16 +66,9 @@ func resolveUploadArtifactRequest(raw json.RawMessage) (resolvedUploadArtifactRe
 	if strings.Contains(input.Path, "\x00") {
 		return resolvedUploadArtifactRequest{}, errors.New("path cannot contain NUL")
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedUploadArtifactRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedUploadArtifactRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineRef, err := resolveOptionalMachineRef(input.MachineRef)
+	if err != nil {
+		return resolvedUploadArtifactRequest{}, err
 	}
 	return resolvedUploadArtifactRequest{Path: input.Path, MachineRef: machineRef}, nil
 }
@@ -114,16 +107,9 @@ func resolveDownloadArtifactRequest(raw json.RawMessage) (resolvedDownloadArtifa
 	if strings.Contains(input.Path, "\x00") {
 		return resolvedDownloadArtifactRequest{}, errors.New("path cannot contain NUL")
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedDownloadArtifactRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedDownloadArtifactRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineRef, err := resolveOptionalMachineRef(input.MachineRef)
+	if err != nil {
+		return resolvedDownloadArtifactRequest{}, err
 	}
 	return resolvedDownloadArtifactRequest{
 		ArtifactID: artifactID,

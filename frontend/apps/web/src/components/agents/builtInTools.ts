@@ -1,5 +1,10 @@
 import type { PermissionSelection } from '@/components/agents/agentConfigBasicExtract'
 
+export const legacyToolAliases: ReadonlyMap<string, string> = new Map([
+  ['upload_artifact', 'upload_file'],
+  ['download_artifact', 'download_file'],
+])
+
 export const recommendedMachineToolNames = [
   'run_command',
   'write_process',
@@ -8,8 +13,8 @@ export const recommendedMachineToolNames = [
   'list_processes',
   'list_machines',
   'inspect_machine',
-  'upload_artifact',
-  'download_artifact',
+  'upload_file',
+  'download_file',
 ] as const
 
 interface MachineSourceSelection {
@@ -23,12 +28,12 @@ interface ToolSelection {
 }
 
 export function hasMissingMachineTools(tools: ToolSelection[]): boolean {
-  const selectedTools = new Set(tools.map((tool) => tool.name))
+  const selectedTools = new Set(tools.map((tool) => legacyToolAliases.get(tool.name) ?? tool.name))
   return recommendedMachineToolNames.some((name) => !selectedTools.has(name))
 }
 
 export function addMissingMachineTools(tools: ToolSelection[]): ToolSelection[] {
-  const selectedTools = new Set(tools.map((tool) => tool.name))
+  const selectedTools = new Set(tools.map((tool) => legacyToolAliases.get(tool.name) ?? tool.name))
   const additions: ToolSelection[] = []
   for (const name of recommendedMachineToolNames) {
     if (!selectedTools.has(name)) additions.push({ name, permission: null })

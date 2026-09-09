@@ -19,29 +19,35 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonArtifactProcessScope struct {
-	ProjectID  ID
-	AgentID    ID
-	ArtifactID string
+	ProjectID       ID
+	AgentID         ID
+	ToolName        string
+	ArtifactLocator string
 }
 
 func (s *Store) GetDaemonArtifactProcessScope(
 	ctx context.Context,
 	orgID, machineID, toolCallID ID,
-	toolName string,
+	toolNames []string,
 ) (DaemonArtifactProcessScope, bool, error) {
 	if isNilID(orgID) || isNilID(machineID) || isNilID(toolCallID) {
 		return DaemonArtifactProcessScope{}, false, errors.New(
 			"organization id, machine id, and tool call id are required",
 		)
 	}
-	if toolName == "" {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
+	if len(toolNames) == 0 {
+		return DaemonArtifactProcessScope{}, false, errors.New("tool names are required")
+	}
+	for _, name := range toolNames {
+		if name == "" {
+			return DaemonArtifactProcessScope{}, false, errors.New("tool names cannot contain an empty name")
+		}
 	}
 	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
 		OrgID:      orgID,
 		MachineID:  machineID,
 		ToolCallID: toolCallID,
-		ToolName:   toolName,
+		ToolNames:  toolNames,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DaemonArtifactProcessScope{}, false, nil
@@ -50,9 +56,10 @@ func (s *Store) GetDaemonArtifactProcessScope(
 		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
 	}
 	return DaemonArtifactProcessScope{
-		ProjectID:  record.ProjectID,
-		AgentID:    record.AgentID,
-		ArtifactID: record.ArtifactID,
+		ProjectID:       record.ProjectID,
+		AgentID:         record.AgentID,
+		ToolName:        record.ToolName,
+		ArtifactLocator: record.ArtifactLocator,
 	}, true, nil
 }
 

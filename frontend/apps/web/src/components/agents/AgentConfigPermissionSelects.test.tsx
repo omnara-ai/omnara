@@ -36,6 +36,12 @@ const alwaysAllowProfile: ToolPermissionProfile = {
 const catalog: ToolCatalog = {
   built_in_tools: [
     {
+      name: 'download_file',
+      description: 'Download a file.',
+      default_permission: alwaysAllowProfile.default_permission,
+      permission_modes: alwaysAllowProfile.permission_modes,
+    },
+    {
       name: 'download_artifact',
       description: 'Download an artifact.',
       default_permission: alwaysAllowProfile.default_permission,
@@ -133,6 +139,27 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
+  expect(container.textContent).toContain('download_artifact')
+})
+
+it('offers file tools without offering legacy aliases', async () => {
+  await renderAndFlush(
+    <AgentConfigToolsField catalog={catalog} tools={[]} onToolsChange={vi.fn()} />,
+  )
+
+  act(() => {
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Add tools"]')
+    expect(button).not.toBeNull()
+    button?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }),
+    )
+  })
+
+  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(
+    (item) => item.textContent,
+  )
+  expect(items).toContain('download_file')
+  expect(items).not.toContain('download_artifact')
 })
 
 it('preserves an inherited MCP permission when its profile loads', async () => {

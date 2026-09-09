@@ -398,10 +398,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	),
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
 	operationUploadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active upload_artifact process"),
+		customScope("machine daemon token + active artifact upload process"),
 	),
 	operationDownloadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active download_artifact process"),
+		customScope("machine daemon token + active artifact download process"),
 	),
 }
 
