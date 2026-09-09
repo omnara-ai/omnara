@@ -14,12 +14,28 @@ func TestAgentConfigWarnings(t *testing.T) {
 	for _, name := range recommendedMachineTools {
 		completeTools = append(completeTools, agentconfig.RuntimeTool{Name: name})
 	}
+	legacyTools := append([]agentconfig.RuntimeTool(nil), completeTools...)
+	for i := range legacyTools {
+		switch legacyTools[i].Name {
+		case toolcatalog.ToolNameUploadFile:
+			legacyTools[i].Name = toolcatalog.ToolNameUploadArtifact
+		case toolcatalog.ToolNameDownloadFile:
+			legacyTools[i].Name = toolcatalog.ToolNameDownloadArtifact
+		}
+	}
 	tests := []struct {
 		name     string
 		contract agentconfig.RuntimeContract
 		want     []openapi.Warning
 	}{
 		{name: "no machine sources"},
+		{
+			name: "legacy machine tools",
+			contract: agentconfig.RuntimeContract{
+				MachineSources: []agentconfig.RuntimeMachine{{}},
+				Tools:          legacyTools,
+			},
+		},
 		{
 			name: "complete machine tools",
 			contract: agentconfig.RuntimeContract{
@@ -38,7 +54,7 @@ func TestAgentConfigWarnings(t *testing.T) {
 			want: []openapi.Warning{{
 				Code: openapi.MissingRecommendedMachineTools,
 				Message: "Machine sources are configured, but some recommended machine tools are not enabled: " +
-					"write_process, read_process, stop_process, list_processes, list_machines, inspect_machine, upload_artifact, download_artifact. " +
+					"write_process, read_process, stop_process, list_processes, list_machines, inspect_machine, upload_file, download_file. " +
 					"Add or enable them under tools so the agent can fully use its attached machines.",
 			}},
 		},

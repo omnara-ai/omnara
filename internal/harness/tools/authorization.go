@@ -16,6 +16,13 @@ import (
 
 var ErrToolAuthorizationInvalidated = errors.New("tool_authorization_invalidated")
 
+func invalidatedAuthorizationContent() (toolResultContent, error) {
+	return structuredToolResultContent(map[string]any{
+		"error_code": ErrToolAuthorizationInvalidated.Error(),
+		"error":      "The approved tool request changed before it could run. Submit a new tool call for approval.",
+	})
+}
+
 func authorizeToolExecution(
 	ctx context.Context,
 	reader *executionstore.ToolCallReader,
