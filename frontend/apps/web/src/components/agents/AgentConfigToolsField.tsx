@@ -57,7 +57,7 @@ export function AgentConfigToolsField({
 }) {
   const allCatalogTools = catalog?.built_in_tools ?? []
   const nonConfigurableToolNames = new Set(
-    allCatalogTools.filter((entry) => entry.configurable === false).map((entry) => entry.name),
+    allCatalogTools.flatMap((entry) => (entry.configurable === false ? [entry.name] : [])),
   )
   const catalogTools = allCatalogTools.filter(
     (entry) => entry.configurable !== false && !hiddenToolNames.has(entry.name),

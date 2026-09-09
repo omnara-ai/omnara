@@ -369,9 +369,9 @@ function applyToDocument(
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
     'tools',
-    config.tools
-      .filter((tool) => !legacyBindingManagedToolNames.has(tool.name))
-      .map((tool) => [tool.name, toolWire(tool)]),
+    config.tools.flatMap((tool) =>
+      legacyBindingManagedToolNames.has(tool.name) ? [] : [[tool.name, toolWire(tool)]],
+    ),
     baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
     set,
     del,
