@@ -10,9 +10,7 @@ export function CreateAgentPage() {
   if (!project?.access.can_manage) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
-        <h1 className="text-xl font-semibold tracking-tight">
-          {project ? 'Not allowed' : 'Project not found'}
-        </h1>
+        <h1 className="type-title">{project ? 'Not allowed' : 'Project not found'}</h1>
         <p className="text-muted-foreground text-sm">
           {project
             ? 'You don’t have permission to create agents in this project.'

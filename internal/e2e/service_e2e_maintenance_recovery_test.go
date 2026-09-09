@@ -136,7 +136,8 @@ SELECT count(*) FILTER (
         FROM agent_runtime_locks runtime_lock
         JOIN agents runtime_agent ON runtime_agent.id = runtime_lock.agent_id
         WHERE runtime_agent.project_id = $1 AND runtime_lock.agent_id = $2),
-       (SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2)
+       (SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id
+           = $1 AND wake.agent_id = $2)
 FROM model_call_contexts
 WHERE project_id = $1 AND agent_id = $2
 `, projectUUID, agentUUID).Scan(&recoveredContexts, &contextRows, &locks, &wakeups); err != nil {
@@ -209,7 +210,8 @@ SELECT count(*) FILTER (
         FROM agent_runtime_locks runtime_lock
         JOIN agents runtime_agent ON runtime_agent.id = runtime_lock.agent_id
         WHERE runtime_agent.project_id = $1 AND runtime_lock.agent_id = $2),
-       (SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2)
+       (SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id
+           = $1 AND wake.agent_id = $2)
 FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2

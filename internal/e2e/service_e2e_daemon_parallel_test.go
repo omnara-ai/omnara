@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/stretchr/testify/require"
 )
 
 // Keep these markers to one byte: wait_ms returns on the first nonempty output
@@ -548,14 +549,12 @@ func assertServiceE2EParallelJourney(
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var total, granted int
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*),
        count(*) FILTER (WHERE execution_granted_at IS NOT NULL)
 FROM processes
 WHERE project_id = $1 AND agent_id = $2
-`, projectUUID, agentUUID).Scan(&total, &granted); err != nil {
-		t.Fatal(err)
-	}
+`, projectUUID, agentUUID).Scan(&total, &granted))
 	if total != 3 || granted != 3 {
 		t.Fatalf(
 			"processes total=%d granted=%d, want 3/3",
@@ -574,13 +573,11 @@ WHERE project_id = $1 AND agent_id = $2
 	} {
 		var state string
 		var exitCode int
-		if err := env.db.QueryRow(ctx, `
+		require.NoError(t, env.db.QueryRow(ctx, `
 SELECT state, coalesce(exit_code, -1)
 FROM processes
 WHERE project_id = $1 AND agent_id = $2 AND id = $3
-`, projectUUID, agentUUID, processUUIDs[i]).Scan(&state, &exitCode); err != nil {
-			t.Fatal(err)
-		}
+`, projectUUID, agentUUID, processUUIDs[i]).Scan(&state, &exitCode))
 		if state != want.state || exitCode != want.exitCode {
 			t.Fatalf(
 				"process %d state/exit = %q/%d, want %q/%d",
@@ -593,7 +590,7 @@ WHERE project_id = $1 AND agent_id = $2 AND id = $3
 		}
 	}
 	var actions, reads, writes, interrupts, applied int
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*),
        count(*) FILTER (WHERE action_kind = 'read'),
        count(*) FILTER (WHERE action_kind = 'write'),
@@ -607,9 +604,7 @@ WHERE project_id = $1 AND agent_id = $2
 		&writes,
 		&interrupts,
 		&applied,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if actions != 16 || reads != 9 || writes != 6 || interrupts != 1 ||
 		applied != actions {
 		t.Fatalf(

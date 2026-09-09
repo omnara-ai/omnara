@@ -51,7 +51,7 @@ func TestManagedWorkAdmissionGatesNewPoolMachineCreation(t *testing.T) {
 	); err != nil {
 		t.Fatalf("create default project pool grant: %v", err)
 	}
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "managed-machine-admission", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Create machines.
 model:
   provider_config: openai-prod
@@ -62,7 +62,7 @@ machine_sources:
     initial_num_machines: 0
 tools:
   create_machine: {}
-`, time.Date(2026, 8, 10, 8, 0, 0, 0, time.UTC))
+`)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{
@@ -228,7 +228,13 @@ func TestManagedWorkAdmissionGatesInitialPoolAllocation(t *testing.T) {
 	); err != nil {
 		t.Fatalf("create tenant project pool grant: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "managed-launch-admission", "Managed Launch Admission", `
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"managed-launch-admission",
+		"Managed Launch Admission",
+		`
 instruction: Use a managed machine.
 model:
   provider_config: openai-prod
@@ -239,8 +245,15 @@ machine_sources:
     initial_num_machines: 1
 tools:
   run_command: {}
-`, time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC))
-	tenantProfile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "tenant-launch-admission", "Tenant Launch Admission", `
+`,
+	)
+	tenantProfile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"tenant-launch-admission",
+		"Tenant Launch Admission",
+		`
 instruction: Use a tenant-managed machine.
 model:
   provider_config: openai-prod
@@ -251,7 +264,8 @@ machine_sources:
     initial_num_machines: 1
 tools:
   run_command: {}
-`, time.Date(2026, 8, 10, 9, 0, 1, 0, time.UTC))
+`,
+	)
 	launch := func(idempotencyKey string) (executionstore.LaunchAgentResult, error) {
 		return store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      testProjectID,

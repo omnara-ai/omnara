@@ -20,6 +20,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/stretchr/testify/require"
 	sqlite3 "modernc.org/sqlite"
 )
 
@@ -35,33 +36,25 @@ func TestEmptyCollectionsAreNil(t *testing.T) {
 	store, _ := openTestStore(t)
 
 	processes, err := store.Processes(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if processes != nil {
 		t.Fatalf("processes = %#v, want nil", processes)
 	}
 
 	actions, err := store.Actions(ctx, "prc_missing")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if actions != nil {
 		t.Fatalf("actions = %#v, want nil", actions)
 	}
 
 	reports, err := store.DeliveryCandidates(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if reports != nil {
 		t.Fatalf("delivery candidates = %#v, want nil", reports)
 	}
 
 	reports, err = store.ReportsForProcess(ctx, "prc_missing")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if reports != nil {
 		t.Fatalf("process reports = %#v, want nil", reports)
 	}
@@ -76,9 +69,7 @@ func TestDatabaseFullHasTypedCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	var pages int
-	if err := store.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages))
 	if _, err := store.db.ExecContext(ctx, "PRAGMA max_page_count = "+strconv.Itoa(pages)); err != nil {
 		t.Fatal(err)
 	}
@@ -110,16 +101,12 @@ func TestDeleteRejectedPreparationRequiresExactUngrantedIdentity(t *testing.T) {
 		SupervisorInstanceID: "supervisor-instance-rejected-cleanup",
 		SupervisorToken:      "supervisor-token-rejected-cleanup",
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if err := store.DeleteRejectedPreparationAfterArtifacts(
 		ctx,
 		process.ProcessID,
@@ -127,13 +114,11 @@ func TestDeleteRejectedPreparationRequiresExactUngrantedIdentity(t *testing.T) {
 	); !errors.Is(err, ErrSupervisorIdentityMismatch) {
 		t.Fatalf("replacement cleanup error = %v, want identity mismatch", err)
 	}
-	if err := store.MarkAccepted(
+	require.NoError(t, store.MarkAccepted(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if err := store.DeleteRejectedPreparationAfterArtifacts(
 		ctx,
 		process.ProcessID,
@@ -141,13 +126,11 @@ func TestDeleteRejectedPreparationRequiresExactUngrantedIdentity(t *testing.T) {
 	); !errors.Is(err, ErrStateConflict) {
 		t.Fatalf("accepted cleanup error = %v, want state conflict", err)
 	}
-	if err := store.DeleteStorageExhaustedAfterArtifacts(
+	require.NoError(t, store.DeleteStorageExhaustedAfterArtifacts(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if _, found, err := store.Process(ctx, process.ProcessID); err != nil || found {
 		t.Fatalf("process after accepted cleanup: found=%t err=%v", found, err)
 	}
@@ -161,9 +144,7 @@ func TestProcessCrossesExecutionBoundaryOnce(t *testing.T) {
 		SupervisorInstanceID: "supervisor-instance-one",
 		SupervisorToken:      "supervisor-token-one",
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
 	if err := store.ReserveProcess(ctx, process); err != nil {
 		t.Fatalf("idempotent reservation: %v", err)
 	}
@@ -182,41 +163,31 @@ func TestProcessCrossesExecutionBoundaryOnce(t *testing.T) {
 	) {
 		t.Fatalf("execution before accept error = %v, want conflict", err)
 	}
-	if err := store.MarkPrepared(
+	require.NoError(t, store.MarkPrepared(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(
+	))
+	require.NoError(t, store.MarkAccepted(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !execute {
 		t.Fatal("first execution commit did not grant the physical boundary")
 	}
 	execute, err = supervisor.AuthorizeSpawnOnce(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if execute {
 		t.Fatal("execution replay granted the physical boundary twice")
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		"123",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	started := processReport(
 		process.ProcessID,
@@ -225,13 +196,9 @@ func TestProcessCrossesExecutionBoundaryOnce(t *testing.T) {
 		nil,
 	)
 	first, err := supervisor.FreezeStartedReport(ctx, started)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	replayed, err := supervisor.FreezeStartedReport(ctx, started)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if first.ID == "" || replayed.ID != first.ID {
 		t.Fatalf("canonical report IDs: first=%q replay=%q", first.ID, replayed.ID)
 	}
@@ -280,17 +247,13 @@ func TestFrozenReportMustFitDaemonWireEnvelope(t *testing.T) {
 		Result:             json.RawMessage(`{"ok":false}`),
 	}
 	baseBody, err := json.Marshal(event)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	baseWire, err := json.Marshal(daemonprotocol.Message{
 		Type:     "report",
 		ReportID: report.ID,
 		Event:    &event,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	envelopeBytes := len(baseWire) - len(baseBody)
 	messageBytes := daemonprotocol.MaxMessageBytes -
 		len(baseBody) -
@@ -302,18 +265,14 @@ func TestFrozenReportMustFitDaemonWireEnvelope(t *testing.T) {
 
 	event.StateReasonMessage = strings.Repeat("x", messageBytes-1)
 	report.Body, err = json.Marshal(event)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := validateReportWireEnvelope(report); err != nil {
 		t.Fatalf("maximum-sized report envelope: %v", err)
 	}
 
 	event.StateReasonMessage += "x"
 	report.Body, err = json.Marshal(event)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := validateReportWireEnvelope(report); err == nil ||
 		!strings.Contains(err.Error(), "frozen report envelope") {
 		t.Fatalf("oversized report envelope error = %v", err)
@@ -349,9 +308,7 @@ func TestMaximumProcessObservationFitsDaemonReportEnvelopes(t *testing.T) {
 		"done":        true,
 		"error":       "",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -394,9 +351,7 @@ func TestMaximumProcessObservationFitsDaemonReportEnvelopes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			body, err := json.Marshal(test.event)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			test.report.Body = body
 			if err := validateReportWireEnvelope(test.report); err != nil {
 				t.Fatalf(
@@ -430,9 +385,7 @@ func TestApplyOnceUsesOnePreEffectBoundaryAndSequenceFrontier(
 
 	report := actionReport(first, nil)
 	frozen, err := supervisor.FreezeActionReport(ctx, first.ID, report)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	decision, replayed, err := supervisor.ApplyOnce(ctx, first)
 	if err != nil || decision != ApplyAlreadyReported ||
 		replayed.ID != frozen.ID {
@@ -454,12 +407,10 @@ func TestApplyOnceUsesOnePreEffectBoundaryAndSequenceFrontier(
 	if err != nil || decision != ApplyBlocked {
 		t.Fatalf("out-of-order apply: decision=%v err=%v", decision, err)
 	}
-	if err := store.AcknowledgeReport(
+	require.NoError(t, store.AcknowledgeReport(
 		ctx,
 		frozen.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if _, found, err := store.Action(
 		ctx,
 		first.ID,
@@ -467,9 +418,7 @@ func TestApplyOnceUsesOnePreEffectBoundaryAndSequenceFrontier(
 		t.Fatalf("acknowledged action remains: found=%t err=%v", found, err)
 	}
 	afterAck, _, err := store.Process(ctx, process.ProcessID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if afterAck.ResolvedActionSeq != 1 {
 		t.Fatalf("process after action ack = %+v", afterAck)
 	}
@@ -565,9 +514,7 @@ func TestActionEffectAndNoEffectResolutionCompeteAtomically(t *testing.T) {
 		process.ProcessID,
 		action.ID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if stored.EffectCommitted == reportFound {
 		t.Fatalf(
 			"effect_committed=%t report_found=%t, want exactly one winner",
@@ -588,23 +535,17 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 			SupervisorToken:      fmt.Sprintf("supervisor-token-multiprocess-%d", index),
 		}
 		processes[index] = process
-		if err := store.ReserveProcess(ctx, process); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.MarkPrepared(
+		require.NoError(t, store.ReserveProcess(ctx, process))
+		require.NoError(t, store.MarkPrepared(
 			ctx,
 			process.ProcessID,
 			process.SupervisorInstanceID,
-		); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.MarkAccepted(
+		))
+		require.NoError(t, store.MarkAccepted(
 			ctx,
 			process.ProcessID,
 			process.SupervisorInstanceID,
-		); err != nil {
-			t.Fatal(err)
-		}
+		))
 	}
 
 	type child struct {
@@ -631,13 +572,9 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 			"OMNARA_STATE_DB_WRITER_SUPERVISOR_TOKEN="+process.SupervisorToken,
 		)
 		gate, err := command.StdinPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		stdout, err := command.StdoutPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		children[index] = &child{
 			command: command,
 			gate:    gate,
@@ -645,9 +582,7 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 			done:    make(chan struct{}),
 		}
 		command.Stderr = &children[index].stderr
-		if err := command.Start(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, command.Start())
 		go func(c *child) {
 			defer close(c.done)
 			if _, err := io.ReadFull(stdout, make([]byte, 1)); err != nil {
@@ -677,9 +612,7 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 		}
 	}
 	for index := range children {
-		if err := children[index].gate.Close(); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, children[index].gate.Close())
 	}
 	waitErrors := make([]error, len(children))
 	for index := range children {
@@ -699,9 +632,7 @@ func TestIndependentSupervisorsSerializeWritesAcrossProcesses(t *testing.T) {
 	}
 	for _, process := range processes {
 		actions, err := store.Actions(ctx, process.ProcessID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if len(actions) != 1 || actions[0].ID != "act_"+process.ProcessID {
 			t.Fatalf(
 				"process %s actions = %+v",
@@ -734,9 +665,7 @@ func TestStateDBSubprocessWriterHelper(t *testing.T) {
 		process.SupervisorInstanceID,
 		process.SupervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer supervisor.Close()
 	if _, err := os.Stdout.Write([]byte{1}); err != nil {
 		t.Fatal(err)
@@ -749,13 +678,11 @@ func TestStateDBSubprocessWriterHelper(t *testing.T) {
 	if err != nil || !execute {
 		t.Fatalf("commit execution: execute=%t err=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		ctx,
 		"process_group",
 		strconv.Itoa(os.Getpid()),
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	action := Action{
 		ID:        "act_" + process.ProcessID,
 		ProcessID: process.ProcessID,
@@ -782,9 +709,7 @@ func TestReportValidationRejectsSemanticallyInvalidEvidence(t *testing.T) {
 		event daemonprotocol.ReportedEvent,
 	) Report {
 		body, err := json.Marshal(event)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		return Report{
 			ProcessID: event.ProcessID,
 			ActionID:  event.ProcessActionID,
@@ -907,9 +832,7 @@ func TestReportValidationAcceptsTerminalEvidenceWithoutUnobservedEnd(t *testing.
 	}
 	for _, event := range tests {
 		body, err := json.Marshal(event)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if err := validateReport(Report{
 			ProcessID: event.ProcessID,
 			Kind:      ReportProcessTerminal,
@@ -934,20 +857,14 @@ func TestTerminalClosureRetainsEvidenceUntilBothAuthoritiesRelease(
 			nil,
 		),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := supervisor.MarkLocalClosed(
 		ctx,
 	); !errors.Is(err, ErrClosureBlocked) {
 		t.Fatalf("closure before containment error = %v", err)
 	}
-	if err := supervisor.MarkContainmentEmpty(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := supervisor.MarkLocalClosed(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, supervisor.MarkContainmentEmpty(ctx))
+	require.NoError(t, supervisor.MarkLocalClosed(ctx))
 	if err := store.DeleteClosedAfterArtifacts(
 		ctx,
 		process.ProcessID,
@@ -955,19 +872,15 @@ func TestTerminalClosureRetainsEvidenceUntilBothAuthoritiesRelease(
 	); !errors.Is(err, ErrClosureBlocked) {
 		t.Fatalf("cleanup before server release error = %v", err)
 	}
-	if err := store.AcknowledgeReport(
+	require.NoError(t, store.AcknowledgeReport(
 		ctx,
 		terminal.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.DeleteClosedAfterArtifacts(
+	))
+	require.NoError(t, store.DeleteClosedAfterArtifacts(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if err := store.DeleteClosedAfterArtifacts(
 		ctx,
 		process.ProcessID,
@@ -989,23 +902,15 @@ func TestPermanentRejectionRetainsEvidence(t *testing.T) {
 			nil,
 		),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := supervisor.MarkContainmentEmpty(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := supervisor.MarkLocalClosed(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RejectReport(
+	require.NoError(t, err)
+	require.NoError(t, supervisor.MarkContainmentEmpty(ctx))
+	require.NoError(t, supervisor.MarkLocalClosed(ctx))
+	require.NoError(t, store.RejectReport(
 		ctx,
 		terminal.ID,
 		"validation_failed",
 		"bad report",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	stored, found, err := store.ReportBySlot(
 		ctx,
 		terminal.Kind,
@@ -1025,15 +930,13 @@ func TestPermanentRejectionRetainsEvidence(t *testing.T) {
 func TestReleaseMissingAcceptedActionAdvancesFrontier(t *testing.T) {
 	ctx := context.Background()
 	store, _, process, supervisor := runningTestProcess(t)
-	if err := store.ReleaseAction(
+	require.NoError(t, store.ReleaseAction(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
 		"act_missing",
 		1,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	action := Action{
 		ID:        "act_next",
 		ProcessID: process.ProcessID,
@@ -1068,19 +971,15 @@ func TestReleaseMissingLaterActionPreservesEarlierEvidence(t *testing.T) {
 		first.ID,
 		actionReport(first, nil),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if err := store.ReleaseAction(
+	require.NoError(t, store.ReleaseAction(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
 		"act_never_received",
 		2,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	stored, found, err := store.Process(ctx, process.ProcessID)
 	if err != nil || !found {
 		t.Fatalf("read process: found=%t err=%v", found, err)
@@ -1110,12 +1009,10 @@ func TestReleaseMissingLaterActionPreservesEarlierEvidence(t *testing.T) {
 			err,
 		)
 	}
-	if err := store.AcknowledgeReport(
+	require.NoError(t, store.AcknowledgeReport(
 		ctx,
 		report.ID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	stored, found, err = store.Process(ctx, process.ProcessID)
 	if err != nil || !found {
 		t.Fatalf("read process after acknowledgement: found=%t err=%v", found, err)
@@ -1220,9 +1117,7 @@ func TestReleaseActionCannotDeleteFrozenEvidence(t *testing.T) {
 		action.ID,
 		actionReport(action, nil),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	err = store.ReleaseAction(
 		ctx,
@@ -1264,12 +1159,8 @@ func TestPragmasApplyToReplacementConnections(t *testing.T) {
 
 	store.db.SetMaxIdleConns(0)
 	connection, err := store.db.Conn(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := connection.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, connection.Close())
 	store.db.SetMaxIdleConns(1)
 	if err := verifyPragmas(ctx, store.db); err != nil {
 		t.Fatalf("verify replacement SQLite connection: %v", err)
@@ -1290,17 +1181,13 @@ func TestDeliveryCandidatesMergeRejectedAndPendingInLifecycleOrder(
 			nil,
 		),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RejectReport(
+	require.NoError(t, err)
+	require.NoError(t, store.RejectReport(
 		ctx,
 		started.ID,
 		"validation_failed",
 		"retry after reconciliation",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	action := Action{
 		ID:        "act_pending",
 		ProcessID: process.ProcessID,
@@ -1318,14 +1205,10 @@ func TestDeliveryCandidatesMergeRejectedAndPendingInLifecycleOrder(
 		action.ID,
 		actionReport(action, nil),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	candidates, err := store.DeliveryCandidates(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(candidates) != 2 ||
 		candidates[0].ID != started.ID ||
 		candidates[1].ID != actionTerminal.ID {
@@ -1353,22 +1236,16 @@ func TestSnapshotIncludesActionsAndRejectedEvidenceAtomically(t *testing.T) {
 		action.ID,
 		actionReport(action, nil),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RejectReport(
+	require.NoError(t, err)
+	require.NoError(t, store.RejectReport(
 		ctx,
 		report.ID,
 		"validation_failed",
 		"retry after reconciliation",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	snapshot, err := store.SnapshotForReconciliation(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(snapshot.Processes) != 1 {
 		t.Fatalf("snapshot processes = %+v", snapshot.Processes)
 	}
@@ -1417,14 +1294,12 @@ func TestOpenRecordsGooseMigrationOnce(t *testing.T) {
 	store, path := openTestStore(t)
 
 	var applied int
-	if err := store.db.QueryRowContext(
+	require.NoError(t, store.db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
 		 WHERE version_id = 1 AND is_applied = 1`,
-	).Scan(&applied); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&applied))
 	if applied != 1 {
 		t.Fatalf("applied migration records = %d, want 1", applied)
 	}
@@ -1434,14 +1309,12 @@ func TestOpenRecordsGooseMigrationOnce(t *testing.T) {
 		t.Fatalf("reopen migrated database: %v", err)
 	}
 	defer reopened.Close()
-	if err := reopened.db.QueryRowContext(
+	require.NoError(t, reopened.db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
 		 WHERE version_id = 1 AND is_applied = 1`,
-	).Scan(&applied); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&applied))
 	if applied != 1 {
 		t.Fatalf("applied migration records after reopen = %d, want 1", applied)
 	}
@@ -1453,9 +1326,7 @@ func TestOpenRecoversMigrationCommittedBeforeIdentity(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.sqlite")
 	db, err := sql.Open("sqlite", stateDSN(path, false))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if err := verifyPragmas(ctx, db); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
@@ -1464,26 +1335,20 @@ func TestOpenRecoversMigrationCommittedBeforeIdentity(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Chmod(path, 0o600))
 
 	store, err := Open(ctx, path, testInstallation, testMachine)
 	if err != nil {
 		t.Fatalf("recover identity binding: %v", err)
 	}
 	defer store.Close()
-	if err := verifyIdentity(
+	require.NoError(t, verifyIdentity(
 		ctx,
 		store.db,
 		testInstallation,
 		testMachine,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 }
 
 func TestStateMigrationFailureRollsBack(t *testing.T) {
@@ -1492,9 +1357,7 @@ func TestStateMigrationFailureRollsBack(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.sqlite")
 	db, err := sql.Open("sqlite", stateDSN(path, false))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	failing := fstest.MapFS{
 		"000001_failing.sql": {
@@ -1509,38 +1372,30 @@ SELECT missing_migration_function();
 	}
 
 	var probeExists bool
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT EXISTS (
 			SELECT 1
 			FROM sqlite_schema
 			WHERE type = 'table' AND name = 'migration_transaction_probe'
 		)`,
-	).Scan(&probeExists); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&probeExists))
 	if probeExists {
 		t.Fatal("failed migration left its schema change behind")
 	}
 
 	var applied int
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
 		 WHERE version_id = 1 AND is_applied = 1`,
-	).Scan(&applied); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&applied))
 	if applied != 0 {
 		t.Fatalf("failed migration records = %d, want 0", applied)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Chmod(path, 0o600))
 
 	store, err := Open(ctx, path, testInstallation, testMachine)
 	if err != nil {
@@ -1559,9 +1414,7 @@ func TestOnlyMainDaemonRequiresCurrentStateMigration(t *testing.T) {
 		SupervisorInstanceID: "supervisor-instance-future-schema",
 		SupervisorToken:      "supervisor-token-future-schema",
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
 	if _, err := store.db.ExecContext(
 		ctx,
 		`INSERT INTO goose_db_version(version_id, is_applied)
@@ -1599,9 +1452,7 @@ func TestSupervisorWritesAfterAdditiveStateMigration(t *testing.T) {
 	ctx := context.Background()
 	store, _, _, supervisor := acceptedTestProcess(t)
 	initial, err := stateMigrations.ReadFile("migrations/000001_initial.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	migrations := fstest.MapFS{
 		"000001_initial.sql": {Data: initial},
 		"000002_additive.sql": {
@@ -1611,29 +1462,21 @@ ADD COLUMN future_metadata TEXT NOT NULL DEFAULT '';
 `),
 		},
 	}
-	if err := applyMigrations(ctx, store.db, migrations); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, applyMigrations(ctx, store.db, migrations))
 
 	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !execute {
 		t.Fatal("supervisor did not commit execution after additive migration")
 	}
-	if err := supervisor.RecordSpawned(ctx, "process_group", "789"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, supervisor.RecordSpawned(ctx, "process_group", "789"))
 }
 
 func TestOpenFinishesInitializationOfExistingEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "state.sqlite")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
 	store, err := Open(
 		context.Background(),
 		path,
@@ -1655,9 +1498,7 @@ func TestOpenRejectsForeignSQLiteDatabase(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "state.sqlite")
 	db, err := sql.Open("sqlite", stateDSN(path, false))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := db.ExecContext(
 		ctx,
 		`CREATE TABLE foreign_state(id INTEGER PRIMARY KEY) STRICT`,
@@ -1665,12 +1506,8 @@ func TestOpenRejectsForeignSQLiteDatabase(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Chmod(path, 0o600))
 
 	if _, err := Open(
 		ctx,
@@ -1693,15 +1530,9 @@ func TestAuditRejectsSemanticCorruption(t *testing.T) {
 		SupervisorInstanceID: "supervisor-instance-corrupt",
 		SupervisorToken:      "supervisor-token-corrupt",
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, process.ProcessID, process.SupervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, process.ProcessID, process.SupervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(ctx, process.ProcessID, process.SupervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, process.ProcessID, process.SupervisorInstanceID))
 	if _, err := store.db.ExecContext(
 		ctx,
 		`UPDATE processes
@@ -1728,23 +1559,17 @@ func acceptedTestProcess(
 		SupervisorInstanceID: "supervisor-instance-test",
 		SupervisorToken:      "supervisor-token-test",
 	}
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(
+	))
+	require.NoError(t, store.MarkAccepted(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	supervisor := openTestSupervisor(t, path, process)
 	return store, path, process, supervisor
 }
@@ -1758,13 +1583,11 @@ func runningTestProcess(
 	if err != nil || !execute {
 		t.Fatalf("commit test process execution: execute=%t err=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(
+	require.NoError(t, supervisor.RecordSpawned(
 		context.Background(),
 		"process_group",
 		"456",
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	return store, path, process, supervisor
 }
 
@@ -1777,9 +1600,7 @@ func openTestStore(t *testing.T) (*Store, string) {
 		testInstallation,
 		testMachine,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store, path
 }
@@ -1799,9 +1620,7 @@ func openTestSupervisor(
 		process.SupervisorInstanceID,
 		process.SupervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = supervisor.Close() })
 	return supervisor
 }

@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import './palette.css';
+@import './theme.css';
+@import './typography.css';
+@import './interaction.css';
 @source '../../node_modules/streamdown/dist/*.js';
 
 @custom-variant dark (&:is(.dark *));
@@ -58,96 +62,6 @@
   );
 }
 
-:root {
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
-  --radius: 0.625rem;
-
-  /* Palette: Technical indigo #4372cf over strictly neutral greys — bg
-     #0b0b0c, surface #161618, alt surface / ink #232326. Chrome stays
-     neutral white/near-black/grey; indigo is reserved for action, active,
-     and selected states. #5782d4 lightens the accent for hover, #3162c2
-     deepens it for pressed states and small text on light. */
-  --background: #ffffff;
-  --foreground: #232326;
-  --card: #ffffff;
-  --card-foreground: #232326;
-  --popover: #ffffff;
-  --popover-foreground: #232326;
-  --primary: #4372cf;
-  --primary-foreground: #ffffff;
-  --primary-hover: #5782d4;
-  --primary-active: #3162c2;
-  --secondary: color-mix(in oklab, #232326 6%, white);
-  --secondary-hover: color-mix(in oklab, #232326 10%, white);
-  --secondary-foreground: #232326;
-  --muted: color-mix(in oklab, #232326 6%, white);
-  --muted-foreground: color-mix(in oklab, #232326 64%, white);
-  --accent: color-mix(in oklab, #4372cf 10%, white);
-  --accent-foreground: #232326;
-  --destructive: oklch(0.58 0.24 27);
-  --destructive-foreground: #ffffff;
-  --warning: oklch(0.55 0.17 40);
-  --overlay: oklch(0 0 0 / 50%);
-  --border: color-mix(in oklab, #232326 11%, white);
-  --input: color-mix(in oklab, #232326 15%, white);
-  --ring: #4372cf;
-  --chart-1: #4372cf;
-  --chart-2: #3162c2;
-  --chart-3: color-mix(in oklab, #232326 28%, white);
-  --chart-4: color-mix(in oklab, #4372cf 45%, white);
-  --chart-5: #232326;
-  --sidebar: color-mix(in oklab, #232326 3%, white);
-  --sidebar-foreground: #232326;
-  /* One ramp step darker than the shared accent so active nav text stays
-     readable on the light sidebar. */
-  --sidebar-primary: #3162c2;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: color-mix(in oklab, #4372cf 10%, white);
-  --sidebar-accent-foreground: #232326;
-  --sidebar-border: color-mix(in oklab, #232326 12%, white);
-  --sidebar-ring: #3162c2;
-}
-
-.dark {
-  --background: #0b0b0c;
-  --foreground: #ececee;
-  --card: #161618;
-  --card-foreground: #ececee;
-  --popover: #161618;
-  --popover-foreground: #ececee;
-  --primary: #4372cf;
-  --primary-foreground: #ffffff;
-  --primary-hover: #5782d4;
-  --primary-active: #3162c2;
-  --secondary: #232326;
-  --secondary-hover: color-mix(in oklab, #ffffff 8%, #232326);
-  --secondary-foreground: #ececee;
-  --muted: #232326;
-  --muted-foreground: color-mix(in oklab, #ffffff 60%, #232326);
-  --accent: color-mix(in oklab, #4372cf 13%, #0b0b0c);
-  --accent-foreground: #ececee;
-  --destructive: oklch(0.7 0.19 22);
-  --destructive-foreground: #ffffff;
-  --warning: oklch(0.72 0.16 45);
-  --border: color-mix(in oklab, #ffffff 8%, transparent);
-  --input: color-mix(in oklab, #ffffff 12%, transparent);
-  --ring: #4372cf;
-  --chart-1: #4372cf;
-  --chart-2: color-mix(in oklab, #4372cf 55%, white);
-  --chart-3: color-mix(in oklab, #ffffff 55%, #232326);
-  --chart-4: #3162c2;
-  --chart-5: color-mix(in oklab, #4372cf 30%, #232326);
-  --sidebar: #101012;
-  --sidebar-foreground: #ececee;
-  --sidebar-primary: #81a1df;
-  --sidebar-primary-foreground: #0b0b0c;
-  --sidebar-accent: color-mix(in oklab, #4372cf 13%, #0b0b0c);
-  --sidebar-accent-foreground: #ececee;
-  --sidebar-border: color-mix(in oklab, #ffffff 8%, transparent);
-  --sidebar-ring: #4372cf;
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -166,6 +80,9 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
   --color-overlay: var(--overlay);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -187,20 +104,30 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --font-weight-normal: var(--type-weight-body);
+  --font-weight-medium: var(--type-weight-control);
+  --font-weight-semibold: var(--type-weight-emphasis);
+  --font-weight-heading: var(--type-weight-heading);
+  --text-xs: var(--type-size-fine);
+  --text-xs--line-height: var(--type-leading-body);
+  --text-sm: var(--type-size-small);
+  --text-sm--line-height: var(--type-leading-body);
+  --text-base: var(--type-size-body);
+  --text-base--line-height: var(--type-leading-body);
+  --text-caption: var(--type-size-caption);
+  --text-caption--line-height: var(--type-leading-body);
+  --leading-prose: var(--type-leading-prose);
+  --leading-control: var(--type-leading-control);
+  --tracking-eyebrow: var(--type-tracking-eyebrow);
+  --radius-sm: calc(var(--shape-radius-control) - 0.25rem);
+  --radius-md: var(--shape-radius-control);
+  --radius-lg: var(--shape-radius-card);
+  --radius-xl: var(--shape-radius-card);
+  --radius-control: var(--shape-radius-control);
+  --radius-card: var(--shape-radius-card);
 }
 
 @layer base {
-  :root {
-    color-scheme: light;
-  }
-  .dark {
-    color-scheme: dark;
-  }
-
   * {
     @apply border-border outline-ring/50;
   }
@@ -213,9 +140,18 @@
 
   body {
     @apply bg-background text-foreground font-sans;
+    font-size: var(--type-size-body);
+    font-weight: var(--type-weight-body);
+    line-height: var(--type-leading-body);
+    letter-spacing: var(--type-tracking-body);
     margin: 0;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizelegibility;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--primary);
   }
 
   /* Tailwind v4 preflight leaves buttons with the browser's default cursor. */
@@ -226,13 +162,13 @@
 }
 
 ::view-transition-group(*) {
-  animation-duration: 450ms;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: var(--duration-page);
+  animation-timing-function: var(--ease-page);
 }
 
 ::view-transition-old(*),
 ::view-transition-new(*) {
-  animation-duration: 450ms;
+  animation-duration: var(--duration-page);
 }
 
 @media (prefers-reduced-motion: reduce) {

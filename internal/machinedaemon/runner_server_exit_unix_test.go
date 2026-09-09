@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSupervisorExitReturnsContainmentClosureFailure(t *testing.T) {
@@ -51,12 +52,8 @@ func TestUnexpectedSupervisorListenerFailureClosesProcessContainment(
 	t.Parallel()
 
 	command := exec.Command("/bin/sh", "-c", "sleep 30")
-	if err := setupProcessCommand(command); err != nil {
-		t.Fatal(err)
-	}
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, setupProcessCommand(command))
+	require.NoError(t, command.Start())
 	runner := &localProcessRunner{
 		cmd:                 command,
 		terminalResultReady: make(chan struct{}),
@@ -77,12 +74,8 @@ func TestUnexpectedSupervisorListenerFailureClosesProcessContainment(
 	defer cancel()
 	endpoint := filepath.Join(t.TempDir(), "failed-listener.sock")
 	listener, err := localipc.Listen(ctx, endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, listener.Close())
 	defer localipc.Cleanup(endpoint)
 
 	shutdown := make(chan struct{})
@@ -125,12 +118,8 @@ func TestStorageExhaustionClosesProcessBeforeTerminalReadiness(t *testing.T) {
 	t.Parallel()
 
 	command := exec.Command("/bin/sh", "-c", "sleep 30")
-	if err := setupProcessCommand(command); err != nil {
-		t.Fatal(err)
-	}
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, setupProcessCommand(command))
+	require.NoError(t, command.Start())
 	runner := &localProcessRunner{
 		cmd:                 command,
 		terminalResultReady: make(chan struct{}),
@@ -142,9 +131,7 @@ func TestStorageExhaustionClosesProcessBeforeTerminalReadiness(t *testing.T) {
 			_ = command.Wait()
 		}
 	})
-	if err := afterStartProcessCommand(runner); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, afterStartProcessCommand(runner))
 	state := &runnerServerState{prepared: runner}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -160,8 +147,6 @@ func TestStorageExhaustionClosesProcessBeforeTerminalReadiness(t *testing.T) {
 	if response := state.status(ctx); response.ErrorCode != runnerErrorStorageExhaustionReady {
 		t.Fatalf("storage-ready status = %+v", response)
 	}
-	if err := releaseProcessCommand(ctx, runner); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, releaseProcessCommand(ctx, runner))
 	released = true
 }

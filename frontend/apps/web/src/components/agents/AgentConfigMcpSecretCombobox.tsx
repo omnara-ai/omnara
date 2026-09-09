@@ -108,9 +108,7 @@ export function AgentConfigMcpSecretCombobox({
                 <span className="flex min-w-0 flex-col items-start">
                   <span className="truncate">{action.label}</span>
                   {action.warning && (
-                    <span className="truncate text-xs text-amber-600 dark:text-amber-500">
-                      {action.warning}
-                    </span>
+                    <span className="text-warning truncate text-xs">{action.warning}</span>
                   )}
                 </span>
               </button>

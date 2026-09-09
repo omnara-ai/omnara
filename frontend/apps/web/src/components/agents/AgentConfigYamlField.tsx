@@ -25,13 +25,13 @@ function AgentConfigYamlEditorFallback({
     <div
       id={id}
       className={cn(
-        'border-input bg-background flex h-[28rem] items-center justify-center overflow-hidden rounded-md border text-xs',
+        'border-input bg-card type-code rounded-control flex h-[28rem] items-center justify-center overflow-hidden border',
         className,
       )}
       role="status"
       aria-live="polite"
     >
-      <Spinner className="text-muted-foreground h-6 w-6" />
+      <Spinner className="text-muted-foreground size-6" />
       <span className="sr-only">Loading YAML editor</span>
     </div>
   )

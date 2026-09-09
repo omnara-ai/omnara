@@ -25,7 +25,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 var processToolNames = []string{
@@ -77,7 +79,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 		project.adminToken,
 		http.StatusCreated,
 	)
-	secretID := secret["id"].(string)
+	secretID := testutil.RequireType[string](t, secret["id"])
 	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv}, "|")
 	missingCwd := "/work/missing-" + nonce
 	machine := project.bootstrapDockerMachine(t, ctx, "deterministic-byo-machine")
@@ -439,7 +441,11 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 		default:
 		}
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`, projectUUID, agentUUID, "DAEMON_E2E_DONE_"+nonce).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`,
+			projectUUID, agentUUID, "DAEMON_E2E_DONE_"+nonce,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -448,11 +454,17 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			return true, ""
 		}
 		var wakeups, locks, inputs int
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups)
 		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
 			Scan(&locks)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID,
+		).
 			Scan(&inputs)
 		var toolStates, interactionStates, processStates string
 		_ = env.db.QueryRow(ctx, `
@@ -461,12 +473,24 @@ FROM tool_call_read_projection call
 WHERE call.project_id = $1 AND call.agent_id = $2
 `, projectUUID, agentUUID).
 			Scan(&toolStates)
-		_ = env.db.QueryRow(ctx, `SELECT coalesce(string_agg(interaction_kind || ':' || state, ',' ORDER BY created_at), '') FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT coalesce(string_agg(interaction_kind || ':' || state, ',' ORDER BY created_at), '') FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&interactionStates)
-		_ = env.db.QueryRow(ctx, `SELECT coalesce(string_agg(state || ':granted=' || (execution_granted_at IS NOT NULL)::text, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT coalesce(string_agg(state || ':granted=' || (execution_granted_at IS NOT NULL)::text, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&processStates)
 		var processDetails string
-		_ = env.db.QueryRow(ctx, `SELECT coalesce(string_agg(command || ':timeout=' || timeout_seconds::text || ':shell=' || shell_selector, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT coalesce(string_agg(command || ':timeout=' || timeout_seconds::text || ':shell=' || shell_selector, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&processDetails)
 		return false, fmt.Sprintf(
 			"assistant token missing requests=%d wakeups=%d locks=%d inputs=%d tools=%s interactions=%s processes=%s processDetails=%s api=%s worker=%s daemon=%s",
@@ -500,7 +524,11 @@ WHERE call.project_id = $1 AND call.agent_id = $2
 			Scan(&locks); err != nil {
 			return false, err.Error()
 		}
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups); err != nil {
 			return false, err.Error()
 		}
@@ -1466,9 +1494,7 @@ func assertServiceE2EEffectOnce(
 ) {
 	t.Helper()
 	body, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if string(body) != "x" {
 		t.Fatalf(
 			"accepted process external effect = %q, want exactly one x",
@@ -1501,16 +1527,14 @@ func assertServiceE2EFreshWork(
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	var total, exited, unknown, granted int
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*),
        count(*) FILTER (WHERE state = 'exited'),
        count(*) FILTER (WHERE state = 'unknown'),
        count(*) FILTER (WHERE execution_granted_at IS NOT NULL)
 FROM processes
 WHERE project_id = $1 AND agent_id = $2
-`, projectUUID, agentUUID).Scan(&total, &exited, &unknown, &granted); err != nil {
-		t.Fatal(err)
-	}
+`, projectUUID, agentUUID).Scan(&total, &exited, &unknown, &granted))
 	if total != 2 || exited != 1 || unknown != 1 || granted != 2 {
 		t.Fatalf(
 			"processes total=%d exited=%d unknown=%d granted=%d, want 2/1/1/2",
@@ -1550,13 +1574,11 @@ func assertServiceE2ESingleProcess(
 	)
 	var processCount int
 	var processState string
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(*), coalesce(min(state), '')
 FROM processes
 WHERE project_id = $1 AND agent_id = $2
-`, projectUUID, agentUUID).Scan(&processCount, &processState); err != nil {
-		t.Fatal(err)
-	}
+`, projectUUID, agentUUID).Scan(&processCount, &processState))
 	if processCount != 1 || processState != wantState {
 		t.Fatalf(
 			"recovery process rows = %d state=%q, want one %s",
@@ -1586,7 +1608,7 @@ func assertServiceE2EProcessToolResult(
 	)
 	var resultCount int
 	var resultJSON, resultOutcome string
-	if err := env.db.QueryRow(ctx, `
+	require.NoError(t, env.db.QueryRow(ctx, `
 SELECT count(DISTINCT result.id),
        coalesce(min(block.structured_data::text), ''),
        coalesce(min(result.outcome), '')
@@ -1602,9 +1624,7 @@ WHERE tool_call.project_id = $1
   AND tool_call.agent_id = $2
   AND tool_call.provider_call_id = $3
 `, projectUUID, agentUUID, providerCallID).
-		Scan(&resultCount, &resultJSON, &resultOutcome); err != nil {
-		t.Fatal(err)
-	}
+		Scan(&resultCount, &resultJSON, &resultOutcome))
 	if resultCount != 1 {
 		t.Fatalf(
 			"tool call %q result rows = %d, want 1",
@@ -1715,7 +1735,11 @@ type serviceBYOMachine struct {
 	workdir     string
 }
 
-func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.Context, seed string) serviceBYOMachine {
+func (p *deterministicProject) bootstrapDockerMachine(
+	t *testing.T,
+	ctx context.Context,
+	seed string,
+) serviceBYOMachine {
 	t.Helper()
 	machineName := seed + " machine"
 	machine := p.env.requestJSON(
@@ -1728,7 +1752,7 @@ func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.C
 		p.adminToken,
 		http.StatusCreated,
 	)
-	machineID := machine["id"].(string)
+	machineID := testutil.RequireType[string](t, machine["id"])
 	tokenResponse := p.env.requestBrowserJSON(
 		t,
 		ctx,
@@ -1740,7 +1764,7 @@ func (p deterministicProject) bootstrapDockerMachine(t *testing.T, ctx context.C
 		p.adminCSRF,
 		http.StatusCreated,
 	)
-	token := tokenResponse["token"].(string)
+	token := testutil.RequireType[string](t, tokenResponse["token"])
 	p.env.requestJSON(
 		t,
 		ctx,
@@ -1818,17 +1842,17 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachine(
 		http.MethodPost,
 		p.projectPath+"/agent-profiles/"+p.agentID+"/config",
 		map[string]any{
-			"config":                     config["id"].(string),
+			"config":                     testutil.RequireType[string](t, config["id"]),
 			"expected_current_config_id": p.configID,
 		},
 		"idem-"+seed+"-config-"+hex.EncodeToString(sum[:8]),
 		p.adminToken,
 		http.StatusOK,
 	)
-	p.configID = updated["current_config"].(map[string]any)["id"].(string)
+	p.configID = testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, updated["current_config"])["id"])
 }
 
-func (p deterministicProject) startPermissionAutoApprover(t *testing.T, ctx context.Context, agentID string) {
+func (p *deterministicProject) startPermissionAutoApprover(t *testing.T, ctx context.Context, agentID string) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -1870,7 +1894,7 @@ func (p deterministicProject) startPermissionAutoApprover(t *testing.T, ctx cont
 	})
 }
 
-func (p deterministicProject) listOpenInteractions(ctx context.Context, agentID string) ([]any, bool) {
+func (p *deterministicProject) listOpenInteractions(ctx context.Context, agentID string) ([]any, bool) {
 	req, err := p.env.newAPIRequest(ctx, http.MethodGet, p.projectPath+"/agents/"+agentID+"/interactions?state=open", nil)
 	if err != nil {
 		return nil, false
@@ -1893,7 +1917,7 @@ func (p deterministicProject) listOpenInteractions(ctx context.Context, agentID 
 	return items, ok
 }
 
-func (p deterministicProject) resolvePermissionInteraction(ctx context.Context, agentID, interactionID string) bool {
+func (p *deterministicProject) resolvePermissionInteraction(ctx context.Context, agentID, interactionID string) bool {
 	body := bytes.NewReader(mustJSON(map[string]any{
 		"answers": []map[string]any{{
 			"option_indices": []int{toolpermission.AllowOptionIndex},
@@ -1925,7 +1949,10 @@ func waitForDaemonRuntime(t *testing.T, ctx context.Context, env *serviceE2EEnvi
 	machineUUID := mustDecodeServiceE2EPublicID(t, publicid.KindMachine, machineID)
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM daemon_runtimes WHERE org_id = $1 AND machine_id = $2 AND state = 'active'`, orgUUID, machineUUID).
+		err := env.db.QueryRow(
+			ctx, `SELECT count(*) FROM daemon_runtimes WHERE org_id = $1 AND machine_id = $2 AND state = 'active'`,
+			orgUUID, machineUUID,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -1993,7 +2020,11 @@ func assertDockerDaemonProcessEvidence(
 	}
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var processCount, terminal int
-		if err := env.db.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE state IN ('exited','failed','killed','unknown')) FROM processes WHERE project_id = $1 AND agent_id = $2 AND machine_id = $3 AND execution_granted_at IS NOT NULL`, projectUUID, agentUUID, machineUUID).
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*), count(*) FILTER (WHERE state IN ('exited','failed','killed','unknown')) FROM processes WHERE project_id = $1 AND agent_id = $2 AND machine_id = $3 AND execution_granted_at IS NOT NULL`,
+			projectUUID, agentUUID, machineUUID,
+		).
 			Scan(&processCount, &terminal); err != nil {
 			return false, err.Error()
 		}
@@ -2048,7 +2079,11 @@ WHERE project_id = $1
 		var missing []string
 		for _, kind := range []string{"write", "interrupt", "terminate", "read"} {
 			var count int
-			err := env.db.QueryRow(ctx, `SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2 AND action_kind = $3 AND state = 'applied'`, projectUUID, agentUUID, kind).
+			err := env.db.QueryRow(
+				ctx,
+				`SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2 AND action_kind = $3 AND state = 'applied'`,
+				projectUUID, agentUUID, kind,
+			).
 				Scan(&count)
 			if err != nil {
 				return false, fmt.Sprintf("query process action %s evidence: %v", kind, err)
@@ -2118,7 +2153,11 @@ WHERE tc.project_id = $1
 	}
 	for name, want := range expectedApprovals {
 		var got int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_interaction_read_projection si JOIN tool_call_read_projection tc ON tc.agent_id = si.agent_id AND tc.id = si.tool_call_id WHERE si.project_id = $1 AND si.agent_id = $2 AND si.interaction_kind = 'permission' AND si.state = 'resolved' AND si.resolution->'answers'->0->'option_indices'->>0 = '0' AND tc.name = $3`, projectUUID, agentUUID, name).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_interaction_read_projection si JOIN tool_call_read_projection tc ON tc.agent_id = si.agent_id AND tc.id = si.tool_call_id WHERE si.project_id = $1 AND si.agent_id = $2 AND si.interaction_kind = 'permission' AND si.state = 'resolved' AND si.resolution->'answers'->0->'option_indices'->>0 = '0' AND tc.name = $3`,
+			projectUUID, agentUUID, name,
+		).
 			Scan(&got)
 		if err != nil {
 			t.Fatalf("query permission approval evidence for %s: %v", name, err)
@@ -2128,7 +2167,10 @@ WHERE tc.project_id = $1
 		}
 	}
 	var resolved int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND state = 'resolved'`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx, `SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND state = 'resolved'`,
+		projectUUID, agentUUID,
+	).
 		Scan(&resolved); err != nil {
 		t.Fatalf("query resolved inputs: %v", err)
 	}
@@ -2423,7 +2465,10 @@ func fakeModelWaitForProcessGrantedToDaemon(
 		default:
 		}
 		var state string
-		err := env.db.QueryRow(ctx, `SELECT state FROM processes WHERE project_id = $1 AND agent_id = $2 AND id = $3`, projectUUID, agentUUID, processUUID).
+		err := env.db.QueryRow(
+			ctx, `SELECT state FROM processes WHERE project_id = $1 AND agent_id = $2 AND id = $3`, projectUUID,
+			agentUUID, processUUID,
+		).
 			Scan(&state)
 		if err != nil {
 			last = err.Error()

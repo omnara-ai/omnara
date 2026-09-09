@@ -5,22 +5,23 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -160,34 +161,11 @@ func userPrincipal(id ID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: id}
 }
 
-func isForeignKeyViolation(err error) bool {
-	return storeutil.IsForeignKeyViolation(err)
-}
-
 func normalizedJSON(value json.RawMessage) json.RawMessage {
 	if len(value) == 0 {
 		return json.RawMessage(`{}`)
 	}
 	return value
-}
-
-func normalizedJSONArray(value json.RawMessage) json.RawMessage {
-	if len(value) == 0 {
-		return json.RawMessage(`[]`)
-	}
-	return value
-}
-
-func normalizedJSONObject(value json.RawMessage, fieldName string) (json.RawMessage, error) {
-	value = normalizedJSON(value)
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(value, &object); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", fieldName, err)
-	}
-	if object == nil {
-		return nil, fmt.Errorf("%s must be a JSON object", fieldName)
-	}
-	return value, nil
 }
 
 func marshalJSON(value any) (json.RawMessage, error) {
@@ -209,10 +187,6 @@ func assertJSONRawEqual(t *testing.T, got json.RawMessage, want string) {
 	}
 }
 
-func intPtr(value int) *int {
-	return &value
-}
-
 type mergingMachinePoolProviders struct{}
 
 func (mergingMachinePoolProviders) ResolveMachineProviderOptions(
@@ -221,20 +195,7 @@ func (mergingMachinePoolProviders) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	var merged map[string]json.RawMessage
-	for _, overlay := range []map[string]json.RawMessage{
-		defaultOptions,
-		projectOptions,
-		agentOptions,
-	} {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged, nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (mergingMachinePoolProviders) ValidatePool(
@@ -312,14 +273,17 @@ func requireMachineProvisioningForTest(
 	want executionstore.MachineProvisioningConfig,
 ) {
 	t.Helper()
-	if !sameIntPtr(got.CPU, want.CPU) {
-		t.Fatalf("machine provisioning cpu = %v, want %v", got.CPU, want.CPU)
+	if diff := cmp.Diff(want.CPU, got.CPU); diff != "" {
+		t.Fatalf("machine provisioning cpu (-want +got):\n%s", diff)
 	}
-	if !sameIntPtr(got.MemoryMB, want.MemoryMB) {
-		t.Fatalf("machine provisioning memory_mb = %v, want %v", got.MemoryMB, want.MemoryMB)
+	if diff := cmp.Diff(want.MemoryMB, got.MemoryMB); diff != "" {
+		t.Fatalf("machine provisioning memory_mb (-want +got):\n%s", diff)
 	}
 	if len(got.ProviderOptions) != len(want.ProviderOptions) {
-		t.Fatalf("machine provisioning provider_options = %+v, want %+v", got.ProviderOptions, want.ProviderOptions)
+		t.Fatalf(
+			"machine provisioning provider_options keys = %v, want %v",
+			slices.Sorted(maps.Keys(got.ProviderOptions)), slices.Sorted(maps.Keys(want.ProviderOptions)),
+		)
 	}
 	for key, wantValue := range want.ProviderOptions {
 		if !sameJSON(got.ProviderOptions[key], wantValue) {
@@ -338,11 +302,8 @@ func requireMachineEnvironmentForTest(
 	got, want executionstore.MachineEnvironment,
 ) {
 	t.Helper()
-	if !maps.Equal(got.Env, want.Env) {
-		t.Fatalf("machine environment env = %+v, want %+v", got.Env, want.Env)
-	}
-	if !maps.Equal(got.SecretEnv, want.SecretEnv) {
-		t.Fatalf("machine environment secret_env = %+v, want %+v", got.SecretEnv, want.SecretEnv)
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Fatalf("machine environment (-want +got):\n%s", diff)
 	}
 }
 
@@ -425,16 +386,8 @@ func permissionRequestForStorageTest(t *testing.T, toolName string) json.RawMess
 	return raw
 }
 
-func randomTokenPart(size int) (string, error) {
-	return tokenutil.RandomHex(size)
-}
-
 func newSecretUUID() (ID, error) {
 	return uuid.NewV7()
-}
-
-func artifactObjectKey(agentID, artifactID ID) string {
-	return "artifacts/" + agentID.String() + "/" + artifactID.String()
 }
 
 func publicResourceID(kind publicid.Kind, id ID) string {

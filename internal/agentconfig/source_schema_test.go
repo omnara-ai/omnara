@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseSourceRejectsOversizedMachineResources(t *testing.T) {
@@ -115,9 +116,7 @@ machine_sources:
   - machine_pool_name: %q
 `, decomposed, "Cafe\u0301", "Build Cafe\u0301")
 	parsed, err := ParseSource(SourceFormatYAML, []byte(source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Model.ProviderConfig != strings.Repeat("é", 64) ||
 		parsed.Model.Name != "Café" ||
 		parsed.MachineSources[0].MachinePoolName != "Build Café" {

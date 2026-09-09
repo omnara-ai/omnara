@@ -10,7 +10,11 @@ import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar
 import { TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
-import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import {
+  resourceSortOptions,
+  useListToolbarVisibility,
+  useResourceList,
+} from '@/hooks/use-resource-list'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -31,7 +35,7 @@ export function AgentProfilesSection({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = list.isFiltering || paged.pagination.page > 0 || paged.pagination.canNext
+  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const createAgent = useCreateAgent(orgId, projectId)
   const { data: webConfig } = useWebConfig()
   const navigate = useNavigate()
@@ -77,7 +81,7 @@ export function AgentProfilesSection({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-2xl font-bold tracking-tight">Agent profiles</h2>
+          <h2 className="type-title">Agent profiles</h2>
           {canManage && (
             <Button asChild size="sm">
               <Link to="/projects/$projectId/agents/new" params={{ projectId }}>

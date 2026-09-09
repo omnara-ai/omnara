@@ -10,11 +10,11 @@ import (
 
 func ExecuteToolCallCommand[T any](
 	ctx context.Context,
-	store *storage.Store,
+	store *executionstore.Store,
 	input executionstore.ExecuteToolCallInput,
 	command executionstore.ToolCallCommand,
 ) (T, error) {
-	execution, err := store.Execution().ExecuteToolCall(
+	execution, err := store.ExecuteToolCall(
 		ctx,
 		input,
 		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
@@ -41,7 +41,7 @@ func StartProcessForToolCall(
 ) (executionstore.ProcessRecord, error) {
 	return ExecuteToolCallCommand[executionstore.ProcessRecord](
 		ctx,
-		store,
+		store.Execution(),
 		executionInput,
 		executionstore.StartProcessForToolCall(processInput),
 	)
@@ -55,7 +55,7 @@ func CreateProcessActionForToolCall(
 ) (executionstore.ProcessActionRecord, error) {
 	return ExecuteToolCallCommand[executionstore.ProcessActionRecord](
 		ctx,
-		store,
+		store.Execution(),
 		executionInput,
 		executionstore.CreateProcessActionForToolCall(actionInput),
 	)

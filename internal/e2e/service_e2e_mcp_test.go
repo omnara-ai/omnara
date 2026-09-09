@@ -112,7 +112,11 @@ WHERE agent.project_id = $1
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, modelText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -264,7 +268,11 @@ func TestServiceE2EMCPToolCall(t *testing.T) {
 
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, modelText).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
 			Scan(&count)
 		if err != nil {
 			return false, err.Error()
@@ -393,19 +401,30 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 		t.Helper()
 		waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 			var outputs, locks, wakeups int
-			if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`, projectUUID, agentUUID, text).
+			if err := env.db.QueryRow(
+				ctx,
+				`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+				projectUUID, agentUUID, text,
+			).
 				Scan(&outputs); err != nil {
 				return false, err.Error()
 			}
 			if err := env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).Scan(&locks); err != nil {
 				return false, err.Error()
 			}
-			if err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+			if err := env.db.QueryRow(
+				ctx,
+				`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+				projectUUID, agentUUID,
+			).
 				Scan(&wakeups); err != nil {
 				return false, err.Error()
 			}
 			return outputs == 1 && locks == 0 && wakeups == 0,
-				fmt.Sprintf("output=%q count=%d locks=%d wakeups=%d worker_logs=%s", text, outputs, locks, wakeups, worker.logExcerpt())
+				fmt.Sprintf(
+					"output=%q count=%d locks=%d wakeups=%d worker_logs=%s", text, outputs, locks, wakeups,
+					worker.logExcerpt(),
+				)
 		})
 	}
 
@@ -455,7 +474,11 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 		t.Fatalf("OpenAI server saw %d requests, want 4", got)
 	}
 	var toolCalls int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM tool_call_read_projection WHERE project_id = $1 AND agent_id = $2 AND name = 'mcp__docs__greet' AND type = 'mcp' AND state = 'completed'`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT count(*) FROM tool_call_read_projection WHERE project_id = $1 AND agent_id = $2 AND name = 'mcp__docs__greet' AND type = 'mcp' AND state = 'completed'`,
+		projectUUID, agentUUID,
+	).
 		Scan(&toolCalls); err != nil {
 		t.Fatalf("query live MCP tool calls: %v", err)
 	}
@@ -464,12 +487,19 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 	}
 	var state executionstore.MCPConnectionState
 	var protocolVersion, sessionID, capabilities, serverInfo, tools string
-	if err := env.db.QueryRow(ctx, `SELECT connection.state, connection.protocol_version, connection.mcp_session_id, connection.server_capabilities::text, connection.server_info::text, connection.tools_snapshot::text FROM agent_mcp_connections connection JOIN agents agent ON agent.id = connection.agent_id WHERE agent.project_id = $1 AND connection.agent_id = $2 AND connection.server_key = 'docs'`, projectUUID, agentUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT connection.state, connection.protocol_version, connection.mcp_session_id, connection.server_capabilities::text, connection.server_info::text, connection.tools_snapshot::text FROM agent_mcp_connections connection JOIN agents agent ON agent.id = connection.agent_id WHERE agent.project_id = $1 AND connection.agent_id = $2 AND connection.server_key = 'docs'`,
+		projectUUID, agentUUID,
+	).
 		Scan(&state, &protocolVersion, &sessionID, &capabilities, &serverInfo, &tools); err != nil {
 		t.Fatalf("query removed MCP connection: %v", err)
 	}
 	if state != executionstore.MCPConnectionStateExpired || protocolVersion != "" || sessionID != "" ||
 		capabilities != "{}" || serverInfo != "{}" || tools != "[]" {
-		t.Fatalf("removed MCP connection state=%q protocol=%q session=%q capabilities=%s server_info=%s tools=%s", state, protocolVersion, sessionID, capabilities, serverInfo, tools)
+		t.Fatalf(
+			"removed MCP connection state=%q protocol=%q session=%q capabilities=%s server_info=%s tools=%s", state,
+			protocolVersion, sessionID, capabilities, serverInfo, tools,
+		)
 	}
 }

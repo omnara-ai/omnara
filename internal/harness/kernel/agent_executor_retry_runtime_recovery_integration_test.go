@@ -100,7 +100,9 @@ func TestAgentExecutorRetriesInterruptedModelContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("max event sequence: %v", err)
 	}
-	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(ctx, kernelTestProjectID, agentID, watermark)
+	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
+		ctx, kernelTestProjectID, agentID, watermark,
+	)
 	if err != nil {
 		t.Fatalf("capture config snapshot: %v", err)
 	}

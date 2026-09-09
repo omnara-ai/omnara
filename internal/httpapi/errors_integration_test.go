@@ -27,6 +27,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	}
 
 	t.Run("unauthorized", func(t *testing.T) {
+		t.Parallel()
 		response := requestJSONWithHeaders(
 			t,
 			handler,
@@ -41,6 +42,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	})
 
 	t.Run("route not found", func(t *testing.T) {
+		t.Parallel()
 		response := requestJSONWithHeaders(
 			t,
 			handler,
@@ -55,6 +57,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	})
 
 	t.Run("oversized body", func(t *testing.T) {
+		t.Parallel()
 		body := `{"padding":"` + strings.Repeat("a", int(maxRequestBodyBytes)) + `"}`
 		response := requestJSONWithHeaders(
 			t,
@@ -70,6 +73,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	})
 
 	t.Run("resource not found", func(t *testing.T) {
+		t.Parallel()
 		response := requestJSONWithHeaders(
 			t,
 			handler,
@@ -86,6 +90,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	// Method mismatches on known paths surface as 404: the route identity
 	// includes the method, so an undeclared method is an unknown route.
 	t.Run("method mismatch", func(t *testing.T) {
+		t.Parallel()
 		response := requestJSONWithHeaders(
 			t,
 			handler,
@@ -100,6 +105,7 @@ func TestErrorResponseCodes(t *testing.T) {
 	})
 
 	t.Run("validation failed", func(t *testing.T) {
+		t.Parallel()
 		response := requestJSONWithHeaders(
 			t,
 			handler,

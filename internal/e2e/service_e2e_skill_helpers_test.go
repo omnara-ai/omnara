@@ -16,12 +16,15 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func buildSkillTarGz(t *testing.T, skillName, canaryToken string) []byte {
 	t.Helper()
 	files := map[string]string{
-		skillName + "/SKILL.md":   "---\nname: " + skillName + "\ndescription: Service E2E canary skill that drops a CANARY.txt file.\n---\n\n# " + skillName + "\n\nThis skill exists only to be installed; tests verify CANARY.txt is present.\n",
+		skillName +
+			"/SKILL.md": "---\nname: " + skillName + "\ndescription: Service E2E canary skill that drops a CANARY.txt file.\n---\n\n# " + skillName + "\n\nThis skill exists only to be installed; tests verify CANARY.txt is present.\n",
 		skillName + "/CANARY.txt": canaryToken + "\n",
 	}
 	var buf bytes.Buffer
@@ -45,7 +48,7 @@ func buildSkillTarGz(t *testing.T, skillName, canaryToken string) []byte {
 	return buf.Bytes()
 }
 
-func (p deterministicProject) uploadProjectSkill(
+func (p *deterministicProject) uploadProjectSkill(
 	t *testing.T,
 	ctx context.Context,
 	idemSeed, skillName string,
@@ -151,10 +154,22 @@ func (p *deterministicProject) updateAgentProfileConfigWithMachineAndSkill(
 	}
 	sourceYAML := strings.Join(lines, "\n") + "\n"
 	sum := sha256.Sum256([]byte(sourceYAML))
-	config := p.env.requestJSON(t, ctx, http.MethodPost, p.projectPath+"/agent-configs", map[string]any{"source_format": "yaml", "source": sourceYAML}, "", p.adminToken, http.StatusCreated)
-	updated := p.env.requestJSON(t, ctx, http.MethodPost, p.projectPath+"/agent-profiles/"+p.agentID+"/config", map[string]any{
-		"config":                     config["id"].(string),
-		"expected_current_config_id": p.configID,
-	}, "idem-"+seed+"-config-"+hex.EncodeToString(sum[:8]), p.adminToken, http.StatusOK)
-	p.configID = updated["current_config"].(map[string]any)["id"].(string)
+	config := p.env.requestJSON(
+		t, ctx, http.MethodPost, p.projectPath+"/agent-configs",
+		map[string]any{"source_format": "yaml", "source": sourceYAML}, "", p.adminToken, http.StatusCreated,
+	)
+	updated := p.env.requestJSON(
+		t,
+		ctx,
+		http.MethodPost,
+		p.projectPath+"/agent-profiles/"+p.agentID+"/config",
+		map[string]any{
+			"config":                     testutil.RequireType[string](t, config["id"]),
+			"expected_current_config_id": p.configID,
+		},
+		"idem-"+seed+"-config-"+hex.EncodeToString(sum[:8]),
+		p.adminToken,
+		http.StatusOK,
+	)
+	p.configID = testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, updated["current_config"])["id"])
 }

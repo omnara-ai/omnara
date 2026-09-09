@@ -1,6 +1,6 @@
 module github.com/omnara-ai/omnara/tools/goose
 
-go 1.26.6
+go 1.27.1
 
 tool github.com/pressly/goose/v3/cmd/goose
 

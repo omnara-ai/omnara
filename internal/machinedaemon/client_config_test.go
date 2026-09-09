@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewRejectsAllRedirectsWithoutMutatingProvidedClient(t *testing.T) {
@@ -56,9 +58,7 @@ func TestRegisterSendsEmptyProcessInventoryAsArray(t *testing.T) {
 	var request struct {
 		Processes json.RawMessage `json:"processes"`
 	}
-	if err := json.Unmarshal(<-requestBodies, &request); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(<-requestBodies, &request))
 	var processes []ProcessReconciliationClaim
 	if err := json.Unmarshal(request.Processes, &processes); err != nil {
 		t.Fatalf("registration processes are not an array: %s", request.Processes)

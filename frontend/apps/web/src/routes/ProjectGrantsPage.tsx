@@ -12,7 +12,7 @@ export function ProjectGrantsPage() {
   if (!project) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-2">
-        <h1 className="text-xl font-semibold tracking-tight">Project not found</h1>
+        <h1 className="type-title">Project not found</h1>
         <p className="text-muted-foreground text-sm">
           This project doesn&rsquo;t exist or you don&rsquo;t have access to it.
         </p>

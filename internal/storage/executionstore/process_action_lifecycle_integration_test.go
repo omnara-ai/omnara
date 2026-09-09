@@ -104,7 +104,9 @@ func TestQueuedProcessActionFailureSkipsCompletedToolCall(t *testing.T) {
 	if len(rows) != 0 {
 		t.Fatalf("marked queued actions = %d, want none after tool call completed", len(rows))
 	}
-	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get process action: %v", err)
 	}
@@ -476,7 +478,9 @@ func TestAcceptedProcessActionUnknownSkipsCompletedToolCall(t *testing.T) {
 	if len(processRows) != 0 {
 		t.Fatalf("process unknown rows = %d, want none after tool call completed", len(processRows))
 	}
-	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, actionToolCallID)
+	current, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, actionToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get process action: %v", err)
 	}
@@ -1072,7 +1076,9 @@ func TestProcessCompletionKeepsTerminalReadsAvailable(t *testing.T) {
 		acceptedUpdated.StateReasonCode != "" {
 		t.Fatalf("accepted observation after process completion = found %v %+v", found, acceptedUpdated)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, readToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, readToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get queued observation after process completion: %v", err)
 	}
@@ -1198,7 +1204,9 @@ func TestDaemonHeartbeatKeepsQueuedTerminalRead(t *testing.T) {
 	); err != nil {
 		t.Fatalf("heartbeat daemon runtime: %v", err)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, readToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, readToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get terminal read action: %v", err)
 	}
@@ -1430,7 +1438,9 @@ func TestAcceptedReadRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete daemon process: %v", err)
 	}
-	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(ctx, testProjectID, fixture.AgentID, readToolCallID)
+	updated, found, err := fixture.Store.Execution().GetProcessActionByToolCall(
+		ctx, testProjectID, fixture.AgentID, readToolCallID,
+	)
 	if err != nil {
 		t.Fatalf("get resolved read action: %v", err)
 	}
@@ -1674,7 +1684,11 @@ func TestDaemonProcessActionsGrantOneFIFOActionAtATime(t *testing.T) {
 	markProcessStartedForTest(t, ctx, fixture, process, fixture.Now.Add(1500*time.Millisecond))
 
 	var actions []executionstore.ProcessActionRecord
-	for i, kind := range []executionstore.ProcessActionKind{executionstore.ProcessActionKindWrite, executionstore.ProcessActionKindWrite, executionstore.ProcessActionKindWrite} {
+	for i, kind := range []executionstore.ProcessActionKind{
+		executionstore.ProcessActionKindWrite,
+		executionstore.ProcessActionKindWrite,
+		executionstore.ProcessActionKindWrite,
+	} {
 		payload := json.RawMessage(`{}`)
 		if kind == executionstore.ProcessActionKindWrite {
 			payload = json.RawMessage(`{"data":"chunk\n"}`)
@@ -2809,6 +2823,7 @@ func TestDuplicateDaemonProcessActionReportReplaysTerminalState(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newProcessDaemonFixture(
 				t,
@@ -3533,7 +3548,9 @@ func TestProcessAndActionReplayByToolCall(t *testing.T) {
 	}
 	conflictingProcessInput := processInput
 	conflictingProcessInput.AgentMachineBindingID = otherBinding.ID
-	if _, err := startProcessForTest(ctx, fixture.Store, processTransaction, conflictingProcessInput); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+	if _, err := startProcessForTest(
+		ctx, fixture.Store, processTransaction, conflictingProcessInput,
+	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("replay process against different binding error = %v, want ErrIdempotencyConflict", err)
 	}
 

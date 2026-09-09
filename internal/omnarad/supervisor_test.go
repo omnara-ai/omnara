@@ -16,14 +16,13 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 	home := t.TempDir()
 	args := filepath.Join(t.TempDir(), "args")
-	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SUPERVISOR_ARGS\"\nexit 0\n")
 	t.Setenv("SUPERVISOR_ARGS", args)
 	err := runSupervisorLoop(
@@ -40,9 +39,7 @@ func TestSupervisorStopsAfterCleanExit(t *testing.T) {
 func TestSupervisorRestartsCrash(t *testing.T) {
 	home := t.TempDir()
 	count := filepath.Join(t.TempDir(), "count")
-	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
 printf x >> "$SUPERVISOR_COUNT"
 [ "$(wc -c < "$SUPERVISOR_COUNT")" -gt 1 ] && exit 0
@@ -63,9 +60,7 @@ exit 7
 func TestSupervisorSignalsRestartAndStop(t *testing.T) {
 	home := t.TempDir()
 	environment := filepath.Join(t.TempDir(), "environment")
-	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
 printf '%s\n' "${OMNARA_RUNNER_PATH-unset}" >> "$SUPERVISOR_ENVIRONMENT"
 printf 'started\n'
@@ -119,9 +114,7 @@ func TestTerminateSupervisorChildKillsAfterTimeout(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSupervisorChildSignalHelper$")
 	cmd.Stdout = output
 	cmd.Env = append(os.Environ(), "OMNARA_SUPERVISOR_CHILD_SIGNAL_HELPER=1")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, cmd.Start())
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	waitForMarkerLine(t, output.lines, "signal-helper-ready")
@@ -139,24 +132,16 @@ func TestTerminateSupervisorChildKillsAfterTimeout(t *testing.T) {
 func TestRunForegroundSupervisorOwnsExistingLock(t *testing.T) {
 	home := t.TempDir()
 	ready := filepath.Join(t.TempDir(), "ready")
-	if err := syscall.Mkfifo(ready, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Mkfifo(ready, 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
 : > "$SUPERVISOR_READY"
 trap 'exit 0' TERM
 while :; do sleep 1; done
 `)
 	installLock, err := localstore.TryAcquireLock(filepath.Join(home, installLockFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := installLock.Release(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, installLock.Release())
 	t.Setenv("SUPERVISOR_READY", ready)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -178,9 +163,7 @@ while :; do sleep 1; done
 		t.Fatal("supervised daemon did not start")
 	}
 	store, err := localstore.New(home)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	pid, held, err := localstore.InspectLock(store.DaemonLockPath())
 	if err != nil || !held || pid != os.Getpid() {
 		t.Fatalf("supervisor lock = pid %d held %t error %v", pid, held, err)
@@ -215,9 +198,7 @@ func TestRunForegroundSupervisorDoesNotRecreateMissingHome(t *testing.T) {
 func TestRunForegroundSupervisorRejectsInstallInProgress(t *testing.T) {
 	home := t.TempDir()
 	installLock, err := localstore.TryAcquireLock(filepath.Join(home, installLockFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = installLock.Release() }()
 	if err := runForegroundSupervisor(context.Background(), home, discardLogger()); err == nil ||
 		!strings.Contains(err.Error(), "being modified") {
@@ -240,23 +221,15 @@ func TestSupervisorChildRejectsInvalidParentLock(t *testing.T) {
 		t.Fatalf("supervisor child without lock = code %d stdout %q stderr %q", code, stdout.String(), stderr.String())
 	}
 	store, err := localstore.New(home)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lock, err := localstore.TryAcquireLock(store.DaemonLockPath())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Release() }()
-	if err := lock.WritePID(os.Getpid()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, lock.WritePID(os.Getpid()))
 	if err := runSupervisorChild(context.Background(), discardLogger()); err == nil {
 		t.Fatal("supervisor child with wrong parent PID succeeded")
 	}
-	if err := lock.Release(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, lock.Release())
 	if err := runSupervisorChild(context.Background(), discardLogger()); err == nil {
 		t.Fatal("supervisor child with unlocked lock succeeded")
 	}
@@ -367,9 +340,7 @@ func TestTemporaryRestartReplacesNoServiceDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read daemon config before restart: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
 	runnerPath := filepath.Join(t.TempDir(), "runner-path")
 	writeTestExecutable(
 		t,
@@ -453,17 +424,11 @@ func TestLockOwnerHelper(t *testing.T) {
 		return
 	}
 	store, err := localstore.New(os.Getenv("OMNARA_HOME"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lock, err := localstore.TryAcquireLock(store.DaemonLockPath())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Release() }()
-	if err := lock.WritePID(os.Getpid()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, lock.WritePID(os.Getpid()))
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, daemonRestartSignal, syscall.SIGTERM)
 	defer signal.Stop(signals)

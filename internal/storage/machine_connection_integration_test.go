@@ -224,6 +224,7 @@ SELECT count(*) FROM machines WHERE org_id = $1 AND display_name = 'Invalid Proj
 func TestConnectBYOMachineSerializesWithScopeDeletion(t *testing.T) {
 	t.Parallel()
 	t.Run("connection wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
@@ -316,6 +317,7 @@ WHERE machine.org_id = $1 AND machine.id = $4
 	})
 
 	t.Run("deletion wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
@@ -394,6 +396,7 @@ SELECT (SELECT count(*)::integer
 	})
 
 	t.Run("organization deletion wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
@@ -448,7 +451,9 @@ SELECT (SELECT count(*)::integer
 		if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
 			t.Fatalf("delete organization before machine connection: %v", err)
 		}
-		if err := integrationdb.Await(t, connectDone, "rejected organization machine connection"); !errors.Is(err, storeerr.ErrNotFound) {
+		if err := integrationdb.Await(
+			t, connectDone, "rejected organization machine connection",
+		); !errors.Is(err, storeerr.ErrNotFound) {
 			t.Fatalf("machine connection after organization deletion error = %v, want not found", err)
 		}
 

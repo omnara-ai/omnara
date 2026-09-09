@@ -155,14 +155,17 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first steering input: %v", err)
 	}
-	second, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"second steering"}]`),
-		DeliveryMode:   "steering",
-		IdempotencyKey: "exact-opening-input-second",
-	})
+	second, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"second steering"}]`),
+			DeliveryMode:   "steering",
+			IdempotencyKey: "exact-opening-input-second",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create second steering input: %v", err)
 	}
@@ -182,7 +185,11 @@ func TestClaimNormalModelCallRequiresExactOpeningInputSet(t *testing.T) {
 		t.Fatalf("load agent for model context: %v", err)
 	}
 	var watermark int64
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT max(event.sequence) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = ANY($3::uuid[])`, testProjectID, fixture.AgentID, claim.Model.InputIDs).
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT max(event.sequence) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.agent_input_id = ANY($3::uuid[])`,
+		testProjectID, fixture.AgentID, claim.Model.InputIDs,
+	).
 		Scan(&watermark); err != nil {
 		t.Fatalf("load opening watermark: %v", err)
 	}
@@ -231,7 +238,11 @@ func TestCompletedToolResultWakeupClearsAfterLaterModelOutput(t *testing.T) {
 		t.Fatalf("load agent for continuation context: %v", err)
 	}
 	var openingInputID ID
-	if err := fixture.Store.pool.QueryRow(ctx, `SELECT event.agent_input_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND event.is_opening_event ORDER BY event.sequence LIMIT 1`, testProjectID, fixture.AgentID, turnID).
+	if err := fixture.Store.pool.QueryRow(
+		ctx,
+		`SELECT event.agent_input_id FROM agent_events event JOIN agents agent ON agent.id = event.agent_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND event.is_opening_event ORDER BY event.sequence LIMIT 1`,
+		testProjectID, fixture.AgentID, turnID,
+	).
 		Scan(&openingInputID); err != nil {
 		t.Fatalf("load opening input for continuation context: %v", err)
 	}
@@ -519,7 +530,8 @@ WHERE input.project_id = $1
 	if err != nil {
 		t.Fatalf("claim next work: %v", err)
 	}
-	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) || claim.Model.TurnID == interaction.TurnID {
+	if !found || claim.Kind != executionstore.AgentWorkModel || !claimedOpeningInputIDsEqual(claim, input.ID) ||
+		claim.Model.TurnID == interaction.TurnID {
 		t.Fatalf(
 			"claim found=%v claim=%+v, want new executable turn for input %s after stopped interaction turn %s",
 			found,
@@ -611,7 +623,9 @@ func TestPromotingQueuedInputDuringRetryBackoffAdvancesWakeup(t *testing.T) {
 		t.Fatalf("promote queued input during retry backoff: %v", err)
 	}
 	promotionFinishedAt := databaseStatementTime(t, ctx, fixture.Store)
-	if readyAt := agentWakeupReadyAt(t, ctx, fixture.Store, fixture.AgentID); readyAt.Before(promotionStartedAt) || readyAt.After(promotionFinishedAt) || !readyAt.Before(retryAt) {
+	if readyAt := agentWakeupReadyAt(
+		t, ctx, fixture.Store, fixture.AgentID,
+	); readyAt.Before(promotionStartedAt) || readyAt.After(promotionFinishedAt) || !readyAt.Before(retryAt) {
 		t.Fatalf(
 			"promoted steering wakeup = %s, want database time in [%s, %s] before retry %s",
 			readyAt,
@@ -668,7 +682,9 @@ func TestCancelDuringRetryBackoffAdvancesQueuedBacklogWakeup(t *testing.T) {
 		t.Fatalf("cancel result = %+v, want affected turn", result)
 	}
 	cancelFinishedAt := databaseStatementTime(t, ctx, fixture.Store)
-	if readyAt := agentWakeupReadyAt(t, ctx, fixture.Store, fixture.AgentID); readyAt.Before(result.Event.At) || readyAt.After(cancelFinishedAt) {
+	if readyAt := agentWakeupReadyAt(
+		t, ctx, fixture.Store, fixture.AgentID,
+	); readyAt.Before(result.Event.At) || readyAt.After(cancelFinishedAt) {
 		t.Fatalf(
 			"queued backlog wakeup after cancel = %s, want database time in [%s, %s]",
 			readyAt,

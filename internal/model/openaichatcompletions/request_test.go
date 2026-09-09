@@ -350,10 +350,14 @@ func TestAPIVariantOptionsReachProviderRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestBody, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read request body: %v", err)
+			t.Errorf("read request body: %v", err)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		if err := json.Unmarshal(requestBody, &sent); err != nil {
-			t.Fatalf("decode request body: %v body=%s", err, requestBody)
+			t.Errorf("decode request body: %v body=%s", err, requestBody)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+			return
 		}
 		responseBody := `{"id":"chatcmpl_extra","model":"gpt-test","choices":[` +
 			`{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`

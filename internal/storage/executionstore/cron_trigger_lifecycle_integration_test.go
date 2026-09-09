@@ -17,6 +17,7 @@ import (
 func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 	t.Parallel()
 	t.Run("creation wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "cron-create-wins")
 		actor := scopeDeletionActor(t, fixture)
@@ -82,6 +83,7 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 
 	for _, operation := range []string{"create", "enable"} {
 		t.Run("deletion wins "+operation, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "cron-delete-wins-"+operation)
 			actor := scopeDeletionActor(t, fixture)
@@ -144,7 +146,9 @@ func TestCronTriggerAdmissionSerializesWithProjectDeletion(t *testing.T) {
 			if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
 				t.Fatalf("delete project before cron trigger %s: %v", operation, err)
 			}
-			if err := integrationdb.Await(t, admissionDone, "rejected cron trigger "+operation); !errors.Is(err, storeerr.ErrNotFound) {
+			if err := integrationdb.Await(
+				t, admissionDone, "rejected cron trigger "+operation,
+			); !errors.Is(err, storeerr.ErrNotFound) {
 				t.Fatalf("cron trigger %s after deletion error = %v, want not found", operation, err)
 			}
 

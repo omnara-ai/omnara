@@ -20,6 +20,7 @@ import (
 func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 	t.Parallel()
 	t.Run("creation wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-child-create-wins")
 		actor := scopeDeletionActor(t, fixture)
@@ -92,6 +93,7 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 	})
 
 	t.Run("deletion wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-delete-child")
 		actor := scopeDeletionActor(t, fixture)
@@ -135,7 +137,9 @@ func TestProjectChildAdmissionSerializesWithDeletion(t *testing.T) {
 		if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
 			t.Fatalf("delete project before child creation: %v", err)
 		}
-		if err := integrationdb.Await(t, profileDone, "rejected project child creation"); !errors.Is(err, storeerr.ErrNotFound) {
+		if err := integrationdb.Await(
+			t, profileDone, "rejected project child creation",
+		); !errors.Is(err, storeerr.ErrNotFound) {
 			t.Fatalf("profile creation after project deletion error = %v, want not found", err)
 		}
 		var profileCount int
@@ -163,6 +167,7 @@ func TestProjectGrantUpdatesSerializeWithDeletion(t *testing.T) {
 			slug = "updates-win"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "grant-update-"+slug)
 			actor := scopeDeletionActor(t, fixture)
@@ -478,6 +483,7 @@ func TestStandaloneActorWritesRejectDeletedProjectAfterWaiting(t *testing.T) {
 func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 	t.Parallel()
 	t.Run("creation wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-child-create-wins")
 		actor := scopeDeletionActor(t, fixture)
@@ -540,6 +546,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 	})
 
 	t.Run("deletion wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-delete-child")
 		actor := scopeDeletionActor(t, fixture)
@@ -581,7 +588,9 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 		if err := integrationdb.Await(t, deleteDone, "organization deletion"); err != nil {
 			t.Fatalf("delete organization before child creation: %v", err)
 		}
-		if err := integrationdb.Await(t, invitationDone, "rejected organization child creation"); !errors.Is(err, storeerr.ErrNotFound) {
+		if err := integrationdb.Await(
+			t, invitationDone, "rejected organization child creation",
+		); !errors.Is(err, storeerr.ErrNotFound) {
 			t.Fatalf("invitation creation after organization deletion error = %v, want not found", err)
 		}
 		var invitationCount int

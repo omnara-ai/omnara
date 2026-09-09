@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
@@ -39,7 +41,9 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 			switch r.URL.Path {
 			case "/oauth.v2.access":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse slack form: %v", err)
+					t.Errorf("parse slack form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				exchangeForm = r.PostForm
 				writeJSON(
@@ -49,8 +53,11 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 				)
 			case "/users.info":
 				writeSlackLookupTestResponse(t, w, r)
+				return
 			default:
-				t.Fatalf("unexpected slack path %s", r.URL.Path)
+				t.Errorf("unexpected slack path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -76,7 +83,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 		"slack-oauth",
 		project.AdminToken,
 	)
-	profileID := profile["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
 
 	setup := requestJSONWithHeaders(
 		t,
@@ -96,7 +103,7 @@ func TestSlackOAuthSetupAndCallbackCreatesProfileIntegrationInstall(
 	if got := countSlackOAuthCredentialSecrets(t, ctx, project.Store, project); got != 0 {
 		t.Fatalf("Slack OAuth credential secret count = %d want 0", got)
 	}
-	oauthURL, err := url.Parse(setup["oauth_url"].(string))
+	oauthURL, err := url.Parse(testutil.RequireType[string](t, setup["oauth_url"]))
 	if err != nil {
 		t.Fatalf("parse oauth url: %v", err)
 	}
@@ -274,10 +281,14 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 				return
 			}
 			if r.URL.Path != "/oauth.v2.access" {
-				t.Fatalf("unexpected slack path %s", r.URL.Path)
+				t.Errorf("unexpected slack path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse slack form: %v", err)
+				t.Errorf("parse slack form: %v", err)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 			switch r.PostForm.Get("code") {
 			case "first-code":
@@ -303,7 +314,9 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 					),
 				)
 			default:
-				t.Fatalf("unexpected oauth code %q", r.PostForm.Get("code"))
+				t.Errorf("unexpected oauth code %q", r.PostForm.Get("code"))
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -329,7 +342,7 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 		"slack-oauth-multiple-apps",
 		project.AdminToken,
 	)
-	profileID := profile["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
 	createBrowserSessionForHTTPTest(
 		t,
 		ctx,
@@ -352,7 +365,7 @@ func TestSlackOAuthCallbackAllowsMultipleActiveAppsForProfileWorkspace(
 			http.StatusCreated,
 			authHeaders(project.AdminToken),
 		)
-		oauthURL, err := url.Parse(setup["oauth_url"].(string))
+		oauthURL, err := url.Parse(testutil.RequireType[string](t, setup["oauth_url"]))
 		if err != nil {
 			t.Fatalf("parse oauth url: %v", err)
 		}
@@ -415,22 +428,22 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 
 	var manifest map[string]any
 	var manifestToken string
-	var iconToken string
-	var iconAppID string
-	var iconFilename string
-	var iconContentType string
-	var iconContent []byte
+	var iconRequest slackIconSetRequest
 	var exchangeForm url.Values
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/apps.manifest.create":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse slack manifest form: %v", err)
+					t.Errorf("parse slack manifest form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				manifestToken = r.PostForm.Get("token")
 				if err := json.Unmarshal([]byte(r.PostForm.Get("manifest")), &manifest); err != nil {
-					t.Fatalf("decode manifest: %v", err)
+					t.Errorf("decode manifest: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				writeJSON(w, http.StatusOK, map[string]any{
 					"ok":     true,
@@ -442,11 +455,19 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 					},
 				})
 			case "/apps.icon.set":
-				iconToken, iconAppID, iconFilename, iconContentType, iconContent = readSlackIconSetRequest(t, r)
+				var err error
+				iconRequest, err = readSlackIconSetRequest(r)
+				if err != nil {
+					t.Errorf("read Slack icon request: %v", err)
+					http.Error(w, "invalid icon request", http.StatusBadRequest)
+					return
+				}
 				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "icon_upload_failed"})
 			case "/oauth.v2.access":
 				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse slack oauth form: %v", err)
+					t.Errorf("parse slack oauth form: %v", err)
+					http.Error(w, "test handler failed", http.StatusInternalServerError)
+					return
 				}
 				exchangeForm = r.PostForm
 				response := slackOAuthTestResponse("xoxb-manifest-token")
@@ -454,7 +475,9 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 				response["bot_user_id"] = "U_MANIFEST_BOT"
 				writeJSON(w, http.StatusOK, response)
 			default:
-				t.Fatalf("unexpected slack path %s", r.URL.Path)
+				t.Errorf("unexpected slack path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -484,7 +507,7 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token","return_to":"/settings/integrations"}`,
 		"",
 		http.StatusCreated,
@@ -494,43 +517,46 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 		t.Fatalf("manifest token = %q", manifestToken)
 	}
 	defaultIcon := slack.DefaultAppIcon()
-	if iconToken != "xoxe-config-token" || iconAppID != "A_MANIFEST" {
-		t.Fatalf("unexpected icon setup token=%q app_id=%q", iconToken, iconAppID)
+	if iconRequest.token != "xoxe-config-token" || iconRequest.appID != "A_MANIFEST" {
+		t.Fatalf("unexpected icon setup token=%q app_id=%q", iconRequest.token, iconRequest.appID)
 	}
-	if iconFilename != defaultIcon.Filename || iconContentType != defaultIcon.ContentType ||
-		!bytes.Equal(iconContent, defaultIcon.Content) {
-		t.Fatalf("unexpected icon upload filename=%q content_type=%q bytes=%d", iconFilename, iconContentType, len(iconContent))
+	if iconRequest.filename != defaultIcon.Filename || iconRequest.contentType != defaultIcon.ContentType ||
+		!bytes.Equal(iconRequest.content, defaultIcon.Content) {
+		t.Fatalf(
+			"unexpected icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename, iconRequest.contentType,
+			len(iconRequest.content),
+		)
 	}
-	settings := manifest["settings"].(map[string]any)
-	events := settings["event_subscriptions"].(map[string]any)
+	settings := testutil.RequireType[map[string]any](t, manifest["settings"])
+	events := testutil.RequireType[map[string]any](t, settings["event_subscriptions"])
 	if events["request_url"] != "https://app.omnara.test"+integrationEventsPath {
 		t.Fatalf("events request_url = %v", events["request_url"])
 	}
-	interactivity := settings["interactivity"].(map[string]any)
+	interactivity := testutil.RequireType[map[string]any](t, settings["interactivity"])
 	if interactivity["request_url"] != "https://app.omnara.test"+integrationActionsPath {
 		t.Fatalf("actions request_url = %v", interactivity["request_url"])
 	}
-	oauth := manifest["oauth_config"].(map[string]any)
-	redirects := oauth["redirect_urls"].([]any)
+	oauth := testutil.RequireType[map[string]any](t, manifest["oauth_config"])
+	redirects := testutil.RequireType[[]any](t, oauth["redirect_urls"])
 	if len(redirects) != 1 || redirects[0] != "https://app.omnara.test"+integrationOAuthCallbackPath {
 		t.Fatalf("redirect_urls = %v", redirects)
 	}
-	scopes := oauth["scopes"].(map[string]any)["bot"].([]any)
+	scopes := testutil.RequireType[[]any](t, testutil.RequireType[map[string]any](t, oauth["scopes"])["bot"])
 	gotScopes := make(map[string]bool, len(scopes))
 	for _, scope := range scopes {
-		gotScopes[scope.(string)] = true
+		gotScopes[testutil.RequireType[string](t, scope)] = true
 	}
 	for _, scope := range slack.RequiredBotScopes {
 		if !gotScopes[scope] {
 			t.Fatalf("manifest scope %q missing from %v", scope, gotScopes)
 		}
 	}
-	features := manifest["features"].(map[string]any)
-	display := manifest["display_information"].(map[string]any)
+	features := testutil.RequireType[map[string]any](t, manifest["features"])
+	display := testutil.RequireType[map[string]any](t, manifest["display_information"])
 	if display["background_color"] != "#000000" {
 		t.Fatalf("display_information = %v", display)
 	}
-	appHome := features["app_home"].(map[string]any)
+	appHome := testutil.RequireType[map[string]any](t, features["app_home"])
 	if appHome["messages_tab_enabled"] != true ||
 		appHome["messages_tab_read_only_enabled"] != false {
 		t.Fatalf("app_home = %v", appHome)
@@ -540,7 +566,7 @@ func TestSlackSetupCreatesManifestAppAndStartsOAuth(t *testing.T) {
 		response["actions_url"] != "https://app.omnara.test"+integrationActionsPath {
 		t.Fatalf("unexpected setup response: %v", response)
 	}
-	oauthURL, err := url.Parse(response["oauth_url"].(string))
+	oauthURL, err := url.Parse(testutil.RequireType[string](t, response["oauth_url"]))
 	if err != nil {
 		t.Fatalf("parse oauth url: %v", err)
 	}
@@ -619,9 +645,7 @@ func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 
 	customIcon := slack.DefaultAppIcon()
-	var iconFilename string
-	var iconContentType string
-	var iconContent []byte
+	var iconRequest slackIconSetRequest
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -636,10 +660,18 @@ func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
 					},
 				})
 			case "/apps.icon.set":
-				_, _, iconFilename, iconContentType, iconContent = readSlackIconSetRequest(t, r)
+				var err error
+				iconRequest, err = readSlackIconSetRequest(r)
+				if err != nil {
+					t.Errorf("read Slack icon request: %v", err)
+					http.Error(w, "invalid icon request", http.StatusBadRequest)
+					return
+				}
 				writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			default:
-				t.Fatalf("unexpected slack path %s", r.URL.Path)
+				t.Errorf("unexpected slack path %s", r.URL.Path)
+				http.Error(w, "test handler failed", http.StatusInternalServerError)
+				return
 			}
 		}),
 	)
@@ -671,41 +703,51 @@ func TestSlackSetupUploadsCustomAppIcon(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		body,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if iconFilename != "custom.png" || iconContentType != customIcon.ContentType ||
-		!bytes.Equal(iconContent, customIcon.Content) {
-		t.Fatalf("unexpected custom icon upload filename=%q content_type=%q bytes=%d", iconFilename, iconContentType, len(iconContent))
+	if iconRequest.filename != "custom.png" || iconRequest.contentType != customIcon.ContentType ||
+		!bytes.Equal(iconRequest.content, customIcon.Content) {
+		t.Fatalf(
+			"unexpected custom icon upload filename=%q content_type=%q bytes=%d", iconRequest.filename,
+			iconRequest.contentType, len(iconRequest.content),
+		)
 	}
 }
 
-func readSlackIconSetRequest(t *testing.T, r *http.Request) (string, string, string, string, []byte) {
-	t.Helper()
+type slackIconSetRequest struct {
+	token       string
+	appID       string
+	filename    string
+	contentType string
+	content     []byte
+}
+
+func readSlackIconSetRequest(r *http.Request) (slackIconSetRequest, error) {
 	if err := r.ParseMultipartForm(maxSlackSetupRequestBodyBytes); err != nil {
-		t.Fatalf("parse slack icon multipart form: %v", err)
+		return slackIconSetRequest{}, fmt.Errorf("parse slack icon multipart form: %w", err)
 	}
 	files := r.MultipartForm.File["file"]
 	if len(files) != 1 {
-		t.Fatalf("slack icon files = %d, want 1", len(files))
+		return slackIconSetRequest{}, fmt.Errorf("slack icon files = %d, want 1", len(files))
 	}
 	file, err := files[0].Open()
 	if err != nil {
-		t.Fatalf("open slack icon file: %v", err)
+		return slackIconSetRequest{}, fmt.Errorf("open slack icon file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 	content, err := io.ReadAll(file)
 	if err != nil {
-		t.Fatalf("read slack icon file: %v", err)
+		return slackIconSetRequest{}, fmt.Errorf("read slack icon file: %w", err)
 	}
-	return r.FormValue("token"),
-		r.FormValue("app_id"),
-		files[0].Filename,
-		files[0].Header.Get("Content-Type"),
-		content
+	return slackIconSetRequest{
+		token: r.FormValue("token"), appID: r.FormValue("app_id"),
+		filename: files[0].Filename, contentType: files[0].Header.Get("Content-Type"),
+		content: content,
+	}, nil
 }
 
 func assertSlackSetupSecretName(
@@ -811,7 +853,7 @@ func TestIntegrationOAuthSetupRejectsNonPublicSlackPublicURL(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/integration-oauth/setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/integration-oauth/setup",
 		`{"provider":"slack","client_id":"client-123","client_secret":"client-secret",`+
 			`"signing_secret":"signing-secret"}`,
 		http.StatusServiceUnavailable,
@@ -879,7 +921,7 @@ func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *te
 		project,
 		"slack-manifest-disabled-tool",
 		"Disabled Integration Send",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -887,7 +929,7 @@ func TestSlackSetupRejectsProfileWithExplicitlyDisabledIntegrationSendTool(t *te
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
 		"agent profile config does not allow send_integration_message",
 		http.StatusBadRequest,
@@ -937,7 +979,7 @@ func TestSlackSetupRejectsProfileWhoseEffectiveModelDoesNotSupportTools(t *testi
 		"slack-manifest-model-without-tools",
 		project.AdminToken,
 	)
-	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, profile["id"].(string))
+	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
 	profileRecord, err := project.Store.Execution().GetAgentProfile(ctx, project.ProjectUUID, profileID)
 	if err != nil {
 		t.Fatalf("get agent profile: %v", err)
@@ -967,13 +1009,15 @@ func TestSlackSetupRejectsProfileWhoseEffectiveModelDoesNotSupportTools(t *testi
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		`{"app_name":"Omnara Test","app_configuration_token":"xoxe-config-token"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(response["error"].(string), "agent profile model does not support tools") {
+	if !strings.Contains(
+		testutil.RequireType[string](t, response["error"]), "agent profile model does not support tools",
+	) {
 		t.Fatalf("unexpected setup error: %v", response)
 	}
 	if manifestCalled {
@@ -1027,7 +1071,7 @@ func TestSlackSetupRejectsAppNameOverSlackLimit(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		body,
 		"app_name must be 35 characters or fewer",
 		http.StatusBadRequest,
@@ -1087,7 +1131,7 @@ func TestSlackSetupRejectsReservedAppName(t *testing.T) {
 		t,
 		handler,
 		http.MethodPost,
-		project.ProjectPath+"/agent-profiles/"+profile["id"].(string)+"/slack-setup",
+		project.ProjectPath+"/agent-profiles/"+testutil.RequireType[string](t, profile["id"])+"/slack-setup",
 		body,
 		"Slack reserves this app name. Choose a different name.",
 		http.StatusBadRequest,
@@ -1125,7 +1169,7 @@ func createSlackReadyHTTPProfile(
 		project,
 		seed,
 		seed+" Agent",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		token,
 		http.StatusCreated,
 	)
@@ -1167,7 +1211,7 @@ func completeSlackOAuthInstall(
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	oauthURL, err := url.Parse(setup["oauth_url"].(string))
+	oauthURL, err := url.Parse(testutil.RequireType[string](t, setup["oauth_url"]))
 	if err != nil {
 		t.Fatalf("parse oauth url: %v", err)
 	}

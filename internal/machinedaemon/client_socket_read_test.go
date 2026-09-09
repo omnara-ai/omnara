@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDirectReadUsesGrantCursorUnlessRequestExplicitlyUsesZero(t *testing.T) {
@@ -43,16 +44,12 @@ func TestDirectReadUsesGrantCursorUnlessRequestExplicitlyUsesZero(t *testing.T) 
 			defer transport.stopAndWait(func() {})
 
 			path, err := machine.OutputBufferPath("prc_cursor_handoff")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := writeProcessOutputFile(
+			require.NoError(t, err)
+			require.NoError(t, writeProcessOutputFile(
 				path,
 				[]byte("0123456789"),
 				0,
-			); err != nil {
-				t.Fatal(err)
-			}
+			))
 			result := runDirectReadAndAcknowledge(
 				t,
 				ctx,
@@ -74,9 +71,7 @@ func TestDirectReadUsesGrantCursorUnlessRequestExplicitlyUsesZero(t *testing.T) 
 				Cursor     int64  `json:"cursor"`
 				NextCursor int64  `json:"next_cursor"`
 			}
-			if err := json.Unmarshal(result.Result, &observed); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, json.Unmarshal(result.Result, &observed))
 			if observed.Output != test.wantOutput ||
 				observed.Cursor != test.wantCursor ||
 				observed.NextCursor != 10 {
@@ -94,12 +89,8 @@ func TestDirectReadReturnsRetainedTerminalOutputWithoutLocalState(t *testing.T) 
 	defer transport.stopAndWait(func() {})
 
 	path, err := machine.OutputBufferPath("prc_terminal_read")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeProcessOutputFile(path, []byte("retained"), 4); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, []byte("retained"), 4))
 	result := runDirectReadAndAcknowledge(
 		t,
 		ctx,
@@ -125,9 +116,7 @@ func TestDirectReadReturnsRetainedTerminalOutputWithoutLocalState(t *testing.T) 
 		NextCursor int64  `json:"next_cursor"`
 		Truncated  bool   `json:"truncated"`
 	}
-	if err := json.Unmarshal(result.Result, &observed); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(result.Result, &observed))
 	if observed.Output != "retained" ||
 		observed.Cursor != 4 ||
 		observed.NextCursor != 12 ||
@@ -149,31 +138,19 @@ func TestDirectReadWaitReturnsOnFirstOutput(t *testing.T) {
 		supervisorInstanceID = "supervisor-instance-wait_first_output"
 	)
 	path, err := machine.OutputBufferPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeProcessOutputFile(path, nil, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-wait_first_output",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 
 	readDone := make(chan error, 1)
 	go func() {
@@ -209,25 +186,19 @@ func TestDirectReadWaitReturnsOnFirstOutput(t *testing.T) {
 	var observed struct {
 		Output string `json:"output"`
 	}
-	if err := json.Unmarshal(message.Event.Result, &observed); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(message.Event.Result, &observed))
 	if observed.Output != "first" {
 		t.Fatalf("first-output observation = %+v", observed)
 	}
 	ackDirectReadReport(transport, message)
 	select {
 	case err := <-readDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
 	process, found, err := store.Process(ctx, processID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !found || process.ResolvedActionSeq != 1 {
 		t.Fatalf("resolved process state = %+v, found=%t", process, found)
 	}
@@ -246,31 +217,19 @@ func TestDirectReadWaitReturnsWhenProcessBecomesTerminal(t *testing.T) {
 		supervisorInstanceID = "supervisor-instance-wait_terminal"
 	)
 	path, err := machine.OutputBufferPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeProcessOutputFile(path, nil, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-wait_terminal",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 
 	readStarted := time.Now()
 	readDone := make(chan error, 1)
@@ -291,20 +250,16 @@ func TestDirectReadWaitReturnsWhenProcessBecomesTerminal(t *testing.T) {
 		t.Fatalf("read returned before process terminalization: %+v", message)
 	case <-time.After(75 * time.Millisecond):
 	}
-	if err := store.MarkServerReleased(
+	require.NoError(t, store.MarkServerReleased(
 		ctx,
 		processID,
 		supervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	message := waitForDirectReadReport(t, ctx, transport)
 	var observed struct {
 		Output string `json:"output"`
 	}
-	if err := json.Unmarshal(message.Event.Result, &observed); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(message.Event.Result, &observed))
 	if observed.Output != "" {
 		t.Fatalf("terminal observation = %+v", observed)
 	}
@@ -314,9 +269,7 @@ func TestDirectReadWaitReturnsWhenProcessBecomesTerminal(t *testing.T) {
 	ackDirectReadReport(transport, message)
 	select {
 	case err := <-readDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
@@ -334,31 +287,19 @@ func TestDirectReadWaitReturnsEmptyAtItsDeadline(t *testing.T) {
 		supervisorInstanceID = "supervisor-instance-wait_deadline"
 	)
 	path, err := machine.OutputBufferPath(processID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeProcessOutputFile(path, nil, 0); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-wait_deadline",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 
 	readDone := make(chan error, 1)
 	started := time.Now()
@@ -387,18 +328,14 @@ func TestDirectReadWaitReturnsEmptyAtItsDeadline(t *testing.T) {
 		Output string `json:"output"`
 		Done   bool   `json:"done"`
 	}
-	if err := json.Unmarshal(message.Event.Result, &observed); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal(message.Event.Result, &observed))
 	if observed.Output != "" || observed.Done {
 		t.Fatalf("deadline observation = %+v", observed)
 	}
 	ackDirectReadReport(transport, message)
 	select {
 	case err := <-readDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
@@ -412,12 +349,8 @@ func TestDirectReadReportsMissingRetainedOutput(t *testing.T) {
 	defer transport.stopAndWait(func() {})
 
 	processDir, err := machine.ProcessDir("prc_missing_output")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(processDir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(processDir))
 	result := runDirectReadAndAcknowledge(
 		t,
 		ctx,
@@ -450,9 +383,7 @@ func newDirectReadTestTransport(
 		MachineID:      "mch_direct_read",
 	}
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return &client, newDaemonSocketTransport(
 		&client,
 		DaemonRuntime{},
@@ -475,9 +406,7 @@ func runDirectReadAndAcknowledge(
 	ackDirectReadReport(transport, message)
 	select {
 	case err := <-readDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}

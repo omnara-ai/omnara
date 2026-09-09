@@ -241,7 +241,9 @@ mcp:
 		current.InitializeError != "" {
 		t.Fatalf("stale completion should not mutate current generation: %+v", current)
 	}
-	if _, found, err := store.Execution().GetMCPConnection(ctx, wrongProjectID, launch.Agent.ID, "docs"); err != nil || found {
+	if _, found, err := store.Execution().GetMCPConnection(
+		ctx, wrongProjectID, launch.Agent.ID, "docs",
+	); err != nil || found {
 		t.Fatalf("wrong project lookup should not find connection, found=%t err=%v", found, err)
 	}
 	removed, err := store.Execution().ReconcileAgentMCPConnections(ctx, testProjectID, launch.Agent.ID, nil)

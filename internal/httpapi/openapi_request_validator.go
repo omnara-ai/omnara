@@ -21,9 +21,12 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
 
-func newOpenAPIRequestValidator() (middleware, error) {
+// Configure the process-wide error policy before concurrent construction or validation.
+func init() {
 	openapi3.SchemaErrorDetailsDisabled = true
+}
 
+func newOpenAPIRequestValidator() (middleware, error) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)

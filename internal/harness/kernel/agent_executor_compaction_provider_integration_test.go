@@ -130,13 +130,17 @@ func TestAgentExecutorCarriesReplayRejectionThroughCompaction(t *testing.T) {
 				StopReason: model.StopReasonContextWindow,
 			},
 			{
-				ID:         "resp-replay-compaction-summary",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "The earlier replay-backed history was preserved."}},
+				ID: "resp-replay-compaction-summary",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "The earlier replay-backed history was preserved."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-replay-compaction-final",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued after replay-aware compaction"}},
+				ID: "resp-replay-compaction-final",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "continued after replay-aware compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 				ProviderReplay: json.RawMessage(
 					`[{"type":"reasoning","id":"rs_after_compaction","encrypted_content":"new opaque replay"},` +
@@ -382,7 +386,10 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		t.Fatalf("retry turn input ids = %v, want two opening inputs", retryTurn.InputIDs)
 	}
 	if retryModel.respondedCount() != 2 {
-		t.Fatalf("retry model prepared %d requests on first lease, want provider failure and compaction", retryModel.respondedCount())
+		t.Fatalf(
+			"retry model prepared %d requests on first lease, want provider failure and compaction",
+			retryModel.respondedCount(),
+		)
 	}
 	if len(retryModel.responded[0].ToolSpecs) == 0 {
 		t.Fatal("normal request omitted the configured tool needed to make the compaction assertion meaningful")
@@ -463,7 +470,10 @@ LIMIT 1
 		t.Fatalf("execute post-compaction turn: %v", err)
 	}
 	if retryModel.respondedCount() != 3 {
-		t.Fatalf("retry model prepared %d requests across leases, want provider failure, compaction, retry", retryModel.respondedCount())
+		t.Fatalf(
+			"retry model prepared %d requests across leases, want provider failure, compaction, retry",
+			retryModel.respondedCount(),
+		)
 	}
 	summaryRequest := string(retryModel.responded[1].ProviderRequest)
 	if !strings.Contains(summaryRequest, "first turn accepted") ||
@@ -518,7 +528,11 @@ WHERE agent.project_id = $1 AND checkpoint.agent_id = $2
 		t.Fatalf("retry context checkpoint refs = %d, want 1", retryContexts)
 	}
 	var outputBlocks int
-	if err := fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after compaction'`, kernelTestProjectID, agentID, retryTurn.TurnID).
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.turn_id = $3 AND block.block_kind = 'text' AND block.text_content = 'continued after compaction'`,
+		kernelTestProjectID, agentID, retryTurn.TurnID,
+	).
 		Scan(&outputBlocks); err != nil {
 		t.Fatalf("count final output blocks: %v", err)
 	}
@@ -587,8 +601,10 @@ func TestAgentExecutorReplaysOverflowWhenPlanningIsInterruptedBeforeHandoff(t *t
 				Usage:      model.Usage{InputTokens: 128000},
 			},
 			{
-				ID:         "resp_summary_after_ambiguous_replay",
-				Content:    []model.ResponsePart{{Type: "text", Text: "The earlier compactable history was preserved after recovery."}},
+				ID: "resp_summary_after_ambiguous_replay",
+				Content: []model.ResponsePart{
+					{Type: "text", Text: "The earlier compactable history was preserved after recovery."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
@@ -1403,7 +1419,9 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		SELECT count(*)
 		FROM context_checkpoints checkpoint
 		JOIN agents agent ON agent.id = checkpoint.agent_id
-		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(&checkpoints); err != nil {
+		WHERE agent.project_id = $1 AND checkpoint.agent_id = $2`, kernelTestProjectID, agentID).Scan(
+		&checkpoints,
+	); err != nil {
 		t.Fatalf("count malformed compaction checkpoints: %v", err)
 	}
 	if checkpoints != 0 {
@@ -1445,13 +1463,15 @@ GROUP BY context.state, output.stop_reason`,
 		t.Fatalf("load terminal compaction error output: %v", err)
 	}
 	if err := fixture.Pool.QueryRow(ctx, `
-SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2),
+SELECT (SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE
+    agent.project_id = $1 AND wake.agent_id = $2),
        (SELECT count(*)::integer FROM agent_continuable_model_contexts($1, $2)
         WHERE model_call_context_id = $3 AND NOT has_later_semantic_event)`,
 		kernelTestProjectID, agentID, result.ModelCallContextID).Scan(&wakeups, &resumable); err != nil {
 		t.Fatalf("load terminal compaction continuation state: %v", err)
 	}
-	if compactionState != executionstore.ModelCallContextFailed || producingState != executionstore.ModelCallContextFailed ||
+	if compactionState != executionstore.ModelCallContextFailed ||
+		producingState != executionstore.ModelCallContextFailed ||
 		contexts != maxAttempts ||
 		outputStopReason != "error" || outputCount != 1 || blockCount != 1 ||
 		blockKind != "error" || blockText != "The model provider returned a malformed successful response." ||
@@ -1508,7 +1528,9 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 	}
 
 	var currentConfigID storage.ID
-	if err := fixture.Pool.QueryRow(ctx, `SELECT current_config_id FROM agents WHERE project_id = $1 AND id = $2`, kernelTestProjectID, agentID).
+	if err := fixture.Pool.QueryRow(
+		ctx, `SELECT current_config_id FROM agents WHERE project_id = $1 AND id = $2`, kernelTestProjectID, agentID,
+	).
 		Scan(&currentConfigID); err != nil {
 		t.Fatalf("load agent current config id: %v", err)
 	}

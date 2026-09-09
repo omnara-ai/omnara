@@ -58,12 +58,12 @@ export function AgentConfigPanel({
         />
       ) : configQuery.isPending ? (
         <>
-          <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
+          <h2 className="type-card-title">Agent configuration</h2>
           <Spinner className="mx-auto my-8" />
         </>
       ) : (
         <>
-          <h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>
+          <h2 className="type-card-title">Agent configuration</h2>
           <div className="flex items-center gap-3">
             <p className="text-muted-foreground text-sm">Couldn&rsquo;t load the agent config.</p>
             <Button
@@ -158,7 +158,7 @@ function AgentConfigPanelEditor({
           editor={editor}
           orgId={orgId}
           projectId={projectId}
-          header={<h2 className="text-lg font-semibold tracking-tight">Agent configuration</h2>}
+          header={<h2 className="type-card-title">Agent configuration</h2>}
           yamlFieldId="agent-config-panel-yaml"
           yamlFieldClassName="h-[24rem]"
           issues={error.issues}

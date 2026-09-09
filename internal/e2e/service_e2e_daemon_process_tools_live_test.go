@@ -176,7 +176,11 @@ WHERE call.project_id = $1
 	}
 	for _, kind := range []string{"write", "interrupt", "terminate", "read"} {
 		var count int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2 AND action_kind = $3 AND state = 'applied'`, projectUUID, agentUUID, kind).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2 AND action_kind = $3 AND state = 'applied'`,
+			projectUUID, agentUUID, kind,
+		).
 			Scan(&count)
 		if err != nil {
 			t.Fatalf("query live process action %s evidence: %v", kind, err)
@@ -186,7 +190,11 @@ WHERE call.project_id = $1
 		}
 	}
 	var processCount int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM processes WHERE project_id = $1 AND agent_id = $2 AND machine_id = $3 AND execution_granted_at IS NOT NULL`, projectUUID, agentUUID, machineUUID).
+	if err := env.db.QueryRow(
+		ctx,
+		`SELECT count(*) FROM processes WHERE project_id = $1 AND agent_id = $2 AND machine_id = $3 AND execution_granted_at IS NOT NULL`,
+		projectUUID, agentUUID, machineUUID,
+	).
 		Scan(&processCount); err != nil {
 		t.Fatalf("query live process evidence: %v", err)
 	}
@@ -208,7 +216,11 @@ func waitForLiveAssistantText(
 	deadline := time.Now().Add(7 * time.Minute)
 	waitForServiceE2EConditionUntil(t, ctx, deadline, func() (bool, string) {
 		var messages int
-		err := env.db.QueryRow(ctx, `SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`, projectUUID, agentUUID, contains).
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content LIKE '%' || $3 || '%'`,
+			projectUUID, agentUUID, contains,
+		).
 			Scan(&messages)
 		if err != nil {
 			return false, err.Error()
@@ -237,13 +249,26 @@ func waitForLiveAssistantText(
 		var locks, wakeups, toolCalls, openInteractions, processActions int
 		_ = env.db.QueryRow(ctx, scopedAgentRuntimeLockCountSQL, projectUUID, agentUUID).
 			Scan(&locks)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+			projectUUID, agentUUID,
+		).
 			Scan(&wakeups)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM tool_call_read_projection WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx, `SELECT count(*) FROM tool_call_read_projection WHERE project_id = $1 AND agent_id = $2`, projectUUID,
+			agentUUID,
+		).
 			Scan(&toolCalls)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND state = 'open'`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_interaction_read_projection WHERE project_id = $1 AND agent_id = $2 AND state = 'open'`,
+			projectUUID, agentUUID,
+		).
 			Scan(&openInteractions)
-		_ = env.db.QueryRow(ctx, `SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).
+		_ = env.db.QueryRow(
+			ctx, `SELECT count(*) FROM process_actions WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID,
+		).
 			Scan(&processActions)
 		return false, "live assistant token missing" +
 			" locks=" + itoa(locks) +
@@ -277,7 +302,8 @@ func liveProcessToolsStateSummary(
 	}
 	toolStates = scanSummary(`
 SELECT coalesce(string_agg(
-  call.name || ':' || call.type || ':' || call.state || ':outcome=' || coalesce(result.outcome, '') || ':provider=' || coalesce(call.provider_call_id, ''),
+  call.name || ':' || call.type || ':' || call.state || ':outcome=' || coalesce(result.outcome, '') || ':provider='
+      || coalesce(call.provider_call_id, ''),
   ',' ORDER BY call.created_at, call.id
 ), '')
 FROM tool_call_read_projection call
@@ -300,7 +326,8 @@ FROM processes
 WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID)
 	contextStates = scanSummary(`
 SELECT coalesce(string_agg(
-  mcc.state || ':attempt=' || mcc.attempt_number::text || ':api_format=' || mcc.api_format || ':model=' || revision.provider_model_slug || ':err=' || mcc.error_kind,
+  mcc.state || ':attempt=' || mcc.attempt_number::text || ':api_format=' || mcc.api_format || ':model=' ||
+      revision.provider_model_slug || ':err=' || mcc.error_kind,
   ',' ORDER BY mcc.created_at, mcc.id
 ), '')
 FROM model_call_contexts mcc

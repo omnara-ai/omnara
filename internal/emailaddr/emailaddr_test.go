@@ -4,9 +4,26 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+	"unicode"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/text/unicode/bidi"
+	"golang.org/x/text/unicode/norm"
 )
+
+func TestReviewedUnicodeVersions(t *testing.T) {
+	t.Parallel()
+	for source, version := range map[string]string{
+		"Go":            unicode.Version,
+		"IDNA":          idna.UnicodeVersion,
+		"normalization": norm.Version,
+		"bidi":          bidi.UnicodeVersion,
+	} {
+		if version != "17.0.0" {
+			t.Errorf("%s uses Unicode %s; review email-key compatibility before updating this test", source, version)
+		}
+	}
+}
 
 func TestNormalize(t *testing.T) {
 	t.Parallel()
@@ -21,11 +38,14 @@ func TestNormalize(t *testing.T) {
 		{name: "punycode domain", email: "User@XN--BCHER-KVA.example", want: "user@xn--bcher-kva.example"},
 		{name: "ideographic dot", email: "User@Example。COM", want: "user@example.com"},
 		{name: "sharp s is not transitional", email: "user@straße.de", want: "user@xn--strae-oqa.de"},
-		{name: "capital sharp s maps per UTS 46", email: "user@STRAẞE.de", want: "user@strasse.de"},
+		{name: "capital sharp s maps per UTS 46", email: "user@STRAẞE.de", want: "user@xn--strae-oqa.de"},
 		{name: "dotted capital I composed", email: "user@İstanbul.com", want: "user@xn--istanbul-o0e.com"},
 		{name: "dotted capital I decomposed", email: "user@I\u0307stanbul.com", want: "user@xn--istanbul-o0e.com"},
 		{name: "unicode local is lowercased only", email: "Üser@Example.com", want: "üser@example.com"},
 		{name: "decomposed local is not recomposed", email: "U\u0308ser@Example.com", want: "u\u0308ser@example.com"},
+		{name: "Unicode 17 local casing", email: "\u1c89@Example.com", want: "\u1c8a@example.com"},
+		{name: "palochka domain mapping", email: "User@\u04c0.example", want: "user@xn--s5a.example"},
+		{name: "ignored domain filler", email: "User@ex\u3164ample.com", want: "user@example.com"},
 		{name: "invalid hostname keeps legacy key", email: "User@exa_mple.com", want: "user@exa_mple.com"},
 		{name: "empty label keeps legacy key", email: "user@a..b.com", want: "user@a..b.com"},
 		{name: "bare ace prefix label keeps legacy key", email: "user@xn--.example", want: "user@xn--.example"},
@@ -39,6 +59,16 @@ func TestNormalize(t *testing.T) {
 			name:  "invalid unicode domain keeps spelling, ascii case folded",
 			email: "User@BÜCHER..Example",
 			want:  "user@bÜcher..example",
+		},
+		{
+			name:  "rooted unicode domain keeps spelling, ascii case folded",
+			email: "User@BÜCHER.example.",
+			want:  "user@bÜcher.example.",
+		},
+		{
+			name:  "invalid bidi domain keeps spelling",
+			email: "User@\u0628\U0001171e.example",
+			want:  "user@\u0628\U0001171e.example",
 		},
 		{name: "space before at is preserved", email: "a b @Example.com", want: "a b @example.com"},
 		{name: "space after at keeps legacy key", email: "User@ Example.com", want: "user@ example.com"},
@@ -63,6 +93,8 @@ func TestEqual(t *testing.T) {
 		{"User@BÜCHER.example", "user@bücher.example"},
 		{"user@bücher.example", "user@bu\u0308cher.example"},
 		{"user@bücher.example", "user@xn--bcher-kva.example"},
+		{"user@STRAẞE.de", "user@straße.de"},
+		{"user@ex\u3164ample.com", "user@example.com"},
 		{"Üser@example.com", "üser@example.com"},
 		{" user@example.com ", "USER@EXAMPLE.COM"},
 	}
@@ -76,6 +108,7 @@ func TestEqual(t *testing.T) {
 		{"user@example.com", "other@example.com"},
 		{"user@example.com", "user@example.com."},
 		{"üser@example.com", "u\u0308ser@example.com"},
+		{"user@STRAẞE.de", "user@strasse.de"},
 	}
 	for _, pair := range different {
 		if Equal(pair[0], pair[1]) {
@@ -86,7 +119,7 @@ func TestEqual(t *testing.T) {
 
 func TestNormalizeIsIdempotent(t *testing.T) {
 	t.Parallel()
-	alphabet := []rune("aZ09.-_+@ üÜ\u0308ßẞİ。中文\u0301ex")
+	alphabet := []rune("aZ09.-_+@ üÜ\u0308ßẞİ。中文\u0301\u04c0\u1c89\u3164ex")
 	r := rand.New(rand.NewPCG(7, 0))
 	for range 50000 {
 		runes := make([]rune, r.IntN(24))
@@ -149,6 +182,8 @@ func TestDomainProfileOnlyAddsFailuresToLookup(t *testing.T) {
 	inputs := append(asciiCorpus(),
 		"bücher.example", "BÜCHER.example", "bu\u0308cher.example", "straße.de", "STRAẞE.de",
 		"İstanbul.com", "I\u0307stanbul.com", "example。com", "\u0308example.com", "中文.中国",
+		"\u04c0.example", "\u0628\U0001171e.example", "BÜCHER.example.",
+		"ex\u3164ample.com",
 	)
 	for _, input := range inputs {
 		want, lookupErr := idna.Lookup.ToASCII(input)

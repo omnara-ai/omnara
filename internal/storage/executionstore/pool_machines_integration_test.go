@@ -58,7 +58,6 @@ func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-name-swap-config",
 		fmt.Sprintf(`
 instruction: Use pool machines.
 model:
@@ -75,7 +74,6 @@ tools:
   create_machine:
     type: built_in
 `, firstPool.Name, secondPool.Name),
-		now.Add(4*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,
@@ -109,6 +107,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // rollback checks must finish before the parent changes the pool configuration
 func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -148,35 +147,29 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-captured-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(capturedPool.Name, 2, `
     cwd: /captured
     description: Captured source
     machine_provider_options_overlay:
       startup_script: captured
 `),
-		now.Add(3*time.Second),
 	)
 	currentConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-current-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(capturedPool.Name, 1, `
     cwd: /current
     description: Current source
     machine_provider_options_overlay:
       startup_script: current
 `),
-		now.Add(4*time.Second),
 	)
 	removedConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-removed-config",
 		testAgentConfigYAML(),
-		now.Add(4500*time.Millisecond),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -252,7 +245,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		if !rolledBackResult.Created {
 			t.Fatalf("pool machine mutation result = %+v, want created before rollback", rolledBackResult)
 		}
-		if _, err := store.Execution().GetMachine(ctx, testOrgID, rolledBackResult.Machine.Machine.ID); !storeerr.IsNotFound(err) {
+		if _, err := store.Execution().GetMachine(
+			ctx, testOrgID, rolledBackResult.Machine.Machine.ID,
+		); !storeerr.IsNotFound(err) {
 			t.Fatalf("load rolled-back pool machine error = %v, want not found", err)
 		}
 		rolledBackToolCall, err := store.Execution().GetToolCall(
@@ -314,7 +309,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	staleInput := executionstore.CreatePoolMachineInput{
 		MachinePoolID: capturedPool.ID,
 	}
-	if _, err := createPoolMachineForTest(ctx, store, staleTransaction, staleInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
+	if _, err := createPoolMachineForTest(
+		ctx, store, staleTransaction, staleInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
 		!strings.Contains(err.Error(), "machine pool limit reached") {
 		t.Fatalf("stale create after lower max_machines error = %v, want machine pool limit conflict", err)
 	}
@@ -326,7 +323,9 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 		removedConfig.ID,
 		"pool-machine-removed-config-change",
 	)
-	if _, err := createPoolMachineForTest(ctx, store, staleTransaction, staleInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
+	if _, err := createPoolMachineForTest(
+		ctx, store, staleTransaction, staleInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) ||
 		!strings.Contains(err.Error(), "machine pool is no longer configured") {
 		t.Fatalf("stale create after pool source removal error = %v, want source removal conflict", err)
 	}
@@ -339,7 +338,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -358,21 +356,24 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pool machine update secret: %v", err)
 	}
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Resolved Pool",
-			Provider:         "test.provider",
-			DefaultCwd:       "/pool",
-			MaxTotalMachines: 3,
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             4,
-			DefaultMachineMemoryMB:        8192,
-			DefaultMachineEnv:             json.RawMessage(`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`),
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"pool","pool_only":"pool"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Resolved Pool",
+				Provider:         "test.provider",
+				DefaultCwd:       "/pool",
+				MaxTotalMachines: 3,
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             4,
+				DefaultMachineMemoryMB:        8192,
+				DefaultMachineEnv:             json.RawMessage(`{"POOL":"base","SHARED":"pool","REMOVE":"pool"}`),
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"pool","pool_only":"pool"}`),
+			},
+		)),
+	)
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -397,7 +398,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-resolved-config",
 		agentPoolMachineConfigYAMLWithDefaultMachineFields(machinePool.Name, 2, `
     machine_cpu: 2
     env_overlay:
@@ -407,7 +407,6 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
       image: agent
       agent_only: agent
 `),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -516,7 +515,6 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 
 	providers := &externalMachinePoolProviders{}
 	store := newIntegrationStore(pool, WithMachinePoolProviders(providers))
-	now := time.Date(2026, 6, 15, 9, 40, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -568,9 +566,7 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-intent-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -663,7 +659,6 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 40, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -693,7 +688,7 @@ func TestCreatePoolMachineUsesDefaultPoolSource(t *testing.T) {
 	); err != nil {
 		t.Fatalf("create default pool grant: %v", err)
 	}
-	config := mustCreateAgentConfigFromYAML(t, ctx, store, "agent-pool-machine-default-config", `
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Use default pool machines.
 model:
   provider_config: openai-prod
@@ -712,7 +707,7 @@ machine_sources:
       startup_script: echo ready
 tools:
   create_machine: {}
-`, now.Add(2*time.Second))
+`)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: config.ID},
@@ -803,7 +798,6 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 6, 15, 9, 45, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -812,20 +806,23 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 		"Agent Pool Machine Capacity")
 
 	maxCPU := 2
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Capacity Pool",
-			Provider:         "test.provider",
-			MaxTotalMachines: 5,
-			MaxTotalCPU:      intPtrForMachinePoolTest(maxCPU),
-			MaxMachineCPU:    intPtrForMachinePoolTest(maxCPU),
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             2,
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"capacity"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Capacity Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 5,
+				MaxTotalCPU:      intPtrForMachinePoolTest(maxCPU),
+				MaxMachineCPU:    intPtrForMachinePoolTest(maxCPU),
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             2,
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"capacity"}`),
+			},
+		)),
+	)
 
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
@@ -844,9 +841,7 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-capacity-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 2),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -911,7 +906,6 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -919,19 +913,22 @@ func TestZeroCapMachinePoolLifecycle(t *testing.T) {
 		"zero-cap-pool-lifecycle@example.com",
 		"Zero Cap Pool Lifecycle")
 
-	machinePool, err := store.Execution().CreateMachinePool(ctx, completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
-		executionstore.CreateMachinePoolInput{
-			OrgID:            testOrgID,
-			Name:             "Zero Cap Lifecycle Pool",
-			Provider:         "test.provider",
-			MaxTotalMachines: 0,
-		},
-		defaultMachineFieldsForTest{
-			DefaultMachineCPU:             1,
-			DefaultMachineMemoryMB:        1024,
-			DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-cap"}`),
-		},
-	)))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Zero Cap Lifecycle Pool",
+				Provider:         "test.provider",
+				MaxTotalMachines: 0,
+			},
+			defaultMachineFieldsForTest{
+				DefaultMachineCPU:             1,
+				DefaultMachineMemoryMB:        1024,
+				DefaultMachineProviderOptions: json.RawMessage(`{"image":"zero-cap"}`),
+			},
+		)),
+	)
 	if err != nil {
 		t.Fatalf("create zero-cap machine pool: %v", err)
 	}
@@ -990,7 +987,6 @@ tools:
 		"zero-cap-initial-machines",
 		"Zero Cap Initial Machines",
 		initialMachinesYAML,
-		now.Add(2*time.Second),
 	)
 
 	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
@@ -1022,7 +1018,6 @@ tools:
 		"zero-cap-tool-machines",
 		"Zero Cap Tool Machines",
 		agentPoolMachineConfigYAML(machinePool.Name, 2),
-		now.Add(4*time.Second),
 	)
 	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -1141,9 +1136,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-lifecycle-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1217,8 +1210,14 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	}
 	var generatedGrantIdempotencyKey string
 	var generatedGrantMetadata json.RawMessage
-	generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID)
-	if err := pool.QueryRow(ctx, `SELECT coalesce(idempotency_key, ''), metadata FROM project_machine_grants WHERE project_id = $1 AND id = $2`, testProjectID, generatedGrant.ID).
+	generatedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID,
+	)
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT coalesce(idempotency_key, ''), metadata FROM project_machine_grants WHERE project_id = $1 AND id = $2`,
+		testProjectID, generatedGrant.ID,
+	).
 		Scan(&generatedGrantIdempotencyKey, &generatedGrantMetadata); err != nil {
 		t.Fatalf("load generated grant fields: %v", err)
 	}
@@ -1333,7 +1332,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 			toolCalls["delete"],
 		)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list cleanup: %v", err)
 	}
@@ -1350,7 +1351,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	replacementInput := executionstore.CreatePoolMachineInput{
 		MachinePoolID: machinePool.ID,
 	}
-	if _, err := createPoolMachineForTest(ctx, store, replacementTransaction, replacementInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := createPoolMachineForTest(
+		ctx, store, replacementTransaction, replacementInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("replacement pool machine while deleting error = %v, want state transition conflict", err)
 	}
 
@@ -1381,7 +1384,9 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	if deleteFailed.LifecycleState != "delete_failed" {
 		t.Fatalf("delete failed machine state = %s, want delete_failed", deleteFailed.LifecycleState)
 	}
-	if _, err := createPoolMachineForTest(ctx, store, replacementTransaction, replacementInput); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if _, err := createPoolMachineForTest(
+		ctx, store, replacementTransaction, replacementInput,
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("replacement pool machine while delete_failed error = %v, want state transition conflict", err)
 	}
 }
@@ -1425,9 +1430,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-provisioning-delete-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1517,7 +1520,9 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 	if current.LifecycleState != "deleting" || current.ProviderResourceID != "" {
 		t.Fatalf("machine after rejected provisioning completion = %+v", current)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list cleanup after provisioning delete request: %v", err)
 	}
@@ -1560,9 +1565,7 @@ func TestListMachinePoolSourcesIncludesZeroMaxPool(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-zero-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 0),
-		now.Add(2*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1619,9 +1622,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-explicit-pool-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	poolAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -1692,7 +1693,9 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete generated machine provisioning: %v", err)
 	}
-	generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID)
+	generatedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID,
+	)
 	explicitAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
 		executionstore.AgentFixtureInput{ProjectID: testProjectID, CurrentConfigID: poolConfig.ID},
@@ -1796,7 +1799,9 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("delete generated pool machine: %v", err)
 	}
-	cleanup, err := store.Execution().ListPoolMachinesForCleanup(ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10)
+	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
+		ctx, executionstore.DefaultPoolMachineProvisionFailureLimit, 10,
+	)
 	if err != nil {
 		t.Fatalf("list generated pool machine cleanup: %v", err)
 	}
@@ -1915,9 +1920,7 @@ func TestCreatePoolMachineValidatesProviderPoolConfig(t *testing.T) {
 		t,
 		ctx,
 		store,
-		"agent-pool-machine-provider-validation-config",
 		agentPoolMachineConfigYAML(machinePool.Name, 1),
-		now.Add(2*time.Second),
 	)
 	poolAgent, err := store.Execution().CreateAgentFixture(
 		ctx,
@@ -2002,14 +2005,20 @@ func activateAgentConfigForPoolMachineTest(
 		t.Fatalf("begin activate pool machine config: %v", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := executionstore.IntegrationActivateAgentConfigTx(ctx, notifications.NewTxNotifications(), tx, store.q.WithTx(tx), executionstore.ActivateAgentConfigInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		AgentConfigID:  configID,
-		ActorType:      identitystore.PrincipalTypeSystem,
-		Reason:         "test",
-		IdempotencyKey: idempotencyKey,
-	}); err != nil {
+	if _, err := executionstore.IntegrationActivateAgentConfigTx(
+		ctx,
+		notifications.NewTxNotifications(),
+		tx,
+		store.q.WithTx(tx),
+		executionstore.ActivateAgentConfigInput{
+			ProjectID:      testProjectID,
+			AgentID:        agentID,
+			AgentConfigID:  configID,
+			ActorType:      identitystore.PrincipalTypeSystem,
+			Reason:         "test",
+			IdempotencyKey: idempotencyKey,
+		},
+	); err != nil {
 		t.Fatalf("activate pool machine config: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

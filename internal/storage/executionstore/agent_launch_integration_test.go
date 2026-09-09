@@ -248,7 +248,6 @@ func launchPoolAgentForTest(
 	userID ID,
 	machinePool executionstore.MachinePoolRecord,
 	profileKey, profileName, idempotencyKey string,
-	now time.Time,
 ) executionstore.LaunchAgentResult {
 	t.Helper()
 	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, profileKey, profileName, `
@@ -261,7 +260,7 @@ machine_sources:
     cwd: /workspace
 tools:
   run_command: {}
-`, now)
+`)
 	result, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -322,7 +321,13 @@ func TestLaunchAgentValidatesProviderPoolConfigAtLaunch(t *testing.T) {
 		}); err != nil {
 		t.Fatalf("create pool grant: %v", err)
 	}
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "launch-provider-validation", "Launch Provider Validation Agent", `
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"launch-provider-validation",
+		"Launch Provider Validation Agent",
+		`
 instruction: Trigger provider validation at launch.
 model:
   provider_config: openai-prod
@@ -333,7 +338,8 @@ machine_sources:
     initial_num_machines: 1
 tools:
   run_command: {}
-`, now.Add(2*time.Second))
+`,
+	)
 
 	providers.reject = true
 	_, err := store.Execution().LaunchAgent(
@@ -378,7 +384,6 @@ model:
   name: gpt-test
 tools: {}
 `,
-		time.Date(2026, 6, 16, 10, 10, 0, 0, time.UTC),
 	)
 
 	const idempotencyKey = "idem-concurrent-same-key-launch"
@@ -502,7 +507,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now.Add(2*time.Second),
 	)
 	result, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -522,7 +526,10 @@ tools:
 		t.Fatalf("get provider intent machine: %v", err)
 	}
 	if machine.CPU != nil || machine.MemoryMB != nil {
-		t.Fatalf("provider-owned resources were persisted before preparation: cpu %v memory %v", machine.CPU, machine.MemoryMB)
+		t.Fatalf(
+			"provider-owned resources were persisted before preparation: cpu %v memory %v", machine.CPU,
+			machine.MemoryMB,
+		)
 	}
 }
 func TestLaunchAgentWithDefaultPool(t *testing.T) {
@@ -531,7 +538,6 @@ func TestLaunchAgentWithDefaultPool(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 
-	now := time.Date(2026, 5, 21, 8, 30, 0, 0, time.UTC)
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	defaultPool := createDefaultMachinePoolForTest(t, ctx, store, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
@@ -611,7 +617,7 @@ machine_sources:
       APP_ENV: test
 tools:
   run_command: {}
-`, now)
+`)
 	result, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -629,7 +635,9 @@ tools:
 		t.Fatalf("default pool launch should create two bindings and provisioning requests: %+v", result)
 	}
 	var poolGrantCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_pool_grants WHERE project_id = $1`, testProjectID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM project_machine_pool_grants WHERE project_id = $1`, testProjectID,
+	).
 		Scan(&poolGrantCount); err != nil {
 		t.Fatalf("count project machine pool grants: %v", err)
 	}
@@ -679,7 +687,9 @@ tools:
 	); err != nil {
 		t.Fatalf("delete default project machine pool grant: %v", err)
 	}
-	if _, err := store.Execution().GetProjectMachinePoolGrant(ctx, testOrgID, testProjectID, defaultPoolGrantID); !storeerr.IsNotFound(err) {
+	if _, err := store.Execution().GetProjectMachinePoolGrant(
+		ctx, testOrgID, testProjectID, defaultPoolGrantID,
+	); !storeerr.IsNotFound(err) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
 	replayedAfterRevoke, err := store.Execution().LaunchAgent(
@@ -751,7 +761,6 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 		"archive-agent-pool",
 		"Archive Agent Pool Agent",
 		"idem-archive-agent",
-		now.Add(2*time.Second),
 	)
 
 	backlogInput, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
@@ -928,7 +937,10 @@ WHERE agent.project_id = $1
 	}
 	var backlogState string
 	var backlogCanceledAt time.Time
-	if err := pool.QueryRow(ctx, `SELECT state, canceled_at FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`, testProjectID, result.Agent.ID, backlogInput.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT state, canceled_at FROM agent_inputs WHERE project_id = $1 AND agent_id = $2 AND id = $3`,
+		testProjectID, result.Agent.ID, backlogInput.ID,
+	).
 		Scan(&backlogState, &backlogCanceledAt); err != nil {
 		t.Fatalf("query archived backlog input: %v", err)
 	}
@@ -949,7 +961,11 @@ WHERE agent.project_id = $1
 		t.Fatalf("mark archived wakeup: %v", err)
 	}
 	var wakeups int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`, testProjectID, result.Agent.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
+		testProjectID, result.Agent.ID,
+	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("count archived wakeups: %v", err)
 	}
@@ -1012,7 +1028,6 @@ tools:
 		"live-pool-sources",
 		"Live Pool Sources",
 		emptyYAML,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -1047,7 +1062,6 @@ tools:
 		"live-pool-added",
 		addedYAML,
 		"idem-live-pool-added",
-		now.Add(2*time.Second),
 	)
 	if len(added.DeleteMachines) != 0 {
 		t.Fatalf("added pool source deleted machines: %+v", added.DeleteMachines)
@@ -1122,7 +1136,6 @@ tools:
 		"live-pool-changed",
 		changedYAML,
 		"idem-live-pool-changed",
-		now.Add(3*time.Second),
 	)
 	if len(changed.DeleteMachines) != 0 {
 		t.Fatalf("changed pool source deleted machines: %+v", changed.DeleteMachines)
@@ -1173,9 +1186,7 @@ tools:
 		t,
 		ctx,
 		store,
-		"live-pool-lowered",
 		loweredYAML,
-		now.Add(4*time.Second),
 	)
 	type configChangeResult struct {
 		result executionstore.ChangeAgentConfigResult
@@ -1254,9 +1265,7 @@ tools:
 		t,
 		ctx,
 		store,
-		"live-pool-removed",
 		emptyYAML,
-		now.Add(5*time.Second),
 	)
 	seedProviderRuntimeMismatchForTest(
 		t,
@@ -1486,7 +1495,6 @@ func TestLaunchAgentCreatesMachineBindingsInputAndConfigChange(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(t, ctx, store, "launch@example.com", "Launch User")
 	machine, err := store.Execution().CreateDaemonMachine(
 		ctx,
@@ -1524,7 +1532,7 @@ machine_sources:
       APP_MODE: initial
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -1615,7 +1623,7 @@ machine_sources:
 tools:
   run_command: {}
 `
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML, now.Add(1500*time.Millisecond))
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, updatedYAML)
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
@@ -1754,7 +1762,11 @@ tools:
 		t.Fatalf("expected fresh launch after grant revoke to fail, got %v", err)
 	}
 	var failedAgents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-after-revoke'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-after-revoke'`,
+		testProjectID,
+	).
 		Scan(&failedAgents); err != nil {
 		t.Fatalf("count failed launch agents: %v", err)
 	}
@@ -1770,7 +1782,6 @@ func TestLaunchAgentCreatesMultipleMachineBindings(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 10, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "launch-multi@example.com", DisplayName: "Launch Multi User"},
@@ -1838,7 +1849,7 @@ machine_sources:
     description: Second machine
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2006,7 +2017,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	result, err := store.Execution().LaunchAgent(
@@ -2033,7 +2043,7 @@ tools:
 		result.MachineBindings[0].Cwd != "/workspace/explicit" {
 		t.Fatalf("unexpected explicit binding: %+v", result.MachineBindings[0])
 	}
-	for slotIndex := 0; slotIndex < 3; slotIndex++ {
+	for slotIndex := range 3 {
 		binding := result.MachineBindings[slotIndex+1]
 		if binding.State != "attached" || binding.Cwd != "/workspace/pool" ||
 			binding.Description != "Pool machine" {
@@ -2159,7 +2169,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	firstLaunch, err := store.Execution().LaunchAgent(
@@ -2246,7 +2255,9 @@ tools:
 	if len(secondLaunch.MachineBindings) != 1 {
 		t.Fatalf("second launch bindings = %+v, want one", secondLaunch.MachineBindings)
 	}
-	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID)
+	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID,
+	)
 	if secondGeneratedGrant.ProjectMachinePoolGrantID != secondGrant.ID {
 		t.Fatalf(
 			"second generated grant pool grant = %s, want %s",
@@ -2374,7 +2385,7 @@ machine_sources:
     description: Second pool machine
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2492,7 +2503,7 @@ machine_sources:
     max_machines: 0
 tools:
   run_command: {}
-`, now)
+`)
 
 	result, err := store.Execution().LaunchAgent(
 		ctx,
@@ -2576,7 +2587,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 	if _, err := store.Execution().DeleteProjectMachinePoolGrant(
 		ctx,
@@ -2601,7 +2611,11 @@ tools:
 		t.Fatalf("expected zero-initial ungranted pool to fail, got %v", err)
 	}
 	var failedAgents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-zero-ungranted-pool-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-zero-ungranted-pool-agent'`,
+		testProjectID,
+	).
 		Scan(&failedAgents); err != nil {
 		t.Fatalf("count failed zero-initial agents: %v", err)
 	}
@@ -2657,7 +2671,6 @@ func TestLaunchAgentZeroInitialPoolSkipsCapacityCheck(t *testing.T) {
 		"launch-zero-capacity-fill",
 		"Launch Zero Capacity Fill Agent",
 		"idem-launch-zero-capacity-fill-agent",
-		now,
 	); len(
 		result.MachineBindings,
 	) != 1 {
@@ -2681,7 +2694,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	result, err := store.Execution().LaunchAgent(
@@ -2764,7 +2776,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	if _, err := store.Execution().LaunchAgent(
@@ -2783,15 +2794,26 @@ tools:
 		t.Fatalf("launch initial capacity error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-initial-capacity-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-initial-capacity-agent'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -2817,7 +2839,6 @@ func TestLaunchAgentPoolCPUCapacityRollsBackAllRows(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 45, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -2908,7 +2929,6 @@ tools:
 		"launch-cpu-capacity-pool",
 		"Launch CPU Capacity Pool Agent",
 		sourceYAML,
-		now.Add(2*time.Second),
 	)
 
 	if _, err := store.Execution().LaunchAgent(
@@ -2927,15 +2947,26 @@ tools:
 		t.Fatalf("launch cpu capacity error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-cpu-capacity-agent'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-cpu-capacity-agent'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -2961,7 +2992,6 @@ func TestLaunchAgentProjectPoolGrantCapacityIgnoresRevokedGrantDeletingUsage(t *
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 47, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -3026,7 +3056,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	firstLaunch, err := store.Execution().LaunchAgent(
@@ -3089,7 +3118,9 @@ tools:
 	if len(secondLaunch.MachineBindings) != 1 {
 		t.Fatalf("second launch bindings = %+v, want one", secondLaunch.MachineBindings)
 	}
-	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID)
+	secondGeneratedGrant := getProjectMachineGrantByMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, secondLaunch.MachineBindings[0].MachineID,
+	)
 	if secondGeneratedGrant.ProjectMachinePoolGrantID != secondGrant.ID {
 		t.Fatalf(
 			"second generated grant pool grant = %s, want %s",
@@ -3099,6 +3130,7 @@ tools:
 	}
 }
 
+//nolint:tparallel // cases share a pool limit budget and verify rollback before the next launch
 func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -3106,7 +3138,6 @@ func TestLaunchAgentPoolPerMachineLimitsRollBackAllRows(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 9, 14, 50, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{
@@ -3205,7 +3236,6 @@ machine_sources:
 tools:
   run_command: {}
 `, machinePool.Name, test.machineCPU, test.machineMemory),
-				now,
 			)
 
 			if _, err := store.Execution().LaunchAgent(
@@ -3221,19 +3251,31 @@ tools:
 				t.Fatalf("launch per-machine limit error = %v, want ErrStateTransitionConflict", err)
 			}
 			var agents, machines, grants, bindings int
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = $2`, testProjectID, test.idempotencyKey).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = $2`, testProjectID,
+				test.idempotencyKey,
+			).
 				Scan(&agents); err != nil {
 				t.Fatalf("count rolled back agents: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+				machinePool.ID,
+			).
 				Scan(&machines); err != nil {
 				t.Fatalf("count pool machines: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+			if err := pool.QueryRow(
+				ctx,
+				`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+				testProjectID, poolGrant.ID,
+			).
 				Scan(&grants); err != nil {
 				t.Fatalf("count generated grants: %v", err)
 			}
-			if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
+			if err := pool.QueryRow(
+				ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID,
+			).
 				Scan(&bindings); err != nil {
 				t.Fatalf("count machine bindings: %v", err)
 			}
@@ -3306,7 +3348,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 
 	start := make(chan struct{})
@@ -3316,8 +3357,8 @@ tools:
 	}
 	outcomes := make(chan launchOutcome, 2)
 	var wg sync.WaitGroup
-	for index := 0; index < 2; index++ {
-		index := index
+	for index := range 2 {
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -3361,7 +3402,10 @@ tools:
 		)
 	}
 	var machines, agents int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2 AND deleted_at IS NULL`,
+		testOrgID, machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count concurrent pool machines: %v", err)
 	}
@@ -3420,7 +3464,6 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 		"launch-runtime-pool",
 		"Launch Runtime Pool Agent",
 		"idem-launch-runtime-pool-agent",
-		now,
 	)
 	initialMachine, err := store.Execution().GetMachine(ctx, testOrgID, result.MachineBindings[0].MachineID)
 	if err != nil {
@@ -3567,7 +3610,9 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if binding.State != "attached" {
 		t.Fatalf("binding after runtime registration = %+v, want attached", binding)
 	}
-	if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID)); err != nil {
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID),
+	); err != nil {
 		t.Fatalf("archive agent: %v", err)
 	}
 	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -3682,7 +3727,9 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	if binding.State != "released" {
 		t.Fatalf("binding after cleanup = %+v, want released", binding)
 	}
-	if count := countProjectMachineGrantsForMachineForTest(t, ctx, store, testOrgID, testProjectID, result.MachineBindings[0].MachineID); count != 0 {
+	if count := countProjectMachineGrantsForMachineForTest(
+		t, ctx, store, testOrgID, testProjectID, result.MachineBindings[0].MachineID,
+	); count != 0 {
 		t.Fatalf("generated grants after cleanup = %d, want 0", count)
 	}
 }
@@ -3736,7 +3783,6 @@ func TestPoolProvisionMaxAttemptsCleanupOnlyClaimsStaleProvisioning(t *testing.T
 		"launch-max-attempts-pool",
 		"Launch Max Attempts Pool Agent",
 		"idem-launch-max-attempts-agent",
-		now,
 	)
 	if _, err := pool.Exec(ctx, `
 		UPDATE machines
@@ -3865,7 +3911,6 @@ func TestPoolProvisioningAttemptFenceRejectsStaleCompletion(t *testing.T) {
 		"launch-stale-attempt-pool",
 		"Launch Stale Attempt Pool Agent",
 		"idem-launch-stale-attempt-agent",
-		now,
 	)
 	firstClaim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4101,7 +4146,6 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		"launch-stale-delete-pool",
 		"Launch Stale Delete Pool Agent",
 		"idem-launch-stale-delete-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4130,7 +4174,9 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 	); err != nil {
 		t.Fatalf("complete pool machine provisioning: %v", err)
 	}
-	if _, _, err := store.Execution().ArchiveAgent(ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID)); err != nil {
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, testProjectID, result.Agent.ID, userPrincipal(user.ID),
+	); err != nil {
 		t.Fatalf("archive agent: %v", err)
 	}
 	cleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -4310,7 +4356,6 @@ func TestOfflinePoolMachineWithoutRuntimeHistoryMovesToCleanupQueueAfterBootstra
 		"launch-bootstrap-timeout-pool",
 		"Launch Bootstrap Timeout Pool Agent",
 		"idem-launch-bootstrap-timeout-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4460,7 +4505,6 @@ func TestOfflinePoolMachineWithRuntimeHistoryDoesNotBootstrapTimeoutCleanup(t *t
 		"launch-bootstrap-history-pool",
 		"Launch Bootstrap History Pool Agent",
 		"idem-launch-bootstrap-history-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4587,7 +4631,6 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 		"launch-token-retry-pool",
 		"Launch Token Retry Pool Agent",
 		"idem-launch-token-retry-agent",
-		now,
 	)
 	claim, ok, err := store.Execution().ClaimPoolMachineForProvisioning(
 		ctx,
@@ -4640,7 +4683,11 @@ func TestSystemBootstrapTokenRetryDoesNotRevokePriorToken(t *testing.T) {
 	}
 	byoTokenPage, err := store.Execution().ListBYOMachineDaemonTokens(
 		ctx,
-		executionstore.ListBYOMachineDaemonTokensInput{OrgID: testOrgID, MachineID: result.MachineBindings[0].MachineID, Limit: 10},
+		executionstore.ListBYOMachineDaemonTokensInput{
+			OrgID:     testOrgID,
+			MachineID: result.MachineBindings[0].MachineID,
+			Limit:     10,
+		},
 	)
 	if err != nil {
 		t.Fatalf("list BYO machine daemon tokens: %v", err)
@@ -4778,7 +4825,6 @@ machine_sources:
 tools:
   run_command: {}
 `,
-		now,
 	)
 	if _, err := store.Execution().LaunchAgent(
 		ctx,
@@ -4808,15 +4854,26 @@ tools:
 		t.Fatalf("second pool launch error = %v, want ErrStateTransitionConflict", err)
 	}
 	var agents, machines, grants, bindings int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-capacity-second'`, testProjectID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agents WHERE project_id = $1 AND idempotency_key = 'idem-launch-capacity-second'`,
+		testProjectID,
+	).
 		Scan(&agents); err != nil {
 		t.Fatalf("count rolled back agents: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID, machinePool.ID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*)::int FROM machines WHERE org_id = $1 AND machine_pool_id = $2`, testOrgID,
+		machinePool.ID,
+	).
 		Scan(&machines); err != nil {
 		t.Fatalf("count pool machines: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`, testProjectID, poolGrant.ID).
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
+		testProjectID, poolGrant.ID,
+	).
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
@@ -4842,7 +4899,6 @@ func TestClaimNormalModelCallValidatesActiveAgentConfigAtWatermark(t *testing.T)
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -4862,7 +4918,6 @@ model:
   provider_config: openai-prod
   name: model-context-config
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -4918,12 +4973,12 @@ model:
 	if snapshot.AgentConfig.ID != config.ID {
 		t.Fatalf("config at frontier = %s, want %s", snapshot.AgentConfig.ID, config.ID)
 	}
-	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, "model-context-config-changed", `
+	newConfig := mustCreateAgentConfigFromYAML(t, ctx, store, `
 instruction: Keep changed config typed.
 model:
   provider_config: openai-prod
   name: model-context-config
-`, now.Add(8*time.Second))
+`)
 	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(newConfig),
 		AgentID:                launch.Agent.ID,
@@ -4999,7 +5054,6 @@ func TestModelCallRetryUsesCurrentConfiguredModelRevision(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 10, 30, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -5019,7 +5073,6 @@ model:
   provider_config: openai-prod
   name: model-context-revision
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -5088,17 +5141,23 @@ model:
 	}
 	if !initialClaim.Created || !initialClaim.Claimed || initialClaim.Context.AttemptNumber != 1 ||
 		initialClaim.Context.ConfiguredModelRevisionID != configuredModel.CurrentRevisionID {
-		t.Fatalf("initial model context = %+v, want attempt 1 on revision %s", initialClaim, configuredModel.CurrentRevisionID)
+		t.Fatalf(
+			"initial model context = %+v, want attempt 1 on revision %s", initialClaim,
+			configuredModel.CurrentRevisionID,
+		)
 	}
-	if _, err := store.Execution().RecordRetryableModelCallFailure(ctx, executionstore.RecordRecoverableModelCallFailureInput{
-		ProjectID:          testProjectID,
-		AgentID:            launch.Agent.ID,
-		ModelCallContextID: initialClaim.Context.ID,
-		RuntimeLockID:      lock.ID,
-		ErrorKind:          "transient",
-		ErrorCode:          "test_retry_before_revision_change",
-		ErrorMessage:       "retry after configured model revision changes",
-	}); err != nil {
+	if _, err := store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID:          testProjectID,
+			AgentID:            launch.Agent.ID,
+			ModelCallContextID: initialClaim.Context.ID,
+			RuntimeLockID:      lock.ID,
+			ErrorKind:          "transient",
+			ErrorCode:          "test_retry_before_revision_change",
+			ErrorMessage:       "retry after configured model revision changes",
+		},
+	); err != nil {
 		t.Fatalf("record retryable model failure: %v", err)
 	}
 
@@ -5143,7 +5202,10 @@ model:
 		modelenvelope.ResponseEnvelope{RequestedProviderModelSlug: configuredModel.ProviderModelSlug},
 		retryClaim.Context,
 	); err == nil {
-		t.Fatalf("same-frontier retry accepted stale provider slug %q instead of current slug %q", configuredModel.ProviderModelSlug, updated.ProviderModelSlug)
+		t.Fatalf(
+			"same-frontier retry accepted stale provider slug %q instead of current slug %q",
+			configuredModel.ProviderModelSlug, updated.ProviderModelSlug,
+		)
 	}
 	if _, err := store.Execution().CancelAgent(ctx, executionstore.CancelAgentInput{
 		ProjectID: testProjectID,
@@ -5220,7 +5282,6 @@ func TestClaimNormalModelCallDoesNotPinProjectModelGrant(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 21, 11, 0, 0, 0, time.UTC)
 	user := mustCreateProjectDeveloperUser(
 		t,
 		ctx,
@@ -5240,7 +5301,6 @@ model:
   provider_config: openai-prod
   name: model-grant-context
 `,
-		now,
 	)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
@@ -5328,7 +5388,6 @@ func TestRetargetAgentProfileAndLaunchLineage(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	now := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
 		CreateVerifiedUserInput{Email: "retarget@example.com", DisplayName: "Retarget User"},
@@ -5341,7 +5400,7 @@ instruction: First instruction.
 model:
   provider_config: openai-prod
   name: gpt-test
-`, now)
+`)
 	originalConfigID := profile.CurrentConfigID
 	if profile.CurrentGeneration != 1 {
 		t.Fatalf("expected initial generation 1, got %d", profile.CurrentGeneration)
@@ -5352,9 +5411,7 @@ model:
 			t,
 			ctx,
 			store,
-			"retarget-"+expectedCurrentConfigID.String()+sourceYAML,
 			sourceYAML,
-			now.Add(time.Second),
 		)
 		return executionstore.RetargetAgentProfileInput{
 			ProjectID:               testProjectID,
@@ -5549,7 +5606,7 @@ instruction: Unrelated profile.
 model:
   provider_config: openai-prod
   name: gpt-test
-`, now)
+`)
 	if _, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{

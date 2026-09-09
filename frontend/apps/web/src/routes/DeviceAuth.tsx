@@ -66,7 +66,7 @@ export function DeviceAuth() {
     <AuthLayout>
       <div className="flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Approve device login</h1>
+          <h1 className="type-title">Approve device login</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Only approve if this code matches the one shown by the CLI where you started login.
           </p>

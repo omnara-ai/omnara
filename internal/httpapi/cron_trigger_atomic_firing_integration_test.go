@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
 func TestCronTriggerAgentInputCompletionIsAtomic(t *testing.T) {
@@ -21,14 +22,14 @@ func TestCronTriggerAgentInputCompletionIsAtomic(t *testing.T) {
 	service := crontrigger.NewService(store.Execution(), nil, testLogger())
 	project := bootstrapPublicHTTPProject(t, handler, "cron-atomic")
 	launch := launchPublicHTTPAgent(t, handler, project, "cron-atomic-agent", project.AdminToken, http.StatusCreated)
-	agentID := launch["agent"].(map[string]any)["id"].(string)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launch["agent"])["id"])
 	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
 	triggersPath := project.ProjectPath + "/cron-triggers"
 	trigger := requestJSONWithHeaders(t, handler, http.MethodPost, triggersPath,
 		`{"name":"atomic-nudge","target":{"type":"agent","agent_id":"`+agentID+`"},`+
 			`"cron":"0 9 * * *","message_template":"Original message."}`,
 		"idem-cron-atomic", http.StatusCreated, authHeaders(project.AdminToken))
-	triggerID := trigger["id"].(string)
+	triggerID := testutil.RequireType[string](t, trigger["id"])
 	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, triggerID)
 	if _, err := pool.Exec(ctx,
 		"UPDATE cron_triggers SET next_fire_after = transaction_timestamp() - interval '1 minute' WHERE id = $1",

@@ -1,9 +1,9 @@
 package httpapi
 
 import (
-	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -45,8 +45,9 @@ func TestAgentConfigWarnings(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := agentConfigWarnings(test.contract); !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("warnings = %v, want %v", got, test.want)
+			got := agentConfigWarnings(test.contract)
+			if diff := cmp.Diff(test.want, got); diff != "" {
+				t.Fatalf("warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

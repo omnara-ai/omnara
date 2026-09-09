@@ -17,30 +17,23 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunUninstallRemovesOwnedInstallation(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "daemon-home")
 	userHome := filepath.Join(root, "user-home")
-	if err := os.MkdirAll(filepath.Join(userHome, ".local", "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(userHome, ".local", "bin"), 0o700))
 	writeTestInstallReceipt(t, home)
 	canonical := canonicalDaemonPath(home)
-	if err := os.MkdirAll(filepath.Dir(canonical), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Dir(canonical), 0o700))
 	writeTestExecutable(t, canonical, "#!/bin/sh\nexit 0\n")
 	link := filepath.Join(userHome, ".local", "bin", "omnarad")
-	if err := os.Symlink(canonical, link); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Symlink(canonical, link))
 	profile := filepath.Join(userHome, ".zshrc")
 	profileBody := "# managed by omnarad\npath=(\"" + filepath.Dir(canonical) + "\" $path)\n"
-	if err := os.WriteFile(profile, []byte(profileBody), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(profile, []byte(profileBody), 0o600))
 	externalBinary := filepath.Join(root, "external-omnarad")
 	writeTestExecutable(t, externalBinary, "#!/bin/sh\nexit 0\n")
 	t.Setenv("HOME", userHome)
@@ -83,9 +76,7 @@ func TestRunUninstallRemovesOwnedInstallation(t *testing.T) {
 func TestRunUninstallAcceptsConfigOnlyInstallation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
-	if err := os.MkdirAll(userHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(userHome, 0o700))
 	reports := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reports++
@@ -129,9 +120,7 @@ func TestRunUninstallAcceptsConfigOnlyInstallation(t *testing.T) {
 func TestRunUninstallRequiresConfirmation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
-	if err := os.MkdirAll(userHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(userHome, 0o700))
 	writeTestInstallReceipt(t, home)
 	t.Setenv("HOME", userHome)
 	t.Setenv("OMNARA_HOME", home)
@@ -157,9 +146,7 @@ func TestRunUninstallRequiresConfirmation(t *testing.T) {
 func TestInspectUninstallHomeRejectsUnsafeTargets(t *testing.T) {
 	t.Run("operating-system user home", func(t *testing.T) {
 		account, err := user.Current()
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		userHome := t.TempDir()
 		t.Setenv("HOME", userHome)
 		if _, err := inspectUninstallHome(account.HomeDir); err == nil ||
@@ -181,9 +168,7 @@ func TestInspectUninstallHomeRejectsUnsafeTargets(t *testing.T) {
 	t.Run("ancestor of current user home", func(t *testing.T) {
 		home := filepath.Join(t.TempDir(), "daemon-home")
 		userHome := filepath.Join(home, "user-home")
-		if err := os.MkdirAll(userHome, 0o700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(userHome, 0o700))
 		writeTestInstallReceipt(t, home)
 		t.Setenv("HOME", userHome)
 		if _, err := inspectUninstallHome(home); err == nil ||
@@ -197,13 +182,9 @@ func TestInspectUninstallHomeRejectsUnsafeTargets(t *testing.T) {
 		target := filepath.Join(root, "target")
 		writeTestInstallReceipt(t, target)
 		home := filepath.Join(root, "home")
-		if err := os.Symlink(target, home); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Symlink(target, home))
 		userHome := filepath.Join(root, "user-home")
-		if err := os.Mkdir(userHome, 0o700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Mkdir(userHome, 0o700))
 		t.Setenv("HOME", userHome)
 		if _, err := inspectUninstallHome(home); err == nil ||
 			!strings.Contains(err.Error(), "not a symlink") {
@@ -214,14 +195,10 @@ func TestInspectUninstallHomeRejectsUnsafeTargets(t *testing.T) {
 	t.Run("binary only", func(t *testing.T) {
 		root := t.TempDir()
 		home := filepath.Join(root, "home")
-		if err := os.MkdirAll(filepath.Dir(canonicalDaemonPath(home)), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(canonicalDaemonPath(home)), 0o700))
 		writeTestExecutable(t, canonicalDaemonPath(home), "#!/bin/sh\nexit 0\n")
 		userHome := filepath.Join(root, "user-home")
-		if err := os.Mkdir(userHome, 0o700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Mkdir(userHome, 0o700))
 		t.Setenv("HOME", userHome)
 		if _, err := inspectUninstallHome(home); err == nil ||
 			!strings.Contains(err.Error(), "valid daemon config or install receipt") {
@@ -261,12 +238,8 @@ func TestInspectUninstallHomeRejectsUnexpectedBindings(t *testing.T) {
 			root := t.TempDir()
 			home := filepath.Join(root, "home")
 			userHome := filepath.Join(root, "user-home")
-			if err := os.MkdirAll(testCase.path(home), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.MkdirAll(userHome, 0o700); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, os.MkdirAll(testCase.path(home), 0o700))
+			require.NoError(t, os.MkdirAll(userHome, 0o700))
 			writeTestDaemonConfig(t, home, testUninstallConfig())
 			t.Setenv("HOME", userHome)
 			if _, err := inspectUninstallHome(home); err == nil ||
@@ -280,9 +253,7 @@ func TestInspectUninstallHomeRejectsUnexpectedBindings(t *testing.T) {
 func TestRunUninstallContinuesAfterUnprovenProcessShutdown(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "daemon-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
-	if err := os.MkdirAll(userHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(userHome, 0o700))
 	var reportedStage, reportedDetail string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reportedStage = r.URL.Query().Get("stage")
@@ -298,32 +269,22 @@ func TestRunUninstallContinuesAfterUnprovenProcessShutdown(t *testing.T) {
 	config.APIURL = server.URL
 	writeTestDaemonConfig(t, home, config)
 	machine, err := localstore.Machine(home, config.InstallationID, config.MachineID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	store, err := statedb.Open(
 		context.Background(),
 		machine.StateDBPath(),
 		config.InstallationID,
 		config.MachineID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	process := statedb.Process{
 		ProcessID:            "prc-a",
 		SupervisorInstanceID: "supervisor-a",
 		SupervisorToken:      "token-a",
 	}
-	if err := store.ReserveProcess(context.Background(), process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(context.Background(), process.ProcessID, process.SupervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(context.Background(), process.ProcessID, process.SupervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.ReserveProcess(context.Background(), process))
+	require.NoError(t, store.MarkPrepared(context.Background(), process.ProcessID, process.SupervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(context.Background(), process.ProcessID, process.SupervisorInstanceID))
 	supervisor, err := statedb.OpenSupervisor(
 		context.Background(),
 		machine.StateDBPath(),
@@ -333,21 +294,13 @@ func TestRunUninstallContinuesAfterUnprovenProcessShutdown(t *testing.T) {
 		process.SupervisorInstanceID,
 		process.SupervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if execute, err := supervisor.AuthorizeSpawnOnce(context.Background()); err != nil || !execute {
 		t.Fatalf("authorize spawn: execute=%t error=%v", execute, err)
 	}
-	if err := supervisor.RecordSpawned(context.Background(), "process_group", "123"); err != nil {
-		t.Fatal(err)
-	}
-	if err := supervisor.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, supervisor.RecordSpawned(context.Background(), "process_group", "123"))
+	require.NoError(t, supervisor.Close())
+	require.NoError(t, store.Close())
 	t.Setenv("HOME", userHome)
 	t.Setenv("OMNARA_HOME", home)
 	t.Setenv("PATH", t.TempDir())
@@ -392,11 +345,9 @@ func testUninstallConfig() daemonConfig {
 
 func writeTestInstallReceipt(t *testing.T, home string) {
 	t.Helper()
-	if err := localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
+	require.NoError(t, localstore.WriteJSONAtomic(filepath.Join(home, installReceiptFileName), installReceipt{
 		SchemaVersion:      installReceiptVersion,
 		InstallMethod:      installReceiptMethod,
 		ReleaseManifestURL: "https://releases.omnara.test/omnarad/latest/linux-amd64.txt",
-	}, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	}, 0o600))
 }

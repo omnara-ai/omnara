@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -65,7 +66,7 @@ func TestCreateOrganizationFallsBackToDefaultProviderMaintenance(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(token),
 	)
-	publicOrgID := created["org"].(map[string]any)["id"].(string)
+	publicOrgID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["org"])["id"])
 	orgID, err := publicid.Decode(publicid.KindOrganization, publicOrgID)
 	if err != nil {
 		t.Fatalf("decode organization id: %v", err)
@@ -133,7 +134,7 @@ func TestCreateOrganizationFallsBackToDefaultProviderMaintenance(t *testing.T) {
 		http.StatusOK,
 		authHeaders(token),
 	)
-	if replayed["org"].(map[string]any)["id"] != publicOrgID {
+	if testutil.RequireType[map[string]any](t, replayed["org"])["id"] != publicOrgID {
 		t.Fatalf("replayed organization = %+v, want %s", replayed["org"], publicOrgID)
 	}
 	if _, found, err := store.Organizations().ClaimDefaultModelProviderProvisioning(ctx); err != nil || found {
@@ -172,7 +173,7 @@ func TestCreateOrganizationProvisionsDefaultProviderImmediately(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(token),
 	)
-	publicOrgID := created["org"].(map[string]any)["id"].(string)
+	publicOrgID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["org"])["id"])
 	orgID, err := publicid.Decode(publicid.KindOrganization, publicOrgID)
 	if err != nil {
 		t.Fatalf("decode organization id: %v", err)

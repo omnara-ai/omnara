@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	schemamigrations "github.com/omnara-ai/omnara/migrations"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
@@ -39,18 +40,14 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 
 	var applied int
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
 		 WHERE version_id > 0 AND is_applied`,
-	).Scan(&applied); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&applied))
 	migrationFiles, err := productionMigrationFiles()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if applied != len(migrationFiles) {
 		t.Fatalf(
 			"applied production migrations = %d, want %d",
@@ -189,9 +186,16 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions,configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission,org_memberships,org_resource_limit_overrides,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,projects,secret_grants,secret_oauth_refresh_leases,secret_versions,secrets,skill_grants,skills"
+	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
+		"configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens," +
+		"machine_online_intervals,machine_pools,machines,model_call_contexts," +
+		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
+		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
+		"project_machine_grants,project_machine_pool_grants,project_memberships," +
+		"project_model_grants,projects,secret_grants,secret_oauth_refresh_leases," +
+		"secret_versions,secrets,skill_grants,skills"
 	var actual string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
 FROM information_schema.columns column_info
 JOIN information_schema.tables table_info
@@ -200,9 +204,7 @@ JOIN information_schema.tables table_info
 WHERE column_info.table_schema = current_schema()
   AND column_info.column_name = 'org_id'
   AND table_info.table_type = 'BASE TABLE'
-`).Scan(&actual); err != nil {
-		t.Fatal(err)
-	}
+`).Scan(&actual))
 	if actual != expected {
 		t.Fatalf("stored org_id columns = %q, want %q", actual, expected)
 	}
@@ -214,9 +216,12 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions,agent_profiles,agents,cron_triggers,integration_installs,integration_targets,model_call_contexts,process_actions,processes,project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants"
+	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
+		"agent_profiles,agents,cron_triggers,integration_installs,integration_targets," +
+		"model_call_contexts,process_actions,processes,project_machine_grants," +
+		"project_machine_pool_grants,project_memberships,project_model_grants"
 	var actual string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 	SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')
 	FROM information_schema.columns column_info
 	JOIN information_schema.tables table_info
@@ -225,9 +230,7 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	WHERE column_info.table_schema = current_schema()
 	  AND column_info.column_name = 'project_id'
 	  AND table_info.table_type = 'BASE TABLE'
-	`).Scan(&actual); err != nil {
-		t.Fatal(err)
-	}
+	`).Scan(&actual))
 	if actual != expected {
 		t.Fatalf("stored project_id columns = %q, want %q", actual, expected)
 	}
@@ -244,28 +247,24 @@ func TestPostgresProjectOrganizationIsImmutable(t *testing.T) {
 		"original": &originalOrgID,
 		"other":    &otherOrgID,
 	} {
-		if err := db.QueryRowContext(ctx, `
+		require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO orgs(name, created_at, updated_at)
 VALUES ($1, statement_timestamp(), statement_timestamp())
 RETURNING id::text
-`, name).Scan(destination); err != nil {
-			t.Fatal(err)
-		}
+`, name).Scan(destination))
 	}
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO projects(org_id, name, created_at, updated_at)
 VALUES ($1, 'immutable-project', statement_timestamp(), statement_timestamp())
 RETURNING id::text
-`, originalOrgID).Scan(&projectID); err != nil {
-		t.Fatal(err)
-	}
+`, originalOrgID).Scan(&projectID))
 	if _, err := db.ExecContext(ctx, `UPDATE projects SET org_id = $1 WHERE id = $2`, otherOrgID, projectID); err == nil {
 		t.Fatal("project organization update succeeded")
 	}
 	var retainedOrgID string
-	if err := db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(
+		t, db.QueryRowContext(ctx, `SELECT org_id::text FROM projects WHERE id = $1`, projectID).Scan(&retainedOrgID),
+	)
 	if retainedOrgID != originalOrgID {
 		t.Fatalf("project org_id = %s, want %s", retainedOrgID, originalOrgID)
 	}
@@ -278,7 +277,7 @@ func TestPostgresAuthoredSchemaIdentifiersStayBelowTruncationLimit(t *testing.T)
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	var identifiers string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT coalesce(string_agg(kind || ':' || owner || '.' || name, ',' ORDER BY kind, owner, name), '')
 FROM (
   SELECT 'relation' AS kind, namespace.nspname AS owner, relation.relname AS name
@@ -323,9 +322,7 @@ FROM (
   )
 ) identifiers
 WHERE octet_length(name) >= 63
-`).Scan(&identifiers); err != nil {
-		t.Fatal(err)
-	}
+`).Scan(&identifiers))
 	if identifiers != "" {
 		t.Fatalf("authored schema identifiers at PostgreSQL's 63-byte truncation limit: %s", identifiers)
 	}
@@ -334,16 +331,16 @@ WHERE octet_length(name) >= 63
 func TestPostgresExplicitConstraintNamesStayBelowTruncationLimit(t *testing.T) {
 	t.Parallel()
 	migrationFiles, err := filepath.Glob("../../migrations/*.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	constraintNamePattern := regexp.MustCompile(
 		`(?is)\b(?:ADD\s+)?CONSTRAINT\s+("(?:[^"]|"")*"|[a-z_][a-z0-9_$]*)\s+` +
 			`(?:CHECK\b|UNIQUE\b|PRIMARY\s+KEY\b|EXCLUDE\b|FOREIGN\s+KEY\b|` +
 			`REFERENCES\b|NOT\s+NULL\b|NULL\b|DEFAULT\b|GENERATED\b)`,
 	)
 	columnReference := `owner_id uuid CONSTRAINT owner_reference_contract REFERENCES owners(id)`
-	if match := constraintNamePattern.FindStringSubmatch(columnReference); len(match) != 2 || match[1] != "owner_reference_contract" {
+	if match := constraintNamePattern.FindStringSubmatch(
+		columnReference,
+	); len(match) != 2 || match[1] != "owner_reference_contract" {
 		t.Fatalf("explicit constraint matcher missed column-level reference: %q", match)
 	}
 	for _, migrationFile := range migrationFiles {
@@ -370,7 +367,7 @@ func TestPostgresSchemaHasNoExactDuplicateIndexes(t *testing.T) {
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	var duplicates string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 WITH index_info AS (
   SELECT index_catalog.indrelid,
          index_catalog.indexrelid,
@@ -400,9 +397,7 @@ WITH index_info AS (
 )
 SELECT coalesce(string_agg(indrelid::regclass::text || ':' || names, ',' ORDER BY indrelid::regclass::text), '')
 FROM duplicate_groups
-`).Scan(&duplicates); err != nil {
-		t.Fatal(err)
-	}
+`).Scan(&duplicates))
 	if duplicates != "" {
 		t.Fatalf("exact duplicate indexes: %s", duplicates)
 	}
@@ -415,7 +410,7 @@ func TestPostgresUniqueConstraintsDoNotRedundantlySupersetPrimaryKeys(t *testing
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	var redundant string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 WITH primary_keys AS (
   SELECT primary_key.conrelid, primary_key.conkey
   FROM pg_constraint primary_key
@@ -439,11 +434,12 @@ WITH primary_keys AS (
         AND foreign_key.confkey = unique_constraint.conkey
     )
 )
-SELECT coalesce(string_agg(conrelid::regclass::text || '.' || conname, ',' ORDER BY conrelid::regclass::text, conname), '')
+SELECT coalesce(string_agg(
+  conrelid::regclass::text || '.' || conname, ','
+  ORDER BY conrelid::regclass::text, conname
+), '')
 FROM redundant_unique_constraints
-`).Scan(&redundant); err != nil {
-		t.Fatal(err)
-	}
+`).Scan(&redundant))
 	if redundant != "" {
 		t.Fatalf("unique constraints redundantly contain primary keys without a referencing foreign key: %s", redundant)
 	}
@@ -502,7 +498,10 @@ WITH mutating_foreign_keys AS (
       )
   )
 )
-SELECT coalesce(string_agg(conrelid::regclass::text || '.' || conname, ',' ORDER BY conrelid::regclass::text, conname), '')
+SELECT coalesce(string_agg(
+  conrelid::regclass::text || '.' || conname, ','
+  ORDER BY conrelid::regclass::text, conname
+), '')
 FROM unsupported_foreign_keys
 `
 
@@ -545,9 +544,7 @@ func mutatingForeignKeysWithoutSupportingIndexes(
 ) string {
 	t.Helper()
 	var unsupported string
-	if err := db.QueryRowContext(ctx, mutatingForeignKeysWithoutSupportingIndexesQuery).Scan(&unsupported); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.QueryRowContext(ctx, mutatingForeignKeysWithoutSupportingIndexesQuery).Scan(&unsupported))
 	return unsupported
 }
 
@@ -560,9 +557,7 @@ func TestOpenPostgresAcceptsPoolParameters(t *testing.T) {
 	}
 	integrationdb.AssertTestDatabaseURL(t, databaseURL)
 	parsed, err := url.Parse(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	query := parsed.Query()
 	query.Set("pool_max_conns", "5")
 	parsed.RawQuery = query.Encode()
@@ -573,9 +568,7 @@ func TestOpenPostgresAcceptsPoolParameters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open migration database with pool parameter: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.Close())
 }
 
 func TestOpenPostgresAppliesSessionDefaultsToEveryConnection(t *testing.T) {
@@ -624,9 +617,7 @@ SELECT current_setting('application_name'),
 func TestOpenPostgresPreservesExplicitSessionSettings(t *testing.T) {
 	t.Parallel()
 	parsed, err := url.Parse(testDatabaseURL(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	query := parsed.Query()
 	query.Set("application_name", "operator-migrator")
 	query.Set("lock_timeout", "4s")
@@ -642,13 +633,11 @@ func TestOpenPostgresPreservesExplicitSessionSettings(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	var applicationName, lockTimeout, statementTimeout string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT current_setting('application_name'),
        current_setting('lock_timeout'),
        current_setting('statement_timeout')
-`).Scan(&applicationName, &lockTimeout, &statementTimeout); err != nil {
-		t.Fatal(err)
-	}
+`).Scan(&applicationName, &lockTimeout, &statementTimeout))
 	if applicationName != "operator-migrator" || lockTimeout != "4s" || statementTimeout != "9s" {
 		t.Fatalf(
 			"migration session settings = (%q, %q, %q)",
@@ -682,12 +671,10 @@ SELECT pg_sleep(10);
 	}
 
 	var tableExists bool
-	if err := pool.QueryRow(
+	require.NoError(t, pool.QueryRow(
 		ctx,
 		`SELECT to_regclass('slow_probe') IS NOT NULL`,
-	).Scan(&tableExists); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&tableExists))
 	if tableExists {
 		t.Fatal("timed-out migration left schema changes behind")
 	}
@@ -709,21 +696,17 @@ func TestPostgresPopulatedVersion14UpgradesToLatest(t *testing.T) {
 		t.Fatalf("pre-upgrade schema version = %d, want 14", got)
 	}
 	var orgID, projectID, poolID, grantID, machineID string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO orgs(name, created_at, updated_at)
 VALUES ('v14 populated org', statement_timestamp(), statement_timestamp())
 RETURNING id::text
-`).Scan(&orgID); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRowContext(ctx, `
+`).Scan(&orgID))
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO projects(org_id, name, created_at, updated_at)
 VALUES ($1, 'v14 populated project', statement_timestamp(), statement_timestamp())
 RETURNING id::text
-`, orgID).Scan(&projectID); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRowContext(ctx, `
+`, orgID).Scan(&projectID))
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO machine_pools(
     org_id, name, management_kind, provider,
     default_machine_cpu, default_machine_memory_mb,
@@ -738,10 +721,8 @@ VALUES (
     statement_timestamp(), statement_timestamp()
 )
 RETURNING id::text
-`, orgID).Scan(&poolID); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRowContext(ctx, `
+`, orgID).Scan(&poolID))
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO project_machine_pool_grants(
     org_id, project_id, machine_pool_id,
     default_machine_cpu, default_machine_memory_mb,
@@ -754,10 +735,8 @@ VALUES (
     statement_timestamp(), statement_timestamp()
 )
 RETURNING id::text
-`, orgID, projectID, poolID).Scan(&grantID); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRowContext(ctx, `
+`, orgID, projectID, poolID).Scan(&grantID))
+	require.NoError(t, db.QueryRowContext(ctx, `
 INSERT INTO machines(
     org_id, source_kind, display_name, provider,
     lifecycle_state, lifecycle_changed_at, metadata,
@@ -770,9 +749,7 @@ VALUES (
     statement_timestamp(), statement_timestamp()
 )
 RETURNING id::text
-`, orgID).Scan(&machineID); err != nil {
-		t.Fatal(err)
-	}
+`, orgID).Scan(&machineID))
 
 	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 14 database: %v", err)
@@ -781,7 +758,7 @@ RETURNING id::text
 		t.Fatalf("upgraded schema version = %d, want %d", got, latestVersion)
 	}
 	var joinedRows int
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT count(*)
 FROM project_machine_pool_grants grant_record
 JOIN projects project_record
@@ -799,20 +776,16 @@ WHERE grant_record.id = $1
   AND pool_record.min_machine_memory_mb IS NULL
   AND grant_record.min_machine_cpu IS NULL
   AND grant_record.min_machine_memory_mb IS NULL
-`, grantID, projectID, poolID).Scan(&joinedRows); err != nil {
-		t.Fatal(err)
-	}
+`, grantID, projectID, poolID).Scan(&joinedRows))
 	if joinedRows != 1 {
 		t.Fatalf("preserved v14 relationship rows = %d, want 1", joinedRows)
 	}
 	var observedPlatform string
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT metadata->>'observed_platform' FROM machines WHERE id = $1`,
 		machineID,
-	).Scan(&observedPlatform); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&observedPlatform))
 	if observedPlatform != "linux/amd64" {
 		t.Fatalf("normalized observed platform = %q, want linux/amd64", observedPlatform)
 	}
@@ -868,9 +841,7 @@ func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *tes
 	tenantProviderID := uuid.NewString()
 	clusterProviderID := uuid.NewString()
 	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO orgs(id, name, created_at, updated_at)
@@ -961,15 +932,13 @@ FROM configured_model
 			t.Fatalf("insert %s: %v", model.name, err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, tx.Commit())
 
 	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
 		t.Fatalf("upgrade populated version 19 database: %v", err)
 	}
 	var backfilled string
-	if err := db.QueryRowContext(ctx, `
+	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT string_agg(
     configured_model.name || ':' || configured_model.management_kind || ':' || provider_config.management_kind,
     ',' ORDER BY configured_model.name
@@ -979,9 +948,7 @@ JOIN model_provider_configs provider_config
   ON provider_config.org_id = configured_model.org_id
  AND provider_config.id = configured_model.model_provider_config_id
 WHERE configured_model.org_id = $1
-`, orgID).Scan(&backfilled); err != nil {
-		t.Fatal(err)
-	}
+`, orgID).Scan(&backfilled))
 	const expected = "cluster legacy model:cluster:cluster,tenant legacy model:tenant:tenant"
 	if backfilled != expected {
 		t.Fatalf("backfilled configured model authority = %q, want %q", backfilled, expected)
@@ -1014,22 +981,20 @@ func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	}
 
 	var extensionSchema string
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT namespace.nspname
 		 FROM pg_catalog.pg_extension AS extension
 		 JOIN pg_catalog.pg_namespace AS namespace
 		   ON namespace.oid = extension.extnamespace
 		 WHERE extension.extname = 'pg_trgm'`,
-	).Scan(&extensionSchema); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&extensionSchema))
 	if extensionSchema != "extensions" {
 		t.Fatalf("pg_trgm schema = %q, want extensions", extensionSchema)
 	}
 
 	var indexes int
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM pg_catalog.pg_indexes
@@ -1042,9 +1007,7 @@ func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 		       'machines_display_name_trgm_idx',
 		       'skills_name_trgm_idx'
 		   )`,
-	).Scan(&indexes); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&indexes))
 	if indexes != 6 {
 		t.Fatalf("trigram indexes in product schema = %d, want 6", indexes)
 	}
@@ -1075,16 +1038,14 @@ func TestPostgresMigrationsInstallPgTrgmInProductSchema(t *testing.T) {
 	}
 
 	var extensionSchema string
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT namespace.nspname
 		 FROM pg_catalog.pg_extension AS extension
 		 JOIN pg_catalog.pg_namespace AS namespace
 		   ON namespace.oid = extension.extnamespace
 		 WHERE extension.extname = 'pg_trgm'`,
-	).Scan(&extensionSchema); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&extensionSchema))
 	if extensionSchema != "agents" {
 		t.Fatalf("pg_trgm schema = %q, want agents", extensionSchema)
 	}
@@ -1125,12 +1086,10 @@ SELECT missing_migration_function();
 	}
 
 	var probeExists bool
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT to_regclass('public.migration_transaction_probe') IS NOT NULL`,
-	).Scan(&probeExists); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&probeExists))
 	if probeExists {
 		t.Fatal("failed migration left its schema change behind")
 	}
@@ -1171,15 +1130,13 @@ CREATE TABLE migration_lock_probe(id bigint PRIMARY KEY);
 	}
 
 	var applied int
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT count(*)
 		 FROM goose_db_version
 		 WHERE version_id = $1 AND is_applied`,
 		nextVersion,
-	).Scan(&applied); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&applied))
 	if applied != 1 {
 		t.Fatalf("concurrent migration records = %d, want 1", applied)
 	}
@@ -1237,7 +1194,7 @@ CREATE TABLE concurrent_migration_newer(id bigint PRIMARY KEY);
 
 	for {
 		var active bool
-		if err := pool.QueryRow(
+		require.NoError(t, pool.QueryRow(
 			ctx,
 			`SELECT EXISTS (
 				SELECT 1
@@ -1247,9 +1204,7 @@ CREATE TABLE concurrent_migration_newer(id bigint PRIMARY KEY);
 				  AND state = 'active'
 				  AND query LIKE '%omnara_concurrent_migration_probe%'
 			)`,
-		).Scan(&active); err != nil {
-			t.Fatal(err)
-		}
+		).Scan(&active))
 		if active {
 			break
 		}
@@ -1316,23 +1271,19 @@ func applyProductionPostgresMigrationsThrough(
 func currentPostgresMigrationVersion(t *testing.T, ctx context.Context, db *sql.DB) int64 {
 	t.Helper()
 	var version int64
-	if err := db.QueryRowContext(
+	require.NoError(t, db.QueryRowContext(
 		ctx,
 		`SELECT coalesce(max(version_id), 0)
 		 FROM goose_db_version
 		 WHERE is_applied`,
-	).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
+	).Scan(&version))
 	return version
 }
 
 func latestPostgresMigrationVersion(t *testing.T) int64 {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var latest int64
 	for _, entry := range entries {
 		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
@@ -1357,9 +1308,7 @@ func latestPostgresMigrationVersion(t *testing.T) int64 {
 func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 	t.Helper()
 	entries, err := os.ReadDir("../../migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	migrations := make(fstest.MapFS)
 	for _, entry := range entries {
 		if entry.IsDir() || !isProductionMigrationFile(entry.Name()) {
@@ -1377,9 +1326,7 @@ func migrationFilesThrough(t *testing.T, maximum int64) fstest.MapFS {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join("../../migrations", entry.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		migrations[entry.Name()] = &fstest.MapFile{Data: data}
 	}
 	return migrations
@@ -1425,9 +1372,7 @@ func testDatabaseURL(t *testing.T) string {
 func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	parsed, err := url.Parse(testDatabaseURL(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
 		t.Skip("whole-run URL test requires a PostgreSQL URL connection string")
 	}

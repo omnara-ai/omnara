@@ -48,12 +48,10 @@ func (s *recordingBlobStore) GetBlob(ctx context.Context, key string) ([]byte, b
 	if !ok {
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
 	}
-	return append(
-			[]byte(nil),
-			content...), blobstore.Metadata{
-			Digest:    blobstore.ContentDigest(content),
-			SizeBytes: int64(len(content)),
-		}, nil
+	return append([]byte(nil), content...), blobstore.Metadata{
+		Digest:    blobstore.ContentDigest(content),
+		SizeBytes: int64(len(content)),
+	}, nil
 }
 
 func (s *recordingBlobStore) DeleteBlob(ctx context.Context, key string) error {
@@ -75,8 +73,7 @@ func TestCreateArtifactContentRoundTrip(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	record, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -118,8 +115,7 @@ func TestCreateArtifactRequiresBlobStore(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -139,8 +135,7 @@ func TestCreateArtifactMaxBytesRejectsBeforeUpload(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -162,9 +157,8 @@ func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	store := newIntegrationStore(pool)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	for _, test := range []struct {
 		name        string
@@ -178,6 +172,7 @@ func TestCreateArtifactRejectsDatabaseUnsafeTextBeforeUpload(t *testing.T) {
 		{name: "invalid UTF-8 filename", contentType: "image/png", filename: string([]byte{0xff}), want: "invalid UTF-8"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			blobs := newRecordingBlobStore()
 			store := newIntegrationStore(pool, WithBlobStore(blobs))
 			_, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
@@ -233,8 +228,7 @@ func TestCreateArtifactCleanupSurvivesRequestCancellation(t *testing.T) {
 	seedMigratedDB(t, setupCtx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, setupCtx, store, now)
+	agentID := mustCreateAgent(t, setupCtx, store)
 	ctx, cancel := context.WithCancel(setupCtx)
 	blobs.afterPut = cancel
 
@@ -262,8 +256,7 @@ func TestCreateArtifactIdempotentReplayAndConflict(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	input := artifactstore.CreateArtifactInput{
 		ProjectID:      testProjectID,
@@ -312,7 +305,7 @@ func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+	agentID := mustCreateAgent(t, ctx, store)
 	input := artifactstore.CreateArtifactInput{
 		ProjectID:      testProjectID,
 		AgentID:        agentID,
@@ -354,12 +347,13 @@ func TestCreateArtifactReleasesAgentBeforeBlobCleanup(t *testing.T) {
 			name = "archived agent"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			blobs := newRecordingBlobStore()
 			store := newIntegrationStore(pool, WithBlobStore(blobs))
-			agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+			agentID := mustCreateAgent(t, ctx, store)
 			input := artifactstore.CreateArtifactInput{
 				ProjectID: testProjectID, AgentID: agentID, ContentType: "text/plain",
 				Content: []byte("original"), IdempotencyKey: "cleanup-lock",
@@ -408,8 +402,7 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := newRecordingBlobStore()
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 	user := mustCreateProjectOperatorUser(t, ctx, store, "artifact-archived@example.com", "Artifact Archived")
 	input := artifactstore.CreateArtifactInput{
 		ProjectID:      testProjectID,
@@ -446,10 +439,16 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 	}
 	if len(blobs.putKeys) != 3 || len(blobs.deleteKeys) != 2 ||
 		blobs.deleteKeys[0] != blobs.putKeys[1] || blobs.deleteKeys[1] != blobs.putKeys[2] {
-		t.Fatalf("artifact blob writes=%v deletes=%v, want both post-archive uploads deleted", blobs.putKeys, blobs.deleteKeys)
+		t.Fatalf(
+			"artifact blob writes=%v deletes=%v, want both post-archive uploads deleted",
+			blobs.putKeys, blobs.deleteKeys,
+		)
 	}
 	var created int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM artifacts WHERE agent_id = $1 AND idempotency_key = $2`, agentID, input.IdempotencyKey).Scan(&created); err != nil {
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM artifacts WHERE agent_id = $1 AND idempotency_key = $2`,
+		agentID, input.IdempotencyKey,
+	).Scan(&created); err != nil {
 		t.Fatalf("count post-archive artifacts: %v", err)
 	}
 	if created != 0 {
@@ -460,13 +459,14 @@ func TestCreateArtifactRejectsArchivedAgentButReplaysExisting(t *testing.T) {
 func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 	t.Parallel()
 	t.Run("artifact wins", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		blobs := newRecordingBlobStore()
 		store := newIntegrationStore(pool, WithBlobStore(blobs))
-		agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+		agentID := mustCreateAgent(t, ctx, store)
 		user := mustCreateProjectOperatorUser(
 			t,
 			ctx,
@@ -548,13 +548,14 @@ func TestCreateArtifactAndProjectDeletionSerializeAtAgent(t *testing.T) {
 	})
 
 	t.Run("deletion wins", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		blobs := newRecordingBlobStore()
 		store := newIntegrationStore(pool, WithBlobStore(blobs))
-		agentID := mustCreateAgent(t, ctx, store, time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC))
+		agentID := mustCreateAgent(t, ctx, store)
 		user := mustCreateProjectOperatorUser(
 			t,
 			ctx,
@@ -634,8 +635,7 @@ func TestGetArtifactBlobMissingContentFails(t *testing.T) {
 	seedMigratedDB(t, ctx, pool)
 	blobs := integrationblob.MustOpen(t, ctx)
 	store := newIntegrationStore(pool, WithBlobStore(blobs))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
 
 	record, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   testProjectID,
@@ -649,7 +649,9 @@ func TestGetArtifactBlobMissingContentFails(t *testing.T) {
 	if err := blobs.DeleteBlob(ctx, artifactObjectKey(record.AgentID, record.ID)); err != nil {
 		t.Fatalf("delete blob: %v", err)
 	}
-	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, agentID, record.ID); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, _, err := store.Artifacts().GetArtifactBlob(
+		ctx, testProjectID, agentID, record.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -660,9 +662,8 @@ func TestListAgentArtifactsByIDsScopesToAgent(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
-	agentID := mustCreateAgent(t, ctx, store, now)
-	otherAgentID := mustCreateAgent(t, ctx, store, now)
+	agentID := mustCreateAgent(t, ctx, store)
+	otherAgentID := mustCreateAgent(t, ctx, store)
 
 	mine, err := store.Artifacts().CreateArtifact(
 		ctx,
@@ -697,7 +698,9 @@ func TestListAgentArtifactsByIDsScopesToAgent(t *testing.T) {
 		t.Fatalf("expected only the agent's artifact, got %+v", records)
 	}
 
-	if _, _, err := store.Artifacts().GetArtifactBlob(ctx, testProjectID, otherAgentID, mine.ID); !errors.Is(err, storeerr.ErrNotFound) {
+	if _, _, err := store.Artifacts().GetArtifactBlob(
+		ctx, testProjectID, otherAgentID, mine.ID,
+	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("cross-agent artifact blob load error = %v, want not found", err)
 	}
 }

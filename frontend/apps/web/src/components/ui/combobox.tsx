@@ -11,7 +11,7 @@ function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxPr
     <div className="relative">
       <ComboboxPrimitive.Input
         className={cn(
-          'border-input shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base h-9 w-full rounded-md border bg-transparent pl-3 pr-9 text-base outline-none transition-[color,box-shadow] focus-visible:ring-[3px] md:text-sm',
+          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 pr-9 text-base md:text-sm',
           className,
         )}
         {...props}
@@ -28,7 +28,7 @@ function ComboboxChips({ className, ...props }: ComponentProps<typeof ComboboxPr
     <ComboboxPrimitive.InputGroup className="w-full">
       <ComboboxPrimitive.Chips
         className={cn(
-          'border-input shadow-xs focus-within:border-ring focus-within:ring-ring/50 dark:bg-input/30 flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-transparent px-2 py-1 transition-[color,box-shadow] focus-within:ring-[3px]',
+          'border-input control-focus-within control-transition bg-card flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border px-2 py-1',
           className,
         )}
         {...props}
@@ -44,7 +44,7 @@ function ComboboxChipsInput({
   return (
     <ComboboxPrimitive.Input
       className={cn(
-        'placeholder:text-muted-foreground pointer-coarse:text-base h-6 min-w-28 flex-1 bg-transparent px-1 text-base outline-none md:text-sm',
+        'placeholder:text-muted-foreground pointer-coarse:text-base h-6 min-w-28 flex-1 bg-transparent px-1 text-base focus-visible:outline-none md:text-sm',
         className,
       )}
       {...props}
@@ -64,7 +64,7 @@ function ComboboxChip({
   return (
     <ComboboxPrimitive.Chip
       className={cn(
-        'bg-secondary text-secondary-foreground inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium outline-none focus-visible:ring-2',
+        'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
         className,
       )}
       {...props}
@@ -92,7 +92,7 @@ function ComboboxContent({ className, ...props }: ComponentProps<typeof Combobox
       >
         <ComboboxPrimitive.Popup
           className={cn(
-            'bg-popover text-popover-foreground w-[var(--anchor-width)] min-w-64 overflow-hidden rounded-md border shadow-lg outline-none',
+            'bg-popover text-popover-foreground control-focus w-[var(--anchor-width)] min-w-64 overflow-hidden rounded-md border shadow-lg',
             className,
           )}
           // Radix modal dialogs cancel wheel/touch events that reach document
@@ -128,7 +128,7 @@ function ComboboxItem({
   return (
     <ComboboxPrimitive.Item
       className={cn(
-        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
       {...props}
@@ -162,7 +162,7 @@ function ComboboxStatus({ className, ...props }: ComponentProps<typeof ComboboxP
 function ComboboxLoading({ label = 'Searching…' }: { label?: string }) {
   return (
     <div className="text-muted-foreground flex items-center gap-2 border-t px-3 py-2 text-xs">
-      <LoaderCircleIcon className="size-3.5 animate-spin" />
+      <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin" />
       {label}
     </div>
   )

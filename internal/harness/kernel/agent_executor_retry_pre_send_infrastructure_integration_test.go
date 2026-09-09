@@ -147,7 +147,8 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("load exhausted pre-send outcome: %v", err)
 	}
-	if terminalContextState != executionstore.ModelCallContextFailed || operationFrontiers != 1 || attempts != maxAttempts ||
+	if terminalContextState != executionstore.ModelCallContextFailed || operationFrontiers != 1 ||
+		attempts != maxAttempts ||
 		retryingAttempts != executionstore.MaxModelCallRetriesPerOperation ||
 		stoppedAttempts != 1 || outputs != 1 ||
 		stopReason != "error" ||

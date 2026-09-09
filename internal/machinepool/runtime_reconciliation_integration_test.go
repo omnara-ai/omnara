@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1599,7 +1600,7 @@ func (*runtimeReconciliationTestDefinition) ResolveMachineProviderOptions(
 	projectOptions,
 	agentOptions map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	return providers.MergeOptions(defaultOptions, projectOptions, agentOptions)
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
 func (*runtimeReconciliationTestDefinition) ValidatePool(

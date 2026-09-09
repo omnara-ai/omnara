@@ -3,19 +3,17 @@ package machinedaemon
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanonicalProcessCwd(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	relative, err := filepath.Abs("relative")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	otherUser, err := filepath.Abs("~other")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	tests := []struct {
 		name string
 		cwd  string
@@ -32,9 +30,7 @@ func TestCanonicalProcessCwd(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := canonicalProcessCwd(test.cwd)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if got != test.want {
 				t.Fatalf("canonical cwd = %q, want %q", got, test.want)
 			}

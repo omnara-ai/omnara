@@ -101,7 +101,7 @@ func TestDaemonInboxPublishRoutesToOwningReplica(t *testing.T) {
 	}
 	envelope := bus.published[0]
 	if envelope.MachineID != machineID {
-		t.Fatalf("envelope machineID mismatch")
+		t.Fatalf("envelope machine ID = %s, want %s", envelope.MachineID, machineID)
 	}
 	if envelope.Kind != "skill_offer" {
 		t.Fatalf("envelope kind = %q, want skill_offer", envelope.Kind)

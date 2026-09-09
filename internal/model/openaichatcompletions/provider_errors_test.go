@@ -58,7 +58,7 @@ func openRouterRawReplayErrorCases() []openRouterRawReplayErrorCase {
 
 func TestRespondClassifiesProviderErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_1")
+		w.Header().Set("X-Request-ID", "req_1")
 		w.Header().Set("Retry-After", "Wed, 21 Oct 2015 07:28:00 GMT")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":{"message":"bad key","type":"invalid_api_key","code":"invalid_api_key"}}`))
@@ -502,7 +502,7 @@ func TestRespondClassifiesOpenRouterNumericErrors(t *testing.T) {
 		`"message":"This endpoint's maximum context length is 8192 tokens",` +
 		`"metadata":{"error_type":"context_length_exceeded","provider_code":"bad_request"}}}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_openrouter")
+		w.Header().Set("X-Request-ID", "req_openrouter")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -529,7 +529,7 @@ func TestRespondClassifiesOpenRouterChoiceErrors(t *testing.T) {
 		`"error":{"code":502,"message":"Upstream provider overloaded",` +
 		`"metadata":{"error_type":"provider_error","provider_code":"overloaded"}}}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-Id", "req_choice")
+		w.Header().Set("X-Request-ID", "req_choice")
 		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()

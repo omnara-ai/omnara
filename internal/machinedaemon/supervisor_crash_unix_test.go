@@ -15,6 +15,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
@@ -24,9 +25,7 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 	commandDir := t.TempDir()
 	markerPath := commandDir + string(os.PathSeparator) + "process-effect"
 	syncPath := commandDir + string(os.PathSeparator) + "process-effect-sync"
-	if err := syscall.Mkfifo(syncPath, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Mkfifo(syncPath, 0o600))
 	fixture := newDetachedSupervisorTestFixture(
 		t,
 		ctx,
@@ -53,9 +52,7 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 		t.Fatalf("read spawned process: found=%t err=%v", found, err)
 	}
 	containmentID, err := strconv.Atoi(startedProcess.ContainmentID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		empty, probeErr := processGroupEmpty(containmentID)
 		if probeErr != nil || empty {
@@ -64,15 +61,11 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 		_ = syscall.Kill(-containmentID, syscall.SIGKILL)
 	})
 	syncFile, err := os.Open(syncPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := syncFile.Read(make([]byte, 1)); err != nil {
 		t.Fatalf("process effect rendezvous: %v", err)
 	}
-	if err := syncFile.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syncFile.Close())
 
 	action := ProcessAction{
 		ID:         "act_supervisor_sigkill",
@@ -112,16 +105,14 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 	restarted.bootstrap = fixture.client.bootstrap
 	defer restarted.closeState()
 	startup, err := restarted.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(startup.Claims) != 1 ||
 		startup.Claims[0].ProcessID != fixture.runtime.processID ||
 		startup.Claims[0].SupervisorLive {
 		startup.releaseResources()
 		t.Fatalf("crashed-supervisor claim = %+v", startup.Claims)
 	}
-	if err := restarted.applyRegistrationReconciliation(
+	require.NoError(t, restarted.applyRegistrationReconciliation(
 		ctx,
 		&startup,
 		DaemonRuntimeReconciliation{
@@ -136,9 +127,7 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 				}},
 			}},
 		},
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	process, found, err := fixture.store.Process(
 		ctx,
@@ -182,9 +171,7 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 	}
 
 	empty, err := processGroupEmpty(containmentID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if !empty {
 		if err := syscall.Kill(-containmentID, syscall.SIGKILL); err != nil &&
 			err != syscall.ESRCH {
@@ -209,12 +196,8 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	commandDir := t.TempDir()
 	releasePath := commandDir + string(os.PathSeparator) + "release"
 	exitedPath := commandDir + string(os.PathSeparator) + "exited"
-	if err := syscall.Mkfifo(releasePath, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Mkfifo(exitedPath, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Mkfifo(releasePath, 0o600))
+	require.NoError(t, syscall.Mkfifo(exitedPath, 0o600))
 	fixture := newDetachedSupervisorTestFixture(
 		t,
 		ctx,
@@ -234,17 +217,13 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	)
 	fixture.acceptAndStart(t, ctx)
 	exited, err := os.Open(exitedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer exited.Close()
 	runner, ok := fixture.runtime.runner.(*ipcProcessRunner)
 	if !ok {
 		t.Fatalf("runner type = %T", fixture.runtime.runner)
 	}
-	if err := runner.BeginReconciliation(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, runner.BeginReconciliation(ctx))
 	fenceOpen := true
 	defer func() {
 		if fenceOpen {
@@ -252,15 +231,11 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 		}
 	}()
 	release, err := os.OpenFile(releasePath, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := release.Write([]byte("go\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := release.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, release.Close())
 	awaitFifoEOF(t, exited, 5*time.Second)
 
 	process, found, err := fixture.store.Process(
@@ -281,9 +256,7 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 	default:
 	}
 
-	if err := runner.EndReconciliation(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, runner.EndReconciliation())
 	fenceOpen = false
 	process = fixture.waitClosed(t, 5*time.Second)
 	if process.Phase != statedb.ProcessTerminal ||
@@ -325,9 +298,7 @@ func awaitActionRow(
 	deadline := time.Now().Add(timeout)
 	for {
 		_, found, err := store.Action(ctx, actionID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if found {
 			return
 		}
@@ -347,9 +318,7 @@ func waitForProcessGroupEmpty(
 	deadline := time.Now().Add(timeout)
 	for {
 		empty, err := processGroupEmpty(groupID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if empty {
 			return
 		}

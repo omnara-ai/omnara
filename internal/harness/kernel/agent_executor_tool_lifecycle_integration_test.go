@@ -623,7 +623,11 @@ func TestAgentExecutorUsesConfigChangedDuringInFlightModelCallForNextRound(t *te
 	secondModel := &sequenceKernelModel{
 		providerModelSlug: "kernel-test-next",
 		responses: []model.Response{
-			{ID: "resp_inflight_config_final", Content: []model.ResponsePart{{Type: "text", Text: "continued with changed config"}}, StopReason: model.StopReasonEndTurn},
+			{
+				ID:         "resp_inflight_config_final",
+				Content:    []model.ResponsePart{{Type: "text", Text: "continued with changed config"}},
+				StopReason: model.StopReasonEndTurn,
+			},
 		},
 	}
 	turn := fixture.admitContentInputTurn(
@@ -758,7 +762,9 @@ func (f kernelFixture) kernelAgentConfigInput(
 	name, configuredModelName string,
 ) executionstore.CreateAgentConfigInput {
 	t.Helper()
-	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: " + configuredModelName + "\n"
+	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: " +
+		configuredModelName +
+		"\n"
 	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML, f.Now)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,

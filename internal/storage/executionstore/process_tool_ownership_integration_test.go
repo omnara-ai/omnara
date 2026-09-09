@@ -15,6 +15,7 @@ func TestDurableProcessCommandsChooseWaitingDisposition(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("process", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "process_command_waiting")
 		toolCallID := createToolCallForProcessTest(
 			t,
@@ -57,6 +58,7 @@ func TestDurableProcessCommandsChooseWaitingDisposition(t *testing.T) {
 	})
 
 	t.Run("process action", func(t *testing.T) {
+		t.Parallel()
 		fixture := newProcessDaemonFixture(t, ctx, "action_command_waiting")
 		toolCallIDs := createToolCallBatchForProcessTest(
 			t,

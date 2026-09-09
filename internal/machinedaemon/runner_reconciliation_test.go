@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEmptyRegistrationSnapshotIsAnExhaustiveEmptyArray(t *testing.T) {
@@ -27,9 +28,7 @@ func TestEmptyRegistrationSnapshotIsAnExhaustiveEmptyArray(t *testing.T) {
 	}
 	defer client.closeState()
 	startup, err := client.scanLocalProcessesForRegistrationOnce(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer startup.releaseResources()
 	if startup.Claims == nil || len(startup.Claims) != 0 {
 		t.Fatalf("empty registration claims = %#v", startup.Claims)
@@ -53,22 +52,14 @@ func TestReleaseTerminationFailureKeepsSupervisorForReconciliation(
 	}
 	defer client.closeState()
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReserveProcess(ctx, statedb.Process{
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
 		ProcessID:            processID,
 		SupervisorInstanceID: supervisorInstanceID,
 		SupervisorToken:      "supervisor-token-release-termination-failure",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 
 	terminationErr := errors.New("injected reconciliation termination failure")
 	runtime := &processRuntime{
@@ -125,36 +116,26 @@ func TestRegistrationRejectsMissingTerminalLifetimeLock(t *testing.T) {
 	}
 	defer client.closeState()
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	const (
 		processID            = "prc_missing_terminal_lock"
 		supervisorInstanceID = "supervisor-instance-missing-terminal-lock"
 	)
-	if err := store.ReserveProcess(
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-missing-terminal-lock",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	process, found, err := store.Process(ctx, processID)
 	if err != nil || !found {
 		t.Fatalf("read accepted process: found=%t err=%v", found, err)
 	}
 	report, err := client.stoppedProcessTerminalReport(process)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := store.FreezeRecoveredTerminalReport(
 		ctx,
 		processID,
@@ -163,13 +144,11 @@ func TestRegistrationRejectsMissingTerminalLifetimeLock(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MarkServerReleased(
+	require.NoError(t, store.MarkServerReleased(
 		ctx,
 		processID,
 		supervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	startup, err := client.scanLocalProcessesForRegistrationOnce(ctx)
 	startup.releaseResources()
@@ -189,37 +168,25 @@ func TestRegistrationReclaimsMissingPreparedLifetimeLock(t *testing.T) {
 	}
 	defer client.closeState()
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localstore.EnsurePrivateDir(machine.RunDir()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, localstore.EnsurePrivateDir(machine.RunDir()))
 	const (
 		processID            = "prc_missing_prepared_lock"
 		supervisorInstanceID = "supervisor-instance-missing-prepared-lock"
 	)
-	if err := store.ReserveProcess(
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      "supervisor-token-missing-prepared-lock",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
 
 	startup, err := client.scanLocalProcessesForRegistrationOnce(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer startup.releaseResources()
 	if len(startup.Claims) != 1 ||
 		startup.Claims[0].ProcessID != processID ||
@@ -230,14 +197,12 @@ func TestRegistrationReclaimsMissingPreparedLifetimeLock(t *testing.T) {
 	if startup.stoppedLocks[processID] == nil {
 		t.Fatal("missing prepared lifetime lock was not safely reacquired")
 	}
-	if err := client.recoverStoppedReleasedProcess(
+	require.NoError(t, client.recoverStoppedReleasedProcess(
 		ctx,
 		processID,
 		supervisorInstanceID,
 		startup.stoppedLocks[processID],
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	if _, found, err := store.Process(ctx, processID); err != nil || found {
 		t.Fatalf("recovered prepared process: found=%t err=%v", found, err)
 	}
@@ -263,42 +228,26 @@ func newRegistrationProbeFixture(
 		MachineID:      machineID,
 	}
 	store, err := client.stateStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.closeState() })
-	if err := store.ReserveProcess(ctx, process); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkPrepared(
+	require.NoError(t, store.ReserveProcess(ctx, process))
+	require.NoError(t, store.MarkPrepared(
 		ctx,
 		process.ProcessID,
 		process.SupervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 	machine, err := client.machineStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lockPath, err := machine.LifetimeLockPath(process.ProcessID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	lifetime, err := localstore.TryAcquireLock(lockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	releaseLifetime := sync.OnceValue(lifetime.ReleaseAndRemove)
 	t.Cleanup(func() { _ = releaseLifetime() })
 	endpoint, err := machine.ControlEndpointPath(process.ProcessID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	listener, err := localipc.Listen(ctx, endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = listener.Close()
 		_ = localipc.Cleanup(endpoint)
@@ -426,15 +375,11 @@ func TestRegistrationRetriesSameCountSupervisorIdentityReplacement(
 	}()
 
 	startup, err := fixture.client.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	startup.releaseResources()
 	select {
 	case err := <-serverDone:
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("stale supervisor reconciliation fence was not released")
 	}
@@ -472,19 +417,15 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 		installationID,
 		machineID,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer store.Close()
-	if err := store.ReserveProcess(
+	require.NoError(t, store.ReserveProcess(
 		ctx,
 		statedb.Process{
 			ProcessID:            processID,
 			SupervisorInstanceID: supervisorInstanceID,
 			SupervisorToken:      supervisorToken,
-		}); err != nil {
-		t.Fatal(err)
-	}
+		}))
 	supervisor, err := statedb.OpenSupervisor(
 		ctx,
 		filepath.Join(root, "state.sqlite"),
@@ -494,16 +435,12 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 		supervisorInstanceID,
 		supervisorToken,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer supervisor.Close()
 
 	endpoint := filepath.Join(root, "runner.sock")
 	listener, err := localipc.Listen(ctx, endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer listener.Close()
 	defer localipc.Cleanup(endpoint)
 
@@ -536,9 +473,7 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 		supervisorInstanceID: supervisorInstanceID,
 		done:                 make(chan struct{}),
 	}
-	if err := owner.BeginReconciliation(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, owner.BeginReconciliation(ctx))
 
 	if err := owner.Terminate(ctx, "test"); err == nil {
 		t.Fatal("terminate of an unstarted process unexpectedly succeeded")
@@ -560,9 +495,7 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	if err := owner.EndReconciliation(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, owner.EndReconciliation())
 	select {
 	case err := <-result:
 		if err == nil {
@@ -572,20 +505,14 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 		t.Fatal("mutation did not resume after reconciliation disconnect")
 	}
 
-	if err := store.MarkPrepared(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MarkAccepted(ctx, processID, supervisorInstanceID); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
 	if execute, err := supervisor.AuthorizeSpawnOnce(
 		ctx,
 	); err != nil || !execute {
 		t.Fatalf("commit execution: execute=%t err=%v", execute, err)
 	}
-	if err := owner.BeginReconciliation(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, owner.BeginReconciliation(ctx))
 	terminalDone := make(chan struct{})
 	go func() {
 		defer close(terminalDone)
@@ -618,9 +545,7 @@ func TestRunnerReconciliationSessionFencesMutationsUntilDisconnect(
 	default:
 	}
 
-	if err := owner.EndReconciliation(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, owner.EndReconciliation())
 	select {
 	case <-terminalDone:
 	case <-time.After(time.Second):
@@ -668,13 +593,11 @@ func TestRegistrationRetriesSupervisorClosureDuringLivenessProbe(
 		machineID,
 		process,
 	)
-	if err := fixture.store.MarkAccepted(
+	require.NoError(t, fixture.store.MarkAccepted(
 		ctx,
 		processID,
 		supervisorInstanceID,
-	); err != nil {
-		t.Fatal(err)
-	}
+	))
 
 	supervisorClosed := make(chan error, 1)
 	go func() {
@@ -719,13 +642,9 @@ func TestRegistrationRetriesSupervisorClosureDuringLivenessProbe(
 	}()
 
 	startup, err := fixture.client.scanLocalProcessesForRegistration(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer startup.releaseResources()
-	if err := <-supervisorClosed; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-supervisorClosed)
 	if len(startup.Claims) != 1 ||
 		startup.Claims[0].ProcessID != processID ||
 		startup.Claims[0].Phase != statedb.ProcessTerminal ||

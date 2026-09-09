@@ -6,6 +6,8 @@ import (
 	"unicode/utf8"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
 func TestSanitizeInitializationError(t *testing.T) {
@@ -19,10 +21,15 @@ func TestSanitizeInitializationError(t *testing.T) {
 }
 
 func TestValidateDiscoveredTools(t *testing.T) {
+	disabledTool := map[string]agentconfig.RuntimeMCPTool{
+		strings.Repeat("a", 60): {RemoteName: strings.Repeat("a", 60), Enabled: boolPtr(false)},
+		"search docs":           {RemoteName: "search docs", Enabled: boolPtr(false)},
+	}
 	tests := []struct {
-		name  string
-		tools []*sdkmcp.Tool
-		want  string
+		name   string
+		tools  []*sdkmcp.Tool
+		server agentconfig.RuntimeMCPServer
+		want   string
 	}{
 		{
 			name: "valid",
@@ -43,7 +50,15 @@ func TestValidateDiscoveredTools(t *testing.T) {
 		{
 			name:  "unsupported name",
 			tools: []*sdkmcp.Tool{{Name: "search docs"}},
-			want:  `tool name "search docs" cannot be exposed to the model`,
+			want:  `tool name "search docs" cannot be exposed to the model: mcp tool name "search docs" must match`,
+		},
+		{
+			name:  "prefixed name too long",
+			tools: []*sdkmcp.Tool{{Name: strings.Repeat("a", 60)}},
+			want: `tool name "` + strings.Repeat("a", 60) + `" cannot be exposed to the model: tool "` +
+				strings.Repeat("a", 60) + `" becomes "mcp__docs__` + strings.Repeat("a", 60) +
+				`" (71 characters) once the server name is prefixed, but the model only accepts tool names of 64 characters or fewer; ` +
+				`the tool name itself is too long to expose under any server name`,
 		},
 		{
 			name: "duplicate name",
@@ -53,10 +68,43 @@ func TestValidateDiscoveredTools(t *testing.T) {
 			},
 			want: `duplicate tool name "search"`,
 		},
+		{
+			name: "unexposable names skipped when disabled by override",
+			tools: []*sdkmcp.Tool{
+				{Name: "search"},
+				{Name: strings.Repeat("a", 60)},
+				{Name: "search docs"},
+			},
+			server: agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true, Tools: disabledTool},
+		},
+		{
+			name: "unexposable names skipped when server disables tools by default",
+			tools: []*sdkmcp.Tool{
+				{Name: "search"},
+				{Name: strings.Repeat("a", 60)},
+			},
+			server: agentconfig.RuntimeMCPServer{
+				ServerKey: "docs",
+				Tools:     map[string]agentconfig.RuntimeMCPTool{"search": {RemoteName: "search", Enabled: boolPtr(true)}},
+			},
+		},
+		{
+			name: "duplicate disabled names still rejected",
+			tools: []*sdkmcp.Tool{
+				{Name: "search docs"},
+				{Name: "search docs"},
+			},
+			server: agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true, Tools: disabledTool},
+			want:   `duplicate tool name "search docs"`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateDiscoveredTools("docs", test.tools)
+			server := test.server
+			if server.ServerKey == "" {
+				server = agentconfig.RuntimeMCPServer{ServerKey: "docs", DefaultEnabled: true}
+			}
+			err := validateDiscoveredTools(server, test.tools)
 			if test.want == "" {
 				if err != nil {
 					t.Fatalf("validate discovered tools: %v", err)
@@ -68,4 +116,8 @@ func TestValidateDiscoveredTools(t *testing.T) {
 			}
 		})
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

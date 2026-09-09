@@ -201,13 +201,16 @@ func TestPromoteQueuedInputPreservesOpenInteractionsByDefault(t *testing.T) {
 		"ask_question",
 	)
 	interaction := createQuestionInteractionForTest(t, ctx, fixture, toolCallID)
-	queued, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steer after the answer"}]`),
-		IdempotencyKey: "promotion-preserves-interaction",
-	})
+	queued, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steer after the answer"}]`),
+			IdempotencyKey: "promotion-preserves-interaction",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued input: %v", err)
 	}
@@ -261,13 +264,16 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 		createQuestionInteractionForTest(t, ctx, fixture, toolCallIDs[0]),
 		createQuestionInteractionForTest(t, ctx, fixture, toolCallIDs[1]),
 	}
-	queued, _, _, err := fixture.Store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        fixture.AgentID,
-		Actor:          mustOmnaraActorParams(t, fixture.UserID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"continue without the questions"}]`),
-		IdempotencyKey: "promotion-cancels-interactions",
-	})
+	queued, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        fixture.AgentID,
+			Actor:          mustOmnaraActorParams(t, fixture.UserID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"continue without the questions"}]`),
+			IdempotencyKey: "promotion-cancels-interactions",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued input: %v", err)
 	}
@@ -292,7 +298,8 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load canceled interaction %s: %v", interaction.ID, err)
 		}
-		if !found || canceled.State != executionstore.AgentInteractionStateCanceled || canceled.ResolvedByInputID != queued.ID {
+		if !found || canceled.State != executionstore.AgentInteractionStateCanceled ||
+			canceled.ResolvedByInputID != queued.ID {
 			t.Fatalf(
 				"interaction %s after promotion = %+v found=%v, want canceled by %s",
 				interaction.ID,
@@ -310,7 +317,8 @@ func TestPromoteQueuedInputCanCancelCurrentTurnInteractions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load canceled interaction tool call %s: %v", interaction.ToolCallID, err)
 		}
-		if toolCall.State != executionstore.ToolCallStateCompleted || toolCall.Outcome != executionstore.ToolResultOutcomeCanceled {
+		if toolCall.State != executionstore.ToolCallStateCompleted ||
+			toolCall.Outcome != executionstore.ToolResultOutcomeCanceled {
 			t.Fatalf(
 				"tool call %s after promotion = state %q outcome %q, want completed/canceled",
 				toolCall.ID,

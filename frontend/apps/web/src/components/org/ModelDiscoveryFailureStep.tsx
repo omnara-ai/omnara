@@ -36,7 +36,7 @@ export function ModelDiscoveryFailureStep({
             : 'The model provider already exists, but its available models could not be fetched.'}
         </DialogDescription>
       </DialogHeader>
-      <div role="alert" className="text-sm text-amber-600 dark:text-amber-500">
+      <div role="alert" className="text-warning text-sm">
         <p className="font-medium">Warning: unable to fetch available models. This might mean:</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>Your API token is expired or invalid</li>

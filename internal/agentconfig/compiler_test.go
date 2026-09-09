@@ -11,12 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelCompiledOverridesPreserveConfiguredValues(t *testing.T) {
@@ -87,13 +89,9 @@ model:
   name: %q
 `, "Provider Cafe\u0301", "Model Cafe\u0301")
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Model.ProviderConfig != "Provider Café" || parsed.Model.Name != "Model Café" {
 		t.Fatalf("parsed source references = %+v", parsed.Model)
 	}
@@ -110,16 +108,12 @@ model:
   name: Model
 `, "Provider Cafe\u0301")
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Source != source {
 		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Model.ProviderConfig != "Provider Café" {
 		t.Fatalf("stored provider config = %q, want NFC value", parsed.Model.ProviderConfig)
 	}
@@ -133,16 +127,12 @@ model:
   name: Model
 `, decomposed)
 	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Source != source {
 		t.Fatalf("stored source changed:\n%s\nwant:\n%s", result.Source, source)
 	}
 	parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if parsed.Instruction != decomposed {
 		t.Fatalf("instruction = %q, want original alias target %q", parsed.Instruction, decomposed)
 	}
@@ -317,6 +307,56 @@ mcp:
 	}
 }
 
+func TestCompileYAMLAllowsTooLongRuntimeToolNameWhenDisabled(t *testing.T) {
+	serverKey := strings.Repeat("a", 32)
+	remoteName := strings.Repeat("b", 32)
+	for name, source := range map[string]string{
+		"disabled_by_override": `
+mcp:
+  ` + serverKey + `:
+    url: https://example.com/mcp
+    tools:
+      ` + remoteName + `:
+        enabled: false
+`,
+		"disabled_by_server_default": `
+mcp:
+  ` + serverKey + `:
+    url: https://example.com/mcp
+    default_enabled: false
+    tools:
+      ` + remoteName + `:
+        permission:
+          mode: always_ask
+          parameters: {}
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+			if err != nil {
+				t.Fatalf("compile mcp config: %v", err)
+			}
+			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+			if err != nil {
+				t.Fatalf("runtime contract: %v", err)
+			}
+			if _, ok := contract.MCPServers[0].ResolveTool(remoteName); ok {
+				t.Fatal("tool with too-long runtime name should stay disabled")
+			}
+		})
+	}
+	if _, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+mcp:
+  `+serverKey+`:
+    url: https://example.com/mcp
+    tools:
+      "bad name":
+        enabled: false
+`)), CompileOptions{}); err == nil {
+		t.Fatal("disabled tool with malformed name should still be rejected")
+	}
+}
+
 func TestCompileYAMLRejectsInvalidMCPConfig(t *testing.T) {
 	for name, source := range map[string]string{
 		"server_key_underscore": `
@@ -336,6 +376,16 @@ mcp:
     tools:
       ` + strings.Repeat("b", 32) + `:
         enabled: true
+        permission:
+          mode: always_ask
+          parameters: {}
+`,
+		"runtime_tool_name_too_long_by_server_default": `
+mcp:
+  ` + strings.Repeat("a", 32) + `:
+    url: https://example.com/mcp
+    tools:
+      ` + strings.Repeat("b", 32) + `:
         permission:
           mode: always_ask
           parameters: {}
@@ -986,10 +1036,8 @@ tools:
 			Description:        "Test pool machine",
 		},
 	}
-	for index, machine := range contract.MachineSources {
-		if !reflect.DeepEqual(machine, want[index]) {
-			t.Fatalf("machine %d = %+v, want %+v", index, machine, want[index])
-		}
+	if diff := cmp.Diff(want, contract.MachineSources); diff != "" {
+		t.Fatalf("machine sources mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1632,17 +1680,13 @@ model:
 	first, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
 		ResolveModelSelection: resolve,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	configuredModelID = "configured_model_reusing_name"
 	second, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
 		ResolveModelSelection: resolve,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if first.Compiled.Model.ConfiguredModelID != "configured_model_original" {
 		t.Fatalf("first compiled model ID changed: %+v", first.Compiled.Model)
 	}

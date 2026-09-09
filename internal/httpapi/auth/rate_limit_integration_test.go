@@ -26,7 +26,7 @@ func TestRedisRateLimiterUsesRollingBudget(t *testing.T) {
 	const limit = 3
 	window := 3 * time.Second
 
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		if err := limiter.Allow(ctx, key, limit, window); err != nil {
 			t.Fatalf("burst request %d error = %v", i, err)
 		}

@@ -25,7 +25,7 @@ export function Invitations() {
   if (me.orgs.length === 0) {
     return (
       <div className="flex min-h-svh flex-col items-center gap-8 p-6 sm:pt-12">
-        <Link to="/onboarding" className="flex items-center gap-2 text-base font-semibold">
+        <Link to="/onboarding" className="type-card-title flex items-center gap-2 text-base">
           <BrandMark />
           Omnara
         </Link>
@@ -80,7 +80,7 @@ function InvitationsContent({
       {hasOrganizations && <PageBreadcrumb items={[{ id: 'invitations', label: 'Invitations' }]} />}
 
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Pending invitations</h1>
+        <h1 className="type-title">Pending invitations</h1>
         <p className="text-muted-foreground text-sm">
           Review invitations to join other organizations.
         </p>

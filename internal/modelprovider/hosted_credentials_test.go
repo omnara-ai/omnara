@@ -6,10 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -52,8 +52,8 @@ func TestHTTPHostedCredentialProvisionerBuildsAuthenticatedRoute(t *testing.T) {
 	if response.CredentialValue != "sk-provisioned" {
 		t.Fatalf("credential value = %q, want provisioned value", response.CredentialValue)
 	}
-	if !reflect.DeepEqual(gotRequest, validHostedCredentialRequest()) {
-		t.Fatalf("unexpected provision request: %+v", gotRequest)
+	if diff := cmp.Diff(validHostedCredentialRequest(), gotRequest); diff != "" {
+		t.Fatalf("provision request mismatch (-want +got):\n%s", diff)
 	}
 }
 

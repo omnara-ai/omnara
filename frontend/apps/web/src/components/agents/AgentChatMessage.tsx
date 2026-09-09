@@ -41,7 +41,7 @@ function ActorLabel({
 
 function JsonValue({ value }: { value: unknown }) {
   return (
-    <pre className="bg-background/60 max-h-72 overflow-auto rounded-md border p-3 font-mono text-xs leading-relaxed">
+    <pre className="bg-background/60 type-code max-h-72 overflow-auto rounded-md border p-3">
       {JSON.stringify(value, null, 2)}
     </pre>
   )
@@ -50,7 +50,7 @@ function JsonValue({ value }: { value: unknown }) {
 function AssistantMarkdown({ children }: { children: string }) {
   return (
     <Streamdown
-      className="max-w-3xl text-pretty py-0.5 text-sm leading-7"
+      className="type-body-small leading-prose max-w-3xl text-pretty py-0.5"
       components={{
         a: ({ children: linkChildren, ...props }) => (
           <a {...props} target="_blank" rel="noreferrer">
@@ -70,7 +70,7 @@ function AgentConfigDivider({ action }: { action: 'initialized' | 'changed' }) {
   return (
     <div className="flex w-full items-center gap-3 py-1" role="separator" aria-label={label}>
       <span className="bg-border h-px flex-1" aria-hidden="true" />
-      <span className="text-muted-foreground text-[11px] font-medium tracking-wide">{label}</span>
+      <span className="text-muted-foreground tracking-eyebrow text-xs font-medium">{label}</span>
       <span className="bg-border h-px flex-1" aria-hidden="true" />
     </div>
   )
@@ -90,16 +90,16 @@ function ToolPart({
         {complete ? (
           <Check className="text-muted-foreground size-3.5" />
         ) : (
-          <CircleDashed className="text-primary size-3.5 animate-spin" />
+          <CircleDashed className="text-primary size-3.5 motion-safe:animate-spin" />
         )}
         <ChevronRight className="text-muted-foreground size-3.5 transition-transform group-data-[state=open]/tool:rotate-90" />
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2 border-t p-2">
-        <p className="text-muted-foreground px-1 text-[11px] font-medium">Input</p>
+        <p className="text-muted-foreground px-1 text-xs font-medium">Input</p>
         <JsonValue value={part.input} />
         {part.state === 'output-available' && (
           <>
-            <p className="text-muted-foreground px-1 pt-1 text-[11px] font-medium">Output</p>
+            <p className="text-muted-foreground px-1 pt-1 text-xs font-medium">Output</p>
             <JsonValue value={part.output} />
           </>
         )}
@@ -179,7 +179,7 @@ export function AgentChatMessage({
                 className="text-muted-foreground flex items-center gap-2 py-0.5 text-xs"
                 role="status"
               >
-                <CircleDashed className="size-3.5 animate-spin" />
+                <CircleDashed className="size-3.5 motion-safe:animate-spin" />
                 Thinking…
               </div>
             )

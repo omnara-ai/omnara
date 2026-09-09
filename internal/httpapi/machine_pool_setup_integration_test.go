@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
@@ -51,37 +52,38 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	poolID := machinePool["id"].(string)
-	poolName := machinePool["name"].(string)
+	poolID := testutil.RequireType[string](t, machinePool["id"])
+	poolName := testutil.RequireType[string](t, machinePool["name"])
 	if machinePool["management_kind"] != string(management.Tenant) {
 		t.Fatalf("machine pool management_kind = %v, want tenant", machinePool["management_kind"])
 	}
-	if machinePool["provider"] != "unikraft" || machinePool["max_total_machines"].(float64) != 2 ||
-		machinePool["min_machine_cpu"].(float64) != 1 ||
-		machinePool["min_machine_memory_mb"].(float64) != 1024 ||
-		machinePool["max_machine_cpu"].(float64) != 2 ||
-		machinePool["max_machine_memory_mb"].(float64) != 4096 {
+	if machinePool["provider"] != "unikraft" || testutil.RequireType[float64](t, machinePool["max_total_machines"]) != 2 ||
+		testutil.RequireType[float64](t, machinePool["min_machine_cpu"]) != 1 ||
+		testutil.RequireType[float64](t, machinePool["min_machine_memory_mb"]) != 1024 ||
+		testutil.RequireType[float64](t, machinePool["max_machine_cpu"]) != 2 ||
+		testutil.RequireType[float64](t, machinePool["max_machine_memory_mb"]) != 4096 {
 		t.Fatalf("unexpected pool response: %+v", machinePool)
 	}
 	if machinePool["runtime_protection_enabled"] != false {
 		t.Fatalf("default runtime_protection_enabled = %v, want false", machinePool["runtime_protection_enabled"])
 	}
-	defaultProviderOptions := machinePool["default_machine_provider_options"].(map[string]any)
+	defaultProviderOptions := testutil.RequireType[map[string]any](t, machinePool["default_machine_provider_options"])
 	if machinePool["default_cwd"] != "/pool" || defaultProviderOptions["image"] != "test" {
 		t.Fatalf("unexpected pool default_machine fields: %+v", machinePool)
 	}
 	if defaultProviderOptions["startup_script"] != "echo setup" {
 		t.Fatalf("unexpected pool default_machine_provider_options startup_script: %+v", machinePool)
 	}
-	defaultMachineEnv := machinePool["default_machine_env"].(map[string]any)
+	defaultMachineEnv := testutil.RequireType[map[string]any](t, machinePool["default_machine_env"])
 	if defaultMachineEnv["SECRET_THING"] != "pool-value" || defaultMachineEnv["machine_id"] != "pool-machine" {
 		t.Fatalf("unexpected pool default_machine_env: %+v", machinePool)
 	}
-	defaultMachineSecretEnv := machinePool["default_machine_secret_env"].(map[string]any)
-	if defaultMachineSecretEnv["API_TOKEN"] != providerAuthSecretID || defaultMachineSecretEnv["storage_key"] != providerAuthSecretID {
+	defaultMachineSecretEnv := testutil.RequireType[map[string]any](t, machinePool["default_machine_secret_env"])
+	if defaultMachineSecretEnv["API_TOKEN"] != providerAuthSecretID ||
+		defaultMachineSecretEnv["storage_key"] != providerAuthSecretID {
 		t.Fatalf("unexpected pool default_machine_secret_env: %+v", machinePool)
 	}
-	providerConfig := machinePool["provider_config"].(map[string]any)
+	providerConfig := testutil.RequireType[map[string]any](t, machinePool["provider_config"])
 	if providerConfig["api_base_url"] != "https://api.custom.example" {
 		t.Fatalf("unexpected provider config response: %+v", machinePool)
 	}
@@ -226,7 +228,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(emptyImagesPool["error"].(string), "allowed_images must not be empty") {
+	if !strings.Contains(testutil.RequireType[string](t, emptyImagesPool["error"]), "allowed_images must not be empty") {
 		t.Fatalf("empty allowed_images response = %+v", emptyImagesPool)
 	}
 	emptyMetrosPool := requestJSONWithHeaders(
@@ -239,7 +241,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(emptyMetrosPool["error"].(string), "allowed_metros must not be empty") {
+	if !strings.Contains(testutil.RequireType[string](t, emptyMetrosPool["error"]), "allowed_metros must not be empty") {
 		t.Fatalf("empty allowed_metros response = %+v", emptyMetrosPool)
 	}
 	replayedPool := requestJSONWithHeaders(
@@ -285,11 +287,19 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if got := len(pools["data"].([]any)); got != 1 {
+	if got := len(testutil.RequireType[[]any](t, pools["data"])); got != 1 {
 		t.Fatalf("listed pools = %d, want 1: %+v", got, pools)
 	}
 	providerAuthSecretUUID := mustPublicHTTPID(t, publicid.KindSecret, providerAuthSecretID)
-	if _, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{OrgID: project.OrgUUID, SecretID: providerAuthSecretUUID, TargetProjectID: project.ProjectUUID, Actor: httpUserPrincipal(project.AdminUserUUID)}); err != nil {
+	if _, err := store.Secrets().CreateSecretGrant(
+		ctx,
+		secretstore.CreateSecretGrantInput{
+			OrgID:           project.OrgUUID,
+			SecretID:        providerAuthSecretUUID,
+			TargetProjectID: project.ProjectUUID,
+			Actor:           httpUserPrincipal(project.AdminUserUUID),
+		},
+	); err != nil {
 		t.Fatalf("grant pool secret env to project: %v", err)
 	}
 	updatePoolBody := `{"name":"update-target","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{},"default_machine_provider_options":{"image":"update-initial","metro":"sfo"},"default_cwd":"/workspace"` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":false}`
@@ -303,7 +313,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	updatePoolID := updatePool["id"].(string)
+	updatePoolID := testutil.RequireType[string](t, updatePool["id"])
 	if updatePool["runtime_protection_enabled"] != false || updatePool["min_machine_cpu"] != nil ||
 		updatePool["min_machine_memory_mb"] != nil {
 		t.Fatalf("unexpected created pool defaults: %+v", updatePool)
@@ -346,9 +356,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		updatedPool["name"] != "updated-target" ||
 		updatedPool["description"] != "updated pool" || updatedPool["default_cwd"] != "/pool-updated" ||
 		updatedPool["provider_auth_secret_id"] != rotatedProviderAuthSecretID ||
-		updatedPool["max_total_cpu"].(float64) != 4 ||
-		updatedPool["min_machine_cpu"].(float64) != 1 ||
-		updatedPool["min_machine_memory_mb"].(float64) != 1024 ||
+		testutil.RequireType[float64](t, updatedPool["max_total_cpu"]) != 4 ||
+		testutil.RequireType[float64](t, updatedPool["min_machine_cpu"]) != 1 ||
+		testutil.RequireType[float64](t, updatedPool["min_machine_memory_mb"]) != 1024 ||
 		updatedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected updated pool response: %+v", updatedPool)
 	}
@@ -363,9 +373,10 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if patchedPool["id"] != updatePoolID || patchedPool["description"] != "patched pool" ||
-		patchedPool["default_cwd"] != "/pool-updated" || patchedPool["max_total_cpu"].(float64) != 4 ||
-		patchedPool["min_machine_cpu"].(float64) != 1 ||
-		patchedPool["min_machine_memory_mb"].(float64) != 1024 ||
+		patchedPool["default_cwd"] != "/pool-updated" ||
+		testutil.RequireType[float64](t, patchedPool["max_total_cpu"]) != 4 ||
+		testutil.RequireType[float64](t, patchedPool["min_machine_cpu"]) != 1 ||
+		testutil.RequireType[float64](t, patchedPool["min_machine_memory_mb"]) != 1024 ||
 		patchedPool["runtime_protection_enabled"] != true {
 		t.Fatalf("unexpected patched pool response: %+v", patchedPool)
 	}
@@ -379,8 +390,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if zeroMinimumPool["min_machine_cpu"].(float64) != 0 ||
-		zeroMinimumPool["min_machine_memory_mb"].(float64) != 0 {
+	if testutil.RequireType[float64](t, zeroMinimumPool["min_machine_cpu"]) != 0 ||
+		testutil.RequireType[float64](t, zeroMinimumPool["min_machine_memory_mb"]) != 0 {
 		t.Fatalf("explicit zero minimums were not preserved: %+v", zeroMinimumPool)
 	}
 	clearedMinimumPool := requestJSONWithHeaders(
@@ -396,8 +407,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if clearedMinimumPool["min_machine_cpu"] != nil || clearedMinimumPool["min_machine_memory_mb"] != nil {
 		t.Fatalf("null minimums were not cleared: %+v", clearedMinimumPool)
 	}
-	updatedEnv := updatedPool["default_machine_env"].(map[string]any)
-	updatedProviderOptions := updatedPool["default_machine_provider_options"].(map[string]any)
+	updatedEnv := testutil.RequireType[map[string]any](t, updatedPool["default_machine_env"])
+	updatedProviderOptions := testutil.RequireType[map[string]any](t, updatedPool["default_machine_provider_options"])
 	if updatedEnv["SECRET_THING"] != "updated-pool-value" ||
 		updatedProviderOptions["image"] != "updated" ||
 		updatedProviderOptions["startup_script"] != "echo updated" {
@@ -488,7 +499,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t,
 		handler,
 		http.MethodDelete,
-		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+archivedPool["id"].(string),
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+testutil.RequireType[string](t, archivedPool["id"]),
 		"",
 		"",
 		http.StatusNoContent,
@@ -498,7 +509,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t,
 		handler,
 		http.MethodGet,
-		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+archivedPool["id"].(string),
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+testutil.RequireType[string](t, archivedPool["id"]),
 		"",
 		"",
 		http.StatusNotFound,
@@ -508,7 +519,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t,
 		handler,
 		http.MethodDelete,
-		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+archivedPool["id"].(string),
+		"/api/v1/orgs/"+project.OrgID+"/machine-pools/"+testutil.RequireType[string](t, archivedPool["id"]),
 		"",
 		"",
 		http.StatusNotFound,
@@ -532,7 +543,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		)
 	}
 
-	ungrantedPoolSource := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\ntools:\n  run_command: {}\n"
+	ungrantedPoolSource := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -613,7 +626,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(badProjectImageGrant["error"].(string), "provider_config.allowed_images") {
+	if !strings.Contains(
+		testutil.RequireType[string](t, badProjectImageGrant["error"]), "provider_config.allowed_images",
+	) {
 		t.Fatalf("bad project image grant error = %+v, want allowed_images context", badProjectImageGrant)
 	}
 
@@ -628,25 +643,26 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	poolGrantID := poolGrant["id"].(string)
+	poolGrantID := testutil.RequireType[string](t, poolGrant["id"])
 	if poolGrant["machine_pool_id"] != poolID {
 		t.Fatalf("unexpected pool grant response: %+v", poolGrant)
 	}
-	if poolGrant["default_cwd"] != "/project" || poolGrant["default_machine_memory_mb"].(float64) != 2048 ||
-		poolGrant["max_total_cpu"].(float64) != 4 ||
-		poolGrant["max_total_memory_mb"].(float64) != 4096 ||
-		poolGrant["min_machine_cpu"].(float64) != 1 ||
-		poolGrant["min_machine_memory_mb"].(float64) != 2048 ||
-		poolGrant["max_machine_cpu"].(float64) != 2 ||
-		poolGrant["max_machine_memory_mb"].(float64) != 4096 {
+	if poolGrant["default_cwd"] != "/project" ||
+		testutil.RequireType[float64](t, poolGrant["default_machine_memory_mb"]) != 2048 ||
+		testutil.RequireType[float64](t, poolGrant["max_total_cpu"]) != 4 ||
+		testutil.RequireType[float64](t, poolGrant["max_total_memory_mb"]) != 4096 ||
+		testutil.RequireType[float64](t, poolGrant["min_machine_cpu"]) != 1 ||
+		testutil.RequireType[float64](t, poolGrant["min_machine_memory_mb"]) != 2048 ||
+		testutil.RequireType[float64](t, poolGrant["max_machine_cpu"]) != 2 ||
+		testutil.RequireType[float64](t, poolGrant["max_machine_memory_mb"]) != 4096 {
 		t.Fatalf("unexpected pool grant default_machine fields/caps: %+v", poolGrant)
 	}
-	poolGrantEnv := poolGrant["default_machine_env_overlay"].(map[string]any)
+	poolGrantEnv := testutil.RequireType[map[string]any](t, poolGrant["default_machine_env_overlay"])
 	if poolGrantEnv["SECRET_THING"] != "project-value" || poolGrantEnv["PROJECT_ONLY"] != "yes" ||
 		poolGrantEnv["uri"] != "project-uri" {
 		t.Fatalf("unexpected pool grant default_machine_env_overlay: %+v", poolGrant)
 	}
-	poolGrantSecretEnv := poolGrant["default_machine_secret_env_overlay"].(map[string]any)
+	poolGrantSecretEnv := testutil.RequireType[map[string]any](t, poolGrant["default_machine_secret_env_overlay"])
 	if poolGrantSecretEnv["process_id"] != providerAuthSecretID {
 		t.Fatalf("unexpected pool grant default_machine_secret_env_overlay: %+v", poolGrant)
 	}
@@ -769,13 +785,17 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(projectAdminToken),
 	)
-	projectAdminPoolGrantEnv := projectAdminPoolGrant["default_machine_env_overlay"].(map[string]any)
+	projectAdminPoolGrantEnv := testutil.RequireType[map[string]any](
+		t, projectAdminPoolGrant["default_machine_env_overlay"],
+	)
 	if projectAdminPoolGrantEnv["SECRET_THING"] != "project-value" ||
 		projectAdminPoolGrantEnv["PROJECT_ONLY"] != "yes" ||
 		projectAdminPoolGrantEnv["uri"] != "project-uri" {
 		t.Fatalf("project admin pool grant env = %+v, want plaintext env", projectAdminPoolGrant)
 	}
-	projectAdminPoolGrantSecretEnv := projectAdminPoolGrant["default_machine_secret_env_overlay"].(map[string]any)
+	projectAdminPoolGrantSecretEnv := testutil.RequireType[map[string]any](
+		t, projectAdminPoolGrant["default_machine_secret_env_overlay"],
+	)
 	if projectAdminPoolGrantSecretEnv["process_id"] != providerAuthSecretID {
 		t.Fatalf("project admin pool grant secret_env = %+v, want secret_env", projectAdminPoolGrant)
 	}
@@ -799,7 +819,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusOK,
 		authHeaders(projectAdminToken),
 	)
-	if got := len(poolGrants["data"].([]any)); got != 1 {
+	if got := len(testutil.RequireType[[]any](t, poolGrants["data"])); got != 1 {
 		t.Fatalf("listed pool grants = %d, want 1: %+v", got, poolGrants)
 	}
 
@@ -815,19 +835,21 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	)
 	if patchedPoolGrant["id"] != poolGrantID ||
 		patchedPoolGrant["description"] != "patched project pool" ||
-		patchedPoolGrant["default_machine_memory_mb"].(float64) != 1024 ||
+		testutil.RequireType[float64](t, patchedPoolGrant["default_machine_memory_mb"]) != 1024 ||
 		patchedPoolGrant["min_machine_cpu"] != nil ||
-		patchedPoolGrant["min_machine_memory_mb"].(float64) != 1024 ||
+		testutil.RequireType[float64](t, patchedPoolGrant["min_machine_memory_mb"]) != 1024 ||
 		patchedPoolGrant["max_total_cpu"] != nil ||
-		patchedPoolGrant["max_machine_cpu"].(float64) != 2 ||
+		testutil.RequireType[float64](t, patchedPoolGrant["max_machine_cpu"]) != 2 ||
 		patchedPoolGrant["default_cwd"] != "/project" {
 		t.Fatalf("patched pool grant mismatch: %+v", patchedPoolGrant)
 	}
-	patchedPoolGrantEnv := patchedPoolGrant["default_machine_env_overlay"].(map[string]any)
+	patchedPoolGrantEnv := testutil.RequireType[map[string]any](t, patchedPoolGrant["default_machine_env_overlay"])
 	if patchedPoolGrantEnv["PATCHED_ONLY"] != "yes" || len(patchedPoolGrantEnv) != 1 {
 		t.Fatalf("patched pool grant env overlay should be replaced whole: %+v", patchedPoolGrant)
 	}
-	patchedPoolGrantSecretEnv := patchedPoolGrant["default_machine_secret_env_overlay"].(map[string]any)
+	patchedPoolGrantSecretEnv := testutil.RequireType[map[string]any](
+		t, patchedPoolGrant["default_machine_secret_env_overlay"],
+	)
 	if patchedPoolGrantSecretEnv["process_id"] != providerAuthSecretID {
 		t.Fatalf("patched pool grant secret env overlay should be kept: %+v", patchedPoolGrant)
 	}
@@ -865,7 +887,8 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t,
 		handler,
 		http.MethodPatch,
-		project.ProjectPath+"/machine-pool-grants/"+testPublicID(t, publicid.KindProjectMachinePoolGrant, httpTestID("missing-pool-grant")),
+		project.ProjectPath+"/machine-pool-grants/"+
+			testPublicID(t, publicid.KindProjectMachinePoolGrant, httpTestID("missing-pool-grant")),
 		`{"description":"missing"}`,
 		"",
 		http.StatusNotFound,
@@ -882,12 +905,14 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	if restoredPoolGrant["description"] != "default project pool" ||
-		restoredPoolGrant["default_machine_memory_mb"].(float64) != 2048 ||
-		restoredPoolGrant["max_total_cpu"].(float64) != 4 {
+		testutil.RequireType[float64](t, restoredPoolGrant["default_machine_memory_mb"]) != 2048 ||
+		testutil.RequireType[float64](t, restoredPoolGrant["max_total_cpu"]) != 4 {
 		t.Fatalf("restored pool grant mismatch: %+v", restoredPoolGrant)
 	}
 
-	overCountSourceYAML := "instruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
+	overCountSourceYAML := "instruction: Use too many machines.\nmodel:\n  provider_config: openai-prod\n  name: " +
+		"gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    max_machines: 3\n    initial_num_machines: 3\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -910,7 +935,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	archivedGrantPoolID := archivedGrantPool["id"].(string)
+	archivedGrantPoolID := testutil.RequireType[string](t, archivedGrantPool["id"])
 	archivedGrantBody := `{"machine_pool_id":"` + archivedGrantPoolID + `","description":"archived pool replay"}`
 	archivedGrant := requestJSONWithHeaders(
 		t,
@@ -952,7 +977,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
-	deletedPoolGrantID := mustPublicHTTPID(t, publicid.KindProjectMachinePoolGrant, archivedGrant["id"].(string))
+	deletedPoolGrantID := mustPublicHTTPID(
+		t, publicid.KindProjectMachinePoolGrant, testutil.RequireType[string](t, archivedGrant["id"]),
+	)
 	if _, err := store.Execution().GetProjectMachinePoolGrant(
 		ctx,
 		project.OrgUUID,
@@ -962,7 +989,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		t.Fatalf("deleted pool grant lookup error = %v, want not found", err)
 	}
 
-	badSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
+	badSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    machine_provider_options_overlay:\n      unknown: bad\ntools:\n  run_command: {}\n"
 	createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -973,7 +1002,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	badMetroSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
+	badMetroSourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    machine_provider_options_overlay:\n      metro: iad\ntools:\n  run_command: {}\n"
 	badMetroConfig := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -984,11 +1015,13 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	if !strings.Contains(badMetroConfig["error"].(string), "provider_config.allowed_metros") {
+	if !strings.Contains(testutil.RequireType[string](t, badMetroConfig["error"]), "provider_config.allowed_metros") {
 		t.Fatalf("bad metro config response = %+v, want allowed_metros error", badMetroConfig)
 	}
 
-	sourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName + "\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
+	sourceYAML := "instruction: Use the machine when useful.\nmodel:\n  provider_config: openai-prod\n  " +
+		"name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + poolName +
+		"\n    max_machines: 2\n    initial_num_machines: 2\n    cwd: /workspace\n    machine_cpu: 2\n    env_overlay:\n      SECRET_THING: agent-value\n      AGENT_ONLY: \"yes\"\ntools:\n  run_command: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1005,12 +1038,12 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		project,
 		"machine-pool-setup",
 		"Machine Pool Setup Agent",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	profileID := profile["id"].(string)
-	configID := profile["current_config"].(map[string]any)["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	launched := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1021,27 +1054,27 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	bindings := launched["machine_bindings"].([]any)
+	bindings := testutil.RequireType[[]any](t, launched["machine_bindings"])
 	if len(bindings) != 2 {
 		t.Fatalf("expected two launch bindings: %+v", launched)
 	}
-	binding := bindings[0].(map[string]any)
+	binding := testutil.RequireType[map[string]any](t, bindings[0])
 	if binding["state"] != "attached" || binding["cwd"] != "/workspace" {
 		t.Fatalf("unexpected launch binding: %+v", binding)
 	}
-	bindingEnv := binding["env_overlay"].(map[string]any)
+	bindingEnv := testutil.RequireType[map[string]any](t, binding["env_overlay"])
 	if bindingEnv["SECRET_THING"] != "agent-value" ||
 		bindingEnv["AGENT_ONLY"] != "yes" ||
 		bindingEnv["PROJECT_ONLY"] != nil {
 		t.Fatalf("launch binding did not preserve agent env overlay: %+v", binding)
 	}
-	secondBinding := bindings[1].(map[string]any)
+	secondBinding := testutil.RequireType[map[string]any](t, bindings[1])
 	if secondBinding["state"] != "attached" || secondBinding["cwd"] != "/workspace" ||
 		secondBinding["id"] == binding["id"] ||
 		secondBinding["machine_ref"] == binding["machine_ref"] {
 		t.Fatalf("unexpected second launch binding: first=%+v second=%+v", binding, secondBinding)
 	}
-	machineID := mustPublicHTTPID(t, publicid.KindMachine, binding["machine_id"].(string))
+	machineID := mustPublicHTTPID(t, publicid.KindMachine, testutil.RequireType[string](t, binding["machine_id"]))
 	machine, err := store.Execution().GetMachine(ctx, project.OrgUUID, machineID)
 	if err != nil {
 		t.Fatalf("get launched pool machine: %v", err)
@@ -1158,7 +1191,7 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 			t.Fatalf("blaxel pool %s = %#v, want null", field, value)
 		}
 	}
-	poolID := poolResponse["id"].(string)
+	poolID := testutil.RequireType[string](t, poolResponse["id"])
 	poolUUID := mustPublicHTTPID(t, publicid.KindMachinePool, poolID)
 	stored, err := store.Execution().GetMachinePool(ctx, project.OrgUUID, poolUUID)
 	if err != nil {
@@ -1184,7 +1217,7 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(unsupportedCap["error"].(string), "max_total_cpu is not supported") {
+	if !strings.Contains(testutil.RequireType[string](t, unsupportedCap["error"]), "max_total_cpu is not supported") {
 		t.Fatalf("blaxel cpu cap response = %+v", unsupportedCap)
 	}
 	unsupportedOverride := requestJSONWithHeaders(
@@ -1197,7 +1230,7 @@ func TestPublicBlaxelMachinePoolOmitsCPU(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(unsupportedOverride["error"].(string), "does not support cpu") {
+	if !strings.Contains(testutil.RequireType[string](t, unsupportedOverride["error"]), "does not support cpu") {
 		t.Fatalf("blaxel cpu override response = %+v", unsupportedOverride)
 	}
 	grant := requestJSONWithHeaders(
@@ -1239,9 +1272,9 @@ func TestPublicMachinePoolAcceptsZeroTotalCaps(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if poolResponse["max_total_machines"].(float64) != 0 ||
-		poolResponse["max_total_cpu"].(float64) != 0 ||
-		poolResponse["max_total_memory_mb"].(float64) != 0 {
+	if testutil.RequireType[float64](t, poolResponse["max_total_machines"]) != 0 ||
+		testutil.RequireType[float64](t, poolResponse["max_total_cpu"]) != 0 ||
+		testutil.RequireType[float64](t, poolResponse["max_total_memory_mb"]) != 0 {
 		t.Fatalf("created pool total caps = %+v, want zero", poolResponse)
 	}
 	requestJSONWithHeaders(
@@ -1259,8 +1292,9 @@ func TestPublicMachinePoolAcceptsZeroTotalCaps(t *testing.T) {
 func TestPublicDaytonaMachinePoolAcceptsOptionalDefaultsWithoutProviderResolution(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	daytona := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("machine pool configuration must not call Daytona")
+	daytona := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("machine pool configuration must not call Daytona")
+		http.Error(w, "unexpected provider request", http.StatusInternalServerError)
 	}))
 	defer daytona.Close()
 
@@ -1288,11 +1322,11 @@ func TestPublicDaytonaMachinePoolAcceptsOptionalDefaultsWithoutProviderResolutio
 		poolResponse["default_machine_memory_mb"] != float64(4096) {
 		t.Fatalf("daytona configured resources = %+v", poolResponse)
 	}
-	options := poolResponse["default_machine_provider_options"].(map[string]any)
+	options := testutil.RequireType[map[string]any](t, poolResponse["default_machine_provider_options"])
 	if options["snapshot"] != "team-snapshot" || options["target"] != "us" {
 		t.Fatalf("daytona configured options = %+v", options)
 	}
-	poolID := poolResponse["id"].(string)
+	poolID := testutil.RequireType[string](t, poolResponse["id"])
 	stored, err := store.Execution().GetMachinePool(
 		ctx,
 		project.OrgUUID,
@@ -1317,7 +1351,7 @@ func TestPublicDaytonaMachinePoolAcceptsOptionalDefaultsWithoutProviderResolutio
 	)
 	if updated["default_machine_cpu"] != float64(2) ||
 		updated["default_machine_memory_mb"] != float64(4096) ||
-		updated["default_machine_provider_options"].(map[string]any)["snapshot"] != "team-large" {
+		testutil.RequireType[map[string]any](t, updated["default_machine_provider_options"])["snapshot"] != "team-large" {
 		t.Fatalf("updated daytona resources = %+v", updated)
 	}
 }
@@ -1376,20 +1410,20 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	poolData := pools["data"].([]any)
+	poolData := testutil.RequireType[[]any](t, pools["data"])
 	if len(poolData) != 1 {
 		t.Fatalf("default pool list response = %+v, want one pool", pools)
 	}
-	defaultPoolResponse := poolData[0].(map[string]any)
-	defaultPoolID := defaultPoolResponse["id"].(string)
-	usage := defaultPoolResponse["usage"].(map[string]any)
+	defaultPoolResponse := testutil.RequireType[map[string]any](t, poolData[0])
+	defaultPoolID := testutil.RequireType[string](t, defaultPoolResponse["id"])
+	usage := testutil.RequireType[map[string]any](t, defaultPoolResponse["usage"])
 	if usage["machines"] != float64(0) || usage["cpu"] != float64(0) || usage["memory_mb"] != float64(0) {
 		t.Fatalf("default pool usage = %+v, want zero usage", usage)
 	}
 	if defaultPoolResponse["management_kind"] != string(management.Cluster) {
 		t.Fatalf("default pool management_kind = %v, want cluster", defaultPoolResponse["management_kind"])
 	}
-	providerConfig := defaultPoolResponse["provider_config"].(map[string]any)
+	providerConfig := testutil.RequireType[map[string]any](t, defaultPoolResponse["provider_config"])
 	if len(providerConfig) != 0 {
 		t.Fatalf("default pool provider_config = %+v, want empty config", providerConfig)
 	}
@@ -1424,7 +1458,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		authHeaders(project.AdminToken),
 	)
 
-	sourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	sourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	config := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1436,7 +1472,9 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusCreated,
 	)
 
-	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
+	badImageSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    machine_provider_options_overlay:\n      image: registry.example/other:latest\ntools:\n  create_machine: {}\n"
 	response := createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1447,11 +1485,13 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	if !strings.Contains(response["error"].(string), "provider_config.allowed_images") {
+	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "provider_config.allowed_images") {
 		t.Fatalf("bad default pool image overlay error = %+v, want allowed_images", response)
 	}
 
-	badSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
+	badSourceYAML := "instruction: Use the default pool when useful.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    machine_provider_options_overlay:\n      startup_script:\n        - echo bad\ntools:\n  create_machine: {}\n"
 	response = createPublicHTTPAgentConfig(
 		t,
 		handler,
@@ -1462,7 +1502,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		project.AdminToken,
 		http.StatusBadRequest,
 	)
-	if !strings.Contains(response["error"].(string), "startup_script") {
+	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "startup_script") {
 		t.Fatalf("bad default pool provider validation error = %+v, want startup_script", response)
 	}
 
@@ -1472,12 +1512,12 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		project,
 		"default-pool-agent-config",
 		"Cluster Pool Agent",
-		config["id"].(string),
+		testutil.RequireType[string](t, config["id"]),
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	profileID := profile["id"].(string)
-	configID := profile["current_config"].(map[string]any)["id"].(string)
+	profileID := testutil.RequireType[string](t, profile["id"])
+	configID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	launched := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1488,9 +1528,11 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	agentID := launched["agent"].(map[string]any)["id"].(string)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 
-	updateSourceYAML := "instruction: Updated instruction, same machine source.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name + "\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
+	updateSourceYAML := "instruction: Updated instruction, same machine source.\nmodel:\n  provider_config: " +
+		"openai-prod\n  name: gpt-test\nmachine_sources:\n  - machine_pool_name: " + defaultPool.Name +
+		"\n    max_machines: 1\n    initial_num_machines: 0\n    machine_provider_options_overlay:\n      startup_script: echo ready\ntools:\n  create_machine: {}\n"
 	updated := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1515,7 +1557,7 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	if !strings.Contains(response["error"].(string), "startup_script") {
+	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "startup_script") {
 		t.Fatalf("bad default pool update provider validation error = %+v, want startup_script", response)
 	}
 }
@@ -1541,5 +1583,5 @@ func createPublicHTTPMachinePoolProviderAuthSecret(
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	return secret["id"].(string)
+	return testutil.RequireType[string](t, secret["id"])
 }

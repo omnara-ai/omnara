@@ -100,7 +100,7 @@ function SelectedAttachment({
       )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{attachment.file.name}</span>
-        <span className="text-muted-foreground block text-[11px]">
+        <span className="text-muted-foreground block text-xs">
           {attachmentSize(attachment.file.size)}
         </span>
       </span>
@@ -226,7 +226,10 @@ export function AgentComposer({
   }
 
   return (
-    <form onSubmit={onSubmit} className="bg-background relative rounded-2xl border p-2 shadow-sm">
+    <form
+      onSubmit={onSubmit}
+      className="control-focus-within bg-background relative rounded-2xl border p-2 shadow-sm"
+    >
       {dragging && (
         <div className="bg-background/95 border-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl border-2 text-sm font-medium shadow-sm">
           <Upload className="size-5" /> Drop files to attach
@@ -258,9 +261,10 @@ export function AgentComposer({
           onClick={() => inputRef.current?.click()}
         />
         <Textarea
+          variant="embedded"
           value={text}
           placeholder={composerPlaceholder(canOperate, chat.historyStatus)}
-          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none px-2 py-2"
           disabled={!ready}
           readOnly={submitting}
           onChange={(event) => {

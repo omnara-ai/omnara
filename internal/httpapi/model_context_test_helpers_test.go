@@ -64,30 +64,7 @@ func loadModelCallProviderIdentityForHTTPTest(
 	}
 	return modelCallProviderIdentityForHTTPTest{
 		Slug:       revision.ProviderModelSlug,
-		APIFormat:  modelprotocol.APIFormat(revision.APIFormat),
-		APIVariant: modelprotocol.APIVariant(revision.APIVariant),
+		APIFormat:  revision.APIFormat,
+		APIVariant: revision.APIVariant,
 	}
-}
-
-func currentModelGrantForConfig(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	projectID, agentConfigID storage.ID,
-) storage.ID {
-	t.Helper()
-	config, found, err := store.Execution().GetAgentConfig(ctx, projectID, agentConfigID)
-	if err != nil || !found {
-		t.Fatalf("load agent config %s: found=%v err=%v", agentConfigID, found, err)
-	}
-	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
-		ctx,
-		config.OrgID,
-		projectID,
-		config.ConfiguredModelID,
-	)
-	if err != nil {
-		t.Fatalf("load project model grant for configured model %s: %v", config.ConfiguredModelID, err)
-	}
-	return grant.ID
 }

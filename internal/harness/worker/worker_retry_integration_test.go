@@ -51,9 +51,11 @@ func TestWorkerReplacementHonorsDurableProviderRetryDeadline(t *testing.T) {
 		},
 	}
 	executor := kernel.AgentExecutor{
-		Store:          store,
-		ContextBuilder: modelcontext.Builder{Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())},
-		ModelResolver:  liveWorkerTestModelResolver(store, modelClient),
+		Store: store,
+		ContextBuilder: modelcontext.Builder{
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+		},
+		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 	}
 	firstWorker := NewWorker(store.Execution(), executor, Options{
 		RuntimeLockLeaseDuration: 15 * time.Second,

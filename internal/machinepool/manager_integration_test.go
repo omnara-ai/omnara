@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -256,11 +257,14 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	}); err != nil {
 		t.Fatalf("grant machine secret: %v", err)
 	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
-		OrgID:         orgID,
-		ProjectID:     projectID,
-		MachinePoolID: machinePool.ID,
-	})
+	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+		ctx,
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:         orgID,
+			ProjectID:     projectID,
+			MachinePoolID: machinePool.ID,
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("create project pool grant: %v", err)
@@ -395,7 +399,9 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 			}, nil
 		}
 		provider.provisioning = nil
-		if err := manager.ProvisionMachine(ctx, orgID, secondMachineID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		if err := manager.ProvisionMachine(
+			ctx, orgID, secondMachineID,
+		); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 			t.Fatalf("over-cap provisioning error = %v, want state transition conflict", err)
 		}
 		secondMachine, err := store.Execution().GetMachine(ctx, orgID, secondMachineID)
@@ -670,7 +676,10 @@ func TestManagerValidatesPoolPolicyBeforeProvisioning(t *testing.T) {
 	policyErr := errors.New("provider policy rejected machine config")
 	definition := &testProviderDefinition{
 		provider: provider,
-		validate: func(_ executionstore.MachinePoolProviderPolicy, machineProvisioning executionstore.MachineProvisioningConfig) error {
+		validate: func(
+			_ executionstore.MachinePoolProviderPolicy,
+			machineProvisioning executionstore.MachineProvisioningConfig,
+		) error {
 			var image string
 			if err := json.Unmarshal(machineProvisioning.ProviderOptions["image"], &image); err != nil {
 				return err
@@ -777,11 +786,14 @@ func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing
 	if err != nil {
 		t.Fatalf("grant machine secret: %v", err)
 	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
-		OrgID:         orgID,
-		ProjectID:     projectID,
-		MachinePoolID: machinePool.ID,
-	})
+	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+		ctx,
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID:         orgID,
+			ProjectID:     projectID,
+			MachinePoolID: machinePool.ID,
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("create project pool grant: %v", err)
@@ -1041,13 +1053,16 @@ func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert daemon token: %v", err)
 	}
-	registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(ctx, executionstore.RegisterDaemonRuntimeInput{
-		OrgID:            orgID,
-		MachineID:        machineID,
-		DaemonTokenID:    tokenID,
-		DaemonInstanceID: uuid.New(),
-		DaemonVersion:    "1.0.0",
-	})
+	registration, err := store.Execution().RegisterDaemonRuntimeWithReconciliation(
+		ctx,
+		executionstore.RegisterDaemonRuntimeInput{
+			OrgID:            orgID,
+			MachineID:        machineID,
+			DaemonTokenID:    tokenID,
+			DaemonInstanceID: uuid.New(),
+			DaemonVersion:    "1.0.0",
+		},
+	)
 	if err != nil {
 		t.Fatalf("register daemon runtime: %v", err)
 	}
@@ -1273,7 +1288,9 @@ func TestManagerDeletesMachineWithoutProviderProvisionAttempt(t *testing.T) {
 		t.Fatalf("machine was not deleted after cleanup: %+v", machine)
 	}
 	var bindingState string
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_machine_bindings WHERE org_id = $1 AND id = $2`, orgID, bindingID).
+	if err := pool.QueryRow(
+		ctx, `SELECT state FROM agent_machine_bindings WHERE org_id = $1 AND id = $2`, orgID, bindingID,
+	).
 		Scan(&bindingState); err != nil {
 		t.Fatalf("load binding state: %v", err)
 	}
@@ -1281,7 +1298,9 @@ func TestManagerDeletesMachineWithoutProviderProvisionAttempt(t *testing.T) {
 		t.Fatalf("binding state = %q, want released", bindingState)
 	}
 	var grantRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM project_machine_grants WHERE org_id = $1 AND id = $2`, orgID, grantID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM project_machine_grants WHERE org_id = $1 AND id = $2`, orgID, grantID,
+	).
 		Scan(&grantRows); err != nil {
 		t.Fatalf("count generated grant rows: %v", err)
 	}
@@ -1584,7 +1603,9 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 		t.Fatalf("machine was not deleted after reconcile cleanup: %+v", machine)
 	}
 	var bindingState string
-	if err := pool.QueryRow(ctx, `SELECT state FROM agent_machine_bindings WHERE org_id = $1 AND id = $2`, orgID, bindingID).
+	if err := pool.QueryRow(
+		ctx, `SELECT state FROM agent_machine_bindings WHERE org_id = $1 AND id = $2`, orgID, bindingID,
+	).
 		Scan(&bindingState); err != nil {
 		t.Fatalf("load binding state: %v", err)
 	}
@@ -1592,7 +1613,9 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 		t.Fatalf("binding state = %q, want released", bindingState)
 	}
 	var grantRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM project_machine_grants WHERE org_id = $1 AND id = $2`, orgID, grantID).
+	if err := pool.QueryRow(
+		ctx, `SELECT count(*) FROM project_machine_grants WHERE org_id = $1 AND id = $2`, orgID, grantID,
+	).
 		Scan(&grantRows); err != nil {
 		t.Fatalf("count generated grant rows: %v", err)
 	}
@@ -1650,7 +1673,9 @@ func seedManagerProjectActor(
 	); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	actor, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: seed})
+	actor, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: email, DisplayName: seed},
+	)
 	if err != nil {
 		t.Fatalf("create actor: %v", err)
 	}
@@ -1690,7 +1715,9 @@ func createProviderAuthSecretForManagerTest(
 	name, value string,
 ) storage.ID {
 	t.Helper()
-	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: name + "@example.com", DisplayName: name})
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: name + "@example.com", DisplayName: name},
+	)
 	if err != nil {
 		t.Fatalf("create provider auth user: %v", err)
 	}
@@ -1939,34 +1966,46 @@ VALUES ($1, $2, 'Manager Cleanup Project', $3, $4, $4)
 `, projectID, orgID, "idem-manager-cleanup-project-"+projectID.String(), now)
 
 	exec("insert cleanup provider secret", `
-INSERT INTO secrets(id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at, updated_at)
+INSERT INTO secrets(id, org_id, management_kind, owner_kind, name, kind, metadata, current_version_id, created_at,
+    updated_at)
 VALUES ($1, $2, 'tenant', 'org', 'manager-cleanup-provider-key', 'generic', '{}'::jsonb, $3, $4, $4)
 `, secretID, orgID, secretVersionID, now)
 
 	exec("insert cleanup provider secret version", `
-INSERT INTO secret_versions(id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at)
-VALUES ($1, $2, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'), decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $4)
+INSERT INTO secret_versions(id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id,
+    dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at)
+VALUES ($1, $2, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1', 'test-key', 'local', decode(repeat('01', 48),
+    'hex'), decode(repeat('02', 12), 'hex'), decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), $4)
 `, secretVersionID, orgID, secretID, now)
 
 	exec("insert cleanup model provider config", `
-INSERT INTO model_provider_configs(id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, auth_kind, credential_secret_id, created_at, updated_at)
-VALUES ($1, $2, 'tenant', 'manager-cleanup-provider', 'openai-responses', 'default', 'https://api.openai.com/v1', '/responses', 'bearer_token', $3, $4, $4)
+INSERT INTO model_provider_configs(id, org_id, management_kind, name, api_format, api_variant, base_url,
+    endpoint_path, auth_kind, credential_secret_id, created_at, updated_at)
+VALUES ($1, $2, 'tenant', 'manager-cleanup-provider', 'openai-responses', 'default', 'https://api.openai.com/v1',
+    '/responses', 'bearer_token', $3, $4, $4)
 `, providerConfigID, orgID, secretID, now)
 
 	exec("insert cleanup configured model", `
 WITH configured_model AS (
-INSERT INTO configured_models(id, org_id, model_provider_config_id, management_kind, name, current_revision_id, created_at, updated_at)
+INSERT INTO configured_models(id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
+    created_at, updated_at)
 VALUES ($1, $2, $3, 'tenant', 'manager-cleanup-model', $4, $5, $5)
 RETURNING id, org_id, model_provider_config_id, current_revision_id
 )
-INSERT INTO configured_model_revisions(id, org_id, configured_model_id, model_provider_config_id, provider_model_slug, context_window_tokens, max_output_tokens, created_at)
+INSERT INTO configured_model_revisions(id, org_id, configured_model_id, model_provider_config_id,
+    provider_model_slug, context_window_tokens, max_output_tokens, created_at)
 SELECT current_revision_id, org_id, id, model_provider_config_id, 'manager-cleanup-model', 128000, 8192, $5
 FROM configured_model
 `, configuredModelID, orgID, providerConfigID, configuredModelRevisionID, now)
 
 	exec("insert cleanup agent config", `
-INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, definition, source, source_hash, compiled_definition, compiler_version, effective_definition_hash, created_at)
-VALUES ($1, $2, $3, $4, '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'::jsonb, 'name: manager cleanup', 'manager-cleanup-source-hash', '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'::jsonb, 'test', 'manager-cleanup-effective-hash', $5)
+INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, definition, source, source_hash,
+    compiled_definition, compiler_version, effective_definition_hash, created_at)
+VALUES ($1, $2, $3, $4,
+    '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
+    ::jsonb, 'name: manager cleanup', 'manager-cleanup-source-hash',
+    '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
+    ::jsonb, 'test', 'manager-cleanup-effective-hash', $5)
 `, configID, orgID, projectID, configuredModelID, now)
 
 	exec("insert cleanup agent", `
@@ -1980,12 +2019,14 @@ VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, $5)
 `, poolGrantID, orgID, projectID, machinePoolID, now)
 
 	exec("insert cleanup machine grant", `
-INSERT INTO project_machine_grants(id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, metadata, created_at, updated_at)
+INSERT INTO project_machine_grants(id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
+    metadata, created_at, updated_at)
 VALUES ($1, $2, $3, $4, 'pool', $5, '{}'::jsonb, $6, $6)
 `, grantID, orgID, projectID, machineID, poolGrantID, now)
 
 	exec("insert cleanup binding", `
-INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state, metadata, created_at, updated_at)
+INSERT INTO agent_machine_bindings(id, org_id, project_id, agent_id, machine_id, machine_ref, binding_kind, state,
+    metadata, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, 'mchr-abcd23', 'pool', 'attached', '{}'::jsonb, $6, $6)
 `, bindingID, orgID, projectID, agentID, machineID, now)
 
@@ -2012,7 +2053,7 @@ func (machinePoolProviderTestResolvers) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) (map[string]json.RawMessage, error) {
-	return mergeTestProviderOptions(defaultOptions, projectOptions, agentOptions), nil
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions), nil
 }
 
 func (machinePoolProviderTestResolvers) ValidatePool(
@@ -2033,24 +2074,14 @@ func (resolvers machinePoolProviderTestResolvers) BuildMachineProvisioningIntent
 	return machineProvisioning, nil
 }
 
-func mergeTestProviderOptions(overlays ...map[string]json.RawMessage) map[string]json.RawMessage {
-	var merged map[string]json.RawMessage
-	for _, overlay := range overlays {
-		if overlay != nil && merged == nil {
-			merged = map[string]json.RawMessage{}
-		}
-		for key, value := range overlay {
-			merged[key] = append(json.RawMessage(nil), value...)
-		}
-	}
-	return merged
-}
-
 type testProviderDefinition struct {
 	rawConfig json.RawMessage
 	authToken string
 	provider  *captureProvider
-	validate  func(policy executionstore.MachinePoolProviderPolicy, machineProvisioning executionstore.MachineProvisioningConfig) error
+	validate  func(
+		policy executionstore.MachinePoolProviderPolicy,
+		machineProvisioning executionstore.MachineProvisioningConfig,
+	) error
 }
 
 func (d *testProviderDefinition) NewProvider(
@@ -2067,7 +2098,7 @@ func (d *testProviderDefinition) ResolveMachineProviderOptions(
 	projectOptions map[string]json.RawMessage,
 	agentOptions map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	return mergeTestProviderOptions(defaultOptions, projectOptions, agentOptions)
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
 func (d *testProviderDefinition) ValidatePool(

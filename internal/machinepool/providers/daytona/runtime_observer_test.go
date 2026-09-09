@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDaytonaObserveRuntimeStatesPaginatesAndNormalizesMatches(t *testing.T) {
@@ -252,9 +253,7 @@ func runtimeTargetAndSandbox(
 		ProviderResourceID: resourceID,
 	}
 	expectedName, err := providers.MachineAllocationName(target.InstallationID, target.MachineID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return target, sandbox{
 		ID:     resourceID,
 		Name:   expectedName,

@@ -104,6 +104,7 @@ func TestMultiPoolLaunchLocksEveryPoolBeforeAnyGrant(t *testing.T) {
 			slug = "reverse"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "multi-pool-"+slug)
 			secondPool := createLaunchTestMachinePool(
@@ -162,7 +163,6 @@ machine_sources:
 tools:
   run_command: {}
 `, sources[0].pool.Name, sources[1].pool.Name),
-				fixture.now.Add(7*time.Second),
 			)
 
 			controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -274,7 +274,7 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "terminal-agent-order")
-	secondAgentID := mustCreateAgent(t, ctx, fixture.Store, fixture.Now.Add(time.Second))
+	secondAgentID := mustCreateAgent(t, ctx, fixture.Store)
 	secondBinding, err := executionstore.IntegrationInsertAgentMachineBindingTx(
 		ctx,
 		fixture.Store.q,
@@ -509,6 +509,7 @@ func TestBYODaemonTokenCreationSerializesWithMachineDeletion(t *testing.T) {
 			slug = "token-wins"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "daemon-token-delete-"+slug)
 			machine, err := fixture.store.Execution().CreateDaemonMachine(
@@ -749,7 +750,6 @@ model:
   provider_config: openai-prod
   name: gpt-test
 `,
-		time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC),
 	)
 
 	controlTx := integrationdb.BeginTx(t, ctx, pool)
@@ -839,15 +839,13 @@ tools:
 		"shared-environment-launch",
 		"Shared Environment Launch",
 		sourceYAML,
-		fixture.now.Add(6*time.Second),
 	)
 	nextConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		fixture.store,
-		"shared-environment-change",
+
 		sourceYAML,
-		fixture.now.Add(7*time.Second),
 	)
 
 	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -926,6 +924,7 @@ tools:
 func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 	t.Parallel()
 	t.Run("launch wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "explicit-launch-wins")
 		explicit := createExplicitGrantLifecycleFixture(t, ctx, fixture, "explicit-launch-wins")
@@ -936,7 +935,6 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			"explicit-launch-wins",
 			"Explicit Launch Wins",
 			explicit.configYAML,
-			fixture.now.Add(6*time.Second),
 		)
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -992,6 +990,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 	})
 
 	t.Run("revocation wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "explicit-revoke-launch")
 		explicit := createExplicitGrantLifecycleFixture(t, ctx, fixture, "explicit-revoke-launch")
@@ -1002,7 +1001,6 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 			"explicit-revoke-launch",
 			"Explicit Revoke Launch",
 			explicit.configYAML,
-			fixture.now.Add(6*time.Second),
 		)
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -1060,6 +1058,7 @@ func TestAgentLaunchAndExplicitGrantRevocationSerialize(t *testing.T) {
 func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 	t.Parallel()
 	t.Run("configuration wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "explicit-config-wins")
 		explicit := createExplicitGrantLifecycleFixture(t, ctx, fixture, "explicit-config-wins")
@@ -1067,9 +1066,8 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t,
 			ctx,
 			fixture.store,
-			"explicit-config-wins",
+
 			explicit.configYAML,
-			fixture.now.Add(6*time.Second),
 		)
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -1117,6 +1115,7 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 	})
 
 	t.Run("revocation wins", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "explicit-revoke-config")
 		explicit := createExplicitGrantLifecycleFixture(t, ctx, fixture, "explicit-revoke-config")
@@ -1124,9 +1123,8 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 			t,
 			ctx,
 			fixture.store,
-			"explicit-revoke-config",
+
 			explicit.configYAML,
-			fixture.now.Add(6*time.Second),
 		)
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -1165,7 +1163,9 @@ func TestConfigReconciliationAndExplicitGrantRevocationSerialize(t *testing.T) {
 		}
 
 		integrationdb.AwaitSuccess(t, revokeDone, "grant revocation in one transaction attempt")
-		if outcome := integrationdb.Await(t, configDone, "rejected config change"); !errors.Is(outcome.Err, storeerr.ErrNotFound) {
+		if outcome := integrationdb.Await(
+			t, configDone, "rejected config change",
+		); !errors.Is(outcome.Err, storeerr.ErrNotFound) {
 			t.Fatalf("config change after revocation error = %v, want not found", outcome.Err)
 		}
 		assertExplicitGrantLifecycleOutcome(t, ctx, fixture, explicit, fixture.agent.ID, 0, 0)
@@ -1330,6 +1330,7 @@ func TestPoolMachineToolOperationsEnterProjectLifecycle(t *testing.T) {
 	t.Parallel()
 	for _, operation := range []string{"create", "delete"} {
 		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-tool-"+operation)
 			var runOperation func() error
@@ -1615,7 +1616,9 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 	if err := integrationdb.Await(t, archiveDone, "agent archival"); err != nil {
 		t.Fatalf("archive agent: %v", err)
 	}
-	if err := integrationdb.Await(t, reconcileDone, "mcp reconciliation"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if err := integrationdb.Await(
+		t, reconcileDone, "mcp reconciliation",
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("mcp reconciliation after archive error = %v, want state transition conflict", err)
 	}
 
@@ -1643,14 +1646,13 @@ func TestConfigChangeWaitingBehindAgentArchiveRejectsNewAdmission(t *testing.T) 
 		t,
 		ctx,
 		fixture.store,
-		"config-archive",
+
 		`
 instruction: Verify archived agents reject new config changes.
 model:
   provider_config: openai-prod
   name: gpt-test
 `,
-		fixture.now.Add(6*time.Second),
 	)
 	acceptedInput := executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(config),
@@ -1675,7 +1677,9 @@ model:
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	releaseArchive()
-	if err := integrationdb.Await(t, changeDone, "rejected config change"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if err := integrationdb.Await(
+		t, changeDone, "rejected config change",
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("new config change after archive error = %v, want state transition conflict", err)
 	}
 
@@ -1731,7 +1735,9 @@ func TestPoolMachineCreationWaitingBehindAgentArchiveRejectsArchivedAgent(t *tes
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentMachineSources", 1)
 
 	releaseArchive()
-	if err := integrationdb.Await(t, createDone, "rejected pool-machine creation"); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+	if err := integrationdb.Await(
+		t, createDone, "rejected pool-machine creation",
+	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("pool-machine creation after archive error = %v, want state transition conflict", err)
 	}
 
@@ -1902,7 +1908,7 @@ func newMachineLifecycleLockOrderFixture(
 		t,
 		ctx,
 		store,
-		"machine-lifecycle-config-"+label,
+
 		fmt.Sprintf(`
 instruction: Exercise pool-machine lifecycle locking.
 model:
@@ -1918,7 +1924,6 @@ tools:
   delete_machine:
     type: built_in
 `, machinePool.Name),
-		now.Add(3*time.Second),
 	)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID:       testProjectID,

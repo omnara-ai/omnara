@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -599,9 +600,7 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 		}
 		records = append(records, record)
 	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, scanner.Err())
 	return records
 }
 
