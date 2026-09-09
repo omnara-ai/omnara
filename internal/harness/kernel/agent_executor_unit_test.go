@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -226,12 +225,17 @@ func TestShouldInitializeMCPConnectionPreservesRetryRecoveryWithoutRevivingFailu
 			t.Fatalf("opening mode excluded %q connection", state)
 		}
 	}
-	if !shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateInitializing) ||
-		!shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateExpired) {
-		t.Fatal("resume mode excluded recoverable connection")
+	if !shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateInitializing) ||
+		!shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateExpired) {
+		t.Fatal("recovery mode excluded recoverable connection")
 	}
-	if shouldInitializeMCPConnection(mcpInitializationResume, executionstore.MCPConnectionStateFailed) {
-		t.Fatal("resume mode revived failed connection")
+	if shouldInitializeMCPConnection(mcpInitializationRecovery, executionstore.MCPConnectionStateFailed) {
+		t.Fatal("recovery mode revived failed connection")
+	}
+	for _, mode := range []mcpInitializationMode{mcpInitializationOpening, mcpInitializationRecovery} {
+		if shouldInitializeMCPConnection(mode, executionstore.MCPConnectionStateReady) {
+			t.Fatal("ready connection should be reused")
+		}
 	}
 }
 
@@ -296,48 +300,61 @@ func TestShouldPostIntegrationRuntimeMessageAllowsUnavailableGrantAfterModelResp
 	}
 }
 
-func TestInvalidModelToolCallResponse(t *testing.T) {
+func TestInvalidModelResponse(t *testing.T) {
+	call := model.ToolCall{ID: "call_valid", Name: "run_command", Input: json.RawMessage(`{"command":"true"}`)}
 	tests := []struct {
-		name    string
-		calls   []model.ToolCall
-		want    bool
-		code    string
-		message string
+		name      string
+		reason    model.StopReason
+		calls     []model.ToolCall
+		kind      model.ErrorKind
+		code      string
+		ambiguous bool
 	}{
+		{name: "text completion", reason: model.StopReasonEndTurn},
+		{name: "tools with completion", reason: model.StopReasonEndTurn, calls: []model.ToolCall{call}},
+		{name: "text cutoff", reason: model.StopReasonMaxTokens},
+		{name: "tools with cutoff", reason: model.StopReasonMaxTokens, calls: []model.ToolCall{call}},
+		{name: "tools", reason: model.StopReasonToolUse, calls: []model.ToolCall{call}},
 		{
-			name: "duplicate id",
-			calls: []model.ToolCall{
-				{ID: "call_duplicate", Name: "run_command", Input: json.RawMessage(`{"command":"one"}`)},
-				{ID: "call_duplicate", Name: "run_command", Input: json.RawMessage(`{"command":"two"}`)},
-			},
-			want:    true,
-			code:    "malformed_tool_call",
-			message: "duplicate tool call ID",
+			name: "missing tools", reason: model.StopReasonToolUse,
+			kind: model.ErrorKindUnknown, code: "tool_use", ambiguous: true,
+		},
+		{name: "refusal", reason: model.StopReasonRefusal},
+		{name: "filtered", reason: model.StopReasonContentFilter},
+		{
+			name: "refusal with tools", reason: model.StopReasonRefusal, calls: []model.ToolCall{call},
+			kind: model.ErrorKindUnknown, code: "contradictory_stop_reason", ambiguous: true,
 		},
 		{
-			name:  "valid",
-			calls: []model.ToolCall{{ID: "call_valid", Name: "run_command", Input: json.RawMessage(`{"command":"true"}`)}},
+			name: "filtered with tools", reason: model.StopReasonContentFilter, calls: []model.ToolCall{call},
+			kind: model.ErrorKindUnknown, code: "contradictory_stop_reason", ambiguous: true,
+		},
+		{
+			name: "context overflow", reason: model.StopReasonContextWindow, calls: []model.ToolCall{call},
+			kind: model.ErrorKindContextWindow, code: "context_window",
+		},
+		{name: "pause", reason: model.StopReasonPause, kind: model.ErrorKindInvalidRequest, code: "pause"},
+		{name: "unknown", reason: model.StopReasonUnknown, kind: model.ErrorKindUnknown, code: "unknown", ambiguous: true},
+		{name: "error", reason: model.StopReasonError, kind: model.ErrorKindUnknown, code: "error", ambiguous: true},
+		{
+			name: "duplicate IDs precede stop reason", reason: model.StopReasonContextWindow,
+			calls: []model.ToolCall{call, call},
+			kind:  model.ErrorKindUnknown, code: "malformed_tool_call", ambiguous: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := invalidModelToolCallResponse("test-provider", tc.calls)
-			if ok != tc.want {
-				t.Fatalf("invalid = %t, want %t", ok, tc.want)
-			}
-			if !tc.want {
+			err := invalidModelResponse("test-provider", tc.reason, tc.calls)
+			if tc.code == "" {
+				if err != nil {
+					t.Fatalf("acceptable response rejected: %v", err)
+				}
 				return
 			}
-			providerErr, classified := model.ClassifyError(got)
-			if !classified || providerErr.Kind != model.ErrorKindUnknown ||
-				providerErr.Source != "test-provider" || providerErr.Code != tc.code ||
-				!strings.Contains(providerErr.Message, tc.message) || !model.IsAmbiguousProviderOutcome(got) {
-				t.Fatalf(
-					"provider error = %+v, want ambiguous unknown with code %q and message containing %q",
-					got,
-					tc.code,
-					tc.message,
-				)
+			providerErr, classified := model.ClassifyError(err)
+			if !classified || providerErr.Kind != tc.kind || providerErr.Code != tc.code ||
+				providerErr.Source != "test-provider" || model.IsAmbiguousProviderOutcome(err) != tc.ambiguous {
+				t.Fatalf("response error = %+v, want kind=%s code=%s ambiguous=%t", err, tc.kind, tc.code, tc.ambiguous)
 			}
 		})
 	}

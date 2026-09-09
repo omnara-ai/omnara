@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,66 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func TestCompactionResponseOutcomePrecedesSummaryContent(t *testing.T) {
+	tests := []struct {
+		reason    model.StopReason
+		tools     bool
+		kind      model.ErrorKind
+		code      string
+		ambiguous bool
+	}{
+		{model.StopReasonMaxTokens, false, model.ErrorKindTransient, compactionErrorCodeSummaryTruncated, false},
+		{model.StopReasonMaxTokens, true, model.ErrorKindTransient, compactionErrorCodeSummaryTruncated, false},
+		{model.StopReasonContextWindow, false, model.ErrorKindContextWindow, "context_window", false},
+		{model.StopReasonContextWindow, true, model.ErrorKindContextWindow, "context_window", false},
+		{model.StopReasonRefusal, false, model.ErrorKindInvalidRequest, "refusal", false},
+		{model.StopReasonRefusal, true, model.ErrorKindInvalidRequest, "refusal", false},
+		{model.StopReasonContentFilter, false, model.ErrorKindInvalidRequest, "content_filter", false},
+		{model.StopReasonContentFilter, true, model.ErrorKindInvalidRequest, "content_filter", false},
+		{model.StopReasonPause, false, model.ErrorKindInvalidRequest, "pause", false},
+		{model.StopReasonPause, true, model.ErrorKindInvalidRequest, "pause", false},
+		{model.StopReasonError, false, model.ErrorKindUnknown, "error", true},
+		{model.StopReasonError, true, model.ErrorKindUnknown, "error", true},
+		{model.StopReasonUnknown, false, model.ErrorKindUnknown, "unknown", true},
+		{model.StopReasonUnknown, true, model.ErrorKindUnknown, "unknown", true},
+		{model.StopReasonToolUse, false, model.ErrorKindUnknown, "tool_use", true},
+		{model.StopReasonToolUse, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonEndTurn, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonEndTurn, false, "", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%s/tools=%t", tc.reason, tc.tools), func(t *testing.T) {
+			response := model.Response{
+				StopReason: tc.reason,
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: " summary "}},
+			}
+			if tc.tools {
+				response.Content = append(response.Content, model.ResponsePart{
+					Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1",
+					ToolName: "unexpected", ToolInput: json.RawMessage(`{}`),
+				})
+			}
+			summary, err := validateCompactionResponse("test-provider", response)
+			if tc.code == "" {
+				if err != nil || summary != "summary" {
+					t.Fatalf("completed summary=%q error=%v", summary, err)
+				}
+				return
+			}
+			providerErr, ok := model.ClassifyError(err)
+			if summary != "" || !ok || providerErr.Kind != tc.kind || providerErr.Code != tc.code ||
+				model.IsAmbiguousProviderOutcome(err) != tc.ambiguous {
+				t.Fatalf("summary=%q error=%+v, want kind=%s code=%s ambiguous=%t", summary, err, tc.kind, tc.code, tc.ambiguous)
+			}
+			if tc.reason == model.StopReasonMaxTokens {
+				if reason, ok := reasonForCompactionFailure(err); !ok || reason != compactionFailureSummaryTruncated {
+					t.Fatalf("cutoff lost summary recovery classification: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestCompactionModelHonorsOutputLimits(t *testing.T) {
 	supportsTools := false

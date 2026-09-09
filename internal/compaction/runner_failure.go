@@ -298,47 +298,46 @@ func compactionModel(
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {
-	if response.HasToolCalls() {
-		return "", model.ProviderError{
-			Kind:    model.ErrorKindTransient,
-			Source:  errorSource,
-			Code:    "tool_use",
-			Message: "compaction model returned tool calls",
-		}
-	}
 	stopReason := model.NormalizeStopReason(response.StopReason, false)
-	if stopReason == model.StopReasonMaxTokens {
+	switch stopReason {
+	case model.StopReasonMaxTokens:
 		return "", withCompactionFailureReason(compactionFailureSummaryTruncated, model.ProviderError{
 			Kind:    model.ErrorKindTransient,
 			Source:  errorSource,
 			Code:    compactionErrorCodeSummaryTruncated,
 			Message: "compaction summary was truncated before completion",
 		})
-	}
-	if stopReason == model.StopReasonContextWindow {
+	case model.StopReasonContextWindow:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindContextWindow,
 			Source:  errorSource,
 			Code:    string(stopReason),
 			Message: "compaction request exceeded the configured model context window",
 		}
-	}
-	if stopReason == model.StopReasonToolUse ||
-		stopReason == model.StopReasonError ||
-		stopReason == model.StopReasonUnknown {
-		return "", model.MalformedProviderSuccess(
-			errorSource,
-			string(stopReason),
-			fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
-			nil,
-		)
-	}
-	if stopReason != model.StopReasonEndTurn {
+	case model.StopReasonToolUse, model.StopReasonError, model.StopReasonUnknown:
+		if stopReason != model.StopReasonToolUse || !response.HasToolCalls() {
+			return "", model.MalformedProviderSuccess(
+				errorSource,
+				string(stopReason),
+				fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
+				nil,
+			)
+		}
+	case model.StopReasonEndTurn:
+	default:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
 			Source:  errorSource,
 			Code:    string(stopReason),
 			Message: fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
+		}
+	}
+	if response.HasToolCalls() {
+		return "", model.ProviderError{
+			Kind:    model.ErrorKindTransient,
+			Source:  errorSource,
+			Code:    "tool_use",
+			Message: "compaction model returned tool calls",
 		}
 	}
 	summary := strings.TrimSpace(response.Text())
