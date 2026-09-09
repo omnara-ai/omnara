@@ -1,30 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-const resourceMocks: {
-  createGatewayRedisClient: ReturnType<typeof vi.fn>
-} = vi.hoisted(() => ({
-  createGatewayRedisClient: vi.fn(),
-}))
-
-vi.mock('./redis-client', () => ({
-  createGatewayRedisClient: resourceMocks.createGatewayRedisClient,
-}))
-
+import type { RedisStateClient } from './app-state'
 import { loadConfig } from './config'
+import { unexpectedTestCall } from './gateway-test-fixtures'
 import {
   createProviderFactoryRegistry,
   providerFactoryCapabilities,
   runGateway,
   startClaimLoops,
 } from './index'
+import type { GatewayRedisClient } from './redis-client'
 import { GatewayServer } from './server'
 import type { GatewayLogger, ProviderFactory, ProviderFactoryRegistry } from './types'
 
 describe('channel gateway provider capabilities', () => {
-  beforeEach(() => {
-    resourceMocks.createGatewayRedisClient.mockReset()
-  })
-
   it('does not start claim loops when no provider adapter is registered', () => {
     const deliveryLoop = { run: vi.fn(() => Promise.resolve()) }
     const runtimeLoop = { run: vi.fn(() => Promise.resolve()) }
@@ -85,13 +74,13 @@ describe('channel gateway provider capabilities', () => {
 
   it('closes Redis when a later gateway startup step fails', async () => {
     const redis = {
+      ...testRedisClient(),
       close: vi.fn(() => Promise.resolve()),
       connect: vi.fn(() => Promise.resolve()),
       destroy: vi.fn(),
       onError: vi.fn(),
       ready: vi.fn(() => Promise.resolve(true)),
     }
-    resourceMocks.createGatewayRedisClient.mockReturnValue(redis)
     const listen = vi
       .spyOn(GatewayServer.prototype, 'listen')
       .mockRejectedValue(new Error('listener initialization failed'))
@@ -100,6 +89,7 @@ describe('channel gateway provider capabilities', () => {
     try {
       await expect(
         runGateway({
+          createRedisClient: () => redis,
           config: loadConfig({
             OMNARA_CHANNEL_CORE_API_URL: 'http://api:8080/api/v1',
             OMNARA_CHANNEL_CONNECTOR_TOKEN: 'test-token',
@@ -121,15 +111,16 @@ describe('channel gateway provider capabilities', () => {
 
   it('destroys Redis when shutdown interrupts a connection that never settles', async () => {
     const redis = {
+      ...testRedisClient(),
       close: vi.fn(() => Promise.resolve()),
       connect: vi.fn(() => new Promise<void>(() => undefined)),
       destroy: vi.fn(),
       onError: vi.fn(),
       ready: vi.fn(() => Promise.resolve(false)),
     }
-    resourceMocks.createGatewayRedisClient.mockReturnValue(redis)
     const controller = new AbortController()
     const running = runGateway({
+      createRedisClient: () => redis,
       config: loadConfig({
         OMNARA_CHANNEL_CORE_API_URL: 'http://api:8080/api/v1',
         OMNARA_CHANNEL_CONNECTOR_TOKEN: 'test-token',
@@ -159,4 +150,26 @@ const noopLogger: GatewayLogger = {
   error: () => undefined,
   info: () => undefined,
   warn: () => undefined,
+}
+
+function testRedisClient() {
+  return {
+    close: vi.fn<GatewayRedisClient['close']>(unexpectedTestCall),
+    connect: vi.fn<GatewayRedisClient['connect']>(unexpectedTestCall),
+    destroy: vi.fn<GatewayRedisClient['destroy']>(unexpectedTestCall),
+    onError: vi.fn<GatewayRedisClient['onError']>(),
+    ready: vi.fn<GatewayRedisClient['ready']>(unexpectedTestCall),
+    del: vi.fn<RedisStateClient['del']>(unexpectedTestCall),
+    eval: vi.fn<RedisStateClient['eval']>(unexpectedTestCall),
+    exists: vi.fn<RedisStateClient['exists']>(unexpectedTestCall),
+    get: vi.fn<RedisStateClient['get']>(unexpectedTestCall),
+    lLen: vi.fn<RedisStateClient['lLen']>(unexpectedTestCall),
+    lPop: vi.fn<RedisStateClient['lPop']>(unexpectedTestCall),
+    lRange: vi.fn<RedisStateClient['lRange']>(unexpectedTestCall),
+    sAdd: vi.fn<RedisStateClient['sAdd']>(unexpectedTestCall),
+    sIsMember: vi.fn<RedisStateClient['sIsMember']>(unexpectedTestCall),
+    sRem: vi.fn<RedisStateClient['sRem']>(unexpectedTestCall),
+    set: vi.fn<RedisStateClient['set']>(unexpectedTestCall),
+    unlink: vi.fn<RedisStateClient['unlink']>(unexpectedTestCall),
+  } satisfies GatewayRedisClient
 }

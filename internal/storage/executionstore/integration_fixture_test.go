@@ -17,6 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func passthroughChannelInboundContent(
@@ -106,6 +108,17 @@ WHERE id = $1`,
 func openIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	return integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
+}
+
+func waitForIntegrationDatabaseTimeAfter(t *testing.T, ctx context.Context, pool *pgxpool.Pool, after time.Time) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		var advanced bool
+		err := pool.QueryRow(ctx, `SELECT clock_timestamp() > $1::timestamptz`, after).Scan(&advanced)
+		if assert.NoError(collect, err, "read integration database clock") {
+			assert.True(collect, advanced, "database clock must advance past %s", after)
+		}
+	}, 5*time.Second, time.Millisecond)
 }
 
 func machineProvisioningFromRecordForTest(

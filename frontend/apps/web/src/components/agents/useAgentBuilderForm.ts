@@ -16,6 +16,11 @@ import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
+  legacyBindingManagedToolNames,
+  removeLegacyBindingManagedTools,
+  withoutLegacyBindingManagedTools,
+} from '@/components/agents/channelToolConfig'
+import {
   emptyProviderOptions,
   envOverlayFromRows,
   type EnvOverlayRow,
@@ -115,8 +120,6 @@ export interface BasicConfigSession {
   readonly initialDraft: BasicConfig | null
   apply(config: BasicConfig): string
 }
-
-const legacyBindingManagedToolNames = new Set(['list_channels', 'send_channel_message'])
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
   const doc = parseSourceDocument(source)
@@ -349,19 +352,9 @@ function applyToDocument(
   const del = (path: (string | number)[]) => {
     const deleted = doc.deleteIn(path)
     if (deleted) edits.count += 1
-    return deleted
   }
 
-  const existingTools = doc.getIn(['tools'], true)
-  if (isMap(existingTools)) {
-    let removedLegacyTool = false
-    for (const name of legacyBindingManagedToolNames) {
-      removedLegacyTool = del(['tools', name]) || removedLegacyTool
-    }
-    const remainingTools = doc.getIn(['tools'], true)
-    if (removedLegacyTool && isMap(remainingTools) && remainingTools.items.length === 0)
-      del(['tools'])
-  }
+  edits.count += removeLegacyBindingManagedTools(doc)
 
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
@@ -507,12 +500,6 @@ function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry
   if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
   applySourceOverlays(wire, source)
   return wire
-}
-
-function withoutLegacyBindingManagedTools(document: Document): Document {
-  const draft = document.clone()
-  for (const name of legacyBindingManagedToolNames) draft.deleteIn(['tools', name])
-  return draft
 }
 
 function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {

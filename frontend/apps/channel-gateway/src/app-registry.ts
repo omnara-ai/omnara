@@ -59,7 +59,16 @@ export interface RuntimeHandle {
 }
 
 export interface AppRuntimeRegistryOptions {
-  client: CoreClient
+  client: Pick<
+    CoreClient,
+    | 'getAppConfiguration'
+    | 'getInstallationConfiguration'
+    | 'resolveInstallationConfiguration'
+    | 'resolveInteraction'
+    | 'resolveRuntimeInteraction'
+    | 'submitInbound'
+    | 'submitRuntimeInbound'
+  >
   factories: ProviderFactoryRegistry
   logger: GatewayLogger
   maxApps: number
@@ -199,8 +208,8 @@ export class AppRuntimeRegistry {
     const reservation = current ? undefined : this.reserveAppSlot()
     const load = this.limiter
       .run(() => this.refresh(integrationAppId, current, reservation))
-      .catch(async (error: unknown) => {
-        if (isCoreNotFoundError(error)) {
+      .catch(async (cause: unknown) => {
+        if (isCoreNotFoundError(cause)) {
           if (current) {
             current.clearSubscriptionsOnClose = integrationAppId
             await this.retireEntry(integrationAppId, current)
@@ -210,14 +219,14 @@ export class AppRuntimeRegistry {
           writeNegativeCache(
             this.notFound,
             integrationAppId,
-            error,
+            cause,
             this.options.notFoundCacheMs,
             this.options.maxApps,
           )
         } else if (current?.retired) {
           await this.retireEntry(integrationAppId, current)
         }
-        throw error
+        throw cause
       })
       .finally(() => {
         if (reservation) this.releaseAppSlot(reservation)
@@ -445,9 +454,9 @@ async function raceWithSignal<T>(work: Promise<T>, signal: AbortSignal): Promise
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
       },
     )
   })

@@ -9,6 +9,8 @@ import {
   type ChannelInboundEventRequest,
   type CompleteChannelConnectorDeliveryRequest,
   createOmnaraClient,
+  type HeartbeatChannelConnectorRuntimeUnitRequest,
+  type ReleaseChannelConnectorRuntimeUnitRequest,
   type ResolveChannelConnectorInteractionRequest,
   type ResolveChannelConnectorInteractionResponse,
   sdk,
@@ -234,15 +236,17 @@ export class CoreClient {
     const leaseToken = unit.lease_token
     const requestSignal = this.requestSignal(signal)
     return this.retryCoreRequest(requestSignal, async () => {
+      const body: HeartbeatChannelConnectorRuntimeUnitRequest = {
+        lease_generation: unit.lease_generation,
+        lease_ms: leaseMs,
+        lease_token: leaseToken,
+      }
+      if (checkpoint) {
+        body.checkpoint = checkpoint.checkpoint
+        body.checkpoint_version = checkpoint.version
+      }
       const { data } = await sdk.heartbeatChannelConnectorRuntimeUnit({
-        body: {
-          lease_generation: unit.lease_generation,
-          lease_ms: leaseMs,
-          lease_token: leaseToken,
-          ...(checkpoint
-            ? { checkpoint: checkpoint.checkpoint, checkpoint_version: checkpoint.version }
-            : {}),
-        },
+        body,
         client: this.client,
         path: { runtimeUnitID: unit.id },
         signal: requestSignal,
@@ -253,7 +257,7 @@ export class CoreClient {
 
   async releaseRuntimeUnit(
     unit: ChannelConnectorRuntimeUnit,
-    lastError: Record<string, unknown>,
+    lastError: ReleaseChannelConnectorRuntimeUnitRequest['last_error'],
     checkpoint?: RuntimeCheckpoint,
     parentSignal?: AbortSignal,
   ): Promise<void> {
@@ -261,15 +265,17 @@ export class CoreClient {
     const leaseToken = unit.lease_token
     const signal = this.requestSignal(parentSignal)
     await this.retryCoreRequest(signal, async () => {
+      const body: ReleaseChannelConnectorRuntimeUnitRequest = {
+        last_error: lastError,
+        lease_generation: unit.lease_generation,
+        lease_token: leaseToken,
+      }
+      if (checkpoint) {
+        body.checkpoint = checkpoint.checkpoint
+        body.checkpoint_version = checkpoint.version
+      }
       await sdk.releaseChannelConnectorRuntimeUnit({
-        body: {
-          last_error: lastError,
-          lease_generation: unit.lease_generation,
-          lease_token: leaseToken,
-          ...(checkpoint
-            ? { checkpoint: checkpoint.checkpoint, checkpoint_version: checkpoint.version }
-            : {}),
-        },
+        body,
         client: this.client,
         path: { runtimeUnitID: unit.id },
         signal,
@@ -313,19 +319,21 @@ function requireData<T>(value: T | undefined): T {
   return value
 }
 
-export function isTransientCoreError(error: unknown): boolean {
-  if (error instanceof ApiError) {
-    return error.status === 429 || error.status >= 500
+export function isTransientCoreError(cause: unknown): boolean {
+  if (cause instanceof ApiError) {
+    return cause.status === 429 || cause.status >= 500
   }
   return (
-    error instanceof TypeError || (error instanceof DOMException && error.name === 'TimeoutError')
+    cause instanceof TypeError || (cause instanceof DOMException && cause.name === 'TimeoutError')
   )
 }
 
-export function isCoreNotFoundError(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.status === 404
+export function isCoreNotFoundError(cause: unknown): cause is ApiError {
+  return cause instanceof ApiError && cause.status === 404
 }
 
-function abortReason(signal: AbortSignal): unknown {
-  return signal.reason ?? new Error('Omnara API request was aborted')
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('Omnara API request was aborted', { cause: signal.reason })
 }

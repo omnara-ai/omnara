@@ -1,4 +1,5 @@
 import type { Lock, QueueEntry, StateAdapter } from 'chat'
+import type { RedisClientType } from 'redis'
 
 const subscriptionShardCount = 256
 const cleanupConcurrency = 16
@@ -41,7 +42,10 @@ const enqueueScript = `
 
 export interface RedisStateClient {
   del(key: string): Promise<number>
-  eval(script: string, options: { arguments: string[]; keys: string[] }): Promise<unknown>
+  eval(
+    script: string,
+    options: { arguments: string[]; keys: string[] },
+  ): ReturnType<RedisClientType['eval']>
   exists(key: string): Promise<number>
   get(key: string): Promise<string | null>
   lLen(key: string): Promise<number>
@@ -145,7 +149,7 @@ class AppScopedStateAdapter implements StateAdapter {
 
   async appendToList(
     key: string,
-    value: unknown,
+    value: Parameters<StateAdapter['appendToList']>[1],
     options?: { maxLength?: number; ttlMs?: number },
   ): Promise<void> {
     await this.client.eval(appendListScript, {
@@ -164,6 +168,8 @@ class AppScopedStateAdapter implements StateAdapter {
 
   async dequeue(threadId: string): Promise<QueueEntry | null> {
     const value = await this.client.lPop(this.key('queue', threadId))
+    // SAFETY: enqueue is the writer for this app's queue key and serializes QueueEntry.
+    // The SDK state contract reads its JSON representation, not a revived Message instance.
     return value === null ? null : (JSON.parse(value) as QueueEntry)
   }
 
@@ -199,14 +205,20 @@ class AppScopedStateAdapter implements StateAdapter {
     const value = await this.client.get(this.key('cache', key))
     if (value === null) return null
     try {
+      // SAFETY: SDK callers own the key's T and must read the JSON representation
+      // previously written with set; this generic state adapter has no caller schema.
       return JSON.parse(value) as T
     } catch {
+      // SAFETY: This adapter preserves legacy non-JSON cache values as raw
+      // strings. The caller owning such a key must choose string for T.
       return value as T
     }
   }
 
   async getList<T = unknown>(key: string): Promise<T[]> {
     const values = await this.client.lRange(this.key('list', key), 0, -1)
+    // SAFETY: SDK callers own each list's element type and read the JSON
+    // representations previously written with appendToList under the same key.
     return values.map((value) => JSON.parse(value) as T)
   }
 
@@ -227,11 +239,15 @@ class AppScopedStateAdapter implements StateAdapter {
     })
   }
 
-  async set(key: string, value: unknown, ttlMs?: number): Promise<void> {
+  async set(key: string, value: Parameters<StateAdapter['set']>[1], ttlMs?: number): Promise<void> {
     await this.client.set(this.key('cache', key), serialized(value), { PX: appStateTtl(ttlMs) })
   }
 
-  async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
+  async setIfNotExists(
+    key: string,
+    value: Parameters<StateAdapter['setIfNotExists']>[1],
+    ttlMs?: number,
+  ): Promise<boolean> {
     const result = await this.client.set(this.key('cache', key), serialized(value), {
       NX: true,
       PX: appStateTtl(ttlMs),
@@ -264,7 +280,9 @@ function knownAppKey(prefix: string): string {
   return `${prefix}:known:v1`
 }
 
-function serialized(value: unknown): string {
+function serialized(value: Parameters<StateAdapter['set']>[1]): string {
+  // SAFETY: JSON.stringify can return undefined for an unsupported top-level
+  // SDK value even though TypeScript declares string; the check below rejects it.
   const result = JSON.stringify(value) as string | undefined
   if (result === undefined) throw new Error('Chat SDK state value is not JSON-serializable')
   return result

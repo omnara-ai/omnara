@@ -13,9 +13,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 func TestStaleIntegrationRuntimeReleaseOnlyRelinquishesLease(t *testing.T) {
+	t.Parallel()
 	testCases := []string{"spec_revision", "app_revision", "install_revision", "expired_lease"}
 	for _, testCase := range testCases {
 		t.Run(testCase, func(t *testing.T) {
@@ -234,9 +236,9 @@ func TestIntegrationRuntimeMutationLocksInstallBeforeRuntimeUnit(t *testing.T) {
 		t.Fatalf("begin runtime mutation guard: %v", err)
 	}
 	t.Cleanup(func() { _ = guardTx.Rollback(ctx) })
-	var guardPID int32
-	if err := guardTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&guardPID); err != nil {
-		t.Fatalf("load runtime mutation backend: %v", err)
+	var unitHolderPID int32
+	if err := unitHolder.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&unitHolderPID); err != nil {
+		t.Fatalf("load runtime unit holder backend: %v", err)
 	}
 	guardDone := make(chan error, 1)
 	go func() {
@@ -253,24 +255,9 @@ func TestIntegrationRuntimeMutationLocksInstallBeforeRuntimeUnit(t *testing.T) {
 			install.ID,
 		)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiting bool
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT coalesce(wait_event_type = 'Lock', false) FROM pg_stat_activity WHERE pid = $1`,
-			guardPID,
-		).Scan(&waiting); err != nil {
-			t.Fatalf("observe runtime mutation guard: %v", err)
-		}
-		if waiting {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("runtime mutation guard did not wait for the locked unit")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	integrationdb.WaitForLockWaitBlockedBy(
+		t, ctx, pool, "-- name: LockIntegrationRuntimeLeaseForMutation ", unitHolderPID,
+	)
 
 	probeTx, err := pool.Begin(ctx)
 	if err != nil {

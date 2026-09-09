@@ -1,10 +1,11 @@
 import type { ChannelConnectorDelivery, CompleteChannelConnectorDeliveryRequest } from '@omnara/sdk'
-import { describe, expect, it, type Mock, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { AppRuntimeRegistry } from './app-registry'
 import type { CoreClient } from './core-client'
-import { DeliveryLoop } from './delivery-loop'
+import { DeliveryLoop, type DeliveryLoopOptions } from './delivery-loop'
 import { maxDiagnosticMessageBytes } from './diagnostics'
+import { testRuntimeHandle, unexpectedTestCall } from './gateway-test-fixtures'
 import { type GatewayLogger, ProviderDeliveryError, type ProviderRuntime } from './types'
 
 describe('channel delivery loop', () => {
@@ -16,12 +17,13 @@ describe('channel delivery loop', () => {
     ]
     const claimed: typeof capabilities = []
     const client = {
+      completeDelivery: vi.fn<CoreClient['completeDelivery']>(unexpectedTestCall),
       claimDeliveries: vi.fn((capability: (typeof capabilities)[number]) => {
         claimed.push(capability)
         if (claimed.length === 3) controller.abort(new Error('test complete'))
         return Promise.resolve([])
       }),
-    } as unknown as CoreClient
+    } satisfies DeliveryLoopOptions['client']
 
     await new DeliveryLoop({
       capabilities,
@@ -33,7 +35,7 @@ describe('channel delivery loop', () => {
       logger: noopLogger,
       owner: 'gateway-test',
       random: () => 0.5,
-      registry: {} as AppRuntimeRegistry,
+      registry: { acquire: vi.fn<AppRuntimeRegistry['acquire']>(unexpectedTestCall) },
       sendTimeoutMs: 20_000,
     }).run(controller.signal)
 
@@ -274,7 +276,7 @@ describe('channel delivery loop', () => {
     await run()
 
     const message = completion().last_error.message
-    expect(typeof message).toBe('string')
+    expect(message).toEqual(expect.any(String))
     expect(Buffer.byteLength(String(message))).toBeLessThanOrEqual(maxDiagnosticMessageBytes)
     expect(message).not.toContain('\u0000')
   })
@@ -331,13 +333,7 @@ function deliveryJourney(
   attemptCount = 1,
   acquisitionGate?: Promise<void>,
   claimExpiresAt?: string,
-): {
-  acquire: Mock
-  abort: () => void
-  completion: () => CompleteChannelConnectorDeliveryRequest
-  getInstallation: Mock<() => Promise<typeof testInstallation>>
-  run: () => Promise<void>
-} {
+) {
   const controller = new AbortController()
   const delivery = testDelivery()
   delivery.attempt_count = attemptCount
@@ -353,7 +349,7 @@ function deliveryJourney(
         return Promise.resolve()
       },
     ),
-  } as unknown as CoreClient
+  } satisfies DeliveryLoopOptions['client']
   const runtime: ProviderRuntime = {
     close: () => Promise.resolve(),
     handleWebhook: () => Promise.resolve(new Response()),
@@ -361,16 +357,16 @@ function deliveryJourney(
   }
   const acquire = vi.fn(async () => {
     await acquisitionGate
-    return {
+    return testRuntimeHandle({
       configuration: testConfiguration,
       getInstallation: getInstallationMock,
       release: () => Promise.resolve(),
       runtime,
-    }
+    })
   })
   const registry = {
     acquire,
-  } as unknown as AppRuntimeRegistry
+  } satisfies DeliveryLoopOptions['registry']
   const loop = new DeliveryLoop({
     capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
     claimLimit: 10,
@@ -461,7 +457,7 @@ const noopLogger: GatewayLogger = {
   warn: () => undefined,
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((settle) => {
     resolve = settle

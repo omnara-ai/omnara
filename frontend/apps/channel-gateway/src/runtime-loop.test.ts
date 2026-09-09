@@ -1,12 +1,17 @@
 import type { ChannelConnectorRuntimeUnit } from '@omnara/sdk'
-import type { Message } from 'chat'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AppRuntimeRegistry } from './app-registry'
+import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
 import { messageContentBlocks } from './chat-sdk-runtime'
 import type { CoreClient } from './core-client'
 import { maxDiagnosticMessageBytes } from './diagnostics'
-import { RuntimeLoop } from './runtime-loop'
+import {
+  testMessage,
+  testRuntimeHandle,
+  testRuntimeUnit,
+  unexpectedTestCall,
+} from './gateway-test-fixtures'
+import { RuntimeLoop, type RuntimeLoopOptions } from './runtime-loop'
 import type { GatewayLogger, ProviderRuntime, RuntimeCheckpoint } from './types'
 import { WorkByteBudget } from './work-budget'
 
@@ -25,6 +30,7 @@ describe('persistent channel runtime supervision', () => {
     }
     const claims: { capability: (typeof capabilities)[number]; limit: number }[] = []
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(
         (
           capability: (typeof capabilities)[number],
@@ -38,8 +44,8 @@ describe('persistent channel runtime supervision', () => {
       ),
       heartbeatRuntimeUnit: vi.fn((unit: ChannelConnectorRuntimeUnit) => Promise.resolve(unit)),
       releaseRuntimeUnit: vi.fn(() => Promise.resolve()),
-    } as unknown as CoreClient
-    const runUnit: NonNullable<ProviderRuntime['runUnit']> = async (unit, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit: RuntimeHandle['runUnit'] = async (unit, context) => {
       if (unit.id === second.id) controller.abort(new Error('test complete'))
       await new Promise<void>((resolve) => {
         if (context.signal.aborted) resolve()
@@ -61,15 +67,16 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit,
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities,
@@ -95,8 +102,9 @@ describe('persistent channel runtime supervision', () => {
     const controller = new AbortController()
     const unit = testRuntimeUnit()
     let checkpoint: RuntimeCheckpoint | undefined
-    let releasedError: Record<string, unknown> | undefined
+    let releasedError: Parameters<CoreClient['releaseRuntimeUnit']>[1] | undefined
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([unit])),
       heartbeatRuntimeUnit: vi.fn(
         (current: ChannelConnectorRuntimeUnit, _leaseMs: number, value?: RuntimeCheckpoint) => {
@@ -106,13 +114,16 @@ describe('persistent channel runtime supervision', () => {
         },
       ),
       releaseRuntimeUnit: vi.fn(
-        (_current: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _current: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releasedError = lastError
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
-    const runUnit: NonNullable<ProviderRuntime['runUnit']> = async (_current, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit: RuntimeHandle['runUnit'] = async (_current, context) => {
       context.updateCheckpoint({ checkpoint: { sequence: 42 }, version: 1 })
       await new Promise<void>((resolve) => {
         if (context.signal.aborted) resolve()
@@ -134,18 +145,19 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit: (
-            current: ChannelConnectorRuntimeUnit,
-            context: Parameters<NonNullable<ProviderRuntime['runUnit']>>[1],
-          ) => runUnit(current, context),
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit: (
+              current: ChannelConnectorRuntimeUnit,
+              context: Parameters<RuntimeHandle['runUnit']>[1],
+            ) => runUnit(current, context),
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -166,32 +178,37 @@ describe('persistent channel runtime supervision', () => {
 
   it('reports an unsupported persistent mode without starting provider work', async () => {
     const controller = new AbortController()
-    let releasedError: Record<string, unknown> | undefined
+    let releasedError: Parameters<CoreClient['releaseRuntimeUnit']>[1] | undefined
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([testRuntimeUnit()])),
       releaseRuntimeUnit: vi.fn(
-        (_unit: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _unit: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releasedError = lastError
           controller.abort()
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
+    } satisfies RuntimeLoopOptions['client']
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit: vi.fn(),
-          runtime: {
-            close: () => Promise.resolve(),
-            handleWebhook: () => Promise.resolve(new Response()),
-            send: () => Promise.resolve({ providerMessageRef: '' }),
-          } satisfies ProviderRuntime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit: vi.fn(),
+            runtime: {
+              close: () => Promise.resolve(),
+              handleWebhook: () => Promise.resolve(new Response()),
+              send: () => Promise.resolve({ providerMessageRef: '' }),
+            } satisfies ProviderRuntime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -211,18 +228,22 @@ describe('persistent channel runtime supervision', () => {
 
   it('bounds provider diagnostics before releasing a failed runtime', async () => {
     const controller = new AbortController()
-    let releasedError: Record<string, unknown> | undefined
+    let releasedError: Parameters<CoreClient['releaseRuntimeUnit']>[1] | undefined
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([testRuntimeUnit()])),
       heartbeatRuntimeUnit: vi.fn((unit: ChannelConnectorRuntimeUnit) => Promise.resolve(unit)),
       releaseRuntimeUnit: vi.fn(
-        (_unit: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _unit: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releasedError = lastError
           controller.abort(new Error('test complete'))
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
+    } satisfies RuntimeLoopOptions['client']
     const runUnit = vi.fn(() => Promise.reject(new Error(`${'界'.repeat(100_000)}\u0000secret`)))
     const runtime: ProviderRuntime = {
       close: () => Promise.resolve(),
@@ -232,15 +253,16 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit,
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -266,11 +288,12 @@ describe('persistent channel runtime supervision', () => {
     const checkpoint: RuntimeCheckpoint = { checkpoint: { sequence: 7 }, version: 1 }
     let releasedCheckpoint: RuntimeCheckpoint | undefined
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([testRuntimeUnit()])),
       releaseRuntimeUnit: vi.fn(
         (
           _unit: ChannelConnectorRuntimeUnit,
-          _lastError: Record<string, unknown>,
+          _lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
           value?: RuntimeCheckpoint,
         ) => {
           releasedCheckpoint = value
@@ -278,27 +301,28 @@ describe('persistent channel runtime supervision', () => {
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
-    const runUnit: NonNullable<ProviderRuntime['runUnit']> = (_unit, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit: RuntimeHandle['runUnit'] = (_unit, context) => {
       context.updateCheckpoint(checkpoint)
       return Promise.resolve()
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime: {
-            close: () => Promise.resolve(),
-            handleWebhook: () => Promise.resolve(new Response()),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
             runUnit,
-            send: () => Promise.resolve({ providerMessageRef: '' }),
-          } satisfies ProviderRuntime,
-        }),
+            runtime: {
+              close: () => Promise.resolve(),
+              handleWebhook: () => Promise.resolve(new Response()),
+              runUnit,
+              send: () => Promise.resolve({ providerMessageRef: '' }),
+            } satisfies ProviderRuntime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -317,12 +341,13 @@ describe('persistent channel runtime supervision', () => {
   })
 
   it('heartbeats during delayed initialization and abandons work after renewal timeouts', async () => {
+    let leaseTimeMs = 1_000
     const controller = new AbortController()
     const unit = testRuntimeUnit()
     const acquisition = deferred<Awaited<ReturnType<AppRuntimeRegistry['acquire']>>>()
     const handleRelease = vi.fn(() => Promise.resolve())
     const runUnit = vi.fn(() => Promise.resolve())
-    let releasedError: Record<string, unknown> | undefined
+    let releasedError: Parameters<CoreClient['releaseRuntimeUnit']>[1] | undefined
     const heartbeatRuntimeUnit = vi.fn(
       (
         _unit: ChannelConnectorRuntimeUnit,
@@ -336,6 +361,7 @@ describe('persistent channel runtime supervision', () => {
             return
           }
           const rejectAbort = (): void => {
+            leaseTimeMs += 10
             reject(
               signal.reason instanceof Error ? signal.reason : new Error('test heartbeat aborted'),
             )
@@ -345,51 +371,62 @@ describe('persistent channel runtime supervision', () => {
         }),
     )
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([unit])),
       heartbeatRuntimeUnit,
       releaseRuntimeUnit: vi.fn(
-        (_current: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _current: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releasedError = lastError
           controller.abort(new Error('test complete'))
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
+    } satisfies RuntimeLoopOptions['client']
     const registry = {
       acquire: vi.fn(() => acquisition.promise),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
-    await new RuntimeLoop({
-      capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
-      claimLimit: 1,
-      client,
-      idlePollMs: 1,
-      leaseMs: 30,
-      logger: noopLogger,
-      owner: 'gateway-test',
-      reserveWorkBytes: noopWorkReservation,
-      registry,
-      stopTimeoutMs: 100,
-    }).run(controller.signal)
+    // Advance the lease clock on real heartbeat timeouts so runner load cannot skip retries.
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => leaseTimeMs)
+    try {
+      await new RuntimeLoop({
+        capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
+        claimLimit: 1,
+        client,
+        idlePollMs: 1,
+        leaseMs: 30,
+        logger: noopLogger,
+        owner: 'gateway-test',
+        reserveWorkBytes: noopWorkReservation,
+        registry,
+        stopTimeoutMs: 100,
+      }).run(controller.signal)
+    } finally {
+      now.mockRestore()
+    }
 
     expect(heartbeatRuntimeUnit.mock.calls.length).toBeGreaterThan(1)
     expect(releasedError).toMatchObject({ code: 'runtime_lease_lost' })
     expect(runUnit).not.toHaveBeenCalled()
 
-    acquisition.resolve({
-      configuration: testConfiguration,
-      getInstallation: vi.fn(),
-      handleWebhook: vi.fn(),
-      release: handleRelease,
-      resolveInstallation: vi.fn(),
-      runUnit,
-      runtime: {
-        close: () => Promise.resolve(),
-        handleWebhook: () => Promise.resolve(new Response()),
+    acquisition.resolve(
+      testRuntimeHandle({
+        configuration: testConfiguration,
+        handleWebhook: vi.fn(),
+        release: handleRelease,
+        resolveInstallation: vi.fn(),
         runUnit,
-        send: () => Promise.resolve({ providerMessageRef: '' }),
-      },
-    })
+        runtime: {
+          close: () => Promise.resolve(),
+          handleWebhook: () => Promise.resolve(new Response()),
+          runUnit,
+          send: () => Promise.resolve({ providerMessageRef: '' }),
+        },
+      }),
+    )
     await vi.waitFor(() => {
       expect(handleRelease).toHaveBeenCalledOnce()
     })
@@ -399,19 +436,23 @@ describe('persistent channel runtime supervision', () => {
     const controller = new AbortController()
     const unit = testRuntimeUnit()
     let providerSignal: AbortSignal | undefined
-    let releasedError: Record<string, unknown> | undefined
+    let releasedError: Parameters<CoreClient['releaseRuntimeUnit']>[1] | undefined
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([unit])),
       heartbeatRuntimeUnit: vi.fn(() => Promise.reject(new Error('runtime lease was fenced'))),
       releaseRuntimeUnit: vi.fn(
-        (_current: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _current: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releasedError = lastError
           controller.abort(new Error('test complete'))
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
-    const runUnit = vi.fn<NonNullable<ProviderRuntime['runUnit']>>(async (_current, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit = vi.fn<RuntimeHandle['runUnit']>(async (_current, context) => {
       providerSignal = context.signal
       await new Promise<void>((resolve) => {
         if (context.signal.aborted) resolve()
@@ -433,15 +474,16 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit,
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -497,11 +539,12 @@ describe('persistent channel runtime supervision', () => {
         return Promise.resolve(unit)
       })
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve([unit])),
       heartbeatRuntimeUnit,
       releaseRuntimeUnit: vi.fn(() => Promise.resolve()),
-    } as unknown as CoreClient
-    const runUnit = vi.fn<NonNullable<ProviderRuntime['runUnit']>>(async (_current, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit = vi.fn<RuntimeHandle['runUnit']>(async (_current, context) => {
       providerSignal = context.signal
       await new Promise<void>((resolve) => {
         if (context.signal.aborted) resolve()
@@ -517,20 +560,21 @@ describe('persistent channel runtime supervision', () => {
     })
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime: {
-            close: () => Promise.resolve(),
-            handleWebhook: () => Promise.resolve(new Response()),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
             runUnit,
-            send: () => Promise.resolve({ providerMessageRef: '' }),
-          },
-        }),
+            runtime: {
+              close: () => Promise.resolve(),
+              handleWebhook: () => Promise.resolve(new Response()),
+              runUnit,
+              send: () => Promise.resolve({ providerMessageRef: '' }),
+            },
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -560,32 +604,37 @@ describe('persistent channel runtime supervision', () => {
       lease_token: '00000000-0000-7000-8000-000000000002',
     }
     let claims = 0
-    const releases: Record<string, unknown>[] = []
+    const releases: Parameters<CoreClient['releaseRuntimeUnit']>[1][] = []
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() => Promise.resolve(claims++ === 0 ? [first, second] : [])),
       heartbeatRuntimeUnit: vi.fn((unit: ChannelConnectorRuntimeUnit) => Promise.resolve(unit)),
       releaseRuntimeUnit: vi.fn(
-        (_unit: ChannelConnectorRuntimeUnit, lastError: Record<string, unknown>) => {
+        (
+          _unit: ChannelConnectorRuntimeUnit,
+          lastError: Parameters<CoreClient['releaseRuntimeUnit']>[1],
+        ) => {
           releases.push(lastError)
           if (releases.length === 1) gate.resolve(undefined)
           if (releases.length === 2) controller.abort(new Error('test complete'))
           return Promise.resolve()
         },
       ),
-    } as unknown as CoreClient
-    const message = {
+    } satisfies RuntimeLoopOptions['client']
+    const message = testMessage({
       attachments: [
         {
           fetchData: () => Promise.resolve(Buffer.from([1, 2])),
+          type: 'image',
           mimeType: 'image/png',
           name: 'tiny.png',
           size: 2,
         },
       ],
       text: '',
-    } as unknown as Message
+    })
     let admitted = 0
-    const runUnit: NonNullable<ProviderRuntime['runUnit']> = async (_unit, context) => {
+    const runUnit: RuntimeHandle['runUnit'] = async (_unit, context) => {
       const reservations: ReturnType<typeof context.reserveWorkBytes>[] = []
       try {
         await messageContentBlocks(message, 4, 4, {
@@ -613,15 +662,16 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit,
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -654,6 +704,7 @@ describe('persistent channel runtime supervision', () => {
     let claim = 0
     let secondAdmitted = false
     const client = {
+      ...testClient(),
       claimRuntimeUnits: vi.fn(() =>
         Promise.resolve(claim++ === 0 ? [first] : claim === 2 ? [second] : []),
       ),
@@ -662,8 +713,8 @@ describe('persistent channel runtime supervision', () => {
         if (unit.id === second.id) controller.abort(new Error('test complete'))
         return Promise.resolve()
       }),
-    } as unknown as CoreClient
-    const runUnit: NonNullable<ProviderRuntime['runUnit']> = (unit, context) => {
+    } satisfies RuntimeLoopOptions['client']
+    const runUnit: RuntimeHandle['runUnit'] = (unit, context) => {
       const reservation = context.reserveWorkBytes(10)
       if (unit.id === first.id) {
         return Promise.reject(new Error('provider abandoned its reservation'))
@@ -680,15 +731,16 @@ describe('persistent channel runtime supervision', () => {
     }
     const registry = {
       acquire: vi.fn(() =>
-        Promise.resolve({
-          configuration: testConfiguration,
-          getInstallation: vi.fn(),
-          release: () => Promise.resolve(),
-          runUnit,
-          runtime,
-        }),
+        Promise.resolve(
+          testRuntimeHandle({
+            configuration: testConfiguration,
+            release: () => Promise.resolve(),
+            runUnit,
+            runtime,
+          }),
+        ),
       ),
-    } as unknown as AppRuntimeRegistry
+    } satisfies RuntimeLoopOptions['registry']
 
     await new RuntimeLoop({
       capabilities: [{ connector_key: 'chat_sdk_v1', provider: 'discord' }],
@@ -708,27 +760,12 @@ describe('persistent channel runtime supervision', () => {
   })
 })
 
-function testRuntimeUnit(): ChannelConnectorRuntimeUnit {
+function testClient() {
   return {
-    checkpoint: {},
-    checkpoint_revision: 0,
-    checkpoint_version: 1,
-    configuration: {},
-    spec_revision: 1,
-    created_at: new Date().toISOString(),
-    desired_state: 'running',
-    id: 'irun_aaaaaaaaaaaaaaaaaaaaaaaaaa',
-    integration_app_id: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
-    last_error: {},
-    lease_generation: 1,
-    lease_app_configuration_revision: 1,
-    lease_spec_revision: 1,
-    lease_token: '00000000-0000-7000-8000-000000000001',
-    runtime_kind: 'provider_gateway',
-    status: 'running',
-    unit_key: 'shard-0',
-    updated_at: new Date().toISOString(),
-  }
+    claimRuntimeUnits: vi.fn<CoreClient['claimRuntimeUnits']>(unexpectedTestCall),
+    heartbeatRuntimeUnit: vi.fn<CoreClient['heartbeatRuntimeUnit']>(unexpectedTestCall),
+    releaseRuntimeUnit: vi.fn<CoreClient['releaseRuntimeUnit']>(unexpectedTestCall),
+  } satisfies RuntimeLoopOptions['client']
 }
 
 const testConfiguration = {
@@ -756,7 +793,7 @@ function noopWorkReservation() {
   return { release: () => undefined, resize: () => undefined }
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((settle) => {
     resolve = settle

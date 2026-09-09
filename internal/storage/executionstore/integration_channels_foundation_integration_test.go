@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
 
 type expiringChannelLaunchStore struct {
@@ -325,8 +326,8 @@ func TestChannelFoundationInboundFanoutAndDeliveryJourney(t *testing.T) {
 		).Scan(&actorProvider, &targetID, &bindingID, &inputMetadata); err != nil {
 			t.Fatalf("load accepted channel input: %v", err)
 		}
-		if actorProvider != testChannelProvider || targetID != uuid.UUID(acceptance.TargetID) ||
-			bindingID != uuid.UUID(acceptance.BindingID) {
+		if actorProvider != testChannelProvider || targetID != acceptance.TargetID ||
+			bindingID != acceptance.BindingID {
 			t.Fatalf(
 				"accepted input provenance provider=%q target=%s binding=%s, want %+v",
 				actorProvider,
@@ -656,6 +657,12 @@ func TestChannelFoundationUnavailableDeliverySweepMakesBoundedProgress(t *testin
 		}
 		candidates = append(candidates, candidate{delivery: delivery, route: route})
 	}
+	waitForNextDeliveryMillisecond := func() {
+		t.Helper()
+		// UUIDv7 IDs created in a later millisecond sort beyond this batch.
+		lastID := candidates[len(candidates)-1].delivery.ID
+		waitForIntegrationDatabaseTimeAfter(t, ctx, pool, time.Unix(lastID.Time().UnixTime()).Add(time.Millisecond))
+	}
 	for index := range 4 {
 		createCandidate(index)
 	}
@@ -675,7 +682,7 @@ func TestChannelFoundationUnavailableDeliverySweepMakesBoundedProgress(t *testin
 	); err != nil {
 		t.Fatalf("disable bounded sweep route: %v", err)
 	}
-	time.Sleep(2 * time.Millisecond)
+	waitForNextDeliveryMillisecond()
 	for index := 4; index < 6; index++ {
 		createCandidate(index)
 	}
@@ -683,7 +690,7 @@ func TestChannelFoundationUnavailableDeliverySweepMakesBoundedProgress(t *testin
 	if err != nil || len(second) != 0 {
 		t.Fatalf("second bounded unavailable sweep = %+v, %v", second, err)
 	}
-	time.Sleep(2 * time.Millisecond)
+	waitForNextDeliveryMillisecond()
 	for index := 6; index < 8; index++ {
 		createCandidate(index)
 	}
@@ -699,7 +706,7 @@ func TestChannelFoundationUnavailableDeliverySweepMakesBoundedProgress(t *testin
 	).Scan(&cursor); err != nil {
 		t.Fatalf("load unavailable sweep cursor: %v", err)
 	}
-	if cursor != uuid.UUID(wantCursor) {
+	if cursor != wantCursor {
 		t.Fatalf("unavailable sweep cursor = %s, want %s", cursor, wantCursor)
 	}
 }
@@ -737,7 +744,6 @@ func TestChannelFoundationIdleUnavailableDeliverySweepDoesNotRewriteCursor(t *te
 }
 
 func TestChannelFoundationProfileRouteLaunchesDistinctAgentsForOneTarget(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
@@ -1055,7 +1061,7 @@ func TestChannelFoundationRetriesWholeEventAfterProfileLaunchCompletionRace(t *t
 		return route
 	}
 	existingRoute := createRoute("profile-retry-existing", "profile_retry_existing")
-	time.Sleep(2 * time.Millisecond)
+	waitForIntegrationDatabaseTimeAfter(t, ctx, pool, existingRoute.CreatedAt)
 	spawnRoute := createRoute("profile-retry-spawn", "profile_retry_spawn")
 	execution := &failOnceBoundChannelInputStore{Store: store.Execution(), failAt: 2}
 	service := integration.NewChannelService(
@@ -1166,11 +1172,11 @@ func TestChannelFoundationRetriesWholeEventAfterProfileLaunchCompletionRace(t *t
 	for _, acceptance := range result.Accepted {
 		acceptedByRoute[acceptance.RouteID] = acceptance
 	}
-	if acceptedByRoute[existingRoute.ID].AgentInputID != integrationstore.ID(existingInputID) {
+	if acceptedByRoute[existingRoute.ID].AgentInputID != existingInputID {
 		t.Fatalf("earlier route input was duplicated on replay: %+v", acceptedByRoute)
 	}
 	spawned := acceptedByRoute[spawnRoute.ID]
-	if spawned.AgentID != integrationstore.ID(launchedAgentID) || spawned.Launch.Created {
+	if spawned.AgentID != launchedAgentID || spawned.Launch.Created {
 		t.Fatalf("profile retry did not reuse launched agent: %+v", spawned)
 	}
 
@@ -1241,7 +1247,8 @@ func TestChannelFoundationStaleRuntimeCannotLaunchProfileAgent(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "stale-profile", HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "stale-profile", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	); err != nil {
 		t.Fatalf("create stale profile route: %v", err)
@@ -1736,7 +1743,8 @@ func TestChannelFoundationStaleRuntimeCannotReplaceBinding(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "stale-runtime", HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "stale-runtime", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -1864,7 +1872,7 @@ func TestChannelFoundationStaleRuntimeCannotReplaceBinding(t *testing.T) {
 	}
 	if displayName != "Original thread" ||
 		!sameJSON(providerMetadata, json.RawMessage(`{"revision":1}`)) ||
-		activeBinding != uuid.UUID(binding.ID) || staleInputs != 0 {
+		activeBinding != binding.ID || staleInputs != 0 {
 		t.Fatalf(
 			"stale runtime mutated state display=%q metadata=%s binding=%s inputs=%d",
 			displayName,
@@ -1888,7 +1896,8 @@ func TestChannelFoundationRetriesWhenAHandlerVersionIsUnavailable(t *testing.T) 
 			ctx,
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "preflight-" + handler, HandlerKey: handler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+				DeploymentKey: "preflight-" + handler, HandlerKey: handler, HandlerVersion: 1,
+				State: integrationstore.IntegrationRouteStateActive,
 			},
 		); err != nil {
 			t.Fatalf("create %s route: %v", handler, err)
@@ -1972,7 +1981,8 @@ func TestChannelFoundationPreflightsAggregateInputMetadata(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "metadata-preflight", HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "metadata-preflight", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	); err != nil {
 		t.Fatalf("create metadata preflight route: %v", err)
@@ -2050,6 +2060,7 @@ SELECT
 }
 
 func TestChannelFoundationLifecycleDeletion(t *testing.T) {
+	t.Parallel()
 	t.Run("install after app disable", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
@@ -2214,7 +2225,8 @@ func TestChannelFoundationInstallDeletionRevokesConcurrentBinding(t *testing.T) 
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "delete-binding-race", HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "delete-binding-race", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -2323,35 +2335,18 @@ func TestChannelFoundationInstallDeletionFencesConcurrentTargetCreation(t *testi
 	if err != nil {
 		t.Fatalf("create uncommitted concurrent target: %v", err)
 	}
+	var creatorPID int32
+	if err := creatorTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&creatorPID); err != nil {
+		t.Fatalf("load concurrent target creator backend: %v", err)
+	}
 
 	deleteDone := make(chan error, 1)
 	go func() {
 		deleteDone <- store.Integrations().DeleteIntegrationInstall(ctx, testProjectID, install.ID)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var blocked bool
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT EXISTS (
-			   SELECT 1
-			   FROM pg_stat_activity
-			   WHERE datname = current_database()
-			     AND pid <> pg_backend_pid()
-			     AND wait_event_type = 'Lock'
-			     AND query LIKE '%UPDATE integration_installs%credential_secret_id = NULL%'
-			 )`,
-		).Scan(&blocked); err != nil {
-			t.Fatalf("observe blocked integration install deletion: %v", err)
-		}
-		if blocked {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("integration install deletion did not wait for target creator authority")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	integrationdb.WaitForLockWaitBlockedBy(
+		t, ctx, pool, "UPDATE integration_installs%credential_secret_id = NULL", creatorPID,
+	)
 	if err := creatorTx.Commit(ctx); err != nil {
 		t.Fatalf("commit concurrent target create: %v", err)
 	}
@@ -2480,7 +2475,8 @@ func TestChannelFoundationTargetAndBindingDefinitionsAreImmutable(t *testing.T) 
 			ctx,
 			integrationstore.CreateIntegrationRouteInput{
 				ProjectID: testProjectID, IntegrationInstallID: install.ID,
-				DeploymentKey: "route-" + handler, HandlerKey: handler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+				DeploymentKey: "route-" + handler, HandlerKey: handler, HandlerVersion: 1,
+				State: integrationstore.IntegrationRouteStateActive,
 			},
 		)
 		if err != nil {
@@ -2914,7 +2910,8 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: "binding-limit", HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: "binding-limit", HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {
@@ -2966,8 +2963,8 @@ func TestChannelFoundationReceiveBindingLimitIsWriteSafe(t *testing.T) {
 		err     error
 	}
 	results := make(chan createResult, 2)
-	for _, agent := range agents[integrationstore.MaxActiveReceiveBindingsPerTargetRoute : integrationstore.MaxActiveReceiveBindingsPerTargetRoute+2] {
-		agent := agent
+	capacity := integrationstore.MaxActiveReceiveBindingsPerTargetRoute
+	for _, agent := range agents[capacity : capacity+2] {
 		go func() {
 			binding, createErr := store.Integrations().CreateIntegrationTargetBinding(
 				ctx,

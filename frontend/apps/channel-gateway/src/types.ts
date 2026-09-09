@@ -10,11 +10,13 @@ import type {
 } from '@omnara/sdk'
 import type { StateAdapter } from 'chat'
 
+export type GatewayLogFields = Record<string, string | number | boolean | null | undefined>
+
 export interface GatewayLogger {
-  debug(message: string, fields?: Record<string, unknown>): void
-  error(message: string, fields?: Record<string, unknown>): void
-  info(message: string, fields?: Record<string, unknown>): void
-  warn(message: string, fields?: Record<string, unknown>): void
+  debug(message: string, fields?: GatewayLogFields): void
+  error(message: string, fields?: GatewayLogFields): void
+  info(message: string, fields?: GatewayLogFields): void
+  warn(message: string, fields?: GatewayLogFields): void
 }
 
 export type GatewayAppConfiguration = ChannelConnectorAppConfiguration
@@ -36,7 +38,7 @@ export interface ProviderSendContext {
 }
 
 export interface RuntimeCheckpoint {
-  checkpoint: Record<string, unknown>
+  checkpoint: ChannelConnectorRuntimeUnit['checkpoint']
   version: number
 }
 

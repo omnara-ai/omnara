@@ -185,8 +185,8 @@ INSERT INTO integration_installs(
 }
 
 func TestIntegrationCredentialAssociationRejectsSecretDeletedFirst(t *testing.T) {
+	t.Parallel()
 	for _, associationKind := range []string{"app", "install"} {
-		associationKind := associationKind
 		t.Run(associationKind, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()

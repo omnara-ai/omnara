@@ -23,6 +23,7 @@ import { WorkByteBudget } from './work-budget'
 
 export interface RunGatewayOptions {
   config?: GatewayConfig
+  createRedisClient?: typeof createGatewayRedisClient
   factories?: ProviderFactory[]
   logger?: GatewayLogger
   signal?: AbortSignal
@@ -51,7 +52,7 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
   let redisConnected = false
   try {
     const startupDeadline = Date.now() + config.startupTimeoutMs
-    redis = createGatewayRedisClient({
+    redis = (options.createRedisClient ?? createGatewayRedisClient)({
       clusterUrls: config.redisClusterUrls,
       socketTimeoutMs: config.redisSocketTimeoutMs,
       topology: config.redisTopology,
@@ -174,7 +175,7 @@ export async function runGateway(options: RunGatewayOptions = {}): Promise<void>
 async function cleanupResource(
   logger: GatewayLogger,
   operation: string,
-  cleanup: () => Promise<unknown>,
+  cleanup: () => Promise<void>,
 ): Promise<void> {
   try {
     await cleanup()
@@ -218,9 +219,9 @@ async function runStartupStep<T>(
           resolve(value)
         })
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         settle(() => {
-          reject(asError(error))
+          reject(asError(cause))
         })
       },
     )
@@ -232,8 +233,8 @@ function signalError(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error('channel gateway stopping')
 }
 
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error))
+function asError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause))
 }
 
 const registryNamePattern = /^[a-z0-9][a-z0-9_.-]{0,127}$/
@@ -298,8 +299,8 @@ function abortPromise(signal: AbortSignal): Promise<void> {
 
 const entrypoint = process.argv[1]
 if (entrypoint && realpathSync(entrypoint) === realpathSync(fileURLToPath(import.meta.url))) {
-  runGateway().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`)
+  runGateway().catch((cause: unknown) => {
+    process.stderr.write(`${cause instanceof Error ? cause.stack : String(cause)}\n`)
     process.exitCode = 1
   })
 }

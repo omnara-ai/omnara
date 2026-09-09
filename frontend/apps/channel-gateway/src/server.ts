@@ -6,7 +6,7 @@ import { type Context, Hono } from 'hono'
 
 import type { AppRuntimeRegistry, RuntimeHandle } from './app-registry'
 import { isCoreNotFoundError } from './core-client'
-import { errorMessage } from './diagnostics'
+import { errorMessage, isString } from './diagnostics'
 import {
   abortError,
   BackgroundTaskTracker,
@@ -37,7 +37,7 @@ export interface GatewayServerOptions {
   maxConcurrentRequests: number
   port: number
   publicUrl: string
-  registry: AppRuntimeRegistry
+  registry: Pick<AppRuntimeRegistry, 'acquire'>
   workBudget: WorkByteBudget
 }
 
@@ -90,7 +90,7 @@ export class GatewayServer {
       throw error
     }
     const address = server.address()
-    if (!address || typeof address === 'string') {
+    if (!address || isString(address)) {
       await this.close()
       throw new Error('channel gateway did not bind a TCP port')
     }
@@ -107,7 +107,7 @@ export class GatewayServer {
         else resolve()
       })
     })
-    const requests = Promise.allSettled([...this.activeRequests.values()])
+    const requests = Promise.allSettled(this.activeRequests.values())
     const completed = Promise.all([closed, requests]).then(() => true)
     let shutdownTimer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<false>((resolve) => {
@@ -213,6 +213,8 @@ export class GatewayServer {
         .then(() => {
           background.close()
         })
+        // Promise.finally awaits cleanup promises; the lib type is () => void.
+        // oxlint-disable-next-line typescript/no-misused-promises
         .finally(() => handle?.release())
         .finally(releaseBody)
         .finally(() => {
@@ -236,9 +238,9 @@ export class GatewayServer {
               (lateHandle) => lateHandle.release(),
               () => undefined,
             )
-            .catch((releaseError: unknown) => {
+            .catch((cause: unknown) => {
               this.options.logger.error('release late channel provider app acquisition', {
-                error: errorMessage(releaseError),
+                error: errorMessage(cause),
                 integration_app_id: integrationAppId,
               })
             })
@@ -274,6 +276,8 @@ export class GatewayServer {
           requestCopyReservation.release()
         }
       }
+      // SAFETY: the body contains only Node IncomingMessage chunks or Buffer.concat
+      // output, both backed by ArrayBuffer (never caller-supplied shared memory).
       const providerRequest = new Request(providerUrl, {
         body: copiesBody
           ? new Uint8Array(
@@ -326,15 +330,17 @@ export class GatewayServer {
             })
           }
         })
+        // Retain the request lifetime until asynchronous cleanup has finished.
+        // oxlint-disable-next-line typescript/no-misused-promises
         .finally(cleanup)
-        .catch((error: unknown) => {
-          this.logRequestError(error)
+        .catch((cause: unknown) => {
+          this.logRequestError(cause)
         })
     }
   }
 
-  private logRequestError(error: unknown): void {
-    this.options.logger.error('channel webhook request failed', { error: errorMessage(error) })
+  private logRequestError(cause: unknown): void {
+    this.options.logger.error('channel webhook request failed', { error: errorMessage(cause) })
   }
 
   private metricsText(): string {

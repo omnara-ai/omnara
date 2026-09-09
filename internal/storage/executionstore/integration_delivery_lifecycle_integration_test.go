@@ -314,7 +314,8 @@ func createDeliveryLifecycleBinding(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: installID,
-			DeploymentKey: suffix, HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: suffix, HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {

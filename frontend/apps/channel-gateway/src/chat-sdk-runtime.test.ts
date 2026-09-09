@@ -3,14 +3,7 @@ import type {
   ChannelConnectorInstallationConfiguration,
   ChannelInboundEventRequest,
 } from '@omnara/sdk'
-import {
-  type Adapter,
-  type Chat,
-  ChatError,
-  type Message,
-  RateLimitError,
-  type StateAdapter,
-} from 'chat'
+import { ChatError, type ChatInstance, RateLimitError } from 'chat'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createChatSdkLogger } from './chat-sdk-logger'
@@ -25,14 +18,16 @@ import {
   parseChannelMessageDelivery,
 } from './chat-sdk-runtime'
 import { maxDiagnosticMessageBytes } from './diagnostics'
+import { testAdapter, testMessage, testStateAdapter } from './gateway-test-fixtures'
+import type { GatewayLogger } from './types'
 
 describe('Chat SDK delivery contracts', () => {
   it('bridges safe Chat SDK diagnostics into app-scoped gateway logs', () => {
     const logger = {
-      debug: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      debug: vi.fn<GatewayLogger['debug']>(),
+      error: vi.fn<GatewayLogger['error']>(),
+      info: vi.fn<GatewayLogger['info']>(),
+      warn: vi.fn<GatewayLogger['warn']>(),
     }
     const chatLogger = createChatSdkLogger(logger, 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa')
 
@@ -64,11 +59,10 @@ describe('Chat SDK delivery contracts', () => {
       integration_app_id: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       source: 'chat_sdk',
     })
-    const oversizedFields = logger.error.mock.calls[1]?.[1] as Record<string, unknown>
-    expect(oversizedFields.error).not.toContain('\u0000')
-    expect(Buffer.byteLength(oversizedFields.error as string)).toBeLessThanOrEqual(
-      maxDiagnosticMessageBytes,
-    )
+    const oversizedError = logger.error.mock.calls[1]?.[1]?.error
+    expect(oversizedError).toEqual(expect.any(String))
+    expect(oversizedError).not.toContain('\u0000')
+    expect(Buffer.byteLength(String(oversizedError))).toBeLessThanOrEqual(maxDiagnosticMessageBytes)
   })
 
   it('constructs and shuts down a real Chat SDK runtime around a provider adapter', async () => {
@@ -78,24 +72,22 @@ describe('Chat SDK delivery contracts', () => {
     const handleWebhook = vi.fn(() => Promise.resolve(new Response('accepted', { status: 202 })))
     const stateConnect = vi.fn(() => Promise.resolve())
     const stateDisconnect = vi.fn(() => Promise.resolve())
-    const adapter = {
+    const adapter = testAdapter({
       disconnect,
       handleWebhook,
       initialize,
       name: 'test',
-    } as unknown as Adapter
-    const state = {
+    })
+    const state = testStateAdapter({
       connect: stateConnect,
       disconnect: stateDisconnect,
-    } as unknown as StateAdapter
+    })
 
     const runtime = await createChatSdkRuntime({
       adapter,
       configure: (chat, inbound) => {
         inboundActions = inbound
-        expect((chat as unknown as { _concurrencyStrategy: string })._concurrencyStrategy).toBe(
-          'concurrent',
-        )
+        expect(chat).toHaveProperty('_concurrencyStrategy', 'concurrent')
       },
       integrationAppId: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       logger: noopLogger,
@@ -148,21 +140,21 @@ describe('Chat SDK delivery contracts', () => {
 
     await expect(
       createChatSdkRuntime({
-        adapter: {
+        adapter: testAdapter({
           disconnect,
           handleWebhook: vi.fn(),
           initialize,
           name: 'test',
-        } as unknown as Adapter,
+        }),
         initializationCleanupTimeoutMs: 100,
         integrationAppId: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
         logger: noopLogger,
         resolveIdentity: () => Promise.reject(new Error('unexpected message')),
         signal: new AbortController().signal,
-        state: {
+        state: testStateAdapter({
           connect: stateConnect,
           disconnect: stateDisconnect,
-        } as unknown as StateAdapter,
+        }),
         userName: 'omnara-test',
       }),
     ).rejects.toThrow('adapter initialization failed')
@@ -180,21 +172,21 @@ describe('Chat SDK delivery contracts', () => {
     const initialize = vi.fn(() => initialization.promise)
     const stateDisconnect = vi.fn(() => Promise.resolve())
     const creating = createChatSdkRuntime({
-      adapter: {
+      adapter: testAdapter({
         disconnect,
         handleWebhook: vi.fn(),
         initialize,
         name: 'test',
-      } as unknown as Adapter,
+      }),
       initializationCleanupTimeoutMs: 100,
       integrationAppId: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       logger: noopLogger,
       resolveIdentity: () => Promise.reject(new Error('unexpected message')),
       signal: controller.signal,
-      state: {
+      state: testStateAdapter({
         connect: vi.fn(() => Promise.resolve()),
         disconnect: stateDisconnect,
-      } as unknown as StateAdapter,
+      }),
       userName: 'omnara-test',
     })
     await vi.waitFor(() => {
@@ -214,24 +206,24 @@ describe('Chat SDK delivery contracts', () => {
   })
 
   it('logs an inbound submission failure before Chat SDK consumes its tracked task', async () => {
-    let chat: Chat | undefined
+    let chat: ChatInstance | undefined
     const tracked: Promise<unknown>[] = []
-    const logger = { ...noopLogger, error: vi.fn() }
-    const state = {
+    const logger = { ...noopLogger, error: vi.fn<GatewayLogger['error']>() }
+    const state = testStateAdapter({
       connect: vi.fn(() => Promise.resolve()),
       disconnect: vi.fn(() => Promise.resolve()),
       isSubscribed: vi.fn(() => Promise.resolve(false)),
       setIfNotExists: vi.fn(() => Promise.resolve(true)),
-    } as unknown as StateAdapter
-    const message = {
+    })
+    const message = testMessage({
       attachments: [],
-      author: { isBot: false, isMe: false, userId: 'user-1', userName: 'Ada' },
+      author: { fullName: 'Ada', isBot: false, isMe: false, userId: 'user-1', userName: 'Ada' },
       id: 'message-1',
-      metadata: { dateSent: new Date('2026-08-30T00:00:00Z') },
+      metadata: { edited: false, dateSent: new Date('2026-08-30T00:00:00Z') },
       text: 'hello',
       threadId: 'test:thread-1',
-    } as unknown as Message
-    const adapter = {
+    })
+    const adapter = testAdapter({
       channelIdFromThreadId: () => 'test:channel-1',
       disconnect: vi.fn(() => Promise.resolve()),
       handleWebhook: vi.fn(
@@ -241,12 +233,12 @@ describe('Chat SDK delivery contracts', () => {
           return Promise.resolve(new Response('accepted', { status: 202 }))
         },
       ),
-      initialize: vi.fn((instance: Chat) => {
+      initialize: vi.fn((instance: ChatInstance) => {
         chat = instance
         return Promise.resolve()
       }),
       name: 'test',
-    } as unknown as Adapter
+    })
     const runtime = await createChatSdkRuntime({
       adapter,
       integrationAppId: 'iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -414,21 +406,21 @@ describe('Chat SDK delivery contracts', () => {
   })
 
   it('rejects remote attachments without a declared size before downloading', async () => {
-    const fetchData = vi.fn(() => Promise.resolve(new Uint8Array([1, 2, 3])))
-    const message = {
-      attachments: [{ fetchData, mimeType: 'image/png', name: 'image.png' }],
+    const fetchData = vi.fn(() => Promise.resolve(Buffer.from([1, 2, 3])))
+    const message = testMessage({
+      attachments: [{ fetchData, type: 'image', mimeType: 'image/png', name: 'image.png' }],
       text: '',
-    } as unknown as Message
+    })
 
     await expect(messageContentBlocks(message, 10, 10)).rejects.toThrow('declare its size')
     expect(fetchData).not.toHaveBeenCalled()
   })
 
   it('bounds multibyte inbound text before retaining or submitting it', async () => {
-    const message = {
+    const message = testMessage({
       attachments: [],
       text: '界'.repeat(Math.floor((1024 * 1024) / 3) + 1),
-    } as unknown as Message
+    })
     const reserveWorkBytes = vi.fn(noopWorkReservation)
 
     await expect(messageContentBlocks(message, 10, 20, { reserveWorkBytes })).rejects.toThrow(
@@ -439,7 +431,7 @@ describe('Chat SDK delivery contracts', () => {
 
   it('reserves serialization headroom for accepted inbound text', async () => {
     const reserveWorkBytes = vi.fn(noopWorkReservation)
-    const message = { attachments: [], text: '界' } as unknown as Message
+    const message = testMessage({ attachments: [], text: '界' })
 
     await expect(messageContentBlocks(message, 10, 20, { reserveWorkBytes })).resolves.toEqual([
       { text: '界', type: 'text' },
@@ -450,23 +442,24 @@ describe('Chat SDK delivery contracts', () => {
   it('rejects an oversized Blob before allocating its bytes', async () => {
     const blob = new Blob([new Uint8Array(11)])
     const arrayBuffer = vi.spyOn(blob, 'arrayBuffer')
-    const message = {
-      attachments: [{ data: blob, mimeType: 'image/png', name: 'image.png' }],
+    const message = testMessage({
+      attachments: [{ data: blob, type: 'image', mimeType: 'image/png', name: 'image.png' }],
       text: '',
-    } as unknown as Message
+    })
 
     await expect(messageContentBlocks(message, 10, 20)).rejects.toThrow('per-item byte limit')
     expect(arrayBuffer).not.toHaveBeenCalled()
   })
 
   it('bounds content blocks and reports deterministically omitted attachments', async () => {
-    const message = {
+    const message = testMessage({
       attachments: Array.from({ length: 101 }, (_, index) => ({
+        type: 'image',
         mimeType: 'application/x-unsupported',
         name: `image-${index}.png`,
       })),
       text: '',
-    } as unknown as Message
+    })
 
     const blocks = await messageContentBlocks(message, 10, 200)
 
@@ -479,15 +472,16 @@ describe('Chat SDK delivery contracts', () => {
 
   it('bounds media items before downloading provider attachments', async () => {
     const fetchData = vi.fn(() => Promise.resolve(Buffer.from([1])))
-    const message = {
+    const message = testMessage({
       attachments: Array.from({ length: 25 }, (_, index) => ({
         fetchData,
+        type: 'image',
         mimeType: 'image/png',
         name: `image-${index}.png`,
         size: 1,
       })),
       text: '',
-    } as unknown as Message
+    })
 
     const blocks = await messageContentBlocks(message, 10, 200, {
       fetchAttachmentData: (attachment) => {
@@ -505,17 +499,18 @@ describe('Chat SDK delivery contracts', () => {
   })
 
   it('normalizes standard ArrayBuffer attachment data from Chat SDK adapters', async () => {
-    const message = {
+    const message = testMessage({
       attachments: [
         {
           fetchData: () => Promise.resolve(Uint8Array.from([1, 2, 3]).buffer),
+          type: 'image',
           mimeType: 'image/png',
           name: 'image.png',
           size: 3,
         },
       ],
       text: '',
-    } as unknown as Message
+    })
 
     await expect(
       messageContentBlocks(message, 10, 20, {
@@ -530,17 +525,21 @@ describe('Chat SDK delivery contracts', () => {
   })
 
   it('preflights Buffer bytes and bounds provider filenames to the core schema', async () => {
-    const oversized = {
-      attachments: [{ data: Buffer.alloc(11), mimeType: 'image/png', name: 'oversized.png' }],
+    const oversized = testMessage({
+      attachments: [
+        { data: Buffer.alloc(11), type: 'image', mimeType: 'image/png', name: 'oversized.png' },
+      ],
       text: '',
-    } as unknown as Message
+    })
     await expect(messageContentBlocks(oversized, 10, 20)).rejects.toThrow('per-item byte limit')
 
     const longName = `${'🖼️'.repeat(260)}.png`
-    const bounded = {
-      attachments: [{ data: Buffer.from([1]), mimeType: 'image/png', name: longName }],
+    const bounded = testMessage({
+      attachments: [
+        { data: Buffer.from([1]), type: 'image', mimeType: 'image/png', name: longName },
+      ],
       text: '',
-    } as unknown as Message
+    })
     const [block] = await messageContentBlocks(bounded, 10, 20)
 
     expect(block?.type).toBe('media')
@@ -552,17 +551,18 @@ describe('Chat SDK delivery contracts', () => {
   it('aborts a hung provider media loader with the inbound signal', async () => {
     const controller = new AbortController()
     let loaderSignal: AbortSignal | undefined
-    const message = {
+    const message = testMessage({
       attachments: [
         {
           fetchData: () => Promise.resolve(Buffer.from([1])),
+          type: 'image',
           mimeType: 'image/png',
           name: 'image.png',
           size: 1,
         },
       ],
       text: '',
-    } as unknown as Message
+    })
     const loading = messageContentBlocks(message, 10, 20, {
       fetchAttachmentData: (_attachment, context) => {
         loaderSignal = context.signal
@@ -691,7 +691,7 @@ function noopWorkReservation() {
   return { release: () => undefined, resize: () => undefined }
 }
 
-function deferred(): { promise: Promise<void>; resolve(): void } {
+function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((settle) => {
     resolve = settle

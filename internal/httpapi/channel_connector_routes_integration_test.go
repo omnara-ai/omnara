@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func connectorTestCapabilities(provider string) []channelconnector.Capability {
@@ -607,11 +608,9 @@ func TestChannelConnectorWebhookAndRuntimeIngressAreSeparated(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	agentID := mustPublicHTTPID(
-		t,
-		publicid.KindAgent,
-		requiredChannelObject(t, launched, "agent")["id"].(string),
-	)
+	agentPublicID, ok := requiredChannelObject(t, launched, "agent")["id"].(string)
+	require.True(t, ok, "launched agent id must be a string")
+	agentID := mustPublicHTTPID(t, publicid.KindAgent, agentPublicID)
 	routeAgentID = agentID
 	app, err := store.Integrations().CreateIntegrationApp(
 		ctx,
@@ -1259,9 +1258,9 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	}
 	largeMetadataValue := strings.Repeat("a", 140*1024)
 	nulBody := cloneChannelInteractionRequestBody(body)
-	nulBody["actor"].(map[string]any)["metadata"] = map[string]any{"value": "bad\x00value"}
+	requiredChannelObject(t, nulBody, "actor")["metadata"] = map[string]any{"value": "bad\x00value"}
 	oversizedBody := cloneChannelInteractionRequestBody(body)
-	oversizedBody["actor"].(map[string]any)["metadata"] = map[string]any{
+	requiredChannelObject(t, oversizedBody, "actor")["metadata"] = map[string]any{
 		"value": largeMetadataValue,
 	}
 	oversizedBody["metadata"] = map[string]any{"value": largeMetadataValue}
@@ -1392,7 +1391,7 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 	answerConflict := cloneChannelInteractionRequestBody(body)
 	answerConflict["answers"] = []any{map[string]any{"option_indices": []int{1}}}
 	actorConflict := cloneChannelInteractionRequestBody(body)
-	actorConflict["actor"].(map[string]any)["ref"] = "discord-user-2"
+	requiredChannelObject(t, actorConflict, "actor")["ref"] = "discord-user-2"
 	metadataConflict := cloneChannelInteractionRequestBody(body)
 	metadataConflict["metadata"] = map[string]any{"interaction_ref": "provider-action-2"}
 	for _, conflictingBody := range []map[string]any{
@@ -1554,9 +1553,9 @@ func TestChannelConnectorInteractionResolutionJourney(t *testing.T) {
 		t.Fatalf("count actors before invalid runtime resolutions: %v", err)
 	}
 	runtimeNULInteraction := cloneChannelInteractionRequestBody(runtimeInteraction)
-	runtimeNULInteraction["actor"].(map[string]any)["ref"] = "runtime-user\x00invalid"
+	requiredChannelObject(t, runtimeNULInteraction, "actor")["ref"] = "runtime-user\x00invalid"
 	runtimeOversizedInteraction := cloneChannelInteractionRequestBody(runtimeInteraction)
-	runtimeOversizedInteraction["actor"].(map[string]any)["metadata"] = map[string]any{
+	requiredChannelObject(t, runtimeOversizedInteraction, "actor")["metadata"] = map[string]any{
 		"value": largeMetadataValue,
 	}
 	runtimeOversizedInteraction["metadata"] = map[string]any{"value": largeMetadataValue}

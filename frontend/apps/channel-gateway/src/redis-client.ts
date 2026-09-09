@@ -1,4 +1,11 @@
-import { createClient, createCluster } from 'redis'
+import {
+  createClient,
+  createCluster,
+  type RedisClientOptions,
+  type RedisClientType,
+  type RedisClusterOptions,
+  type RedisClusterType,
+} from 'redis'
 
 import type { RedisStateClient } from './app-state'
 import type { RedisTopology } from './config'
@@ -20,7 +27,15 @@ export interface GatewayRedisClientOptions {
   url: string
 }
 
-export function createGatewayRedisClient(options: GatewayRedisClientOptions): GatewayRedisClient {
+export interface GatewayRedisFactories {
+  createClient(options: RedisClientOptions): RedisStandaloneConnection
+  createCluster(options: RedisClusterOptions): RedisClusterConnection
+}
+
+export function createGatewayRedisClient(
+  options: GatewayRedisClientOptions,
+  factories: GatewayRedisFactories = { createClient, createCluster },
+): GatewayRedisClient {
   const socketSafety = {
     connectTimeout: options.socketTimeoutMs,
     socketTimeout: options.socketTimeoutMs,
@@ -32,7 +47,7 @@ export function createGatewayRedisClient(options: GatewayRedisClientOptions): Ga
   }
 
   if (options.topology === 'standalone') {
-    const client = createClient({
+    const client = factories.createClient({
       ...commandSafety,
       socket: socketSafety,
       url: options.url,
@@ -52,13 +67,11 @@ export function createGatewayRedisClient(options: GatewayRedisClientOptions): Ga
     credentials.protocol === 'rediss:'
       ? { ...socketSafety, tls: true as const }
       : { ...socketSafety, tls: false as const }
-  const client = createCluster({
-    defaults: {
-      ...commandSafety,
-      ...(credentials.password === undefined ? {} : { password: credentials.password }),
-      socket,
-      ...(credentials.username === undefined ? {} : { username: credentials.username }),
-    },
+  const defaults: RedisClusterOptions['defaults'] = { ...commandSafety, socket }
+  if (credentials.password !== undefined) defaults.password = credentials.password
+  if (credentials.username !== undefined) defaults.username = credentials.username
+  const client = factories.createCluster({
+    defaults,
     rootNodes: seeds.map(({ host, port }) => ({ socket: { host, port } })),
   })
   return new ManagedRedisClient(client, client, async () => {
@@ -73,11 +86,23 @@ export function createGatewayRedisClient(options: GatewayRedisClientOptions): Ga
   })
 }
 
-interface RedisLifecycle {
-  close(): Promise<unknown>
-  connect(): Promise<unknown>
-  destroy(): void
-  on(event: 'error', listener: (error: Error) => void): unknown
+interface RedisLifecycle extends Pick<RedisClientType, 'close' | 'destroy'> {
+  // Only completion is consumed; Redis returns its fluent client while other
+  // implementations may complete without a value. Event registration is also ignored.
+  connect(): Promise<RedisLifecycle> | Promise<void>
+  on(event: 'error', listener: (error: Error) => void): void
+}
+
+interface RedisStandaloneConnection
+  extends RedisLifecycle, RedisStateClient, Pick<RedisClientType, 'isReady' | 'ping'> {}
+
+interface RedisMaster {
+  readonly client?: Pick<RedisClientType, 'isReady' | 'ping'>
+}
+
+interface RedisClusterConnection
+  extends RedisLifecycle, RedisStateClient, Pick<RedisClusterType, 'isOpen'> {
+  readonly masters: readonly RedisMaster[]
 }
 
 class ManagedRedisClient implements GatewayRedisClient {
@@ -115,7 +140,10 @@ class ManagedRedisClient implements GatewayRedisClient {
     return this.state.del(key)
   }
 
-  eval(script: string, options: { arguments: string[]; keys: string[] }): Promise<unknown> {
+  eval(
+    script: string,
+    options: { arguments: string[]; keys: string[] },
+  ): ReturnType<RedisStateClient['eval']> {
     return this.state.eval(script, options)
   }
 
@@ -198,11 +226,12 @@ function parseClusterSeed(value: string): ClusterSeed {
   if (!Number.isSafeInteger(database) || database !== 0) {
     throw new Error('Redis Cluster supports only database 0')
   }
-  return {
+  const seed: ClusterSeed = {
     host: url.hostname.replace(/^\[([0-9a-f:]+)\]$/i, '$1'),
-    ...(url.password === '' ? {} : { password: decodeURIComponent(url.password) }),
     port: url.port === '' ? 6379 : Number(url.port),
     protocol: url.protocol,
-    ...(url.username === '' ? {} : { username: decodeURIComponent(url.username) }),
   }
+  if (url.password !== '') seed.password = decodeURIComponent(url.password)
+  if (url.username !== '') seed.username = decodeURIComponent(url.username)
+  return seed
 }

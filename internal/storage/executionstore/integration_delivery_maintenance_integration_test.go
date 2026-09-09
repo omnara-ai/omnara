@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationDeliveryRetentionSkipsRowsLockedByAnotherWorker(t *testing.T) {
@@ -41,7 +42,7 @@ func TestIntegrationDeliveryRetentionSkipsRowsLockedByAnotherWorker(t *testing.T
 		t.Fatalf("create retention binding: %v", err)
 	}
 
-	completeDelivery := func(key string) integrationstore.ID {
+	completeDelivery := func(key string) integrationstore.IntegrationDeliveryRecord {
 		t.Helper()
 		delivery, err := store.Integrations().CreateIntegrationDelivery(
 			ctx,
@@ -69,7 +70,7 @@ func TestIntegrationDeliveryRetentionSkipsRowsLockedByAnotherWorker(t *testing.T
 		if err != nil || len(claims) != 1 || claims[0].ID != delivery.ID {
 			t.Fatalf("claim delivery %q = %+v, %v", key, claims, err)
 		}
-		if _, err := store.Integrations().CompleteIntegrationDelivery(
+		completed, err := store.Integrations().CompleteIntegrationDelivery(
 			ctx,
 			integrationstore.CompleteIntegrationDeliveryInput{
 				ID: delivery.ID, ClaimToken: claims[0].ClaimToken,
@@ -78,16 +79,19 @@ func TestIntegrationDeliveryRetentionSkipsRowsLockedByAnotherWorker(t *testing.T
 				LastError:       json.RawMessage(`{}`),
 				Capabilities:    testChannelCapabilities(testChannelProvider),
 			},
-		); err != nil {
+		)
+		if err != nil {
 			t.Fatalf("complete delivery %q: %v", key, err)
 		}
-		return delivery.ID
+		require.NotNil(t, completed.CompletedAt, "completed delivery %q needs a retention timestamp", key)
+		return completed
 	}
 
-	lockedID := completeDelivery("locked")
-	time.Sleep(2 * time.Millisecond)
-	deletableID := completeDelivery("deletable")
-	time.Sleep(2 * time.Millisecond)
+	locked := completeDelivery("locked")
+	waitForIntegrationDatabaseTimeAfter(t, ctx, pool, *locked.CompletedAt)
+	deletable := completeDelivery("deletable")
+	waitForIntegrationDatabaseTimeAfter(t, ctx, pool, deletable.CompletedAt.Add(time.Microsecond))
+	lockedID, deletableID := locked.ID, deletable.ID
 
 	holder, err := pool.Begin(ctx)
 	if err != nil {

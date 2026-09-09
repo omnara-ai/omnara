@@ -7,17 +7,22 @@ import { errorMessage } from './diagnostics'
 import type { GatewayLogger, ProviderWorkReservation, RuntimeCheckpoint } from './types'
 import { WorkReservationScope } from './work-budget'
 
+interface RuntimeFailure {
+  code?: string
+  message?: string
+}
+
 export interface RuntimeLoopOptions {
   capabilities: ChannelConnectorCapability[]
   claimLimit: number
-  client: CoreClient
+  client: Pick<CoreClient, 'claimRuntimeUnits' | 'heartbeatRuntimeUnit' | 'releaseRuntimeUnit'>
   idlePollMs: number
   leaseMs: number
   logger: GatewayLogger
   owner: string
   random?: () => number
   reserveWorkBytes: (bytes: number) => ProviderWorkReservation
-  registry: AppRuntimeRegistry
+  registry: Pick<AppRuntimeRegistry, 'acquire'>
   stopTimeoutMs: number
 }
 
@@ -107,9 +112,9 @@ export class RuntimeLoop {
     else parentSignal.addEventListener('abort', abort, { once: true })
     this.controllers.set(unit.id, controller)
     const work = this.supervise(unit, localLeaseDeadlineMs, controller.signal)
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         this.options.logger.error('channel runtime unit failed', {
-          error: errorMessage(error),
+          error: errorMessage(cause),
           runtime_unit_id: unit.id,
         })
       })
@@ -141,7 +146,7 @@ export class RuntimeLoop {
     }
 
     const state: RuntimeLeaseState = { localLeaseDeadlineMs, unit }
-    let lastError: Record<string, unknown> = {}
+    let lastError: RuntimeFailure = {}
     let leaseFailure: unknown
     let initialized = false
     let handle: Awaited<ReturnType<AppRuntimeRegistry['acquire']>> | undefined
@@ -194,7 +199,7 @@ export class RuntimeLoop {
         })
         .then<RuntimeOutcome, RuntimeOutcome>(
           () => ({ succeeded: true }),
-          (error: unknown) => ({ error, succeeded: false }),
+          (cause: unknown) => ({ error: cause, succeeded: false }),
         )
       const outcome = await Promise.race([
         settled.then((result) => ({ kind: 'settled' as const, result })),
@@ -287,13 +292,13 @@ export class RuntimeLoop {
 
   private async release(
     unit: ChannelConnectorRuntimeUnit,
-    lastError: Record<string, unknown>,
+    lastError: RuntimeFailure,
     checkpoint?: RuntimeCheckpoint,
   ): Promise<void> {
     try {
       await this.options.client.releaseRuntimeUnit(
         unit,
-        lastError,
+        { ...lastError },
         checkpoint,
         AbortSignal.timeout(Math.min(this.options.stopTimeoutMs, 5_000)),
       )
@@ -326,8 +331,8 @@ interface RuntimeLeaseState {
   unit: ChannelConnectorRuntimeUnit
 }
 
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error))
+function asError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause))
 }
 
 function isAborted(signal: AbortSignal): boolean {
@@ -335,7 +340,7 @@ function isAborted(signal: AbortSignal): boolean {
 }
 
 async function acquireRuntimeHandle(
-  registry: AppRuntimeRegistry,
+  registry: Pick<AppRuntimeRegistry, 'acquire'>,
   integrationAppId: string,
   expectedRevision: number | undefined,
   signal: AbortSignal,
@@ -365,9 +370,9 @@ function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(asError(error))
+        reject(asError(cause))
       },
     )
   })

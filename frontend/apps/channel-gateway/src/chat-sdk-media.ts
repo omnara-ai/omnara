@@ -91,7 +91,7 @@ export async function messageContentBlocks(
   let mediaBytes = 0
   for (const attachment of retainedAttachments) {
     const mimeType = attachment.mimeType
-    if (!mimeType || !supportedMediaTypes.has(mimeType as SupportedMediaType)) {
+    if (!mimeType || !isSupportedMediaType(mimeType)) {
       blocks.push(attachmentNotice(attachment, 'unsupported media type'))
       continue
     }
@@ -141,7 +141,7 @@ export async function messageContentBlocks(
     blocks.push({
       data: data.toString('base64'),
       filename: normalizedAttachmentFilename(attachment.name),
-      media_type: mimeType as SupportedMediaType,
+      media_type: mimeType,
       type: 'media',
     })
   }
@@ -238,9 +238,9 @@ function raceWithAbortReason<T>(work: Promise<T>, signal: AbortSignal): Promise<
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
       },
     )
   })
@@ -265,10 +265,12 @@ function normalizedAttachmentFilename(name: string | undefined): string | undefi
 }
 
 function isSupportedMediaAttachment(attachment: Attachment): boolean {
-  return (
-    attachment.mimeType !== undefined &&
-    supportedMediaTypes.has(attachment.mimeType as SupportedMediaType)
-  )
+  return attachment.mimeType !== undefined && isSupportedMediaType(attachment.mimeType)
+}
+
+function isSupportedMediaType(value: string): value is SupportedMediaType {
+  const candidates: ReadonlySet<string> = supportedMediaTypes
+  return candidates.has(value)
 }
 
 function attachmentNotice(attachment: Attachment, reason: string): CreateAgentInputContentBlock {

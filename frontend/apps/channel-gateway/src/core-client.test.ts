@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { CoreClient, isTransientCoreError } from './core-client'
+import { testRuntimeUnit } from './gateway-test-fixtures'
 
 describe('CoreClient', () => {
   it('classifies request timeouts as transient but not caller cancellation', () => {
@@ -32,11 +33,14 @@ describe('CoreClient', () => {
     const bodies = await Promise.all(
       fetch.mock.calls.map(([input, init]) => requestBody(input, init)),
     )
-    expect(bodies.map((body) => body.capability)).toEqual([deliveryCapability, runtimeCapability])
-    for (const body of bodies) {
-      expect(body).not.toHaveProperty('capabilities')
-      expect(body).not.toHaveProperty('connector_keys')
-      expect(body).not.toHaveProperty('providers')
+    const capabilities = [deliveryCapability, runtimeCapability]
+    for (const [index, body] of bodies.entries()) {
+      expect(JSON.parse(body)).toEqual({
+        capability: capabilities[index],
+        lease_ms: 30_000,
+        limit: 25,
+        owner: 'gateway-a',
+      })
     }
   })
 
@@ -97,7 +101,7 @@ describe('CoreClient', () => {
       token: 'channel_connector_test',
     })
     const event = {
-      actor: { metadata: {}, ref: 'user-1' },
+      actor: { display_name: 'Ada', metadata: {}, ref: 'user-1' },
       content_blocks: [{ text: 'hello', type: 'text' }],
       conversation: {
         direct: false,
@@ -113,12 +117,12 @@ describe('CoreClient', () => {
       occurred_at: '2026-08-31T00:00:00Z',
       provider_event_id: 'event-1',
       version: 'v1',
-    } as Parameters<CoreClient['submitInbound']>[1]
-    const runtime = {
+    } satisfies Parameters<CoreClient['submitInbound']>[1]
+    const runtime = testRuntimeUnit({
       id: 'irun_aaaaaaaaaaaaaaaaaaaaaaaaaa',
       lease_generation: 7,
       lease_token: '00000000-0000-7000-8000-000000000001',
-    } as Parameters<CoreClient['submitRuntimeInbound']>[1]
+    })
 
     await client.submitInbound('iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa', event)
     await client.submitRuntimeInbound('iapp_aaaaaaaaaaaaaaaaaaaaaaaaaa', runtime, event)
@@ -129,7 +133,7 @@ describe('CoreClient', () => {
     )
     expect(bodies[0]).toEqual(bodies[1])
     expect(bodies[2]).toEqual(bodies[3])
-    expect(bodies[2]).toMatchObject({
+    expect(JSON.parse(bodies[2] ?? '')).toMatchObject({
       event,
       lease_generation: runtime.lease_generation,
       lease_token: runtime.lease_token,
@@ -143,14 +147,6 @@ function requestUrl(input: RequestInfo | URL): string {
   return input
 }
 
-async function requestBody(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Record<string, unknown>> {
-  const value: unknown =
-    input instanceof Request ? await input.clone().json() : await new Response(init?.body).json()
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('expected request body to be a JSON object')
-  }
-  return value as Record<string, unknown>
+async function requestBody(input: RequestInfo | URL, init?: RequestInit): Promise<string> {
+  return input instanceof Request ? input.clone().text() : new Response(init?.body).text()
 }

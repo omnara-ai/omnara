@@ -8,8 +8,8 @@ import type { AppRuntimeRegistry } from './app-registry'
 import { abortableDelay, pollJitterMilliseconds } from './async'
 import type { CoreClient } from './core-client'
 import { deliverySafetyMarginMs } from './delivery-timing'
-import { errorMessage } from './diagnostics'
-import { type GatewayLogger, ProviderDeliveryError } from './types'
+import { errorMessage, isString } from './diagnostics'
+import { type GatewayLogger, ProviderDeliveryError, type ProviderSendResult } from './types'
 
 const maxDeliveryAttempts = 8
 const maxProviderMessageRefBytes = 2048
@@ -17,14 +17,14 @@ const maxProviderMessageRefBytes = 2048
 export interface DeliveryLoopOptions {
   capabilities: ChannelConnectorCapability[]
   claimLimit: number
-  client: CoreClient
+  client: Pick<CoreClient, 'claimDeliveries' | 'completeDelivery'>
   completionTimeoutMs: number
   idlePollMs: number
   leaseMs: number
   logger: GatewayLogger
   owner: string
   random?: () => number
-  registry: AppRuntimeRegistry
+  registry: Pick<AppRuntimeRegistry, 'acquire'>
   sendTimeoutMs: number
 }
 
@@ -222,48 +222,48 @@ export class DeliveryLoop {
 
 function unattemptedRetry(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   random?: () => number,
 ): CompleteChannelConnectorDeliveryRequest {
-  return retryCompletion(delivery, error, retryDelay(delivery, error, random))
+  return retryCompletion(delivery, cause, retryDelay(delivery, cause, random))
 }
 
 function preSendFailure(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   random?: () => number,
 ): CompleteChannelConnectorDeliveryRequest {
-  const terminal = error instanceof ProviderDeliveryError && !error.retryable
+  const terminal = cause instanceof ProviderDeliveryError && !cause.retryable
   if (!terminal && delivery.attempt_count < maxDeliveryAttempts) {
-    return retryCompletion(delivery, error, retryDelay(delivery, error, random))
+    return retryCompletion(delivery, cause, retryDelay(delivery, cause, random))
   }
-  return failureCompletion(delivery, error, 'failed')
+  return failureCompletion(delivery, cause, 'failed')
 }
 
 function sendFailure(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   random?: () => number,
 ): CompleteChannelConnectorDeliveryRequest {
-  if (error instanceof ProviderDeliveryError) {
-    if (error.outcomeUnknown) return failureCompletion(delivery, error, 'unknown')
-    if (error.retryable && delivery.attempt_count < maxDeliveryAttempts) {
-      return retryCompletion(delivery, error, retryDelay(delivery, error, random))
+  if (cause instanceof ProviderDeliveryError) {
+    if (cause.outcomeUnknown) return failureCompletion(delivery, cause, 'unknown')
+    if (cause.retryable && delivery.attempt_count < maxDeliveryAttempts) {
+      return retryCompletion(delivery, cause, retryDelay(delivery, cause, random))
     }
-    return failureCompletion(delivery, error, 'failed')
+    return failureCompletion(delivery, cause, 'failed')
   }
-  return failureCompletion(delivery, error, 'unknown')
+  return failureCompletion(delivery, cause, 'unknown')
 }
 
 function retryCompletion(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   retryAfterMs: number,
 ): CompleteChannelConnectorDeliveryRequest {
   return {
     claim_generation: delivery.claim_generation,
     claim_token: requiredClaimToken(delivery),
-    last_error: { code: 'transient_failure', message: errorMessage(error) },
+    last_error: { code: 'transient_failure', message: errorMessage(cause) },
     outcome: 'retry_wait',
     provider_message_ref: '',
     retry_after_ms: retryAfterMs,
@@ -272,7 +272,7 @@ function retryCompletion(
 
 function failureCompletion(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   outcome: 'failed' | 'unknown',
 ): CompleteChannelConnectorDeliveryRequest {
   return {
@@ -280,7 +280,7 @@ function failureCompletion(
     claim_token: requiredClaimToken(delivery),
     last_error: {
       code: outcome === 'unknown' ? 'outcome_unknown' : 'permanent_failure',
-      message: errorMessage(error),
+      message: errorMessage(cause),
     },
     outcome,
     provider_message_ref: '',
@@ -293,14 +293,14 @@ function requiredClaimToken(delivery: ChannelConnectorDelivery): string {
 }
 
 function safeProviderMessageRef(
-  value: unknown,
+  value: ProviderSendResult['providerMessageRef'],
   delivery: ChannelConnectorDelivery,
   logger: GatewayLogger,
 ): string {
-  if (typeof value !== 'string') {
+  if (!isString(value)) {
     logger.warn('channel provider message reference omitted', {
       delivery_id: delivery.id,
-      provider_message_ref_type: typeof value,
+      provider_message_ref_type: 'not_string',
     })
     return ''
   }
@@ -327,11 +327,11 @@ function requiredConfigurationRevision(value: number | undefined, kind: string):
 
 function retryDelay(
   delivery: ChannelConnectorDelivery,
-  error: unknown,
+  cause: unknown,
   random: () => number = Math.random,
 ): number {
-  if (error instanceof ProviderDeliveryError && error.retryAfterMs !== undefined) {
-    return Math.min(Math.max(error.retryAfterMs, 100), 300_000)
+  if (cause instanceof ProviderDeliveryError && cause.retryAfterMs !== undefined) {
+    return Math.min(Math.max(cause.retryAfterMs, 100), 300_000)
   }
   const ceiling = Math.min(500 * 2 ** Math.max(delivery.attempt_count - 1, 0), 60_000)
   const fraction = Math.min(Math.max(random(), 0), 1)
@@ -343,7 +343,7 @@ function isAborted(signal: AbortSignal): boolean {
 }
 
 async function acquireRuntimeHandle(
-  registry: AppRuntimeRegistry,
+  registry: Pick<AppRuntimeRegistry, 'acquire'>,
   integrationAppId: string,
   expectedRevision: number,
   signal: AbortSignal,
@@ -418,17 +418,17 @@ async function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(asError(error, 'channel delivery failed'))
+        reject(asError(cause, 'channel delivery failed'))
       },
     )
   })
 }
 
-function asError(value: unknown, fallback: string): Error {
-  if (value instanceof Error) return value
-  if (typeof value === 'string') return new Error(value)
+function asError(cause: unknown, fallback: string): Error {
+  if (cause instanceof Error) return cause
+  if (isString(cause)) return new Error(cause)
   return new Error(fallback)
 }
 

@@ -22,7 +22,7 @@ export interface NegativeCacheEntry {
 }
 
 interface InstallationConfigurationCacheOptions {
-  client: CoreClient
+  client: Pick<CoreClient, 'getInstallationConfiguration' | 'resolveInstallationConfiguration'>
   limiter: LoadLimiter
   maxEntries: number
   notFoundCacheMs: number
@@ -152,9 +152,9 @@ export class InstallationConfigurationCache {
         }
         return selected
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (
-          isCoreNotFoundError(error) &&
+          isCoreNotFoundError(cause) &&
           !this.hasNewerMatchingEntry(
             canonicalKey,
             lookupKey,
@@ -165,13 +165,13 @@ export class InstallationConfigurationCache {
           writeNegativeCache(
             this.notFound,
             lookupKey,
-            error,
+            cause,
             this.options.notFoundCacheMs,
             this.options.maxEntries,
             loadSequence,
           )
         }
-        throw error
+        throw cause
       })
       .finally(() => {
         if (this.loads.get(lookupKey) === load) this.loads.delete(lookupKey)
@@ -396,11 +396,9 @@ export function writeNegativeCache(
   loadSequence?: number,
 ): void {
   cache.delete(key)
-  cache.set(key, {
-    error,
-    expiresAt: Date.now() + ttlMs,
-    ...(loadSequence === undefined ? {} : { loadSequence }),
-  })
+  const entry: NegativeCacheEntry = { error, expiresAt: Date.now() + ttlMs }
+  if (loadSequence !== undefined) entry.loadSequence = loadSequence
+  cache.set(key, entry)
   while (cache.size > maximum) {
     const oldest = cache.keys().next().value
     if (oldest === undefined) return

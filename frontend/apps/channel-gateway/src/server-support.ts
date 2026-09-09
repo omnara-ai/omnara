@@ -25,7 +25,7 @@ export class BackgroundTaskTracker implements ProviderWebhookWorkContext {
     this.tasks.push(
       task.then(
         () => ({}),
-        (error: unknown) => ({ error }),
+        (cause: unknown) => ({ error: cause }),
       ),
     )
   }
@@ -109,9 +109,9 @@ export async function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): P
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
       },
     )
   })
@@ -174,7 +174,7 @@ export async function readBody(
     const onData = (chunk: Buffer | string): void => {
       // Incoming Buffer chunks are already exclusively retained by this
       // request. Re-wrapping them would create an unaccounted full-size copy.
-      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       size += buffer.byteLength
       if (size > limit) {
         chunks.length = 0

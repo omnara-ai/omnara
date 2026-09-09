@@ -302,7 +302,8 @@ func createChannelAttachmentTestRoute(
 		ctx,
 		integrationstore.CreateIntegrationRouteInput{
 			ProjectID: testProjectID, IntegrationInstallID: install.ID,
-			DeploymentKey: key, HandlerKey: testChannelHandler, HandlerVersion: 1, State: integrationstore.IntegrationRouteStateActive,
+			DeploymentKey: key, HandlerKey: testChannelHandler, HandlerVersion: 1,
+			State: integrationstore.IntegrationRouteStateActive,
 		},
 	)
 	if err != nil {

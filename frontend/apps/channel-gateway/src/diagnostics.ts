@@ -3,10 +3,10 @@ export const maxDiagnosticMessageBytes = 16 * 1024
 const truncationMarker = '…'
 const truncationMarkerBytes = 3
 
-export function errorMessage(error: unknown): string {
+export function errorMessage(cause: unknown): string {
   let value: string
   try {
-    const message: unknown = error instanceof Error ? error.message : error
+    const message: unknown = cause instanceof Error ? cause.message : cause
     value = String(message)
   } catch {
     value = 'unknown error'
@@ -43,4 +43,8 @@ function utf8Bytes(value: string): number {
   if (codePoint <= 0x7ff) return 2
   if (codePoint <= 0xffff) return 3
   return 4
+}
+
+export function isString(value: unknown): value is string {
+  return typeof value === 'string'
 }

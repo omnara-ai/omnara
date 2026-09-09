@@ -2,6 +2,7 @@ import type { QueueEntry } from 'chat'
 import { describe, expect, it, vi } from 'vitest'
 
 import { RedisAppStateFactory, type RedisStateClient } from './app-state'
+import { testMessage } from './gateway-test-fixtures'
 
 const appPrefix = 'omnara:chat-sdk:app:5:app-a'
 
@@ -139,7 +140,7 @@ describe('app-scoped Chat SDK state', () => {
     if (!lock) throw new Error('expected lock')
     expect(lock.expiresAt).toBeGreaterThan(Date.now())
     expect(lock.threadId).toBe('slack:thread-1')
-    expect(typeof lock.token).toBe('string')
+    expect(lock.token).toEqual(expect.any(String))
     expect(client.set).toHaveBeenCalledWith(`${appPrefix}:lock:slack:thread-1`, lock.token, {
       NX: true,
       PX: 1_000,
@@ -235,8 +236,8 @@ describe('app-scoped Chat SDK state', () => {
       const entry = {
         enqueuedAt: 1_000,
         expiresAt: 91_000,
-        message: { id: 'message-1' },
-      } as unknown as QueueEntry
+        message: testMessage({ id: 'message-1' }),
+      } satisfies QueueEntry
       client.eval.mockResolvedValueOnce(2)
 
       expect(await scoped.enqueue('discord:thread-1', entry, 10)).toBe(2)
@@ -247,7 +248,10 @@ describe('app-scoped Chat SDK state', () => {
 
       client.lPop.mockResolvedValueOnce(JSON.stringify(entry))
       client.lLen.mockResolvedValueOnce(1)
-      expect(await scoped.dequeue('discord:thread-1')).toEqual(entry)
+      expect(await scoped.dequeue('discord:thread-1')).toEqual({
+        ...entry,
+        message: entry.message.toJSON(),
+      })
       expect(await scoped.queueDepth('discord:thread-1')).toBe(1)
       expect(client.lPop).toHaveBeenCalledWith(`${appPrefix}:queue:discord:thread-1`)
       expect(client.lLen).toHaveBeenCalledWith(`${appPrefix}:queue:discord:thread-1`)
@@ -274,7 +278,7 @@ type TestRedisClient = ReturnType<typeof testRedisClient>
 function testRedisClient() {
   return {
     del: vi.fn<RedisStateClient['del']>(() => Promise.resolve(0)),
-    eval: vi.fn<RedisStateClient['eval']>(() => Promise.resolve<unknown>(1)),
+    eval: vi.fn<RedisStateClient['eval']>(() => Promise.resolve(1)),
     exists: vi.fn<RedisStateClient['exists']>(() => Promise.resolve(0)),
     get: vi.fn<RedisStateClient['get']>(() => Promise.resolve<string | null>(null)),
     lLen: vi.fn<RedisStateClient['lLen']>(() => Promise.resolve(0)),

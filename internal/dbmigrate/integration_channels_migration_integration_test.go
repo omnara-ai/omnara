@@ -317,8 +317,11 @@ model:
 VALUES ($1, 'migration user', statement_timestamp(), statement_timestamp())`, []any{fixture.userID}},
 		{"organization", `INSERT INTO orgs(id, name, created_at, updated_at)
 VALUES ($1, 'Migration org', statement_timestamp(), statement_timestamp())`, []any{fixture.orgID}},
-		{"project", `INSERT INTO projects(id, org_id, name, created_at, updated_at)
-VALUES ($1, $2, 'Migration project', statement_timestamp(), statement_timestamp())`, []any{fixture.projectID, fixture.orgID}},
+		{
+			"project", `INSERT INTO projects(id, org_id, name, created_at, updated_at)
+VALUES ($1, $2, 'Migration project', statement_timestamp(), statement_timestamp())`,
+			[]any{fixture.projectID, fixture.orgID},
+		},
 		{"provider", `INSERT INTO model_provider_configs(
   id, org_id, management_kind, name, api_format, base_url, endpoint_path,
   auth_kind, deleted_at, created_at, updated_at

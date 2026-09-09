@@ -21,7 +21,7 @@ export class WorkReservationScope {
   close(): void {
     if (this.closed) return
     this.closed = true
-    for (const reservation of [...this.reservations]) reservation.release()
+    for (const reservation of this.reservations) reservation.release()
   }
 }
 

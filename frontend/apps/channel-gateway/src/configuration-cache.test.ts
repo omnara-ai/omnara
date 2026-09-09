@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { InstallationConfigurationCache, LoadLimiter } from './configuration-cache'
 import type { CoreClient } from './core-client'
+import { unexpectedTestCall } from './gateway-test-fixtures'
 
 describe('channel configuration load limiter', () => {
   it('transfers a released permit without exceeding the concurrency limit', async () => {
@@ -257,7 +258,7 @@ describe('channel installation configuration cache identity', () => {
   })
 })
 
-function deferred(): { promise: Promise<undefined>; resolve: () => void } {
+function deferred() {
   let resolve!: (value: undefined) => void
   const promise = new Promise<undefined>((settle) => {
     resolve = settle
@@ -270,12 +271,8 @@ function deferred(): { promise: Promise<undefined>; resolve: () => void } {
   }
 }
 
-function deferredValue<T>(): {
-  promise: Promise<T>
-  reject: (error: unknown) => void
-  resolve: (value: T) => void
-} {
-  let reject!: (error: unknown) => void
+function deferredValue<T>() {
+  let reject!: (error: Error) => void
   let resolve!: (value: T) => void
   const promise = new Promise<T>((settle, fail) => {
     reject = fail
@@ -285,11 +282,19 @@ function deferredValue<T>(): {
 }
 
 function installationCache(
-  client: Partial<CoreClient>,
+  client: Partial<
+    Pick<CoreClient, 'getInstallationConfiguration' | 'resolveInstallationConfiguration'>
+  >,
   concurrentLoads = 1,
 ): InstallationConfigurationCache {
   return new InstallationConfigurationCache({
-    client: client as CoreClient,
+    client: {
+      getInstallationConfiguration:
+        vi.fn<CoreClient['getInstallationConfiguration']>(unexpectedTestCall),
+      resolveInstallationConfiguration:
+        vi.fn<CoreClient['resolveInstallationConfiguration']>(unexpectedTestCall),
+      ...client,
+    },
     limiter: new LoadLimiter(concurrentLoads),
     maxEntries: 10,
     notFoundCacheMs: 100,

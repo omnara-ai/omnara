@@ -1,7 +1,7 @@
 import type { Logger } from 'chat'
 
 import { boundedDatabaseText } from './diagnostics'
-import type { GatewayLogger } from './types'
+import type { GatewayLogFields, GatewayLogger } from './types'
 
 /**
  * Keeps Chat SDK diagnostics in the gateway's structured log stream. Debug
@@ -44,7 +44,7 @@ class ChatSdkLogger implements Logger {
   }
 
   private write(level: 'error' | 'info' | 'warn', message: string, args: unknown[] = []): void {
-    const fields: Record<string, unknown> = {
+    const fields: GatewayLogFields = {
       integration_app_id: this.integrationAppId,
       source: 'chat_sdk',
     }
@@ -58,22 +58,28 @@ class ChatSdkLogger implements Logger {
 function errorFromArguments(args: unknown[]): string | undefined {
   for (const argument of args) {
     if (argument instanceof Error) return errorMessage(argument)
-    if (isRecord(argument) && argument.error !== undefined) {
+    if (isErrorContext(argument) && argument.error !== undefined) {
       return errorMessage(argument.error)
     }
   }
   return undefined
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return boundedDatabaseText(error.message)
-  if (typeof error === 'string') return boundedDatabaseText(error)
-  if (typeof error === 'number' || typeof error === 'boolean' || typeof error === 'bigint') {
-    return `${error}`
-  }
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error) return boundedDatabaseText(cause.message)
+  if (isErrorText(cause)) return boundedDatabaseText(cause)
+  if (isErrorScalar(cause)) return `${cause}`
   return 'unknown Chat SDK failure'
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isErrorContext(value: unknown): value is { error?: unknown } {
   return typeof value === 'object' && value !== null
+}
+
+function isErrorText(value: unknown): value is string {
+  return typeof value === 'string'
+}
+
+function isErrorScalar(value: unknown): value is number | boolean | bigint {
+  return typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint'
 }

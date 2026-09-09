@@ -1,8 +1,8 @@
 import { ApiError } from '@omnara/sdk'
-import type { Message } from 'chat'
 import { describe, expect, it, vi } from 'vitest'
 
 import { messageContentBlocks } from './chat-sdk-runtime'
+import { testMessage } from './gateway-test-fixtures'
 import {
   deferred,
   incompleteRequest,
@@ -117,7 +117,7 @@ describe('channel webhook server', () => {
       expect(release).toHaveBeenCalledOnce()
       expect(logger.error).toHaveBeenCalledOnce()
       expect(logger.error.mock.calls[0]?.[0]).toBe('channel webhook request failed')
-      expect(typeof logger.error.mock.calls[0]?.[1]?.error).toBe('string')
+      expect(logger.error.mock.calls[0]?.[1]?.error).toEqual(expect.any(String))
     } finally {
       await server.close()
     }
@@ -365,17 +365,18 @@ describe('channel webhook server', () => {
 
   it('counts remote media expansion against the shared webhook work budget', async () => {
     const background = deferred()
-    const message = {
+    const message = testMessage({
       attachments: [
         {
           fetchData: () => Promise.resolve(Buffer.from([1, 2])),
+          type: 'image',
           mimeType: 'image/png',
           name: 'tiny.png',
           size: 2,
         },
       ],
       text: '',
-    } as unknown as Message
+    })
     const runtime = providerRuntime(async (_request, context) => {
       await messageContentBlocks(message, 4, 4, {
         fetchAttachmentData: (attachment) => {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestIntegrationRuntimeOwnerAvailabilityFencesLeases(t *testing.T) {
+	t.Parallel()
 	t.Run("installation", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()

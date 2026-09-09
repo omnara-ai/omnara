@@ -409,6 +409,7 @@ func TestIntegrationSendToolUploadsArtifactWithSafeRetries(t *testing.T) {
 				_, err = executor.dispatchIntegrationArtifactSend(
 					ctx,
 					fixture.turn(),
+					target,
 					slackTarget,
 					integrationMessageRequest{Text: "here is the report", ArtifactIDs: artifactIDs},
 				)
@@ -523,7 +524,10 @@ func TestLegacySlackTargetAuthorizationUsesBindingRatherThanTargetCreator(t *tes
 		fixture.Agent.ID,
 		fixture.Target.ID,
 	); !errors.Is(err, errMissingIntegrationTarget) {
-		t.Fatalf("resolve native target through revoked creator binding error = %v, want %v", err, errMissingIntegrationTarget)
+		t.Fatalf(
+			"resolve native target through revoked creator binding error = %v, want %v",
+			err, errMissingIntegrationTarget,
+		)
 	}
 }
 

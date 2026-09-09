@@ -3,6 +3,11 @@ import { request as httpRequest } from 'node:http'
 import { vi } from 'vitest'
 
 import type { AppRuntimeRegistry } from './app-registry'
+import {
+  testAppConfiguration,
+  testRuntimeHandle,
+  unexpectedTestCall,
+} from './gateway-test-fixtures'
 import { GatewayServer } from './server'
 import type { GatewayLogger, ProviderRuntime } from './types'
 import { WorkByteBudget } from './work-budget'
@@ -23,29 +28,25 @@ export async function startServer(
     provider?: string
     releaseGate?: Promise<void>
   } = {},
-): Promise<{
-  logger: ReturnType<typeof testLogger>
-  port: number
-  registry: { acquire: ReturnType<typeof vi.fn> }
-  release: ReturnType<typeof vi.fn>
-  server: GatewayServer
-}> {
+) {
   const release = vi.fn(() => overrides.releaseGate ?? Promise.resolve())
   const registry = {
-    acquire: vi.fn(async () => {
+    acquire: vi.fn<AppRuntimeRegistry['acquire']>(async () => {
       if (overrides.acquireError) return Promise.reject(overrides.acquireError)
       await overrides.acquireGate
-      return Promise.resolve({
-        configuration: { app: { provider: overrides.provider ?? 'discord' } },
-        handleWebhook: (
-          request: Request,
-          context: Parameters<ProviderRuntime['handleWebhook']>[1],
-        ) => runtime.handleWebhook(request, context),
+      return testRuntimeHandle({
+        configuration: testAppConfiguration({ provider: overrides.provider ?? 'discord' }),
+        handleWebhook: (request, context) =>
+          runtime.handleWebhook(request, {
+            ...context,
+            resolveInteraction: unexpectedTestCall,
+            submitInbound: unexpectedTestCall,
+          }),
         release,
         runtime,
       })
     }),
-  }
+  } satisfies Pick<AppRuntimeRegistry, 'acquire'>
   const logger = testLogger()
   const server = new GatewayServer({
     bodyLimitBytes: overrides.bodyLimitBytes ?? 1024,
@@ -56,7 +57,7 @@ export async function startServer(
     maxConcurrentRequests: overrides.maxConcurrentRequests ?? 8,
     port: 0,
     publicUrl: 'https://channels.example.test',
-    registry: registry as unknown as AppRuntimeRegistry,
+    registry,
     workBudget: new WorkByteBudget(overrides.maxBufferedWorkBytes ?? 2048),
   })
   const port = await server.listen()
@@ -150,7 +151,7 @@ function testLogger() {
   }
 }
 
-export function deferred(): { promise: Promise<void>; resolve(): void } {
+export function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((settle) => {
     resolve = settle

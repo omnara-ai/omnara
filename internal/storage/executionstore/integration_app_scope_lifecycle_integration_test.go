@@ -72,7 +72,6 @@ func TestRestrictedIntegrationAppCannotInstallAcrossProjects(t *testing.T) {
 }
 
 func TestIntegrationAppAndInstallCredentialsFollowOwnerScopeAndKind(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)

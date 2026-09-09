@@ -4,6 +4,7 @@ import type {
   ChannelConnectorDelivery,
   ChannelConnectorRuntimeUnit,
   ChannelInboundEventRequest,
+  ChannelOpaqueObject,
   InteractionForm,
 } from '@omnara/sdk'
 import {
@@ -35,12 +36,12 @@ const maxOutboundChannelMessageTextBytes = 64 * 1024
 
 export interface ChatSdkEnvelopeIdentity {
   actorDisplayName: string
-  actorMetadata?: Record<string, unknown>
+  actorMetadata?: ChannelInboundEventRequest['actor']['metadata']
   actorRef: string
   conversationDisplayName?: string
   conversationKind: string
-  conversationMetadata?: Record<string, unknown>
-  eventMetadata?: Record<string, unknown>
+  conversationMetadata?: ChannelInboundEventRequest['conversation']['metadata']
+  eventMetadata?: ChannelInboundEventRequest['metadata']
   eventType: string
   externalAccountRef: string
   externalTenantId: string
@@ -178,7 +179,7 @@ export async function createChatSdkRuntime(
   chat.onNewMention(receiveQueued)
   chat.onSubscribedMessage(receiveQueued)
   chat.onNewMessage(/[\s\S]*/, receiveQueued)
-  let initializationStep: Promise<unknown> | undefined
+  let initializationStep: Promise<void> | undefined
   try {
     initializationStep = Promise.resolve(options.configure?.(chat, inbound))
     await raceWithSignal(initializationStep, options.signal)
@@ -276,58 +277,56 @@ async function raceWithSignal<T>(work: Promise<T>, signal?: AbortSignal): Promis
         signal.removeEventListener('abort', onAbort)
         resolve(value)
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener('abort', onAbort)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(cause instanceof Error ? cause : new Error(String(cause)))
       },
     )
   })
 }
 
 class LifecycleCancellation extends Error {
-  constructor(readonly reason: unknown) {
+  readonly reason: unknown
+
+  constructor(cause: unknown) {
     super('Chat SDK lifecycle operation was canceled')
+    this.reason = cause
   }
 }
 
-export function normalizeProviderDeliveryError(error: unknown): ProviderDeliveryError {
-  if (error instanceof ProviderDeliveryError) return error
-  if (error instanceof RateLimitError) {
-    return new ProviderDeliveryError(error.message, {
-      retryAfterMs: error.retryAfterMs,
+export function normalizeProviderDeliveryError(cause: unknown): ProviderDeliveryError {
+  if (cause instanceof ProviderDeliveryError) return cause
+  if (cause instanceof RateLimitError) {
+    return new ProviderDeliveryError(cause.message, {
+      retryAfterMs: cause.retryAfterMs,
       retryable: true,
     })
   }
-  if (error instanceof ChatError || isAdapterError(error)) {
-    const code = error.code
+  if (cause instanceof ChatError || isAdapterError(cause)) {
+    const code = cause.code
     if (code === 'RATE_LIMITED') {
-      return new ProviderDeliveryError(errorMessage(error), {
-        retryAfterMs: adapterRetryAfterMs(error),
+      return new ProviderDeliveryError(errorMessage(cause), {
+        retryAfterMs: adapterRetryAfterMs(cause),
         retryable: true,
       })
     }
     if (code === 'NETWORK_ERROR') {
-      return new ProviderDeliveryError(errorMessage(error), { outcomeUnknown: true })
+      return new ProviderDeliveryError(errorMessage(cause), { outcomeUnknown: true })
     }
-    return new ProviderDeliveryError(errorMessage(error))
+    return new ProviderDeliveryError(errorMessage(cause))
   }
-  return new ProviderDeliveryError(errorMessage(error), { outcomeUnknown: true })
+  return new ProviderDeliveryError(errorMessage(cause), { outcomeUnknown: true })
 }
 
 export interface ChannelDeliveryDestination {
   channel_id: string
-  provider_metadata: Record<string, unknown>
+  provider_metadata: ChannelOpaqueObject
   provider_ref: string
   provider_ref_kind: string
 }
 
 export interface ChannelMessagePayload {
-  destination: {
-    channel_id: string
-    provider_metadata: Record<string, unknown>
-    provider_ref: string
-    provider_ref_kind: string
-  }
+  destination: ChannelDeliveryDestination
   context: { agent_id: string; provider_call_id: string }
   message: { text: string }
 }
@@ -346,13 +345,9 @@ export function parseChannelMessageDelivery(
   const { text } = value.message
   const { agent_id: agentId, provider_call_id: providerCallId } = value.context
   if (
-    typeof text !== 'string' ||
-    text.trim() === '' ||
-    Buffer.byteLength(text, 'utf8') > maxOutboundChannelMessageTextBytes ||
-    typeof agentId !== 'string' ||
-    agentId === '' ||
-    typeof providerCallId !== 'string' ||
-    providerCallId === ''
+    !isChannelMessageText(text) ||
+    !isNonEmptyString(agentId) ||
+    !isNonEmptyString(providerCallId)
   ) {
     throw malformedDelivery('channel delivery payload is malformed')
   }
@@ -386,14 +381,11 @@ export function parseChannelInteractionPromptDelivery(
   const { id, kind, form } = value.interaction
   const { agent_id: agentId, provider_call_id: providerCallId } = value.context
   if (
-    typeof id !== 'string' ||
-    !id.startsWith('aint_') ||
+    !isChannelInteractionId(id) ||
     (kind !== 'permission' && kind !== 'question') ||
     !isInteractionForm(form) ||
-    typeof agentId !== 'string' ||
-    agentId === '' ||
-    typeof providerCallId !== 'string' ||
-    providerCallId === ''
+    !isNonEmptyString(agentId) ||
+    !isNonEmptyString(providerCallId)
   ) {
     throw malformedDelivery('channel interaction delivery payload is malformed')
   }
@@ -406,21 +398,16 @@ export function parseChannelInteractionPromptDelivery(
 
 function parseDeliveryDestination(
   delivery: ChannelConnectorDelivery,
-  value: Record<string, unknown>,
+  value: ChannelOpaqueObject,
 ): ChannelDeliveryDestination {
-  const {
-    channel_id: channelId,
-    provider_metadata: providerMetadata,
-    provider_ref: providerRef,
-    provider_ref_kind: providerRefKind,
-  } = value
+  const channelId = value.channel_id
+  const providerMetadata = value.provider_metadata
+  const providerRef = value.provider_ref
+  const providerRefKind = value.provider_ref_kind
   if (
-    typeof channelId !== 'string' ||
-    channelId !== delivery.integration_target_id ||
-    typeof providerRef !== 'string' ||
-    providerRef === '' ||
-    typeof providerRefKind !== 'string' ||
-    providerRefKind === '' ||
+    !isDestinationChannelId(channelId, delivery) ||
+    !isNonEmptyString(providerRef) ||
+    !isNonEmptyString(providerRefKind) ||
     !isRecord(providerMetadata)
   ) {
     throw malformedDelivery('channel delivery destination is malformed')
@@ -433,40 +420,84 @@ function parseDeliveryDestination(
   }
 }
 
-function isInteractionForm(value: unknown): value is InteractionForm {
+function isChannelMessageText(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.trim() !== '' &&
+    Buffer.byteLength(value, 'utf8') <= maxOutboundChannelMessageTextBytes
+  )
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value !== ''
+}
+
+function isChannelInteractionId(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('aint_')
+}
+
+function isDestinationChannelId(
+  value: unknown,
+  delivery: ChannelConnectorDelivery,
+): value is string {
+  return typeof value === 'string' && value === delivery.integration_target_id
+}
+
+// The gateway validates required content; optional form fields pass through
+// under the core's SDK contract without additional validation here.
+type InteractionPromptOption = Pick<
+  InteractionForm['questions'][number]['options'][number],
+  'label'
+>
+type InteractionPromptQuestion = Pick<InteractionForm['questions'][number], 'prompt'> & {
+  options: InteractionPromptOption[]
+}
+type InteractionPromptForm = Pick<InteractionForm, 'title'> & {
+  questions: InteractionPromptQuestion[]
+}
+
+function isInteractionForm(value: unknown): value is InteractionPromptForm {
   if (!isRecord(value) || typeof value.title !== 'string' || !Array.isArray(value.questions)) {
     return false
   }
   return (
     value.title.trim() !== '' &&
     value.questions.length > 0 &&
-    value.questions.every(
-      (question) =>
-        isRecord(question) &&
-        typeof question.prompt === 'string' &&
-        question.prompt.trim() !== '' &&
-        Array.isArray(question.options) &&
-        question.options.length > 0 &&
-        question.options.every(
-          (option) =>
-            isRecord(option) && typeof option.label === 'string' && option.label.trim() !== '',
-        ),
-    )
+    value.questions.every(isInteractionQuestion)
   )
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isInteractionQuestion(value: unknown): value is InteractionPromptQuestion {
+  return (
+    isRecord(value) &&
+    typeof value.prompt === 'string' &&
+    value.prompt.trim() !== '' &&
+    Array.isArray(value.options) &&
+    value.options.length > 0 &&
+    value.options.every(isInteractionOption)
+  )
+}
+
+function isInteractionOption(value: unknown): value is InteractionPromptOption {
+  return isRecord(value) && typeof value.label === 'string' && value.label.trim() !== ''
+}
+
+function isRecord(value: unknown): value is ChannelOpaqueObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isAdapterError(error: unknown): error is { code: string; message?: string } {
+function isAdapterError(error: unknown): error is { code: string } {
   return isRecord(error) && typeof error.code === 'string'
 }
 
 function adapterRetryAfterMs(error: { code: string }): number | undefined {
   if (!('retryAfterMs' in error)) return undefined
   const value = error.retryAfterMs
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+  return isRetryAfterMs(value) ? value : undefined
+}
+
+function isRetryAfterMs(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 function malformedDelivery(message: string): ProviderDeliveryError {

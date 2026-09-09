@@ -3,12 +3,12 @@ import {
   type ChannelConnectorRuntimeUnit,
   type ChannelInboundEventRequest,
 } from '@omnara/sdk'
-import type { StateAdapter } from 'chat'
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
 
-import { AppRuntimeRegistry } from './app-registry'
+import { AppRuntimeRegistry, type AppRuntimeRegistryOptions } from './app-registry'
 import type { AppStateFactory } from './app-state'
 import type { CoreClient } from './core-client'
+import { testStateAdapter, unexpectedTestCall } from './gateway-test-fixtures'
 import {
   type GatewayAppConfiguration,
   type GatewayLogger,
@@ -223,9 +223,9 @@ describe('channel app runtime registry', () => {
   it('injects inbound submission only into the active webhook context', async () => {
     const coreSubmit = vi.fn(() => Promise.resolve())
     const client = {
-      getAppConfiguration: vi.fn(() => Promise.resolve(testConfiguration(1))),
+      ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
-    } as unknown as CoreClient
+    } satisfies AppRuntimeRegistryOptions['client']
     const runtime = testRuntime()
     runtime.handleWebhook = async (_request, context) => {
       await context.submitInbound(testInboundEvent)
@@ -249,9 +249,9 @@ describe('channel app runtime registry', () => {
     const tasks: Promise<unknown>[] = []
     const coreSubmit = vi.fn(() => Promise.resolve())
     const client = {
-      getAppConfiguration: vi.fn(() => Promise.resolve(testConfiguration(1))),
+      ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
-    } as unknown as CoreClient
+    } satisfies AppRuntimeRegistryOptions['client']
     const runtime = testRuntime()
     runtime.handleWebhook = (_request, context) => {
       context.waitUntil(Promise.resolve().then(() => context.submitInbound(testInboundEvent)))
@@ -281,9 +281,9 @@ describe('channel app runtime registry', () => {
     let factoryContext: ProviderFactoryContext | undefined
     const coreSubmit = vi.fn(() => Promise.resolve())
     const client = {
-      getAppConfiguration: vi.fn(() => Promise.resolve(testConfiguration(1))),
+      ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitInbound: coreSubmit,
-    } as unknown as CoreClient
+    } satisfies AppRuntimeRegistryOptions['client']
     const runtime = testRuntime()
     const factory = testFactory((context) => {
       factoryContext = context
@@ -308,9 +308,9 @@ describe('channel app runtime registry', () => {
   it('binds runtime inbound authority to the exact leased unit', async () => {
     const submitRuntimeInbound = vi.fn(() => Promise.resolve())
     const client = {
-      getAppConfiguration: vi.fn(() => Promise.resolve(testConfiguration(1))),
+      ...testClient(() => Promise.resolve(testConfiguration(1))),
       submitRuntimeInbound,
-    } as unknown as CoreClient
+    } satisfies AppRuntimeRegistryOptions['client']
     const runtime = testRuntime()
     runtime.runUnit = async (_unit, context) => {
       await context.submitInbound(testInboundEvent)
@@ -496,7 +496,7 @@ function noopWorkReservation() {
 }
 
 function testRegistry(
-  client: CoreClient,
+  client: AppRuntimeRegistryOptions['client'],
   factory: ProviderFactory,
   refreshAfterMs = 60_000,
   providerLifecycleTimeoutMs = 1_000,
@@ -518,23 +518,26 @@ function testRegistry(
   })
 }
 
-function testStateFactory(): AppStateFactory & {
-  clearSubscriptions: ReturnType<typeof vi.fn>
-  markKnownApp: ReturnType<typeof vi.fn>
-} {
+function testStateFactory() {
   return {
     clearSubscriptions: vi.fn(() => Promise.resolve()),
-    forApp: () => ({}) as StateAdapter,
+    forApp: () => testStateAdapter(),
     markKnownApp: vi.fn(() => Promise.resolve()),
-  }
+  } satisfies AppStateFactory
 }
 
-function testClient(
-  getConfiguration: (integrationAppId: string) => Promise<GatewayAppConfiguration>,
-): CoreClient & { getAppConfiguration: ReturnType<typeof vi.fn> } {
+function testClient(getConfiguration: CoreClient['getAppConfiguration']) {
   return {
     getAppConfiguration: vi.fn(getConfiguration),
-  } as unknown as CoreClient & { getAppConfiguration: ReturnType<typeof vi.fn> }
+    getInstallationConfiguration:
+      vi.fn<CoreClient['getInstallationConfiguration']>(unexpectedTestCall),
+    resolveInstallationConfiguration:
+      vi.fn<CoreClient['resolveInstallationConfiguration']>(unexpectedTestCall),
+    resolveInteraction: vi.fn<CoreClient['resolveInteraction']>(unexpectedTestCall),
+    resolveRuntimeInteraction: vi.fn<CoreClient['resolveRuntimeInteraction']>(unexpectedTestCall),
+    submitInbound: vi.fn<CoreClient['submitInbound']>(unexpectedTestCall),
+    submitRuntimeInbound: vi.fn<CoreClient['submitRuntimeInbound']>(unexpectedTestCall),
+  } satisfies AppRuntimeRegistryOptions['client']
 }
 
 function testFactory(create: ProviderFactory['create']): ProviderFactory {
@@ -568,7 +571,7 @@ function testConfiguration(
   }
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((settle) => {
     resolve = settle
