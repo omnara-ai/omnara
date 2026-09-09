@@ -306,10 +306,10 @@ DELETE FROM secret_oauth_refresh_leases
 WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 
 -- name: SecretIsReferenced :one
--- @sqlc-vet-disable model-provider-configs-deleted-at integration-installs-deleted-at machine-pools-deleted-at
+-- @sqlc-vet-disable model-provider-configs-deleted-at integration-apps-deleted-at integration-installs-deleted-at machine-pools-deleted-at
 -- Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 -- checked explicitly. Deleted configs, pools, and installs clear their
--- credential references; any row still holding one blocks deletion.
+-- credential references; any config, pool, install, or app still holding one blocks deletion.
 SELECT EXISTS (
   SELECT 1 FROM model_provider_configs config
   WHERE config.org_id = sqlc.arg(org_id) AND config.credential_secret_id = sqlc.arg(secret_id)::uuid
@@ -319,7 +319,33 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM integration_installs install
   WHERE install.org_id = sqlc.arg(org_id) AND install.credential_secret_id = sqlc.arg(secret_id)::uuid
+  UNION ALL
+  SELECT 1 FROM integration_apps app
+  WHERE app.org_id = sqlc.arg(org_id) AND app.credential_secret_id = sqlc.arg(secret_id)::uuid
 ) AS is_referenced;
+
+-- name: IntegrationAppSecretAssociationExists :one
+SELECT EXISTS (
+  SELECT 1
+  FROM integration_apps app
+  JOIN secrets secret
+    ON secret.org_id = app.org_id
+   AND secret.id = app.credential_secret_id
+   AND secret.management_kind = 'tenant'
+   AND secret.deleted_at IS NULL
+  WHERE app.org_id = sqlc.arg(org_id)
+    AND app.id = sqlc.arg(integration_app_id)
+    AND app.credential_secret_id = sqlc.arg(secret_id)::uuid
+    AND app.state = 'active'
+    AND app.deleted_at IS NULL
+    AND (
+      (app.owner_project_id IS NULL AND secret.owner_kind = 'org')
+      OR
+      (app.owner_project_id IS NOT NULL
+        AND secret.owner_kind = 'project'
+        AND secret.owner_project_id = app.owner_project_id)
+    )
+) AS associated;
 
 -- name: InsertSecretGrant :one
 INSERT INTO secret_grants(id, org_id, secret_id, target_project_id, created_at)

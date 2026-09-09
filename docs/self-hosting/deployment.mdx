@@ -4,7 +4,7 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
+Self-hosting means running four core long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them. Deployments that enable non-native channel adapters also run the independently scalable `channel-gateway` service.
 
 ## Quick start (local)
 
@@ -23,6 +23,14 @@ docker compose -f compose.yaml --profile app up -d
 
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
+The optional `channels` Compose profile adds the channel gateway and routes `/hooks/*` to it. It requires a connector token configured on both the API and gateway, plus at least one provider adapter compiled into the gateway. The provider-neutral foundation intentionally starts with no provider adapters enabled.
+
+Once those are configured, enable both the core stack and the optional gateway:
+
+```sh
+docker compose --profile app --profile channels up -d --build
+```
+
 ## Production database upgrades
 
 Run the release's one-shot `migrate` image before starting its API, worker, and
@@ -34,6 +42,8 @@ for connection-pool defaults.
 ## Exposing the deployment publicly
 
 `OMNARA_PUBLIC_URL` is the public app origin used for email links, OAuth callbacks, and browser flows. The API defaults to the same deployment at `/api/v1`; set `OMNARA_PUBLIC_API_URL` when it is exposed at a different public URL. The daemon installer is served from the API origin at `/install/omnarad.sh`. These features will not function unless the configured URLs are publicly accessible.
+
+Channel providers use the same origin under `/hooks/<integration-app>/<provider>/...`. Route that prefix to `channel-gateway`; route the public API prefixes to `api`; keep all other paths on `web`. Do not expose `/api/v1/channel-connector/*` at the public edge: the gateway should reach those authenticated routes through the private API service address. The included nginx configuration already follows this split. The gateway reconstructs the provider-facing request from `OMNARA_CHANNEL_GATEWAY_PUBLIC_URL`, so set it to the exact public origin rather than an internal service URL.
 
 <Warning>
   Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.

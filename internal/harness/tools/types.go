@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -38,9 +39,11 @@ type Turn struct {
 	OrgID              storage.ID
 	ProjectID          storage.ID
 	AgentID            storage.ID
+	TurnID             storage.ID
 	SourceEventID      storage.ID
 	RuntimeLockID      storage.ID
 	ModelCallContextID storage.ID
+	OpeningInputIDs    []storage.ID
 	Tools              map[string]ToolSpec
 }
 
@@ -55,6 +58,7 @@ type Executor struct {
 	Skills                   SkillStore
 	MCP                      mcp.Client
 	IntegrationHTTPClient    *http.Client
+	IntegrationDeliveries    notifications.IntegrationDeliverySubscriber
 	MCPAuthHTTPClient        *http.Client
 	SigV4CredentialCache     *mcp.SigV4CredentialCache
 	WebSearch                webaccess.SearchProvider

@@ -79,7 +79,6 @@ SELECT EXISTS (
   FROM actors actor
   JOIN integration_targets target
     ON target.project_id = sqlc.arg(project_id)
-   AND target.agent_id = sqlc.arg(agent_id)
    AND target.id = sqlc.arg(integration_target_id)
    AND target.deleted_at IS NULL
   JOIN integration_installs install
@@ -90,5 +89,26 @@ SELECT EXISTS (
   WHERE actor.id = sqlc.arg(actor_id)
     AND actor.project_id = target.project_id
     AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
+    AND actor.provider_tenant_id IS NOT DISTINCT FROM nullif(install.provider_tenant_id, '')
+    AND EXISTS (
+      SELECT 1
+      FROM integration_target_bindings binding
+      WHERE binding.project_id = target.project_id
+        AND binding.agent_id = sqlc.arg(agent_id)
+        AND binding.integration_target_id = target.id
+        AND binding.receive_allowed
+        AND binding.revoked_at IS NULL
+        AND (
+          (binding.integration_route_id IS NULL AND binding.source = 'legacy_target')
+          OR EXISTS (
+            SELECT 1
+            FROM integration_routes route
+            WHERE route.project_id = binding.project_id
+              AND route.integration_install_id = binding.integration_install_id
+              AND route.id = binding.integration_route_id
+              AND route.state = 'active'
+              AND route.deleted_at IS NULL
+          )
+        )
+    )
 ) AS matches;

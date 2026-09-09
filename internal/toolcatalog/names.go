@@ -16,6 +16,8 @@ const (
 	ToolNameAskQuestion            = "ask_question"
 	ToolNameSendIntegrationMessage = "send_integration_message"
 	ToolNameSetIntegrationTarget   = "set_integration_target"
+	ToolNameSendChannelMessage     = "send_channel_message"
+	ToolNameListChannels           = "list_channels"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
 	ToolNameUploadArtifact         = "upload_artifact"
@@ -24,3 +26,9 @@ const (
 )
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)
+
+// IsBindingManagedTool reports whether live channel bindings, rather than agent
+// configuration, control whether the tool is available to an agent.
+func IsBindingManagedTool(name string) bool {
+	return name == ToolNameListChannels || name == ToolNameSendChannelMessage
+}

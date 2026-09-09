@@ -44,6 +44,14 @@ func (s *Store) RotateProjectAvailableOAuthSecret(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lockSecretOwnerLifecycleShared(
+		ctx,
+		qtx,
+		input.Lease.OrgID,
+		input.Lease.SecretID,
+	); err != nil {
+		return SecretRecord{}, err
+	}
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.Lease.OrgID, ID: input.Lease.SecretID},
@@ -167,6 +175,14 @@ func (s *Store) AcquireProjectOAuthRefreshLease(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	if err := lockSecretOwnerLifecycleShared(
+		ctx,
+		qtx,
+		input.OrgID,
+		input.SecretID,
+	); err != nil {
+		return OAuthRefreshLeaseRecord{}, false, err
+	}
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},

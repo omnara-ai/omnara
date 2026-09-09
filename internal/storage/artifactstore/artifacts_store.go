@@ -10,12 +10,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 var ErrBlobStoreNotConfigured = errors.New("blob store is not configured")
+
+const artifactCompensationTimeout = 10 * time.Second
 
 type ArtifactRecord struct {
 	ID             ID        `json:"id"`
@@ -40,6 +43,9 @@ type CreateArtifactInput struct {
 	Content        []byte
 	MaxBytes       int64
 	IdempotencyKey string
+
+	integrationInstallID ID
+	runtimeLease         *integrationstore.IntegrationRuntimeLeaseProof
 }
 
 func artifactObjectKey(agentID, artifactID ID) string {
@@ -52,6 +58,14 @@ func (s *Store) CreateArtifact(
 ) (ArtifactRecord, error) {
 	if isNilID(input.ProjectID) || isNilID(input.AgentID) {
 		return ArtifactRecord{}, errors.New("project id and agent id are required")
+	}
+	if err := integrationstore.ValidateIntegrationRuntimeLeaseProof(input.runtimeLease); err != nil {
+		return ArtifactRecord{}, err
+	}
+	if input.runtimeLease != nil && isNilID(input.integrationInstallID) {
+		return ArtifactRecord{}, errors.New(
+			"runtime artifact integration installation is required",
+		)
 	}
 	if input.ContentType == "" {
 		return ArtifactRecord{}, errors.New("artifact content type is required")
@@ -86,7 +100,7 @@ func (s *Store) CreateArtifact(
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
 	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(ctx, artifactKey); err != nil {
+		if err := s.deleteProvisionalArtifactBlob(ctx, artifactKey); err != nil {
 			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
 		}
 		return cause
@@ -98,26 +112,89 @@ func (s *Store) CreateArtifact(
 	if err != nil {
 		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("begin create artifact: %w", err))
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	rollback := func() {
+		rollbackCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			artifactCompensationTimeout,
+		)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}
+	defer rollback()
+	rollbackAndCleanup := func(cause error) error {
+		rollback()
+		return cleanupUploadedBlob(cause)
+	}
+	if input.runtimeLease != nil {
+		qtx := dbsqlc.New(tx)
+		if _, err := qtx.LockAgentInProject(
+			ctx,
+			dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
+		); err != nil {
+			return ArtifactRecord{}, rollbackAndCleanup(
+				fmt.Errorf("lock agent for runtime artifact: %w", err),
+			)
+		}
+		if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+			ctx,
+			qtx,
+			input.runtimeLease,
+			input.ProjectID,
+			input.integrationInstallID,
+		); err != nil {
+			return ArtifactRecord{}, rollbackAndCleanup(err)
+		}
+	}
 	record, inserted, err := insertArtifactTx(ctx, tx, artifactID, input)
 	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(err)
+		return ArtifactRecord{}, rollbackAndCleanup(err)
 	}
 	if !inserted {
 		if err := validateArtifactReplay(record, input); err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(err)
+			return ArtifactRecord{}, rollbackAndCleanup(err)
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return ArtifactRecord{}, cleanupUploadedBlob(
 				fmt.Errorf("commit idempotent create artifact: %w", err),
 			)
 		}
+		if err := s.deleteProvisionalArtifactBlob(ctx, artifactKey); err != nil {
+			return ArtifactRecord{}, fmt.Errorf(
+				"cleanup replayed artifact content: %w",
+				err,
+			)
+		}
 		return record, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
+		// A failed COMMIT can have an unknown outcome. Retaining a possible
+		// orphan is safer than deleting content a committed row may reference.
+		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, nil
+}
+
+func (s *Store) deleteProvisionalArtifactBlob(ctx context.Context, key string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), artifactCompensationTimeout)
+	defer cancel()
+	return s.blobs.DeleteBlob(cleanupCtx, key)
+}
+
+// CreateArtifactWithIntegrationRuntimeLease fences the artifact row against
+// runtime ownership in the same transaction. If ownership is already stale,
+// the provisional blob is removed by CreateArtifact's normal cleanup path.
+func (s *Store) CreateArtifactWithIntegrationRuntimeLease(
+	ctx context.Context,
+	input CreateArtifactInput,
+	integrationInstallID ID,
+	proof *integrationstore.IntegrationRuntimeLeaseProof,
+) (ArtifactRecord, error) {
+	if proof == nil {
+		return ArtifactRecord{}, errors.New("runtime lease proof is required")
+	}
+	input.integrationInstallID = integrationInstallID
+	input.runtimeLease = proof
+	return s.CreateArtifact(ctx, input)
 }
 
 func (s *Store) GetArtifact(

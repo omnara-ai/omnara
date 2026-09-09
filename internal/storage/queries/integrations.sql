@@ -4,7 +4,7 @@ INSERT INTO integration_installs(
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, created_at, updated_at
+  last_oauth_flow_id, created_at, updated_at, integration_app_id
 )
 VALUES (
   sqlc.arg(org_id), sqlc.arg(project_id), sqlc.narg(agent_profile_id), sqlc.narg(agent_id),
@@ -12,14 +12,17 @@ VALUES (
   sqlc.arg(connection_mode), sqlc.arg(state), sqlc.arg(provider_tenant_id),
   sqlc.arg(provider_account_ref), sqlc.arg(provider_agent_display_name), sqlc.narg(credential_secret_id),
   sqlc.arg(provider_config), sqlc.arg(provider_identity), sqlc.arg(provider_metadata),
-  sqlc.narg(last_oauth_flow_id), transaction_timestamp(), transaction_timestamp()
+  sqlc.narg(last_oauth_flow_id), transaction_timestamp(), transaction_timestamp(),
+  sqlc.narg(integration_app_id)
 )
-ON CONFLICT (provider, provider_tenant_id, provider_account_ref) WHERE deleted_at IS NULL DO NOTHING
+ON CONFLICT (integration_app_id, provider_tenant_id, provider_account_ref)
+  WHERE deleted_at IS NULL DO NOTHING
 RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at;
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision;
 
 -- name: UpdateIntegrationInstall :one
 UPDATE integration_installs
@@ -48,17 +51,33 @@ RETURNING id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at;
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision;
 
 -- name: LockIntegrationInstallByProviderAccount :one
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision
 FROM integration_installs
 WHERE provider = sqlc.arg(provider)
   AND provider_tenant_id = sqlc.narg(provider_tenant_id)
+  AND provider_account_ref = sqlc.arg(provider_account_ref)
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: LockIntegrationInstallByAppProviderAccount :one
+SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
+  provider, integration_kind, connection_mode, state,
+  provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
+  provider_config, provider_identity, provider_metadata,
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision
+FROM integration_installs
+WHERE integration_app_id = sqlc.arg(integration_app_id)
+  AND provider_tenant_id = sqlc.arg(provider_tenant_id)
   AND provider_account_ref = sqlc.arg(provider_account_ref)
   AND deleted_at IS NULL
 FOR UPDATE;
@@ -68,7 +87,8 @@ SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision
 FROM integration_installs
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -79,7 +99,8 @@ SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision
 FROM integration_installs
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 
@@ -91,6 +112,7 @@ SELECT install.id, install.org_id, install.project_id, install.agent_profile_id,
        install.provider_agent_display_name, install.credential_secret_id,
        install.provider_config, install.provider_identity, install.provider_metadata,
        install.last_oauth_flow_id, install.created_at, install.updated_at,
+       install.integration_app_id, install.configuration_revision,
        CASE sqlc.arg(sort_field)::text
          WHEN 'name' THEN lower(install.provider_agent_display_name)
          WHEN 'created_at' THEN to_char(install.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
@@ -107,7 +129,8 @@ SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
        provider, integration_kind, connection_mode, state,
        provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
        provider_config, provider_identity, provider_metadata,
-       last_oauth_flow_id, created_at, updated_at, sort_key
+       last_oauth_flow_id, created_at, updated_at, integration_app_id,
+       configuration_revision, sort_key
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
    OR (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
@@ -143,6 +166,13 @@ UPDATE integration_installs
 SET credential_secret_id = NULL, deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
 
+-- name: DeleteIntegrationRoutes :exec
+UPDATE integration_routes
+SET state = 'disabled', deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND integration_install_id = sqlc.arg(integration_install_id)
+  AND deleted_at IS NULL;
+
 -- name: DeleteIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND integration_install_id = sqlc.arg(integration_install_id)
@@ -169,30 +199,79 @@ SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
   provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id,
   provider_config, provider_identity, provider_metadata,
-  last_oauth_flow_id, deleted_at, created_at, updated_at
+  last_oauth_flow_id, deleted_at, created_at, updated_at, integration_app_id,
+  configuration_revision
 FROM integration_installs
 WHERE provider = sqlc.arg(provider)
   AND provider_tenant_id IS NOT DISTINCT FROM sqlc.narg(provider_tenant_id)
   AND provider_account_ref = sqlc.arg(provider_account_ref)
   AND deleted_at IS NULL;
 
+-- name: LockIntegrationTargetCreateAuthority :one
+WITH agent_authority AS MATERIALIZED (
+  -- Project deletion archives agents before retiring integration authority.
+  -- Lock the agent first so the complete order is agent→install→app.
+  SELECT agent.id, agent.project_id
+  FROM agents agent
+  WHERE agent.project_id = sqlc.arg(project_id)
+    AND agent.id = sqlc.arg(agent_id)
+  FOR SHARE OF agent
+), install_authority AS MATERIALIZED (
+  SELECT install.id, install.org_id, install.integration_app_id
+  FROM integration_installs install
+  JOIN agent_authority agent ON true
+  WHERE install.project_id = sqlc.arg(project_id)
+    AND install.id = sqlc.arg(integration_install_id)
+    AND install.state = 'active'
+    AND install.deleted_at IS NULL
+  FOR SHARE OF install
+), app_authority AS MATERIALIZED (
+  SELECT install.id
+  FROM integration_apps app
+  JOIN install_authority install ON install.integration_app_id = app.id
+  WHERE app.org_id = install.org_id
+    AND app.state = 'active'
+    AND app.deleted_at IS NULL
+  FOR SHARE OF app
+)
+SELECT agent.id
+FROM agent_authority agent
+JOIN app_authority install ON true;
+
 -- name: InsertIntegrationTarget :one
 INSERT INTO integration_targets(
   project_id, agent_id, integration_install_id, target_ref, provider_ref,
-  provider_ref_kind, display_name, created_at, updated_at
+  provider_ref_kind, display_name, provider_metadata, created_at, updated_at
 )
-SELECT agent.project_id, agent.id, install.id,
-       sqlc.arg(target_ref), sqlc.arg(provider_ref), sqlc.arg(provider_ref_kind),
-       sqlc.arg(display_name), transaction_timestamp(), transaction_timestamp()
-FROM agents agent
-JOIN integration_installs install
-  ON install.project_id = agent.project_id
- AND install.id = sqlc.arg(integration_install_id)
- AND install.state = 'active'
- AND install.deleted_at IS NULL
-WHERE agent.project_id = sqlc.arg(project_id)
-  AND agent.id = sqlc.arg(agent_id)
+VALUES (
+  sqlc.arg(project_id), sqlc.narg(agent_id), sqlc.arg(integration_install_id),
+  sqlc.arg(target_ref), sqlc.arg(provider_ref), sqlc.arg(provider_ref_kind),
+  sqlc.arg(display_name), sqlc.arg(provider_metadata),
+  transaction_timestamp(), transaction_timestamp()
+)
 ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
+  provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at;
+
+-- name: UpdateResolvedIntegrationTarget :one
+UPDATE integration_targets
+SET display_name = CASE
+      WHEN sqlc.arg(display_name)::text = '' THEN display_name
+      ELSE sqlc.arg(display_name)::text
+    END,
+    provider_metadata = sqlc.arg(provider_metadata),
+    updated_at = CASE
+      WHEN (
+        sqlc.arg(display_name)::text <> ''
+        AND display_name IS DISTINCT FROM sqlc.arg(display_name)::text
+      ) OR provider_metadata IS DISTINCT FROM sqlc.arg(provider_metadata)::jsonb
+      THEN statement_timestamp()
+      ELSE updated_at
+    END
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND provider_ref_kind = sqlc.arg(provider_ref_kind)
+  AND deleted_at IS NULL
 RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at;
 

@@ -156,6 +156,24 @@ func setIntegrationTargetPermissionChallenge(
 	return permissionChallenge(call, mode, authorizationInput)
 }
 
+func listChannelsPermissionChallenge(
+	_ context.Context,
+	_ Executor,
+	_ Turn,
+	call model.ToolCall,
+	mode permissionModeContext,
+) (toolpermission.Request, error) {
+	request, _, err := resolveChannelListRequest(call.Input)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	authorizationInput, err := marshalJSON(request)
+	if err != nil {
+		return toolpermission.Request{}, fmt.Errorf("marshal list channels authorization: %w", err)
+	}
+	return permissionChallenge(call, mode, authorizationInput)
+}
+
 func writeProcessPermissionChallenge(
 	_ context.Context,
 	_ Executor,

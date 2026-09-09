@@ -4,18 +4,34 @@ package executionstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func passthroughChannelInboundContent(
+	_ context.Context,
+	content json.RawMessage,
+) (integration.MaterializeChannelInboundContentFunc, error) {
+	return func(
+		context.Context,
+		integration.MaterializeChannelInboundContentInput,
+	) (json.RawMessage, error) {
+		return content, nil
+	}, nil
+}
 
 var (
 	testOrgID                                  = testID("org_test")
@@ -92,6 +108,17 @@ WHERE id = $1`,
 func openIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	return integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
+}
+
+func waitForIntegrationDatabaseTimeAfter(t *testing.T, ctx context.Context, pool *pgxpool.Pool, after time.Time) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		var advanced bool
+		err := pool.QueryRow(ctx, `SELECT clock_timestamp() > $1::timestamptz`, after).Scan(&advanced)
+		if assert.NoError(collect, err, "read integration database clock") {
+			assert.True(collect, advanced, "database clock must advance past %s", after)
+		}
+	}, 5*time.Second, time.Millisecond)
 }
 
 func machineProvisioningFromRecordForTest(

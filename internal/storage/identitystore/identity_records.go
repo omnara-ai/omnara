@@ -1,9 +1,11 @@
 package identitystore
 
 import (
+	"slices"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/authz"
+	"github.com/omnara-ai/omnara/internal/channelconnector"
 )
 
 type OrgRecord struct {
@@ -58,10 +60,11 @@ type VisibleProjectRecord struct {
 }
 
 const (
-	PrincipalTypeUser          = authz.PrincipalUser
-	PrincipalTypeOrgAPIKey     = authz.PrincipalOrgAPIKey
-	PrincipalTypeSystem        = "system"
-	PrincipalTypeMachineDaemon = authz.PrincipalMachineDaemon
+	PrincipalTypeUser             = authz.PrincipalUser
+	PrincipalTypeOrgAPIKey        = authz.PrincipalOrgAPIKey
+	PrincipalTypeSystem           = "system"
+	PrincipalTypeMachineDaemon    = authz.PrincipalMachineDaemon
+	PrincipalTypeChannelConnector = "channel_connector"
 
 	ProjectActionRead          = authz.ProjectRead
 	ProjectActionManage        = authz.ProjectManage
@@ -448,13 +451,15 @@ type OrgAPIKeyRecord struct {
 // PrincipalRecord identifies an authenticated subject or internal actor. ID is
 // the subject; credential-specific IDs record how it authenticated.
 type PrincipalRecord struct {
-	Type                  string
-	ID                    ID
-	OrgID                 ID
-	PersonalAccessTokenID ID
-	OrgAPIKeyID           ID
-	BrowserSessionID      ID
-	MachineDaemonTokenID  ID
+	Type                         string
+	ID                           ID
+	OrgID                        ID
+	PersonalAccessTokenID        ID
+	OrgAPIKeyID                  ID
+	BrowserSessionID             ID
+	MachineDaemonTokenID         ID
+	ChannelConnectorID           string
+	ChannelConnectorCapabilities []channelconnector.Capability
 }
 
 func NewUserPrincipal(userID ID) PrincipalRecord {
@@ -492,6 +497,16 @@ func NewMachineDaemonPrincipal(orgID, machineID, tokenID ID) PrincipalRecord {
 		ID:                   machineID,
 		OrgID:                orgID,
 		MachineDaemonTokenID: tokenID,
+	}
+}
+
+func NewChannelConnectorPrincipal(
+	id string,
+	capabilities []channelconnector.Capability,
+) PrincipalRecord {
+	return PrincipalRecord{
+		Type: PrincipalTypeChannelConnector, ChannelConnectorID: id,
+		ChannelConnectorCapabilities: slices.Clone(capabilities),
 	}
 }
 

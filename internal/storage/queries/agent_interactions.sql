@@ -104,17 +104,26 @@ WITH target AS (
 )
 INSERT INTO agent_inputs(
   project_id, agent_id, state,
-  actor_id, input_kind, delivery_mode, target_interaction_id,
+  actor_id, input_kind, integration_target_id, integration_target_binding_id,
+  delivery_mode, target_interaction_id,
   idempotency_scope, input_idempotency_key, queued_at, metadata
 )
 SELECT target.project_id, target.agent_id, 'received',
-       sqlc.narg(actor_id)::uuid,
-       'interaction_response', 'immediate', target.id,
+       sqlc.narg(actor_id)::uuid, 'interaction_response',
+       sqlc.narg(integration_target_id)::uuid,
+       sqlc.narg(integration_target_binding_id)::uuid,
+       'immediate', target.id,
        sqlc.arg(idempotency_scope), sqlc.arg(input_idempotency_key),
        statement_timestamp(), sqlc.arg(metadata)
 FROM target
 ON CONFLICT (project_id, agent_id, idempotency_scope, input_idempotency_key) WHERE idempotency_scope IS NOT NULL AND input_idempotency_key IS NOT NULL DO NOTHING
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind,
+  integration_target_id, integration_target_binding_id,
+  coalesce(idempotency_scope, '') AS idempotency_scope,
+  coalesce(input_idempotency_key, '') AS input_idempotency_key,
+  queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode,
+  coalesce(control_type, '') AS control_type, target_interaction_id,
+  agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata;
 
 -- name: ResolveInteractionResponseAgentInput :one
 UPDATE agent_inputs

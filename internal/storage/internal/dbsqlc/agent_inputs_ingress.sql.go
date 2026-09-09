@@ -14,7 +14,7 @@ import (
 )
 
 const getAgentInputByIdempotency = `-- name: GetAgentInputByIdempotency :one
-SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 FROM agent_inputs
 WHERE project_id = $1
   AND agent_id = $2
@@ -30,27 +30,28 @@ type GetAgentInputByIdempotencyParams struct {
 }
 
 type GetAgentInputByIdempotencyRow struct {
-	ID                  uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	State               string
-	InputRank           int64
-	ActorID             *uuid.UUID
-	InputKind           string
-	IntegrationTargetID *uuid.UUID
-	IdempotencyScope    string
-	InputIdempotencyKey string
-	QueuedAt            time.Time
-	AdmittedEventID     *uuid.UUID
-	AdmittedAt          *time.Time
-	CanceledAt          *time.Time
-	DeliveryMode        string
-	ControlType         string
-	TargetInteractionID *uuid.UUID
-	AgentConfigID       *uuid.UUID
-	ResolvedAt          *time.Time
-	RejectedReason      string
-	Metadata            json.RawMessage
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	State                      string
+	InputRank                  int64
+	ActorID                    *uuid.UUID
+	InputKind                  string
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           string
+	InputIdempotencyKey        string
+	QueuedAt                   time.Time
+	AdmittedEventID            *uuid.UUID
+	AdmittedAt                 *time.Time
+	CanceledAt                 *time.Time
+	DeliveryMode               string
+	ControlType                string
+	TargetInteractionID        *uuid.UUID
+	AgentConfigID              *uuid.UUID
+	ResolvedAt                 *time.Time
+	RejectedReason             string
+	Metadata                   json.RawMessage
 }
 
 func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentInputByIdempotencyParams) (GetAgentInputByIdempotencyRow, error) {
@@ -70,6 +71,7 @@ func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentIn
 		&i.ActorID,
 		&i.InputKind,
 		&i.IntegrationTargetID,
+		&i.IntegrationTargetBindingID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,
@@ -89,9 +91,9 @@ func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentIn
 
 const insertAgentInput = `-- name: InsertAgentInput :one
 WITH generated AS (
-    SELECT coalesce($10, uuidv7()) AS id
+    SELECT coalesce($11, uuidv7()) AS id
 )
-INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
+INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
 SELECT generated.id, agent.project_id, agent.id, 'received',
        coalesce(
          (
@@ -107,50 +109,53 @@ SELECT generated.id, agent.project_id, agent.id, 'received',
        ),
        $3, 'content',
        $4::uuid,
+       $5::uuid,
        $2::text,
-       $5, $6, statement_timestamp(), $7
+       $6, $7, statement_timestamp(), $8
 FROM agents agent
 JOIN generated ON true
-WHERE agent.project_id = $8
-  AND agent.id = $9
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+WHERE agent.project_id = $9
+  AND agent.id = $10
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, integration_target_binding_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 `
 
 type InsertAgentInputParams struct {
-	RankStride          int64
-	DeliveryMode        string
-	ActorID             *uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	IdempotencyScope    *string
-	InputIdempotencyKey *string
-	Metadata            json.RawMessage
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	ID                  *uuid.UUID
+	RankStride                 int64
+	DeliveryMode               string
+	ActorID                    *uuid.UUID
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           *string
+	InputIdempotencyKey        *string
+	Metadata                   json.RawMessage
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	ID                         *uuid.UUID
 }
 
 type InsertAgentInputRow struct {
-	ID                  uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	State               string
-	InputRank           int64
-	ActorID             *uuid.UUID
-	InputKind           string
-	IntegrationTargetID *uuid.UUID
-	IdempotencyScope    string
-	InputIdempotencyKey string
-	QueuedAt            time.Time
-	AdmittedEventID     *uuid.UUID
-	AdmittedAt          *time.Time
-	CanceledAt          *time.Time
-	DeliveryMode        string
-	ControlType         string
-	TargetInteractionID *uuid.UUID
-	AgentConfigID       *uuid.UUID
-	ResolvedAt          *time.Time
-	RejectedReason      string
-	Metadata            json.RawMessage
+	ID                         uuid.UUID
+	ProjectID                  uuid.UUID
+	AgentID                    uuid.UUID
+	State                      string
+	InputRank                  int64
+	ActorID                    *uuid.UUID
+	InputKind                  string
+	IntegrationTargetID        *uuid.UUID
+	IntegrationTargetBindingID *uuid.UUID
+	IdempotencyScope           string
+	InputIdempotencyKey        string
+	QueuedAt                   time.Time
+	AdmittedEventID            *uuid.UUID
+	AdmittedAt                 *time.Time
+	CanceledAt                 *time.Time
+	DeliveryMode               string
+	ControlType                string
+	TargetInteractionID        *uuid.UUID
+	AgentConfigID              *uuid.UUID
+	ResolvedAt                 *time.Time
+	RejectedReason             string
+	Metadata                   json.RawMessage
 }
 
 func (q *Queries) InsertAgentInput(ctx context.Context, arg InsertAgentInputParams) (InsertAgentInputRow, error) {
@@ -159,6 +164,7 @@ func (q *Queries) InsertAgentInput(ctx context.Context, arg InsertAgentInputPara
 		arg.DeliveryMode,
 		arg.ActorID,
 		arg.IntegrationTargetID,
+		arg.IntegrationTargetBindingID,
 		arg.IdempotencyScope,
 		arg.InputIdempotencyKey,
 		arg.Metadata,
@@ -176,6 +182,7 @@ func (q *Queries) InsertAgentInput(ctx context.Context, arg InsertAgentInputPara
 		&i.ActorID,
 		&i.InputKind,
 		&i.IntegrationTargetID,
+		&i.IntegrationTargetBindingID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,

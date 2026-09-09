@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -27,6 +28,9 @@ type LaunchAgentInput struct {
 	// principal.
 	MessageActor   *ActorParams
 	IdempotencyKey string
+
+	integrationInstallID ID
+	runtimeLease         *IntegrationRuntimeLeaseProof
 }
 
 type LaunchAgentResult struct {
@@ -51,6 +55,14 @@ func (s *Store) LaunchAgent(
 			"project, agent config, and launching principal are required",
 		)
 	}
+	if err := integrationstore.ValidateIntegrationRuntimeLeaseProof(input.runtimeLease); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if input.runtimeLease != nil && isNilID(input.integrationInstallID) {
+		return LaunchAgentResult{}, errors.New(
+			"runtime agent launch integration installation is required",
+		)
+	}
 	if input.Name != nil {
 		name, err := resourcename.CanonicalizeAllowEmpty("agent name", *input.Name)
 		if err != nil {
@@ -66,7 +78,16 @@ func (s *Store) LaunchAgent(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
-	if err := lockProjectAgentLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
+	if err := lockProjectLifecycleSharedTx(ctx, qtx, input.ProjectID); err != nil {
+		return LaunchAgentResult{}, err
+	}
+	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
+		ctx,
+		qtx,
+		input.runtimeLease,
+		input.ProjectID,
+		input.integrationInstallID,
+	); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	if input.IdempotencyKey != "" {
@@ -266,6 +287,23 @@ func (s *Store) LaunchAgent(
 		return LaunchAgentResult{}, err
 	}
 	return result, nil
+}
+
+// LaunchAgentWithIntegrationRuntimeLease makes the runtime ownership check part
+// of the same transaction that creates (or replays) the agent. A stale runtime
+// therefore cannot leave behind an unfenced profile-route launch.
+func (s *Store) LaunchAgentWithIntegrationRuntimeLease(
+	ctx context.Context,
+	input LaunchAgentInput,
+	integrationInstallID ID,
+	proof *IntegrationRuntimeLeaseProof,
+) (LaunchAgentResult, error) {
+	if proof == nil {
+		return LaunchAgentResult{}, errors.New("runtime lease proof is required")
+	}
+	input.integrationInstallID = integrationInstallID
+	input.runtimeLease = proof
+	return s.LaunchAgent(ctx, input)
 }
 
 func launchReplayMaybeTx(

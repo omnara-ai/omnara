@@ -172,6 +172,7 @@ func createAgentContentInputTx(
 				existingInput.DeliveryMode != input.DeliveryMode ||
 				existingInput.ActorID != existingActorID ||
 				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
+				existingInput.IntegrationTargetBindingID != input.IntegrationTargetBindingID ||
 				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
 				!sameJSON(existingContentBlocks, input.ContentBlocks) {
 				return createAgentContentInputTxResult{}, storeerr.ErrIdempotencyConflict
@@ -202,14 +203,15 @@ func createAgentContentInputTx(
 		return createAgentContentInputTxResult{}, err
 	}
 	agentInput, err := insertAgentInputTx(ctx, tx, insertAgentInputInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		DeliveryMode:        input.DeliveryMode,
-		ActorID:             actorID,
-		IntegrationTargetID: input.IntegrationTargetID,
-		IdempotencyScope:    input.IdempotencyScope,
-		InputIdempotencyKey: input.IdempotencyKey,
-		Metadata:            input.Metadata,
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		DeliveryMode:               input.DeliveryMode,
+		ActorID:                    actorID,
+		IntegrationTargetID:        input.IntegrationTargetID,
+		IntegrationTargetBindingID: input.IntegrationTargetBindingID,
+		IdempotencyScope:           input.IdempotencyScope,
+		InputIdempotencyKey:        input.IdempotencyKey,
+		Metadata:                   input.Metadata,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -322,14 +324,15 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID              ID
-	AgentID                ID
-	Actor                  *ActorParams
-	IntegrationTargetID    ID
-	ContentBlocks          json.RawMessage
-	Metadata               json.RawMessage
-	DeliveryMode           AgentInputDeliveryMode
-	IdempotencyScope       string
-	IdempotencyKey         string
-	CancelOpenInteractions bool
+	ProjectID                  ID
+	AgentID                    ID
+	Actor                      *ActorParams
+	IntegrationTargetID        ID
+	IntegrationTargetBindingID ID
+	ContentBlocks              json.RawMessage
+	Metadata                   json.RawMessage
+	DeliveryMode               AgentInputDeliveryMode
+	IdempotencyScope           string
+	IdempotencyKey             string
+	CancelOpenInteractions     bool
 }

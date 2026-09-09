@@ -427,6 +427,35 @@ func TestBuildProjectsIntegrationTargets(t *testing.T) {
 	}
 }
 
+func TestImplicitReceiveOnlyChannelDoesNotExposeLegacyIntegrationSend(t *testing.T) {
+	contract, err := WithImplicitIntegrationTools(
+		agentconfig.RuntimeContract{},
+		[]integrationstore.IntegrationTargetSummary{{
+			ID:       testIDN(943),
+			Provider: integrationstore.IntegrationProviderSlack,
+		}},
+		integrationstore.AgentChannelToolEligibility{List: true, Send: false},
+	)
+	if err != nil {
+		t.Fatalf("add mixed integration tools: %v", err)
+	}
+	want := map[string]bool{toolcatalog.ToolNameListChannels: false}
+	for _, tool := range contract.Tools {
+		if _, expected := want[tool.Name]; expected {
+			want[tool.Name] = true
+		}
+		if tool.Name == toolcatalog.ToolNameSendChannelMessage ||
+			tool.Name == toolcatalog.ToolNameSendIntegrationMessage {
+			t.Fatalf("receive-only channel unexpectedly enabled %s", tool.Name)
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("mixed integration contract is missing %s: %+v", name, contract.Tools)
+		}
+	}
+}
+
 func TestBuildExplicitlyDisabledIntegrationSendToolOverridesImplicitTarget(t *testing.T) {
 	result, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
 instruction: Help the user make progress.
@@ -547,6 +576,7 @@ type fakeContextStore struct {
 	toolCalls                  []executionstore.ToolCallRecord
 	completedToolCallWatermark int64
 	integrationTargets         []integrationstore.IntegrationTargetSummary
+	channelToolEligibility     integrationstore.AgentChannelToolEligibility
 	machinePools               []executionstore.MachinePoolSourceRecord
 	watermark                  int64
 	checkpoints                []executionstore.ContextCheckpointRecord
@@ -558,6 +588,14 @@ type fakeContextStore struct {
 	artifactContent            map[string][]byte
 	artifactBlobReads          []storage.ID
 	skills                     map[string]skillstore.SkillRecord
+}
+
+func (s *fakeContextStore) GetAgentChannelToolEligibility(
+	context.Context,
+	storage.ID,
+	storage.ID,
+) (integrationstore.AgentChannelToolEligibility, error) {
+	return s.channelToolEligibility, nil
 }
 
 func (s *fakeContextStore) GetSkillForDispatch(

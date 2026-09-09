@@ -33,12 +33,12 @@ LEFT JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id;
 
--- name: LockProjectAgentLifecycleShared :exec
--- Agent creation takes the shared side: creates never conflict with each
--- other, only with project/org deletion, which holds the exclusive side.
+-- name: LockProjectLifecycleShared :exec
+-- Project-owned resource creation takes the shared side: creates never conflict
+-- with each other, only with project/org deletion, which holds the exclusive side.
 SELECT pg_advisory_xact_lock_shared(hashtextextended(sqlc.arg(project_id)::text, 0));
 
--- name: LockProjectAgentLifecycleExclusive :exec
+-- name: LockProjectLifecycleExclusive :exec
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(project_id)::text, 0));
 
 -- name: LockAgentLaunchIdempotencyKey :exec

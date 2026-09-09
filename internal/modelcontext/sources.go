@@ -63,6 +63,10 @@ type IntegrationStore interface {
 		ctx context.Context,
 		projectID, agentID storage.ID,
 	) ([]integrationstore.IntegrationTargetSummary, error)
+	GetAgentChannelToolEligibility(
+		ctx context.Context,
+		projectID, agentID storage.ID,
+	) (integrationstore.AgentChannelToolEligibility, error)
 }
 
 type Store interface {

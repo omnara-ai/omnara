@@ -4,7 +4,9 @@ description: Use built-in tools for web search, commands, machines, integrations
 icon: "toolbox"
 ---
 
-Omnara includes built-in tools for common agent tasks. Add a tool by name under `tools:` in the agent's config. Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
+Omnara includes built-in tools for common agent tasks. Most are added by name under `tools:` in the agent's config and default to `always_allow`, although you can [change their permissions](/tools/permissions).
+
+The channel tools are different: Omnara adds them to an agent automatically when that agent has an attached channel-mode binding. They do not belong in the agent config, because removing or changing a channel binding should immediately change what the agent can reach. Agents using only the native Slack compatibility path continue to receive its legacy integration tools instead.
 
 This page explains what each tool does and the inputs it accepts. To retrieve the current catalog programmatically, use [`GET /tool-catalog`](/tools/permissions#check-available-tools).
 
@@ -18,7 +20,7 @@ The tools are grouped by what they do:
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Artifacts | `upload_artifact`, `download_artifact` |
-| Integrations | `send_integration_message`, `set_integration_target` |
+| Integrations | `list_channels`, `send_channel_message`, `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 
 A red <span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> marks required inputs.
@@ -177,6 +179,22 @@ Use `download_artifact` to copy a conversation artifact to an attached machine. 
 Quick transfers return their terminal process result. If a transfer is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
 ## Integrations
+
+### `list_channels`
+
+Lists the external channels currently attached to the agent. Omnara exposes this tool automatically whenever the agent has an active channel-mode binding.
+
+Each result includes a stable `channel_id`, the provider and address kind, a display name, and whether that channel can currently send or receive messages. Results are newest first. Pass `next_cursor` back as `cursor` to continue a long list; `limit` defaults to 50.
+
+### `send_channel_message`
+
+Sends a user-visible text message through an attached channel. Requires `text` and supports only `always_allow`.
+
+When the current model call came from exactly one sendable channel, omit `channel_id` to reply there. Otherwise, call `list_channels` and pass the exact `channel_id`. Omnara still checks the agent's active send binding at execution time, so a stale or unrelated ID cannot expand the agent's access.
+
+The result reports whether the delivery was completed, rejected, still pending, or could not be confirmed. A pending result means Omnara durably accepted the message; the connector can finish sending it after the model call ends.
+
+The following tools remain available for the native Slack compatibility path:
 
 ### `send_integration_message`
 
