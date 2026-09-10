@@ -329,13 +329,6 @@ func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	}
 }
 
-// WithModelLimitsCatalog adds cached limit metadata to provider discovery.
-func WithModelLimitsCatalog(catalog *modelprovider.LimitsCatalog) Option {
-	return func(s *Server) {
-		s.modelDiscoverer = modelprovider.NewDiscoverer(catalog)
-	}
-}
-
 // WithAllowInsecureLocalHostBypass exempts loopback and Docker's
 // host.docker.internal alias from the public-host guard, so local
 // daemons/containers can reach the API without a matching Host header. Only
