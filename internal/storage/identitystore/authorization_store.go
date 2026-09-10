@@ -161,19 +161,21 @@ func (s *Store) ListPrincipalRoles(ctx context.Context, principal PrincipalRecor
 	if userID == nil && orgAPIKeyID == nil {
 		return PrincipalRoles{}, nil
 	}
-	orgRoles, err := s.q.ListPrincipalOrgRoles(ctx, dbsqlc.ListPrincipalOrgRolesParams{
+	rows, err := s.q.ListPrincipalRoles(ctx, dbsqlc.ListPrincipalRolesParams{
 		UserID:      userID,
 		OrgApiKeyID: orgAPIKeyID,
 	})
 	if err != nil {
-		return PrincipalRoles{}, fmt.Errorf("list principal org roles: %w", err)
+		return PrincipalRoles{}, fmt.Errorf("list principal roles: %w", err)
 	}
-	projectRoles, err := s.q.ListPrincipalProjectRoles(ctx, dbsqlc.ListPrincipalProjectRolesParams{
-		UserID:      userID,
-		OrgApiKeyID: orgAPIKeyID,
-	})
-	if err != nil {
-		return PrincipalRoles{}, fmt.Errorf("list principal project roles: %w", err)
+	roles := PrincipalRoles{}
+	for _, row := range rows {
+		switch row.Scope {
+		case "org":
+			roles.OrgRoles = append(roles.OrgRoles, row.Role)
+		case "project":
+			roles.ProjectRoles = append(roles.ProjectRoles, row.Role)
+		}
 	}
-	return PrincipalRoles{OrgRoles: orgRoles, ProjectRoles: projectRoles}, nil
+	return roles, nil
 }

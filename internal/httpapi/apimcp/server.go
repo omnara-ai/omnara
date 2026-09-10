@@ -6,22 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"runtime/debug"
 	"slices"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
 
 const (
-	Path = "/mcp"
+	Path = "/api/mcp"
 
 	serverName           = "omnara"
 	bodyArgument         = "body"
@@ -29,23 +31,38 @@ const (
 	componentSchemaRef   = "#/components/schemas/"
 	definitionsRef       = "#/$defs/"
 	definitionsKey       = "$defs"
-	maxRequestBodyBytes  = 4 * 1024 * 1024
+	defaultKey           = "default"
 	unsupportedParameter = "parameter %q of operation %s is in %q, only path and query are supported"
 )
 
 var componentRefPattern = regexp.MustCompile(`"#/components/schemas/([^"#/]+)"`)
 
 type Grants interface {
-	Allows(operationID string) bool
+	Allows(ctx context.Context, operationID string) (bool, error)
 }
 
-type GrantResolver func(ctx context.Context) (Grants, error)
+type GrantResolver func(ctx context.Context) Grants
 
 type Options struct {
 	Dispatch    http.Handler
 	APIBasePath string
 	Grants      GrantResolver
-	Logger      *slog.Logger
+}
+
+type ToolCall struct {
+	Tool        string
+	OperationID string
+}
+
+type toolCallContextKey struct{}
+
+func ContextWithToolCall(ctx context.Context, call ToolCall) context.Context {
+	return context.WithValue(ctx, toolCallContextKey{}, call)
+}
+
+func ToolCallFromContext(ctx context.Context) (ToolCall, bool) {
+	call, ok := ctx.Value(toolCallContextKey{}).(ToolCall)
+	return call, ok
 }
 
 type queryParameter struct {
@@ -55,7 +72,7 @@ type queryParameter struct {
 }
 
 type operation struct {
-	tool          Tool
+	name          string
 	operationID   string
 	method        string
 	path          string
@@ -100,15 +117,11 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 		if description == "" {
 			description = operationDescription(source.operation)
 		}
-		server.AddTool(&mcp.Tool{
+		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
 			Description: description,
 			InputSchema: inputSchema,
-			Annotations: &mcp.ToolAnnotations{
-				ReadOnlyHint:    tool.ReadOnly,
-				DestructiveHint: boolPtr(tool.Destructive),
-				IdempotentHint:  tool.ReadOnly,
-			},
+			Annotations: annotationsFor(compiled.method, tool.Destructive),
 		}, compiled.handle)
 	}
 	if options.Grants != nil {
@@ -117,16 +130,31 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 	return server, nil
 }
 
-func NewHandler(server *mcp.Server, logger *slog.Logger) http.Handler {
+func NewHandler(server *mcp.Server) http.Handler {
 	return mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{
-			Stateless:           true,
-			JSONResponse:        true,
-			Logger:              logger,
-			MaxRequestBodyBytes: maxRequestBodyBytes,
+			Stateless:                  true,
+			JSONResponse:               true,
+			DisableLocalhostProtection: true,
 		},
 	)
+}
+
+func annotationsFor(method string, destructive bool) *mcp.ToolAnnotations {
+	readOnly := method == http.MethodGet
+	idempotent := readOnly || method == http.MethodPut || method == http.MethodDelete
+	annotations := &mcp.ToolAnnotations{
+		ReadOnlyHint:   readOnly,
+		IdempotentHint: idempotent,
+	}
+	switch {
+	case readOnly:
+		annotations.DestructiveHint = new(false)
+	case destructive || method == http.MethodDelete:
+		annotations.DestructiveHint = new(true)
+	}
+	return annotations
 }
 
 func specVersion(spec *openapi3.T) string {
@@ -141,10 +169,6 @@ func operationDescription(op *openapi3.Operation) string {
 		return op.Description
 	}
 	return op.Summary
-}
-
-func boolPtr(value bool) *bool {
-	return &value
 }
 
 func operationKey(operationID string) string {
@@ -166,7 +190,7 @@ func indexOperations(spec *openapi3.T) map[string]specOperation {
 				parameters = append(parameters, ref.Value)
 			}
 			operations[operationKey(op.OperationID)] = specOperation{
-				method:     method,
+				method:     strings.ToUpper(method),
 				path:       path,
 				parameters: parameters,
 				operation:  op,
@@ -183,7 +207,7 @@ func compileOperation(
 	options Options,
 ) (*operation, map[string]any, error) {
 	compiled := &operation{
-		tool:        tool,
+		name:        tool.Name,
 		operationID: source.operation.OperationID,
 		method:      source.method,
 		path:        source.path,
@@ -255,7 +279,7 @@ func compileOperation(
 			}
 		}
 	}
-	sort.Strings(required)
+	slices.Sort(required)
 	inputSchema, err := assembleInputSchema(spec, properties, required)
 	if err != nil {
 		return nil, nil, err
@@ -346,7 +370,22 @@ func assembleInputSchema(
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		return nil, err
 	}
+	stripDefaults(decoded)
 	return decoded, nil
+}
+
+func stripDefaults(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		delete(typed, defaultKey)
+		for _, child := range typed {
+			stripDefaults(child)
+		}
+	case []any:
+		for _, child := range typed {
+			stripDefaults(child)
+		}
+	}
 }
 
 func collectDefinitions(spec *openapi3.T, seed []byte) (map[string]json.RawMessage, error) {
@@ -385,33 +424,39 @@ func rewriteComponentRefs(encoded []byte) []byte {
 	return bytes.ReplaceAll(encoded, []byte(componentSchemaRef), []byte(definitionsRef))
 }
 
-func (o *operation) handle(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	arguments, err := decodeArguments(request.Params.Arguments)
-	if err != nil {
-		return toolError(err.Error()), nil
-	}
+func (o *operation) handle(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	arguments map[string]json.RawMessage,
+) (result *mcp.CallToolResult, _ any, err error) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+		logpkg.Error(ctx, fmt.Errorf("mcp tool %s panicked: %v", o.name, recovered))
+		logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
+		result, err = nil, internalError()
+	}()
+	ctx = ContextWithToolCall(ctx, ToolCall{Tool: o.name, OperationID: o.operationID})
 	httpRequest, err := o.buildRequest(ctx, arguments)
 	if err != nil {
-		return toolError(err.Error()), nil
+		return nil, nil, err
 	}
 	recorder := httptest.NewRecorder()
 	o.dispatch.ServeHTTP(recorder, httpRequest)
-	return resultFromResponse(recorder), nil
+	return resultFromResponse(recorder), nil, nil
 }
 
-func decodeArguments(raw json.RawMessage) (map[string]json.RawMessage, error) {
-	arguments := make(map[string]json.RawMessage)
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return arguments, nil
-	}
-	if err := json.Unmarshal(raw, &arguments); err != nil {
-		return nil, fmt.Errorf("arguments must be a JSON object: %w", err)
-	}
-	return arguments, nil
+func internalError() error {
+	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "internal server error"}
+}
+
+func unknownToolError(name string) error {
+	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("unknown tool %q", name)}
 }
 
 func (o *operation) buildRequest(ctx context.Context, arguments map[string]json.RawMessage) (*http.Request, error) {
-	consumed := make(map[string]struct{}, len(arguments))
 	path := o.path
 	for _, name := range o.pathParams {
 		raw, ok := arguments[name]
@@ -423,7 +468,6 @@ func (o *operation) buildRequest(ctx context.Context, arguments map[string]json.
 			return nil, fmt.Errorf("argument %q: %w", name, err)
 		}
 		path = strings.ReplaceAll(path, "{"+name+"}", url.PathEscape(value))
-		consumed[name] = struct{}{}
 	}
 	query := url.Values{}
 	for _, parameter := range o.queryParams {
@@ -431,29 +475,23 @@ func (o *operation) buildRequest(ctx context.Context, arguments map[string]json.
 		if !ok {
 			continue
 		}
-		consumed[parameter.name] = struct{}{}
 		if err := appendQueryValues(query, parameter, raw); err != nil {
 			return nil, err
 		}
 	}
 	var body []byte
 	if o.hasBody {
-		encoded, err := o.encodeBody(arguments, consumed)
+		encoded, err := o.encodeBody(arguments)
 		if err != nil {
 			return nil, err
 		}
 		body = encoded
 	}
-	for name := range arguments {
-		if _, ok := consumed[name]; !ok {
-			return nil, fmt.Errorf("unknown argument %q", name)
-		}
-	}
 	target := o.basePath + path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, strings.ToUpper(o.method), target, bytes.NewReader(body))
+	httpRequest, err := http.NewRequestWithContext(ctx, o.method, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -467,10 +505,9 @@ func (o *operation) buildRequest(ctx context.Context, arguments map[string]json.
 	return httpRequest, nil
 }
 
-func (o *operation) encodeBody(arguments map[string]json.RawMessage, consumed map[string]struct{}) ([]byte, error) {
+func (o *operation) encodeBody(arguments map[string]json.RawMessage) ([]byte, error) {
 	if !o.bodyFlattened {
 		raw, ok := arguments[bodyArgument]
-		consumed[bodyArgument] = struct{}{}
 		if !ok {
 			return []byte("{}"), nil
 		}
@@ -483,7 +520,6 @@ func (o *operation) encodeBody(arguments map[string]json.RawMessage, consumed ma
 			continue
 		}
 		body[name] = raw
-		consumed[name] = struct{}{}
 	}
 	return json.Marshal(body)
 }
@@ -533,19 +569,14 @@ func scalarString(raw json.RawMessage) (string, error) {
 	switch typed := value.(type) {
 	case string:
 		return typed, nil
-	case float64, bool:
-		return string(bytes.TrimSpace(raw)), nil
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(typed), nil
 	case nil:
 		return "", errors.New("must not be null")
 	default:
 		return "", errors.New("must be a string, number, or boolean")
-	}
-}
-
-func toolError(message string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: message}},
 	}
 }
 
@@ -560,9 +591,13 @@ func resultFromResponse(recorder *httptest.ResponseRecorder) *mcp.CallToolResult
 		result.IsError = true
 		return result
 	}
-	var structured map[string]any
-	if json.Unmarshal(body, &structured) == nil {
-		result.StructuredContent = structured
+	if isObjectJSON(body) {
+		result.StructuredContent = json.RawMessage(body)
 	}
 	return result
+}
+
+func isObjectJSON(body []byte) bool {
+	trimmed := bytes.TrimSpace(body)
+	return len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed)
 }

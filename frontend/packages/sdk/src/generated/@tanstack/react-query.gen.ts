@@ -191,9 +191,9 @@ export const recordMachineFailureMutation = (options?: Partial<Options<RecordMac
 export const listOrganizationsQueryKey = (options?: Options<ListOrganizationsData>) => createQueryKey('listOrganizations', options);
 
 /**
- * List the authenticated user's organizations
+ * List the authenticated principal's organizations
  *
- * Items are ordered by organization creation time ascending.
+ * Users get every organization they belong to; org API keys get the organization that issued them. Items are ordered by organization name ascending.
  */
 export const listOrganizationsOptions = (options?: Options<ListOrganizationsData>) => queryOptions<ListOrganizationsResponse2, ListOrganizationsError, ListOrganizationsResponse2, ReturnType<typeof listOrganizationsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

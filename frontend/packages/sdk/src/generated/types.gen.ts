@@ -3615,7 +3615,7 @@ export type ListOrganizationsError = ListOrganizationsErrors[keyof ListOrganizat
 
 export type ListOrganizationsResponses = {
     /**
-     * Organizations the authenticated user belongs to, with their role in each.
+     * Organizations the authenticated principal belongs to, with its role in each.
      */
     200: ListOrganizationsResponse;
 };

@@ -57,7 +57,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)
 	mux.HandleFunc("GET /healthz", s.healthzRoute)
-	mux.Handle("POST /mcp", apimcp.NewHandler(s.apiMCP, s.log))
+	mux.Handle("/api/mcp", apimcp.NewHandler(s.apiMCP))
 	openapi.HandlerWithOptions(s.strictOpenAPIHandler(), openapi.StdHTTPServerOptions{
 		BaseURL:    openAPIBasePath,
 		BaseRouter: mux,

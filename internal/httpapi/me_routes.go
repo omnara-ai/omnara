@@ -102,12 +102,12 @@ func (s strictOpenAPIServer) ListOrganizations(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
 	}
 	principal, ok := principalFromContext(ctx)
-	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+	if !ok || !identitystore.IsAccountPrincipal(principal) {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
-	memberships, err := s.server.store.Identity().ListOrgMembershipsForUser(ctx, principal.ID)
+	memberships, err := s.server.store.Identity().ListOrgMembershipsForPrincipal(ctx, principal)
 	if err != nil {
-		return nil, apierror.UserScoped(err)
+		return nil, apierror.FromError(err)
 	}
 	orgs, err := currentUserOrgs(memberships)
 	if err != nil {

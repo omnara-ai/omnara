@@ -2758,7 +2758,7 @@ export const zRecordMachineFailureQuery = z.object({
 export const zRecordMachineFailureResponse = z.void();
 
 /**
- * Organizations the authenticated user belongs to, with their role in each.
+ * Organizations the authenticated principal belongs to, with its role in each.
  */
 export const zListOrganizationsResponse2 = zListOrganizationsResponse;
 

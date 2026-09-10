@@ -3,16 +3,26 @@ package apimcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/testutil"
 )
 
-const testBasePath = "/api/v1"
+const (
+	testBasePath = "/api/v1"
+	testOrgID    = "org_abcdefghijklmnopqrstuvwxyz"
+	testProject  = "proj_abcdefghijklmnopqrstuvwxyz"
+	testAgentID  = "agt_abcdefghijklmnopqrstuvwxyz"
+	testConfigID = "acfg_abcdefghijklmnopqrstuvwxyz"
+)
 
 type echoedRequest struct {
 	Method         string              `json:"method"`
@@ -25,7 +35,17 @@ type echoedRequest struct {
 
 type allowOperations map[string]bool
 
-func (a allowOperations) Allows(operationID string) bool { return a[operationID] }
+func (a allowOperations) Allows(_ context.Context, operationID string) (bool, error) {
+	return a[operationID], nil
+}
+
+type failingGrants struct{ err error }
+
+func (f failingGrants) Allows(context.Context, string) (bool, error) { return false, f.err }
+
+func staticGrants(grants Grants) GrantResolver {
+	return func(context.Context) Grants { return grants }
+}
 
 func echoDispatch(t *testing.T) http.Handler {
 	t.Helper()
@@ -48,16 +68,27 @@ func echoDispatch(t *testing.T) http.Handler {
 	})
 }
 
-func connect(t *testing.T, tools []Tool, options Options) *mcp.ClientSession {
+func loadSpec(t *testing.T) *openapi3.T {
 	t.Helper()
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		t.Fatalf("load spec: %v", err)
 	}
-	server, err := NewServer(spec, tools, options)
+	return spec
+}
+
+func newServer(t *testing.T, tools []Tool, options Options) *mcp.Server {
+	t.Helper()
+	server, err := NewServer(loadSpec(t), tools, options)
 	if err != nil {
 		t.Fatalf("build mcp server: %v", err)
 	}
+	return server
+}
+
+func connect(t *testing.T, tools []Tool, options Options) *mcp.ClientSession {
+	t.Helper()
+	server := newServer(t, tools, options)
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	ctx := context.Background()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
@@ -65,8 +96,13 @@ func connect(t *testing.T, tools []Tool, options Options) *mcp.ClientSession {
 		t.Fatalf("connect server: %v", err)
 	}
 	t.Cleanup(func() { _ = serverSession.Close() })
+	return connectClient(t, clientTransport)
+}
+
+func connectClient(t *testing.T, transport mcp.Transport) *mcp.ClientSession {
+	t.Helper()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	session, err := client.Connect(ctx, clientTransport, nil)
+	session, err := client.Connect(context.Background(), transport, nil)
 	if err != nil {
 		t.Fatalf("connect client: %v", err)
 	}
@@ -101,26 +137,50 @@ func callEcho(
 	return echoed, result
 }
 
-func listedToolNames(t *testing.T, session *mcp.ClientSession) map[string]bool {
+func listTools(t *testing.T, session *mcp.ClientSession) *mcp.ListToolsResult {
 	t.Helper()
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	names := make(map[string]bool, len(listed.Tools))
+	return listed
+}
+
+func listedToolsByName(t *testing.T, session *mcp.ClientSession) map[string]*mcp.Tool {
+	t.Helper()
+	listed := listTools(t, session)
+	tools := make(map[string]*mcp.Tool, len(listed.Tools))
 	for _, tool := range listed.Tools {
-		names[tool.Name] = true
+		tools[tool.Name] = tool
 	}
-	return names
+	return tools
+}
+
+func containsKey(value any, key string) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		if _, has := typed[key]; has {
+			return true
+		}
+		for _, child := range typed {
+			if containsKey(child, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if containsKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestManifestCompiles(t *testing.T) {
 	t.Parallel()
 	session := connect(t, Tools, echoOptions(t))
-	listed, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("list tools: %v", err)
-	}
+	listed := listTools(t, session)
 	if len(listed.Tools) != len(Tools) {
 		t.Fatalf("listed %d tools, want %d", len(listed.Tools), len(Tools))
 	}
@@ -133,8 +193,44 @@ func TestManifestCompiles(t *testing.T) {
 		if referenced := referencedComponentNames(encoded); len(referenced) > 0 {
 			t.Errorf("%s schema still references components: %v", tool.Name, referenced)
 		}
+		if containsKey(schema, defaultKey) {
+			t.Errorf("%s schema carries a default, which the sdk would inject into the request", tool.Name)
+		}
 		if tool.Description == "" {
 			t.Errorf("%s has no description", tool.Name)
+		}
+	}
+}
+
+func TestAnnotationsDeriveFromMethod(t *testing.T) {
+	t.Parallel()
+	session := connect(t, Tools, echoOptions(t))
+	tools := listedToolsByName(t, session)
+	cases := []struct {
+		name        string
+		readOnly    bool
+		idempotent  bool
+		destructive *bool
+	}{
+		{name: "agents_list", readOnly: true, idempotent: true, destructive: new(false)},
+		{name: "agents_launch"},
+		{name: "secrets_update"},
+		{name: "pools_update", idempotent: true},
+		{name: "models_delete", idempotent: true, destructive: new(true)},
+		{name: "agents_cancel", destructive: new(true)},
+		{name: "agents_archive", destructive: new(true)},
+	}
+	for _, tc := range cases {
+		annotations := tools[tc.name].Annotations
+		if annotations.ReadOnlyHint != tc.readOnly || annotations.IdempotentHint != tc.idempotent {
+			t.Errorf("%s readOnly=%v idempotent=%v, want %v/%v",
+				tc.name, annotations.ReadOnlyHint, annotations.IdempotentHint, tc.readOnly, tc.idempotent)
+		}
+		switch {
+		case tc.destructive == nil && annotations.DestructiveHint != nil:
+			t.Errorf("%s destructiveHint=%v, want unset", tc.name, *annotations.DestructiveHint)
+		case tc.destructive != nil && (annotations.DestructiveHint == nil || *annotations.DestructiveHint != *tc.destructive):
+			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, *tc.destructive)
 		}
 	}
 }
@@ -144,12 +240,12 @@ func TestDispatchMapsArguments(t *testing.T) {
 	session := connect(t, Tools, echoOptions(t))
 
 	echoed, result := callEcho(t, session, "agents_list", map[string]any{
-		"orgID":     "org_1",
-		"projectID": "proj_1",
-		"limit":     25,
-		"sort":      "created_at:desc",
+		"orgID":     testOrgID,
+		"projectID": testProject,
+		"limit":     25.0,
+		"sort":      "-created_at",
 	})
-	if echoed.Method != http.MethodGet || echoed.Path != "/api/v1/orgs/org_1/projects/proj_1/agents" {
+	if echoed.Method != http.MethodGet || echoed.Path != "/api/v1/orgs/"+testOrgID+"/projects/"+testProject+"/agents" {
 		t.Fatalf("unexpected request %s %s", echoed.Method, echoed.Path)
 	}
 	if got := echoed.Query["limit"]; len(got) != 1 || got[0] != "25" {
@@ -163,8 +259,9 @@ func TestDispatchMapsArguments(t *testing.T) {
 	}
 
 	echoed, _ = callEcho(t, session, "agents_launch", map[string]any{
-		"orgID":     "org_1",
-		"projectID": "proj_1",
+		"orgID":     testOrgID,
+		"projectID": testProject,
+		"config":    testConfigID,
 		"name":      "Nightly",
 		"message":   "hello",
 	})
@@ -186,34 +283,57 @@ func TestDispatchMapsArguments(t *testing.T) {
 	}
 
 	echoed, _ = callEcho(t, session, "secrets_list", map[string]any{
-		"orgID":    "org_1",
+		"orgID":    testOrgID,
 		"metadata": map[string]any{"env": "prod"},
 	})
 	if got := echoed.Query["metadata[env]"]; len(got) != 1 || got[0] != "prod" {
 		t.Fatalf("deepObject query = %v", echoed.Query)
 	}
+}
 
-	_, result = callEcho(t, session, "agents_get", map[string]any{"orgID": "org_1", "projectID": "proj_1"})
-	if !result.IsError {
-		t.Fatal("missing path param should be a tool error")
+func TestInputSchemaIsEnforced(t *testing.T) {
+	t.Parallel()
+	session := connect(t, Tools, echoOptions(t))
+	cases := []struct {
+		name      string
+		tool      string
+		arguments map[string]any
+	}{
+		{name: "missing path param", tool: "agents_get", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject,
+		}},
+		{name: "unknown argument", tool: "agents_get", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "agentID": testAgentID, "bogus": true,
+		}},
+		{name: "wrong query type", tool: "agents_list", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "limit": "25",
+		}},
+		{name: "wrong body type", tool: "agents_launch", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "config": testConfigID, "name": 7,
+		}},
 	}
-	_, result = callEcho(t, session, "agents_get", map[string]any{
-		"orgID": "org_1", "projectID": "proj_1", "agentID": "agt_1", "bogus": true,
-	})
-	if !result.IsError {
-		t.Fatal("unknown argument should be a tool error")
+	for _, tc := range cases {
+		_, result := callEcho(t, session, tc.tool, tc.arguments)
+		if !result.IsError {
+			t.Errorf("%s: expected a tool error", tc.name)
+		}
 	}
 }
 
 func TestGrantsFilterDiscoveryAndCalls(t *testing.T) {
 	t.Parallel()
 	options := echoOptions(t)
-	options.Grants = func(context.Context) (Grants, error) {
-		return allowOperations{"ListAgents": true, "GetCurrentUser": true}, nil
-	}
+	options.Grants = staticGrants(allowOperations{"ListAgents": true, "GetCurrentUser": true})
 	session := connect(t, Tools, options)
 
-	names := listedToolNames(t, session)
+	listed := listTools(t, session)
+	if listed.CacheScope != cacheScopePrivate {
+		t.Fatalf("cacheScope = %q, want %q", listed.CacheScope, cacheScopePrivate)
+	}
+	names := make(map[string]bool, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		names[tool.Name] = true
+	}
 	if !names["agents_list"] || !names["whoami"] {
 		t.Fatalf("granted tools missing from %v", names)
 	}
@@ -221,23 +341,76 @@ func TestGrantsFilterDiscoveryAndCalls(t *testing.T) {
 		t.Fatalf("ungranted tools listed in %v", names)
 	}
 
-	_, result := callEcho(t, session, "agents_launch", map[string]any{"orgID": "org_1", "projectID": "proj_1"})
-	if !result.IsError {
-		t.Fatal("calling a hidden tool should return a tool error")
+	ctx := context.Background()
+	_, hiddenErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "agents_launch", Arguments: map[string]any{
+		"orgID": testOrgID, "projectID": testProject,
+	}})
+	_, unknownErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "does_not_exist"})
+	if hiddenErr == nil || unknownErr == nil {
+		t.Fatalf("hidden/unknown tools must be protocol errors, got %v / %v", hiddenErr, unknownErr)
 	}
-	echoed, _ := callEcho(t, session, "agents_list", map[string]any{"orgID": "org_1", "projectID": "proj_1"})
+	hiddenMessage := strings.ReplaceAll(hiddenErr.Error(), "agents_launch", "does_not_exist")
+	if hiddenMessage != unknownErr.Error() {
+		t.Fatalf("hidden tool error %q is distinguishable from unknown tool error %q", hiddenErr, unknownErr)
+	}
+	echoed, _ := callEcho(t, session, "agents_list", map[string]any{"orgID": testOrgID, "projectID": testProject})
 	if echoed.Method != http.MethodGet {
 		t.Fatalf("granted tool did not dispatch: %+v", echoed)
 	}
 }
 
+func TestGrantResolutionFailuresAreOpaque(t *testing.T) {
+	t.Parallel()
+	options := echoOptions(t)
+	options.Grants = staticGrants(failingGrants{err: errors.New("failed to connect to host=10.0.3.7 (SQLSTATE 08006)")})
+	session := connect(t, Tools, options)
+	ctx := context.Background()
+	for _, call := range []func() error{
+		func() error { _, err := session.ListTools(ctx, nil); return err },
+		func() error {
+			_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "whoami"})
+			return err
+		},
+	} {
+		err := call()
+		if err == nil {
+			t.Fatal("expected a protocol error")
+		}
+		if strings.Contains(err.Error(), "SQLSTATE") || !strings.Contains(err.Error(), "internal server error") {
+			t.Fatalf("error %q leaks the underlying failure", err)
+		}
+	}
+}
+
+func TestDispatchPanicDoesNotKillTheServer(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	options := Options{APIBasePath: testBasePath, Dispatch: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			panic("probe panic from api handler")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})}
+	httpServer := httptest.NewServer(NewHandler(newServer(t, Tools, options)))
+	t.Cleanup(httpServer.Close)
+	session := connectClient(t, &mcp.StreamableClientTransport{Endpoint: httpServer.URL + Path})
+
+	ctx := context.Background()
+	_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "whoami"})
+	if err == nil || !strings.Contains(err.Error(), "internal server error") {
+		t.Fatalf("panicking dispatch returned %v, want an internal protocol error", err)
+	}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "whoami"})
+	if err != nil || result.IsError {
+		t.Fatalf("server did not survive the panic: err=%v result=%+v", err, result)
+	}
+}
+
 func TestManifestRejectsUnknownOperation(t *testing.T) {
 	t.Parallel()
-	spec, err := openapi.GetSpec()
-	if err != nil {
-		t.Fatalf("load spec: %v", err)
-	}
-	_, err = NewServer(spec, []Tool{{Name: "nope", OperationID: "doesNotExist"}}, echoOptions(t))
+	_, err := NewServer(loadSpec(t), []Tool{{Name: "nope", OperationID: "doesNotExist"}}, echoOptions(t))
 	if err == nil {
 		t.Fatal("expected an error for an unknown operation id")
 	}

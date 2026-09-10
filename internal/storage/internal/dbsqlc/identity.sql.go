@@ -3111,6 +3111,53 @@ func (q *Queries) ListOrgMembers(ctx context.Context, arg ListOrgMembersParams) 
 	return items, nil
 }
 
+const listOrgMembershipsForPrincipal = `-- name: ListOrgMembershipsForPrincipal :many
+SELECT o.id, o.name, om.role, o.created_at
+FROM org_memberships om
+JOIN orgs o ON o.id = om.org_id
+WHERE (($1::uuid IS NOT NULL AND om.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND om.org_api_key_id = $2::uuid))
+  AND o.deleted_at IS NULL
+ORDER BY o.name, o.id
+`
+
+type ListOrgMembershipsForPrincipalParams struct {
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+type ListOrgMembershipsForPrincipalRow struct {
+	ID        uuid.UUID
+	Name      string
+	Role      string
+	CreatedAt time.Time
+}
+
+func (q *Queries) ListOrgMembershipsForPrincipal(ctx context.Context, arg ListOrgMembershipsForPrincipalParams) ([]ListOrgMembershipsForPrincipalRow, error) {
+	rows, err := q.db.Query(ctx, listOrgMembershipsForPrincipal, arg.UserID, arg.OrgApiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgMembershipsForPrincipalRow{}
+	for rows.Next() {
+		var i ListOrgMembershipsForPrincipalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrgMembershipsForUser = `-- name: ListOrgMembershipsForUser :many
 SELECT o.id, o.name, om.role, o.created_at
 FROM org_memberships om
@@ -3278,64 +3325,42 @@ func (q *Queries) ListPersonalAccessTokensForUser(ctx context.Context, arg ListP
 	return items, nil
 }
 
-const listPrincipalOrgRoles = `-- name: ListPrincipalOrgRoles :many
-SELECT DISTINCT om.role
+const listPrincipalRoles = `-- name: ListPrincipalRoles :many
+SELECT 'org'::text AS scope, om.role
 FROM org_memberships om
 JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
 WHERE ($1::uuid IS NOT NULL AND om.user_id = $1::uuid)
    OR ($2::uuid IS NOT NULL AND om.org_api_key_id = $2::uuid)
-`
-
-type ListPrincipalOrgRolesParams struct {
-	UserID      *uuid.UUID
-	OrgApiKeyID *uuid.UUID
-}
-
-func (q *Queries) ListPrincipalOrgRoles(ctx context.Context, arg ListPrincipalOrgRolesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listPrincipalOrgRoles, arg.UserID, arg.OrgApiKeyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return nil, err
-		}
-		items = append(items, role)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPrincipalProjectRoles = `-- name: ListPrincipalProjectRoles :many
-SELECT DISTINCT roles.role
+UNION
+SELECT 'project'::text AS scope, roles.role
 FROM principal_project_authorization_roles roles
 WHERE ($1::uuid IS NOT NULL AND roles.user_id = $1::uuid)
    OR ($2::uuid IS NOT NULL AND roles.org_api_key_id = $2::uuid)
 `
 
-type ListPrincipalProjectRolesParams struct {
+type ListPrincipalRolesParams struct {
 	UserID      *uuid.UUID
 	OrgApiKeyID *uuid.UUID
 }
 
-func (q *Queries) ListPrincipalProjectRoles(ctx context.Context, arg ListPrincipalProjectRolesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listPrincipalProjectRoles, arg.UserID, arg.OrgApiKeyID)
+type ListPrincipalRolesRow struct {
+	Scope string
+	Role  string
+}
+
+func (q *Queries) ListPrincipalRoles(ctx context.Context, arg ListPrincipalRolesParams) ([]ListPrincipalRolesRow, error) {
+	rows, err := q.db.Query(ctx, listPrincipalRoles, arg.UserID, arg.OrgApiKeyID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ListPrincipalRolesRow{}
 	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
+		var i ListPrincipalRolesRow
+		if err := rows.Scan(&i.Scope, &i.Role); err != nil {
 			return nil, err
 		}
-		items = append(items, role)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

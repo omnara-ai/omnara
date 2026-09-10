@@ -114,9 +114,9 @@ export const recordMachineFailure = <ThrowOnError extends boolean = true>(option
 });
 
 /**
- * List the authenticated user's organizations
+ * List the authenticated principal's organizations
  *
- * Items are ordered by organization creation time ascending.
+ * Users get every organization they belong to; org API keys get the organization that issued them. Items are ordered by organization name ascending.
  */
 export const listOrganizations = <ThrowOnError extends boolean = true>(options?: Options<ListOrganizationsData, ThrowOnError>): RequestResult<ListOrganizationsResponses, ListOrganizationsErrors, ThrowOnError> => (options?.client ?? client).get<ListOrganizationsResponses, ListOrganizationsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListOrganizationsResponse2),

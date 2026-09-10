@@ -465,7 +465,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
-	apiDispatch := chain(mux, s.openAPIRequestValidator)
+	apiDispatch := chain(mux, s.apiDispatchMiddlewares(mux)...)
 	s.apiDispatch.Store(&apiDispatch)
 	middlewares := make([]middleware, 0, 7)
 	if s.recorder != nil {

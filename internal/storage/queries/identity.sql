@@ -927,6 +927,15 @@ WHERE om.user_id = sqlc.arg(user_id)::uuid
   AND o.deleted_at IS NULL
 ORDER BY o.name, o.id;
 
+-- name: ListOrgMembershipsForPrincipal :many
+SELECT o.id, o.name, om.role, o.created_at
+FROM org_memberships om
+JOIN orgs o ON o.id = om.org_id
+WHERE ((sqlc.narg(user_id)::uuid IS NOT NULL AND om.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid))
+  AND o.deleted_at IS NULL
+ORDER BY o.name, o.id;
+
 -- name: ListOrgMembers :many
 WITH listed AS (
  SELECT u.id AS user_id, u.display_name, om.role, om.created_at,
@@ -1307,15 +1316,14 @@ SELECT role
 FROM org_memberships om
 WHERE om.org_id = sqlc.arg(org_id) AND om.user_id = sqlc.arg(user_id)::uuid;
 
--- name: ListPrincipalOrgRoles :many
-SELECT DISTINCT om.role
+-- name: ListPrincipalRoles :many
+SELECT 'org'::text AS scope, om.role
 FROM org_memberships om
 JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
 WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND om.user_id = sqlc.narg(user_id)::uuid)
-   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
-
--- name: ListPrincipalProjectRoles :many
-SELECT DISTINCT roles.role
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
+UNION
+SELECT 'project'::text AS scope, roles.role
 FROM principal_project_authorization_roles roles
 WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_id)::uuid)
    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);

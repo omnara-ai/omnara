@@ -777,6 +777,33 @@ func (s *Store) ListOrgMembershipsForUser(ctx context.Context, userID ID) ([]Use
 	return records, nil
 }
 
+func (s *Store) ListOrgMembershipsForPrincipal(
+	ctx context.Context,
+	principal PrincipalRecord,
+) ([]UserOrgMembershipRecord, error) {
+	userID, orgAPIKeyID := AccountPrincipalIDs(principal)
+	if userID == nil && orgAPIKeyID == nil {
+		return nil, storeerr.ErrUnauthorized
+	}
+	rows, err := s.q.ListOrgMembershipsForPrincipal(ctx, dbsqlc.ListOrgMembershipsForPrincipalParams{
+		UserID:      userID,
+		OrgApiKeyID: orgAPIKeyID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list org memberships for principal: %w", err)
+	}
+	records := make([]UserOrgMembershipRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, UserOrgMembershipRecord{
+			OrgID:     row.ID,
+			OrgName:   row.Name,
+			Role:      row.Role,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	return records, nil
+}
+
 type ListOrgMembersInput struct {
 	OrgID ID
 	Limit int

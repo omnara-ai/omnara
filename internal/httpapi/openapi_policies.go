@@ -260,7 +260,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationAcceptInvitation:       userPolicy(noScope()),
 	operationDeclineInvitation:      userPolicy(noScope()),
 	operationCreateOrganization:     userPolicy(noScope()),
-	operationListOrganizations:      userPolicy(noScope()),
+	operationListOrganizations:      accountPolicy(noScope()),
 
 	operationCreateProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
