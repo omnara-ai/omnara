@@ -63,18 +63,9 @@ func currentUserResponse(
 	if err != nil {
 		return openapi.CurrentUser{}, err
 	}
-	orgs := make([]openapi.CurrentUserOrg, 0, len(memberships))
-	for _, membership := range memberships {
-		orgID, err := publicID(publicid.KindOrganization, membership.OrgID)
-		if err != nil {
-			return openapi.CurrentUser{}, err
-		}
-		orgs = append(orgs, openapi.CurrentUserOrg{
-			Id:        orgID,
-			Name:      membership.OrgName,
-			Role:      membership.Role,
-			CreatedAt: membership.CreatedAt,
-		})
+	orgs, err := currentUserOrgs(memberships)
+	if err != nil {
+		return openapi.CurrentUser{}, err
 	}
 	return openapi.CurrentUser{
 		User: openapi.CurrentUserIdentity{
@@ -84,4 +75,43 @@ func currentUserResponse(
 		},
 		Orgs: orgs,
 	}, nil
+}
+
+func currentUserOrgs(memberships []identitystore.UserOrgMembershipRecord) ([]openapi.CurrentUserOrg, error) {
+	orgs := make([]openapi.CurrentUserOrg, 0, len(memberships))
+	for _, membership := range memberships {
+		orgID, err := publicID(publicid.KindOrganization, membership.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		orgs = append(orgs, openapi.CurrentUserOrg{
+			Id:        orgID,
+			Name:      membership.OrgName,
+			Role:      membership.Role,
+			CreatedAt: membership.CreatedAt,
+		})
+	}
+	return orgs, nil
+}
+
+func (s strictOpenAPIServer) ListOrganizations(
+	ctx context.Context,
+	_ openapi.ListOrganizationsRequestObject,
+) (openapi.ListOrganizationsResponseObject, error) {
+	if s.server.store == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "store unavailable")
+	}
+	principal, ok := principalFromContext(ctx)
+	if !ok || principal.Type != identitystore.PrincipalTypeUser || principal.ID == storage.NilID {
+		return nil, apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	memberships, err := s.server.store.Identity().ListOrgMembershipsForUser(ctx, principal.ID)
+	if err != nil {
+		return nil, apierror.UserScoped(err)
+	}
+	orgs, err := currentUserOrgs(memberships)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListOrganizations200JSONResponse(openapi.ListOrganizationsResponse{Data: orgs}), nil
 }

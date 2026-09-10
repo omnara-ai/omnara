@@ -266,6 +266,30 @@ paths:
         '5XX':
           $ref: '#/components/responses/ServerError'
   /orgs:
+    get:
+      operationId: listOrganizations
+      tags: [Organizations and Projects]
+      summary: List the authenticated user's organizations
+      description: Items are ordered by organization creation time ascending.
+      responses:
+        '200':
+          description: Organizations the authenticated user belongs to, with their role in each.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrganizationsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
       operationId: createOrganization
       tags: [Organizations and Projects]
@@ -12169,6 +12193,15 @@ components:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
           description: Organization creation timestamp, not the membership join timestamp.
+    ListOrganizationsResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CurrentUserOrg'
     CurrentUser:
       type: object
       additionalProperties: false

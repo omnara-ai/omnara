@@ -147,3 +147,33 @@ func getOrgMembershipForPrincipalTx(
 		return orgMembershipRow{}, pgx.ErrNoRows
 	}
 }
+
+type PrincipalRoles struct {
+	OrgRoles     []string
+	ProjectRoles []string
+}
+
+func (s *Store) ListPrincipalRoles(ctx context.Context, principal PrincipalRecord) (PrincipalRoles, error) {
+	if principal.Type == "" || isNilID(principal.ID) {
+		return PrincipalRoles{}, storeerr.ErrUnauthorized
+	}
+	userID, orgAPIKeyID := AccountPrincipalIDs(principal)
+	if userID == nil && orgAPIKeyID == nil {
+		return PrincipalRoles{}, nil
+	}
+	orgRoles, err := s.q.ListPrincipalOrgRoles(ctx, dbsqlc.ListPrincipalOrgRolesParams{
+		UserID:      userID,
+		OrgApiKeyID: orgAPIKeyID,
+	})
+	if err != nil {
+		return PrincipalRoles{}, fmt.Errorf("list principal org roles: %w", err)
+	}
+	projectRoles, err := s.q.ListPrincipalProjectRoles(ctx, dbsqlc.ListPrincipalProjectRolesParams{
+		UserID:      userID,
+		OrgApiKeyID: orgAPIKeyID,
+	})
+	if err != nil {
+		return PrincipalRoles{}, fmt.Errorf("list principal project roles: %w", err)
+	}
+	return PrincipalRoles{OrgRoles: orgRoles, ProjectRoles: projectRoles}, nil
+}

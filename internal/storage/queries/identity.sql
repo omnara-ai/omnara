@@ -1306,3 +1306,16 @@ SELECT EXISTS (
 SELECT role
 FROM org_memberships om
 WHERE om.org_id = sqlc.arg(org_id) AND om.user_id = sqlc.arg(user_id)::uuid;
+
+-- name: ListPrincipalOrgRoles :many
+SELECT DISTINCT om.role
+FROM org_memberships om
+JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
+WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND om.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
+
+-- name: ListPrincipalProjectRoles :many
+SELECT DISTINCT roles.role
+FROM principal_project_authorization_roles roles
+WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);

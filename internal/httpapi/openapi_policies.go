@@ -95,6 +95,7 @@ const (
 	operationCreateSkill                   operationID = "CreateSkill"
 	operationCreateSkillGrant              operationID = "CreateSkillGrant"
 	operationCreateOrganization            operationID = "CreateOrganization"
+	operationListOrganizations             operationID = "ListOrganizations"
 	operationCreatePersonalAccessToken     operationID = "CreatePersonalAccessToken"
 	operationCreateProject                 operationID = "CreateProject"
 	operationCreateProjectMachineGrant     operationID = "CreateProjectMachineGrant"
@@ -259,6 +260,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationAcceptInvitation:       userPolicy(noScope()),
 	operationDeclineInvitation:      userPolicy(noScope()),
 	operationCreateOrganization:     userPolicy(noScope()),
+	operationListOrganizations:      userPolicy(noScope()),
 
 	operationCreateProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
@@ -523,27 +525,43 @@ func authorizeOperationPrincipal(ctx context.Context, kind operationPrincipalKin
 	if !ok {
 		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
 	}
-	switch kind {
-	case principalKindUser:
-		if principal.Type != identitystore.PrincipalTypeUser {
-			return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		}
-	case principalKindAccount:
-		if !identitystore.IsAccountPrincipal(principal) {
-			return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		}
-	case principalKindBrowserSession:
-		if principal.Type != identitystore.PrincipalTypeUser || principal.BrowserSessionID == storage.NilID {
-			return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		}
-	case principalKindMachineDaemon:
-		if principal.Type != identitystore.PrincipalTypeMachineDaemon {
-			return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-		}
-	default:
+	if !isKnownPrincipalKind(kind) {
 		return apierror.FromCode(openapi.ErrorCodeInternalError, "unhandled operation principal")
 	}
+	if !principalSatisfies(principal, kind) {
+		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
 	return nil
+}
+
+func isKnownPrincipalKind(kind operationPrincipalKind) bool {
+	switch kind {
+	case principalKindUser,
+		principalKindAccount,
+		principalKindBrowserSession,
+		principalKindMachineDaemon,
+		principalKindPublic:
+		return true
+	default:
+		return false
+	}
+}
+
+func principalSatisfies(principal identitystore.PrincipalRecord, kind operationPrincipalKind) bool {
+	switch kind {
+	case principalKindPublic:
+		return true
+	case principalKindUser:
+		return principal.Type == identitystore.PrincipalTypeUser
+	case principalKindAccount:
+		return identitystore.IsAccountPrincipal(principal)
+	case principalKindBrowserSession:
+		return principal.Type == identitystore.PrincipalTypeUser && principal.BrowserSessionID != storage.NilID
+	case principalKindMachineDaemon:
+		return principal.Type == identitystore.PrincipalTypeMachineDaemon
+	default:
+		return false
+	}
 }
 
 type orgScopeContextKey struct{}

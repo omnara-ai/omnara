@@ -3278,6 +3278,71 @@ func (q *Queries) ListPersonalAccessTokensForUser(ctx context.Context, arg ListP
 	return items, nil
 }
 
+const listPrincipalOrgRoles = `-- name: ListPrincipalOrgRoles :many
+SELECT DISTINCT om.role
+FROM org_memberships om
+JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
+WHERE ($1::uuid IS NOT NULL AND om.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND om.org_api_key_id = $2::uuid)
+`
+
+type ListPrincipalOrgRolesParams struct {
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+func (q *Queries) ListPrincipalOrgRoles(ctx context.Context, arg ListPrincipalOrgRolesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listPrincipalOrgRoles, arg.UserID, arg.OrgApiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrincipalProjectRoles = `-- name: ListPrincipalProjectRoles :many
+SELECT DISTINCT roles.role
+FROM principal_project_authorization_roles roles
+WHERE ($1::uuid IS NOT NULL AND roles.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND roles.org_api_key_id = $2::uuid)
+`
+
+type ListPrincipalProjectRolesParams struct {
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+func (q *Queries) ListPrincipalProjectRoles(ctx context.Context, arg ListPrincipalProjectRolesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listPrincipalProjectRoles, arg.UserID, arg.OrgApiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectAuthorizationRolesForPrincipal = `-- name: ListProjectAuthorizationRolesForPrincipal :many
 SELECT role
 FROM principal_project_authorization_roles
