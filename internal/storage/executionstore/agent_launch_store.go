@@ -336,6 +336,19 @@ func launchConfigTx(
 	if err != nil {
 		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, err
 	}
+	if err := validateAgentConfigModelForUseTx(
+		ctx,
+		qtx,
+		config.OrgID,
+		config.ProjectID,
+		config.ConfiguredModelID,
+		contract,
+	); err != nil {
+		return AgentConfigRecord{}, agentconfig.RuntimeContract{}, fmt.Errorf(
+			"validate agent config model for launch: %w",
+			err,
+		)
+	}
 	return config, contract, nil
 }
 
