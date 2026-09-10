@@ -29,7 +29,7 @@ type ClearDeletedIntegrationTargetsFromAgentsParams struct {
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
-// Clears agent references to targets that were just soft deleted.
+// Clears agent references before soft deleting the install's targets.
 func (q *Queries) ClearDeletedIntegrationTargetsFromAgents(ctx context.Context, arg ClearDeletedIntegrationTargetsFromAgentsParams) error {
 	_, err := q.db.Exec(ctx, clearDeletedIntegrationTargetsFromAgents, arg.ProjectID, arg.IntegrationInstallID)
 	return err
@@ -447,7 +447,7 @@ JOIN integration_installs install
  AND install.deleted_at IS NULL
 WHERE agent.project_id = $6
   AND agent.id = $7
-ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at
 `
@@ -505,6 +505,41 @@ func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg Integrat
 	var consumed bool
 	err := row.Scan(&consumed)
 	return consumed, err
+}
+
+const listIntegrationInstallAgentIDsForLifecycle = `-- name: ListIntegrationInstallAgentIDsForLifecycle :many
+SELECT DISTINCT agent_id
+FROM integration_targets
+WHERE project_id = $1
+  AND integration_install_id = $2
+ORDER BY agent_id
+`
+
+type ListIntegrationInstallAgentIDsForLifecycleParams struct {
+	ProjectID            uuid.UUID
+	IntegrationInstallID uuid.UUID
+}
+
+// @sqlc-vet-disable integration-targets-deleted-at
+// Include historical targets whose agents may still hold references to clear.
+func (q *Queries) ListIntegrationInstallAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationInstallAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listIntegrationInstallAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationInstallID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var agent_id uuid.UUID
+		if err := rows.Scan(&agent_id); err != nil {
+			return nil, err
+		}
+		items = append(items, agent_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listIntegrationInstallsForProject = `-- name: ListIntegrationInstallsForProject :many
@@ -776,6 +811,57 @@ func (q *Queries) LockIntegrationInstallForDisable(ctx context.Context, arg Lock
 	var i LockIntegrationInstallForDisableRow
 	err := row.Scan(&i.State, &i.LastOauthFlowID)
 	return i, err
+}
+
+const lockIntegrationInstallForMutation = `-- name: LockIntegrationInstallForMutation :one
+SELECT id
+FROM integration_installs
+WHERE project_id = $1
+  AND id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockIntegrationInstallForMutationParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) LockIntegrationInstallForMutation(ctx context.Context, arg LockIntegrationInstallForMutationParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationInstallForMutation, arg.ProjectID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockIntegrationInstallLifecycleExclusive = `-- name: LockIntegrationInstallLifecycleExclusive :exec
+SELECT pg_advisory_xact_lock(
+  hashtextextended('integration_install_lifecycle:' || $1::uuid::text, 0)
+)
+`
+
+type LockIntegrationInstallLifecycleExclusiveParams struct {
+	InstallID uuid.UUID
+}
+
+func (q *Queries) LockIntegrationInstallLifecycleExclusive(ctx context.Context, arg LockIntegrationInstallLifecycleExclusiveParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationInstallLifecycleExclusive, arg.InstallID)
+	return err
+}
+
+const lockIntegrationInstallLifecycleShared = `-- name: LockIntegrationInstallLifecycleShared :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('integration_install_lifecycle:' || $1::uuid::text, 0)
+)
+`
+
+type LockIntegrationInstallLifecycleSharedParams struct {
+	InstallID uuid.UUID
+}
+
+func (q *Queries) LockIntegrationInstallLifecycleShared(ctx context.Context, arg LockIntegrationInstallLifecycleSharedParams) error {
+	_, err := q.db.Exec(ctx, lockIntegrationInstallLifecycleShared, arg.InstallID)
+	return err
 }
 
 const setAgentIntegrationTarget = `-- name: SetAgentIntegrationTarget :one

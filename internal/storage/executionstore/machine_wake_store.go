@@ -8,6 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type MachineWakeDisposition uint8
@@ -32,6 +35,16 @@ func (s *Store) BeginMachineWake(
 		return MachineWakeUnavailable, errors.New("machine wake timeout must be at least one millisecond")
 	}
 
+	return storeutil.RetryTransaction(ctx, "begin_machine_wake", func() (MachineWakeDisposition, error) {
+		return s.beginMachineWakeOnce(ctx, orgID, machineID, machinePoolID, wakeTimeout)
+	})
+}
+
+func (s *Store) beginMachineWakeOnce(
+	ctx context.Context,
+	orgID, machineID, machinePoolID ID,
+	wakeTimeout time.Duration,
+) (MachineWakeDisposition, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return MachineWakeUnavailable, fmt.Errorf("begin machine wake: %w", err)
@@ -39,18 +52,25 @@ func (s *Store) BeginMachineWake(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
-	if _, err := qtx.LockMachinePoolForUpdate(
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); errors.Is(err, storeerr.ErrNotFound) {
+		return MachineWakeUnavailable, nil
+	} else if err != nil {
+		return MachineWakeUnavailable, err
+	}
+	if err := lifecyclelock.Pools(
 		ctx,
-		dbsqlc.LockMachinePoolForUpdateParams{OrgID: orgID, ID: machinePoolID},
-	); errors.Is(err, pgx.ErrNoRows) {
+		tx,
+		[]lifecyclelock.PoolRef{{OrgID: orgID, PoolID: machinePoolID}},
+	); errors.Is(err, storeerr.ErrNotFound) {
 		return MachineWakeUnavailable, nil
 	} else if err != nil {
 		return MachineWakeUnavailable, fmt.Errorf("lock machine pool for wake: %w", err)
 	}
-	if _, err := qtx.LockMachineForLifecycle(
+	if err := lifecyclelock.Machines(
 		ctx,
-		dbsqlc.LockMachineForLifecycleParams{OrgID: orgID, ID: machineID},
-	); errors.Is(err, pgx.ErrNoRows) {
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: orgID, MachineID: machineID}},
+	); errors.Is(err, storeerr.ErrNotFound) {
 		return MachineWakeUnavailable, nil
 	} else if err != nil {
 		return MachineWakeUnavailable, fmt.Errorf("lock machine for wake: %w", err)

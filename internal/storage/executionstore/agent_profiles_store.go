@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -46,6 +47,9 @@ func (s *Store) CreateAgentProfile(
 		return AgentProfileRecord{}, err
 	}
 	input.OrgID = project.OrgID
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return AgentProfileRecord{}, err
+	}
 	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, input.CurrentConfigID)
 	if err != nil {
 		return AgentProfileRecord{}, err
@@ -128,6 +132,13 @@ func (s *Store) RetargetAgentProfile(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
+	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
+	if err != nil {
+		return AgentProfileRecord{}, err
+	}
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return AgentProfileRecord{}, err
+	}
 	profile, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.ProfileID)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return AgentProfileRecord{}, fmt.Errorf("agent profile not found: %w", storeerr.ErrNotFound)

@@ -427,7 +427,8 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (
     (sqlc.narg(agent_id)::uuid IS NOT NULL AND agent.id = sqlc.narg(agent_id)::uuid)
     OR (
-      (sqlc.narg(project_machine_grant_id)::uuid IS NOT NULL OR sqlc.narg(project_machine_pool_grant_id)::uuid IS NOT NULL)
+      sqlc.narg(agent_id)::uuid IS NULL
+      AND (sqlc.narg(project_machine_grant_id)::uuid IS NOT NULL OR sqlc.narg(project_machine_pool_grant_id)::uuid IS NOT NULL)
       AND EXISTS (
         SELECT 1
         FROM agent_machine_bindings binding
@@ -519,6 +520,36 @@ WHERE process.org_id = sqlc.arg(org_id)
     )
   )
 ORDER BY project_id, agent_id, created_at, id;
+
+-- name: ListMachineLifecycleTerminalAgentRefs :many
+SELECT DISTINCT process.project_id, process.agent_id
+FROM processes process
+WHERE process.org_id = sqlc.arg(org_id)
+  AND process.machine_id = sqlc.arg(machine_id)
+  AND (
+    process.state IN ('starting', 'running')
+    OR EXISTS (
+      SELECT 1
+      FROM process_actions action
+      WHERE action.project_id = process.project_id
+        AND action.agent_id = process.agent_id
+        AND action.process_id = process.id
+        AND action.state IN ('queued', 'accepted')
+    )
+    OR (
+      process.state = 'queued'
+      AND process.tool_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM tool_calls tool_call
+        WHERE tool_call.agent_id = process.agent_id
+          AND tool_call.id = process.tool_call_id
+          AND tool_call.type = 'built_in'
+          AND tool_call.state = 'waiting'
+      )
+    )
+  )
+ORDER BY process.project_id, process.agent_id;
 
 -- name: ListActiveProcesses :many
 SELECT id, state, machine_id, io_mode, command, shell_selector, cwd, source_started_at, created_at, updated_at, tool_call_id

@@ -110,7 +110,6 @@ WITH inserted AS (
          $4, $5, $6, transaction_timestamp()
   FROM agents agent
   WHERE agent.project_id = $7 AND agent.id = $8
-  ON CONFLICT (agent_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
   RETURNING id, agent_id, content_type, filename, digest, size_bytes, idempotency_key, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.content_type,

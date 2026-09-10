@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -104,17 +105,19 @@ func (t *toolCallTransaction) createPoolMachine(
 		}
 		return CreatePoolMachineResult{Machine: replay, Created: false}, nil
 	}
-	if err := t.q.LockAgentMachineSources(
-		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-	); err != nil {
-		return CreatePoolMachineResult{}, fmt.Errorf("lock agent machine sources for pool machine creation: %w", err)
+	project, err := loadProjectTx(ctx, t.q, projectID)
+	if err != nil {
+		return CreatePoolMachineResult{}, err
 	}
-	if _, err := t.q.LockAgentInProject(
+	if err := lifecyclelock.EnterActiveProject(ctx, t.tx, project.OrgID, projectID); err != nil {
+		return CreatePoolMachineResult{}, err
+	}
+	if err := lifecyclelock.AgentSources(
 		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
+		t.tx,
+		agentID,
 	); err != nil {
-		return CreatePoolMachineResult{}, fmt.Errorf("lock agent for pool machine creation: %w", err)
+		return CreatePoolMachineResult{}, err
 	}
 	if replay, found, err := poolMachineByCreateToolCallTx(
 		ctx,
@@ -133,6 +136,9 @@ func (t *toolCallTransaction) createPoolMachine(
 	agent, err := loadAgentInProjectTx(ctx, t.tx, projectID, agentID)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
+	}
+	if agent.State != AgentStateActive {
+		return CreatePoolMachineResult{}, storeerr.ErrStateTransitionConflict
 	}
 	agentConfigID, err := t.q.GetToolCallAgentConfigID(
 		ctx,
@@ -166,23 +172,21 @@ func (t *toolCallTransaction) createPoolMachine(
 			storeerr.ErrNotFound,
 		)
 	}
-	currentConfig, err := loadAgentConfigTx(ctx, t.q, projectID, agent.CurrentConfigID)
+	currentSource, err := currentAgentPoolMachineSourceTx(
+		ctx,
+		t.q,
+		projectID,
+		agent,
+		input.MachinePoolID,
+	)
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	currentContract, err := launchableRuntimeContract(currentConfig)
-	if err != nil {
+	if err := lifecyclelock.Pools(ctx, t.tx, []lifecyclelock.PoolRef{{
+		OrgID:  agent.OrgID,
+		PoolID: currentSource.MachinePoolID,
+	}}); err != nil {
 		return CreatePoolMachineResult{}, err
-	}
-	currentSource, found, err := machineSourceForPool(currentContract, input.MachinePoolID)
-	if err != nil {
-		return CreatePoolMachineResult{}, err
-	}
-	if !found {
-		return CreatePoolMachineResult{}, fmt.Errorf(
-			"machine pool is no longer configured for this agent: %w",
-			storeerr.ErrStateTransitionConflict,
-		)
 	}
 	poolGrant, err := t.q.GetActiveProjectMachinePoolGrantForLaunch(
 		ctx,
@@ -199,6 +203,23 @@ func (t *toolCallTransaction) createPoolMachine(
 		return CreatePoolMachineResult{}, fmt.Errorf("load agent machine pool grant: %w", err)
 	}
 	if err := t.lockForMutation(ctx); err != nil {
+		return CreatePoolMachineResult{}, err
+	}
+	agent, err = loadAgentInProjectTx(ctx, t.tx, projectID, agentID)
+	if err != nil {
+		return CreatePoolMachineResult{}, err
+	}
+	if agent.State != AgentStateActive {
+		return CreatePoolMachineResult{}, storeerr.ErrStateTransitionConflict
+	}
+	currentSource, err = currentAgentPoolMachineSourceTx(
+		ctx,
+		t.q,
+		projectID,
+		agent,
+		input.MachinePoolID,
+	)
+	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
 	resolvedMachine, err := t.store.ResolvePoolMachineTx(
@@ -262,14 +283,7 @@ func (t *toolCallTransaction) deletePoolMachine(
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
-	record, err := poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err := validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err := t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -279,34 +293,52 @@ func (t *toolCallTransaction) deletePoolMachine(
 		}
 		return record, nil
 	}
-	if err := t.q.LockAgentMachineSources(
+	if err := lifecyclelock.EnterActiveProject(
 		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+		t.tx,
+		record.Machine.OrgID,
+		projectID,
 	); err != nil {
-		return PoolMachineRecord{}, fmt.Errorf("lock agent machine sources for pool machine deletion: %w", err)
+		return PoolMachineRecord{}, err
 	}
-	if _, err := t.q.LockMachineForLifecycle(
+	if err := lifecyclelock.AgentSources(
 		ctx,
-		dbsqlc.LockMachineForLifecycleParams{
-			OrgID: record.Machine.OrgID,
-			ID:    record.Machine.ID,
-		},
-	); errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, fmt.Errorf("lock pool machine for deletion: %w", storeerr.ErrStateTransitionConflict)
-	} else if err != nil {
-		return PoolMachineRecord{}, fmt.Errorf("lock pool machine for deletion: %w", err)
+		t.tx,
+		agentID,
+	); err != nil {
+		return PoolMachineRecord{}, err
+	}
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	if err != nil {
+		return PoolMachineRecord{}, err
+	}
+	if replay {
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
+			return PoolMachineRecord{}, err
+		}
+		return record, nil
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		t.tx,
+		[]lifecyclelock.MachineRef{{OrgID: record.Machine.OrgID, MachineID: record.Machine.ID}},
+	); err != nil {
+		return PoolMachineRecord{}, err
+	}
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
+	if err != nil {
+		return PoolMachineRecord{}, err
+	}
+	if replay {
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
+			return PoolMachineRecord{}, err
+		}
+		return record, nil
 	}
 	if err := t.lockOrAcceptExisting(ctx); err != nil {
 		return PoolMachineRecord{}, err
 	}
-	record, err = poolMachineByRefTx(ctx, t.q, projectID, agentID, input.MachineRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return PoolMachineRecord{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return PoolMachineRecord{}, err
-	}
-	replay, err = validatePoolMachineDeletion(record, toolCallID)
+	record, replay, err = t.loadPoolMachineForDeletion(ctx, input.MachineRef)
 	if err != nil {
 		return PoolMachineRecord{}, err
 	}
@@ -352,23 +384,33 @@ func (t *toolCallTransaction) deletePoolMachine(
 	return record, nil
 }
 
-func validatePoolMachineDeletion(record PoolMachineRecord, toolCallID ID) (bool, error) {
+func (t *toolCallTransaction) loadPoolMachineForDeletion(
+	ctx context.Context,
+	machineRef string,
+) (PoolMachineRecord, bool, error) {
+	record, err := poolMachineByRefTx(ctx, t.q, t.input.ProjectID, t.input.AgentID, machineRef)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PoolMachineRecord{}, false, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return PoolMachineRecord{}, false, err
+	}
 	if record.Binding.DeleteToolCallID != NilID {
-		if record.Binding.DeleteToolCallID != toolCallID {
-			return false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+		if record.Binding.DeleteToolCallID != t.input.ToolCallID {
+			return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
 		}
-		return true, nil
+		return record, true, nil
 	}
 	if record.Binding.State == AgentMachineBindingStateReleased || record.Machine.DeletedAt != nil ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleting ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleteFailed ||
 		record.Machine.LifecycleState == MachineLifecycleStateDeleted {
-		return false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
+		return PoolMachineRecord{}, false, fmt.Errorf("machine deletion was already requested: %w", storeerr.ErrNotFound)
 	}
 	if record.Machine.SourceKind != MachineSourceKindPool || record.Machine.MachinePoolID == NilID {
-		return false, fmt.Errorf("machine is not pool-backed: %w", storeerr.ErrStateTransitionConflict)
+		return PoolMachineRecord{}, false, fmt.Errorf("machine is not pool-backed: %w", storeerr.ErrStateTransitionConflict)
 	}
-	return false, nil
+	return record, false, nil
 }
 
 func (s *Store) ListMachinePoolSources(
@@ -581,6 +623,34 @@ func poolMachineByRefTx(
 		return PoolMachineRecord{}, pgx.ErrNoRows
 	}
 	return poolMachineRecordFromSQLC(rows[0]), nil
+}
+
+func currentAgentPoolMachineSourceTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID ID,
+	agent AgentRecord,
+	machinePoolID ID,
+) (machineSource, error) {
+	currentConfig, err := loadAgentConfigTx(ctx, qtx, projectID, agent.CurrentConfigID)
+	if err != nil {
+		return machineSource{}, err
+	}
+	currentContract, err := launchableRuntimeContract(currentConfig)
+	if err != nil {
+		return machineSource{}, err
+	}
+	currentSource, found, err := machineSourceForPool(currentContract, machinePoolID)
+	if err != nil {
+		return machineSource{}, err
+	}
+	if !found {
+		return machineSource{}, fmt.Errorf(
+			"machine pool is no longer configured for this agent: %w",
+			storeerr.ErrStateTransitionConflict,
+		)
+	}
+	return currentSource, nil
 }
 
 func machineSourceForPool(contract agentconfig.RuntimeContract, machinePoolID ID) (machineSource, bool, error) {

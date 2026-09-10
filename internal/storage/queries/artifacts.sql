@@ -6,7 +6,6 @@ WITH inserted AS (
          sqlc.narg(digest), sqlc.narg(size_bytes), sqlc.narg(idempotency_key), transaction_timestamp()
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id)
-  ON CONFLICT (agent_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
   RETURNING id, agent_id, content_type, filename, digest, size_bytes, idempotency_key, created_at
 )
 SELECT inserted.id, agent.project_id, inserted.agent_id, inserted.content_type,

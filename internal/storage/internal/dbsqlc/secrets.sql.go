@@ -1181,6 +1181,27 @@ func (q *Queries) LockSecret(ctx context.Context, arg LockSecretParams) (uuid.UU
 	return id, err
 }
 
+const lockSecretForReference = `-- name: LockSecretForReference :one
+SELECT id
+FROM secrets
+WHERE org_id = $1 AND id = $2
+FOR SHARE
+`
+
+type LockSecretForReferenceParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// @sqlc-vet-disable secrets-deleted-at
+// Tombstoned rows remain lockable so admission waits before fresh revalidation.
+func (q *Queries) LockSecretForReference(ctx context.Context, arg LockSecretForReferenceParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockSecretForReference, arg.OrgID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockSecretOAuthRefreshLease = `-- name: LockSecretOAuthRefreshLease :one
 SELECT secret_id
 FROM secret_oauth_refresh_leases

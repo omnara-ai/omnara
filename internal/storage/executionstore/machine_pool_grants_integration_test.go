@@ -1983,80 +1983,110 @@ tools:
 	}
 }
 
-func TestRevokeProjectMachinePoolGrantWaitsForMachinePoolLock(t *testing.T) {
+func TestMachinePoolDeletionAndGrantRevocationSerialize(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	machinePool, err := store.Execution().CreateMachinePool(
-		ctx,
-		completeMachinePoolCreateInputForTest(
-			t,
-			ctx,
-			store,
-			executionstore.CreateMachinePoolInput{
-				OrgID:            testOrgID,
-				Name:             "Revoke Lock Pool",
-				Provider:         "test",
-				MaxTotalMachines: 1,
-			},
-		))
-
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
-		ctx,
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          testOrgID,
-			ProjectID:      testProjectID,
-			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "idem-pmpg-revoke-lock",
-		})
-
-	if err != nil {
-		t.Fatalf("create pool grant: %v", err)
-	}
-	lockTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin pool lock tx: %v", err)
-	}
-	defer func() { _ = lockTx.Rollback(ctx) }()
-	if _, err := lockTx.Exec(
-		ctx,
-		`SELECT id FROM machine_pools WHERE org_id = $1 AND id = $2 FOR UPDATE`,
-		testOrgID,
-		machinePool.ID,
-	); err != nil {
-		t.Fatalf("lock machine pool row: %v", err)
-	}
-	revokeDone := make(chan error, 1)
-	go func() {
-		_, revokeErr := store.Execution().DeleteProjectMachinePoolGrant(
-			ctx,
-			testOrgID,
-			testProjectID,
-			poolGrant.ID,
-		)
-		revokeDone <- revokeErr
-	}()
-	integrationdb.WaitForLockWaiters(t, ctx, pool, "FROM machine_pools", 1)
-	select {
-	case revokeErr := <-revokeDone:
-		t.Fatalf("revoke completed before waiting on machine pool row lock: %v", revokeErr)
-	default:
-	}
-	if err := lockTx.Rollback(ctx); err != nil {
-		t.Fatalf("release machine pool row lock: %v", err)
-	}
-	select {
-	case revokeErr := <-revokeDone:
-		if revokeErr != nil {
-			t.Fatalf("revoke after machine pool lock release: %v", revokeErr)
+	for _, revokeFirst := range []bool{false, true} {
+		name := "pool deletion first"
+		if revokeFirst {
+			name = "grant revocation first"
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pool grant revoke after lock release")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+			machinePool, err := store.Execution().CreateMachinePool(
+				ctx,
+				completeMachinePoolCreateInputForTest(t, ctx, store, executionstore.CreateMachinePoolInput{
+					OrgID:            testOrgID,
+					Name:             "Revoke Lock Pool",
+					Provider:         "test",
+					MaxTotalMachines: 1,
+				}),
+			)
+			if err != nil {
+				t.Fatalf("create machine pool: %v", err)
+			}
+			poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+				ctx,
+				executionstore.CreateProjectMachinePoolGrantInput{
+					OrgID:          testOrgID,
+					ProjectID:      testProjectID,
+					MachinePoolID:  machinePool.ID,
+					IdempotencyKey: "idem-pmpg-revoke-lock",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create pool grant: %v", err)
+			}
+
+			// Pause the winner after it owns the pool, so the competing operation
+			// must wait before enumerating or removing the pool's grants.
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockProjectMachinePoolGrantForLifecycle(
+				ctx,
+				dbsqlc.LockProjectMachinePoolGrantForLifecycleParams{ID: poolGrant.ID},
+			); err != nil {
+				t.Fatalf("lock pool grant: %v", err)
+			}
+			deletePool := func() error {
+				_, err := store.Execution().IntegrationDeleteMachinePoolOnce(ctx, testOrgID, machinePool.ID)
+				return err
+			}
+			revokeGrant := func() error {
+				_, err := store.Execution().IntegrationDeleteProjectMachinePoolGrantOnce(
+					ctx, testOrgID, testProjectID, poolGrant.ID,
+				)
+				return err
+			}
+			var deleteDone, revokeDone <-chan error
+			if revokeFirst {
+				revokeDone = integrationdb.RunAsyncError(revokeGrant)
+			} else {
+				deleteDone = integrationdb.RunAsyncError(deletePool)
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectMachinePoolGrantForLifecycle", 1)
+			if revokeFirst {
+				deleteDone = integrationdb.RunAsyncError(deletePool)
+			} else {
+				revokeDone = integrationdb.RunAsyncError(revokeGrant)
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release pool grant: %v", err)
+			}
+
+			if err := integrationdb.Await(t, deleteDone, "pool deletion"); err != nil {
+				t.Fatalf("delete pool in one transaction attempt: %v", err)
+			}
+			revokeErr := integrationdb.Await(t, revokeDone, "grant revocation")
+			if revokeFirst {
+				if revokeErr != nil {
+					t.Fatalf("revoke grant before pool deletion: %v", revokeErr)
+				}
+			} else if !errors.Is(revokeErr, storeerr.ErrNotFound) {
+				t.Fatalf("revoke grant after pool deletion = %v, want not found", revokeErr)
+			}
+			if _, err := store.Execution().GetMachinePool(ctx, testOrgID, machinePool.ID); !storeerr.IsNotFound(err) {
+				t.Fatalf("deleted pool lookup = %v, want not found", err)
+			}
+			var remainingGrants int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM project_machine_pool_grants WHERE machine_pool_id = $1`,
+				machinePool.ID,
+			).Scan(&remainingGrants); err != nil {
+				t.Fatalf("count remaining pool grants: %v", err)
+			}
+			if remainingGrants != 0 {
+				t.Fatalf("remaining pool grants = %d, want zero", remainingGrants)
+			}
+			if _, err := store.Execution().DeleteProjectMachinePoolGrant(
+				ctx, testOrgID, testProjectID, poolGrant.ID,
+			); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("repeat grant deletion = %v, want not found", err)
+			}
+		})
 	}
 }
 

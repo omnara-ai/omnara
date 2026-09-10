@@ -210,7 +210,7 @@ func (s *Store) requireOrgMember(ctx context.Context, orgID ID, actor PrincipalR
 	return nil
 }
 
-func validateSecretOwnerMembershipTx(
+func lockActiveSecretOwnerMembershipTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	orgID ID,
@@ -219,6 +219,15 @@ func validateSecretOwnerMembershipTx(
 ) error {
 	if ownerKind != SecretOwnerUser {
 		return nil
+	}
+	if _, err := qtx.LockUserForUpdate(
+		ctx,
+		dbsqlc.LockUserForUpdateParams{ID: ownerUserID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrUnauthorized
+		}
+		return fmt.Errorf("lock secret owner: %w", err)
 	}
 	if _, err := qtx.GetOrgAuthorizationRole(
 		ctx,

@@ -10,7 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -85,39 +87,102 @@ func (s *Store) CreateArtifact(
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("upload artifact content: %w", err)
 	}
-	cleanupUploadedBlob := func(cause error) error {
-		if err := s.blobs.DeleteBlob(ctx, artifactKey); err != nil {
-			return errors.Join(cause, fmt.Errorf("cleanup uploaded artifact content: %w", err))
-		}
-		return cause
-	}
 	input.Digest = metadata.Digest
 	input.SizeBytes = &metadata.SizeBytes
+	record, err := s.createArtifactRecord(ctx, artifactID, input)
+	// The transaction has committed or rolled back before external cleanup starts.
+	if err != nil || !record.Created {
+		cleanupErr := s.blobs.DeleteBlob(context.WithoutCancel(ctx), artifactKey)
+		if err != nil && cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("cleanup uploaded artifact content: %w", cleanupErr))
+		} else if cleanupErr != nil {
+			event := log.NewEvent(ctx, "artifact.replay.cleanup", log.Fields{
+				"project.id":  input.ProjectID,
+				"agent.id":    input.AgentID,
+				"artifact.id": record.ID,
+				"blob.key":    artifactKey,
+			})
+			event.Level(log.WarnLevel)
+			event.Error(cleanupErr)
+			event.Done(ctx)
+		}
+	}
+	return record, err
+}
 
+func (s *Store) createArtifactRecord(
+	ctx context.Context,
+	artifactID ID,
+	input CreateArtifactInput,
+) (ArtifactRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("begin create artifact: %w", err))
+		return ArtifactRecord{}, fmt.Errorf("begin create artifact: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	record, inserted, err := insertArtifactTx(ctx, tx, artifactID, input)
-	if err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(err)
+	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+	}}); err != nil {
+		return ArtifactRecord{}, err
 	}
-	if !inserted {
-		if err := validateArtifactReplay(record, input); err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(err)
+	if input.IdempotencyKey != "" {
+		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
+		if err != nil {
+			return ArtifactRecord{}, err
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return ArtifactRecord{}, cleanupUploadedBlob(
-				fmt.Errorf("commit idempotent create artifact: %w", err),
-			)
+		if found {
+			if err := tx.Commit(ctx); err != nil {
+				return ArtifactRecord{}, fmt.Errorf("commit idempotent create artifact: %w", err)
+			}
+			return replay, nil
 		}
-		return record, nil
+	}
+	agent, err := qtx.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+		ProjectID: input.ProjectID,
+		ID:        input.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ArtifactRecord{}, fmt.Errorf("revalidate artifact agent: %w", err)
+	}
+	if agent.State != "active" {
+		return ArtifactRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	record, err := insertArtifactTx(ctx, tx, artifactID, input)
+	if err != nil {
+		return ArtifactRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return ArtifactRecord{}, cleanupUploadedBlob(fmt.Errorf("commit create artifact: %w", err))
+		return ArtifactRecord{}, fmt.Errorf("commit create artifact: %w", err)
 	}
 	return record, nil
+}
+
+func findArtifactReplayTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateArtifactInput,
+) (ArtifactRecord, bool, error) {
+	row, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+		ProjectID:      input.ProjectID,
+		AgentID:        input.AgentID,
+		IdempotencyKey: input.IdempotencyKey,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ArtifactRecord{}, false, nil
+	}
+	if err != nil {
+		return ArtifactRecord{}, false, fmt.Errorf("load artifact replay: %w", err)
+	}
+	record := artifactRecordFromIdempotencySQLC(row)
+	if err := validateArtifactReplay(record, input); err != nil {
+		return ArtifactRecord{}, false, err
+	}
+	return record, true, nil
 }
 
 func (s *Store) GetArtifact(
@@ -189,7 +254,7 @@ func insertArtifactTx(
 	tx pgx.Tx,
 	artifactID ID,
 	input CreateArtifactInput,
-) (ArtifactRecord, bool, error) {
+) (ArtifactRecord, error) {
 	row, err := dbsqlc.New(tx).InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
 		ID:             artifactID,
 		ProjectID:      input.ProjectID,
@@ -200,28 +265,15 @@ func insertArtifactTx(
 		SizeBytes:      input.SizeBytes,
 		IdempotencyKey: sqlcTextFromEmpty(input.IdempotencyKey),
 	})
-	if err == nil {
-		record := artifactRecordFromInsertSQLC(row)
-		record.Created = true
-		return record, true, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
 		if storeutil.IsUniqueViolation(err) {
-			return ArtifactRecord{}, false, storeerr.ErrIdempotencyConflict
+			return ArtifactRecord{}, storeerr.ErrIdempotencyConflict
 		}
-		return ArtifactRecord{}, false, fmt.Errorf("insert artifact: %w", err)
+		return ArtifactRecord{}, fmt.Errorf("insert artifact: %w", err)
 	}
-	if input.IdempotencyKey == "" {
-		return ArtifactRecord{}, false, fmt.Errorf("insert artifact: %w", err)
-	}
-	record, err := loadArtifactForReplayTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		input.IdempotencyKey,
-	)
-	return record, false, err
+	record := artifactRecordFromInsertSQLC(row)
+	record.Created = true
+	return record, nil
 }
 
 func loadArtifact(
@@ -240,24 +292,6 @@ func loadArtifact(
 		return ArtifactRecord{}, fmt.Errorf("get artifact: %w", err)
 	}
 	return artifactRecordFromGetSQLC(row), nil
-}
-
-func loadArtifactForReplayTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID ID,
-	idempotencyKey string,
-) (ArtifactRecord, error) {
-	row, err := dbsqlc.New(tx).
-		GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
-			ProjectID:      projectID,
-			AgentID:        agentID,
-			IdempotencyKey: idempotencyKey,
-		})
-	if err != nil {
-		return ArtifactRecord{}, err
-	}
-	return artifactRecordFromIdempotencySQLC(row), nil
 }
 
 func validateArtifactReplay(record ArtifactRecord, input CreateArtifactInput) error {

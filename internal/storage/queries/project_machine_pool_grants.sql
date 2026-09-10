@@ -3,7 +3,9 @@ INSERT INTO project_machine_pool_grants(org_id, project_id, machine_pool_id, des
 SELECT project.org_id, project.id, pool.id, sqlc.arg(description), sqlc.narg(default_machine_cpu)::integer, sqlc.narg(default_machine_memory_mb)::integer, sqlc.arg(default_machine_env_overlay)::jsonb, sqlc.arg(default_machine_secret_env_overlay)::jsonb, sqlc.arg(default_machine_provider_options_overlay)::jsonb, sqlc.arg(default_cwd), sqlc.narg(max_total_machines)::integer, sqlc.narg(max_total_cpu)::integer, sqlc.narg(max_total_memory_mb)::integer, sqlc.narg(min_machine_cpu)::integer, sqlc.narg(min_machine_memory_mb)::integer, sqlc.narg(max_machine_cpu)::integer, sqlc.narg(max_machine_memory_mb)::integer, sqlc.narg(delete_after_idle_minutes)::integer, sqlc.narg(idempotency_key), sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
 FROM projects project
 JOIN machine_pools pool ON pool.org_id = project.org_id AND pool.id = sqlc.arg(machine_pool_id) AND pool.deleted_at IS NULL
-WHERE project.org_id = sqlc.arg(org_id) AND project.id = sqlc.arg(project_id)
+WHERE project.org_id = sqlc.arg(org_id)
+  AND project.id = sqlc.arg(project_id)
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, machine_pool_id) DO NOTHING
 RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
 
@@ -48,11 +50,71 @@ ORDER BY CASE WHEN NOT sqlc.arg(sort_desc)::boolean THEN sort_key END ASC, CASE 
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListProjectMachinePoolGrantRefsForMachinePool :many
-SELECT id, project_id
+SELECT id, project_id, machine_pool_id
 FROM project_machine_pool_grants
 WHERE org_id = sqlc.arg(org_id)
   AND machine_pool_id = sqlc.arg(machine_pool_id)
-ORDER BY id;
+ORDER BY project_id, id;
+
+-- name: ListProjectMachinePoolGrantRefsForProjectLifecycle :many
+SELECT id, project_id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE org_id = sqlc.arg(org_id)
+  AND project_id = sqlc.arg(project_id)
+ORDER BY machine_pool_id, id;
+
+-- name: ListProjectMachinePoolGrantRefsForOrganizationLifecycle :many
+SELECT id, project_id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE org_id = sqlc.arg(org_id)
+ORDER BY machine_pool_id, project_id, id;
+
+-- name: LockProjectMachinePoolGrantForLifecycle :one
+SELECT id, machine_pool_id
+FROM project_machine_pool_grants
+WHERE id = sqlc.arg(id)
+FOR UPDATE;
+
+-- name: ListPoolGrantMachineIDsForLifecycle :many
+SELECT machine.id
+FROM machines machine
+JOIN project_machine_grants machine_grant ON machine_grant.org_id = machine.org_id
+  AND machine_grant.machine_id = machine.id
+WHERE machine_grant.org_id = sqlc.arg(org_id)
+  AND machine_grant.project_id = sqlc.arg(project_id)
+  AND machine_grant.project_machine_pool_grant_id = sqlc.arg(project_machine_pool_grant_id)::uuid
+  AND machine_grant.source_kind = 'pool'
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+ORDER BY machine.id;
+
+-- name: ListPoolGrantAgentRefsForLifecycle :many
+SELECT DISTINCT agent.project_id, agent.id AS agent_id
+FROM agents agent
+JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
+  AND binding.agent_id = agent.id
+JOIN project_machine_grants machine_grant ON machine_grant.project_id = binding.project_id
+  AND machine_grant.machine_id = binding.machine_id
+WHERE machine_grant.org_id = sqlc.arg(org_id)
+  AND machine_grant.project_id = sqlc.arg(project_id)
+  AND machine_grant.project_machine_pool_grant_id = sqlc.arg(project_machine_pool_grant_id)::uuid
+  AND machine_grant.source_kind = 'pool'
+  AND binding.state = 'attached'
+ORDER BY agent.project_id, agent.id;
+
+-- name: ListMachinePoolAgentRefsForLifecycle :many
+SELECT DISTINCT agent.project_id, agent.id AS agent_id
+FROM agents agent
+JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
+  AND binding.agent_id = agent.id
+JOIN machines machine ON machine.org_id = binding.org_id
+  AND machine.id = binding.machine_id
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND machine.source_kind = 'pool'
+  AND machine.deleted_at IS NULL
+  AND binding.state = 'attached'
+ORDER BY agent.project_id, agent.id;
 
 -- name: UpdateProjectMachinePoolGrant :one
 UPDATE project_machine_pool_grants
@@ -80,19 +142,6 @@ RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_
 DELETE FROM project_machine_pool_grants
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
-
--- name: LockProjectMachinePoolGrantMachinesForUpdate :many
-SELECT machine.id
-FROM project_machine_grants machine_grant
-JOIN machines machine ON machine.org_id = machine_grant.org_id
-  AND machine.id = machine_grant.machine_id
-WHERE machine_grant.org_id = sqlc.arg(org_id)
-  AND machine_grant.project_id = sqlc.arg(project_id)
-  AND machine_grant.project_machine_pool_grant_id = sqlc.arg(project_machine_pool_grant_id)
-  AND machine_grant.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-ORDER BY machine.id
-FOR UPDATE OF machine;
 
 -- name: MarkPoolGrantMachinesDeleting :many
 UPDATE machines machine

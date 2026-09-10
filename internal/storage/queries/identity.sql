@@ -27,6 +27,13 @@ WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 UPDATE projects SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
 
+-- name: LockOrganizationMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id)
+ORDER BY id
+FOR UPDATE;
+
 -- name: DeleteOrganizationMemberships :exec
 DELETE FROM org_memberships
 WHERE org_id = sqlc.arg(org_id);
@@ -35,11 +42,6 @@ WHERE org_id = sqlc.arg(org_id);
 -- Invitations must not mint memberships in a deleted organization.
 DELETE FROM org_invitations
 WHERE org_id = sqlc.arg(org_id);
-
--- name: OrgExistsActive :one
-SELECT EXISTS (
-  SELECT 1 FROM orgs WHERE id = sqlc.arg(id) AND deleted_at IS NULL
-) AS org_exists;
 
 -- name: DeleteOrganizationConfiguredModels :exec
 UPDATE configured_models SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
@@ -107,6 +109,13 @@ SELECT id FROM agents
 WHERE project_id = sqlc.arg(project_id) AND state = 'active'
 ORDER BY id;
 
+-- name: ListActiveAgentRefsForOrganizationDeletion :many
+SELECT project_id, id AS agent_id
+FROM agents
+WHERE org_id = sqlc.arg(org_id)
+  AND state = 'active'
+ORDER BY project_id, id;
+
 -- name: ProjectHasActiveAgentsForDeletion :one
 SELECT EXISTS (
   SELECT 1 FROM agents
@@ -140,7 +149,10 @@ WHERE org.idempotency_key = sqlc.arg(idempotency_key)::text
 
 -- name: CreateProject :one
 INSERT INTO projects(org_id, name, idempotency_key, created_at, updated_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(name), sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp())
+SELECT org.id, sqlc.arg(name), sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp()
+FROM orgs org
+WHERE org.id = sqlc.arg(org_id)
+  AND org.deleted_at IS NULL
 ON CONFLICT (org_id, idempotency_key) DO NOTHING
 RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at;
 
@@ -318,6 +330,13 @@ WHERE id = $1 AND deleted_at IS NULL;
 UPDATE users SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 
+-- name: LockUserOrgMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE user_id = sqlc.arg(user_id)::uuid
+ORDER BY id
+FOR UPDATE;
+
 -- name: DeleteUserOrgMemberships :exec
 -- Project memberships hang off the org membership row and delete with it.
 DELETE FROM org_memberships
@@ -396,6 +415,16 @@ SELECT EXISTS (
         AND other.user_id <> membership.user_id
     )
 ) AS is_last_owner;
+
+-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = sqlc.arg(user_id)::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org;
 
 -- name: LockUserForUpdate :one
 SELECT id
@@ -749,7 +778,12 @@ WHERE auth_connector_id = sqlc.arg(auth_connector_id) AND subject = sqlc.arg(sub
 
 -- name: AddProjectMembership :one
 INSERT INTO project_memberships(org_id, project_id, org_membership_id, role, created_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(project_id), sqlc.arg(org_membership_id), sqlc.arg(role), transaction_timestamp())
+SELECT project.org_id, project.id, sqlc.arg(org_membership_id), sqlc.arg(role), transaction_timestamp()
+FROM projects project
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+WHERE project.org_id = sqlc.arg(org_id)
+  AND project.id = sqlc.arg(project_id)
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, org_membership_id)
 DO UPDATE SET role = excluded.role
 RETURNING org_id, project_id, org_membership_id, role, created_at;
@@ -1150,6 +1184,11 @@ SELECT id, org_id, email, normalized_email, org_role, created_at
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND normalized_email = sqlc.arg(normalized_email);
+
+-- name: GetOrgInvitationForLifecycle :one
+SELECT id, org_id
+FROM org_invitations
+WHERE id = sqlc.arg(id);
 
 -- name: ListPendingOrgInvitationsForEmails :many
 SELECT invitation.id,

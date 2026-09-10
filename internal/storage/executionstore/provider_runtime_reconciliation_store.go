@@ -9,8 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const defaultProviderRuntimePageSize int32 = 200
@@ -242,13 +244,14 @@ func (s *Store) MarkProviderRuntimeMismatch(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
-	if _, err := qtx.LockMachineForLifecycle(
+	if err := lifecyclelock.Machines(
 		ctx,
-		dbsqlc.LockMachineForLifecycleParams{
-			OrgID: candidate.OrgID,
-			ID:    candidate.MachineID,
-		},
-	); errors.Is(err, pgx.ErrNoRows) {
+		tx,
+		[]lifecyclelock.MachineRef{{
+			OrgID:     candidate.OrgID,
+			MachineID: candidate.MachineID,
+		}},
+	); errors.Is(err, storeerr.ErrNotFound) {
 		return false, nil
 	} else if err != nil {
 		return false, fmt.Errorf("lock machine for provider runtime mismatch: %w", err)
@@ -354,7 +357,7 @@ func (s *Store) ClaimProviderRuntimeMismatchDeletion(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 	txNotifications := s.newTxNotifications()
-	locked, err := lockProviderRuntimeDeletionCandidate(ctx, qtx, candidate)
+	locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, err
 	}
@@ -425,7 +428,7 @@ func (s *Store) ClaimProviderRuntimeTerminatedDeletion(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	locked, err := lockProviderRuntimeDeletionCandidate(ctx, qtx, candidate)
+	locked, err := lockProviderRuntimeDeletionCandidate(ctx, tx, qtx, candidate)
 	if err != nil {
 		return PoolMachineDeletionClaim{}, false, err
 	}
@@ -485,9 +488,22 @@ func providerRuntimeWakeAllowsDeletion(candidate ProviderRuntimeCandidate) bool 
 
 func lockProviderRuntimeDeletionCandidate(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	candidate ProviderRuntimeCandidate,
 ) (bool, error) {
+	if err := lifecyclelock.Pools(
+		ctx,
+		tx,
+		[]lifecyclelock.PoolRef{{
+			OrgID:  candidate.OrgID,
+			PoolID: candidate.MachinePoolID,
+		}},
+	); errors.Is(err, storeerr.ErrNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
 	_, err := qtx.LockProviderRuntimeProtectionPool(
 		ctx,
 		dbsqlc.LockProviderRuntimeProtectionPoolParams{
@@ -505,6 +521,18 @@ func lockProviderRuntimeDeletionCandidate(
 	}
 	if err != nil {
 		return false, fmt.Errorf("lock provider runtime protection pool: %w", err)
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{
+			OrgID:     candidate.OrgID,
+			MachineID: candidate.MachineID,
+		}},
+	); errors.Is(err, storeerr.ErrNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("lock provider runtime machine: %w", err)
 	}
 	if candidate.ManagementKind == management.Tenant {
 		if candidate.ProviderAuthSecretID == NilID || candidate.ProviderAuthVersionID == NilID {
@@ -528,17 +556,6 @@ func lockProviderRuntimeDeletionCandidate(
 		return false, errors.New(
 			"cluster provider runtime deletion has a tenant credential version",
 		)
-	}
-	if _, err := qtx.LockMachineForLifecycle(
-		ctx,
-		dbsqlc.LockMachineForLifecycleParams{
-			OrgID: candidate.OrgID,
-			ID:    candidate.MachineID,
-		},
-	); errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	} else if err != nil {
-		return false, fmt.Errorf("lock provider runtime machine: %w", err)
 	}
 	return true, nil
 }
