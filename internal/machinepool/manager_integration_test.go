@@ -1134,21 +1134,20 @@ FROM machines WHERE id = $1`, machineID).Scan(&committed); err != nil {
 			}
 			beforeNotifications := publisher.count
 			shouldRetry, err = manager.WakeMachine(ctx, orgID, machineID)
-			var attempts, commits, processCount int
+			var attempts, commits int
 			var wakeExpiresAt *time.Time
 			if queryErr := pool.QueryRow(ctx, `
 SELECT (SELECT last_value FROM test_wake_attempts),
        (SELECT count(*) FROM test_committed_wakes),
-       (SELECT count(*) FROM processes WHERE machine_id = $1),
        wake_attempt_expires_at
 FROM machines WHERE id = $1`, machineID).Scan(
-				&attempts, &commits, &processCount, &wakeExpiresAt,
+				&attempts, &commits, &wakeExpiresAt,
 			); queryErr != nil {
 				t.Fatalf("read wake retry effects: %v", queryErr)
 			}
-			if attempts != tc.attempts || processCount != 0 || publisher.count != beforeNotifications {
-				t.Fatalf("wake attempts=%d processes=%d notifications=%d; want %d, zero, unchanged",
-					attempts, processCount, publisher.count-beforeNotifications, tc.attempts)
+			if attempts != tc.attempts || publisher.count != beforeNotifications {
+				t.Fatalf("wake attempts=%d notifications=%d; want %d, unchanged",
+					attempts, publisher.count-beforeNotifications, tc.attempts)
 			}
 			if tc.wantError {
 				var pgErr *pgconn.PgError

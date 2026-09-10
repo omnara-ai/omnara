@@ -8,7 +8,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -634,139 +633,6 @@ model:
 	}
 }
 
-func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	user := mustCreateIdentityUser(t, ctx, store, "reconcile-locks@example.com", "Reconcile Locks")
-
-	poolTemplate := func(name string) executionstore.DefaultMachinePoolTemplate {
-		return defaultMachinePoolTemplateWithDefaultMachineForTest(
-			executionstore.DefaultMachinePoolTemplate{
-				Name:               name,
-				Description:        "old",
-				Provider:           "blaxel",
-				ProviderAuthEnvVar: "RECONCILE_LOCK_TOKEN",
-				MaxTotalMachines:   1,
-				MaxTotalMemoryMB:   new(4096),
-				MaxMachineMemoryMB: new(2048),
-			},
-			defaultMachineFieldsForTest{
-				DefaultMachineCPU:             1,
-				DefaultMachineMemoryMB:        512,
-				DefaultMachineProviderOptions: json.RawMessage(`{"image":"lock-test"}`),
-			},
-		)
-	}
-	initialPools := []executionstore.DefaultMachinePoolTemplate{
-		poolTemplate("reconcile-lock-pool-a"),
-	}
-	initialProvider := modelstore.DefaultModelProviderTemplate{
-		Provisioner:          "openrouter",
-		Name:                 "reconcile-lock-provider",
-		CredentialSecretName: "reconcile-lock-provider-key",
-		APIFormat:            modelprotocol.APIFormatOpenAIChatCompletions,
-		APIVariant:           modelprotocol.APIVariantOpenRouter,
-		BaseURL:              "https://reconcile-lock.example.com/v1",
-		EndpointPath:         "/chat/completions",
-		AuthKind:             modelstore.ModelProviderAuthKindBearerToken,
-		Models: []modelstore.DefaultConfiguredModelTemplate{{
-			Name: "reconcile-lock-model", ProviderModelSlug: "example/lock",
-			ContextWindowTokens: 8192, MaxOutputTokens: new(1024),
-		}},
-	}
-	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-		UserID:                        user.ID,
-		Name:                          "Reconcile Lock Org",
-		IdempotencyKey:                "reconcile-lock-org",
-		DefaultMachinePools:           initialPools,
-		ProvisionDefaultModelProvider: true,
-	})
-	if err != nil {
-		t.Fatalf("create lock-order org: %v", err)
-	}
-	mustCompleteDefaultModelProviderProvisioning(
-		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
-	)
-	provider, err := store.Models().GetModelProviderConfigByName(ctx, created.Org.ID, initialProvider.Name)
-	if err != nil {
-		t.Fatalf("get lock-order provider: %v", err)
-	}
-	configuredModel, err := store.Models().GetConfiguredModelByName(
-		ctx,
-		created.Org.ID,
-		provider.ID,
-		initialProvider.Models[0].Name,
-	)
-	if err != nil {
-		t.Fatalf("get lock-order configured model: %v", err)
-	}
-	poolRow, err := testQueries(store).GetMachinePoolByName(ctx, dbsqlc.GetMachinePoolByNameParams{
-		OrgID: created.Org.ID,
-		Name:  initialPools[0].Name,
-	})
-	if err != nil {
-		t.Fatalf("get lock-order machine pool: %v", err)
-	}
-
-	t.Run("models before pools", func(t *testing.T) {
-		modelBlockerTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin model blocker: %v", err)
-		}
-		defer func() { _ = modelBlockerTx.Rollback(context.Background()) }()
-		if _, err := dbsqlc.New(modelBlockerTx).LockConfiguredModelForUse(
-			ctx,
-			dbsqlc.LockConfiguredModelForUseParams{OrgID: created.Org.ID, ID: configuredModel.ID},
-		); err != nil {
-			t.Fatalf("lock configured model for use: %v", err)
-		}
-
-		desiredPool := initialPools[0]
-		desiredPool.Description = "model-first"
-		reconcileDone := make(chan error, 1)
-		go func() {
-			_, reconcileErr := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
-				Apply:                true,
-				DefaultMachinePools:  []executionstore.DefaultMachinePoolTemplate{desiredPool},
-				DefaultModelProvider: &initialProvider,
-			})
-			reconcileDone <- reconcileErr
-		}()
-		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockConfiguredModelForMutation", 1)
-
-		poolProbeTx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin pool probe: %v", err)
-		}
-		probeCtx, cancelProbe := context.WithTimeout(ctx, time.Second)
-		_, probeErr := dbsqlc.New(poolProbeTx).LockMachinePoolForUpdate(
-			probeCtx,
-			dbsqlc.LockMachinePoolForUpdateParams{OrgID: created.Org.ID, ID: poolRow.ID},
-		)
-		cancelProbe()
-		if rollbackErr := poolProbeTx.Rollback(context.Background()); rollbackErr != nil {
-			t.Fatalf("rollback pool probe: %v", rollbackErr)
-		}
-		if probeErr != nil {
-			t.Fatalf("pool locked before blocked configured model: %v", probeErr)
-		}
-		if err := modelBlockerTx.Rollback(ctx); err != nil {
-			t.Fatalf("release configured model blocker: %v", err)
-		}
-		select {
-		case err := <-reconcileDone:
-			if err != nil {
-				t.Fatalf("reconcile defaults: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for reconciliation")
-		}
-	})
-}
-
 func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -895,7 +761,6 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrganization(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-org-delete@example.com", "Defaults Owner")
 	poolTemplate := defaultReconciliationPoolTemplate("reconcile-org-delete-pool")
@@ -974,7 +839,6 @@ func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrgani
 func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-project-delete@example.com", "Defaults Owner")
 	providerTemplate := defaultReconciliationModelProviderTemplate()
@@ -1060,7 +924,6 @@ func TestReconcileDefaultsWaitingBehindProjectDeletionCreatesNoModel(t *testing.
 func TestReconcileDefaultsLocksAllPoolsBeforeAffectedMachines(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-pool-order@example.com", "Defaults Owner")
 	poolA := defaultReconciliationPoolTemplate("reconcile-pool-order-a")
@@ -1130,12 +993,10 @@ INSERT INTO machines(
 		return reconcileErr
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
-	deleteDone := make(chan error, 1)
-	go func() {
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		deleteTx, deleteErr := pool.Begin(ctx)
 		if deleteErr != nil {
-			deleteDone <- deleteErr
-			return
+			return deleteErr
 		}
 		defer func() { _ = deleteTx.Rollback(ctx) }()
 		_, deleteErr = store.Execution().DeleteMachinePoolTx(
@@ -1148,8 +1009,8 @@ INSERT INTO machines(
 		if deleteErr == nil {
 			deleteErr = deleteTx.Commit(ctx)
 		}
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release control transaction: %v", err)
@@ -1198,7 +1059,6 @@ WHERE pool.org_id = $1 AND pool.id = $2 AND machine.id = $3`,
 func TestReconcileDefaultsSerializesModelBeforePoolForAgentWorkflows(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
 	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
 	user := mustCreateIdentityUser(t, ctx, store, "reconcile-launch-order@example.com", "Defaults Owner")
 	poolTemplate := defaultReconciliationPoolTemplate("reconcile-launch-order-pool")

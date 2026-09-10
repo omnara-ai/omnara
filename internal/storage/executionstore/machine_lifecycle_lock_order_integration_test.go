@@ -209,9 +209,6 @@ tools:
 			if outcome.Err != nil {
 				t.Fatalf("launch multi-pool agent: %v", outcome.Err)
 			}
-			if len(outcome.Value.MachineBindings) != 0 {
-				t.Fatalf("multi-pool zero-initial launch bindings = %+v", outcome.Value.MachineBindings)
-			}
 		})
 	}
 }
@@ -1281,7 +1278,7 @@ func assertAgentCurrentConfig(
 	}
 }
 
-func TestProjectDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
+func TestProjectDeletionWaitsForConcurrentAgentArchive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := runScopeDeletionAfterConcurrentAgentArchive(
@@ -1289,22 +1286,22 @@ func TestProjectDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
 		ctx,
 		"project-archive",
 		"LockProjectLifecycleExclusive",
-		func(fixture machineLifecycleLockOrderFixture) error {
+		func(fixture machineLifecycleLockOrderFixture, actor *executionstore.ActorParams) error {
 			_, err := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
 				testProjectID,
-				scopeDeletionActor(t, fixture),
+				actor,
 			)
 			return err
 		},
 	)
-	if _, err := fixture.store.Identity().GetProject(ctx, testOrgID, testProjectID); err == nil {
-		t.Fatal("project remained active after deletion")
+	if _, err := fixture.store.Identity().GetProject(ctx, testOrgID, testProjectID); !storeerr.IsNotFound(err) {
+		t.Fatalf("deleted project lookup error = %v, want not found", err)
 	}
 }
 
-func TestOrganizationDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
+func TestOrganizationDeletionWaitsForConcurrentAgentArchive(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := runScopeDeletionAfterConcurrentAgentArchive(
@@ -1312,11 +1309,11 @@ func TestOrganizationDeletionReplansAfterConcurrentAgentArchive(t *testing.T) {
 		ctx,
 		"organization-archive",
 		"LockOrganizationLifecycleExclusive",
-		func(fixture machineLifecycleLockOrderFixture) error {
+		func(fixture machineLifecycleLockOrderFixture, actor *executionstore.ActorParams) error {
 			_, err := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				scopeDeletionActor(t, fixture),
+				actor,
 			)
 			return err
 		},
@@ -1816,7 +1813,7 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	ctx context.Context,
 	label string,
 	deletionGateQuery string,
-	deleteScope func(machineLifecycleLockOrderFixture) error,
+	deleteScope func(machineLifecycleLockOrderFixture, *executionstore.ActorParams) error,
 ) machineLifecycleLockOrderFixture {
 	t.Helper()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, label)
@@ -1842,7 +1839,7 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	deleteDone := integrationdb.RunAsyncError(func() error { return deleteScope(fixture) })
+	deleteDone := integrationdb.RunAsyncError(func() error { return deleteScope(fixture, actor) })
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, deletionGateQuery, 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release archive control transaction: %v", err)

@@ -74,10 +74,11 @@ func TestRetryTransactionExhaustionDiscardsUncommittedResult(t *testing.T) {
 
 func TestRetryTransactionHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
 	attempts := 0
 	_, err := storeutil.RetryTransaction(ctx, "test", func() (struct{}, error) {
 		attempts++
+		cancel()
 		return struct{}{}, &pgconn.PgError{Code: "40P01"}
 	})
 	if !errors.Is(err, context.Canceled) || attempts != 1 {

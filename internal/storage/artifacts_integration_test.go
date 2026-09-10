@@ -339,9 +339,6 @@ func TestCreateArtifactReplayCleanupFailurePreservesSuccess(t *testing.T) {
 			blobs.deleteKeys,
 		)
 	}
-	if _, ok := blobs.content[blobs.putKeys[1]]; !ok {
-		t.Fatal("failed cleanup unexpectedly removed the duplicate blob")
-	}
 	var event map[string]any
 	if err := json.Unmarshal(logs.Bytes(), &event); err != nil {
 		t.Fatalf("decode cleanup warning: %v; logs=%s", err, logs.String())

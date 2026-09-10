@@ -223,7 +223,6 @@ func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNoth
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	pool := openIntegrationDB(t, ctx)
-	defer pool.Close()
 	store := newSecretIntegrationStore(pool)
 	user := mustCreateIdentityUser(t, ctx, store, "provider-project-delete@example.com", "Provider Project Owner")
 	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
@@ -244,11 +243,7 @@ func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNoth
 	if err != nil {
 		t.Fatalf("build project deletion actor: %v", err)
 	}
-	controlTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin project deletion control transaction: %v", err)
-	}
-	defer func() { _ = controlTx.Rollback(ctx) }()
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	var membershipProjectID ID
 	if err := controlTx.QueryRow(ctx, `
 		SELECT project_id
@@ -259,20 +254,18 @@ func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNoth
 	`, created.Org.ID, created.Project.ID).Scan(&membershipProjectID); err != nil {
 		t.Fatalf("lock default project membership: %v", err)
 	}
-	deleteDone := make(chan error, 1)
-	go func() {
+	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := store.Organizations().DeleteProjectOnceForIntegration(
 			ctx,
 			created.Org.ID,
 			created.Project.ID,
 			actor,
 		)
-		deleteDone <- deleteErr
-	}()
+		return deleteErr
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
-	completeDone := make(chan error, 1)
-	go func() {
-		completeDone <- store.Organizations().CompleteDefaultModelProviderProvisioning(
+	completeDone := integrationdb.RunAsyncError(func() error {
+		return store.Organizations().CompleteDefaultModelProviderProvisioning(
 			ctx,
 			orglifecycle.CompleteDefaultModelProviderProvisioningInput{
 				Claim:           claim,
@@ -280,15 +273,17 @@ func TestDefaultModelProviderProvisioningWaitingBehindProjectDeletionCreatesNoth
 				CredentialValue: "must-not-be-stored",
 			},
 		)
-	}()
+	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleShared", 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release project deletion control transaction: %v", err)
 	}
-	if err := <-deleteDone; err != nil {
+	if err := integrationdb.Await(t, deleteDone, "project deletion"); err != nil {
 		t.Fatalf("delete project: %v", err)
 	}
-	if err := <-completeDone; !errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded) {
+	if err := integrationdb.Await(t, completeDone, "provider provisioning"); !errors.Is(
+		err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded,
+	) {
 		t.Fatalf("complete provisioning after project deletion error = %v, want superseded", err)
 	}
 	var providerCount, secretCount, jobCount int
