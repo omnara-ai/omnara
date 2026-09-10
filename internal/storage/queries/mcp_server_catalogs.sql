@@ -6,7 +6,7 @@ SELECT catalog.id, catalog.org_id, catalog.endpoint_url, catalog.secret_id,
        catalog.discover_ttl_ms, catalog.discover_expires_at, catalog.tools_snapshot,
        catalog.tools_cache_scope, catalog.tools_ttl_ms, catalog.tools_expires_at,
        catalog.fetched_at, catalog.refresh_owner_token, catalog.refresh_lease_expires_at,
-       catalog.created_at, catalog.updated_at, catalog.refresh_error
+       catalog.refresh_error, catalog.created_at, catalog.updated_at
 FROM mcp_server_catalogs catalog
 WHERE catalog.org_id = sqlc.arg(org_id)
   AND catalog.endpoint_url = sqlc.arg(endpoint_url)
@@ -23,7 +23,7 @@ SELECT catalog.id, catalog.org_id, catalog.endpoint_url, catalog.secret_id,
        catalog.discover_ttl_ms, catalog.discover_expires_at, catalog.tools_snapshot,
        catalog.tools_cache_scope, catalog.tools_ttl_ms, catalog.tools_expires_at,
        catalog.fetched_at, catalog.refresh_owner_token, catalog.refresh_lease_expires_at,
-       catalog.created_at, catalog.updated_at, catalog.refresh_error
+       catalog.refresh_error, catalog.created_at, catalog.updated_at
 FROM mcp_server_catalogs catalog
 JOIN agent_mcp_connections connection ON connection.catalog_id = catalog.id
 JOIN agents agent ON agent.id = connection.agent_id
@@ -66,7 +66,7 @@ RETURNING id, org_id, endpoint_url, secret_id, secret_version_id, aws_region, aw
           revision, protocol_version, server_capabilities, server_info, instructions,
           discover_cache_scope, discover_ttl_ms, discover_expires_at, tools_snapshot,
           tools_cache_scope, tools_ttl_ms, tools_expires_at, fetched_at,
-          refresh_owner_token, refresh_lease_expires_at, created_at, updated_at, refresh_error;
+          refresh_owner_token, refresh_lease_expires_at, refresh_error, created_at, updated_at;
 
 -- name: MarkMCPServerCatalogFetched :one
 UPDATE mcp_server_catalogs catalog
@@ -98,7 +98,7 @@ RETURNING catalog.id, catalog.org_id, catalog.endpoint_url, catalog.secret_id,
           catalog.discover_ttl_ms, catalog.discover_expires_at, catalog.tools_snapshot,
           catalog.tools_cache_scope, catalog.tools_ttl_ms, catalog.tools_expires_at,
           catalog.fetched_at, catalog.refresh_owner_token, catalog.refresh_lease_expires_at,
-          catalog.created_at, catalog.updated_at, catalog.refresh_error;
+          catalog.refresh_error, catalog.created_at, catalog.updated_at;
 
 -- name: ReleaseMCPServerCatalogRefreshLease :exec
 UPDATE mcp_server_catalogs catalog

@@ -1006,7 +1006,7 @@ mcp:
 	}
 	launchAgent := func(name, key string) executionstore.LaunchAgentResult {
 		t.Helper()
-		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML, now)
+		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML)
 		launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      kernelTestProjectID,
 			ProfileID:      agent.ID,
@@ -1159,7 +1159,7 @@ mcp:
 	}
 	runAgent := func(name, key string, at time.Duration) executionstore.MCPConnectionRecord {
 		t.Helper()
-		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML, now)
+		agent := fixture.createConfigAndProfileBookmark(t, ctx, name, key, sourceYAML)
 		launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 			ProjectID:      kernelTestProjectID,
 			ProfileID:      agent.ID,
@@ -1221,6 +1221,84 @@ mcp:
 			first.RequestSequence, second.RequestSequence,
 		)
 	}
+
+	catalogRefreshError := func(t *testing.T) string {
+		t.Helper()
+		var refreshError string
+		if err := fixture.Pool.QueryRow(
+			ctx, `SELECT refresh_error FROM mcp_server_catalogs WHERE id = $1`, *first.CatalogID,
+		).Scan(&refreshError); err != nil {
+			t.Fatal(err)
+		}
+		return refreshError
+	}
+	expireCatalogTools := func(t *testing.T) {
+		t.Helper()
+		if _, err := fixture.Pool.Exec(ctx,
+			`UPDATE mcp_server_catalogs
+			 SET tools_expires_at = statement_timestamp() - interval '1 second'
+			 WHERE id = $1`, *first.CatalogID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := agentconfig.RuntimeMCPServer{ServerKey: "docs", URL: "https://legacy.example.com/mcp", DefaultEnabled: true}
+	manager := mcp.Manager{
+		Execution: fixture.Store.Execution(),
+		Secrets:   fixture.Store.Secrets(),
+		Client:    mcpClient,
+		Backoff:   func(int) time.Duration { return 0 },
+	}
+	ensure := func(ctx context.Context, conn executionstore.MCPConnectionRecord) (mcp.ConnectionResult, error) {
+		return manager.EnsureConnection(
+			ctx, kernelTestOrgID, kernelTestProjectID, conn.AgentID, conn, server, mcp.TriggerTurnStart,
+		)
+	}
+
+	t.Run("expired session during a turn-start refresh reopens the session", func(t *testing.T) {
+		expireCatalogTools(t)
+		mcpClient.initializeAgentIDs = []string{"session-a2"}
+		mcpClient.listToolsErrors = []error{mcp.ErrSessionExpired}
+		initializations, lists := mcpClient.initializeCount, mcpClient.listToolsCount
+		result, err := ensure(ctx, first)
+		if err != nil || !result.Ready {
+			t.Fatalf("ensure after session expiry: %+v %v", result, err)
+		}
+		if result.Conn.MCPSessionID != "session-a2" || result.Conn.State != executionstore.MCPConnectionStateReady {
+			t.Fatalf("session was not reopened: %+v", result.Conn)
+		}
+		if mcpClient.initializeCount != initializations+1 || mcpClient.listToolsCount != lists+2 {
+			t.Fatalf(
+				"initializes = %d lists = %d, want %d and %d",
+				mcpClient.initializeCount, mcpClient.listToolsCount, initializations+1, lists+2,
+			)
+		}
+		if refreshError := catalogRefreshError(t); refreshError != "" {
+			t.Fatalf("session expiry was recorded against the shared catalog: %q", refreshError)
+		}
+		first = result.Conn
+	})
+
+	t.Run("caller cancellation during a fetch does not fail the shared catalog", func(t *testing.T) {
+		expireCatalogTools(t)
+		callerCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		mcpClient.beforeListTools = func(fetchCtx context.Context) error {
+			cancel()
+			return fetchCtx.Err()
+		}
+		defer func() { mcpClient.beforeListTools = nil }()
+		if _, err := ensure(callerCtx, first); err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled caller: %v", err)
+		}
+		if refreshError := catalogRefreshError(t); refreshError != "" {
+			t.Fatalf("caller cancellation was recorded against the shared catalog: %q", refreshError)
+		}
+		result, err := ensure(ctx, second)
+		if err != nil || !result.Ready {
+			t.Fatalf("other agent after canceled refresh: %+v %v", result, err)
+		}
+	})
 }
 
 func TestMCPManagerCatalogRecoveryAndProtocolCutover(t *testing.T) {
@@ -1237,7 +1315,7 @@ mcp:
     permission:
       mode: always_allow
 `
-	profile := fixture.createConfigAndProfileBookmark(t, ctx, "MCP cutover", "mcp-cutover", source, fixture.Now)
+	profile := fixture.createConfigAndProfileBookmark(t, ctx, "MCP cutover", "mcp-cutover", source)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
 		ProfileID:      profile.ID,

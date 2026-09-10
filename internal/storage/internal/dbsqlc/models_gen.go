@@ -350,9 +350,9 @@ type McpServerCatalog struct {
 	FetchedAt             *time.Time
 	RefreshOwnerToken     *uuid.UUID
 	RefreshLeaseExpiresAt *time.Time
+	RefreshError          string
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
-	RefreshError          string
 }
 
 type ModelProviderConfig struct {

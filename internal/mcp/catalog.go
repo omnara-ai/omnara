@@ -405,9 +405,12 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 	if err := callerCtx.Err(); err != nil {
 		return executionstore.MCPServerCatalogRecord{}, err
 	}
-	ctx, cancel := context.WithTimeout(callerCtx, timeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(callerCtx), timeout)
 	defer cancel()
 	contents, err := fetch(ctx, current)
+	if errors.Is(err, ErrSessionExpired) {
+		return executionstore.MCPServerCatalogRecord{}, err
+	}
 	if err != nil {
 		return executionstore.MCPServerCatalogRecord{}, errors.Join(
 			err,
@@ -483,6 +486,9 @@ func (m Manager) refreshReadyCatalog(
 			}))
 		}
 		refreshed, err := m.refreshCatalog(ctx, identity, stateless, fetch)
+		if errors.Is(err, ErrSessionExpired) {
+			return m.refreshExpired(ctx, orgID, projectID, agentID, conn, server)
+		}
 		if err != nil {
 			return ConnectionResult{}, err
 		}

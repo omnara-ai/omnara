@@ -1165,6 +1165,7 @@ type fakeKernelMCPClient struct {
 	failInitializeEndpoints map[string]error
 	failInitializeSequences map[string][]error
 	listToolsErrors         []error
+	beforeListTools         func(context.Context) error
 	callToolErrors          []error
 	callToolResult          *sdkmcp.CallToolResult
 	callToolConns           []mcp.Conn
@@ -1289,7 +1290,11 @@ func (c *fakeKernelMCPClient) ListTools(
 		err = c.listToolsErrors[0]
 		c.listToolsErrors = c.listToolsErrors[1:]
 	}
+	beforeListTools := c.beforeListTools
 	c.mu.Unlock()
+	if err == nil && beforeListTools != nil {
+		err = beforeListTools(ctx)
+	}
 	if err != nil {
 		return mcp.ToolsPage{}, err
 	}

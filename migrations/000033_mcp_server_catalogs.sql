@@ -23,6 +23,7 @@ CREATE TABLE mcp_server_catalogs (
     fetched_at timestamptz,
     refresh_owner_token uuid,
     refresh_lease_expires_at timestamptz,
+    refresh_error text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     CONSTRAINT mcp_server_catalogs_identity_key
