@@ -158,7 +158,8 @@ func TestAPIMCPRoute(t *testing.T) {
 		for _, tool := range listed.Tools {
 			names[tool.Name] = true
 		}
-		for _, want := range []string{"orgs_list", "agents_list", "agents_get", "projects_list", "profiles_list", "machines_get"} {
+		wantTools := []string{"orgs_list", "agents_list", "agents_get", "projects_list", "profiles_list", "machines_get"}
+		for _, want := range wantTools {
 			if !names[want] {
 				t.Errorf("viewer key should see %s, got %v", want, names)
 			}
