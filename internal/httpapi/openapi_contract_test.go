@@ -856,6 +856,20 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "modal",
+			body: `{"provider":"modal",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "modal missing memory",
+			body: `{"provider":"modal",` + common +
+				`,"default_machine_cpu":1,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "daytona without resource defaults",
 			body: `{"provider":"daytona",` + common +
 				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,

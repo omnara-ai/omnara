@@ -14,7 +14,7 @@ Most importantly, **the machine does not own the agent**. Agents live in the con
 
 | | BYO (bring your own) | Pool |
 | --- | --- | --- |
-| What it is | A computer you already have, registered by installing the daemon | Capacity provisioned on demand from Blaxel, Unikraft Cloud, or Daytona |
+| What it is | A computer you already have, registered by installing the daemon | Capacity provisioned on demand from Blaxel, Unikraft Cloud, Daytona, or Modal |
 | Created by | You, via the [install flow](/machines/connect) | Omnara, when an agent needs one |
 | Lifetime | Yours to manage | Created on demand — at launch or mid-conversation — and deleted when released or after a configured idle period |
 | Best for | Access to things only your infra can reach — mounts, internal networks, GPUs | Disposable, scale-to-zero execution |
@@ -74,7 +74,7 @@ Bindings remain `attached` until released. Releasing a pool binding schedules it
     Register a BYO machine and grant it to a project
   </Card>
   <Card title="Machine pools" icon="layer-group" href="/machines/pools">
-    On-demand capacity from Blaxel, Unikraft, or Daytona
+    On-demand capacity from Blaxel, Unikraft, Daytona, or Modal
   </Card>
   <Card title="Built-in tools" icon="terminal" href="/tools/built-in#commands">
     The command and process tools, from the agent's point of view
