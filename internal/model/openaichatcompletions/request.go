@@ -156,8 +156,15 @@ func (m chatMessage) MarshalJSON() ([]byte, error) {
 }
 
 type chatToolDefinition struct {
-	Type     string       `json:"type"`
-	Function chatFunction `json:"function"`
+	Type     string                 `json:"type"`
+	Function chatFunctionDefinition `json:"function"`
+}
+
+type chatFunctionDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+	Strict      bool            `json:"strict"`
 }
 
 type chatToolCall struct {
@@ -167,10 +174,8 @@ type chatToolCall struct {
 }
 
 type chatFunction struct {
-	Name        string                   `json:"name,omitempty"`
-	Description string                   `json:"description,omitempty"`
-	Parameters  json.RawMessage          `json:"parameters,omitempty"`
-	Arguments   model.ToolArgumentString `json:"arguments,omitempty"`
+	Name      string                   `json:"name,omitempty"`
+	Arguments model.ToolArgumentString `json:"arguments,omitempty"`
 }
 
 func buildMessages(
@@ -278,10 +283,11 @@ func buildTools(specs []modelcontext.ToolSpec) []chatToolDefinition {
 		}
 		tools = append(tools, chatToolDefinition{
 			Type: "function",
-			Function: chatFunction{
+			Function: chatFunctionDefinition{
 				Name:        spec.Name,
 				Description: spec.Description,
 				Parameters:  parameters,
+				Strict:      false,
 			},
 		})
 	}
