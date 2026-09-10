@@ -35,35 +35,33 @@ func (s *Store) CreateModelProviderConfig(
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	if record.Created {
-		if err := resourceguard.Lock(
-			ctx,
-			qtx,
-			resourceModelProviderConfigs,
-			input.OrgID.String(),
-		); err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
-			ctx,
-			dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	if err := resourceguard.Lock(
+		ctx,
+		qtx,
+		resourceModelProviderConfigs,
+		input.OrgID.String(),
+	); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
+		ctx,
+		dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	)
+	if err != nil {
+		return ModelProviderConfigRecord{}, fmt.Errorf(
+			"count tenant model provider configs: %w",
+			err,
 		)
-		if err != nil {
-			return ModelProviderConfigRecord{}, fmt.Errorf(
-				"count tenant model provider configs: %w",
-				err,
-			)
-		}
-		if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
-			return ModelProviderConfigRecord{}, resourceLimitExceeded(
-				"active model provider configs",
-				limits.MaxActiveTenantModelProviderConfigsPerOrg,
-			)
-		}
+	}
+	if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
+		return ModelProviderConfigRecord{}, resourceLimitExceeded(
+			"active model provider configs",
+			limits.MaxActiveTenantModelProviderConfigsPerOrg,
+		)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("commit create model provider config: %w", err)
@@ -108,8 +106,12 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
-	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
+	input.RequestTimeoutMS = normalizeModelProviderTimeoutMS(input.RequestTimeoutMS, DefaultModelProviderRequestTimeoutMS)
+	input.IdleTimeoutMS = normalizeModelProviderTimeoutMS(input.IdleTimeoutMS, DefaultModelProviderIdleTimeoutMS)
+	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := validateModelProviderTimeoutMS("idle_timeout_ms", input.IdleTimeoutMS); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
 	if err := management.Validate(input.managementKind); err != nil {
@@ -138,42 +140,21 @@ func (s *Store) createModelProviderConfigTx(
 			BaseUrl:            input.BaseURL,
 			EndpointPath:       input.EndpointPath,
 			RequestTimeoutMs:   int32(input.RequestTimeoutMS),
+			IdleTimeoutMs:      int32(input.IdleTimeoutMS),
 			AuthKind:           input.AuthKind,
 			AuthOptions:        input.AuthOptions,
 			CredentialSecretID: &input.CredentialSecretID,
 		},
 	)
-	if err == nil {
-		record := modelProviderConfigRecordFromSQLC(row)
-		record.Created = true
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		if storeutil.IsUniqueViolation(err) {
-			return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
+	if err != nil {
+		if storeutil.IsUniqueViolationOnConstraint(err, "model_provider_configs_active_name_idx") {
+			return ModelProviderConfigRecord{}, storeerr.Tag(storeerr.ErrConflict, fmt.Errorf(
+				"a model provider config named %q already exists", input.Name,
+			))
 		}
 		return ModelProviderConfigRecord{}, fmt.Errorf("insert model provider config: %w", err)
 	}
-	existingRow, err := qtx.GetModelProviderConfigByName(
-		ctx,
-		dbsqlc.GetModelProviderConfigByNameParams{OrgID: input.OrgID, Name: input.Name},
-	)
-	if err != nil {
-		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config by name: %w", err)
-	}
-	record := modelProviderConfigRecordFromSQLC(existingRow)
-	if !sameModelProviderConfigIntent(record, input) {
-		return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
-	}
-	return record, nil
-}
-
-func modelProviderConfigNameConflict(name string) error {
-	return fmt.Errorf(
-		"a model provider config named %q already exists with a different configuration: %w",
-		name,
-		storeerr.ErrIdempotencyConflict,
-	)
+	return modelProviderConfigRecordFromSQLC(row), nil
 }
 
 func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id ID) (ModelProviderConfigRecord, error) {
@@ -364,6 +345,7 @@ func updateModelProviderConfigTx(
 			BaseUrl:            update.BaseURL,
 			EndpointPath:       update.EndpointPath,
 			RequestTimeoutMs:   int32(update.RequestTimeoutMS),
+			IdleTimeoutMs:      int32(update.IdleTimeoutMS),
 			AuthKind:           update.AuthKind,
 			AuthOptions:        update.AuthOptions,
 			CredentialSecretID: &update.CredentialSecretID,
@@ -407,8 +389,10 @@ func normalizeModelProviderConfigUpdate(
 	if err := ValidateModelProviderAuth(input.AuthKind, input.AuthOptions); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
-	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
-	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
+	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateModelProviderTimeoutMS("idle_timeout_ms", input.IdleTimeoutMS); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
@@ -429,6 +413,7 @@ func updateModelProviderConfigInputFromCurrent(
 		BaseURL:            current.BaseURL,
 		EndpointPath:       current.EndpointPath,
 		RequestTimeoutMS:   current.RequestTimeoutMS,
+		IdleTimeoutMS:      current.IdleTimeoutMS,
 		AuthKind:           current.AuthKind,
 		AuthOptions:        current.AuthOptions,
 		CredentialSecretID: current.CredentialSecretID,
@@ -450,6 +435,9 @@ func applyModelProviderConfigPatch(
 	}
 	if patch.RequestTimeoutMS != nil {
 		update.RequestTimeoutMS = *patch.RequestTimeoutMS
+	}
+	if patch.IdleTimeoutMS != nil {
+		update.IdleTimeoutMS = *patch.IdleTimeoutMS
 	}
 	if patch.AuthKind != nil {
 		update.AuthKind = *patch.AuthKind
@@ -527,6 +515,7 @@ func modelProviderConfigRecordFromSQLC(row dbsqlc.ModelProviderConfig) ModelProv
 		BaseURL:            row.BaseUrl,
 		EndpointPath:       row.EndpointPath,
 		RequestTimeoutMS:   int(row.RequestTimeoutMs),
+		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),
@@ -547,6 +536,7 @@ func modelProviderConfigRecordFromListSQLC(row dbsqlc.ListModelProviderConfigsRo
 		BaseURL:            row.BaseUrl,
 		EndpointPath:       row.EndpointPath,
 		RequestTimeoutMS:   int(row.RequestTimeoutMs),
+		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -47,10 +48,10 @@ func effectiveOptionalPoolGrantCap(poolCap, grantCap *int32) *int {
 
 func effectivePoolGrantMinimum(poolMinimum, grantMinimum *int) *int {
 	if poolMinimum == nil {
-		return cloneIntPtr(grantMinimum)
+		return storeutil.ClonePtr(grantMinimum)
 	}
 	if grantMinimum == nil {
-		return cloneIntPtr(poolMinimum)
+		return storeutil.ClonePtr(poolMinimum)
 	}
 	value := max(*poolMinimum, *grantMinimum)
 	return &value

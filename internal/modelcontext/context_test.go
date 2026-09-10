@@ -550,6 +550,7 @@ type fakeContextStore struct {
 	machinePools               []executionstore.MachinePoolSourceRecord
 	watermark                  int64
 	checkpoints                []executionstore.ContextCheckpointRecord
+	outputLimitBoundaries      map[int64]bool
 	config                     executionstore.AgentConfigRecord
 	hasConfig                  bool
 	noConfig                   bool
@@ -608,6 +609,10 @@ func (s *fakeContextStore) GetArtifactBlob(
 		}
 	}
 	return nil, artifactstore.ArtifactRecord{}, storeerr.ErrNotFound
+}
+
+func (s *fakeContextStore) IsOutputLimitBoundary(_ context.Context, _, _ storage.ID, sequence int64) (bool, error) {
+	return s.outputLimitBoundaries[sequence], nil
 }
 
 func (s *fakeContextStore) ListContextEvents(

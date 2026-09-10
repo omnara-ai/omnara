@@ -129,9 +129,9 @@ func TestPrepareMachinePoolConfigInputValidatesIdleDeletionMinutes(t *testing.T)
 		valid   bool
 	}{
 		{valid: true},
-		{minutes: intPtrForMachinePoolStoreTest(0), valid: false},
-		{minutes: intPtrForMachinePoolStoreTest(4), valid: false},
-		{minutes: intPtrForMachinePoolStoreTest(5), valid: true},
+		{minutes: new(0), valid: false},
+		{minutes: new(4), valid: false},
+		{minutes: new(5), valid: true},
 	} {
 		input := CreateMachinePoolInput{
 			ManagementKind:                management.Cluster,
@@ -154,8 +154,8 @@ func TestCheckProvisioningResourceAdmissionEnforcesMinimums(t *testing.T) {
 		MachinePoolResources{},
 		MachinePoolResources{CPU: 1, MemoryMB: 1024},
 		MachineResourceLimits{
-			MinMachineCPU:      intPtrForMachinePoolStoreTest(2),
-			MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048),
+			MinMachineCPU:      new(2),
+			MinMachineMemoryMB: new(2048),
 		},
 	)
 	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
@@ -190,13 +190,13 @@ func TestValidateMachineResourcesWithinPerMachineLimitsEnforcesMinimums(t *testi
 		{
 			name:      "cpu",
 			resources: MachinePoolResources{CPU: 1, MemoryMB: 2048},
-			limits:    MachineResourceLimits{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			limits:    MachineResourceLimits{MinMachineCPU: new(2)},
 			want:      "cpu is below min_machine_cpu",
 		},
 		{
 			name:      "memory",
 			resources: MachinePoolResources{CPU: 2, MemoryMB: 1024},
-			limits:    MachineResourceLimits{MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048)},
+			limits:    MachineResourceLimits{MinMachineMemoryMB: new(2048)},
 			want:      "memory_mb is below min_machine_memory_mb",
 		},
 	} {
@@ -211,8 +211,8 @@ func TestValidateMachineResourcesWithinPerMachineLimitsEnforcesMinimums(t *testi
 	if err := validateMachineResourcesWithinPerMachineLimits(
 		MachinePoolResources{},
 		MachineResourceLimits{
-			MinMachineCPU:      intPtrForMachinePoolStoreTest(2),
-			MinMachineMemoryMB: intPtrForMachinePoolStoreTest(2048),
+			MinMachineCPU:      new(2),
+			MinMachineMemoryMB: new(2048),
 		},
 	); err != nil {
 		t.Fatalf("unresolved resources rejected before provider resolution: %v", err)
@@ -229,19 +229,19 @@ func TestValidateProjectMachinePoolGrantStaticPolicyMinimums(t *testing.T) {
 	}{
 		{
 			name:   "below pool minimum",
-			pool:   MachinePoolRecord{MinMachineCPU: intPtrForMachinePoolStoreTest(4), MaxMachineCPU: &maxMachineCPU},
-			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			pool:   MachinePoolRecord{MinMachineCPU: new(4), MaxMachineCPU: &maxMachineCPU},
+			config: projectMachinePoolGrantConfig{MinMachineCPU: new(2)},
 			want:   "pool grant min_machine_cpu cannot be lower than machine pool min_machine_cpu",
 		},
 		{
 			name:   "without pool maximum",
-			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(2)},
+			config: projectMachinePoolGrantConfig{MinMachineCPU: new(2)},
 			want:   "pool grant min_machine_cpu is not supported by the machine pool",
 		},
 		{
 			name:   "above pool maximum",
 			pool:   MachinePoolRecord{MaxMachineCPU: &maxMachineCPU},
-			config: projectMachinePoolGrantConfig{MinMachineCPU: intPtrForMachinePoolStoreTest(9)},
+			config: projectMachinePoolGrantConfig{MinMachineCPU: new(9)},
 			want:   "pool grant min_machine_cpu cannot exceed max_machine_cpu",
 		},
 	} {
@@ -252,8 +252,4 @@ func TestValidateProjectMachinePoolGrantStaticPolicyMinimums(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtrForMachinePoolStoreTest(value int) *int {
-	return &value
 }

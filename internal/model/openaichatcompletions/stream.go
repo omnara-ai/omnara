@@ -150,7 +150,8 @@ func (a *chatStreamAccumulator) hasCompleteTerminalOutcome() bool {
 		return false
 	}
 	for _, choice := range a.choices {
-		if strings.TrimSpace(choice.finishReason) == "" {
+		if strings.TrimSpace(choice.finishReason) == "" &&
+			!a.protocol.client.compat().outputTruncated(choice.finishReason, string(choice.nativeFinishReason)) {
 			return false
 		}
 	}
@@ -191,6 +192,7 @@ type chatStreamChoiceState struct {
 	reasoningDetails     map[string]*chatStreamReasoningDetailState
 	reasoningDetailOrder []string
 	finishReason         string
+	nativeFinishReason   lenientString
 	textBlockIndex       int
 	textBlockOpen        bool
 	reasoningBlockIndex  int
@@ -227,10 +229,11 @@ type chatStreamChunk struct {
 }
 
 type chatStreamChoice struct {
-	Index        int               `json:"index"`
-	Delta        chatStreamDelta   `json:"delta"`
-	FinishReason string            `json:"finish_reason"`
-	Error        chatProviderError `json:"error"`
+	Index              int               `json:"index"`
+	Delta              chatStreamDelta   `json:"delta"`
+	FinishReason       string            `json:"finish_reason"`
+	NativeFinishReason lenientString     `json:"native_finish_reason,omitempty"`
+	Error              chatProviderError `json:"error"`
 }
 
 type chatStreamDelta struct {
@@ -323,6 +326,12 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 
 func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStreamChoice) error {
 	state := a.choice(choice.Index)
+	if choice.FinishReason != "" {
+		state.finishReason = choice.FinishReason
+	}
+	if choice.NativeFinishReason != "" {
+		state.nativeFinishReason = choice.NativeFinishReason
+	}
 	text, err := optionalDeltaString(choice.Delta.Content, "content")
 	if err != nil {
 		return err
@@ -378,7 +387,6 @@ func (a *chatStreamAccumulator) handleChoice(ctx context.Context, choice chatStr
 		return nil
 	}
 	if choice.FinishReason != "" {
-		state.finishReason = choice.FinishReason
 		state.closeOpenBlocks(ctx, a.emit)
 	}
 	return nil
@@ -579,9 +587,10 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 			return nil, err
 		}
 		choices = append(choices, chatChoice{
-			Index:        index,
-			Message:      message,
-			FinishReason: state.finishReason,
+			Index:              index,
+			Message:            message,
+			FinishReason:       state.finishReason,
+			NativeFinishReason: state.nativeFinishReason,
 		})
 	}
 	return json.Marshal(chatCompletionsResponse{
@@ -606,13 +615,9 @@ func (s *chatStreamChoiceState) responseMessage() (chatResponseMessage, error) {
 		}
 		content = raw
 	}
-	var toolCalls []json.RawMessage
-	if s.finishReason != "length" {
-		var err error
-		toolCalls, err = s.toolCallMessages()
-		if err != nil {
-			return chatResponseMessage{}, err
-		}
+	toolCalls, err := s.toolCallMessages()
+	if err != nil {
+		return chatResponseMessage{}, err
 	}
 	reasoningDetails, err := s.reasoningDetailMessages()
 	if err != nil {
@@ -662,7 +667,7 @@ func (s *chatStreamChoiceState) toolCallMessages() ([]json.RawMessage, error) {
 			Type: callType,
 			Function: chatFunction{
 				Name:      tool.name,
-				Arguments: arguments,
+				Arguments: model.ToolArgumentString(arguments),
 			},
 		})
 		if err != nil {

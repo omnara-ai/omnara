@@ -164,14 +164,12 @@ export function useCreateModelProvider(orgID: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: CreateModelProviderConfigRequest) => {
-      const { data, response } = await sdk.createModelProviderConfig({
+      const { data } = await sdk.createModelProviderConfig({
         path: { orgID },
         body,
         client,
       })
-      // Preserve the route's idempotency signal so callers only roll back resources
-      // created by their own request, rather than a same-intent config returned with 200.
-      return { ...data, created: response.status === 201 }
+      return data
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({

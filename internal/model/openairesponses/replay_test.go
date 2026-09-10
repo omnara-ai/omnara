@@ -263,21 +263,27 @@ func TestPrepareDropsDanglingEncryptedReasoningReplay(t *testing.T) {
 		modelprotocol.APIFormatOpenAIResponses,
 		json.RawMessage(`[{"id":"rs_1","type":"reasoning","encrypted_content":"enc_1"}]`),
 	)
-	message := openAIReplayMessage("mcc_1", replay)
-	message.Content = json.RawMessage(`[{"type":"text","text":"canonical answer"}]`)
-	prepared, err := (Client{
-		ModelProviderConfigID: testModelProviderConfigID,
-		EndpointPath:          testEndpointPath,
-		ProviderModelSlug:     "gpt-test",
-	}).Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{Messages: []modelcontext.Message{message}},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	body := string(prepared.Body)
-	if strings.Contains(body, "enc_1") || !strings.Contains(body, "canonical answer") {
-		t.Fatalf("dangling reasoning replay was not replaced canonically: %s", body)
+	for _, content := range []string{`[]`, `[{"type":"text","text":"canonical answer"}]`} {
+		t.Run(content, func(t *testing.T) {
+			message := openAIReplayMessage("mcc_1", replay)
+			message.StopReason = model.StopReasonMaxTokens
+			message.Content = json.RawMessage(content)
+			prepared, err := (Client{
+				ModelProviderConfigID: testModelProviderConfigID,
+				EndpointPath:          testEndpointPath,
+				ProviderModelSlug:     "gpt-test",
+			}).Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{Messages: []modelcontext.Message{message}},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			body := string(prepared.Body)
+			if strings.Contains(body, "enc_1") || !strings.Contains(body, "Automatic Omnara harness notice") ||
+				(content != `[]` && !strings.Contains(body, "canonical answer")) {
+				t.Fatalf("dangling reasoning replay was not replaced canonically: %s", body)
+			}
+		})
 	}
 }
 

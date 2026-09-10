@@ -36,6 +36,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -1803,7 +1804,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	ensureIntegrationToolsProjectAdmin(t, ctx, store, user.ID, now)
 
-	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, now.Add(time.Second), withMCP)
+	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, withMCP)
 	launch, err := store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -2058,7 +2059,6 @@ func createIntegrationToolProfile(
 	store *storage.Store,
 	userID storage.ID,
 	label string,
-	now time.Time,
 	withMCP bool,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
@@ -2083,7 +2083,7 @@ tools:
       parameters: {}
 `
 	}
-	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML, now)
+	compiled := compileToolsAgentYAMLResolved(t, ctx, store, userID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               toolsTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -2115,22 +2115,16 @@ func compileToolsAgentYAMLResolved(
 	store *storage.Store,
 	userID storage.ID,
 	sourceYAML string,
-	now time.Time,
 ) agentconfig.Result {
 	t.Helper()
 	source, err := agentconfig.ParseSource(agentconfig.SourceFormatYAML, []byte(sourceYAML))
 	if err != nil {
 		t.Fatalf("parse agent config source: %v", err)
 	}
-	configuredModel := ensureToolsModelSelection(
-		t,
-		ctx,
-		store,
-		userID,
-		source.Model.ProviderConfig,
-		source.Model.Name,
-		now,
-	)
+	provider := storagefixture.EnsureModelProvider(t, ctx, store.Models(), store.Secrets(),
+		storagefixture.ModelProviderInput{OrgID: toolsTestOrgID, UserID: userID, Name: source.Model.ProviderConfig})
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), toolsTestProjectID,
+		storagefixture.DefaultModelInput(toolsTestOrgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(
 			providerConfigName string,
@@ -2189,94 +2183,6 @@ func resolvedToolsAgentConfigModel(
 		ConfiguredModelID: configuredModel.ID.String(),
 		SupportsTools:     &supportsTools,
 	}
-}
-
-func ensureToolsModelSelection(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	userID storage.ID,
-	providerConfigName, configuredModelName string,
-	now time.Time,
-) modelstore.ConfiguredModelRecord {
-	t.Helper()
-	providerConfig, err := store.Models().GetModelProviderConfigByName(ctx, toolsTestOrgID, providerConfigName)
-	if err != nil {
-		if !storeerr.IsNotFound(err) {
-			t.Fatalf("load model provider config %q: %v", providerConfigName, err)
-		}
-		secret, err := ensureToolsProviderCredential(t, ctx, store, userID, providerConfigName)
-		if err != nil {
-			t.Fatalf("ensure provider credential: %v", err)
-		}
-		providerConfig, err = store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-			OrgID:              toolsTestOrgID,
-			Name:               providerConfigName,
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         "default",
-			BaseURL:            "https://api.openai.com/v1",
-			CredentialSecretID: secret.ID,
-		})
-		if err != nil {
-			t.Fatalf("create model provider config %q: %v", providerConfigName, err)
-		}
-	}
-	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                 toolsTestOrgID,
-		ModelProviderConfigID: providerConfig.ID,
-		Name:                  configuredModelName,
-		ProviderModelSlug:     configuredModelName,
-		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
-	})
-	if err != nil {
-		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             toolsTestOrgID,
-		ProjectID:         toolsTestProjectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	return configuredModel
-}
-
-func ensureToolsProviderCredential(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	userID storage.ID,
-	providerConfigName string,
-) (secretstore.SecretRecord, error) {
-	t.Helper()
-	name := "tools-provider-" + providerConfigName
-	secret, err := store.Secrets().GetSecretByOwnerName(
-		ctx,
-		toolsTestOrgID,
-		secretstore.SecretOwnerOrg,
-		storage.NilID,
-		storage.NilID,
-		name,
-	)
-	if err == nil {
-		return secret, nil
-	}
-	if !storeerr.IsNotFound(err) {
-		return secretstore.SecretRecord{}, err
-	}
-	secret, _, err = store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     toolsTestOrgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      name,
-		Material:  secrets.GenericMaterial{Value: "test-key"},
-		Actor:     toolsTestUserPrincipal(userID),
-	})
-	return secret, err
-}
-
-func intPtrForToolsTest(value int) *int {
-	return &value
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {

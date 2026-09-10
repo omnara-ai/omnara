@@ -29,6 +29,7 @@ type DefaultModelProviderTemplate struct {
 	BaseURL              string                           `json:"base_url"`
 	EndpointPath         string                           `json:"endpoint_path"`
 	RequestTimeoutMS     int                              `json:"request_timeout_ms"`
+	IdleTimeoutMS        int                              `json:"idle_timeout_ms"`
 	AuthKind             string                           `json:"auth_kind"`
 	AuthOptions          json.RawMessage                  `json:"auth_options"`
 	Models               []DefaultConfiguredModelTemplate `json:"models"`
@@ -38,7 +39,7 @@ type DefaultConfiguredModelTemplate struct {
 	Name                      string          `json:"name"`
 	ProviderModelSlug         string          `json:"provider_model_slug"`
 	ContextWindowTokens       int             `json:"context_window_tokens"`
-	MaxOutputTokens           int             `json:"max_output_tokens"`
+	MaxOutputTokens           *int            `json:"max_output_tokens"`
 	DefaultMaxOutputTokens    *int            `json:"default_max_output_tokens"`
 	DefaultCacheRetention     string          `json:"default_cache_retention"`
 	SupportsTools             *bool           `json:"supports_tools"`
@@ -79,7 +80,11 @@ func PrepareDefaultModelProviderTemplate(
 	template.BaseURL = baseURL
 	apiFormat := template.APIFormat
 	template.EndpointPath = normalizeModelProviderEndpointPath(apiFormat, template.EndpointPath)
-	template.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(template.RequestTimeoutMS)
+	template.RequestTimeoutMS = normalizeModelProviderTimeoutMS(
+		template.RequestTimeoutMS,
+		DefaultModelProviderRequestTimeoutMS,
+	)
+	template.IdleTimeoutMS = normalizeModelProviderTimeoutMS(template.IdleTimeoutMS, DefaultModelProviderIdleTimeoutMS)
 	template.AuthKind = normalizeModelProviderAuthKind(apiFormat, template.AuthKind)
 	template.AuthOptions = normalizeModelProviderAuthOptions(
 		apiFormat,
@@ -139,7 +144,10 @@ func validatePreparedDefaultModelProviderTemplate(template DefaultModelProviderT
 	); err != nil {
 		return err
 	}
-	if err := validateModelProviderRequestTimeoutMS(template.RequestTimeoutMS); err != nil {
+	if err := validateModelProviderTimeoutMS("request_timeout_ms", template.RequestTimeoutMS); err != nil {
+		return err
+	}
+	if err := validateModelProviderTimeoutMS("idle_timeout_ms", template.IdleTimeoutMS); err != nil {
 		return err
 	}
 	seen := make(map[string]struct{}, len(template.Models))
@@ -170,8 +178,9 @@ func cloneDefaultModelProviderTemplate(template DefaultModelProviderTemplate) De
 	template.Models = append([]DefaultConfiguredModelTemplate(nil), template.Models...)
 	for i := range template.Models {
 		model := &template.Models[i]
-		model.DefaultMaxOutputTokens = cloneIntPtr(model.DefaultMaxOutputTokens)
-		model.SupportsTools = cloneBoolPtr(model.SupportsTools)
+		model.MaxOutputTokens = storeutil.ClonePtr(model.MaxOutputTokens)
+		model.DefaultMaxOutputTokens = storeutil.ClonePtr(model.DefaultMaxOutputTokens)
+		model.SupportsTools = storeutil.ClonePtr(model.SupportsTools)
 		model.SupportedReasoningEfforts = append([]string(nil), model.SupportedReasoningEfforts...)
 		model.InputModalities = append([]string(nil), model.InputModalities...)
 		model.OutputModalities = append([]string(nil), model.OutputModalities...)
@@ -237,6 +246,7 @@ func (s *Store) ProvisionDefaultTx(
 		BaseURL:            prepared.BaseURL,
 		EndpointPath:       prepared.EndpointPath,
 		RequestTimeoutMS:   prepared.RequestTimeoutMS,
+		IdleTimeoutMS:      prepared.IdleTimeoutMS,
 		AuthKind:           prepared.AuthKind,
 		AuthOptions:        prepared.AuthOptions,
 		CredentialSecretID: credentialSecretID,
@@ -288,7 +298,7 @@ func grantDefaultConfiguredModelToProjectTx(
 	if err := validateProjectModelGrantForConfiguredModel(apiFormat, model, input); err != nil {
 		return fmt.Errorf("validate default configured model grant: %w", err)
 	}
-	if _, err := qtx.UpsertProjectModelGrant(ctx, dbsqlc.UpsertProjectModelGrantParams{
+	if _, err := qtx.InsertProjectModelGrant(ctx, dbsqlc.InsertProjectModelGrantParams{
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,
 		ConfiguredModelID:         input.ConfiguredModelID,

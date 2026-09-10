@@ -66,6 +66,7 @@ export function GrantMachinePoolDialog({
   const queryError = poolsQuery.isError || grantsQuery.isError
   const isSubmitting = status.phase === 'submitting'
   const errorMessage = statusError(status)
+  const selectionLocked = isSubmitting || queryError || !completeGrants.isComplete
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -85,7 +86,7 @@ export function GrantMachinePoolDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Grant machine pool</DialogTitle>
           <DialogDescription>
@@ -104,7 +105,7 @@ export function GrantMachinePoolDialog({
                 }}
                 query={poolsQuery}
                 pending={poolsQuery.isPending || completeGrants.isPending}
-                disabled={isSubmitting || queryError || !completeGrants.isComplete}
+                disabled={selectionLocked}
               />
               {!queryError &&
                 !poolsQuery.isPending &&
@@ -146,13 +147,7 @@ export function GrantMachinePoolDialog({
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={
-                  isSubmitting ||
-                  !selected ||
-                  queryError ||
-                  !completeGrants.isComplete ||
-                  !poolGrantOverridesValid(selected.draft)
-                }
+                disabled={selectionLocked || !selected || !poolGrantOverridesValid(selected.draft)}
                 loading={isSubmitting}
               >
                 Grant pool

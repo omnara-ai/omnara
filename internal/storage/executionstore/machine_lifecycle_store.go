@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -228,23 +229,23 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		)
 	}
 	current := MachineResourceFacts{
-		CPU:      intPtrFromSQLC(locked.Cpu),
-		MemoryMB: intPtrFromSQLC(locked.MemoryMb),
+		CPU:      storeutil.IntPtr(locked.Cpu),
+		MemoryMB: storeutil.IntPtr(locked.MemoryMb),
 	}
-	if current.CPU != nil && !sameIntPtr(current.CPU, input.Facts.CPU) {
+	if current.CPU != nil && !storeutil.SameIntPtr(current.CPU, input.Facts.CPU) {
 		return PoolMachineProvisioningAdmission{}, fmt.Errorf(
 			"provider resolved a different cpu: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
-	if current.MemoryMB != nil && !sameIntPtr(current.MemoryMB, input.Facts.MemoryMB) {
+	if current.MemoryMB != nil && !storeutil.SameIntPtr(current.MemoryMB, input.Facts.MemoryMB) {
 		return PoolMachineProvisioningAdmission{}, fmt.Errorf(
 			"provider resolved a different memory_mb: %w",
 			storeerr.ErrStateTransitionConflict,
 		)
 	}
-	if sameIntPtr(current.CPU, input.Facts.CPU) &&
-		sameIntPtr(current.MemoryMB, input.Facts.MemoryMB) {
+	if storeutil.SameIntPtr(current.CPU, input.Facts.CPU) &&
+		storeutil.SameIntPtr(current.MemoryMB, input.Facts.MemoryMB) {
 		if err := tx.Commit(ctx); err != nil {
 			return PoolMachineProvisioningAdmission{}, fmt.Errorf(
 				"commit replayed pool machine provisioning admission: %w",
@@ -302,12 +303,12 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		currentResources,
 		resolved,
 		MachineResourceLimits{
-			MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
-			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
-			MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
-			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
-			MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
-			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
+			MaxTotalCPU:        storeutil.IntPtr(poolGrant.PoolMaxTotalCpu),
+			MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.PoolMaxTotalMemoryMb),
+			MinMachineCPU:      storeutil.IntPtr(poolGrant.PoolMinMachineCpu),
+			MinMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMinMachineMemoryMb),
+			MaxMachineCPU:      storeutil.IntPtr(poolGrant.PoolMaxMachineCpu),
+			MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMaxMachineMemoryMb),
 		},
 	); err != nil {
 		return PoolMachineProvisioningAdmission{}, fmt.Errorf("machine pool %w", err)
@@ -332,12 +333,12 @@ func (s *Store) AdmitPoolMachineProvisioning(
 		currentResources,
 		resolved,
 		MachineResourceLimits{
-			MaxTotalCPU:        intPtrFromSQLC(poolGrant.GrantMaxTotalCpu),
-			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.GrantMaxTotalMemoryMb),
-			MinMachineCPU:      intPtrFromSQLC(poolGrant.GrantMinMachineCpu),
-			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMinMachineMemoryMb),
-			MaxMachineCPU:      intPtrFromSQLC(poolGrant.GrantMaxMachineCpu),
-			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMaxMachineMemoryMb),
+			MaxTotalCPU:        storeutil.IntPtr(poolGrant.GrantMaxTotalCpu),
+			MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.GrantMaxTotalMemoryMb),
+			MinMachineCPU:      storeutil.IntPtr(poolGrant.GrantMinMachineCpu),
+			MinMachineMemoryMB: storeutil.IntPtr(poolGrant.GrantMinMachineMemoryMb),
+			MaxMachineCPU:      storeutil.IntPtr(poolGrant.GrantMaxMachineCpu),
+			MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.GrantMaxMachineMemoryMb),
 		},
 	); err != nil {
 		return PoolMachineProvisioningAdmission{}, fmt.Errorf("project machine pool %w", err)
@@ -345,8 +346,8 @@ func (s *Store) AdmitPoolMachineProvisioning(
 	row, err := qtx.EnrichPoolMachineProvisioningResources(
 		ctx,
 		dbsqlc.EnrichPoolMachineProvisioningResourcesParams{
-			Cpu:              sqlcInt32Ptr(input.Facts.CPU),
-			MemoryMb:         sqlcInt32Ptr(input.Facts.MemoryMB),
+			Cpu:              storeutil.Int32Ptr(input.Facts.CPU),
+			MemoryMb:         storeutil.Int32Ptr(input.Facts.MemoryMB),
 			OrgID:            input.OrgID,
 			ID:               input.MachineID,
 			MachinePoolID:    sqlcIDFromNil(input.MachinePoolID),
@@ -367,8 +368,8 @@ func (s *Store) AdmitPoolMachineProvisioning(
 	}
 	admission := PoolMachineProvisioningAdmission{
 		Facts: MachineResourceFacts{
-			CPU:      intPtrFromSQLC(row.Cpu),
-			MemoryMB: intPtrFromSQLC(row.MemoryMb),
+			CPU:      storeutil.IntPtr(row.Cpu),
+			MemoryMB: storeutil.IntPtr(row.MemoryMb),
 		},
 		UpdatedAt: row.UpdatedAt,
 	}

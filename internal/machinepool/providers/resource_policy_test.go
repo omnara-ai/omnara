@@ -18,8 +18,8 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 	}
 	t.Run("daytona valid with optional defaults", func(t *testing.T) {
 		policy := validProviderResourcePolicyForTest("daytona")
-		policy.DefaultProvisioning.CPU = resourceIntPtr(1)
-		policy.DefaultProvisioning.MemoryMB = resourceIntPtr(1024)
+		policy.DefaultProvisioning.CPU = new(1)
+		policy.DefaultProvisioning.MemoryMB = new(1024)
 		if err := ValidateMachinePoolResourcePolicy(
 			"daytona",
 			policy,
@@ -98,7 +98,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "blaxel forbids default cpu",
 			provider: "blaxel",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.DefaultProvisioning.CPU = resourceIntPtr(1)
+				policy.DefaultProvisioning.CPU = new(1)
 			},
 			want: "do not support default_machine_cpu",
 		},
@@ -106,7 +106,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "blaxel forbids total cpu limit",
 			provider: "blaxel",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MaxTotalCPU = resourceIntPtr(4)
+				policy.ResourceLimits.MaxTotalCPU = new(4)
 			},
 			want: "do not support max_total_cpu",
 		},
@@ -114,7 +114,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "blaxel forbids per-machine cpu limit",
 			provider: "blaxel",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MaxMachineCPU = resourceIntPtr(2)
+				policy.ResourceLimits.MaxMachineCPU = new(2)
 			},
 			want: "do not support max_machine_cpu",
 		},
@@ -122,7 +122,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "blaxel forbids per-machine cpu minimum",
 			provider: "blaxel",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(0)
+				policy.ResourceLimits.MinMachineCPU = new(0)
 			},
 			want: "do not support min_machine_cpu",
 		},
@@ -130,7 +130,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "unikraft rejects minimum above maximum",
 			provider: "unikraft",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(9)
+				policy.ResourceLimits.MinMachineCPU = new(9)
 			},
 			want: "min_machine_cpu cannot exceed max_machine_cpu",
 		},
@@ -138,7 +138,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "unikraft rejects negative minimum",
 			provider: "unikraft",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(-1)
+				policy.ResourceLimits.MinMachineCPU = new(-1)
 			},
 			want: "min_machine_cpu cannot be negative",
 		},
@@ -146,7 +146,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "unikraft rejects default below minimum",
 			provider: "unikraft",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MinMachineCPU = resourceIntPtr(2)
+				policy.ResourceLimits.MinMachineCPU = new(2)
 			},
 			want: "default_machine_cpu cannot be lower than min_machine_cpu",
 		},
@@ -172,7 +172,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "unikraft rejects negative total cpu limit",
 			provider: "unikraft",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MaxTotalCPU = resourceIntPtr(-1)
+				policy.ResourceLimits.MaxTotalCPU = new(-1)
 			},
 			want: "max_total_cpu cannot be negative",
 		},
@@ -180,7 +180,7 @@ func TestProviderMachinePoolResourceContracts(t *testing.T) {
 			name:     "blaxel rejects negative total memory limit",
 			provider: "blaxel",
 			mutate: func(policy *executionstore.MachinePoolProviderPolicy) {
-				policy.ResourceLimits.MaxTotalMemoryMB = resourceIntPtr(-1)
+				policy.ResourceLimits.MaxTotalMemoryMB = new(-1)
 			},
 			want: "max_total_memory_mb cannot be negative",
 		},
@@ -217,11 +217,11 @@ func validProviderResourcePolicyForTest(
 	}
 	switch provider {
 	case "unikraft":
-		policy.DefaultProvisioning.CPU = resourceIntPtr(1)
-		policy.DefaultProvisioning.MemoryMB = resourceIntPtr(1024)
+		policy.DefaultProvisioning.CPU = new(1)
+		policy.DefaultProvisioning.MemoryMB = new(1024)
 	case "daytona":
 	case "blaxel":
-		policy.DefaultProvisioning.MemoryMB = resourceIntPtr(1024)
+		policy.DefaultProvisioning.MemoryMB = new(1024)
 		policy.ResourceLimits.MaxTotalCPU = nil
 		policy.ResourceLimits.MaxMachineCPU = nil
 	}
@@ -272,8 +272,4 @@ func resourcePolicyForTest(provider string) MachineResourcePolicy {
 	default:
 		panic("unsupported test provider " + provider)
 	}
-}
-
-func resourceIntPtr(value int) *int {
-	return &value
 }

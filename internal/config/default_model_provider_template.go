@@ -21,6 +21,7 @@ type defaultModelProviderTemplateFile struct {
 	BaseURL              string                       `yaml:"base_url"`
 	EndpointPath         string                       `yaml:"endpoint_path"`
 	RequestTimeoutMS     int                          `yaml:"request_timeout_ms"`
+	IdleTimeoutMS        int                          `yaml:"idle_timeout_ms"`
 	AuthKind             string                       `yaml:"auth_kind"`
 	AuthOptions          map[string]any               `yaml:"auth_options"`
 	Models               []defaultConfiguredModelFile `yaml:"models"`
@@ -91,6 +92,7 @@ func defaultModelProviderTemplateFromFile(
 		BaseURL:              parsed.BaseURL,
 		EndpointPath:         parsed.EndpointPath,
 		RequestTimeoutMS:     parsed.RequestTimeoutMS,
+		IdleTimeoutMS:        parsed.IdleTimeoutMS,
 		AuthKind:             parsed.AuthKind,
 		AuthOptions:          authOptions,
 		Models:               models,
@@ -118,24 +120,12 @@ func defaultConfiguredModelTemplateFromFile(
 	if err != nil {
 		return modelstore.DefaultConfiguredModelTemplate{}, err
 	}
-	maxOutputTokens, defaultMaxOutputTokens, err := modelstore.ResolveConfiguredModelOutputLimits(
-		parsed.ContextWindowTokens,
-		parsed.MaxOutputTokens,
-		parsed.DefaultMaxOutputTokens,
-	)
-	if err != nil {
-		return modelstore.DefaultConfiguredModelTemplate{}, fmt.Errorf(
-			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE %s: %w",
-			label,
-			err,
-		)
-	}
 	return modelstore.DefaultConfiguredModelTemplate{
 		Name:                      parsed.Name,
 		ProviderModelSlug:         parsed.ProviderModelSlug,
 		ContextWindowTokens:       parsed.ContextWindowTokens,
-		MaxOutputTokens:           maxOutputTokens,
-		DefaultMaxOutputTokens:    defaultMaxOutputTokens,
+		MaxOutputTokens:           parsed.MaxOutputTokens,
+		DefaultMaxOutputTokens:    parsed.DefaultMaxOutputTokens,
 		DefaultCacheRetention:     parsed.DefaultCacheRetention,
 		SupportsTools:             parsed.SupportsTools,
 		SupportsReasoning:         parsed.SupportsReasoning,

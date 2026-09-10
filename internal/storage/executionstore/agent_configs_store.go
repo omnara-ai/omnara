@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -458,8 +459,8 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			return fmt.Errorf("load machine_sources[%d] machine pool validation context: %w", index, err)
 		}
 		poolDefaultProvisioning, err := MachineProvisioningFromDefaults(
-			intPtrFromSQLC(poolGrant.DefaultMachineCpu),
-			intPtrFromSQLC(poolGrant.DefaultMachineMemoryMb),
+			storeutil.IntPtr(poolGrant.DefaultMachineCpu),
+			storeutil.IntPtr(poolGrant.DefaultMachineMemoryMb),
 			poolGrant.DefaultMachineProviderOptions,
 		)
 		if err != nil {
@@ -473,8 +474,8 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			return fmt.Errorf("machine pool default_machine fields: %w", err)
 		}
 		projectProvisioningOverlay, err := machineProvisioningOverlayFromColumns(
-			intPtrFromSQLC(poolGrant.GrantDefaultMachineCpu),
-			intPtrFromSQLC(poolGrant.GrantDefaultMachineMemoryMb),
+			storeutil.IntPtr(poolGrant.GrantDefaultMachineCpu),
+			storeutil.IntPtr(poolGrant.GrantDefaultMachineMemoryMb),
 			poolGrant.GrantDefaultMachineProviderOptionsOverlay,
 		)
 		if err != nil {
@@ -492,12 +493,12 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			MachinePoolProviderPolicy{
 				DefaultProvisioning: poolDefaultProvisioning,
 				ResourceLimits: MachineResourceLimits{
-					MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
-					MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
-					MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
-					MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
-					MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
-					MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
+					MaxTotalCPU:        storeutil.IntPtr(poolGrant.PoolMaxTotalCpu),
+					MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.PoolMaxTotalMemoryMb),
+					MinMachineCPU:      storeutil.IntPtr(poolGrant.PoolMinMachineCpu),
+					MinMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMinMachineMemoryMb),
+					MaxMachineCPU:      storeutil.IntPtr(poolGrant.PoolMaxMachineCpu),
+					MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMaxMachineMemoryMb),
 				},
 				ProviderConfig: poolGrant.ProviderConfig,
 			},
@@ -540,12 +541,12 @@ func (s *Store) ValidateAgentConfigMachineSources(
 		)
 		perMachineLimits := MachineResourceLimits{
 			MinMachineCPU: effectivePoolGrantMinimum(
-				intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
-				intPtrFromSQLC(poolGrant.GrantMinMachineCpu),
+				storeutil.IntPtr(poolGrant.PoolMinMachineCpu),
+				storeutil.IntPtr(poolGrant.GrantMinMachineCpu),
 			),
 			MinMachineMemoryMB: effectivePoolGrantMinimum(
-				intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
-				intPtrFromSQLC(poolGrant.GrantMinMachineMemoryMb),
+				storeutil.IntPtr(poolGrant.PoolMinMachineMemoryMb),
+				storeutil.IntPtr(poolGrant.GrantMinMachineMemoryMb),
 			),
 			MaxMachineCPU:      maxMachineCPU,
 			MaxMachineMemoryMB: maxMachineMemoryMB,

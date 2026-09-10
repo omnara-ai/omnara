@@ -64,7 +64,7 @@ func TestWebE2E(t *testing.T) {
 		Name:                   webE2EUngrantedModel,
 		ProviderModelSlug:      webE2EUngrantedModel,
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: &defaultMaxOutputTokens,
 	}); err != nil {
 		t.Fatalf("create ungranted web e2e model: %v", err)

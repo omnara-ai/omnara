@@ -4,12 +4,12 @@
   --palette-primary-active: 61 91 181;
   --palette-on-primary: 255 255 255;
 
-  --palette-dark-bg: 18 18 18;
+  --palette-dark-bg: 11 11 11;
   --palette-dark-fg: 238 238 238;
-  --palette-dark-sidebar: 26 26 26;
-  --palette-dark-surface: 32 32 32;
-  --palette-dark-surface-2: 40 40 40;
-  --palette-dark-surface-3: 48 48 48;
+  --palette-dark-sidebar: 18 18 18;
+  --palette-dark-surface: 24 24 24;
+  --palette-dark-surface-2: 32 32 32;
+  --palette-dark-surface-3: 40 40 40;
   --palette-dark-line: 54 54 54;
   --palette-dark-line-strong: 82 82 82;
   --palette-dark-accent: 133 160 230;

@@ -19,6 +19,7 @@ import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 
 interface GrantConfiguredModelState {
   projectIds: string[]
+  grantedProjectIds: string[]
   // Grants run as parallel mutateAsync calls, so the mutation's isPending is
   // not a reliable in-flight signal; track the submitting phase explicitly.
   status: SubmitStatus
@@ -38,6 +39,7 @@ export function GrantConfiguredModelDialog({
   const createProjectModelGrant = useCreateProjectModelGrant(orgId)
   const [state, setState] = useState<GrantConfiguredModelState>({
     projectIds: [],
+    grantedProjectIds: [],
     status: idle,
   })
   const isSubmitting = state.status.phase === 'submitting'
@@ -59,11 +61,15 @@ export function GrantConfiguredModelDialog({
       if (failures) {
         setState({
           projectIds: failures.failedProjectIds,
+          grantedProjectIds: [
+            ...state.grantedProjectIds,
+            ...state.projectIds.filter((_, index) => results[index]?.status === 'fulfilled'),
+          ],
           status: { phase: 'error', message: failures.message },
         })
         return
       }
-      setState({ projectIds: [], status: idle })
+      setState({ projectIds: [], grantedProjectIds: [], status: idle })
       onOpenChange(false)
     } catch (err) {
       const status = submitError(err, 'Could not grant model')
@@ -92,6 +98,7 @@ export function GrantConfiguredModelDialog({
                 setState((prev) => ({ ...prev, projectIds }))
               }}
               disabled={isSubmitting}
+              excludedProjectIds={state.grantedProjectIds}
               description={`Selected projects will be able to use ${model.name}.`}
             />
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}

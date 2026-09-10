@@ -13,10 +13,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) {
@@ -28,23 +27,24 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		"openai/kernel-test",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(10_000),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(6_000),
+			ContextWindowTokens: new(10_000),
+			MaxOutputTokens:     new(6_000),
 		},
 	)
 
-	const replayMarker = "reasoning-replay-that-max-tokens-must-clear"
+	const replayMarker = "preserved-reasoning-replay"
 	firstModel := &sequenceKernelModel{
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10_000,
-			MaxOutputTokens:     6_000,
+			MaxOutputTokens:     new(6_000),
 		},
 		responses: []model.Response{{
 			ID:                      "resp_large_hidden_reasoning",
 			ServedProviderModelSlug: "router/fallback-model",
 			ProviderReplay: json.RawMessage(
-				`[{"type":"reasoning","encrypted_content":"` + replayMarker + `"}]`,
+				`[{"type":"reasoning","encrypted_content":"` + replayMarker + `"},` +
+					`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"short visible truncated response"}]}]`,
 			),
 			Content:    []model.ResponsePart{{Type: "text", Text: "short visible truncated response"}},
 			StopReason: model.StopReasonMaxTokens,
@@ -86,7 +86,7 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		preparedInputTokenEstimator: func(modelcontext.Bundle) int { return 500 },
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10_000,
-			MaxOutputTokens:     6_000,
+			MaxOutputTokens:     new(6_000),
 		},
 		responses: []model.Response{{
 			ID:         "resp_current_request",
@@ -94,12 +94,12 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
-	currentTurn := fixture.admitContentInputTurn(
+	currentTurn := fixture.admitSteeringInputsTurn(
 		t,
 		ctx,
 		agentID,
 		userID,
-		"continue with the current fitting request",
+		[]string{"continue with the current fitting request"},
 		fixture.Now.Add(3*time.Second),
 	)
 	executor := AgentExecutor{
@@ -115,23 +115,22 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		t.Fatalf("current turn sent %d requests, want one normal provider call", currentModel.respondedCount())
 	}
 	request := currentModel.responded[0]
-	if len(request.ProviderReplays) != 0 {
-		t.Fatalf("max-token replay reached current request: %s", request.ProviderReplays[0])
+	if len(request.ProviderReplays) != 1 || !strings.Contains(string(request.ProviderReplays[0]), replayMarker) {
+		t.Fatalf("max-token replay was not preserved: %s", request.ProviderReplays)
 	}
 	if body := string(request.ProviderRequest); !strings.Contains(body, "short visible truncated response") ||
-		!strings.Contains(body, "continue with the current fitting request") ||
-		strings.Contains(body, replayMarker) {
+		!strings.Contains(body, "continue with the current fitting request") {
 		t.Fatalf("current prepared request contains the wrong prior surface: %s", body)
 	}
 
 	var priorInput, priorOutput, priorReasoning int
-	var priorReplayCleared bool
+	var priorReplayPreserved bool
 	var servedModel string
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT context.input_tokens_total,
 		       context.output_tokens_total,
 		       context.reasoning_output_tokens,
-		       output.provider_replay IS NULL,
+		       output.provider_replay IS NOT NULL,
 		       output.served_provider_model_slug
 		FROM model_call_contexts context
 		JOIN model_outputs output
@@ -143,17 +142,17 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		kernelTestProjectID,
 		agentID,
 		firstTurn.OpeningEventSequence,
-	).Scan(&priorInput, &priorOutput, &priorReasoning, &priorReplayCleared, &servedModel); err != nil {
+	).Scan(&priorInput, &priorOutput, &priorReasoning, &priorReplayPreserved, &servedModel); err != nil {
 		t.Fatalf("load prior provider evidence: %v", err)
 	}
 	if priorInput != 1_450 || priorOutput != 5_000 || priorReasoning != 4_990 ||
-		!priorReplayCleared || servedModel != "router/fallback-model" {
+		!priorReplayPreserved || servedModel != "router/fallback-model" {
 		t.Fatalf(
-			"prior evidence = input:%d output:%d reasoning:%d replay_cleared:%v served:%q",
+			"prior evidence = input:%d output:%d reasoning:%d replay_preserved:%v served:%q",
 			priorInput,
 			priorOutput,
 			priorReasoning,
-			priorReplayCleared,
+			priorReplayPreserved,
 			servedModel,
 		)
 	}
@@ -199,40 +198,11 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	providerName := "openai-keep-recent-prod"
 	configuredModelName := "kernel-keep-recent-test"
-	secret, err := fixture.ensureProviderCredential(t, ctx, providerName, fixture.Now)
-	if err != nil {
-		t.Fatalf("ensure provider credential: %v", err)
-	}
-	providerConfig, err := fixture.Store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-		OrgID:              kernelTestOrgID,
-		Name:               providerName,
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         "default",
-		BaseURL:            "https://api.openai.com/v1",
-		CredentialSecretID: secret.ID,
-	})
-	if err != nil {
-		t.Fatalf("create keep-recent provider config: %v", err)
-	}
-	configuredModel, err := fixture.Store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  kernelTestOrgID,
-		ModelProviderConfigID:  providerConfig.ID,
-		Name:                   configuredModelName,
-		ProviderModelSlug:      configuredModelName,
-		ContextWindowTokens:    3500,
-		MaxOutputTokens:        64,
-		DefaultMaxOutputTokens: intPtrForKernelCompactionTest(64),
-	})
-	if err != nil {
-		t.Fatalf("create keep-recent configured model: %v", err)
-	}
-	if _, err := fixture.Store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             kernelTestOrgID,
-		ProjectID:         kernelTestProjectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant keep-recent configured model: %v", err)
-	}
+	provider := storagefixture.EnsureModelProvider(t, ctx, fixture.Store.Models(), fixture.Store.Secrets(),
+		storagefixture.ModelProviderInput{OrgID: kernelTestOrgID, UserID: kernelTestUserID, Name: providerName})
+	input := storagefixture.DefaultModelInput(kernelTestOrgID, provider.ID, configuredModelName)
+	input.ContextWindowTokens, input.MaxOutputTokens, input.DefaultMaxOutputTokens = 3500, new(64), new(64)
+	configuredModel := storagefixture.SeedModel(t, ctx, fixture.Store.Models(), kernelTestProjectID, input)
 	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: " + providerName + "\n  name: " +
 		configuredModelName +
 		"\n"
@@ -289,7 +259,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		providerModelSlug: configuredModelName,
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{{
 			ID:         "resp_old_history",
@@ -321,7 +291,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		providerModelSlug: configuredModelName,
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 10000,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{{
 			ID:         "resp_recent_tail",
@@ -358,7 +328,7 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 3500,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -492,7 +462,7 @@ func TestAgentExecutorCompactsMultiInputTurnAfterLocalBudgetOverflow(t *testing.
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1300,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -600,8 +570,8 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 		"openai/kernel-test",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(1600),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(64),
+			ContextWindowTokens: new(1600),
+			MaxOutputTokens:     new(64),
 		},
 		"run_command",
 	)
@@ -621,7 +591,7 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 1600,
-			MaxOutputTokens:     64,
+			MaxOutputTokens:     new(64),
 		},
 		responses: []model.Response{
 			{
@@ -811,7 +781,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens:    10_000,
-			MaxOutputTokens:        1_024,
+			MaxOutputTokens:        new(1_024),
 			DefaultMaxOutputTokens: 1_024,
 		},
 		preparedInputTokenEstimator: func(bundle modelcontext.Bundle) int {

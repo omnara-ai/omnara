@@ -19,8 +19,7 @@ import (
 type compactionFailureReason uint8
 
 const (
-	compactionFailureSummaryTruncated compactionFailureReason = iota + 1
-	compactionFailureSummaryNotReduced
+	compactionFailureSummaryNotReduced compactionFailureReason = iota + 1
 	compactionFailureSourceIrreducible
 )
 
@@ -228,13 +227,7 @@ func (r Runner) replaceCompactionSource(
 func shrinkableCompactionFailure(err error) bool {
 	reason, hasReason := reasonForCompactionFailure(err)
 	if hasReason {
-		switch reason {
-		case compactionFailureSummaryTruncated, compactionFailureSummaryNotReduced:
-			return true
-		case compactionFailureSourceIrreducible:
-			return false
-		}
-		return false
+		return reason == compactionFailureSummaryNotReduced
 	}
 	providerErr, ok := model.ClassifyError(err)
 	if !ok {
@@ -247,8 +240,6 @@ func shrinkableCompactionFailure(err error) bool {
 func irreducibleCompactionFailureDetail(err error) string {
 	reason, _ := reasonForCompactionFailure(err)
 	switch reason {
-	case compactionFailureSummaryTruncated:
-		return "the smallest closed source prefix produced a truncated summary"
 	case compactionFailureSummaryNotReduced:
 		return "the smallest closed source prefix did not produce a smaller summary"
 	default:
@@ -265,77 +256,72 @@ func irreducibleCompactionError(detail string) error {
 	})
 }
 
-func compactionRequestPolicy(
+func compactionModel(
 	client model.Client,
 	errorSource string,
-) (model.RequestPolicy, int, error) {
+) (model.Client, model.RequestPolicy, error) {
 	capabilities := model.CapabilitiesForClient(client)
 	normalPolicy := model.RequestPolicyFromCapabilities(capabilities)
 	limits, err := model.OutputTokenLimitsForClient(client, errorSource)
 	if err != nil {
-		return model.RequestPolicy{}, 0, err
+		return nil, model.RequestPolicy{}, err
 	}
-	if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
-		return model.RequestPolicy{}, 0, err
+	if normalPolicy.MaxOutputTokens > 0 {
+		if err := limits.Validate(normalPolicy.MaxOutputTokens, errorSource); err != nil {
+			return nil, model.RequestPolicy{}, err
+		}
+	}
+	if provider, ok := client.(interface {
+		WithoutManualThinking() (model.Client, error)
+	}); ok {
+		client, err = provider.WithoutManualThinking()
+		if err != nil {
+			return nil, model.RequestPolicy{}, err
+		}
 	}
 	policy := normalPolicy
 	policy.CacheRetention = model.CacheRetentionNone
-	policy.MaxOutputTokens = capabilities.MaxOutputTokens
-	if policy.MaxOutputTokens <= 0 {
-		policy.MaxOutputTokens = capabilities.DefaultMaxOutputTokens
+	policy.MaxOutputTokens = min(preferredSummaryOutputTokens, capabilities.ContextWindowTokens/2)
+	if normalPolicy.MaxOutputTokens > 0 {
+		policy.MaxOutputTokens = min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
 	}
-	if policy.MaxOutputTokens > preferredSummaryOutputTokens {
-		policy.MaxOutputTokens = preferredSummaryOutputTokens
-	}
-	if policy.MaxOutputTokens < limits.Minimum {
-		policy.MaxOutputTokens = normalPolicy.MaxOutputTokens
-	}
-	summaryOutputFloorTokens := min(policy.MaxOutputTokens, normalPolicy.MaxOutputTokens)
-	return policy, summaryOutputFloorTokens, nil
+	return client, policy, nil
 }
 
 func validateCompactionResponse(errorSource string, response model.Response) (string, error) {
-	if response.HasToolCalls() {
-		return "", model.ProviderError{
-			Kind:    model.ErrorKindTransient,
-			Source:  errorSource,
-			Code:    "tool_use",
-			Message: "compaction model returned tool calls",
-		}
-	}
 	stopReason := model.NormalizeStopReason(response.StopReason, false)
-	if stopReason == model.StopReasonMaxTokens {
-		return "", withCompactionFailureReason(compactionFailureSummaryTruncated, model.ProviderError{
-			Kind:    model.ErrorKindTransient,
-			Source:  errorSource,
-			Code:    compactionErrorCodeSummaryTruncated,
-			Message: "compaction summary was truncated before completion",
-		})
-	}
-	if stopReason == model.StopReasonContextWindow {
+	switch stopReason {
+	case model.StopReasonContextWindow:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindContextWindow,
 			Source:  errorSource,
 			Code:    string(stopReason),
 			Message: "compaction request exceeded the configured model context window",
 		}
-	}
-	if stopReason == model.StopReasonToolUse ||
-		stopReason == model.StopReasonError ||
-		stopReason == model.StopReasonUnknown {
-		return "", model.MalformedProviderSuccess(
-			errorSource,
-			string(stopReason),
-			fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
-			nil,
-		)
-	}
-	if stopReason != model.StopReasonEndTurn {
+	case model.StopReasonToolUse, model.StopReasonError, model.StopReasonUnknown:
+		if stopReason != model.StopReasonToolUse || !response.HasToolCalls() {
+			return "", model.MalformedProviderSuccess(
+				errorSource,
+				string(stopReason),
+				fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
+				nil,
+			)
+		}
+	case model.StopReasonEndTurn, model.StopReasonMaxTokens:
+	default:
 		return "", model.ProviderError{
 			Kind:    model.ErrorKindInvalidRequest,
 			Source:  errorSource,
 			Code:    string(stopReason),
 			Message: fmt.Sprintf("compaction model returned unsupported stop reason %q", stopReason),
+		}
+	}
+	if response.HasToolCalls() {
+		return "", model.ProviderError{
+			Kind:    model.ErrorKindTransient,
+			Source:  errorSource,
+			Code:    "tool_use",
+			Message: "compaction model returned tool calls",
 		}
 	}
 	summary := strings.TrimSpace(response.Text())

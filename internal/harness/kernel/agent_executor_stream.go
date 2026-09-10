@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -115,7 +116,7 @@ func (s *harnessStreamSink) Emit(ctx context.Context, event model.StreamEvent) {
 		case model.StreamBlockText, model.StreamBlockThinking:
 			event.Block = &model.StreamBlock{Kind: event.Block.Kind}
 		case model.StreamBlockToolUse:
-			if event.Block.ToolCallID == "" || event.Block.ToolName == "" {
+			if strings.TrimSpace(event.Block.ToolCallID) == "" {
 				return
 			}
 			publicID, ok := s.mintToolCallID(event.Block.ToolCallID)
@@ -124,6 +125,9 @@ func (s *harnessStreamSink) Emit(ctx context.Context, event model.StreamEvent) {
 			}
 			block := *event.Block
 			block.ToolCallID = publicID
+			if strings.TrimSpace(block.ToolName) == "" {
+				block.ToolName = model.UnparseableToolCallName
+			}
 			event.Block = &block
 		default:
 			return

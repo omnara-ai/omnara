@@ -21,18 +21,16 @@ const (
 type mcpInitializationMode uint8
 
 const (
-	mcpInitializationNone mcpInitializationMode = iota
+	mcpInitializationRecovery mcpInitializationMode = iota
 	mcpInitializationOpening
-	mcpInitializationResume
 )
 
 func shouldInitializeMCPConnection(mode mcpInitializationMode, state executionstore.MCPConnectionState) bool {
-	switch mode {
-	case mcpInitializationOpening:
-		return mcp.ShouldInitialize(state)
-	case mcpInitializationResume:
-		return state == executionstore.MCPConnectionStateInitializing ||
-			state == executionstore.MCPConnectionStateExpired
+	switch state {
+	case executionstore.MCPConnectionStateInitializing, executionstore.MCPConnectionStateExpired:
+		return true
+	case executionstore.MCPConnectionStateFailed:
+		return mode == mcpInitializationOpening
 	default:
 		return false
 	}
@@ -123,6 +121,7 @@ func (e AgentExecutor) ensureMCPConnections(
 				server,
 			)
 			if !result.Changed {
+				resultErr = err
 				return
 			}
 			cause := mcp.InitializationCause(err)

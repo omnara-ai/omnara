@@ -1,25 +1,57 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox'
-import type { ComponentProps, ReactNode } from 'react'
+import { type ComponentProps, type ReactNode, useContext } from 'react'
 
 import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon, XIcon } from '@/components/icons'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
+import { OverflowTooltip } from '@/components/ui/overflow-tooltip'
+import { textFieldVariants } from '@/components/ui/text-field-variants'
 import { cn } from '@/lib/utils'
 
 const Combobox = ComboboxPrimitive.Root
 
-function ComboboxInput({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.Input>) {
+function ComboboxInput({
+  className,
+  showTrigger = true,
+  ...props
+}: ComponentProps<typeof ComboboxPrimitive.Input> & { showTrigger?: boolean }) {
   return (
     <div className="relative">
       <ComboboxPrimitive.Input
         className={cn(
-          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 pr-9 text-base md:text-sm',
+          'border-input placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 pointer-coarse:text-base control-focus control-transition bg-card h-10 w-full rounded-md border pl-3 text-base md:text-sm',
+          showTrigger ? 'pr-9' : 'pr-3',
           className,
         )}
         {...props}
       />
-      <ComboboxPrimitive.Trigger className="text-muted-foreground absolute right-2 top-2.5">
-        <ChevronsUpDownIcon className="size-4" />
-      </ComboboxPrimitive.Trigger>
+      {showTrigger && (
+        <ComboboxPrimitive.Trigger className="text-muted-foreground absolute right-2 top-2.5">
+          <ChevronsUpDownIcon className="size-4" />
+        </ComboboxPrimitive.Trigger>
+      )}
     </div>
+  )
+}
+
+function ComboboxTrigger({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof ComboboxPrimitive.Trigger>) {
+  return (
+    <OverflowTooltip>
+      <ComboboxPrimitive.Trigger
+        className={cn(
+          textFieldVariants(),
+          'control-transition hover:bg-(--secondary-hover) data-[placeholder]:text-muted-foreground flex h-10 w-full min-w-0 items-center justify-between gap-2 px-3 text-left text-base disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <ChevronsUpDownIcon className="text-muted-foreground size-4 shrink-0" />
+      </ComboboxPrimitive.Trigger>
+    </OverflowTooltip>
   )
 }
 
@@ -62,29 +94,32 @@ function ComboboxChip({
   removeLabel: string
 }) {
   return (
-    <ComboboxPrimitive.Chip
-      className={cn(
-        'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
-        className,
-      )}
-      {...props}
-    >
-      <span className="truncate">{children}</span>
-      <ComboboxPrimitive.ChipRemove
-        aria-label={removeLabel}
-        className="hover:bg-foreground/10 inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
+    <OverflowTooltip>
+      <ComboboxPrimitive.Chip
+        className={cn(
+          'bg-secondary text-secondary-foreground control-focus inline-flex h-6 max-w-full items-center gap-1 rounded-sm pl-2 pr-1 text-xs font-medium',
+          className,
+        )}
+        {...props}
       >
-        <XIcon className="size-3" />
-      </ComboboxPrimitive.ChipRemove>
-    </ComboboxPrimitive.Chip>
+        <span className="truncate">{children}</span>
+        <ComboboxPrimitive.ChipRemove
+          aria-label={removeLabel}
+          className="hover:bg-foreground/10 inline-flex size-4 shrink-0 items-center justify-center rounded-sm"
+        >
+          <XIcon className="size-3" />
+        </ComboboxPrimitive.ChipRemove>
+      </ComboboxPrimitive.Chip>
+    </OverflowTooltip>
   )
 }
 
 const ComboboxValue = ComboboxPrimitive.Value
 
 function ComboboxContent({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.Popup>) {
+  const dialogContainer = useContext(DialogContainerContext)
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={dialogContainer ?? undefined} className="contents">
       <ComboboxPrimitive.Positioner
         className="pointer-events-auto isolate z-50"
         sideOffset={4}
@@ -92,18 +127,9 @@ function ComboboxContent({ className, ...props }: ComponentProps<typeof Combobox
       >
         <ComboboxPrimitive.Popup
           className={cn(
-            'bg-popover text-popover-foreground control-focus w-[var(--anchor-width)] min-w-64 overflow-hidden rounded-md border shadow-lg',
+            'bg-popover text-popover-foreground control-focus flex max-h-[var(--available-height)] w-[var(--anchor-width)] min-w-64 flex-col overflow-hidden rounded-md border shadow-lg',
             className,
           )}
-          // Radix modal dialogs cancel wheel/touch events that reach document
-          // from outside the dialog subtree, and this popup portals to <body>.
-          // Keep scroll events inside the popup so its list stays scrollable.
-          onWheel={(event) => {
-            event.stopPropagation()
-          }}
-          onTouchMove={(event) => {
-            event.stopPropagation()
-          }}
           {...props}
         />
       </ComboboxPrimitive.Positioner>
@@ -114,7 +140,7 @@ function ComboboxContent({ className, ...props }: ComponentProps<typeof Combobox
 function ComboboxList({ className, ...props }: ComponentProps<typeof ComboboxPrimitive.List>) {
   return (
     <ComboboxPrimitive.List
-      className={cn('max-h-64 scroll-py-1 overflow-y-auto p-1', className)}
+      className={cn('max-h-64 min-h-0 scroll-py-1 overflow-y-auto p-1', className)}
       {...props}
     />
   )
@@ -126,18 +152,20 @@ function ComboboxItem({
   ...props
 }: ComponentProps<typeof ComboboxPrimitive.Item>) {
   return (
-    <ComboboxPrimitive.Item
-      className={cn(
-        'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <ComboboxPrimitive.ItemIndicator className="absolute right-2">
-        <CheckIcon className="size-4" />
-      </ComboboxPrimitive.ItemIndicator>
-    </ComboboxPrimitive.Item>
+    <OverflowTooltip>
+      <ComboboxPrimitive.Item
+        className={cn(
+          'data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground outline-hidden relative flex cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <ComboboxPrimitive.ItemIndicator className="absolute right-2">
+          <CheckIcon className="size-4" />
+        </ComboboxPrimitive.ItemIndicator>
+      </ComboboxPrimitive.Item>
+    </OverflowTooltip>
   )
 }
 
@@ -180,5 +208,6 @@ export {
   ComboboxList,
   ComboboxLoading,
   ComboboxStatus,
+  ComboboxTrigger,
   ComboboxValue,
 }

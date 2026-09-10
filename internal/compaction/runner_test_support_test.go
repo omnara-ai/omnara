@@ -355,7 +355,6 @@ type summaryModel struct {
 	prepareErrs                 []error
 	requests                    []model.Request
 	results                     []summaryResult
-	outputTokenMinimum          int
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -378,17 +377,13 @@ func (m *summaryModel) Capabilities() model.Capabilities {
 	if caps.ContextWindowTokens == 0 {
 		caps.ContextWindowTokens = 200_000
 	}
-	if caps.MaxOutputTokens == 0 {
-		caps.MaxOutputTokens = 4_096
+	if caps.MaxOutputTokens == nil {
+		caps.MaxOutputTokens = new(4_096)
 	}
 	if caps.DefaultMaxOutputTokens == 0 {
 		caps.DefaultMaxOutputTokens = 2_048
 	}
 	return caps
-}
-
-func (m *summaryModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
-	return model.OutputTokenLimits{Minimum: m.outputTokenMinimum}, nil
 }
 
 func (m *summaryModel) Prepare(

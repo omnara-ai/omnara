@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func projectMachinePoolGrantFromUpsert(row dbsqlc.UpsertProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
@@ -226,20 +227,20 @@ func projectMachinePoolGrantRecord(
 		ProjectID:                            projectID,
 		MachinePoolID:                        machinePoolID,
 		Description:                          description,
-		DefaultMachineCPU:                    intPtrFromSQLC(defaultMachineCPU),
-		DefaultMachineMemoryMB:               intPtrFromSQLC(defaultMachineMemoryMB),
+		DefaultMachineCPU:                    storeutil.IntPtr(defaultMachineCPU),
+		DefaultMachineMemoryMB:               storeutil.IntPtr(defaultMachineMemoryMB),
 		DefaultMachineEnvOverlay:             defaultMachineEnvOverlay,
 		DefaultMachineSecretEnvOverlay:       defaultMachineSecretEnvOverlay,
 		DefaultMachineProviderOptionsOverlay: defaultMachineProviderOptionsOverlay,
 		DefaultCwd:                           defaultCwd,
-		MaxTotalMachines:                     intPtrFromSQLC(maxTotalMachines),
-		MaxTotalCPU:                          intPtrFromSQLC(maxTotalCPU),
-		MaxTotalMemoryMB:                     intPtrFromSQLC(maxTotalMemoryMB),
-		MinMachineCPU:                        intPtrFromSQLC(minMachineCPU),
-		MinMachineMemoryMB:                   intPtrFromSQLC(minMachineMemoryMB),
-		MaxMachineCPU:                        intPtrFromSQLC(maxMachineCPU),
-		MaxMachineMemoryMB:                   intPtrFromSQLC(maxMachineMemoryMB),
-		DeleteAfterIdleMinutes:               intPtrFromSQLC(deleteAfterIdleMinutes),
+		MaxTotalMachines:                     storeutil.IntPtr(maxTotalMachines),
+		MaxTotalCPU:                          storeutil.IntPtr(maxTotalCPU),
+		MaxTotalMemoryMB:                     storeutil.IntPtr(maxTotalMemoryMB),
+		MinMachineCPU:                        storeutil.IntPtr(minMachineCPU),
+		MinMachineMemoryMB:                   storeutil.IntPtr(minMachineMemoryMB),
+		MaxMachineCPU:                        storeutil.IntPtr(maxMachineCPU),
+		MaxMachineMemoryMB:                   storeutil.IntPtr(maxMachineMemoryMB),
+		DeleteAfterIdleMinutes:               storeutil.IntPtr(deleteAfterIdleMinutes),
 		IdempotencyKey:                       idempotencyKey,
 		Metadata:                             json.RawMessage(metadata),
 		CreatedAt:                            createdAt,

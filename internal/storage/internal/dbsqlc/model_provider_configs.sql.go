@@ -99,7 +99,7 @@ WHERE model_provider_configs.org_id = $1
   )
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms
 `
 
 type DeleteModelProviderConfigParams struct {
@@ -127,6 +127,7 @@ func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModel
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
 	)
 	return i, err
 }
@@ -282,7 +283,7 @@ type GetConfiguredModelRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -367,7 +368,7 @@ type GetConfiguredModelByNameRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -448,7 +449,7 @@ type GetConfiguredModelDisplayRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -574,7 +575,7 @@ type GetConfiguredModelRevisionDisplayRow struct {
 	ModelProviderConfigID     uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -678,7 +679,7 @@ const getModelProviderConfig = `-- name: GetModelProviderConfig :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = $1
   AND id = $2
@@ -709,6 +710,7 @@ func (q *Queries) GetModelProviderConfig(ctx context.Context, arg GetModelProvid
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
 	)
 	return i, err
 }
@@ -717,7 +719,7 @@ const getModelProviderConfigByName = `-- name: GetModelProviderConfigByName :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = $1
   AND name = $2
@@ -748,6 +750,7 @@ func (q *Queries) GetModelProviderConfigByName(ctx context.Context, arg GetModel
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
 	)
 	return i, err
 }
@@ -816,7 +819,6 @@ configured_model AS (
          ids.revision_id, statement_timestamp(), statement_timestamp()
   FROM ids
   JOIN parent_config config ON true
-  ON CONFLICT (model_provider_config_id, name) WHERE deleted_at IS NULL DO NOTHING
   RETURNING id, org_id, model_provider_config_id, management_kind, name, current_revision_id,
             deleted_at, created_at, updated_at
 ),
@@ -866,7 +868,7 @@ type InsertConfiguredModelParams struct {
 	Name                      string
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -887,7 +889,7 @@ type InsertConfiguredModelRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -953,26 +955,25 @@ func (q *Queries) InsertConfiguredModel(ctx context.Context, arg InsertConfigure
 const insertModelProviderConfig = `-- name: InsertModelProviderConfig :one
 INSERT INTO model_provider_configs(
   org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-  request_timeout_ms, auth_kind, auth_options, credential_secret_id,
+  request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id,
   created_at, updated_at
 )
 SELECT org.id, $1, $2, $3, $4,
        $5, $6,
-       $7, $8, $9,
-       $10,
+       $7, $8, $9, $10,
+       $11,
        transaction_timestamp(), transaction_timestamp()
 FROM orgs org
 JOIN secrets credential ON credential.org_id = org.id
-  AND credential.id = $10
+  AND credential.id = $11
   AND credential.deleted_at IS NULL
   AND credential.management_kind = $1
   AND credential.owner_kind = 'org'
   AND credential.kind = 'generic'
-WHERE org.id = $11
-ON CONFLICT (org_id, name) WHERE deleted_at IS NULL DO NOTHING
+WHERE org.id = $12
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms
 `
 
 type InsertModelProviderConfigParams struct {
@@ -983,6 +984,7 @@ type InsertModelProviderConfigParams struct {
 	BaseUrl            string
 	EndpointPath       string
 	RequestTimeoutMs   int32
+	IdleTimeoutMs      int32
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID *uuid.UUID
@@ -998,6 +1000,7 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		arg.BaseUrl,
 		arg.EndpointPath,
 		arg.RequestTimeoutMs,
+		arg.IdleTimeoutMs,
 		arg.AuthKind,
 		arg.AuthOptions,
 		arg.CredentialSecretID,
@@ -1020,6 +1023,95 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
+	)
+	return i, err
+}
+
+const insertProjectModelGrant = `-- name: InsertProjectModelGrant :one
+INSERT INTO project_model_grants(
+  org_id, project_id, configured_model_id,
+  context_window_tokens, max_output_tokens, default_max_output_tokens,
+  default_cache_retention, supports_tools, supports_reasoning,
+  default_reasoning_effort, supported_reasoning_efforts,
+  input_modalities, output_modalities,
+  created_at, updated_at
+)
+SELECT project.org_id, project.id, configured_model.id,
+       $1, $2,
+       $3,
+       $4, $5,
+       $6, $7::text,
+       $8::text[],
+       $9::text[], $10::text[],
+       statement_timestamp(), statement_timestamp()
+FROM projects project
+JOIN configured_models configured_model ON configured_model.org_id = project.org_id
+  AND configured_model.id = $11
+  AND configured_model.deleted_at IS NULL
+JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
+  AND provider_config.id = configured_model.model_provider_config_id
+  AND provider_config.deleted_at IS NULL
+WHERE project.org_id = $12
+  AND project.id = $13
+RETURNING id, org_id, project_id, configured_model_id,
+          context_window_tokens, max_output_tokens, default_max_output_tokens,
+          default_cache_retention, supports_tools, supports_reasoning,
+          default_reasoning_effort, supported_reasoning_efforts,
+          input_modalities, output_modalities,
+          created_at, updated_at
+`
+
+type InsertProjectModelGrantParams struct {
+	ContextWindowTokens       *int32
+	MaxOutputTokens           *int32
+	DefaultMaxOutputTokens    *int32
+	DefaultCacheRetention     *string
+	SupportsTools             *bool
+	SupportsReasoning         *bool
+	DefaultReasoningEffort    string
+	SupportedReasoningEfforts []string
+	InputModalities           []string
+	OutputModalities          []string
+	ConfiguredModelID         uuid.UUID
+	OrgID                     uuid.UUID
+	ProjectID                 uuid.UUID
+}
+
+func (q *Queries) InsertProjectModelGrant(ctx context.Context, arg InsertProjectModelGrantParams) (ProjectModelGrant, error) {
+	row := q.db.QueryRow(ctx, insertProjectModelGrant,
+		arg.ContextWindowTokens,
+		arg.MaxOutputTokens,
+		arg.DefaultMaxOutputTokens,
+		arg.DefaultCacheRetention,
+		arg.SupportsTools,
+		arg.SupportsReasoning,
+		arg.DefaultReasoningEffort,
+		arg.SupportedReasoningEfforts,
+		arg.InputModalities,
+		arg.OutputModalities,
+		arg.ConfiguredModelID,
+		arg.OrgID,
+		arg.ProjectID,
+	)
+	var i ProjectModelGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ConfiguredModelID,
+		&i.ContextWindowTokens,
+		&i.MaxOutputTokens,
+		&i.DefaultMaxOutputTokens,
+		&i.DefaultCacheRetention,
+		&i.SupportsTools,
+		&i.SupportsReasoning,
+		&i.DefaultReasoningEffort,
+		&i.SupportedReasoningEfforts,
+		&i.InputModalities,
+		&i.OutputModalities,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -1027,7 +1119,7 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 const listClusterManagedModelProviderConfigsByName = `-- name: ListClusterManagedModelProviderConfigsByName :many
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at
+       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE name = $1
   AND management_kind = 'cluster'
@@ -1064,6 +1156,7 @@ func (q *Queries) ListClusterManagedModelProviderConfigsByName(ctx context.Conte
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IdleTimeoutMs,
 		); err != nil {
 			return nil, err
 		}
@@ -1121,7 +1214,7 @@ type ListConfiguredModelsRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -1190,7 +1283,7 @@ const listModelProviderConfigs = `-- name: ListModelProviderConfigs :many
 WITH listed AS (
  SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
         request_timeout_ms, auth_kind, auth_options,
-        credential_secret_id, deleted_at, created_at, updated_at,
+        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms,
         CASE $6::text
           WHEN 'name' THEN lower(name)
           WHEN 'created_at' THEN to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
@@ -1204,7 +1297,7 @@ WITH listed AS (
 )
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at,
+       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms,
        sort_key, sort_is_null
 FROM listed
 WHERE $1::boolean = false
@@ -1244,6 +1337,7 @@ type ListModelProviderConfigsRow struct {
 	DeletedAt          *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
 	SortKey            string
 	SortIsNull         bool
 }
@@ -1282,6 +1376,7 @@ func (q *Queries) ListModelProviderConfigs(ctx context.Context, arg ListModelPro
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IdleTimeoutMs,
 			&i.SortKey,
 			&i.SortIsNull,
 		); err != nil {
@@ -1533,7 +1628,7 @@ type LockConfiguredModelForUseRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -1616,7 +1711,7 @@ const lockModelProviderConfigForMutation = `-- name: LockModelProviderConfigForM
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at
+       created_at, updated_at, idle_timeout_ms
 FROM model_provider_configs
 WHERE org_id = $1
   AND id = $2
@@ -1648,6 +1743,7 @@ func (q *Queries) LockModelProviderConfigForMutation(ctx context.Context, arg Lo
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
 	)
 	return i, err
 }
@@ -1725,7 +1821,7 @@ type RenameConfiguredModelRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -1849,7 +1945,7 @@ type UpdateConfiguredModelParams struct {
 	ManagementKind            string
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -1871,7 +1967,7 @@ type UpdateConfiguredModelRow struct {
 	CurrentRevisionID         uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -1940,17 +2036,18 @@ UPDATE model_provider_configs config
 SET base_url = $1,
     endpoint_path = $2,
     request_timeout_ms = $3,
-    auth_kind = $4,
-    auth_options = $5,
-    credential_secret_id = $6,
+    idle_timeout_ms = $4,
+    auth_kind = $5,
+    auth_options = $6,
+    credential_secret_id = $7,
     updated_at = statement_timestamp()
 FROM secrets credential
-WHERE config.org_id = $7
-  AND config.id = $8
+WHERE config.org_id = $8
+  AND config.id = $9
   AND config.deleted_at IS NULL
-  AND config.management_kind = $9
+  AND config.management_kind = $10
   AND credential.org_id = config.org_id
-  AND credential.id = $6
+  AND credential.id = $7
   AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
@@ -1960,13 +2057,14 @@ RETURNING config.id, config.org_id, config.management_kind,
           config.api_variant, config.base_url, config.endpoint_path,
           config.request_timeout_ms, config.auth_kind,
           config.auth_options, config.credential_secret_id, config.deleted_at,
-          config.created_at, config.updated_at
+          config.created_at, config.updated_at, config.idle_timeout_ms
 `
 
 type UpdateModelProviderConfigParams struct {
 	BaseUrl            string
 	EndpointPath       string
 	RequestTimeoutMs   int32
+	IdleTimeoutMs      int32
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID *uuid.UUID
@@ -1980,6 +2078,7 @@ func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModel
 		arg.BaseUrl,
 		arg.EndpointPath,
 		arg.RequestTimeoutMs,
+		arg.IdleTimeoutMs,
 		arg.AuthKind,
 		arg.AuthOptions,
 		arg.CredentialSecretID,
@@ -2004,6 +2103,7 @@ func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModel
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdleTimeoutMs,
 	)
 	return i, err
 }
@@ -2082,117 +2182,6 @@ func (q *Queries) UpdateProjectModelGrant(ctx context.Context, arg UpdateProject
 		&i.OutputModalities,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertProjectModelGrant = `-- name: UpsertProjectModelGrant :one
-INSERT INTO project_model_grants(
-  org_id, project_id, configured_model_id,
-  context_window_tokens, max_output_tokens, default_max_output_tokens,
-  default_cache_retention, supports_tools, supports_reasoning,
-  default_reasoning_effort, supported_reasoning_efforts,
-  input_modalities, output_modalities,
-  created_at, updated_at
-)
-SELECT project.org_id, project.id, configured_model.id,
-       $1, $2,
-       $3,
-       $4, $5,
-       $6, $7::text,
-       $8::text[],
-       $9::text[], $10::text[],
-       statement_timestamp(), statement_timestamp()
-FROM projects project
-JOIN configured_models configured_model ON configured_model.org_id = project.org_id
-  AND configured_model.id = $11
-  AND configured_model.deleted_at IS NULL
-JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
-  AND provider_config.id = configured_model.model_provider_config_id
-  AND provider_config.deleted_at IS NULL
-WHERE project.org_id = $12
-  AND project.id = $13
-ON CONFLICT (project_id, configured_model_id)
-DO UPDATE SET id = project_model_grants.id
-RETURNING id, org_id, project_id, configured_model_id,
-          context_window_tokens, max_output_tokens, default_max_output_tokens,
-          default_cache_retention, supports_tools, supports_reasoning,
-          default_reasoning_effort, supported_reasoning_efforts,
-          input_modalities, output_modalities,
-          created_at, updated_at, xmax = 0 AS created
-`
-
-type UpsertProjectModelGrantParams struct {
-	ContextWindowTokens       *int32
-	MaxOutputTokens           *int32
-	DefaultMaxOutputTokens    *int32
-	DefaultCacheRetention     *string
-	SupportsTools             *bool
-	SupportsReasoning         *bool
-	DefaultReasoningEffort    string
-	SupportedReasoningEfforts []string
-	InputModalities           []string
-	OutputModalities          []string
-	ConfiguredModelID         uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-}
-
-type UpsertProjectModelGrantRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	ConfiguredModelID         uuid.UUID
-	ContextWindowTokens       *int32
-	MaxOutputTokens           *int32
-	DefaultMaxOutputTokens    *int32
-	DefaultCacheRetention     *string
-	SupportsTools             *bool
-	SupportsReasoning         *bool
-	DefaultReasoningEffort    string
-	SupportedReasoningEfforts []string
-	InputModalities           []string
-	OutputModalities          []string
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-	Created                   bool
-}
-
-func (q *Queries) UpsertProjectModelGrant(ctx context.Context, arg UpsertProjectModelGrantParams) (UpsertProjectModelGrantRow, error) {
-	row := q.db.QueryRow(ctx, upsertProjectModelGrant,
-		arg.ContextWindowTokens,
-		arg.MaxOutputTokens,
-		arg.DefaultMaxOutputTokens,
-		arg.DefaultCacheRetention,
-		arg.SupportsTools,
-		arg.SupportsReasoning,
-		arg.DefaultReasoningEffort,
-		arg.SupportedReasoningEfforts,
-		arg.InputModalities,
-		arg.OutputModalities,
-		arg.ConfiguredModelID,
-		arg.OrgID,
-		arg.ProjectID,
-	)
-	var i UpsertProjectModelGrantRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.ConfiguredModelID,
-		&i.ContextWindowTokens,
-		&i.MaxOutputTokens,
-		&i.DefaultMaxOutputTokens,
-		&i.DefaultCacheRetention,
-		&i.SupportsTools,
-		&i.SupportsReasoning,
-		&i.DefaultReasoningEffort,
-		&i.SupportedReasoningEfforts,
-		&i.InputModalities,
-		&i.OutputModalities,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Created,
 	)
 	return i, err
 }

@@ -565,3 +565,39 @@ WHERE agent.project_id = $1
 		return count == 1, "model output not recorded yet; worker_logs=" + worker.logExcerpt()
 	})
 }
+
+func waitForServiceE2EAgentIdle(
+	t *testing.T,
+	ctx context.Context,
+	env *serviceE2EEnvironment,
+	projectUUID, agentUUID string,
+) {
+	t.Helper()
+	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
+		var locks, wakeups, next int
+		if err := env.db.QueryRow(
+			ctx,
+			scopedAgentRuntimeLockCountSQL,
+			projectUUID,
+			agentUUID,
+		).Scan(&locks); err != nil {
+			return false, err.Error()
+		}
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_wakeups WHERE agent_id=$1`,
+			agentUUID,
+		).Scan(&wakeups); err != nil {
+			return false, err.Error()
+		}
+		if err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_next_model_work($1,$2)`,
+			projectUUID,
+			agentUUID,
+		).Scan(&next); err != nil {
+			return false, err.Error()
+		}
+		return locks == 0 && wakeups == 0 && next == 0, fmt.Sprintf("locks=%d wakeups=%d next=%d", locks, wakeups, next)
+	})
+}

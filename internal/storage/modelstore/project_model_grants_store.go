@@ -59,7 +59,7 @@ func (s *Store) CreateProjectModelGrant(
 	); err != nil {
 		return ProjectModelGrantRecord{}, err
 	}
-	row, err := qtx.UpsertProjectModelGrant(ctx, dbsqlc.UpsertProjectModelGrantParams{
+	row, err := qtx.InsertProjectModelGrant(ctx, dbsqlc.InsertProjectModelGrantParams{
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,
 		ConfiguredModelID:         input.ConfiguredModelID,
@@ -75,18 +75,17 @@ func (s *Store) CreateProjectModelGrant(
 		OutputModalities:          input.OutputModalities,
 	})
 	if err != nil {
-		return ProjectModelGrantRecord{}, fmt.Errorf("upsert project model grant: %w", err)
-	}
-	record := projectModelGrantRecordFromUpsertSQLC(row)
-	if !sameProjectModelGrantIntent(record, input) {
-		return ProjectModelGrantRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
-			"an active project grant for this configured model already exists with a different configuration",
-		))
+		if storeutil.IsUniqueViolationOnConstraint(err, "project_model_grants_model_idx") {
+			return ProjectModelGrantRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
+				"a project grant for this configured model already exists",
+			))
+		}
+		return ProjectModelGrantRecord{}, fmt.Errorf("insert project model grant: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectModelGrantRecord{}, fmt.Errorf("commit create project model grant: %w", err)
 	}
-	return record, nil
+	return projectModelGrantRecordFromActiveSQLC(row), nil
 }
 
 func (s *Store) UpdateProjectModelGrant(
@@ -187,22 +186,22 @@ func applyProjectModelGrantPatch(
 	input UpdateProjectModelGrantInput,
 ) ProjectModelGrantRecord {
 	if input.ContextWindowTokens.Set {
-		record.ContextWindowTokens = cloneIntPtr(input.ContextWindowTokens.Value)
+		record.ContextWindowTokens = storeutil.ClonePtr(input.ContextWindowTokens.Value)
 	}
 	if input.MaxOutputTokens.Set {
-		record.MaxOutputTokens = cloneIntPtr(input.MaxOutputTokens.Value)
+		record.MaxOutputTokens = storeutil.ClonePtr(input.MaxOutputTokens.Value)
 	}
 	if input.DefaultMaxOutputTokens.Set {
-		record.DefaultMaxOutputTokens = cloneIntPtr(input.DefaultMaxOutputTokens.Value)
+		record.DefaultMaxOutputTokens = storeutil.ClonePtr(input.DefaultMaxOutputTokens.Value)
 	}
 	if input.DefaultCacheRetention != nil {
 		record.DefaultCacheRetention = *input.DefaultCacheRetention
 	}
 	if input.SupportsTools.Set {
-		record.SupportsTools = cloneBoolPtr(input.SupportsTools.Value)
+		record.SupportsTools = storeutil.ClonePtr(input.SupportsTools.Value)
 	}
 	if input.SupportsReasoning.Set {
-		record.SupportsReasoning = cloneBoolPtr(input.SupportsReasoning.Value)
+		record.SupportsReasoning = storeutil.ClonePtr(input.SupportsReasoning.Value)
 	}
 	if input.DefaultReasoningEffort != nil {
 		record.DefaultReasoningEffort = *input.DefaultReasoningEffort
@@ -292,8 +291,8 @@ func (s *Store) ListProjectModelGrants(
 				MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 				DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 				DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-				SupportsTools:             cloneBoolPtr(row.SupportsTools),
-				SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+				SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+				SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 				DefaultReasoningEffort:    row.DefaultReasoningEffort,
 				SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 				InputModalities:           nonNilStringSlice(row.InputModalities),
@@ -340,8 +339,8 @@ func projectModelGrantRecordFromSQLC(row dbsqlc.ProjectModelGrant) ProjectModelG
 		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-		SupportsTools:             cloneBoolPtr(row.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 		DefaultReasoningEffort:    row.DefaultReasoningEffort,
 		SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 		InputModalities:           nonNilStringSlice(row.InputModalities),
@@ -363,35 +362,13 @@ func projectModelGrantRecordFromActiveSQLC(
 		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-		SupportsTools:             cloneBoolPtr(row.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 		DefaultReasoningEffort:    row.DefaultReasoningEffort,
 		SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
-	}
-}
-
-func projectModelGrantRecordFromUpsertSQLC(row dbsqlc.UpsertProjectModelGrantRow) ProjectModelGrantRecord {
-	return ProjectModelGrantRecord{
-		ID:                        row.ID,
-		OrgID:                     row.OrgID,
-		ProjectID:                 row.ProjectID,
-		ConfiguredModelID:         row.ConfiguredModelID,
-		ContextWindowTokens:       storeutil.IntPtr(row.ContextWindowTokens),
-		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
-		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
-		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-		SupportsTools:             cloneBoolPtr(row.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
-		DefaultReasoningEffort:    row.DefaultReasoningEffort,
-		SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
-		InputModalities:           nonNilStringSlice(row.InputModalities),
-		OutputModalities:          nonNilStringSlice(row.OutputModalities),
-		CreatedAt:                 row.CreatedAt,
-		UpdatedAt:                 row.UpdatedAt,
-		Created:                   row.Created,
 	}
 }

@@ -87,7 +87,6 @@ tools:
 skills:
   - %s
 `, machinePool.Name, skillPublicID),
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
@@ -237,15 +236,15 @@ func createKernelMachinePool(
 		OrgID:                         kernelTestOrgID,
 		Name:                          name,
 		Provider:                      "test.provider",
-		DefaultMachineCPU:             intPtrForKernelCompactionTest(1),
-		DefaultMachineMemoryMB:        intPtrForKernelCompactionTest(1024),
+		DefaultMachineCPU:             new(1),
+		DefaultMachineMemoryMB:        new(1024),
 		DefaultMachineProviderOptions: json.RawMessage(`{"image":"prompt-cache"}`),
 		ProviderAuthSecretID:          providerAuthSecret.ID,
 		MaxTotalMachines:              1,
-		MaxTotalCPU:                   intPtrForKernelCompactionTest(1),
-		MaxTotalMemoryMB:              intPtrForKernelCompactionTest(1024),
-		MaxMachineCPU:                 intPtrForKernelCompactionTest(1),
-		MaxMachineMemoryMB:            intPtrForKernelCompactionTest(1024),
+		MaxTotalCPU:                   new(1),
+		MaxTotalMemoryMB:              new(1024),
+		MaxMachineCPU:                 new(1),
+		MaxMachineMemoryMB:            new(1024),
 	})
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)

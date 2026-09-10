@@ -58,6 +58,13 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 </Tab>
 </Tabs>
 
+Provider timeouts apply to each attempt, including reasoning and response streaming:
+
+- `request_timeout_ms` sets the total deadline, defaulting to 3600000 (60 minutes).
+- `idle_timeout_ms` limits the wait for response headers or more response data, defaulting to 300000 (5 minutes). Heartbeats count as activity. Increase it for endpoints that can remain silent for longer periods.
+
+Edit these settings in the provider dialog or through the API. Existing total deadlines are retained on upgrade.
+
 ## Configure models
 
 A configured model (`mdl_…`) gives a provider model a name and runtime settings. Agent configs use `name`; Omnara sends `provider_model_slug` to the provider. Keeping them separate lets you manage provider details centrally.
@@ -69,9 +76,19 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 <Tab title="Dashboard">
   In **Add models**, select the detected models you want, or click **Skip for now**. The detected slug is used as the configured model name. Agent YAML must use the configured model name exactly.
 
-  To add or tune a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and use the advanced section for token limits and capabilities. You can also attach project grants in this dialog.
+  To add a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and review the context window and maximum output capacity. Use **Advanced** to set an optional default output allowance. You can also attach project grants in this dialog.
 </Tab>
 </Tabs>
+
+Token settings have separate roles:
+
+- `context_window_tokens` is the shared input and output window.
+- `max_output_tokens` is the model's output capacity. It is optional; selecting a discovered model can prefill it.
+- `default_max_output_tokens` is an optional output allowance for each request. When omitted, Omnara uses the known output capacity.
+
+Omnara fits the request allowance to the remaining context. If both output settings are omitted, Messages uses 64,000 tokens; Chat Completions and Responses use the provider default. Set an explicit capacity or allowance for Messages endpoints that support less.
+
+Agents automatically continue after an output-limit cutoff.
 
 Changing a model's runtime settings creates a new **revision** (`mrev_…`). Agents resolve the current revision before each model call, so the new settings apply to later calls from existing agents too.
 

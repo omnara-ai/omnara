@@ -17,10 +17,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint(t *testing.T) {
@@ -34,6 +34,7 @@ func TestRunnerLiveOpenAIResponsesCompactionCreatesCheckpoint(t *testing.T) {
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIResponses),
 		ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
+		APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"none"}}`),
 	})
 }
 
@@ -48,6 +49,7 @@ func TestRunnerLiveOpenAIChatCompletionsCompactionCreatesCheckpoint(t *testing.T
 		EndpointPath:      modelstore.DefaultModelProviderEndpointPath(modelprotocol.APIFormatOpenAIChatCompletions),
 		ProviderModelSlug: modeltest.LiveOpenAIProviderModelSlug,
 		ModelCapabilities: liveCompactionCapabilities(),
+		APIVariantOptions: json.RawMessage(`{"reasoning_effort":"none"}`),
 	})
 }
 
@@ -89,115 +91,106 @@ func TestRunnerLiveAnthropicCompactionCreatesCheckpoint(t *testing.T) {
 
 func runLiveCompactionProvider(t *testing.T, client model.Client) {
 	t.Helper()
+	for _, tc := range []struct {
+		name       string
+		allowance  int
+		stopReason model.StopReason
+	}{
+		{"completed_summary", 4096, model.StopReasonEndTurn},
+		{"partial_summary", 32, model.StopReasonMaxTokens},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			observed := &liveCompactionClient{Client: client, allowance: tc.allowance, responses: new([]model.Response)}
+			runLiveCompactionSummary(t, observed, tc.stopReason)
+		})
+	}
+}
+
+func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopReason model.StopReason) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	contentParts := func(text string) json.RawMessage {
-		content, err := json.Marshal([]map[string]string{{"type": "text", "text": text}})
-		if err != nil {
-			t.Fatalf("marshal live compaction content: %v", err)
-		}
-		return content
-	}
 	repeatedAuditContext := strings.Repeat(
 		"Audit record: durable model contexts must preserve their event frontier, provider send evidence, recovery policy, and checkpoint lineage. ",
 		40,
 	)
 	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		mustCompactionEvent(
+		textCompactionEvent(
 			1,
-			"agent_input",
-			"content",
-			contentParts(
-				"Refactor durable model calls while preserving steering boundaries and immutable event history. "+
-					repeatedAuditContext,
-			),
-		),
-		mustCompactionEvent(
-			2,
-			"model_output",
-			"output",
-			contentParts(
-				"Implemented durable retry evidence, cumulative checkpoints, and model-ready steering admission. "+
-					"The next step is provider verification. "+repeatedAuditContext,
-			),
+			"Implemented durable retry evidence, cumulative checkpoints, and model-ready steering admission. "+
+				"The next step is provider verification. "+repeatedAuditContext,
 		),
 	}}
 	apiFormat, apiVariant, ok := model.APIIdentityForClient(client)
-	if !ok {
-		t.Fatalf("live compaction client has incomplete API identity")
-	}
-	plan := Plan{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		InputEventSequence: 3,
-		EventSequenceStart: 1,
-		EventSequenceEnd:   2,
-	}
-	result, err := (Runner{
-		Store:          store,
-		Resolver:       compactionResolver(client),
-		ContextBuilder: &fakeContextBuilder{},
-		Now:            func() time.Time { return time.Now().UTC() },
-	}).Run(
-		ctx,
-		RunInput{
-			Plan:                     plan,
-			TurnID:                   testTurnID,
-			OpeningInputIDs:          []storage.ID{testOpeningInputID},
-			OpeningEventSequence:     3,
-			RuntimeLockID:            testRuntimeLockID,
-			ParentModelCallContextID: testIDN(777),
-		},
-	)
-	if err != nil {
-		t.Fatalf("run live %s compaction: %v", apiFormat, err)
-	}
-	if result.Checkpoint == nil || strings.TrimSpace(result.Checkpoint.Summary) == "" {
-		t.Fatalf(
-			"live %s compaction returned empty summary: result=%+v retry_failures=%+v terminal_failures=%+v",
-			apiFormat,
-			result,
-			store.retryFailures,
-			store.terminalFailures,
-		)
-	}
-	if len(store.claims) != 1 || store.claims[0].Context.ConfiguredModelRevisionID != testIDN(601) {
-		t.Fatalf(
-			"model context configured model revision = %+v, want revision %s",
-			store.claims,
-			testIDN(601),
-		)
-	}
-	if len(store.publishInputs) != 1 {
-		t.Fatalf("live compaction publications = %+v, want one", store.publishInputs)
-	}
+	require.True(t, ok)
+	result, err := testRunner(store, client).Run(ctx, runInput(testPlan(1, 1, 2)))
+	require.NoError(t, err)
+	require.Len(t, *client.responses, 1)
+	response := (*client.responses)[0]
+	require.Equal(t, stopReason, response.StopReason)
+	require.Empty(t, response.ToolCalls())
+	require.NotEmpty(t, strings.TrimSpace(response.Text()))
+	require.Empty(t, store.retryFailures)
+	require.Empty(t, store.terminalFailures)
+	require.Empty(t, store.replacements)
+	require.Equal(t, RunCompleted, result.State)
+	require.NotNil(t, result.Checkpoint)
+	require.Equal(t, strings.TrimSpace(response.Text()), result.Checkpoint.Summary)
+	require.Len(t, store.claims, 1)
+	require.Equal(t, testIDN(601), store.claims[0].Context.ConfiguredModelRevisionID)
+	require.Len(t, store.publishInputs, 1)
 	publication := store.publishInputs[0]
-	if publication.APIFormat != apiFormat || publication.APIVariant != apiVariant {
-		t.Fatalf(
-			"live compaction did not record its provider route: publications=%+v",
-			store.publishInputs,
-		)
-	}
-	if publication.Usage.InputTokens <= 0 || publication.Usage.OutputTokens <= 0 ||
-		modelenvelope.NormalizeUsage(publication.Usage) != publication.Usage {
-		t.Fatalf("live compaction did not record valid provider usage: %+v", publication.Usage)
-	}
+	require.Equal(t, apiFormat, publication.APIFormat)
+	require.Equal(t, apiVariant, publication.APIVariant)
+	require.Equal(t, response.Usage, publication.Usage)
+	require.Positive(t, publication.Usage.InputTokens)
+	require.Positive(t, publication.Usage.OutputTokens)
+	require.Equal(t, modelenvelope.NormalizeUsage(publication.Usage), publication.Usage)
 	if apiVariant == modelprotocol.APIVariantOpenRouter {
-		if _, valid := modelenvelope.ParseProviderReportedCostUSD(
-			string(publication.ProviderReportedCostUSD),
-		); !valid {
-			t.Fatalf(
-				"live OpenRouter compaction did not record valid provider cost: %q",
-				publication.ProviderReportedCostUSD,
-			)
-		}
+		_, valid := modelenvelope.ParseProviderReportedCostUSD(string(publication.ProviderReportedCostUSD))
+		require.True(t, valid)
 	}
+}
+
+type liveCompactionClient struct {
+	model.Client
+	allowance int
+	responses *[]model.Response
+}
+
+func (c *liveCompactionClient) Capabilities() model.Capabilities {
+	caps := c.Client.Capabilities()
+	caps.DefaultMaxOutputTokens = c.allowance
+	return caps
+}
+
+func (c *liveCompactionClient) OutputTokenLimits() (model.OutputTokenLimits, error) {
+	return model.OutputTokenLimitsForClient(c.Client, "live-compaction")
+}
+
+func (c *liveCompactionClient) WithoutManualThinking() (model.Client, error) {
+	if provider, ok := c.Client.(interface{ WithoutManualThinking() (model.Client, error) }); ok {
+		client, err := provider.WithoutManualThinking()
+		if err != nil {
+			return nil, err
+		}
+		summaryClient := *c
+		summaryClient.Client = client
+		return &summaryClient, nil
+	}
+	return c, nil
+}
+
+func (c *liveCompactionClient) Respond(ctx context.Context, input model.Request) (model.Response, error) {
+	response, err := c.Client.Respond(ctx, input)
+	*c.responses = append(*c.responses, response)
+	return response, err
 }
 
 func liveCompactionCapabilities() model.Capabilities {
 	return model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: 4096,
 	}
 }

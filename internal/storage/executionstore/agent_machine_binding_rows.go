@@ -1,6 +1,9 @@
 package executionstore
 
-import "github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+import (
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+)
 
 func agentMachineBindingRecordFromSQLC(row dbsqlc.AgentMachineBinding) AgentMachineBindingRecord {
 	return AgentMachineBindingRecord{
@@ -18,7 +21,7 @@ func agentMachineBindingRecordFromSQLC(row dbsqlc.AgentMachineBinding) AgentMach
 		Cwd:                    row.Cwd,
 		EnvOverlay:             row.EnvOverlay,
 		SecretEnvOverlay:       row.SecretEnvOverlay,
-		DeleteAfterIdleMinutes: intPtrFromSQLC(row.DeleteAfterIdleMinutes),
+		DeleteAfterIdleMinutes: storeutil.IntPtr(row.DeleteAfterIdleMinutes),
 		Metadata:               row.Metadata,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,

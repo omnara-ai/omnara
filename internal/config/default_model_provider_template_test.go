@@ -57,7 +57,8 @@ models:
 		template.BaseURL != "https://openrouter.ai/api/v1" ||
 		template.EndpointPath != "/chat/completions" ||
 		template.AuthKind != modelstore.ModelProviderAuthKindBearerToken ||
-		template.RequestTimeoutMS != int(modelstore.DefaultModelProviderRequestTimeoutMS) {
+		template.RequestTimeoutMS != int(modelstore.DefaultModelProviderRequestTimeoutMS) ||
+		template.IdleTimeoutMS != int(modelstore.DefaultModelProviderIdleTimeoutMS) {
 		t.Fatalf("unexpected template: %+v", template)
 	}
 	if len(template.Models) != 1 || template.Models[0].ProviderModelSlug != "anthropic/claude-sonnet-4.5" {
@@ -117,11 +118,10 @@ models:
 	}
 	if cfg.DefaultModelProvider == nil ||
 		len(cfg.DefaultModelProvider.Models) != 1 ||
-		cfg.DefaultModelProvider.Models[0].MaxOutputTokens != 8_192 ||
-		cfg.DefaultModelProvider.Models[0].DefaultMaxOutputTokens == nil ||
-		*cfg.DefaultModelProvider.Models[0].DefaultMaxOutputTokens != 4_096 {
+		cfg.DefaultModelProvider.Models[0].MaxOutputTokens != nil ||
+		cfg.DefaultModelProvider.Models[0].DefaultMaxOutputTokens != nil {
 		t.Fatalf(
-			"default model output limits = %+v, want 8192/4096",
+			"default model output limits = %+v, want unknown capacity and no allowance",
 			cfg.DefaultModelProvider,
 		)
 	}

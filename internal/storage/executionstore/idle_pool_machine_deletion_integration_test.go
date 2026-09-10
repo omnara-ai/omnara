@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -69,7 +70,7 @@ func newIdlePoolMachineFixture(
 		}
 		machinePool = updatedPool
 	}
-	if !sameIntPtr(machinePool.DeleteAfterIdleMinutes, policy.PoolMinutes) {
+	if !storeutil.SameIntPtr(machinePool.DeleteAfterIdleMinutes, policy.PoolMinutes) {
 		t.Fatalf("idle pool policy = %v, want %v", machinePool.DeleteAfterIdleMinutes, policy.PoolMinutes)
 	}
 	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
@@ -85,7 +86,7 @@ func newIdlePoolMachineFixture(
 	if err != nil {
 		t.Fatalf("create idle pool grant: %v", err)
 	}
-	if !sameIntPtr(poolGrant.DeleteAfterIdleMinutes, policy.GrantMinutes) {
+	if !storeutil.SameIntPtr(poolGrant.DeleteAfterIdleMinutes, policy.GrantMinutes) {
 		t.Fatalf("idle pool grant policy = %v, want %v", poolGrant.DeleteAfterIdleMinutes, policy.GrantMinutes)
 	}
 	machineSource := "  - machine_pool_name: " + machinePool.Name + "\n"
@@ -113,7 +114,7 @@ machine_sources:
 		t.Fatalf("launch idle pool agent: %v", err)
 	}
 	binding := launch.MachineBindings[0]
-	if !sameIntPtr(binding.DeleteAfterIdleMinutes, policy.BindingMinutes) {
+	if !storeutil.SameIntPtr(binding.DeleteAfterIdleMinutes, policy.BindingMinutes) {
 		t.Fatalf("idle machine binding policy = %v, want %v", binding.DeleteAfterIdleMinutes, policy.BindingMinutes)
 	}
 	claim, claimed, err := store.Execution().ClaimPoolMachineForProvisioning(

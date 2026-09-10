@@ -49,7 +49,6 @@ type DialogPhase =
       step: 'models'
       provider: ModelProviderConfig
       discovery: ModelCatalog
-      providerCreated: boolean
     }
 
 export function CreateModelProviderDialog({
@@ -116,7 +115,6 @@ export function CreateModelProviderDialog({
         step: 'models',
         provider: result.config,
         discovery: result.model_catalog,
-        providerCreated: result.created,
       })
     } catch (err) {
       if (submissionGeneration !== providerSubmissionGeneration.current) return
@@ -124,10 +122,8 @@ export function CreateModelProviderDialog({
     }
   }
 
-  async function backFromDiscovery(providerID: string, providerCreated: boolean) {
-    if (providerCreated) {
-      await deleteModelProvider.mutateAsync(providerID)
-    }
+  async function backFromDiscovery(providerID: string) {
+    await deleteModelProvider.mutateAsync(providerID)
     setPhase({ step: 'provider' })
   }
 
@@ -284,9 +280,8 @@ export function CreateModelProviderDialog({
           />
         ) : (
           <ModelDiscoveryFailureStep
-            deleting={phase.providerCreated && deleteModelProvider.isPending}
-            providerCreated={phase.providerCreated}
-            onBack={() => backFromDiscovery(phase.provider.id, phase.providerCreated)}
+            deleting={deleteModelProvider.isPending}
+            onBack={() => backFromDiscovery(phase.provider.id)}
             onContinue={close}
           />
         )}

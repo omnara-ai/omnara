@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -224,7 +225,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 func sameMachineBindingConfig(left, right agentconfig.RuntimeMachine) bool {
 	return left.Cwd == right.Cwd &&
 		left.Description == right.Description &&
-		sameIntPtr(left.DeleteAfterIdleMinutes, right.DeleteAfterIdleMinutes) &&
+		storeutil.SameIntPtr(left.DeleteAfterIdleMinutes, right.DeleteAfterIdleMinutes) &&
 		reflect.DeepEqual(left.EnvOverlay, right.EnvOverlay) &&
 		reflect.DeepEqual(left.SecretEnvOverlay, right.SecretEnvOverlay)
 }
@@ -248,7 +249,7 @@ func updateAgentMachineBindingConfigTx(
 			Cwd:                    source.BindingConfig.Cwd,
 			EnvOverlay:             envOverlay,
 			SecretEnvOverlay:       secretEnvOverlay,
-			DeleteAfterIdleMinutes: sqlcInt32Ptr(source.BindingConfig.DeleteAfterIdleMinutes),
+			DeleteAfterIdleMinutes: storeutil.Int32Ptr(source.BindingConfig.DeleteAfterIdleMinutes),
 			ProjectID:              projectID,
 			AgentID:                agentID,
 			ID:                     bindingID,

@@ -4,11 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
 import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
-import { configuredModelRequestForDiscoveredModel } from './CreateModelProviderDialogState'
+import {
+  canCreateDiscoveredModel,
+  configuredModelRequestForDiscoveredModel,
+} from './CreateModelProviderDialogState'
 
 const DiscoveredModelMultiCombobox = createResourceMultiCombobox<DiscoveredProviderModel>({
   itemKey: (model) => model.slug,
@@ -22,13 +25,13 @@ const DiscoveredModelMultiCombobox = createResourceMultiCombobox<DiscoveredProvi
 
 interface AddModelsState {
   selectedSlugs: string[]
-  createdCount: number
+  createdSlugs: string[]
   error: string
 }
 
 const initialAddModelsState: AddModelsState = {
   selectedSlugs: [],
-  createdCount: 0,
+  createdSlugs: [],
   error: '',
 }
 
@@ -44,11 +47,11 @@ export function AddDiscoveredModelsStep({
   onDone: () => void
 }) {
   const createConfiguredModel = useCreateConfiguredModel(orgId)
-  const creatableModels = discoveredModels.filter(
-    (model) => model.context_window_tokens !== undefined && model.context_window_tokens > 1,
-  )
+  const creatableModels = discoveredModels.filter(canCreateDiscoveredModel)
   const [state, setState] = useState(initialAddModelsState)
   const selectedSlugSet = new Set(state.selectedSlugs)
+  const createdSlugSet = new Set(state.createdSlugs)
+  const availableModels = creatableModels.filter((model) => !createdSlugSet.has(model.slug))
   // Covers the whole batch below; the mutation's isPending only tracks its latest call.
   const [submitting, setSubmitting] = useState(false)
   const mounted = useRef(true)
@@ -88,7 +91,7 @@ export function AddDiscoveredModelsStep({
     }
 
     const failedSlugs = slugs.filter((_, index) => result.value[index]?.status === 'rejected')
-    const succeeded = slugs.length - failedSlugs.length
+    const createdSlugs = slugs.filter((_, index) => result.value[index]?.status === 'fulfilled')
     if (failedSlugs.length > 0) {
       const firstFailure = result.value.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -96,9 +99,9 @@ export function AddDiscoveredModelsStep({
       setState((prev) => ({
         ...prev,
         selectedSlugs: failedSlugs,
-        createdCount: prev.createdCount + succeeded,
+        createdSlugs: [...prev.createdSlugs, ...createdSlugs],
         error:
-          `Created ${String(succeeded)} of ${String(slugs.length)} models. ` +
+          `Created ${String(createdSlugs.length)} of ${String(slugs.length)} models. ` +
           errorMessage(firstFailure?.reason, 'The remaining models could not be created.'),
       }))
       return
@@ -120,8 +123,8 @@ export function AddDiscoveredModelsStep({
         <Field>
           <FieldLabel>Detected models</FieldLabel>
           <DiscoveredModelMultiCombobox
-            items={creatableModels}
-            value={creatableModels.filter((model) => selectedSlugSet.has(model.slug))}
+            items={availableModels}
+            value={availableModels.filter((model) => selectedSlugSet.has(model.slug))}
             disabled={submitting}
             onValueChange={(models) => {
               setState((prev) => ({
@@ -129,13 +132,23 @@ export function AddDiscoveredModelsStep({
                 selectedSlugs: models.map((model) => model.slug),
               }))
             }}
-            emptyMessage="All detected models selected."
+            emptyMessage={
+              creatableModels.length === 0
+                ? 'No detected models have valid token limits.'
+                : 'All detected models selected.'
+            }
           />
+          {creatableModels.length < discoveredModels.length && (
+            <FieldDescription>
+              Models without valid token limits are omitted. You can add them manually and enter
+              their capacity.
+            </FieldDescription>
+          )}
         </Field>
         {state.error && <p className="text-destructive text-sm">{state.error}</p>}
         <DialogFooter>
           <Button type="button" variant="ghost" disabled={submitting} onClick={onDone}>
-            {state.createdCount > 0 ? 'Done' : 'Skip for now'}
+            {state.createdSlugs.length > 0 ? 'Done' : 'Skip for now'}
           </Button>
           <Button
             type="button"

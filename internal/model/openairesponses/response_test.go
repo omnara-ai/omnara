@@ -3,13 +3,17 @@ package openairesponses
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -348,31 +352,6 @@ func TestRespondMapsIncompleteStopReasons(t *testing.T) {
 	}
 }
 
-func TestRespondKeepsMaxTokenTextAndDropsIncompleteFunctionCall(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(
-			`{"id":"resp_incomplete","status":"incomplete",` +
-				`"incomplete_details":{"reason":"max_output_tokens"},"output":[` +
-				`{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"partial"}]},` +
-				`{"id":"fc_1","type":"function_call","status":"incomplete",` +
-				`"call_id":"call_1","name":"lookup","arguments":""}]}`,
-		))
-	}))
-	defer server.Close()
-
-	response, err := testRespondClient(server).Respond(
-		context.Background(),
-		model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)},
-	)
-	if err != nil {
-		t.Fatalf("respond with truncated function call: %v", err)
-	}
-	if response.StopReason != model.StopReasonMaxTokens || response.Text() != "partial" ||
-		response.HasToolCalls() || len(response.ProviderReplay) != 0 {
-		t.Fatalf("truncated response = %+v, want partial text without tool call or replay", response)
-	}
-}
-
 func TestRespondMapsFailedStatusToProviderError(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -468,24 +447,29 @@ func TestRespondTreatsNonTerminalStatusAsAmbiguous(t *testing.T) {
 	}
 }
 
-func TestRespondMapsMessageRefusalContent(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		responseBody := `{"id":"resp_refusal","status":"completed","output":[` +
-			`{"id":"msg_refusal","type":"message","content":[{"type":"refusal",` +
-			`"refusal":"I can't help with that."}]}],` +
-			`"usage":{"input_tokens":1,"output_tokens":1}}`
-		_, _ = w.Write([]byte(responseBody))
-	}))
-	defer server.Close()
-	client := testRespondClient(server)
-	resp, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)})
-	if err != nil {
-		t.Fatalf("respond: %v", err)
-	}
-	if resp.StopReason != model.StopReasonRefusal ||
-		len(resp.Content) != 1 ||
-		resp.Content[0].Text != "I can't help with that." {
-		t.Fatalf("unexpected refusal response: %+v", resp)
+func TestRefusalTakesPrecedenceOverOutputLimit(t *testing.T) {
+	for _, status := range []string{"completed", "incomplete"} {
+		for _, streamed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", status, streamed), func(t *testing.T) {
+				body := `{"id":"resp_refusal","status":"` + status + `","incomplete_details":{"reason":"max_output_tokens"},"output":[` +
+					`{"type":"message","content":[{"type":"refusal","refusal":"Refused"}]},` +
+					`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}]}`
+				var response model.Response
+				var err error
+				if streamed {
+					response, err = consumeOpenAIStream(t, openAISSE(
+						[2]string{"response." + status, `{"response":` + body + `}`},
+					), &recordingSink{})
+				} else {
+					response, err = (protocol{}).ParseResponse(context.Background(),
+						route.Response{StatusCode: http.StatusOK, Body: []byte(body)})
+				}
+				require.NoError(t, err)
+				require.Equal(t, model.StopReasonRefusal, response.StopReason)
+				require.Equal(t, "Refused", response.Text())
+				require.True(t, response.HasToolCalls(), "retain the contradiction for the kernel to reject")
+			})
+		}
 	}
 }
 
@@ -841,7 +825,7 @@ func TestRespondRejectsDuplicateOutputItemID(t *testing.T) {
 	}
 }
 
-func TestRespondRejectsMalformedFunctionCall(t *testing.T) {
+func TestRespondDistinguishesUnidentifiedAndRejectedFunctionCalls(t *testing.T) {
 	tests := []struct {
 		name string
 		item string
@@ -850,6 +834,8 @@ func TestRespondRejectsMalformedFunctionCall(t *testing.T) {
 		{name: "missing name", item: `{"type":"function_call","call_id":"call_1","arguments":"{}"}`},
 		{name: "missing arguments", item: `{"type":"function_call","call_id":"call_1","name":"lookup"}`},
 		{name: "null arguments", item: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"null"}`},
+		{name: "object arguments", item: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":{}}`},
+		{name: "array arguments", item: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":[]}`},
 		{name: "invalid arguments", item: `{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{"}`},
 	}
 	for _, test := range tests {
@@ -861,14 +847,18 @@ func TestRespondRejectsMalformedFunctionCall(t *testing.T) {
 			}))
 			defer server.Close()
 
-			_, err := testRespondClient(server).Respond(
+			response, err := testRespondClient(server).Respond(
 				context.Background(),
 				model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)},
 			)
-			providerErr, ok := model.ClassifyError(err)
-			if !ok || providerErr.Code != "malformed_success_response" ||
-				!model.IsAmbiguousProviderOutcome(err) {
-				t.Fatalf("malformed function call = %+v ok=%v err=%v", providerErr, ok, err)
+			if test.name == "missing call id" {
+				require.True(t, model.IsAmbiguousProviderOutcome(err), "missing identity: %v", err)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, model.ValidateProviderResponse(response))
+				require.Len(t, response.Content, 1)
+				require.NotEmpty(t, response.Content[0].ToolCallError)
+				require.Equal(t, "call_1", response.Content[0].ProviderCallID)
 			}
 		})
 	}

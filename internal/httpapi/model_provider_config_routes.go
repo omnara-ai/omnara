@@ -34,6 +34,7 @@ type createModelProviderConfigCommand struct {
 	BaseURL            string
 	EndpointPath       string
 	RequestTimeoutMS   int
+	IdleTimeoutMS      int
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID string
@@ -64,6 +65,9 @@ func createModelProviderConfigCommandFromOpenAPI(
 	if body.RequestTimeoutMs != nil {
 		command.RequestTimeoutMS = *body.RequestTimeoutMs
 	}
+	if body.IdleTimeoutMs != nil {
+		command.IdleTimeoutMS = *body.IdleTimeoutMs
+	}
 	if body.AuthKind != nil {
 		command.AuthKind = string(*body.AuthKind)
 	}
@@ -91,6 +95,10 @@ func patchModelProviderConfigInputFromOpenAPI(
 		requestTimeoutMS := *body.RequestTimeoutMs
 		patch.RequestTimeoutMS = &requestTimeoutMS
 	}
+	if body.IdleTimeoutMs != nil {
+		idleTimeoutMS := *body.IdleTimeoutMs
+		patch.IdleTimeoutMS = &idleTimeoutMS
+	}
 	if body.AuthKind != nil {
 		authKind := string(*body.AuthKind)
 		patch.AuthKind = &authKind
@@ -113,23 +121,15 @@ func patchModelProviderConfigInputFromOpenAPI(
 func createConfiguredModelInputFromOpenAPI(
 	orgID, configID storage.ID,
 	body openapigen.CreateConfiguredModelRequest,
-) (modelstore.CreateConfiguredModelInput, error) {
-	maxOutputTokens, defaultMaxOutputTokens, err := modelstore.ResolveConfiguredModelOutputLimits(
-		body.ContextWindowTokens,
-		body.MaxOutputTokens,
-		body.DefaultMaxOutputTokens,
-	)
-	if err != nil {
-		return modelstore.CreateConfiguredModelInput{}, err
-	}
+) modelstore.CreateConfiguredModelInput {
 	input := modelstore.CreateConfiguredModelInput{
 		OrgID:                  orgID,
 		ModelProviderConfigID:  configID,
 		Name:                   body.Name,
-		ProviderModelSlug:      body.ProviderModelSlug,
+		ProviderModelSlug:      strings.TrimSpace(body.ProviderModelSlug),
 		ContextWindowTokens:    body.ContextWindowTokens,
-		MaxOutputTokens:        maxOutputTokens,
-		DefaultMaxOutputTokens: defaultMaxOutputTokens,
+		MaxOutputTokens:        body.MaxOutputTokens,
+		DefaultMaxOutputTokens: body.DefaultMaxOutputTokens,
 		SupportsTools:          body.SupportsTools,
 		APIVariantOptions:      append(json.RawMessage(nil), body.ApiVariantOptions...),
 	}
@@ -151,7 +151,7 @@ func createConfiguredModelInputFromOpenAPI(
 	if body.OutputModalities != nil {
 		input.OutputModalities = append([]string(nil), (*body.OutputModalities)...)
 	}
-	return input, nil
+	return input
 }
 
 func validateCreateModelProviderConfigRequest(body openapigen.CreateModelProviderConfigRequest) error {
@@ -204,6 +204,8 @@ func createModelProviderConfigHasField(body openapigen.CreateModelProviderConfig
 		return body.EndpointPath != nil
 	case "request_timeout_ms":
 		return body.RequestTimeoutMs != nil
+	case "idle_timeout_ms":
+		return body.IdleTimeoutMs != nil
 	case "auth_kind":
 		return body.AuthKind != nil
 	case "auth_options":
@@ -312,6 +314,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		BaseURL:            command.BaseURL,
 		EndpointPath:       command.EndpointPath,
 		RequestTimeoutMS:   command.RequestTimeoutMS,
+		IdleTimeoutMS:      command.IdleTimeoutMS,
 		AuthKind:           command.AuthKind,
 		AuthOptions:        command.AuthOptions,
 		CredentialSecretID: credentialSecretID,
@@ -327,10 +330,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		Config:       configResponse,
 		ModelCatalog: s.providerModelCatalog(ctx, org.ID, record),
 	}
-	if record.Created {
-		return openapigen.CreateModelProviderConfig201JSONResponse(response), nil
-	}
-	return openapigen.CreateModelProviderConfig200JSONResponse(response), nil
+	return openapigen.CreateModelProviderConfig201JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) providerModelCatalog(
@@ -553,10 +553,7 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "request body is required")
 	}
-	input, err := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
-	if err != nil {
-		return nil, apierror.OrgScoped(err)
-	}
+	input := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
 	record, err := s.server.store.Models().CreateConfiguredModel(ctx, input)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -565,10 +562,7 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 	if err != nil {
 		return nil, err
 	}
-	if record.Created {
-		return openapigen.CreateConfiguredModel201JSONResponse(response), nil
-	}
-	return openapigen.CreateConfiguredModel200JSONResponse(response), nil
+	return openapigen.CreateConfiguredModel201JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) ListConfiguredModels(
@@ -686,11 +680,10 @@ func patchConfiguredModelInput(
 		}
 		input.ContextWindowTokens = body.ContextWindowTokens
 	}
-	if body.MaxOutputTokens != nil {
-		if *body.MaxOutputTokens < 1 {
-			return modelstore.PatchConfiguredModelInput{}, errors.New("max_output_tokens must be at least 1")
+	if body.MaxOutputTokens.IsSpecified() {
+		if err := applyNullableIntPatch("max_output_tokens", body.MaxOutputTokens, 1, &input.MaxOutputTokens); err != nil {
+			return modelstore.PatchConfiguredModelInput{}, err
 		}
-		input.MaxOutputTokens = body.MaxOutputTokens
 	}
 	if body.DefaultMaxOutputTokens.IsSpecified() {
 		if err := applyNullableIntPatch(
@@ -832,12 +825,7 @@ func (s strictOpenAPIServer) CreateProjectModelGrant(
 	if err != nil {
 		return nil, err
 	}
-	if record.Created {
-		return openapigen.CreateProjectModelGrant201JSONResponse(
-			openapigen.ProjectModelGrantEnvelope{Grant: response},
-		), nil
-	}
-	return openapigen.CreateProjectModelGrant200JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
+	return openapigen.CreateProjectModelGrant201JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
 }
 
 func (s strictOpenAPIServer) ListProjectModelGrants(
@@ -1056,6 +1044,7 @@ func modelProviderConfigResponse(record modelstore.ModelProviderConfigRecord) (o
 		BaseUrl:            record.BaseURL,
 		EndpointPath:       record.EndpointPath,
 		RequestTimeoutMs:   record.RequestTimeoutMS,
+		IdleTimeoutMs:      record.IdleTimeoutMS,
 		AuthKind:           openapigen.ModelProviderAuthKind(record.AuthKind),
 		AuthOptions:        jsonOrFallback(record.AuthOptions, json.RawMessage(`{}`)),
 		CredentialSecretId: credentialSecretID,
@@ -1098,7 +1087,7 @@ func configuredModelResponse(record modelstore.ConfiguredModelRecord) (openapige
 		CurrentRevisionId:         revisionID,
 		ProviderModelSlug:         record.ProviderModelSlug,
 		ContextWindowTokens:       record.ContextWindowTokens,
-		MaxOutputTokens:           record.MaxOutputTokens,
+		MaxOutputTokens:           nullableFromPtr(record.MaxOutputTokens),
 		DefaultMaxOutputTokens:    nullableFromPtr(record.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     cacheRetention,
 		SupportsTools:             record.SupportsTools,
