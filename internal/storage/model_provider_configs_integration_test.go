@@ -368,7 +368,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ProviderModelSlug:      "openrouter/model",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		APIVariantOptions: json.RawMessage(
 			`{"provider":{"only":["anthropic"],"data_collection":"deny"},"temperature":0.2}`,
 		),
@@ -421,7 +421,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ProviderModelSlug:         "gpt-5.4",
 		ContextWindowTokens:       200000,
 		MaxOutputTokens:           new(64000),
-		DefaultMaxOutputTokens:    intPtr(32000),
+		DefaultMaxOutputTokens:    new(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
 		SupportsTools:             boolPtr(true),
 		SupportsReasoning:         true,
@@ -583,7 +583,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ProviderModelSlug:      "gpt-rename-conflict",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 	})
 	if err != nil {
 		t.Fatalf("create rename-conflict configured model: %v", err)
@@ -693,7 +693,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		ProviderModelSlug:      "gpt-referenced",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 	})
 	if err != nil {
 		t.Fatalf("create referenced configured model: %v", err)
@@ -770,9 +770,9 @@ model:
 		OrgID:                     testOrgID,
 		ProjectID:                 testProjectID,
 		ConfiguredModelID:         configuredModel.ID,
-		ContextWindowTokens:       intPtr(200000),
-		MaxOutputTokens:           intPtr(64000),
-		DefaultMaxOutputTokens:    intPtr(32000),
+		ContextWindowTokens:       new(200000),
+		MaxOutputTokens:           new(64000),
+		DefaultMaxOutputTokens:    new(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
 		SupportsTools:             boolPtr(true),
 		SupportsReasoning:         boolPtr(true),
@@ -827,8 +827,8 @@ model:
 		OrgID:                  testOrgID,
 		ProjectID:              testProjectID,
 		ConfiguredModelID:      configuredModel.ID,
-		MaxOutputTokens:        intPtr(48000),
-		DefaultMaxOutputTokens: intPtr(24000),
+		MaxOutputTokens:        new(48000),
+		DefaultMaxOutputTokens: new(24000),
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("duplicate project model grant after update error = %v, want ErrConflict", err)
 	}
@@ -869,7 +869,7 @@ model:
 		OrgID:               testOrgID,
 		ProjectID:           testProjectID,
 		ConfiguredModelID:   configuredModel.ID,
-		ContextWindowTokens: intPtr(300000),
+		ContextWindowTokens: new(300000),
 	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		t.Fatalf("over-wide project model grant error = %v, want ErrInvalidModelProviderConfig", err)
 	}
@@ -1085,7 +1085,7 @@ func TestConfiguredModelUpdateSerializesWithAgentConfigCreation(t *testing.T) {
 		ProviderModelSlug:      "gpt-lock",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {
@@ -1250,7 +1250,7 @@ func TestCreateAgentConfigRejectsStaleToolRequirementAfterGrantChanges(t *testin
 		ProviderModelSlug:      "gpt-stale-grant",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {
@@ -1349,7 +1349,7 @@ func TestPatchConfiguredModelMergesAgainstLockedCurrentRevision(t *testing.T) {
 		ProviderModelSlug:      "gpt-patch-v1",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {
@@ -1615,7 +1615,7 @@ func TestDeleteConfiguredModelUsesLockedCurrentRevisionAfterConcurrentPatch(t *t
 		ProviderModelSlug:      "gpt-archive-race-v1",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {
@@ -1751,7 +1751,7 @@ func TestCreateAgentConfigUsesConfiguredModelAliasAfterRevisionUpdate(t *testing
 		ProviderModelSlug:      "gpt-stale-v1",
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {
@@ -1819,12 +1819,8 @@ model:
 	}
 }
 
-func intPtr(value int) *int {
-	return &value
-}
-
 func nullableInt(value int) patch.NullableInt {
-	return patch.NullableInt{Set: true, Value: intPtr(value)}
+	return patch.NullableInt{Set: true, Value: new(value)}
 }
 
 func boolPtr(value bool) *bool {
@@ -2054,7 +2050,7 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		ProviderModelSlug:         "gpt-grant-update",
 		ContextWindowTokens:       128000,
 		MaxOutputTokens:           new(8192),
-		DefaultMaxOutputTokens:    intPtr(4096),
+		DefaultMaxOutputTokens:    new(4096),
 		SupportsReasoning:         true,
 		DefaultReasoningEffort:    "medium",
 		SupportedReasoningEfforts: []string{"low", "medium", "high"},
@@ -2068,9 +2064,9 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		OrgID:                  testOrgID,
 		ProjectID:              testProjectID,
 		ConfiguredModelID:      configuredModel.ID,
-		ContextWindowTokens:    intPtr(64000),
-		MaxOutputTokens:        intPtr(4096),
-		DefaultMaxOutputTokens: intPtr(2048),
+		ContextWindowTokens:    new(64000),
+		MaxOutputTokens:        new(4096),
+		DefaultMaxOutputTokens: new(2048),
 		SupportsTools:          boolPtr(true),
 	})
 	if err != nil {

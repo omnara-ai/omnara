@@ -305,7 +305,7 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultCacheRetention:  modelstore.ModelCacheRetentionLong,
-		DefaultMaxOutputTokens: intPtr(4096),
+		DefaultMaxOutputTokens: new(4096),
 		SupportsReasoning:      true,
 	})
 	if err != nil {

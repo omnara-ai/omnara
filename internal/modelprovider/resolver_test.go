@@ -26,7 +26,7 @@ func TestCapabilitiesForRevisionMapsRuntimePolicyFields(t *testing.T) {
 	record := modelstore.ConfiguredModelRevisionRecord{
 		ContextWindowTokens:    200000,
 		MaxOutputTokens:        new(64000),
-		DefaultMaxOutputTokens: intPtr(32000),
+		DefaultMaxOutputTokens: new(32000),
 		DefaultCacheRetention:  modelstore.ModelCacheRetentionShort,
 		SupportsTools:          true,
 		SupportsReasoning:      true,
@@ -253,10 +253,6 @@ func TestHTTPClientForProviderConfigDefersRedirectHandlingToRoute(t *testing.T) 
 			}
 		})
 	}
-}
-
-func intPtr(value int) *int {
-	return &value
 }
 
 func TestEffectiveRevisionReachesAnthropicWire(t *testing.T) {

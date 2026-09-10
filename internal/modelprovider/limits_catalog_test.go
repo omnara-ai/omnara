@@ -48,10 +48,10 @@ func TestFillMissingLimitsFromCatalog(t *testing.T) {
 		{Slug: "openai/gpt-test"},
 		{Slug: "shared-slug"},
 		{Slug: "unknown-model"},
-		{Slug: "gpt-test", ContextWindowTokens: intPtr(4096), MaxOutputTokens: intPtr(1024)},
+		{Slug: "gpt-test", ContextWindowTokens: new(4096), MaxOutputTokens: new(1024)},
 		{Slug: "codex-test"},
-		{Slug: "gpt-test", MaxOutputTokens: intPtr(128000)},
-		{Slug: "gpt-test", MaxOutputTokens: intPtr(1024)},
+		{Slug: "gpt-test", MaxOutputTokens: new(128000)},
+		{Slug: "gpt-test", MaxOutputTokens: new(1024)},
 	})
 
 	for _, index := range []int{0, 1, 3} {
@@ -110,7 +110,7 @@ func TestFillMissingLimitsCachesCatalogFetch(t *testing.T) {
 		_, _ = w.Write([]byte(catalogTestResponse))
 	})
 	fresh.FillMissingLimits(context.Background(), []DiscoveredModel{
-		{Slug: "gpt-test", ContextWindowTokens: intPtr(4096), MaxOutputTokens: intPtr(1024)},
+		{Slug: "gpt-test", ContextWindowTokens: new(4096), MaxOutputTokens: new(1024)},
 	})
 	if got := freshRequests.Load(); got != 0 {
 		t.Fatalf("catalog fetches for fully limited models = %d, want 0", got)
