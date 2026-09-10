@@ -1,6 +1,7 @@
 import { Tooltip as TooltipPrimitive } from 'radix-ui'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useContext } from 'react'
 
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 import { cn } from '@/lib/utils'
 
 function TooltipProvider({
@@ -34,13 +35,14 @@ function TooltipContent({
   children,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Content>) {
+  const dialogContainer = useContext(DialogContainerContext)
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={dialogContainer ?? undefined}>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          'text-popover-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-(--radix-tooltip-content-transform-origin) ring-sidebar-primary/25 pointer-events-none z-50 w-fit text-balance rounded-md bg-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))] px-3 py-1.5 text-xs shadow-xl shadow-black/40 ring-1',
+          'text-popover-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-(--radix-tooltip-content-transform-origin) ring-border bg-popover type-caption pointer-events-none z-50 w-fit text-balance rounded-md px-3 py-1.5 shadow-md ring-1',
           className,
         )}
         {...props}
@@ -53,23 +55,14 @@ function TooltipContent({
             preserveAspectRatio="none"
             className="overflow-visible"
           >
-            <polygon
-              points="0,0 30,0 15,10"
-              className="fill-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))]"
-            />
-            <rect
-              x="0"
-              y="-1"
-              width="30"
-              height="2"
-              className="fill-[color-mix(in_oklab,var(--sidebar-primary)_10%,var(--sidebar))]"
-            />
+            <polygon points="0,0 30,0 15,10" className="fill-popover" />
+            <rect x="0" y="-1" width="30" height="2" className="fill-popover" />
             <path
               d="M0 0 L15 10 L30 0"
               vectorEffect="non-scaling-stroke"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="stroke-sidebar-primary/35 fill-none stroke-1"
+              className="stroke-border fill-none stroke-1"
             />
           </svg>
         </TooltipPrimitive.Arrow>

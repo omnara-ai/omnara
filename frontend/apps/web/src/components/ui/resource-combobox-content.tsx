@@ -19,21 +19,26 @@ export function ResourceComboboxContent<TItem>({
   emptyMessage,
   query,
   action,
+  searchInput,
 }: {
   config: ResourceComboboxConfig<TItem>
   pending: boolean
   emptyMessage: string
   query?: ResourceComboboxQuery
   action?: ReactNode
+  searchInput?: ReactNode
 }) {
   return (
-    <ComboboxContent>
+    <ComboboxContent aria-label={searchInput ? config.placeholder : undefined}>
+      {searchInput && <div className="border-b p-2">{searchInput}</div>}
       {action && <div className="border-b p-1">{action}</div>}
       <ComboboxEmpty>{query?.isError ? null : pending ? 'Searching…' : emptyMessage}</ComboboxEmpty>
       <ComboboxList>
         {(item: TItem) => (
           <ComboboxItem key={config.itemKey(item)} value={item}>
-            {config.renderItem?.(item) ?? config.itemLabel(item)}
+            {config.renderItem?.(item) ?? (
+              <span className="truncate">{config.itemLabel(item)}</span>
+            )}
           </ComboboxItem>
         )}
       </ComboboxList>

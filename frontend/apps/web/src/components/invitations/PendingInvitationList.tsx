@@ -121,7 +121,7 @@ export function PendingInvitationList({
                     title={copiedInvitationID === invitation.id ? 'Copied' : 'Copy organization ID'}
                     onClick={() => void copyOrganizationID(invitation)}
                   >
-                    <code className="truncate font-mono text-[11px] font-normal">
+                    <code className="truncate font-mono text-xs font-normal">
                       {invitation.org_id}
                     </code>
                     {copiedInvitationID === invitation.id ? (

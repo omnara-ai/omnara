@@ -37,7 +37,7 @@ export function AgentOnboarding({ orgId, project }: { orgId: string; project: Vi
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col gap-2">
-            <h2 className="text-2xl font-semibold tracking-tight">Launch your first agent</h2>
+            <h2 className="type-title">Launch your first agent</h2>
             <p className="text-muted-foreground text-sm">
               Follow the steps to create an agent profile and start a chat.
             </p>

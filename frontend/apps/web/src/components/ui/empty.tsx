@@ -7,7 +7,7 @@ function Empty({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="empty"
       className={cn(
-        'flex min-w-0 flex-1 flex-col items-center justify-center gap-6 text-balance rounded-lg border-dashed p-6 text-center md:p-12',
+        'rounded-card flex min-w-0 flex-1 flex-col items-center justify-center gap-6 text-balance border-dashed p-6 text-center md:p-12',
         className,
       )}
       {...props}
@@ -56,13 +56,7 @@ function EmptyMedia({
 }
 
 function EmptyTitle({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot="empty-title"
-      className={cn('text-lg font-medium tracking-tight', className)}
-      {...props}
-    />
-  )
+  return <div data-slot="empty-title" className={cn('type-card-title', className)} {...props} />
 }
 
 function EmptyDescription({ className, ...props }: React.ComponentProps<'p'>) {
@@ -70,7 +64,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<'p'>) {
     <div
       data-slot="empty-description"
       className={cn(
-        'text-muted-foreground [&>a:hover]:text-primary text-sm/relaxed [&>a]:underline [&>a]:underline-offset-4',
+        'text-muted-foreground [&>a:hover]:text-link-hover type-body-small [&>a]:underline [&>a]:underline-offset-4',
         className,
       )}
       {...props}

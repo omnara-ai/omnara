@@ -100,7 +100,7 @@ function SelectedAttachment({
       )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{attachment.file.name}</span>
-        <span className="text-muted-foreground block text-[11px]">
+        <span className="text-muted-foreground block text-xs">
           {attachmentSize(attachment.file.size)}
         </span>
       </span>
@@ -258,9 +258,10 @@ export function AgentComposer({
           onClick={() => inputRef.current?.click()}
         />
         <Textarea
+          variant="embedded"
           value={text}
           placeholder={composerPlaceholder(canOperate, chat.historyStatus)}
-          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none px-2 py-2"
           disabled={!ready}
           readOnly={submitting}
           onChange={(event) => {

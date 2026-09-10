@@ -2,6 +2,8 @@ import { Select as SelectPrimitive } from 'radix-ui'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@/components/icons'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
+import { OverflowTooltip } from '@/components/ui/overflow-tooltip'
 import { cn } from '@/lib/utils'
 
 function Select(props: ComponentProps<typeof SelectPrimitive.Root>) {
@@ -42,20 +44,22 @@ function SelectTrigger({
   ...props
 }: ComponentProps<typeof SelectPrimitive.Trigger> & { size?: 'sm' | 'default' }) {
   return (
-    <SelectPrimitive.Trigger
-      data-slot="select-trigger"
-      data-size={size}
-      className={cn(
-        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 dark:bg-input/30 dark:hover:bg-input/50 [&_svg:not([class*='size-'])]:size-4.5 flex w-fit items-center justify-between gap-2 whitespace-nowrap rounded-md border bg-transparent px-3 py-2 text-base outline-none transition-[color,box-shadow] focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 sm:text-sm sm:data-[size=default]:h-9 sm:data-[size=sm]:h-8 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
-      </SelectPrimitive.Icon>
-    </SelectPrimitive.Trigger>
+    <OverflowTooltip>
+      <SelectPrimitive.Trigger
+        data-slot="select-trigger"
+        data-size={size}
+        className={cn(
+          "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4.5 bg-card hover:bg-(--secondary-hover) control-focus control-transition flex w-fit items-center justify-between gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-base disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-10 data-[size=sm]:h-9 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <SelectPrimitive.Icon asChild>
+          <ChevronDownIcon className="size-4 opacity-50" />
+        </SelectPrimitive.Icon>
+      </SelectPrimitive.Trigger>
+    </OverflowTooltip>
   )
 }
 
@@ -86,7 +90,7 @@ function SelectContent({
               'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1',
           )}
         >
-          {children}
+          <DialogContainerContext value={null}>{children}</DialogContainerContext>
         </SelectPrimitive.Viewport>
         <SelectScrollDownButton />
       </SelectPrimitive.Content>
@@ -110,21 +114,25 @@ function SelectItem({
   ...props
 }: ComponentProps<typeof SelectPrimitive.Item>) {
   return (
-    <SelectPrimitive.Item
-      data-slot="select-item"
-      className={cn(
-        "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground outline-hidden [&_svg:not([class*='size-'])]:size-4.5 relative flex w-full cursor-default select-none items-center gap-2 rounded-sm py-2.5 pl-2 pr-8 text-base data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:py-1.5 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        className,
-      )}
-      {...props}
-    >
-      <span className="absolute right-2 flex size-3.5 items-center justify-center">
-        <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
-        </SelectPrimitive.ItemIndicator>
-      </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-    </SelectPrimitive.Item>
+    <OverflowTooltip>
+      <SelectPrimitive.Item
+        data-slot="select-item"
+        className={cn(
+          "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground outline-hidden [&_svg:not([class*='size-'])]:size-4.5 relative flex w-full cursor-default select-none items-center gap-2 rounded-sm py-2.5 pl-2 pr-8 text-base data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:py-1.5 sm:text-sm [&_svg]:pointer-events-none [&_svg]:shrink-0",
+          className,
+        )}
+        {...props}
+      >
+        <span className="absolute right-2 flex size-3.5 items-center justify-center">
+          <SelectPrimitive.ItemIndicator>
+            <CheckIcon className="size-4" />
+          </SelectPrimitive.ItemIndicator>
+        </span>
+        <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
+          {children}
+        </SelectPrimitive.ItemText>
+      </SelectPrimitive.Item>
+    </OverflowTooltip>
   )
 }
 

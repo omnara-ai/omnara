@@ -26,7 +26,7 @@ import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export const sidebarToggleActiveClass =
-  'bg-blue-500/10 text-blue-600 hover:bg-blue-500/15 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-400'
+  'bg-accent text-link hover:bg-primary/15 hover:text-link-hover'
 
 export function AgentSidebarToggle() {
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar()
@@ -231,7 +231,9 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
       ? 'Connected'
       : connection.state === 'initializing'
         ? 'Connecting'
-        : 'Disconnected'
+        : connection.state === 'failed'
+          ? 'Failed'
+          : 'Disconnected'
 
   return (
     <SidebarMenuItem className="py-1.5 text-sm">
@@ -242,7 +244,9 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
               <McpServerIcon server={server} url={connection.endpoint_url} />
               <span className="truncate">{connection.server_key}</span>
             </span>
-            <Badge variant="outline">{stateLabel}</Badge>
+            <Badge variant={connection.state === 'failed' ? 'destructive' : 'outline'}>
+              {stateLabel}
+            </Badge>
           </div>
         </TooltipTrigger>
         <TooltipContent side="left" className="max-w-xs space-y-1 text-left">
@@ -260,10 +264,15 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
             {connection.protocol_version ? ` · MCP ${connection.protocol_version}` : ''}
           </div>
           {connection.initialize_error && (
-            <div className="text-destructive">{connection.initialize_error}</div>
+            <div className="text-destructive break-words">{connection.initialize_error}</div>
           )}
         </TooltipContent>
       </Tooltip>
+      {connection.state === 'failed' && connection.initialize_error && (
+        <p role="alert" className="text-destructive mt-1 line-clamp-4 break-words text-xs">
+          {connection.initialize_error}
+        </p>
+      )}
     </SidebarMenuItem>
   )
 }

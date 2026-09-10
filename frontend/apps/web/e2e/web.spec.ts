@@ -76,8 +76,9 @@ async function signIn(page: Page, email: string, returnTo: string) {
 }
 
 async function selectConfiguredModel(page: Page) {
-  const modelPicker = page.getByRole('combobox', { name: 'Model' })
-  await modelPicker.fill(modelName)
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
+  await modelPicker.click()
+  await page.getByPlaceholder('Search granted models…').fill(modelName)
   await page
     .getByRole('option')
     .filter({ hasText: modelName })
@@ -229,7 +230,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await signIn(page, adminEmail, createAgentPath)
 
   await expect(page.getByRole('button', { name: 'Builder' })).toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Model' })).toHaveAttribute(
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveAttribute(
     'aria-required',
     'true',
   )
@@ -254,6 +255,21 @@ test('creates an agent with the Builder', async ({ page }) => {
   const agentName = uniqueName('Builder Agent')
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
   await page.getByLabel('Instruction').fill('Use the visual Builder to create this test agent.')
+  await selectConfiguredModel(page)
+
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
+  await modelPicker.press('m')
+  const modelSearch = page.getByPlaceholder('Search granted models…')
+  await expect(modelSearch).toHaveValue('m')
+  await modelSearch.fill(modelName)
+  await modelSearch.clear()
+  await expect(modelSearch).toHaveValue('')
+  await expect(modelPicker).toContainText(modelName)
+  await modelSearch.press('Escape')
+
+  await page.getByRole('button', { name: `Clear ${modelName} · ${providerConfig}` }).click()
+  await expect(modelPicker).not.toContainText(modelName)
+  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeDisabled()
   await selectConfiguredModel(page)
 
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
@@ -319,30 +335,43 @@ test('granting a model from the Builder does not create a profile or agent', asy
     }
   })
 
-  const modelPicker = page.getByRole('combobox', { name: 'Model' })
-  await modelPicker.fill('Grant models')
-  const grantModelsOption = page.getByRole('option', { name: 'Grant models…' })
-  await expect(grantModelsOption).toBeVisible()
-  await modelPicker.press('ArrowDown')
-  await expect(grantModelsOption).toHaveAttribute('data-highlighted', '')
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
+  await modelPicker.click()
+  await expect(page.getByPlaceholder('Search granted models…')).toHaveValue('')
+  const grantModelsAction = page.getByRole('button', { name: 'Grant models…', exact: true })
+  await expect(grantModelsAction).toBeVisible()
   const providerListResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
     return response.request().method() === 'GET' && url.pathname.endsWith('/model-provider-configs')
   })
-  await modelPicker.press('Enter')
+  await grantModelsAction.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Grant models' })
   const providerPicker = dialog.getByRole('combobox', { name: 'Search model providers…' })
   expect((await providerListResponse).ok()).toBe(true)
-  await providerPicker.fill(providerConfig)
+  await providerPicker.click()
+  const providerSearch = page.getByPlaceholder('Search model providers…')
+  await expect(providerSearch).toBeFocused()
+  await page.keyboard.type(providerConfig)
+  await expect(providerSearch).toHaveValue(providerConfig)
   await page.getByRole('option', { name: providerConfig }).click()
   const configuredModelPicker = dialog.getByRole('combobox', {
     name: 'Search configured models…',
   })
   await configuredModelPicker.fill(ungrantedModelName)
   await page.getByRole('option', { name: ungrantedModelName }).click()
+  await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toBeVisible()
+  await dialog.getByRole('button', { name: `Clear ${providerConfig}` }).click()
+  await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Grant models', exact: true })).toBeDisabled()
+  await providerPicker.click()
+  await providerSearch.fill(providerConfig)
+  await page.getByRole('option', { name: providerConfig }).click()
+  await configuredModelPicker.fill(ungrantedModelName)
+  await page.getByRole('option', { name: ungrantedModelName }).click()
   await dialog.getByRole('button', { name: 'Grant models' }).click()
 
   await expect(dialog).toHaveCount(0)
+  await expect(modelPicker).toBeFocused()
   await expect(page).toHaveURL(createAgentPath)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
@@ -475,7 +504,7 @@ test('edits a profile with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
   await createProfile(page, uniqueName('Builder Edit Agent'), 'Original instruction.')
 
-  await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
   const instruction = page.getByLabel('Instruction')
   await expect(instruction).toHaveValue('Original instruction.')
   const save = page.getByRole('button', { name: 'Save revision' })

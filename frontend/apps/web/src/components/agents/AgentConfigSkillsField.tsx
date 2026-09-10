@@ -200,6 +200,7 @@ function SkillEntryRow({
     <div className="flex items-center gap-2">
       <div className="min-w-0 flex-1">
         <SkillCombobox
+          clearable={false}
           items={items}
           value={skill}
           onValueChange={(next) => {

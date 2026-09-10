@@ -5,7 +5,7 @@ import {
   useProjectModelGrants,
 } from '@omnara/react'
 import { type ConfiguredModel, type ModelProviderConfig } from '@omnara/sdk'
-import { type ReactNode, useState } from 'react'
+import { type ComponentProps, type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -83,11 +83,13 @@ export function GrantProjectModelDialog({
   onOpenChange,
   orgId,
   projectId,
+  onCloseAutoFocus,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   projectId: string
+  onCloseAutoFocus?: ComponentProps<typeof DialogContent>['onCloseAutoFocus']
 }) {
   const [provider, setProvider] = useState<ModelProviderConfig | null>(null)
   const providerSearch = useTypeaheadSearch()
@@ -123,7 +125,7 @@ export function GrantProjectModelDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Grant models</DialogTitle>
           <DialogDescription>
@@ -141,7 +143,10 @@ export function GrantProjectModelDialog({
               <ModelProviderCombobox
                 items={providers}
                 value={provider}
-                onValueChange={setProvider}
+                onValueChange={(nextProvider) => {
+                  if (nextProvider?.id !== provider?.id) batch.setItems([])
+                  setProvider(nextProvider)
+                }}
                 search={providerSearch}
                 query={providersQuery}
                 disabled={batch.isSubmitting || providersQuery.isError}
