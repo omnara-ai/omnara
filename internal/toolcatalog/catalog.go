@@ -57,14 +57,12 @@ const (
 		"The result includes artifact metadata after a successful upload."
 	downloadArtifactToolDescription = "Copy an existing artifact to an attached machine. " +
 		"The result includes a process_id; use the process tools to inspect the transfer if it is still running."
-	uploadFileToolDescription = "Copy a regular file from an attached machine into Omnara's virtual filesystem. " +
-		"Currently, the destination path must be /artifacts. The file must be non-empty and at most 10 MiB. " +
-		"Successful uploads return the artifact_id and canonical /artifacts/<artifact_id> path."
+	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
+		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
+		"Successful uploads return the artifact_id."
 	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
-		"For /artifacts/<artifact_id>, provide destination; if the transfer is still running, " +
-		"use the returned process_id with the process tools. For /skills/<name>, omit destination: " +
-		"the attached skill archive is verified and extracted into its managed directory. " +
-		"The returned install_path is a glob containing $OMNARA_HOME and wildcards that require shell expansion, not a resolved directory."
+		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
+		"If the download is still running after the initial wait, use the returned process_id with the process tools."
 )
 
 type Catalog struct {
@@ -516,7 +514,7 @@ func uploadFileTool(machineRef map[string]any) (Entry, error) {
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Destination path in Omnara's virtual filesystem. Currently, use /artifacts.",
+				"description": "Destination path in Omnara's virtual filesystem. Currently supports /artifacts, which creates a new artifact.",
 			},
 			"source": map[string]any{
 				"type":      "string",
@@ -555,17 +553,17 @@ func downloadFileTool(machineRef map[string]any) (Entry, error) {
 	return toolEntry(
 		ToolNameDownloadFile,
 		downloadFileToolDescription,
-		[]string{"path"},
+		[]string{"path", "destination"},
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "Source path in Omnara's virtual filesystem, such as /artifacts/art_... or /skills/name.",
+				"description": "Source path in Omnara's virtual filesystem. Currently supports /artifacts/<artifact_id>.",
 			},
 			"destination": map[string]any{
 				"type":      "string",
 				"minLength": 1,
-				"description": "Destination path on the selected machine. Required for artifacts and omitted for skills. " +
+				"description": "Destination path on the selected machine. " +
 					"The parent directory must exist; an existing destination is replaced atomically. " +
 					"Relative paths use the machine working directory; ~ expands to the machine user's home directory.",
 			},

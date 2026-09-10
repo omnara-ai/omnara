@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/skills"
@@ -360,92 +359,6 @@ func TestSkillToolBroadcastsExecutableBindingsAndReportsOutcomes(t *testing.T) {
 		if !strings.Contains(string(content), want) {
 			t.Fatalf("skill result missing %q: %s", want, content)
 		}
-	}
-	var selected executionstore.AgentMachineBindingRecord
-	for _, binding := range launch.MachineBindings {
-		if binding.MachineID == second.MachineID {
-			selected = binding
-			break
-		}
-	}
-	if selected.ID == storage.NilID {
-		t.Fatalf("second machine binding missing: %+v", launch.MachineBindings)
-	}
-	downloadBroadcaster := skillBroadcasterFunc(func(
-		_ context.Context,
-		gotSkillID, gotRevisionID, gotDigest string,
-		targets []skills.BroadcastTarget,
-		_ time.Duration,
-	) ([]skills.BroadcastOutcome, error) {
-		if gotSkillID != skillPublicID || gotRevisionID == "" || gotDigest == "" ||
-			len(targets) != 1 || targets[0].MachineID != second.MachineID ||
-			targets[0].MachineRef != selected.MachineRef {
-			t.Fatalf(
-				"download skill=%s revision=%s digest=%s targets=%+v",
-				gotSkillID,
-				gotRevisionID,
-				gotDigest,
-				targets,
-			)
-		}
-		return []skills.BroadcastOutcome{{Target: targets[0], State: skills.BroadcastStateReady}}, nil
-	})
-	downloadCall := asyncToolContext{
-		ToolCallID: uuid.New(),
-		Executor:   Executor{Store: store, SkillBroadcaster: downloadBroadcaster},
-		Turn: Turn{
-			ProjectID:          toolsTestProjectID,
-			AgentID:            launch.Agent.ID,
-			ModelCallContextID: modelContext.ID,
-		},
-		Call: model.ToolCall{
-			Name:  "download_file",
-			Input: json.RawMessage(`{"path":"/skills/wake-skill","machine_ref":"` + selected.MachineRef + `"}`),
-		},
-	}
-	downloadResult, err := runDownloadFileAsync(ctx, downloadCall)
-	if err != nil {
-		t.Fatalf("download skill: %v", err)
-	}
-	downloaded, ok := downloadResult.(completeAsync)
-	if !ok {
-		t.Fatalf("download result = %T, want completeAsync", downloadResult)
-	}
-	downloadContent := asyncCompletionContent(t, downloaded)
-	for _, want := range []string{"install_path", skillPublicID, selected.MachineRef} {
-		if !strings.Contains(string(downloadContent), want) {
-			t.Fatalf("download result missing %q: %s", want, downloadContent)
-		}
-	}
-	for _, outcome := range []skills.BroadcastOutcome{
-		{State: skills.BroadcastStateOffline, Error: "daemon offline"},
-		{State: skills.BroadcastStateTimedOut, Error: "no skill_report received before timeout"},
-		{State: "failed", ErrorCode: "digest_mismatch", Error: "archive digest mismatch"},
-	} {
-		t.Run(outcome.State, func(t *testing.T) {
-			downloadCall.Executor.SkillBroadcaster = skillBroadcasterFunc(func(
-				context.Context, string, string, string, []skills.BroadcastTarget, time.Duration,
-			) ([]skills.BroadcastOutcome, error) {
-				return []skills.BroadcastOutcome{outcome}, nil
-			})
-			result, err := runDownloadFileAsync(ctx, downloadCall)
-			if err != nil {
-				t.Fatal(err)
-			}
-			failed, ok := result.(failAsync)
-			if !ok {
-				t.Fatalf("result = %T, want failAsync", result)
-			}
-			parts, err := failed.content.contentParts()
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range []string{outcome.State, outcome.ErrorCode, outcome.Error} {
-				if !strings.Contains(string(parts), want) {
-					t.Fatalf("failure missing %q: %s", want, parts)
-				}
-			}
-		})
 	}
 }
 

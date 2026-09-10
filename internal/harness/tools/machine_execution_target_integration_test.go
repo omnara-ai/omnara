@@ -455,25 +455,6 @@ func assertBYOMachineObservationResult(
 }
 
 func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		input json.RawMessage
-	}{
-		{name: "run_command", input: json.RawMessage(`{"command":"pwd"}`)},
-		{name: "download_file", input: json.RawMessage(`{"path":"/skills/deploy"}`)},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			testApprovedImplicitMachineTargetChange(t, test.name, test.input, false)
-		})
-	}
-}
-
-func TestApprovedSkillDownloadTargetChangeBetweenPhases(t *testing.T) {
-	testApprovedImplicitMachineTargetChange(t, "download_file", json.RawMessage(`{"path":"/skills/deploy"}`), true)
-}
-
-func testApprovedImplicitMachineTargetChange(t *testing.T, toolName string, input json.RawMessage, betweenPhases bool) {
-	t.Helper()
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "approved-target-change")
 	first := createExecutableBinding(
@@ -518,14 +499,14 @@ func testApprovedImplicitMachineTargetChange(t *testing.T, toolName string, inpu
 		fixture.UserID,
 		fixture.Config.ID,
 		"approved-machine-target-change",
-		toolName,
-		input,
+		"run_command",
+		json.RawMessage(`{"command":"pwd"}`),
 		fixture.Now.Add(8*time.Second),
 	)
 	call := model.ToolCall{
 		ID:    "call_approved-machine-target-change",
-		Name:  toolName,
-		Input: input,
+		Name:  "run_command",
+		Input: json.RawMessage(`{"command":"pwd"}`),
 	}
 	turn := Turn{
 		ProjectID:          toolsTestProjectID,
@@ -534,7 +515,7 @@ func testApprovedImplicitMachineTargetChange(t *testing.T, toolName string, inpu
 		RuntimeLockID:      lock.ID,
 		ModelCallContextID: contextRecord.ID,
 		Tools: map[string]ToolSpec{
-			toolName: {
+			"run_command": {
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
 			},
 		},
@@ -580,35 +561,6 @@ func testApprovedImplicitMachineTargetChange(t *testing.T, toolName string, inpu
 	); err != nil {
 		t.Fatalf("approve run permission: %v", err)
 	}
-	if betweenPhases {
-		_, err := fixture.Store.Execution().ExecuteToolCall(
-			ctx,
-			executionstore.ExecuteToolCallInput{
-				ProjectID: toolsTestProjectID, AgentID: fixture.Launch.Agent.ID,
-				ToolCallID: toolCallID, RuntimeLockID: lock.ID,
-			},
-			func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-				result, err := runDownloadFile(ctx, transactionalToolContext{
-					Reader: reader, Turn: turn, Call: call, ToolCallID: toolCallID,
-				})
-				if err != nil {
-					return nil, err
-				}
-				if _, ok := result.(continueAsyncTransaction); !ok {
-					t.Fatalf("transaction result = %T, want continueAsyncTransaction", result)
-				}
-				return executionstore.StartToolCallAsync(), nil
-			},
-		)
-		if err != nil {
-			t.Fatalf("authorize original target: %v", err)
-		}
-		if _, err := runDownloadFileAsync(ctx, asyncToolContext{
-			Executor: executor, Turn: turn, Call: call, ToolCallID: toolCallID,
-		}); err != nil {
-			t.Fatalf("async execution with unchanged approved target: %v", err)
-		}
-	}
 	if _, err := fixture.Pool.Exec(
 		ctx,
 		`UPDATE agent_machine_bindings
@@ -635,14 +587,6 @@ func testApprovedImplicitMachineTargetChange(t *testing.T, toolName string, inpu
 		fixture.Now.Add(11*time.Second),
 	); err != nil {
 		t.Fatalf("attach replacement machine target: %v", err)
-	}
-	if betweenPhases {
-		err := executor.executeAsyncTool(ctx, asyncToolContext{
-			Executor: executor, Turn: turn, Call: call, ToolCallID: toolCallID,
-		}, toolHandler{Async: runDownloadFileAsync})
-		if err != nil {
-			t.Fatalf("persist async target change failure: %v", err)
-		}
 	}
 
 	executor.Now = func() time.Time { return fixture.Now.Add(12 * time.Second) }

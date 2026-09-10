@@ -164,20 +164,19 @@ Deletes a pool-backed machine. Requires `machine_ref`.
 
 ### `upload_file`
 
-Use `upload_file` to make a regular file on an attached machine available for the user to view or download, such as a generated PDF, image, or report. Set `path` to `/artifacts` and pass the machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_ref` when the agent has more than one machine. Uploads currently support only `/artifacts`.
+Use `upload_file` to copy a file from an attached machine into Omnara's virtual filesystem. Currently, uploads support only creating artifacts at `/artifacts`, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_ref` when the agent has more than one machine.
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id`, its canonical `path` (`/artifacts/<artifact_id>`), and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their IDs in `artifact_ids` to `send_integration_message`.
+On success, the artifact appears in the conversation and the durable tool result contains its public `artifact_id` and a `media_ref` that clients can use to display or download it. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their IDs in `artifact_ids` to `send_integration_message`.
 
 ### `download_file`
 
-Use `download_file` to copy a resource to an attached machine; provide `machine_ref` when the agent has more than one machine.
+Use `download_file` to copy a file from Omnara's virtual filesystem to an attached machine. Currently, downloads support only `/artifacts/<artifact_id>`; provide `machine_ref` when the agent has more than one machine.
 
-- For an artifact, set `path` to `/artifacts/<artifact_id>` and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically.
-- For an attached skill, set `path` to `/skills/<name>` and omit `destination`. The skill archive is verified and extracted into its managed directory on the selected machine. The returned `install_path` is a glob containing `$OMNARA_HOME` and wildcards that require shell expansion, not a resolved directory. This does not load the skill's instructions into model context. Use `skill` to load those instructions.
+Set `path` to `/artifacts/<artifact_id>` and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically.
 
-Artifact downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
+Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
 ## Integrations
 

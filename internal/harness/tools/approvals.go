@@ -346,13 +346,6 @@ func (e Executor) completeAsyncToolFailure(
 		return nil
 	}
 	errorMessage := cause.Error()
-	if errors.Is(cause, ErrToolAuthorizationInvalidated) {
-		var err error
-		content, err = invalidatedAuthorizationContent()
-		if err != nil {
-			return err
-		}
-	}
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		errorMessage = executionstore.RuntimeToolInterruptedMessage
 		var err error

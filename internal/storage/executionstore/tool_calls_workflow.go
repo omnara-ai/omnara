@@ -273,13 +273,11 @@ func uploadArtifactProcessToolResultContentParts(
 	if err != nil {
 		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
 	}
-	artifactID := publicResourceID(publicid.KindArtifact, artifact.ID)
 	contentParts, err := marshalJSON([]map[string]any{
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"artifact_id": artifactID,
-				"path":        toolcatalog.ArtifactVFSRoot + "/" + artifactID,
+				"artifact_id": publicResourceID(publicid.KindArtifact, artifact.ID),
 			},
 		},
 		{

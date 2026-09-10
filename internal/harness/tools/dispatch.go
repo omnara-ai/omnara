@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -36,7 +35,7 @@ func (e Executor) dispatchToolHandler(
 	}
 	var reservation *AsyncExecutionReservation
 	var err error
-	if handler.Async != nil && (handler.RunsAsync == nil || handler.RunsAsync(call.Input)) {
+	if handler.Async != nil {
 		reservation, err = ReserveAsyncExecution(ctx)
 		if err != nil {
 			return nil, err
@@ -84,9 +83,9 @@ func (e Executor) dispatchToolHandler(
 				}
 				return executionstore.CompleteToolCallInExecution(completion), nil
 			case continueAsyncTransaction:
-				if handler.Async == nil || reservation == nil {
+				if handler.Async == nil {
 					return nil, rollbackInvalidTransactionResult(errors.New(
-						"transactional tool phase requested Async without a reserved Async handler",
+						"transactional tool phase requested Async, but no Async handler is registered",
 					))
 				}
 				return executionstore.StartToolCallAsync(), nil
@@ -542,7 +541,6 @@ func (e Executor) executeAsyncTool(
 type toolHandler struct {
 	Transactional transactionalToolHandler
 	Async         asyncToolHandler
-	RunsAsync     func(json.RawMessage) bool
 	Background    backgroundToolHandler
 }
 

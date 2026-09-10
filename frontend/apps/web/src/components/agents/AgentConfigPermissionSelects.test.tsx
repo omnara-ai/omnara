@@ -162,6 +162,51 @@ it('offers file tools without offering legacy aliases', async () => {
   expect(items).not.toContain('download_artifact')
 })
 
+it.each([
+  ['upload_artifact', 'upload_file'],
+  ['download_artifact', 'download_file'],
+])('does not offer a replacement while %s is selected', async (legacyName, fileName) => {
+  const onToolsChange = vi.fn()
+  const fileCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [legacyName, fileName].map((name) => ({
+      name,
+      description: 'Transfer a file.',
+      default_permission: alwaysAllowProfile.default_permission,
+      permission_modes: alwaysAllowProfile.permission_modes,
+    })),
+  }
+  await renderAndFlush(
+    <AgentConfigToolsField
+      catalog={fileCatalog}
+      tools={[{ name: legacyName, permission: { mode: 'always_ask', parameters: {} } }]}
+      onToolsChange={onToolsChange}
+    />,
+  )
+
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Add tools"]')?.disabled).toBe(
+    true,
+  )
+  expect(container.textContent).toContain(legacyName)
+  expect(onToolsChange).not.toHaveBeenCalled()
+
+  await renderAndFlush(
+    <AgentConfigToolsField catalog={fileCatalog} tools={[]} onToolsChange={onToolsChange} />,
+  )
+  act(() => {
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Add tools"]')
+    expect(button?.disabled).toBe(false)
+    button?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }),
+    )
+  })
+  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(
+    (item) => item.textContent,
+  )
+  expect(items).toEqual([fileName])
+  expect(onToolsChange).not.toHaveBeenCalled()
+})
+
 it('preserves an inherited MCP permission when its profile loads', async () => {
   const onServersChange = vi.fn()
   const server: BasicMcpServer = {

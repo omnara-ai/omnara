@@ -1329,7 +1329,6 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
 				wantContent := []byte(
 					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
-						`","path":"/artifacts/` + publicArtifactID +
 						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
@@ -1359,8 +1358,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					)
 				}
 				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID +
-						`","path":"/artifacts/` + publicArtifactID + `"}}]`,
+					`[{"type":"structured_data","value":{"artifact_id":"` + publicArtifactID + `"}}]`,
 				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
