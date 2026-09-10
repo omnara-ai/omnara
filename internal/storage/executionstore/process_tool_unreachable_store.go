@@ -15,29 +15,30 @@ import (
 
 const processToolMachineUnreachableBatchSize int32 = 500
 
-func (s *Store) ExpireMachineUnreachableProcessToolCallsForAllProjects(
+func (s *Store) ExpireProcessToolCallsForAllProjects(
 	ctx context.Context,
 	grace time.Duration,
 ) (int64, error) {
 	graceSeconds := int32(grace / time.Second)
 	total := int64(0)
 	for {
-		candidates, err := s.q.ListMachineUnreachableMachineCandidates(
+		candidates, err := s.q.ListProcessToolExpiryMachineCandidates(
 			ctx,
-			dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+			dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+				QueueTimeoutSeconds:            int32(ProcessQueueTimeout / time.Second),
 				MachineUnreachableGraceSeconds: graceSeconds,
 				LimitCount:                     processToolMachineUnreachableBatchSize,
 			},
 		)
 		if err != nil {
-			return total, fmt.Errorf("list machine-unreachable machine candidates: %w", err)
+			return total, fmt.Errorf("list process tool expiry machine candidates: %w", err)
 		}
 		if len(candidates) == 0 {
 			return total, nil
 		}
 		processed := int64(0)
 		for _, candidate := range candidates {
-			expired, err := s.expireMachineUnreachableProcessToolCallsForMachine(
+			expired, err := s.expireProcessToolCallsForMachine(
 				ctx,
 				candidate.OrgID,
 				candidate.MachineID,
@@ -55,16 +56,17 @@ func (s *Store) ExpireMachineUnreachableProcessToolCallsForAllProjects(
 	}
 }
 
-func (s *Store) expireMachineUnreachableProcessToolCallsForMachine(
+func (s *Store) expireProcessToolCallsForMachine(
 	ctx context.Context,
 	orgID, machineID ID,
 	graceSeconds int32,
 ) (int64, error) {
 	total := int64(0)
 	for {
-		queuedProcesses, err := s.q.ListMachineUnreachableQueuedProcessToolCallsForMachine(
+		queuedProcesses, err := s.q.ListExpirableQueuedProcessToolCallsForMachine(
 			ctx,
-			dbsqlc.ListMachineUnreachableQueuedProcessToolCallsForMachineParams{
+			dbsqlc.ListExpirableQueuedProcessToolCallsForMachineParams{
+				QueueTimeoutSeconds:            int32(ProcessQueueTimeout / time.Second),
 				OrgID:                          orgID,
 				MachineID:                      machineID,
 				MachineUnreachableGraceSeconds: graceSeconds,
@@ -72,7 +74,7 @@ func (s *Store) expireMachineUnreachableProcessToolCallsForMachine(
 			},
 		)
 		if err != nil {
-			return total, fmt.Errorf("list machine-unreachable queued process tool calls for machine: %w", err)
+			return total, fmt.Errorf("list expirable queued process tool calls for machine: %w", err)
 		}
 		acceptedProcesses, err := s.q.ListMachineUnreachableAcceptedProcessToolCallsForMachine(
 			ctx,
@@ -116,7 +118,7 @@ func (s *Store) expireMachineUnreachableProcessToolCallsForMachine(
 		}
 		for _, row := range queuedProcesses {
 			process := processRecordFromSQLC(row)
-			expired, err := s.failMachineUnreachableQueuedProcess(ctx, process, graceSeconds)
+			expired, err := s.expireQueuedProcessToolCall(ctx, process, graceSeconds)
 			if err != nil {
 				return total, err
 			}
@@ -173,7 +175,7 @@ func (s *Store) expireMachineUnreachableProcessToolCallsForMachine(
 	}
 }
 
-func (s *Store) failMachineUnreachableQueuedProcess(
+func (s *Store) expireQueuedProcessToolCall(
 	ctx context.Context,
 	process ProcessRecord,
 	graceSeconds int32,
@@ -181,7 +183,7 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return false, fmt.Errorf("begin machine-unreachable queued process expiry: %w", err)
+		return false, fmt.Errorf("begin queued process expiry: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
@@ -196,17 +198,6 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 	if err != nil {
 		return false, err
 	}
-	if !unreachable {
-		if err := s.commitTxWithNotifications(
-			ctx,
-			tx,
-			txNotifications,
-			"skipped machine-unreachable queued process expiry",
-		); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
 	if _, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{
@@ -214,17 +205,18 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 			ID:        process.AgentID,
 		},
 	); err != nil {
-		return false, fmt.Errorf("lock agent for machine-unreachable queued process expiry: %w", err)
+		return false, fmt.Errorf("lock agent for queued process expiry: %w", err)
 	}
-	row, err := qtx.MarkQueuedProcessFailedByMachine(
+	row, err := qtx.ExpireQueuedProcessToolCall(
 		ctx,
-		dbsqlc.MarkQueuedProcessFailedByMachineParams{
-			ProjectID:       process.ProjectID,
-			AgentID:         process.AgentID,
-			ID:              process.ID,
-			OrgID:           process.OrgID,
-			MachineID:       process.MachineID,
-			StateReasonCode: sqlcTextFromEmpty(ProcessToolReasonMachineUnreachable),
+		dbsqlc.ExpireQueuedProcessToolCallParams{
+			ProjectID:           process.ProjectID,
+			AgentID:             process.AgentID,
+			ID:                  process.ID,
+			OrgID:               process.OrgID,
+			MachineID:           process.MachineID,
+			QueueTimeoutSeconds: int32(ProcessQueueTimeout / time.Second),
+			MachineUnreachable:  unreachable,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -232,14 +224,14 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 			ctx,
 			tx,
 			txNotifications,
-			"missed machine-unreachable queued process expiry",
+			"missed queued process expiry",
 		); err != nil {
 			return false, err
 		}
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("mark machine-unreachable queued process failed: %w", err)
+		return false, fmt.Errorf("mark queued process failed: %w", err)
 	}
 	record := processRecordFromSQLC(row)
 	if err := completeProcessToolCallFromRecordTx(
@@ -249,7 +241,7 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 		qtx,
 		record,
 		nil,
-		ProcessToolReasonMachineUnreachable,
+		record.StateReasonCode,
 	); err != nil {
 		return false, err
 	}
@@ -257,7 +249,7 @@ func (s *Store) failMachineUnreachableQueuedProcess(
 		ctx,
 		tx,
 		txNotifications,
-		"machine-unreachable queued process expiry",
+		"queued process expiry",
 	); err != nil {
 		return false, err
 	}
@@ -272,7 +264,7 @@ func (s *Store) FailQueuedProcessAfterWakeFailure(
 		isNilID(process.AgentID) || isNilID(process.MachineID) {
 		return false, errors.New("process, org, project, agent, and machine are required")
 	}
-	return s.failMachineUnreachableQueuedProcess(ctx, process, 0)
+	return s.expireQueuedProcessToolCall(ctx, process, 0)
 }
 
 func (s *Store) FailQueuedProcessActionsAfterWakeFailure(

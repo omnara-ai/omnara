@@ -329,6 +329,7 @@ JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
   AND process.state = 'queued'
+  AND process.created_at > statement_timestamp() - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second')
 ORDER BY process.created_at, process.id
 LIMIT sqlc.arg(limit_count);
 
@@ -360,6 +361,7 @@ WHERE process.org_id = runtime.org_id
   AND process.machine_id = runtime.machine_id
   AND process.id = sqlc.arg(process_id)
   AND process.state = 'queued'
+  AND process.created_at > statement_timestamp() - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second')
   AND EXISTS (
     SELECT 1
     FROM agent_machine_bindings binding
