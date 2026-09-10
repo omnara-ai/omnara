@@ -1,6 +1,6 @@
 ---
 title: Machine pools
-description: On-demand machine capacity from Blaxel, Unikraft Cloud, or Daytona
+description: On-demand machine capacity from Blaxel, Unikraft Cloud, Daytona, or Modal
 icon: "layer-group"
 ---
 
@@ -12,11 +12,13 @@ A machine pool lets Omnara create machines from a sandbox provider when an agent
 Omnara gives you two ways to run pool machines:
 
 - **Omnara-managed pools** — ready-to-use sandboxes. Omnara manages the sandbox provider account, credentials, and default machine environment.
-- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, or Daytona account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies.
+- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, or Modal account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies.
 
 ## What persists
 
 A pool machine keeps its files, installed dependencies, and running processes across turns, including when the provider suspends and resumes it while idle.
+
+Omnara configures Modal sandboxes with a 24-hour timeout, after which they terminate regardless of activity.
 
 Omnara deletes a pool machine when:
 
@@ -36,7 +38,7 @@ The agent's conversation, event history, and uploaded artifacts remain in Omnara
 
 Runtime protection is an optional pool setting that defaults to disabled. When enabled, Omnara may delete a provider sandbox that remains running after its daemon becomes inactive. Out-of-band work that keeps a sandbox running without its daemon is therefore not supported on a protected pool.
 
-Blaxel, Daytona, and Unikraft pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
+Blaxel, Daytona, Modal, and Unikraft pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
 
 ## Create a pool
 
@@ -44,7 +46,9 @@ Blaxel, Daytona, and Unikraft pools support runtime protection. It does not appl
 New organizations already have default pools granted to their first project. Check the **Machines** page before creating one. Self-hosted deployments configure default pools separately.
 </Note>
 
-For a custom pool, store the provider's API key as an org-owned [secret](/organization/secrets) first.
+For a custom pool, store the provider's API key as an org-owned [secret](/organization/secrets) first. For Modal, the secret value is a JSON object containing both credentials: `{"token_id":"ak-...","token_secret":"as-..."}`.
+
+The Modal app defaults to `omnara` and is created automatically on first provisioning.
 
 <Tabs>
 <Tab title="API">
@@ -55,7 +59,7 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
   <PoolsCreate />
 </Tab>
 <Tab title="Dashboard">
-  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, or Daytona.
+  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, Daytona, or Modal.
   2. Name the pool and select its provider credential secret. Use **New secret** to create one without leaving the dialog.
   3. Enter the image or snapshot, provider settings, machine size, and capacity limits. You can also set a startup script, working directory, and environment variables.
   4. Optionally grant the pool to projects, then create it.
@@ -69,6 +73,7 @@ Every pool requires `max_total_machines`. Resource requirements then depend on t
 - **Blaxel:** memory default and maximums are required; CPU is not configurable.
 - **Unikraft:** CPU and memory defaults and maximums are required.
 - **Daytona:** CPU and memory maximums are required; defaults are optional because the snapshot defines the machine size.
+- **Modal:** CPU and memory defaults and maximums are required. Omnara expresses CPU in vCPU and converts it to Modal physical cores, where one physical core equals two vCPU.
 
 ## Grant a pool to a project
 

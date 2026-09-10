@@ -10820,7 +10820,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [unikraft]
+                  enum: [unikraft, modal]
                 default_machine_cpu:
                   type: integer
                   format: int32

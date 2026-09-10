@@ -32,6 +32,7 @@ export function MachinePoolFields({
   setValue: MachinePoolFormSetValue
 }) {
   const definition = machinePoolProviderDefinitions[values.provider]
+  const credential = definition.credential
   const providerEditable = mode === 'create'
   const clusterEdit = mode === 'cluster-edit'
 
@@ -39,7 +40,7 @@ export function MachinePoolFields({
     if (!providerEditable || !isMachinePoolProvider(providerValue)) return
     const nextValues = machinePoolFormAfterProviderChange(values, providerValue)
     setValue('provider', nextValues.provider)
-    setValue('workspace', nextValues.workspace)
+    setValue('providerScope', nextValues.providerScope)
     setValue('image', nextValues.image)
     setValue('location', nextValues.location)
     setValue('cpu', nextValues.cpu)
@@ -96,15 +97,17 @@ export function MachinePoolFields({
             description={definition.resource.description}
             descriptionHref={definition.resource.descriptionHref}
           />
-          {definition.requiresWorkspace && (
+          {definition.scope && (
             <MachinePoolInputField
-              id="mpool-workspace"
-              label="Workspace"
-              required
-              value={values.workspace}
+              id="mpool-provider-scope"
+              label={definition.scope.label}
+              required={definition.scope.required}
+              description={definition.scope.description}
+              value={values.providerScope}
+              placeholder={definition.scope.placeholder}
               autoComplete="off"
-              onValueChange={(workspace) => {
-                setValue('workspace', workspace)
+              onValueChange={(providerScope) => {
+                setValue('providerScope', providerScope)
               }}
             />
           )}
@@ -151,11 +154,17 @@ export function MachinePoolFields({
           onChange={(secretId) => {
             setValue('secretId', secretId)
           }}
-          label={`${machinePoolProviderLabel(values.provider)} API token`}
-          placeholder={`Search secrets for your ${machinePoolProviderLabel(values.provider)} token…`}
-          emptyDescription={`No secrets yet — use New secret to store your ${machinePoolProviderLabel(values.provider)} API token.`}
-          defaultSecretName={`${values.provider}-api-token`}
-          secretValuePlaceholder="Provider API token"
+          label={credential?.label ?? `${machinePoolProviderLabel(values.provider)} API token`}
+          placeholder={
+            credential?.placeholder ??
+            `Search secrets for your ${machinePoolProviderLabel(values.provider)} token…`
+          }
+          emptyDescription={
+            credential?.emptyDescription ??
+            `No secrets yet — use New secret to store your ${machinePoolProviderLabel(values.provider)} API token.`
+          }
+          defaultSecretName={credential?.defaultSecretName ?? `${values.provider}-api-token`}
+          secretValuePlaceholder={credential?.secretValuePlaceholder ?? 'Provider API token'}
         />
       )}
     </>

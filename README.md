@@ -56,9 +56,9 @@ $ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
 - <ins><strong>Durable agents</strong></ins>. Agent state is committed
   atomically to Postgres. Agents recover automatically from crashes, restarts,
   and temporary machine disconnects.
-- <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, or
-  Unikraft (more coming soon), or connect your own laptop or VM. An agent can run
-  with no machines or use several at once. These can be sandboxes, your own
+- <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, Modal,
+  or Unikraft (more coming soon), or connect your own laptop or VM. An agent
+  can run with no machines or use several at once. These can be sandboxes, your own
   machines, or both. You can add or remove machines while the agent is running.
 - <ins><strong>Models</strong></ins>. Bring your own API keys and use any model
   exposed through a compatible endpoint, including OpenRouter, LiteLLM, and
