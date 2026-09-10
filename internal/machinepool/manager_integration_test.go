@@ -78,15 +78,15 @@ func TestPoolMachineManagerFinishesProvisioningAfterManagedWorkAdmissionCloses(t
 		[]executionstore.DefaultMachinePoolTemplate{{
 			Name:                          "Admitted Provision Pool",
 			Provider:                      "capture",
-			DefaultMachineCPU:             intPtrForManagerTest(1),
-			DefaultMachineMemoryMB:        intPtrForManagerTest(1024),
+			DefaultMachineCPU:             new(1),
+			DefaultMachineMemoryMB:        new(1024),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"admitted"}`),
 			ProviderAuthEnvVar:            "TEST_ADMITTED_PROVISION_TOKEN",
 			MaxTotalMachines:              1,
-			MaxTotalCPU:                   intPtrForManagerTest(1),
-			MaxTotalMemoryMB:              intPtrForManagerTest(1024),
-			MaxMachineCPU:                 intPtrForManagerTest(1),
-			MaxMachineMemoryMB:            intPtrForManagerTest(1024),
+			MaxTotalCPU:                   new(1),
+			MaxTotalMemoryMB:              new(1024),
+			MaxMachineCPU:                 new(1),
+			MaxMachineMemoryMB:            new(1024),
 		}},
 	); err != nil {
 		t.Fatalf("provision default pool: %v", err)
@@ -234,10 +234,10 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 			ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     4,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(1024),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(1024),
 		},
 		1,
 		1024,
@@ -302,8 +302,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 				t.Fatalf("preparation input resources = cpu %v memory %v, want unresolved", provisioning.CPU, provisioning.MemoryMB)
 			}
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(1),
-				MemoryMB: intPtrForManagerTest(1024),
+				CPU:      new(1),
+				MemoryMB: new(1024),
 			}, nil
 		},
 	}
@@ -394,8 +394,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(1),
-				MemoryMB: intPtrForManagerTest(2048),
+				CPU:      new(1),
+				MemoryMB: new(2048),
 			}, nil
 		}
 		provider.provisioning = nil
@@ -443,8 +443,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(1),
-				MemoryMB: intPtrForManagerTest(1024),
+				CPU:      new(1),
+				MemoryMB: new(1024),
 			}, nil
 		}
 		provider.provisionResourceID = ""
@@ -454,8 +454,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(2),
-				MemoryMB: intPtrForManagerTest(1024),
+				CPU:      new(2),
+				MemoryMB: new(1024),
 			}, nil
 		}
 		provider.provisionErr = nil
@@ -533,8 +533,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(1),
-				MemoryMB: intPtrForManagerTest(1024),
+				CPU:      new(1),
+				MemoryMB: new(1024),
 			}, nil
 		}
 		provider.provisionResourceID = "resource-returned-with-provider-error"
@@ -572,8 +572,8 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		provider.prepare = func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
 			return executionstore.MachineResourceFacts{
-				CPU:      intPtrForManagerTest(1),
-				MemoryMB: intPtrForManagerTest(2048),
+				CPU:      new(1),
+				MemoryMB: new(2048),
 			}, nil
 		}
 		if err := manager.ProvisionMachine(ctx, orgID, machineID); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
@@ -642,10 +642,10 @@ func TestManagerValidatesPoolPolicyBeforeProvisioning(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(100),
-			MaxTotalMemoryMB:     intPtrForManagerTest(1024 * 1024),
-			MaxMachineCPU:        intPtrForManagerTest(100),
-			MaxMachineMemoryMB:   intPtrForManagerTest(1024 * 1024),
+			MaxTotalCPU:          new(100),
+			MaxTotalMemoryMB:     new(1024 * 1024),
+			MaxMachineCPU:        new(100),
+			MaxMachineMemoryMB:   new(1024 * 1024),
 		},
 		1,
 		1024,
@@ -762,10 +762,10 @@ func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing
 			ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(100),
-			MaxTotalMemoryMB:     intPtrForManagerTest(1024 * 1024),
-			MaxMachineCPU:        intPtrForManagerTest(100),
-			MaxMachineMemoryMB:   intPtrForManagerTest(1024 * 1024),
+			MaxTotalCPU:          new(100),
+			MaxTotalMemoryMB:     new(1024 * 1024),
+			MaxMachineCPU:        new(100),
+			MaxMachineMemoryMB:   new(1024 * 1024),
 		},
 		1,
 		1024,
@@ -885,10 +885,10 @@ func TestManagerUsesArchivedPoolProviderConfigForCleanup(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{"mode":"cleanup"}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		1,
 		1024,
@@ -995,10 +995,10 @@ func TestManagerWakeMachineRetriesProviderWake(t *testing.T) {
 				ProviderConfig:       json.RawMessage(`{}`),
 				ProviderAuthSecretID: providerAuthSecretID,
 				MaxTotalMachines:     1,
-				MaxTotalCPU:          intPtrForManagerTest(1),
-				MaxTotalMemoryMB:     intPtrForManagerTest(1024),
-				MaxMachineCPU:        intPtrForManagerTest(1),
-				MaxMachineMemoryMB:   intPtrForManagerTest(1024),
+				MaxTotalCPU:          new(1),
+				MaxTotalMemoryMB:     new(1024),
+				MaxMachineCPU:        new(1),
+				MaxMachineMemoryMB:   new(1024),
 			},
 			1,
 			1024,
@@ -1201,10 +1201,10 @@ func TestManagerDeletesMachineWithoutProviderProvisionAttempt(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{"api_token":"must-not-load"}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		1,
 		1024,
@@ -1339,10 +1339,10 @@ func TestManagerRetriesDeletingAttemptedMachineWithoutResource(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		1,
 		1024,
@@ -1443,10 +1443,10 @@ func TestManagerFinalizesStaleMissingProviderResource(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		1,
 		1024,
@@ -1541,10 +1541,10 @@ func TestManagerReconcilesDeletingMachineWithProviderResource(t *testing.T) {
 			ProviderConfig:       json.RawMessage(`{"api_token":"deleting-token"}`),
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForManagerTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForManagerTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForManagerTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForManagerTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		1,
 		1024,
@@ -1771,8 +1771,8 @@ func machinePoolInputWithDefaultMachineForManagerTest(
 	providerOptions map[string]any,
 ) executionstore.CreateMachinePoolInput {
 	t.Helper()
-	input.DefaultMachineCPU = intPtrForManagerTest(cpu)
-	input.DefaultMachineMemoryMB = intPtrForManagerTest(memoryMB)
+	input.DefaultMachineCPU = new(cpu)
+	input.DefaultMachineMemoryMB = new(memoryMB)
 	input.DefaultMachineEnv = rawJSONForManagerTest(t, env)
 	input.DefaultMachineSecretEnv = rawJSONForManagerTest(t, secretEnv)
 	input.DefaultMachineProviderOptions = rawJSONForManagerTest(t, providerOptions)
@@ -1793,14 +1793,10 @@ func machineProvisioningForManagerTest(
 		}
 	}
 	return executionstore.MachineProvisioningConfig{
-		CPU:             intPtrForManagerTest(cpu),
-		MemoryMB:        intPtrForManagerTest(memoryMB),
+		CPU:             new(cpu),
+		MemoryMB:        new(memoryMB),
 		ProviderOptions: rawProviderOptions,
 	}
-}
-
-func intPtrForManagerTest(value int) *int {
-	return &value
 }
 
 func makePoolMachineReadyForManagerReconcile(

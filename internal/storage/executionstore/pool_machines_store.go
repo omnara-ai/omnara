@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -720,7 +721,7 @@ func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineReco
 		Cwd:                    row.Cwd,
 		EnvOverlay:             row.EnvOverlay,
 		SecretEnvOverlay:       row.SecretEnvOverlay,
-		DeleteAfterIdleMinutes: intPtrFromSQLC(row.DeleteAfterIdleMinutes),
+		DeleteAfterIdleMinutes: storeutil.IntPtr(row.DeleteAfterIdleMinutes),
 		Metadata:               row.Metadata,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,

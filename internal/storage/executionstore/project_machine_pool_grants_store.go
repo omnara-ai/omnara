@@ -168,20 +168,20 @@ func projectMachinePoolGrantConfigFromRecord(
 	record ProjectMachinePoolGrantRecord,
 ) projectMachinePoolGrantConfig {
 	return projectMachinePoolGrantConfig{
-		DefaultMachineCPU:                    cloneIntPtr(record.DefaultMachineCPU),
-		DefaultMachineMemoryMB:               cloneIntPtr(record.DefaultMachineMemoryMB),
+		DefaultMachineCPU:                    storeutil.ClonePtr(record.DefaultMachineCPU),
+		DefaultMachineMemoryMB:               storeutil.ClonePtr(record.DefaultMachineMemoryMB),
 		DefaultMachineEnvOverlay:             record.DefaultMachineEnvOverlay,
 		DefaultMachineSecretEnvOverlay:       record.DefaultMachineSecretEnvOverlay,
 		DefaultMachineProviderOptionsOverlay: record.DefaultMachineProviderOptionsOverlay,
 		DefaultCwd:                           record.DefaultCwd,
-		MaxTotalMachines:                     cloneIntPtr(record.MaxTotalMachines),
-		MaxTotalCPU:                          cloneIntPtr(record.MaxTotalCPU),
-		MaxTotalMemoryMB:                     cloneIntPtr(record.MaxTotalMemoryMB),
-		MinMachineCPU:                        cloneIntPtr(record.MinMachineCPU),
-		MinMachineMemoryMB:                   cloneIntPtr(record.MinMachineMemoryMB),
-		MaxMachineCPU:                        cloneIntPtr(record.MaxMachineCPU),
-		MaxMachineMemoryMB:                   cloneIntPtr(record.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:               cloneIntPtr(record.DeleteAfterIdleMinutes),
+		MaxTotalMachines:                     storeutil.ClonePtr(record.MaxTotalMachines),
+		MaxTotalCPU:                          storeutil.ClonePtr(record.MaxTotalCPU),
+		MaxTotalMemoryMB:                     storeutil.ClonePtr(record.MaxTotalMemoryMB),
+		MinMachineCPU:                        storeutil.ClonePtr(record.MinMachineCPU),
+		MinMachineMemoryMB:                   storeutil.ClonePtr(record.MinMachineMemoryMB),
+		MaxMachineCPU:                        storeutil.ClonePtr(record.MaxMachineCPU),
+		MaxMachineMemoryMB:                   storeutil.ClonePtr(record.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:               storeutil.ClonePtr(record.DeleteAfterIdleMinutes),
 	}
 }
 
@@ -190,10 +190,10 @@ func applyProjectMachinePoolGrantPatch(
 	input UpdateProjectMachinePoolGrantInput,
 ) {
 	if input.DefaultMachineCPU.Set {
-		config.DefaultMachineCPU = cloneIntPtr(input.DefaultMachineCPU.Value)
+		config.DefaultMachineCPU = storeutil.ClonePtr(input.DefaultMachineCPU.Value)
 	}
 	if input.DefaultMachineMemoryMB.Set {
-		config.DefaultMachineMemoryMB = cloneIntPtr(input.DefaultMachineMemoryMB.Value)
+		config.DefaultMachineMemoryMB = storeutil.ClonePtr(input.DefaultMachineMemoryMB.Value)
 	}
 	if input.DefaultMachineEnvOverlay != nil {
 		config.DefaultMachineEnvOverlay = *input.DefaultMachineEnvOverlay
@@ -208,28 +208,28 @@ func applyProjectMachinePoolGrantPatch(
 		config.DefaultCwd = *input.DefaultCwd
 	}
 	if input.MaxTotalMachines.Set {
-		config.MaxTotalMachines = cloneIntPtr(input.MaxTotalMachines.Value)
+		config.MaxTotalMachines = storeutil.ClonePtr(input.MaxTotalMachines.Value)
 	}
 	if input.MaxTotalCPU.Set {
-		config.MaxTotalCPU = cloneIntPtr(input.MaxTotalCPU.Value)
+		config.MaxTotalCPU = storeutil.ClonePtr(input.MaxTotalCPU.Value)
 	}
 	if input.MaxTotalMemoryMB.Set {
-		config.MaxTotalMemoryMB = cloneIntPtr(input.MaxTotalMemoryMB.Value)
+		config.MaxTotalMemoryMB = storeutil.ClonePtr(input.MaxTotalMemoryMB.Value)
 	}
 	if input.MinMachineCPU.Set {
-		config.MinMachineCPU = cloneIntPtr(input.MinMachineCPU.Value)
+		config.MinMachineCPU = storeutil.ClonePtr(input.MinMachineCPU.Value)
 	}
 	if input.MinMachineMemoryMB.Set {
-		config.MinMachineMemoryMB = cloneIntPtr(input.MinMachineMemoryMB.Value)
+		config.MinMachineMemoryMB = storeutil.ClonePtr(input.MinMachineMemoryMB.Value)
 	}
 	if input.MaxMachineCPU.Set {
-		config.MaxMachineCPU = cloneIntPtr(input.MaxMachineCPU.Value)
+		config.MaxMachineCPU = storeutil.ClonePtr(input.MaxMachineCPU.Value)
 	}
 	if input.MaxMachineMemoryMB.Set {
-		config.MaxMachineMemoryMB = cloneIntPtr(input.MaxMachineMemoryMB.Value)
+		config.MaxMachineMemoryMB = storeutil.ClonePtr(input.MaxMachineMemoryMB.Value)
 	}
 	if input.DeleteAfterIdleMinutes.Set {
-		config.DeleteAfterIdleMinutes = cloneIntPtr(input.DeleteAfterIdleMinutes.Value)
+		config.DeleteAfterIdleMinutes = storeutil.ClonePtr(input.DeleteAfterIdleMinutes.Value)
 	}
 }
 
@@ -475,20 +475,20 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			ProjectID:                            input.ProjectID,
 			MachinePoolID:                        input.MachinePoolID,
 			Description:                          input.Description,
-			DefaultMachineCpu:                    sqlcInt32Ptr(config.DefaultMachineCPU),
-			DefaultMachineMemoryMb:               sqlcInt32Ptr(config.DefaultMachineMemoryMB),
+			DefaultMachineCpu:                    storeutil.Int32Ptr(config.DefaultMachineCPU),
+			DefaultMachineMemoryMb:               storeutil.Int32Ptr(config.DefaultMachineMemoryMB),
 			DefaultMachineEnvOverlay:             config.DefaultMachineEnvOverlay,
 			DefaultMachineSecretEnvOverlay:       config.DefaultMachineSecretEnvOverlay,
 			DefaultMachineProviderOptionsOverlay: config.DefaultMachineProviderOptionsOverlay,
 			DefaultCwd:                           config.DefaultCwd,
-			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
-			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
-			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
-			MinMachineCpu:                        sqlcInt32Ptr(config.MinMachineCPU),
-			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
-			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
-			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
-			DeleteAfterIdleMinutes:               sqlcInt32Ptr(config.DeleteAfterIdleMinutes),
+			MaxTotalMachines:                     storeutil.Int32Ptr(config.MaxTotalMachines),
+			MaxTotalCpu:                          storeutil.Int32Ptr(config.MaxTotalCPU),
+			MaxTotalMemoryMb:                     storeutil.Int32Ptr(config.MaxTotalMemoryMB),
+			MinMachineCpu:                        storeutil.Int32Ptr(config.MinMachineCPU),
+			MinMachineMemoryMb:                   storeutil.Int32Ptr(config.MinMachineMemoryMB),
+			MaxMachineCpu:                        storeutil.Int32Ptr(config.MaxMachineCPU),
+			MaxMachineMemoryMb:                   storeutil.Int32Ptr(config.MaxMachineMemoryMB),
+			DeleteAfterIdleMinutes:               storeutil.Int32Ptr(config.DeleteAfterIdleMinutes),
 			IdempotencyKey:                       sqlcTextFromEmpty(input.IdempotencyKey),
 			Metadata:                             metadata,
 		},
@@ -530,20 +530,20 @@ func sameProjectMachinePoolGrantCreateIntent(
 		grant.ProjectID == input.ProjectID &&
 		grant.MachinePoolID == input.MachinePoolID &&
 		grant.Description == input.Description &&
-		sameIntPtr(grant.DefaultMachineCPU, config.DefaultMachineCPU) &&
-		sameIntPtr(grant.DefaultMachineMemoryMB, config.DefaultMachineMemoryMB) &&
+		storeutil.SameIntPtr(grant.DefaultMachineCPU, config.DefaultMachineCPU) &&
+		storeutil.SameIntPtr(grant.DefaultMachineMemoryMB, config.DefaultMachineMemoryMB) &&
 		sameJSON(grant.DefaultMachineEnvOverlay, config.DefaultMachineEnvOverlay) &&
 		sameJSON(grant.DefaultMachineSecretEnvOverlay, config.DefaultMachineSecretEnvOverlay) &&
 		sameJSON(grant.DefaultMachineProviderOptionsOverlay, config.DefaultMachineProviderOptionsOverlay) &&
 		grant.DefaultCwd == config.DefaultCwd &&
-		sameIntPtr(grant.MaxTotalMachines, config.MaxTotalMachines) &&
-		sameIntPtr(grant.MaxTotalCPU, config.MaxTotalCPU) &&
-		sameIntPtr(grant.MaxTotalMemoryMB, config.MaxTotalMemoryMB) &&
-		sameIntPtr(grant.MinMachineCPU, config.MinMachineCPU) &&
-		sameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
-		sameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
-		sameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
-		sameIntPtr(grant.DeleteAfterIdleMinutes, config.DeleteAfterIdleMinutes) &&
+		storeutil.SameIntPtr(grant.MaxTotalMachines, config.MaxTotalMachines) &&
+		storeutil.SameIntPtr(grant.MaxTotalCPU, config.MaxTotalCPU) &&
+		storeutil.SameIntPtr(grant.MaxTotalMemoryMB, config.MaxTotalMemoryMB) &&
+		storeutil.SameIntPtr(grant.MinMachineCPU, config.MinMachineCPU) &&
+		storeutil.SameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
+		storeutil.SameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
+		storeutil.SameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
+		storeutil.SameIntPtr(grant.DeleteAfterIdleMinutes, config.DeleteAfterIdleMinutes) &&
 		sameMetadata(grant.Metadata, input.Metadata)
 }
 
@@ -628,20 +628,20 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 		ctx,
 		dbsqlc.UpdateProjectMachinePoolGrantParams{
 			Description:                          description,
-			DefaultMachineCpu:                    sqlcInt32Ptr(config.DefaultMachineCPU),
-			DefaultMachineMemoryMb:               sqlcInt32Ptr(config.DefaultMachineMemoryMB),
+			DefaultMachineCpu:                    storeutil.Int32Ptr(config.DefaultMachineCPU),
+			DefaultMachineMemoryMb:               storeutil.Int32Ptr(config.DefaultMachineMemoryMB),
 			DefaultMachineEnvOverlay:             config.DefaultMachineEnvOverlay,
 			DefaultMachineSecretEnvOverlay:       config.DefaultMachineSecretEnvOverlay,
 			DefaultMachineProviderOptionsOverlay: config.DefaultMachineProviderOptionsOverlay,
 			DefaultCwd:                           config.DefaultCwd,
-			MaxTotalMachines:                     sqlcInt32Ptr(config.MaxTotalMachines),
-			MaxTotalCpu:                          sqlcInt32Ptr(config.MaxTotalCPU),
-			MaxTotalMemoryMb:                     sqlcInt32Ptr(config.MaxTotalMemoryMB),
-			MinMachineCpu:                        sqlcInt32Ptr(config.MinMachineCPU),
-			MinMachineMemoryMb:                   sqlcInt32Ptr(config.MinMachineMemoryMB),
-			MaxMachineCpu:                        sqlcInt32Ptr(config.MaxMachineCPU),
-			MaxMachineMemoryMb:                   sqlcInt32Ptr(config.MaxMachineMemoryMB),
-			DeleteAfterIdleMinutes:               sqlcInt32Ptr(config.DeleteAfterIdleMinutes),
+			MaxTotalMachines:                     storeutil.Int32Ptr(config.MaxTotalMachines),
+			MaxTotalCpu:                          storeutil.Int32Ptr(config.MaxTotalCPU),
+			MaxTotalMemoryMb:                     storeutil.Int32Ptr(config.MaxTotalMemoryMB),
+			MinMachineCpu:                        storeutil.Int32Ptr(config.MinMachineCPU),
+			MinMachineMemoryMb:                   storeutil.Int32Ptr(config.MinMachineMemoryMB),
+			MaxMachineCpu:                        storeutil.Int32Ptr(config.MaxMachineCPU),
+			MaxMachineMemoryMb:                   storeutil.Int32Ptr(config.MaxMachineMemoryMB),
+			DeleteAfterIdleMinutes:               storeutil.Int32Ptr(config.DeleteAfterIdleMinutes),
 			Metadata:                             metadata,
 			OrgID:                                input.OrgID,
 			ProjectID:                            input.ProjectID,
@@ -834,12 +834,4 @@ func (s *Store) DeleteProjectMachinePoolGrant(
 		result.Machines = append(result.Machines, machineRecordFromMarkPoolGrantMachinesDeletingSQLC(machineRow))
 	}
 	return result, nil
-}
-
-func cloneIntPtr(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }

@@ -14,6 +14,7 @@ import (
 )
 
 type ExecutionStore interface {
+	IsOutputLimitBoundary(ctx context.Context, projectID, agentID storage.ID, sequence int64) (bool, error)
 	CaptureAgentConfigForModelContext(
 		ctx context.Context,
 		projectID, agentID storage.ID,
@@ -150,24 +151,16 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 		if event.ModelProviderConfigID != storage.NilID {
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
-		out = append(
-			out,
-			Message{
-				ID:                 event.ID.String(),
-				AgentInputID:       event.AgentInputID.String(),
-				ModelCallContextID: modelCallContextID,
-				Role:               role,
-				Sequence:           event.Sequence,
-				Content:            event.ContentParts,
-				ProviderReplay:     event.ProviderReplay,
-				ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
-					ModelProviderConfigID:      modelProviderConfigID,
-					RequestedProviderModelSlug: event.RequestedModelSlug,
-					APIFormat:                  event.APIFormat,
-					APIVariant:                 event.APIVariant,
-				},
+		message := Message{
+			ID: event.ID.String(), AgentInputID: event.AgentInputID.String(), ModelCallContextID: modelCallContextID,
+			Role: role, Sequence: event.Sequence, Content: event.ContentParts, ProviderReplay: event.ProviderReplay,
+			StopReason: event.StopReason,
+			ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
+				ModelProviderConfigID: modelProviderConfigID, RequestedProviderModelSlug: event.RequestedModelSlug,
+				APIFormat: event.APIFormat, APIVariant: event.APIVariant,
 			},
-		)
+		}
+		out = append(out, message)
 	}
 	return out, nil
 }

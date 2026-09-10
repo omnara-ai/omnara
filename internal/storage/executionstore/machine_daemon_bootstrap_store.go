@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -512,14 +513,9 @@ func (s *Store) RecordMachineFailureReport(
 	}
 	outputTail := strings.ToValidUTF8(string(input.OutputTail), "?")
 	outputTail = strings.ReplaceAll(outputTail, "\x00", "?")
-	var exitStatus *int32
-	if input.ExitStatus != nil {
-		value := int32(*input.ExitStatus)
-		exitStatus = &value
-	}
 	params := dbsqlc.RecordMachineFailureReportParams{
 		Stage:           input.Stage,
-		ExitStatus:      exitStatus,
+		ExitStatus:      storeutil.Int32Ptr(input.ExitStatus),
 		OutputTail:      outputTail,
 		OutputTruncated: input.OutputTruncated,
 		DaemonVersion:   input.DaemonVersion,

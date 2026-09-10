@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/omnara-ai/omnara/internal/model"
 )
 
@@ -459,33 +461,85 @@ func TestAnthropicConsumeStreamMaxTokensIsSuccessful(t *testing.T) {
 	}
 }
 
-func TestAnthropicConsumeStreamPreservesMalformedToolInput(t *testing.T) {
-	for _, stopReason := range []string{"tool_use", "max_tokens"} {
-		t.Run(stopReason, func(t *testing.T) {
-			stream := anthropicSSE(
-				[2]string{"message_start", `{"message":{"id":"msg_bad_tool","model":"claude-test"}}`},
-				[2]string{
+func TestAnthropicConsumeStreamValidatesToolInputAtCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		stopReason    string
+		input         string
+		followingText *string
+		wantRejected  bool
+	}{
+		{name: "malformed tool use", stopReason: "tool_use", input: `{"city":`, wantRejected: true},
+		{name: "malformed cutoff", stopReason: "max_tokens", input: `{"city":`, wantRejected: true},
+		{name: "cutoff without arguments", stopReason: "max_tokens", wantRejected: true},
+		{name: "cutoff with explicit empty object", stopReason: "max_tokens", input: `{}`},
+		{name: "completed empty tool before text cutoff", stopReason: "max_tokens", followingText: new("partial")},
+		{name: "completed empty tool before empty text cutoff", stopReason: "max_tokens", followingText: new("")},
+		{
+			name: "malformed tool before text cutoff", stopReason: "max_tokens", input: `{"city":`,
+			followingText: new("partial"), wantRejected: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			events := [][2]string{
+				{"message_start", `{"message":{"id":"msg_tool","model":"claude-test"}}`},
+				{
 					"content_block_start",
-					`{"index":0,"content_block":{"type":"tool_use","id":"toolu_bad","name":"get_weather","input":{}}}`,
+					`{"index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}`,
 				},
-				[2]string{"content_block_delta", `{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}`},
-				[2]string{"content_block_stop", `{"index":0}`},
-				[2]string{"message_delta", `{"delta":{"stop_reason":"` + stopReason + `"},"usage":{"output_tokens":4}}`},
+			}
+			if test.input != "" {
+				events = append(events, [2]string{"content_block_delta", fmt.Sprintf(
+					`{"index":0,"delta":{"type":"input_json_delta","partial_json":%q}}`, test.input,
+				)})
+			}
+			events = append(events, [2]string{"content_block_stop", `{"index":0}`})
+			if test.followingText != nil {
+				events = append(events,
+					[2]string{"content_block_start", `{"index":1,"content_block":{"type":"text","text":""}}`},
+					[2]string{"content_block_delta", fmt.Sprintf(
+						`{"index":1,"delta":{"type":"text_delta","text":%q}}`, *test.followingText,
+					)},
+					[2]string{"content_block_stop", `{"index":1}`},
+				)
+			}
+			events = append(events,
+				[2]string{"message_delta", `{"delta":{"stop_reason":"` + test.stopReason + `"},"usage":{"output_tokens":4}}`},
 				[2]string{"message_stop", `{}`},
 			)
-			resp, err := consumeAnthropicStream(t, stream, &recordingSink{})
-			if err != nil {
-				t.Fatalf("ConsumeStream: %v", err)
+			resp, err := consumeAnthropicStream(t, anthropicSSE(events...), &recordingSink{})
+			require.NoError(t, err)
+			require.Len(t, resp.ToolCalls(), 1)
+			if test.followingText != nil {
+				require.Equal(t, *test.followingText, resp.Text())
 			}
-			calls := resp.ToolCalls()
-			if len(calls) != 1 || string(calls[0].Input) != `{"city":` {
-				t.Fatalf("malformed tool input = %+v, want preserved raw fragment", calls)
+			if got := resp.Content[0].ToolCallError != ""; got != test.wantRejected {
+				t.Errorf("rejected = %t, want %t (error %q)", got, test.wantRejected, resp.Content[0].ToolCallError)
 			}
-			if json.Valid(calls[0].Input) {
-				t.Fatalf("malformed tool input was normalized into executable JSON: %s", calls[0].Input)
-			}
+			require.JSONEq(t, "{}", string(resp.Content[0].ToolInput))
+			require.Contains(t, string(resp.ProviderReplay), `"id":"toolu_1"`)
 		})
 	}
+}
+
+func TestAnthropicConsumeStreamMessageStopWithUnclosedBlockIsError(t *testing.T) {
+	stream := anthropicSSE(
+		[2]string{"message_start", `{"message":{"id":"msg_unclosed","model":"claude-test"}}`},
+		[2]string{
+			"content_block_start",
+			`{"index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}`,
+		},
+		[2]string{"content_block_delta", `{"index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}`},
+		[2]string{"message_delta", `{"delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4}}`},
+		[2]string{"message_stop", `{}`},
+	)
+	sink := &recordingSink{}
+	_, err := consumeAnthropicStream(t, stream, sink)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindTransient || !model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("unclosed block = %+v ok=%v err=%v, want ambiguous transient provider error", providerErr, ok, err)
+	}
+	assertAnthropicStreamClosedBeforeError(t, sink)
 }
 
 func TestAnthropicConsumeStreamPreservesRedactedThinkingBlocks(t *testing.T) {

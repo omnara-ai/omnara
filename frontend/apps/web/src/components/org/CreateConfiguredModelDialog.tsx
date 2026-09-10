@@ -29,6 +29,7 @@ import { ConfiguredModelProviderField } from './ConfiguredModelProviderField'
 import {
   configuredModelFormDefaults,
   configuredModelFormValid,
+  configuredModelTokenLimitsError,
   discoveredModelPrefill,
   providerChangeReset,
 } from './CreateConfiguredModelDialogState'
@@ -48,7 +49,9 @@ export function CreateConfiguredModelDialog({
   const createConfiguredModel = useCreateConfiguredModel(orgId)
   const createProjectModelGrant = useCreateProjectModelGrant(orgId)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [phase, setPhase] = useState<RetryGrantsPhase<ConfiguredModel>>({
+  const [phase, setPhase] = useState<
+    RetryGrantsPhase<{ model: ConfiguredModel; grantedProjectIds: string[] }>
+  >({
     kind: 'form',
     error: '',
   })
@@ -56,12 +59,13 @@ export function CreateConfiguredModelDialog({
     defaultValues: configuredModelFormDefaults,
     onSubmit: async ({ value }) => {
       const provider = providers.find((item) => item.id === value.providerId) ?? providers[0]
-      if (!provider && phase.kind === 'form') {
+      if (phase.kind === 'form' && !configuredModelFormValid(value, provider)) {
         return
       }
       setPhase((prev) => ({ ...prev, error: '' }))
       try {
-        let model = phase.kind === 'retry-grants' ? phase.created : null
+        const created = phase.kind === 'retry-grants' ? phase.created : null
+        let model = created?.model
         if (!model && provider) {
           const request: CreateConfiguredModelRequest = {
             name: value.name,
@@ -92,7 +96,15 @@ export function CreateConfiguredModelDialog({
           form.setFieldValue('projectGrantIds', failures.failedProjectIds)
           setPhase({
             kind: 'retry-grants',
-            created: model,
+            created: {
+              model,
+              grantedProjectIds: [
+                ...(created?.grantedProjectIds ?? []),
+                ...value.projectGrantIds.filter(
+                  (_, index) => grantResults[index]?.status === 'fulfilled',
+                ),
+              ],
+            },
             error: `The model was created, but ${failures.message}`,
           })
           return
@@ -119,6 +131,7 @@ export function CreateConfiguredModelDialog({
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
+      if (phase.kind === 'retry-grants') form.reset()
       setAdvancedOpen(false)
       setPhase({ kind: 'form', error: '' })
     }
@@ -208,6 +221,26 @@ export function CreateConfiguredModelDialog({
                 </Field>
               )}
             </form.Field>
+            <form.Field name="maxOutputTokens">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor="cm-max-output">Max output</FieldLabel>
+                  <Input
+                    id="cm-max-output"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                  <FieldDescription>
+                    Optional output capacity. Leave blank if unknown.
+                  </FieldDescription>
+                </Field>
+              )}
+            </form.Field>
             <ConfiguredModelAdvancedFields
               open={advancedOpen}
               onToggle={() => {
@@ -229,32 +262,21 @@ export function CreateConfiguredModelDialog({
                       }}
                     />
                     <FieldDescription>
-                      Optional; Omnara chooses a conservative default when omitted.
-                    </FieldDescription>
-                  </Field>
-                )}
-              </form.Field>
-              <form.Field name="maxOutputTokens">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor="cm-max-output">Max output</FieldLabel>
-                    <Input
-                      id="cm-max-output"
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={field.state.value}
-                      onChange={(event) => {
-                        field.handleChange(event.target.value)
-                      }}
-                    />
-                    <FieldDescription>
-                      Optional hard ceiling, including compaction.
+                      Optional request allowance; uses known capacity when available.
                     </FieldDescription>
                   </Field>
                 )}
               </form.Field>
             </ConfiguredModelAdvancedFields>
+            <form.Subscribe
+              selector={(state) =>
+                state.values.contextWindowTokens !== ''
+                  ? configuredModelTokenLimitsError(state.values)
+                  : ''
+              }
+            >
+              {(error) => error && <p className="text-destructive text-sm">{error}</p>}
+            </form.Subscribe>
             <form.Field name="projectGrantIds">
               {(field) => (
                 <form.Subscribe selector={(state) => state.isSubmitting}>
@@ -265,6 +287,9 @@ export function CreateConfiguredModelDialog({
                       value={field.state.value}
                       onChange={field.handleChange}
                       disabled={isSubmitting}
+                      excludedProjectIds={
+                        phase.kind === 'retry-grants' ? phase.created.grantedProjectIds : undefined
+                      }
                     />
                   )}
                 </form.Subscribe>

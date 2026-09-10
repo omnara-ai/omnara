@@ -270,7 +270,7 @@ func testProvisioningTemplate() modelstore.DefaultModelProviderTemplate {
 		BaseURL:              "https://models.example.test/v1",
 		Models: []modelstore.DefaultConfiguredModelTemplate{{
 			Name: "default-model", ProviderModelSlug: "example/default",
-			ContextWindowTokens: 8192, MaxOutputTokens: 1024,
+			ContextWindowTokens: 8192, MaxOutputTokens: new(1024),
 		}},
 	}
 }

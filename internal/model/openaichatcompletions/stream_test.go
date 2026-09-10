@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -716,7 +718,8 @@ func TestChatCompletionsConsumeStreamLengthIsSuccessfulMaxTokens(t *testing.T) {
 		t.Fatalf("length stream: %v", err)
 	}
 	if resp.StopReason != model.StopReasonMaxTokens || resp.Text() != "partial" ||
-		resp.HasToolCalls() || len(resp.ProviderReplay) != 0 || len(resp.Content) != 2 ||
+		!resp.HasToolCalls() || len(resp.ProviderReplay) == 0 || len(resp.Content) != 3 ||
+		resp.Content[2].ToolCallError == "" ||
 		resp.Content[0].Type != model.ResponsePartTypeReasoning ||
 		resp.Content[0].Text != "still thinking" {
 		t.Fatalf("length stream response = %+v", resp)
@@ -730,17 +733,15 @@ func TestChatCompletionsConsumeStreamRejectsMissingToolArguments(t *testing.T) {
 			`"function":{"name":"run_command"}}]},"finish_reason":"tool_calls"}]}`,
 		`[DONE]`,
 	)
-	_, err := consumeChatCompletionsStream(
+	response, err := consumeChatCompletionsStream(
 		t,
 		stream,
 		&chatRecordingSink{},
 		modelprotocol.APIVariantDefault,
 	)
-	providerErr, ok := model.ClassifyError(err)
-	if !ok || providerErr.Code != "malformed_success_response" ||
-		!model.IsAmbiguousProviderOutcome(err) {
-		t.Fatalf("missing streamed tool arguments = %+v ok=%v err=%v", providerErr, ok, err)
-	}
+	require.NoError(t, err)
+	require.Len(t, response.Content, 1)
+	require.NotEmpty(t, response.Content[0].ToolCallError)
 }
 
 func TestChatCompletionsConsumeMalformedStreamIsAmbiguous(t *testing.T) {

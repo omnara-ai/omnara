@@ -388,8 +388,8 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		record.ManagementKind == input.ManagementKind &&
 		record.Description == input.Description &&
 		record.Provider == input.Provider &&
-		sameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) &&
-		sameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) &&
+		storeutil.SameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
 		sameJSON(record.DefaultMachineEnv, input.DefaultMachineEnv) &&
 		sameJSON(record.DefaultMachineSecretEnv, input.DefaultMachineSecretEnv) &&
 		sameJSON(record.DefaultMachineProviderOptions, input.DefaultMachineProviderOptions) &&
@@ -399,13 +399,13 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		record.ProviderAuthEnvVar == input.ProviderAuthEnvVar &&
 		record.RuntimeProtectionEnabled == input.RuntimeProtectionEnabled &&
 		record.MaxTotalMachines == input.MaxTotalMachines &&
-		sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
-		sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
-		sameIntPtr(record.MinMachineCPU, input.MinMachineCPU) &&
-		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
-		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
-		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
-		sameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
+		storeutil.SameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
+		storeutil.SameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
+		storeutil.SameIntPtr(record.MinMachineCPU, input.MinMachineCPU) &&
+		storeutil.SameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
+		storeutil.SameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
 		sameMetadata(record.Metadata, input.Metadata)
 }
 
@@ -541,8 +541,8 @@ func prepareMachinePoolConfigInput(
 	if err != nil {
 		return machinePoolDefaults{}, fmt.Errorf("machine pool default_machine fields: %w", err)
 	}
-	input.DefaultMachineCPU = intPtrFromSQLC(provisioningColumns.CPU)
-	input.DefaultMachineMemoryMB = intPtrFromSQLC(provisioningColumns.MemoryMB)
+	input.DefaultMachineCPU = storeutil.IntPtr(provisioningColumns.CPU)
+	input.DefaultMachineMemoryMB = storeutil.IntPtr(provisioningColumns.MemoryMB)
 	input.DefaultMachineEnv = env
 	input.DefaultMachineSecretEnv = secretEnv
 	input.DefaultMachineProviderOptions = provisioningColumns.ProviderOptions
@@ -605,8 +605,8 @@ func insertMachinePool(
 		ManagementKind:                string(input.ManagementKind),
 		Description:                   input.Description,
 		Provider:                      input.Provider,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -616,13 +616,13 @@ func insertMachinePool(
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
-		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 storeutil.Int32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            storeutil.Int32Ptr(input.MinMachineMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -668,8 +668,8 @@ func (s *Store) UpdateMachinePool(
 		ManagementKind:                management.Kind(locked.ManagementKind),
 		Description:                   locked.Description,
 		Provider:                      locked.Provider,
-		DefaultMachineCPU:             intPtrFromSQLC(locked.DefaultMachineCpu),
-		DefaultMachineMemoryMB:        intPtrFromSQLC(locked.DefaultMachineMemoryMb),
+		DefaultMachineCPU:             storeutil.IntPtr(locked.DefaultMachineCpu),
+		DefaultMachineMemoryMB:        storeutil.IntPtr(locked.DefaultMachineMemoryMb),
 		DefaultMachineEnv:             locked.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       locked.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: locked.DefaultMachineProviderOptions,
@@ -679,13 +679,13 @@ func (s *Store) UpdateMachinePool(
 		ProviderAuthEnvVar:            locked.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      locked.RuntimeProtectionEnabled,
 		MaxTotalMachines:              locked.MaxTotalMachines,
-		MaxTotalCPU:                   intPtrFromSQLC(locked.MaxTotalCpu),
-		MaxTotalMemoryMB:              intPtrFromSQLC(locked.MaxTotalMemoryMb),
-		MinMachineCPU:                 intPtrFromSQLC(locked.MinMachineCpu),
-		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
-		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
-		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
-		DeleteAfterIdleMinutes:        intPtrFromSQLC(locked.DeleteAfterIdleMinutes),
+		MaxTotalCPU:                   storeutil.IntPtr(locked.MaxTotalCpu),
+		MaxTotalMemoryMB:              storeutil.IntPtr(locked.MaxTotalMemoryMb),
+		MinMachineCPU:                 storeutil.IntPtr(locked.MinMachineCpu),
+		MinMachineMemoryMB:            storeutil.IntPtr(locked.MinMachineMemoryMb),
+		MaxMachineCPU:                 storeutil.IntPtr(locked.MaxMachineCpu),
+		MaxMachineMemoryMB:            storeutil.IntPtr(locked.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        storeutil.IntPtr(locked.DeleteAfterIdleMinutes),
 		Metadata:                      lockedMetadata,
 	}
 	if input.Name != nil {
@@ -827,8 +827,8 @@ func updateMachinePoolRow(
 		ManagementKind:                string(input.ManagementKind),
 		Name:                          input.Name,
 		Description:                   input.Description,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -837,13 +837,13 @@ func updateMachinePoolRow(
 		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
-		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 storeutil.Int32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            storeutil.Int32Ptr(input.MinMachineMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 }

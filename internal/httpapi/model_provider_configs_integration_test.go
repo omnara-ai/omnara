@@ -59,7 +59,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		providerConfig["endpoint_path"] != "/responses" ||
 		providerConfig["auth_kind"] != "bearer_token" ||
 		len(testutil.RequireType[map[string]any](t, providerConfig["auth_options"])) != 0 ||
-		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) {
+		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) ||
+		providerConfig["idle_timeout_ms"] != float64(modelstore.DefaultModelProviderIdleTimeoutMS) {
 		t.Fatalf("preset did not materialize OpenAI provider config: %+v", providerConfig)
 	}
 	openRouterConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
@@ -211,7 +212,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		len(testutil.RequireType[map[string]any](t, resetAuthProviderConfig["auth_options"])) != 0 {
 		t.Fatalf("auth_kind patch should reset omitted auth_options to defaults: %+v", resetAuthProviderConfig)
 	}
-	defaultedConfiguredModel := requestJSONWithHeaders(
+	unknownConfiguredModel := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -221,9 +222,9 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if defaultedConfiguredModel["max_output_tokens"] != float64(8_192) ||
-		defaultedConfiguredModel["default_max_output_tokens"] != float64(4_096) {
-		t.Fatalf("defaulted configured model limits = %+v", defaultedConfiguredModel)
+	if unknownConfiguredModel["max_output_tokens"] != nil ||
+		unknownConfiguredModel["default_max_output_tokens"] != nil {
+		t.Fatalf("unknown configured model limits = %+v", unknownConfiguredModel)
 	}
 	configuredModel := requestJSONWithHeaders(
 		t,
@@ -338,7 +339,6 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		`{"name":null}`,
 		`{"provider_model_slug":null}`,
 		`{"context_window_tokens":null}`,
-		`{"max_output_tokens":null}`,
 		`{"default_cache_retention":null}`,
 		`{"supports_tools":null}`,
 		`{"supports_reasoning":null}`,
@@ -408,18 +408,12 @@ model:
 	if _, ok := grant["metadata"]; ok {
 		t.Fatalf("model grant response should not include metadata: %+v", grant)
 	}
-	replayedGrant := testutil.RequireType[map[string]any](
-		t,
-		requestJSONWithHeaders(
-			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK,
-			authHeaders(project.AdminToken),
-		)["grant"],
+	duplicate := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusConflict,
+		authHeaders(project.AdminToken),
 	)
-	if replayedGrant["id"] != grant["id"] {
-		t.Fatalf("model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
-	}
-	if _, ok := replayedGrant["metadata"]; ok {
-		t.Fatalf("replayed model grant response should not include metadata: %+v", replayedGrant)
+	if duplicate["code"] != "conflict" {
+		t.Fatalf("duplicate grant error = %v, want conflict", duplicate)
 	}
 	grantPath := project.ProjectPath + "/model-grants/" + testutil.RequireType[string](t, grant["id"])
 	patchedGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(

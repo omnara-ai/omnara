@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/omnara-ai/omnara/internal/storage/management"
 	"math"
 	"net"
 	"net/url"
@@ -14,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -25,6 +25,7 @@ func sameModelProviderConfigIntent(record ModelProviderConfigRecord, input Creat
 		record.BaseURL == input.BaseURL &&
 		record.EndpointPath == input.EndpointPath &&
 		record.RequestTimeoutMS == input.RequestTimeoutMS &&
+		record.IdleTimeoutMS == input.IdleTimeoutMS &&
 		record.AuthKind == input.AuthKind &&
 		storeutil.SameJSON(storeutil.NormalizeJSON(record.AuthOptions), storeutil.NormalizeJSON(input.AuthOptions)) &&
 		record.CredentialSecretID == input.CredentialSecretID
@@ -35,7 +36,7 @@ func sameConfiguredModelIntent(record ConfiguredModelRecord, input CreateConfigu
 		record.Name == input.Name &&
 		record.ProviderModelSlug == input.ProviderModelSlug &&
 		record.ContextWindowTokens == input.ContextWindowTokens &&
-		record.MaxOutputTokens == input.MaxOutputTokens &&
+		storeutil.SameIntPtr(record.MaxOutputTokens, input.MaxOutputTokens) &&
 		storeutil.SameIntPtr(record.DefaultMaxOutputTokens, input.DefaultMaxOutputTokens) &&
 		record.DefaultCacheRetention == input.DefaultCacheRetention &&
 		record.SupportsTools == boolPtrDefault(input.SupportsTools, true) &&
@@ -52,38 +53,12 @@ func sameConfiguredModelIntent(record ConfiguredModelRecord, input CreateConfigu
 
 type configuredModelOptions struct {
 	ContextWindowTokens       int
-	MaxOutputTokens           int
+	MaxOutputTokens           *int
 	DefaultMaxOutputTokens    *int
 	DefaultCacheRetention     string
 	SupportsReasoning         bool
 	DefaultReasoningEffort    string
 	SupportedReasoningEfforts []string
-}
-
-const (
-	configuredModelDefaultMaxOutputTokens     = 8_192
-	configuredModelDefaultRequestOutputTokens = 4_096
-)
-
-func ResolveConfiguredModelOutputLimits(
-	contextWindowTokens int,
-	maxOutputTokens, defaultMaxOutputTokens *int,
-) (int, *int, error) {
-	if contextWindowTokens < 2 {
-		return 0, nil, fmt.Errorf(
-			"context_window_tokens must be at least 2: %w",
-			storeerr.ErrInvalidModelProviderConfig,
-		)
-	}
-	resolvedMax := min(configuredModelDefaultMaxOutputTokens, contextWindowTokens/2)
-	if maxOutputTokens != nil {
-		resolvedMax = *maxOutputTokens
-	}
-	resolvedDefault := min(configuredModelDefaultRequestOutputTokens, resolvedMax)
-	if defaultMaxOutputTokens != nil {
-		resolvedDefault = *defaultMaxOutputTokens
-	}
-	return resolvedMax, &resolvedDefault, nil
 }
 
 func normalizeCreateConfiguredModelInput(input CreateConfiguredModelInput) CreateConfiguredModelInput {
@@ -162,42 +137,11 @@ func boolPtrDefault(value *bool, fallback bool) bool {
 	return *value
 }
 
-func cloneIntPtr(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneBoolPtr(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
 func nonNilStringSlice(value []string) []string {
 	if value == nil {
 		return []string{}
 	}
 	return value
-}
-
-func sameProjectModelGrantIntent(record ProjectModelGrantRecord, input CreateProjectModelGrantInput) bool {
-	return record.ProjectID == input.ProjectID &&
-		record.ConfiguredModelID == input.ConfiguredModelID &&
-		storeutil.SameIntPtr(record.ContextWindowTokens, input.ContextWindowTokens) &&
-		storeutil.SameIntPtr(record.MaxOutputTokens, input.MaxOutputTokens) &&
-		storeutil.SameIntPtr(record.DefaultMaxOutputTokens, input.DefaultMaxOutputTokens) &&
-		record.DefaultCacheRetention == input.DefaultCacheRetention &&
-		sameBoolPtr(record.SupportsTools, input.SupportsTools) &&
-		sameBoolPtr(record.SupportsReasoning, input.SupportsReasoning) &&
-		record.DefaultReasoningEffort == input.DefaultReasoningEffort &&
-		slices.Equal(record.SupportedReasoningEfforts, input.SupportedReasoningEfforts) &&
-		slices.Equal(record.InputModalities, input.InputModalities) &&
-		slices.Equal(record.OutputModalities, input.OutputModalities)
 }
 
 func normalizeProjectModelGrantInput(input CreateProjectModelGrantInput) CreateProjectModelGrantInput {
@@ -213,13 +157,6 @@ func normalizeProjectModelGrantInput(input CreateProjectModelGrantInput) CreateP
 		input.OutputModalities,
 	)
 	return input
-}
-
-func sameBoolPtr(left, right *bool) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }
 
 func validateModelProviderAPIFormat(apiFormat modelprotocol.APIFormat) error {
@@ -362,7 +299,11 @@ func ValidateModelProviderAuth(authKind string, authOptions json.RawMessage) err
 		_, err := ModelProviderAPIKeyHeaderName(authOptions)
 		return err
 	default:
-		return fmt.Errorf("unsupported model provider auth_kind %q: %w", authKind, storeerr.ErrInvalidModelProviderConfig)
+		return fmt.Errorf(
+			"unsupported model provider auth_kind %q: %w",
+			authKind,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
 }
 
@@ -377,12 +318,19 @@ func ModelProviderAPIKeyHeaderName(authOptions json.RawMessage) (string, error) 
 	}
 	for key := range fields {
 		if key != "header_name" {
-			return "", fmt.Errorf("auth_options.%s is not supported for api_key_header: %w", key, storeerr.ErrInvalidModelProviderConfig)
+			return "", fmt.Errorf(
+				"auth_options.%s is not supported for api_key_header: %w",
+				key,
+				storeerr.ErrInvalidModelProviderConfig,
+			)
 		}
 	}
 	rawHeaderName, ok := fields["header_name"]
 	if !ok {
-		return "", fmt.Errorf("auth_options.header_name is required for api_key_header: %w", storeerr.ErrInvalidModelProviderConfig)
+		return "", fmt.Errorf(
+			"auth_options.header_name is required for api_key_header: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
 	var headerName string
 	if err := json.Unmarshal(rawHeaderName, &headerName); err != nil {
@@ -561,7 +509,11 @@ func validateModelDefaultCacheRetention(value string) error {
 	case "", ModelCacheRetentionNone, ModelCacheRetentionShort, ModelCacheRetentionLong:
 		return nil
 	default:
-		return fmt.Errorf("unsupported model default_cache_retention %q: %w", value, storeerr.ErrInvalidModelProviderConfig)
+		return fmt.Errorf(
+			"unsupported model default_cache_retention %q: %w",
+			value,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
 }
 
@@ -583,19 +535,23 @@ func validateEmptyJSONObject(name string, value json.RawMessage) error {
 	return nil
 }
 
-func normalizeModelProviderRequestTimeoutMS(value int) int {
+func normalizeModelProviderTimeoutMS(value int, fallback int64) int {
 	if value == 0 {
-		return int(DefaultModelProviderRequestTimeoutMS)
+		return int(fallback)
 	}
 	return value
 }
 
-func validateModelProviderRequestTimeoutMS(value int) error {
+func validateModelProviderTimeoutMS(name string, value int) error {
 	if value <= 0 {
-		return fmt.Errorf("request_timeout_ms must be positive: %w", storeerr.ErrInvalidModelProviderConfig)
+		return fmt.Errorf("%s must be positive: %w", name, storeerr.ErrInvalidModelProviderConfig)
 	}
 	if value > math.MaxInt32 {
-		return fmt.Errorf("request_timeout_ms cannot exceed %d: %w", math.MaxInt32, storeerr.ErrInvalidModelProviderConfig)
+		return fmt.Errorf(
+			"%s cannot exceed %d: %w",
+			name, math.MaxInt32,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
 	return nil
 }
@@ -613,7 +569,14 @@ func ValidateAPIVariantOptions(value json.RawMessage) (json.RawMessage, error) {
 func validateJSONObject(name string, value json.RawMessage) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(value, &raw); err != nil {
-		return fmt.Errorf("%s must be a JSON object: %w", name, errors.Join(err, storeerr.ErrInvalidModelProviderConfig))
+		return fmt.Errorf(
+			"%s must be a JSON object: %w",
+			name,
+			errors.Join(
+				err,
+				storeerr.ErrInvalidModelProviderConfig,
+			),
+		)
 	}
 	if raw == nil {
 		return fmt.Errorf("%s must be a JSON object: %w", name, storeerr.ErrInvalidModelProviderConfig)
@@ -652,28 +615,48 @@ func ValidateOpenRouterAppCategories(name string, categories []string) error {
 }
 
 func validateConfiguredModelOptions(apiFormat modelprotocol.APIFormat, input configuredModelOptions) error {
+	if err := validateEffectiveModelOptions(apiFormat, input); err != nil {
+		return err
+	}
+	if input.MaxOutputTokens != nil && input.ContextWindowTokens <= *input.MaxOutputTokens {
+		return fmt.Errorf(
+			"context_window_tokens must exceed max_output_tokens: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	return nil
+}
+
+// Effective context windows may be smaller than an inherited output capacity.
+// Request preparation fits the output allowance to the remaining shared window.
+func validateEffectiveModelOptions(apiFormat modelprotocol.APIFormat, input configuredModelOptions) error {
 	contextWindowTokens := input.ContextWindowTokens
 	for _, field := range []struct {
 		name  string
 		value *int
 		min   int
 	}{
-		{name: "context_window_tokens", value: &contextWindowTokens, min: 1},
-		{name: "max_output_tokens", value: &input.MaxOutputTokens, min: 1},
+		{name: "context_window_tokens", value: &contextWindowTokens, min: 2},
+		{name: "max_output_tokens", value: input.MaxOutputTokens, min: 1},
 		{name: "default_max_output_tokens", value: input.DefaultMaxOutputTokens, min: 1},
 	} {
 		if err := validateModelTokenField(field.name, field.value, field.min); err != nil {
 			return err
 		}
 	}
-	if input.DefaultMaxOutputTokens != nil && *input.DefaultMaxOutputTokens > input.MaxOutputTokens {
+	if input.DefaultMaxOutputTokens != nil &&
+		input.MaxOutputTokens != nil &&
+		*input.DefaultMaxOutputTokens > *input.MaxOutputTokens {
 		return fmt.Errorf(
 			"default_max_output_tokens cannot exceed max_output_tokens: %w",
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	if input.ContextWindowTokens <= input.MaxOutputTokens {
-		return fmt.Errorf("context_window_tokens must exceed max_output_tokens: %w", storeerr.ErrInvalidModelProviderConfig)
+	if input.DefaultMaxOutputTokens != nil && input.ContextWindowTokens <= *input.DefaultMaxOutputTokens {
+		return fmt.Errorf(
+			"context_window_tokens must exceed default_max_output_tokens: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
 	if err := validateModelDefaultCacheRetention(input.DefaultCacheRetention); err != nil {
 		return err
@@ -722,8 +705,8 @@ func configuredModelRevisionFromConfiguredModel(input ConfiguredModelRecord) Con
 		ModelProviderConfigID:     input.ModelProviderConfigID,
 		ProviderModelSlug:         input.ProviderModelSlug,
 		ContextWindowTokens:       input.ContextWindowTokens,
-		MaxOutputTokens:           input.MaxOutputTokens,
-		DefaultMaxOutputTokens:    cloneIntPtr(input.DefaultMaxOutputTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(input.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(input.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     input.DefaultCacheRetention,
 		SupportsTools:             input.SupportsTools,
 		SupportsReasoning:         input.SupportsReasoning,
@@ -758,16 +741,22 @@ func EffectiveConfiguredModelRevisionForProjectGrant(
 		effective.ContextWindowTokens = *grant.ContextWindowTokens
 	}
 	if grant.MaxOutputTokens != nil {
-		if *grant.MaxOutputTokens > revision.MaxOutputTokens {
+		if *grant.MaxOutputTokens >= effective.ContextWindowTokens {
+			return ConfiguredModelRevisionRecord{}, fmt.Errorf(
+				"project model grant max_output_tokens must be less than effective context_window_tokens: %w",
+				storeerr.ErrInvalidModelProviderConfig,
+			)
+		}
+		if revision.MaxOutputTokens != nil && *grant.MaxOutputTokens > *revision.MaxOutputTokens {
 			return ConfiguredModelRevisionRecord{}, fmt.Errorf(
 				"project model grant max_output_tokens cannot exceed configured model max_output_tokens: %w",
 				storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
-		effective.MaxOutputTokens = *grant.MaxOutputTokens
+		effective.MaxOutputTokens = storeutil.ClonePtr(grant.MaxOutputTokens)
 	}
 	if grant.DefaultMaxOutputTokens != nil {
-		effective.DefaultMaxOutputTokens = cloneIntPtr(grant.DefaultMaxOutputTokens)
+		effective.DefaultMaxOutputTokens = storeutil.ClonePtr(grant.DefaultMaxOutputTokens)
 	}
 	if grant.DefaultCacheRetention != "" {
 		effective.DefaultCacheRetention = grant.DefaultCacheRetention
@@ -843,7 +832,7 @@ func EffectiveConfiguredModelRevisionForProjectGrant(
 		}
 		effective.OutputModalities = append([]string(nil), grant.OutputModalities...)
 	}
-	if err := validateConfiguredModelOptions(apiFormat, configuredModelOptionsFromRevision(effective)); err != nil {
+	if err := validateEffectiveModelOptions(apiFormat, configuredModelOptionsFromRevision(effective)); err != nil {
 		return ConfiguredModelRevisionRecord{}, fmt.Errorf("project model grant effective options are invalid: %w", err)
 	}
 	return effective, nil
@@ -877,13 +866,13 @@ func EffectiveConfiguredModelRevisionForAgentOptions(
 		effective.ContextWindowTokens = *options.ContextWindowTokens
 	}
 	if options.DefaultMaxOutputTokens != nil {
-		if *options.DefaultMaxOutputTokens > revision.MaxOutputTokens {
+		if revision.MaxOutputTokens != nil && *options.DefaultMaxOutputTokens > *revision.MaxOutputTokens {
 			return ConfiguredModelRevisionRecord{}, fmt.Errorf(
 				"agent model default_max_output_tokens cannot exceed project effective max_output_tokens: %w",
 				storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
-		effective.DefaultMaxOutputTokens = cloneIntPtr(options.DefaultMaxOutputTokens)
+		effective.DefaultMaxOutputTokens = storeutil.ClonePtr(options.DefaultMaxOutputTokens)
 	}
 	if options.CacheRetention != "" {
 		effective.DefaultCacheRetention = options.CacheRetention
@@ -897,7 +886,7 @@ func EffectiveConfiguredModelRevisionForAgentOptions(
 		}
 		effective.DefaultReasoningEffort = options.ReasoningEffort
 	}
-	if err := validateConfiguredModelOptions(apiFormat, configuredModelOptionsFromRevision(effective)); err != nil {
+	if err := validateEffectiveModelOptions(apiFormat, configuredModelOptionsFromRevision(effective)); err != nil {
 		return ConfiguredModelRevisionRecord{}, fmt.Errorf("agent model effective options are invalid: %w", err)
 	}
 	return effective, nil
@@ -925,12 +914,12 @@ func validateProjectModelGrantForConfiguredModel(
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,
 		ConfiguredModelID:         input.ConfiguredModelID,
-		ContextWindowTokens:       cloneIntPtr(input.ContextWindowTokens),
-		MaxOutputTokens:           cloneIntPtr(input.MaxOutputTokens),
-		DefaultMaxOutputTokens:    cloneIntPtr(input.DefaultMaxOutputTokens),
+		ContextWindowTokens:       storeutil.ClonePtr(input.ContextWindowTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(input.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(input.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     input.DefaultCacheRetention,
-		SupportsTools:             cloneBoolPtr(input.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(input.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(input.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(input.SupportsReasoning),
 		DefaultReasoningEffort:    input.DefaultReasoningEffort,
 		SupportedReasoningEfforts: append([]string(nil), input.SupportedReasoningEfforts...),
 		InputModalities:           append([]string(nil), input.InputModalities...),

@@ -159,6 +159,21 @@ organization owners configure providers themselves.
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
 
+Templates support the [token settings and timeouts](/organization/model-providers)
+described for model providers.
+
+To reconcile configured defaults into existing organizations, run these commands
+with the same database and template environment as the API:
+
+```sh
+omnara-api reconcile-defaults plan
+omnara-api reconcile-defaults apply
+```
+
+Review the plan before applying. Reconciliation updates installation-managed
+defaults while preserving organization-owned providers and models, along with
+explicit project grant overrides.
+
 The credential service contract has these invariants:
 
 - `POST /model-provider-credentials` receives the organization ID, creator user

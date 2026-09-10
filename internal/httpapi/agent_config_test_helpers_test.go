@@ -8,14 +8,11 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
-	"github.com/omnara-ai/omnara/internal/storage/secretstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func createHTTPRuntimeAgent(
@@ -119,16 +116,10 @@ func compileHTTPAgentYAMLResolved(
 	if err != nil {
 		t.Fatalf("parse agent config source: %v", err)
 	}
-	configuredModel := ensureHTTPModelSelection(
-		t,
-		ctx,
-		store,
-		orgID,
-		projectID,
-		userID,
-		source.Model.ProviderConfig,
-		source.Model.Name,
-	)
+	provider := storagefixture.EnsureModelProvider(t, ctx, store.Models(), store.Secrets(),
+		storagefixture.ModelProviderInput{OrgID: orgID, UserID: userID, Name: source.Model.ProviderConfig})
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), projectID,
+		storagefixture.DefaultModelInput(orgID, provider.ID, source.Model.Name))
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(
 			providerConfigName string,
@@ -156,84 +147,6 @@ func resolvedHTTPAgentConfigModel(configuredModel modelstore.ConfiguredModelReco
 		ConfiguredModelID: configuredModel.ID.String(),
 		SupportsTools:     &supportsTools,
 	}
-}
-
-func ensureHTTPModelSelection(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	orgID, projectID, userID storage.ID,
-	providerConfigName, configuredModelName string,
-) modelstore.ConfiguredModelRecord {
-	t.Helper()
-	providerConfig, err := store.Models().GetModelProviderConfigByName(ctx, orgID, providerConfigName)
-	if err != nil {
-		if !storeerr.IsNotFound(err) {
-			t.Fatalf("load model provider config %q: %v", providerConfigName, err)
-		}
-		secret, err := ensureHTTPProviderCredential(t, ctx, store, orgID, userID, providerConfigName)
-		if err != nil {
-			t.Fatalf("ensure provider credential: %v", err)
-		}
-		providerConfig, err = store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-			OrgID:              orgID,
-			Name:               providerConfigName,
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         "default",
-			BaseURL:            "https://api.openai.com/v1",
-			CredentialSecretID: secret.ID,
-		})
-		if err != nil {
-			t.Fatalf("create model provider config %q: %v", providerConfigName, err)
-		}
-	}
-	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                 orgID,
-		ModelProviderConfigID: providerConfig.ID,
-		Name:                  configuredModelName,
-		ProviderModelSlug:     configuredModelName,
-		ContextWindowTokens:   128000,
-		MaxOutputTokens:       8192,
-	})
-	if err != nil {
-		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             orgID,
-		ProjectID:         projectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-	}
-	return configuredModel
-}
-
-func ensureHTTPProviderCredential(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	orgID, userID storage.ID,
-	providerConfigName string,
-) (secretstore.SecretRecord, error) {
-	t.Helper()
-	name := "http-provider-" + providerConfigName
-	secret, err := store.Secrets().GetSecretByOwnerName(
-		ctx, orgID, secretstore.SecretOwnerOrg, storage.NilID, storage.NilID, name,
-	)
-	if err == nil {
-		return secret, nil
-	}
-	if !storeerr.IsNotFound(err) {
-		return secretstore.SecretRecord{}, err
-	}
-	secret, _, err = store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     orgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      name,
-		Material:  secrets.GenericMaterial{Value: "test-key"},
-		Actor:     httpUserPrincipal(userID),
-	})
-	return secret, err
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {

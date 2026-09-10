@@ -626,16 +626,16 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 			OrgID:                         project.OrgUUID,
 			Name:                          "Inventory Pool",
 			Provider:                      "unikraft",
-			DefaultMachineCPU:             intPtrForHTTPMachinePoolTest(1),
-			DefaultMachineMemoryMB:        intPtrForHTTPMachinePoolTest(1024),
+			DefaultMachineCPU:             new(1),
+			DefaultMachineMemoryMB:        new(1024),
 			DefaultMachineEnv:             json.RawMessage(`{}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test","metro":"sfo"}`),
 			ProviderAuthSecretID:          providerAuthSecret.ID,
 			MaxTotalMachines:              1,
-			MaxTotalCPU:                   intPtrForHTTPMachinePoolTest(32),
-			MaxTotalMemoryMB:              intPtrForHTTPMachinePoolTest(65536),
-			MaxMachineCPU:                 intPtrForHTTPMachinePoolTest(32),
-			MaxMachineMemoryMB:            intPtrForHTTPMachinePoolTest(65536),
+			MaxTotalCPU:                   new(32),
+			MaxTotalMemoryMB:              new(65536),
+			MaxMachineCPU:                 new(32),
+			MaxMachineMemoryMB:            new(65536),
 		})
 
 	if err != nil {

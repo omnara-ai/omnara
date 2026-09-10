@@ -28,8 +28,8 @@ func TestAgentExecutorCompactsRetryWhenReplacementGrantShrinksWindow(t *testing.
 		"openai/live-grant-shrink",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(originalWindow),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(64),
+			ContextWindowTokens: new(originalWindow),
+			MaxOutputTokens:     new(64),
 		},
 	)
 

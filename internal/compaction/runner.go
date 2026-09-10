@@ -165,7 +165,7 @@ func (r Runner) run(
 	}
 	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
 	errorSource := modelErrorSourceForAPIFormat(apiFormat)
-	policy, summaryOutputFloor, err := compactionRequestPolicy(client, errorSource)
+	summaryClient, policy, err := compactionModel(client, errorSource)
 	if err != nil {
 		return r.recordPreSendFailure(
 			ctx, input, claim, err,
@@ -213,9 +213,8 @@ func (r Runner) run(
 		boundaryWindow.sourceEvents,
 		boundaryWindow.witnessEvents,
 		boundaryWindow.atomicGroups,
-		client,
+		summaryClient,
 		policy,
-		summaryOutputFloor,
 		errorSource,
 	)
 	if err != nil {
@@ -234,7 +233,7 @@ func (r Runner) run(
 			input,
 			claim,
 			irreducibleCompactionError(
-				"no safe closed source prefix fits while preserving the minimum summary allowance",
+				"no safe closed source prefix fits with the summary output allowance",
 			),
 			providerAttempt,
 		)
@@ -257,7 +256,7 @@ func (r Runner) run(
 	prepared := preparedRequest.prepared
 	sourceText := preparedRequest.sourceText
 
-	response, err := client.Respond(
+	response, err := summaryClient.Respond(
 		ctx,
 		model.Request{
 			ProviderRequest: prepared.Body,
@@ -274,8 +273,6 @@ func (r Runner) run(
 		}
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
-	response = model.WithoutToolCallsOnMaxTokens(response)
-	providerAttempt.Response = response
 	if err := model.ValidateProviderResponse(response); err != nil {
 		return r.recordFailure(
 			ctx,
@@ -284,6 +281,20 @@ func (r Runner) run(
 			model.MalformedProviderResponse(errorSource, err),
 			providerAttempt,
 		)
+	}
+	if response.StopReason == model.StopReasonMaxTokens {
+		nextEnd, err := r.nextSmallerSourceEnd(ctx, input.Plan)
+		if err != nil {
+			return RunResult{}, err
+		}
+		if nextEnd > 0 {
+			return r.replaceCompactionSource(ctx, input, claim, model.ProviderError{
+				Kind:    model.ErrorKindTransient,
+				Source:  errorSource,
+				Code:    compactionErrorCodeSummaryTruncated,
+				Message: "compaction summary was truncated before completion",
+			}, providerAttempt, nextEnd)
+		}
 	}
 	summary, err := validateCompactionResponse(errorSource, response)
 	if err != nil {

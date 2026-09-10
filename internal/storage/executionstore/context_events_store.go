@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -29,6 +30,7 @@ type ContextEventRecord struct {
 	APIFormat             modelprotocol.APIFormat
 	APIVariant            modelprotocol.APIVariant
 	ProviderReplay        json.RawMessage
+	StopReason            modelenvelope.StopReason
 	CreatedAt             time.Time
 }
 
@@ -76,6 +78,7 @@ func (s *Store) ListContextEvents(
 			APIFormat:             modelprotocol.APIFormat(row.ApiFormat),
 			APIVariant:            modelprotocol.APIVariant(row.ApiVariant),
 			ProviderReplay:        rawMessageFromSQLCPtr(row.ProviderReplay),
+			StopReason:            modelenvelope.StopReason(row.StopReason),
 		}
 		record.ID = record.SourceEventID
 		record.ProjectID = projectID
@@ -88,4 +91,13 @@ func (s *Store) ListContextEvents(
 		out = append(out, record)
 	}
 	return out, nil
+}
+
+func (s *Store) IsOutputLimitBoundary(ctx context.Context, projectID, agentID ID, sequence int64) (bool, error) {
+	if isNilID(projectID) || isNilID(agentID) || sequence <= 0 {
+		return false, errors.New("project, agent, and positive event sequence are required")
+	}
+	return s.q.IsOutputLimitBoundary(ctx, dbsqlc.IsOutputLimitBoundaryParams{
+		ProjectID: projectID, AgentID: agentID, EventSequence: sequence,
+	})
 }

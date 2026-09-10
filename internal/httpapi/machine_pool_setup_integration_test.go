@@ -1371,16 +1371,16 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 		Name:                          "api-default-pool",
 		Provider:                      "unikraft",
 		ProviderAuthEnvVar:            "TEST_DEFAULT_POOL_TOKEN",
-		DefaultMachineCPU:             intPtrForHTTPMachinePoolTest(1),
-		DefaultMachineMemoryMB:        intPtrForHTTPMachinePoolTest(1024),
+		DefaultMachineCPU:             new(1),
+		DefaultMachineMemoryMB:        new(1024),
 		DefaultMachineEnv:             json.RawMessage(`{}`),
 		DefaultMachineProviderOptions: json.RawMessage(`{"image":"registry.example/daemon:latest","metro":"sfo"}`),
 		ProviderConfig:                json.RawMessage(`{}`),
 		MaxTotalMachines:              1,
-		MaxTotalCPU:                   intPtrForHTTPMachinePoolTest(1),
-		MaxTotalMemoryMB:              intPtrForHTTPMachinePoolTest(1024),
-		MaxMachineCPU:                 intPtrForHTTPMachinePoolTest(1),
-		MaxMachineMemoryMB:            intPtrForHTTPMachinePoolTest(1024),
+		MaxTotalCPU:                   new(1),
+		MaxTotalMemoryMB:              new(1024),
+		MaxMachineCPU:                 new(1),
+		MaxMachineMemoryMB:            new(1024),
 	}
 	manager := &machinepool.Manager{
 		Execution:    store.Execution(),
@@ -1560,10 +1560,6 @@ func TestPublicDefaultMachinePoolAgentConfigValidationDoesNotRequireProviderAuth
 	if !strings.Contains(testutil.RequireType[string](t, response["error"]), "startup_script") {
 		t.Fatalf("bad default pool update provider validation error = %+v, want startup_script", response)
 	}
-}
-
-func intPtrForHTTPMachinePoolTest(value int) *int {
-	return &value
 }
 
 func createPublicHTTPMachinePoolProviderAuthSecret(

@@ -192,6 +192,10 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		auth = route.Chain{auth, route.Headers(headers)}
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
+	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
+		capabilities.DefaultMaxOutputTokens == 0 && capabilities.MaxOutputTokens == nil {
+		capabilities.DefaultMaxOutputTokens = 64_000
+	}
 	httpClient, err := r.httpClientForProviderConfig(providerConfig)
 	if err != nil {
 		return model.ResolvedClient{}, resolverError(
@@ -213,6 +217,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			EndpointPath:          providerConfig.EndpointPath,
 			ProviderModelSlug:     revision.ProviderModelSlug,
 			HTTPClient:            httpClient,
+			IdleTimeout:           time.Duration(providerConfig.IdleTimeoutMS) * time.Millisecond,
 			ModelCapabilities:     capabilities,
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
@@ -226,6 +231,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			EndpointPath:          providerConfig.EndpointPath,
 			ProviderModelSlug:     revision.ProviderModelSlug,
 			HTTPClient:            httpClient,
+			IdleTimeout:           time.Duration(providerConfig.IdleTimeoutMS) * time.Millisecond,
 			ModelCapabilities:     capabilities,
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
@@ -239,6 +245,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			EndpointPath:          providerConfig.EndpointPath,
 			ProviderModelSlug:     revision.ProviderModelSlug,
 			HTTPClient:            httpClient,
+			IdleTimeout:           time.Duration(providerConfig.IdleTimeoutMS) * time.Millisecond,
 			ModelCapabilities:     capabilities,
 			APIVariant:            providerConfig.APIVariant,
 			APIVariantOptions:     revision.APIVariantOptions,
@@ -335,9 +342,13 @@ func newSSRFHTTPClient(allowLoopback bool) *http.Client {
 
 func capabilitiesForRevision(record modelstore.ConfiguredModelRevisionRecord) model.Capabilities {
 	supportsTools := record.SupportsTools
+	var maxOutputTokens *int
+	if record.MaxOutputTokens != nil {
+		maxOutputTokens = new(*record.MaxOutputTokens)
+	}
 	return model.Capabilities{
 		ContextWindowTokens:       record.ContextWindowTokens,
-		MaxOutputTokens:           record.MaxOutputTokens,
+		MaxOutputTokens:           maxOutputTokens,
 		DefaultMaxOutputTokens:    valueOrZero(record.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     cacheRetentionForModel(record.DefaultCacheRetention),
 		SupportsTools:             &supportsTools,

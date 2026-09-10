@@ -81,17 +81,6 @@ func InitializationRecorded(err error) bool {
 	return errors.As(err, &initErr) && initErr.Recorded
 }
 
-func ShouldInitialize(state executionstore.MCPConnectionState) bool {
-	switch state {
-	case executionstore.MCPConnectionStateInitializing,
-		executionstore.MCPConnectionStateFailed,
-		executionstore.MCPConnectionStateExpired:
-		return true
-	default:
-		return false
-	}
-}
-
 func (m Manager) InitializePending(
 	ctx context.Context,
 	orgID, projectID, agentID storage.ID,

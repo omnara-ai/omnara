@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func poolMachineCleanupCandidateFromSQLC(row dbsqlc.ListPoolMachinesForCleanupRow) PoolMachineCleanupCandidate {
@@ -431,8 +432,8 @@ func machineRecordFromSQLC(
 		ProviderProvisionAttemptedAt: providerProvisionAttemptedAt,
 		ConnectionState:              MachineConnectionState(connectionState),
 		LastObservedAt:               lastObservedAt,
-		CPU:                          intPtrFromSQLC(cpu),
-		MemoryMB:                     intPtrFromSQLC(memoryMB),
+		CPU:                          storeutil.IntPtr(cpu),
+		MemoryMB:                     storeutil.IntPtr(memoryMB),
 		Cwd:                          cwd,
 		Env:                          env,
 		SecretEnv:                    secretEnv,

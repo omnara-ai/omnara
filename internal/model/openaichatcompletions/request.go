@@ -167,10 +167,10 @@ type chatToolCall struct {
 }
 
 type chatFunction struct {
-	Name        string          `json:"name,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
-	Arguments   string          `json:"arguments,omitempty"`
+	Name        string                   `json:"name,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	Parameters  json.RawMessage          `json:"parameters,omitempty"`
+	Arguments   model.ToolArgumentString `json:"arguments,omitempty"`
 }
 
 func buildMessages(
@@ -322,7 +322,7 @@ func assistantMessagesForEntry(
 			Type: "function",
 			Function: chatFunction{
 				Name:      result.Name,
-				Arguments: toolArguments(result),
+				Arguments: model.ToolArgumentString(toolArguments(result)),
 			},
 		})
 	}

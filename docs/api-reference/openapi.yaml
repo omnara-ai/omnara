@@ -5089,12 +5089,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateModelProviderConfigRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateModelProviderConfigResponse'
         '201':
           description: Created route response.
           content:
@@ -5333,12 +5327,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateConfiguredModelRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConfiguredModel'
         '201':
           description: Created route response.
           content:
@@ -5508,12 +5496,6 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateProjectModelGrantRequest'
       responses:
-        '200':
-          description: Route response.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProjectModelGrantEnvelope'
         '201':
           description: Created route response.
           content:
@@ -7067,7 +7049,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Provider request timeout in milliseconds. Omitted value defaults to 600000.
+          description: Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Defaults to 3600000 (60 minutes). Retries have separate deadlines.
+        idle_timeout_ms:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Defaults to 300000 (5 minutes). Local response processing does not consume this idle budget.
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
         auth_options:
@@ -7100,7 +7087,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Provider request timeout in milliseconds.
+          description: Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Retries have separate deadlines.
+        idle_timeout_ms:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Local response processing does not consume this idle budget.
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
         auth_options:
@@ -7118,7 +7110,7 @@ components:
     ModelProviderConfig:
       type: object
       additionalProperties: false
-      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
+      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ModelProviderConfigID'
@@ -7138,6 +7130,8 @@ components:
         endpoint_path:
           type: string
         request_timeout_ms:
+          type: integer
+        idle_timeout_ms:
           type: integer
         auth_kind:
           $ref: '#/components/schemas/ModelProviderAuthKind'
@@ -7238,12 +7232,12 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional configured output-token ceiling. When omitted, Omnara stores the smaller of 8,192 tokens and half the context window. It must not exceed the provider's supported limit. Omnara uses it for request validation and context budgeting.
+          description: Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Explicit values must not exceed the provider's supported limit.
         default_max_output_tokens:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional normal per-request output-token cap. When omitted, Omnara stores the smaller of 4,096 tokens and max_output_tokens.
+          description: Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages uses 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7295,15 +7289,15 @@ components:
           maximum: 2147483647
           description: Total token window for this model, including input and output.
         max_output_tokens:
-          type: integer
+          type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Configured output-token ceiling for this model. Omitted keeps the current value; it cannot be cleared.
+          description: Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for every API format.
         default_max_output_tokens:
           type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Default per-request output-token cap sent to the provider unless an agent config overrides it. Required for Anthropic Messages.
+          description: Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages uses 64000 tokens; other formats omit the allowance.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7357,8 +7351,8 @@ components:
           type: integer
           description: Total token window for this model, including input and output.
         max_output_tokens:
-          type: integer
-          description: Configured output-token ceiling for this model.
+          type: [integer, "null"]
+          description: Known output-token ceiling for this model, or null when unknown.
         default_max_output_tokens:
           type: [integer, "null"]
           description: Default per-request output-token cap sent to the provider unless an agent config overrides it.
@@ -8484,8 +8478,8 @@ components:
           type: integer
           description: Effective token window after configured-model, project-grant, and agent-config settings are applied.
         max_output_tokens:
-          type: integer
-          description: Effective largest output-token cap Omnara allows for this agent config.
+          type: [integer, "null"]
+          description: Effective known output-token ceiling after model and project settings, or null when unknown.
         default_max_output_tokens:
           type: [integer, "null"]
           description: Effective per-request output-token cap sent to the provider.

@@ -54,50 +54,60 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	return event, err
 }
 
-func invalidModelToolCallResponse(
-	errorSource string,
-	calls []model.ToolCall,
-) (error, bool) {
+func invalidModelResponse(errorSource string, reason model.StopReason, calls []model.ToolCall) error {
 	seenIDs := make(map[string]struct{}, len(calls))
 	for _, call := range calls {
-		if call.ID == "" {
-			return malformedToolCallResponse(
-				errorSource,
-				"The model response contains a tool call without an ID.",
-			), true
-		}
 		if _, exists := seenIDs[call.ID]; exists {
-			return malformedToolCallResponse(
+			return model.MalformedProviderSuccess(
 				errorSource,
+				"malformed_tool_call",
 				fmt.Sprintf("The model response contains duplicate tool call ID %q.", call.ID),
-			), true
+				nil,
+			)
 		}
 		seenIDs[call.ID] = struct{}{}
-		if call.Name == "" {
-			return malformedToolCallResponse(
-				errorSource,
-				"The model response contains a tool call without a name.",
-			), true
-		}
-		if err := modelenvelope.ValidateToolInput(call.Input); err != nil {
-			return malformedToolCallResponse(
-				errorSource,
-				fmt.Sprintf(
-					"The model response tool call %q has invalid input: %v",
-					call.ID,
-					err,
-				),
-			), true
-		}
 	}
-	return nil, false
-}
-
-func malformedToolCallResponse(errorSource, message string) error {
-	return model.MalformedProviderSuccess(
-		errorSource,
-		"malformed_tool_call",
-		message,
-		nil,
-	)
+	switch reason {
+	case model.StopReasonToolUse:
+		if len(calls) == 0 {
+			return model.MalformedProviderSuccess(
+				errorSource,
+				string(reason),
+				"The model stopped for tool use without returning a supported tool call.",
+				nil,
+			)
+		}
+	case model.StopReasonEndTurn, model.StopReasonMaxTokens:
+	case model.StopReasonRefusal, model.StopReasonContentFilter:
+		if len(calls) > 0 {
+			return model.MalformedProviderSuccess(
+				errorSource,
+				"contradictory_stop_reason",
+				fmt.Sprintf("The model returned stop reason %q together with tool calls.", reason),
+				nil,
+			)
+		}
+	case model.StopReasonContextWindow:
+		return model.ProviderError{
+			Kind:    model.ErrorKindContextWindow,
+			Source:  errorSource,
+			Code:    string(reason),
+			Message: "The model provider reported that the context window was exceeded.",
+		}
+	case model.StopReasonPause:
+		return model.ProviderError{
+			Kind:    model.ErrorKindInvalidRequest,
+			Source:  errorSource,
+			Code:    string(reason),
+			Message: fmt.Sprintf("The model returned unsupported stop reason %q.", reason),
+		}
+	default:
+		return model.MalformedProviderSuccess(
+			errorSource,
+			string(reason),
+			fmt.Sprintf("The model returned unsupported stop reason %q.", reason),
+			nil,
+		)
+	}
+	return nil
 }

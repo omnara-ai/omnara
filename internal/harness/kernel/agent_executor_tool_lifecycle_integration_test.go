@@ -63,7 +63,6 @@ model:
 skills:
   - %s
 `, skillPublicID),
-		fixture.Now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
@@ -336,87 +335,100 @@ WHERE call.project_id = $1
 }
 
 func TestAgentExecutorStreamsTurnIDAndPreMintedToolCallIdentity(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now, "run_command")
-	toolCall := model.ToolCall{
-		ID:    "call_streamed_tool",
-		Name:  "not_a_tool",
-		Input: json.RawMessage(`{}`),
-	}
-	modelClient := &sequenceKernelModel{
-		providerModelSlug: "kernel-test",
-		streamEvents: []model.StreamEvent{
-			{
-				Kind:       model.StreamEventBlockStart,
-				BlockIndex: 0,
-				Block: &model.StreamBlock{
-					Kind:       model.StreamBlockToolUse,
-					ToolCallID: toolCall.ID,
-					ToolName:   toolCall.Name,
+	for _, tc := range []struct{ label, name string }{
+		{"unknown", "not_a_tool"}, {"empty", ""}, {"whitespace", " \t"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			name := tc.name
+			ctx := context.Background()
+			fixture := newKernelFixture(t, ctx)
+			agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now, "run_command")
+			toolCall := model.ToolCall{
+				ID:    "call_streamed_tool",
+				Name:  name,
+				Input: json.RawMessage(`{}`),
+			}
+			modelClient := &sequenceKernelModel{
+				providerModelSlug: "kernel-test",
+				streamEvents: []model.StreamEvent{
+					{
+						Kind:       model.StreamEventBlockStart,
+						BlockIndex: 0,
+						Block: &model.StreamBlock{
+							Kind:       model.StreamBlockToolUse,
+							ToolCallID: toolCall.ID,
+							ToolName:   toolCall.Name,
+						},
+					},
+					{Kind: model.StreamEventToolArgsDelta, BlockIndex: 0, Delta: `{}`},
+					{Kind: model.StreamEventBlockStop, BlockIndex: 0},
 				},
-			},
-			{Kind: model.StreamEventBlockStop, BlockIndex: 0},
-		},
-		responses: []model.Response{
-			{
-				ID:         "resp_streamed_tool",
-				StopReason: model.StopReasonToolUse,
-				Content:    modeltest.ResponsePartsForToolCalls([]model.ToolCall{toolCall}),
-			},
-			{
-				ID:         "resp_streamed_final",
-				Content:    []model.ResponsePart{{Type: "text", Text: "streamed tool continued"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-		},
-	}
-	turn := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		agentID,
-		userID,
-		"exercise streamed tool identity",
-		fixture.Now.Add(time.Second),
-	)
-	publisher := &capturingStreamPublisher{}
-	executor := AgentExecutor{
-		Store:           fixture.Store,
-		ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
-		ToolExecutor:    tools.Executor{Store: fixture.Store},
-		StreamPublisher: publisher,
-		Now:             func() time.Time { return fixture.Now.Add(2 * time.Second) },
-	}
-	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
-		t.Fatalf("execute turn: %v", err)
-	}
+				responses: []model.Response{
+					{
+						ID:         "resp_streamed_tool",
+						StopReason: model.StopReasonToolUse,
+						Content:    []model.ResponsePart{model.NewToolCallPart(toolCall.ID, toolCall.Name, toolCall.Input)},
+					},
+					{
+						ID:         "resp_streamed_final",
+						Content:    []model.ResponsePart{{Type: "text", Text: "streamed tool continued"}},
+						StopReason: model.StopReasonEndTurn,
+					},
+				},
+			}
+			turn := fixture.admitContentInputTurn(
+				t,
+				ctx,
+				agentID,
+				userID,
+				"exercise streamed tool identity",
+				fixture.Now.Add(time.Second),
+			)
+			publisher := &capturingStreamPublisher{}
+			executor := AgentExecutor{
+				Store:           fixture.Store,
+				ModelResolver:   liveTestModelResolver(fixture.Store, modelClient),
+				ToolExecutor:    tools.Executor{Store: fixture.Store},
+				StreamPublisher: publisher,
+				Now:             func() time.Time { return fixture.Now.Add(2 * time.Second) },
+			}
+			if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+				t.Fatalf("execute turn: %v", err)
+			}
 
-	wantTurnID, err := publicid.Encode(publicid.KindAgentTurn, turn.TurnID)
-	if err != nil {
-		t.Fatalf("encode public turn id: %v", err)
-	}
-	envelopes := publisher.envelopes(t)
-	if len(envelopes) == 0 {
-		t.Fatal("expected published stream delta envelopes")
-	}
-	var framePublicToolCallID string
-	for _, envelope := range envelopes {
-		if envelope.TurnID != wantTurnID {
-			t.Fatalf("envelope turn id = %q, want %q", envelope.TurnID, wantTurnID)
-		}
-		if envelope.Event.Block != nil && envelope.Event.Block.Kind == model.StreamBlockToolUse {
-			framePublicToolCallID = envelope.Event.Block.ToolCallID
-		}
-	}
-	if framePublicToolCallID == "" {
-		t.Fatalf("no tool_use block_start frame published: %+v", envelopes)
-	}
-	frameToolCallID, err := publicid.Decode(publicid.KindToolCall, framePublicToolCallID)
-	if err != nil {
-		t.Fatalf("frame tool call id %q is not a public tool call id: %v", framePublicToolCallID, err)
-	}
-	var matched int
-	if err := fixture.Pool.QueryRow(ctx, `
+			wantTurnID, err := publicid.Encode(publicid.KindAgentTurn, turn.TurnID)
+			if err != nil {
+				t.Fatalf("encode public turn id: %v", err)
+			}
+			envelopes := publisher.envelopes(t)
+			if len(envelopes) == 0 {
+				t.Fatal("expected published stream delta envelopes")
+			}
+			var framePublicToolCallID string
+			for _, envelope := range envelopes {
+				if envelope.TurnID != wantTurnID {
+					t.Fatalf("envelope turn id = %q, want %q", envelope.TurnID, wantTurnID)
+				}
+				if envelope.Event.Block != nil && envelope.Event.Block.Kind == model.StreamBlockToolUse {
+					framePublicToolCallID = envelope.Event.Block.ToolCallID
+					wantName := name
+					if strings.TrimSpace(wantName) == "" {
+						wantName = model.UnparseableToolCallName
+					}
+					if envelope.Event.Block.ToolName != wantName {
+						t.Fatalf("streamed tool name=%q want=%q", envelope.Event.Block.ToolName, wantName)
+					}
+				}
+			}
+			if framePublicToolCallID == "" {
+				t.Fatalf("no tool_use block_start frame published: %+v", envelopes)
+			}
+			frameToolCallID, err := publicid.Decode(publicid.KindToolCall, framePublicToolCallID)
+			if err != nil {
+				t.Fatalf("frame tool call id %q is not a public tool call id: %v", framePublicToolCallID, err)
+			}
+			var matched int
+			if err := fixture.Pool.QueryRow(ctx, `
 SELECT count(*)
 FROM tool_call_read_projection
 WHERE project_id = $1
@@ -424,14 +436,23 @@ WHERE project_id = $1
   AND provider_call_id = $3
   AND id = $4
 `, kernelTestProjectID, agentID, toolCall.ID, frameToolCallID).Scan(&matched); err != nil {
-		t.Fatalf("count pre-minted tool call rows: %v", err)
-	}
-	if matched != 1 {
-		t.Fatalf(
-			"tool_calls rows with pre-minted id %s = %d, want 1",
-			frameToolCallID,
-			matched,
-		)
+				t.Fatalf("count pre-minted tool call rows: %v", err)
+			}
+			if matched != 1 {
+				t.Fatalf(
+					"tool_calls rows with pre-minted id %s = %d, want 1",
+					frameToolCallID,
+					matched,
+				)
+			}
+			if strings.TrimSpace(name) == "" {
+				call, err := fixture.Store.Execution().GetToolCall(ctx, kernelTestProjectID, agentID, frameToolCallID)
+				if err != nil || call.State != executionstore.ToolCallStateCompleted ||
+					call.Outcome != executionstore.ToolResultOutcomeFailed || call.Name != model.UnparseableToolCallName {
+					t.Fatalf("nameless call=%+v err=%v, want paired failed placeholder", call, err)
+				}
+			}
+		})
 	}
 }
 
@@ -765,7 +786,7 @@ func (f kernelFixture) kernelAgentConfigInput(
 	sourceYAML := "instruction: Help the user make progress.\nmodel:\n  provider_config: openai-prod\n  name: " +
 		configuredModelName +
 		"\n"
-	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML, f.Now)
+	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -811,7 +832,7 @@ tools:
     input_schema:
       type: object
 `
-	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML, fixture.Now)
+	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),

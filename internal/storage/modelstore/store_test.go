@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/omnara-ai/omnara/internal/storage/management"
 	"math"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateModelProviderConfigTxRejectsInvalidNameBeforeDatabaseAccess(t *testing.T) {
@@ -52,62 +54,57 @@ func TestModelProviderAPIKeyHeaderRejectsTransportReplayHeaders(t *testing.T) {
 	}
 }
 
-func TestResolveConfiguredModelOutputLimits(t *testing.T) {
-	tests := []struct {
-		name        string
-		context     int
-		max         *int
-		defaultMax  *int
-		wantMax     int
-		wantDefault int
-		wantErr     bool
+func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		context   int
+		capacity  *int
+		allowance *int
+		wantErr   bool
 	}{
-		{name: "standard defaults", context: 128_000, wantMax: 8_192, wantDefault: 4_096},
-		{name: "small window", context: 6_000, wantMax: 3_000, wantDefault: 3_000},
+		{name: "unknown", context: 128000},
+		{name: "unknown with allowance", context: 128000, allowance: new(32000)},
+		{name: "known without allowance", context: 128000, capacity: new(64000)},
+		{name: "capacity exhausts configured context", context: 128000, capacity: new(128000), wantErr: true},
+		{name: "zero capacity", context: 128000, capacity: new(0), wantErr: true},
+		{name: "negative capacity", context: 128000, capacity: new(-1), wantErr: true},
+		{name: "zero allowance", context: 128000, allowance: new(0), wantErr: true},
+		{name: "allowance exhausts context", context: 128000, allowance: new(128000), wantErr: true},
 		{
-			name:        "explicit overrides",
-			context:     128_000,
-			max:         intPtrForModelProviderConfigStoreTest(16_000),
-			defaultMax:  intPtrForModelProviderConfigStoreTest(6_000),
-			wantMax:     16_000,
-			wantDefault: 6_000,
+			name:      "allowance exceeds capacity",
+			context:   128000,
+			capacity:  new(32000),
+			allowance: new(64000),
+			wantErr:   true,
 		},
 		{name: "window too small", context: 1, wantErr: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			maxOutput, defaultOutput, err := ResolveConfiguredModelOutputLimits(
-				test.context,
-				test.max,
-				test.defaultMax,
-			)
-			if test.wantErr {
-				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-					t.Fatalf("error = %v, want storeerr.ErrInvalidModelProviderConfig", err)
+	} {
+		for _, format := range []modelprotocol.APIFormat{
+			modelprotocol.APIFormatOpenAIChatCompletions,
+			modelprotocol.APIFormatOpenAIResponses,
+			modelprotocol.APIFormatAnthropicMessages,
+		} {
+			t.Run(tc.name+"/"+string(format), func(t *testing.T) {
+				err := validateConfiguredModelOptions(format, configuredModelOptions{
+					ContextWindowTokens: tc.context, MaxOutputTokens: tc.capacity, DefaultMaxOutputTokens: tc.allowance,
+				})
+				if tc.wantErr {
+					if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+						t.Fatalf("error = %v, want invalid configuration", err)
+					}
+				} else if err != nil {
+					t.Fatal(err)
 				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("resolve output limits: %v", err)
-			}
-			if defaultOutput == nil || maxOutput != test.wantMax || *defaultOutput != test.wantDefault {
-				t.Fatalf(
-					"resolved output limits = %d/%v, want %d/%d",
-					maxOutput,
-					defaultOutput,
-					test.wantMax,
-					test.wantDefault,
-				)
-			}
-		})
+			})
+		}
 	}
 }
 
 func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 	if err := validateConfiguredModelOptions(modelprotocol.APIFormatOpenAIResponses, configuredModelOptions{
 		ContextWindowTokens:    math.MaxInt32,
-		MaxOutputTokens:        math.MaxInt32 - 1,
-		DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(math.MaxInt32 - 1),
+		MaxOutputTokens:        new(math.MaxInt32 - 1),
+		DefaultMaxOutputTokens: new(math.MaxInt32 - 1),
 	}); err != nil {
 		t.Fatalf("valid token bounds rejected: %v", err)
 	}
@@ -121,7 +118,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			name: "positive field below minimum",
 			input: configuredModelOptions{
 				ContextWindowTokens: 0,
-				MaxOutputTokens:     1,
+				MaxOutputTokens:     new(1),
 			},
 			messageContains: "context_window_tokens",
 		},
@@ -129,7 +126,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			name: "int32 overflow",
 			input: configuredModelOptions{
 				ContextWindowTokens: 100,
-				MaxOutputTokens:     math.MaxInt32 + 1,
+				MaxOutputTokens:     new(math.MaxInt32 + 1),
 			},
 			messageContains: "max_output_tokens",
 		},
@@ -137,8 +134,8 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			name: "default exceeds max",
 			input: configuredModelOptions{
 				ContextWindowTokens:    100,
-				MaxOutputTokens:        10,
-				DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(11),
+				MaxOutputTokens:        new(10),
+				DefaultMaxOutputTokens: new(11),
 			},
 			messageContains: "default_max_output_tokens",
 		},
@@ -146,8 +143,8 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			name: "max output exhausts context",
 			input: configuredModelOptions{
 				ContextWindowTokens:    100,
-				MaxOutputTokens:        100,
-				DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(100),
+				MaxOutputTokens:        new(100),
+				DefaultMaxOutputTokens: new(100),
 			},
 			messageContains: "max_output_tokens",
 		},
@@ -155,7 +152,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			name: "invalid cache retention",
 			input: configuredModelOptions{
 				ContextWindowTokens:   100,
-				MaxOutputTokens:       1,
+				MaxOutputTokens:       new(1),
 				DefaultCacheRetention: "future",
 			},
 			messageContains: "default_cache_retention",
@@ -341,8 +338,8 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 		ID:                        uuid.New(),
 		ConfiguredModelID:         configuredModelID,
 		ContextWindowTokens:       1000,
-		MaxOutputTokens:           200,
-		DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(100),
+		MaxOutputTokens:           new(200),
+		DefaultMaxOutputTokens:    new(100),
 		DefaultCacheRetention:     ModelCacheRetentionLong,
 		SupportsTools:             true,
 		SupportsReasoning:         true,
@@ -375,10 +372,10 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			baseRevision,
 			ProjectModelGrantRecord{
 				ConfiguredModelID:         configuredModelID,
-				ContextWindowTokens:       intPtrForModelProviderConfigStoreTest(800),
-				MaxOutputTokens:           intPtrForModelProviderConfigStoreTest(150),
-				DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(120),
-				SupportsTools:             boolPtrForModelProviderConfigStoreTest(false),
+				ContextWindowTokens:       new(800),
+				MaxOutputTokens:           new(150),
+				DefaultMaxOutputTokens:    new(120),
+				SupportsTools:             new(false),
 				DefaultCacheRetention:     ModelCacheRetentionShort,
 				SupportedReasoningEfforts: []string{"low", "medium"},
 				InputModalities:           []string{"text"},
@@ -388,7 +385,10 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 		if err != nil {
 			t.Fatalf("effective grant: %v", err)
 		}
-		if effective.ContextWindowTokens != 800 || effective.MaxOutputTokens != 150 ||
+		if effective.ContextWindowTokens != 800 ||
+			(effective.MaxOutputTokens == nil ||
+				*effective.MaxOutputTokens != 150) ||
+
 			*effective.DefaultMaxOutputTokens != 120 ||
 			effective.SupportsTools ||
 			effective.DefaultCacheRetention != ModelCacheRetentionShort ||
@@ -404,7 +404,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			baseRevision,
 			ProjectModelGrantRecord{
 				ConfiguredModelID: configuredModelID,
-				SupportsReasoning: boolPtrForModelProviderConfigStoreTest(false),
+				SupportsReasoning: new(false),
 			},
 		)
 		if err != nil {
@@ -422,11 +422,20 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 		grant    ProjectModelGrantRecord
 	}{
 		{
+			name:     "reject explicit capacity exhausting narrowed context",
+			revision: baseRevision,
+			grant: ProjectModelGrantRecord{
+				ConfiguredModelID:   configuredModelID,
+				ContextWindowTokens: new(150),
+				MaxOutputTokens:     new(150),
+			},
+		},
+		{
 			name:     "reject wider context",
 			revision: baseRevision,
 			grant: ProjectModelGrantRecord{
 				ConfiguredModelID:   configuredModelID,
-				ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001),
+				ContextWindowTokens: new(1001),
 			},
 		},
 		{
@@ -434,7 +443,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			revision: revisionWithToolSupport(baseRevision, false),
 			grant: ProjectModelGrantRecord{
 				ConfiguredModelID: configuredModelID,
-				SupportsTools:     boolPtrForModelProviderConfigStoreTest(true),
+				SupportsTools:     new(true),
 			},
 		},
 		{
@@ -472,8 +481,8 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		ID:                        uuid.New(),
 		ConfiguredModelID:         configuredModelID,
 		ContextWindowTokens:       1000,
-		MaxOutputTokens:           200,
-		DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(100),
+		MaxOutputTokens:           new(200),
+		DefaultMaxOutputTokens:    new(100),
 		DefaultCacheRetention:     ModelCacheRetentionLong,
 		SupportsTools:             true,
 		SupportsReasoning:         true,
@@ -485,8 +494,8 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		modelprotocol.APIFormatOpenAIResponses,
 		projectEffectiveRevision,
 		agentconfig.ModelOverrides{
-			ContextWindowTokens:    intPtrForModelProviderConfigStoreTest(800),
-			DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(120),
+			ContextWindowTokens:    new(800),
+			DefaultMaxOutputTokens: new(120),
 			CacheRetention:         ModelCacheRetentionShort,
 			ReasoningEffort:        "high",
 		},
@@ -499,7 +508,7 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		effective.DefaultReasoningEffort != "high" {
 		t.Fatalf("unexpected effective runtime options: %+v", effective)
 	}
-	if effective.MaxOutputTokens != 200 {
+	if effective.MaxOutputTokens == nil || *effective.MaxOutputTokens != 200 {
 		t.Fatalf("runtime max_output_tokens changed ceiling = %d, want 200", effective.MaxOutputTokens)
 	}
 
@@ -509,11 +518,11 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 	}{
 		{
 			name:    "reject wider context",
-			options: agentconfig.ModelOverrides{ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001)},
+			options: agentconfig.ModelOverrides{ContextWindowTokens: new(1001)},
 		},
 		{
 			name:    "reject default output over ceiling",
-			options: agentconfig.ModelOverrides{DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(201)},
+			options: agentconfig.ModelOverrides{DefaultMaxOutputTokens: new(201)},
 		},
 		{
 			name:    "reject unsupported reasoning",
@@ -533,14 +542,6 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtrForModelProviderConfigStoreTest(value int) *int {
-	return &value
-}
-
-func boolPtrForModelProviderConfigStoreTest(value bool) *bool {
-	return &value
 }
 
 func revisionWithToolSupport(revision ConfiguredModelRevisionRecord, supportsTools bool) ConfiguredModelRevisionRecord {
@@ -578,11 +579,15 @@ func TestValidateTenantModelOnClusterProvider(t *testing.T) {
 		"paid router":          shared("openrouter/auto", `{}`, false),
 		"alias":                shared("~anthropic/claude-sonnet-latest", `{}`, false),
 		"provider pin":         shared("moonshotai/kimi-k3", `{"provider":{"only":["moonshotai"]}}`, false),
-		"paid fallback":        shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max"],"route":"fallback"}`, false),
-		"free fallback":        shared("qwen/qwen3-coder-plus", `{"models":["openrouter/free"]}`, true),
-		"online fallback":      shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max:online"]}`, true),
-		"end-user identity":    shared("qwen/qwen3-coder-plus", `{"user":"someone-else"}`, true),
-		"web plugin":           shared("qwen/qwen3-coder-plus", `{"plugins":[{"id":"web"}]}`, true),
+		"paid fallback": shared(
+			"qwen/qwen3-coder-plus",
+			`{"models":["qwen/qwen3-max"],"route":"fallback"}`,
+			false,
+		),
+		"free fallback":     shared("qwen/qwen3-coder-plus", `{"models":["openrouter/free"]}`, true),
+		"online fallback":   shared("qwen/qwen3-coder-plus", `{"models":["qwen/qwen3-max:online"]}`, true),
+		"end-user identity": shared("qwen/qwen3-coder-plus", `{"user":"someone-else"}`, true),
+		"web plugin":        shared("qwen/qwen3-coder-plus", `{"plugins":[{"id":"web"}]}`, true),
 		"web search options": shared(
 			"qwen/qwen3-coder-plus",
 			`{"web_search_options":{"search_context_size":"low"}}`, true,
@@ -615,5 +620,159 @@ func TestValidateTenantModelOnClusterProvider(t *testing.T) {
 				t.Fatalf("err = %v, want error %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestReconciliationOutputCapacityComparisonRemainsStrict(t *testing.T) {
+	input := normalizeCreateConfiguredModelInput(CreateConfiguredModelInput{
+		ModelProviderConfigID: uuid.New(),
+		Name:                  "model",
+		ProviderModelSlug:     "model",
+		ContextWindowTokens:   128000,
+	})
+	record := ConfiguredModelRecord{
+		ModelProviderConfigID: input.ModelProviderConfigID,
+		Name:                  input.Name,
+		ProviderModelSlug:     input.ProviderModelSlug,
+		ContextWindowTokens:   input.ContextWindowTokens,
+		SupportsTools:         true,
+	}
+	if !sameConfiguredModelIntent(record, input) {
+		t.Fatal("equal unknown capacities differ")
+	}
+	record.MaxOutputTokens = new(64000)
+	if sameConfiguredModelIntent(record, input) {
+		t.Fatal("reconciliation ignored desired unknown capacity")
+	}
+	input.MaxOutputTokens = new(64000)
+	if !sameConfiguredModelIntent(record, input) {
+		t.Fatal("equal known capacities differ")
+	}
+	record.MaxOutputTokens = nil
+	if sameConfiguredModelIntent(record, input) {
+		t.Fatal("reconciliation ignored desired known capacity")
+	}
+}
+
+func TestUnknownCapacityPreservesOverrideAllowances(t *testing.T) {
+	for _, tc := range []struct {
+		name                                       string
+		capacity, projectAllowance, agentAllowance *int
+		wantAllowance                              *int
+		invalid                                    bool
+	}{
+		{name: "project allowance", projectAllowance: new(32000), wantAllowance: new(32000)},
+		{name: "agent allowance", agentAllowance: new(48000), wantAllowance: new(48000)},
+		{name: "project capacity", capacity: new(64000)},
+		{
+			name:             "agent overrides project default",
+			capacity:         new(64000),
+			projectAllowance: new(32000),
+			agentAllowance:   new(48000),
+			wantAllowance:    new(48000),
+		},
+		{name: "project capacity exhausts context", capacity: new(100000), invalid: true},
+		{name: "project allowance exhausts context", projectAllowance: new(100000), invalid: true},
+		{name: "agent allowance exhausts context", agentAllowance: new(100000), invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			revision := ConfiguredModelRevisionRecord{
+				ContextWindowTokens: 100000,
+				ProviderModelSlug:   "custom-model",
+			}
+			effective, err := EffectiveConfiguredModelRevisionForProjectGrant(
+				modelprotocol.APIFormatAnthropicMessages,
+				revision,
+				ProjectModelGrantRecord{
+					MaxOutputTokens:        tc.capacity,
+					DefaultMaxOutputTokens: tc.projectAllowance,
+				},
+			)
+			if err == nil {
+				effective, err = EffectiveConfiguredModelRevisionForAgentOptions(
+					modelprotocol.APIFormatAnthropicMessages,
+					effective,
+					agentconfig.ModelOverrides{
+						DefaultMaxOutputTokens: tc.agentAllowance,
+					},
+				)
+			}
+			if tc.invalid {
+				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+					t.Fatalf("invalid allowance error=%v", err)
+				}
+				return
+			}
+			require.NoError(t, err)
+			if diff := cmp.Diff(tc.capacity, effective.MaxOutputTokens); diff != "" {
+				t.Fatalf("capacity (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAllowance, effective.DefaultMaxOutputTokens); diff != "" {
+				t.Fatalf("allowance (-want +got):\n%s", diff)
+			}
+			if effective.ContextWindowTokens != 100000 {
+				t.Fatalf("context = %d, want 100000", effective.ContextWindowTokens)
+			}
+		})
+	}
+}
+
+func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
+	for _, level := range []string{"project", "agent", "both"} {
+		for _, allowance := range []struct {
+			name    string
+			value   *int
+			invalid bool
+		}{
+			{name: "capacity only"},
+			{name: "fitting inherited default", value: new(4000)},
+			{name: "inherited default exhausts context", value: new(32000), invalid: true},
+		} {
+			t.Run(level+"/"+allowance.name, func(t *testing.T) {
+				for _, capacity := range []int{8192, 64000} {
+					if allowance.invalid && capacity == 8192 {
+						continue // The source default itself must fit the source capacity.
+					}
+					revision := ConfiguredModelRevisionRecord{
+						ContextWindowTokens: 128000, MaxOutputTokens: new(capacity),
+						DefaultMaxOutputTokens: allowance.value,
+					}
+					grant := ProjectModelGrantRecord{}
+					overrides := agentconfig.ModelOverrides{}
+					if level != "agent" {
+						grant.ContextWindowTokens = new(32000)
+					}
+					if level != "project" {
+						overrides.ContextWindowTokens = new(32000)
+					}
+					effective, err := EffectiveConfiguredModelRevisionForProjectGrant(
+						modelprotocol.APIFormatAnthropicMessages, revision, grant,
+					)
+					if err == nil {
+						effective, err = EffectiveConfiguredModelRevisionForAgentOptions(
+							modelprotocol.APIFormatAnthropicMessages, effective, overrides,
+						)
+					}
+					if allowance.invalid {
+						if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+							t.Fatalf("inherited allowance error=%v", err)
+						}
+						continue
+					}
+					if err != nil {
+						t.Fatalf("capacity=%d: %v", capacity, err)
+					}
+					if effective.ContextWindowTokens != 32000 {
+						t.Fatalf("capacity=%d: context = %d, want 32000", capacity, effective.ContextWindowTokens)
+					}
+					if diff := cmp.Diff(new(capacity), effective.MaxOutputTokens); diff != "" {
+						t.Fatalf("capacity (-want +got):\n%s", diff)
+					}
+					if diff := cmp.Diff(allowance.value, effective.DefaultMaxOutputTokens); diff != "" {
+						t.Fatalf("capacity=%d: allowance (-want +got):\n%s", capacity, diff)
+					}
+				}
+			})
+		}
 	}
 }

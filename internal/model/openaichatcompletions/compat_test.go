@@ -21,6 +21,7 @@ func TestCompatForVariant(t *testing.T) {
 		modelprotocol.APIVariantOpenRouter: {
 			reasoningFormat: reasoningFormatOpenRouter, conversationKeyField: conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
+			reportsNativeFinishReason:    true,
 			reportsServedProviderAndCost: true, parsesPDFDocuments: true, routesFallbackModels: true,
 		},
 	} {

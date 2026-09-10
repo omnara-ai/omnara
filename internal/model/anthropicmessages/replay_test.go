@@ -3,12 +3,18 @@ package anthropicmessages
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestPreparePreservesToolUseBeforeAssistantText(t *testing.T) {
@@ -161,6 +167,114 @@ func TestPrepareReplaysThinkingAndToolUseAsOneValidatedOutput(t *testing.T) {
 	if !strings.Contains(body, `"signature":"sig_1"`) ||
 		!strings.Contains(body, `"id":"toolu_replayed"`) {
 		t.Fatalf("compatible whole-output replay was not preserved: %s", body)
+	}
+}
+
+func TestPrepareReplaysSignedMaxTokensOutputAndKeepsHistoryPrefix(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		rejectedCall bool
+	}{
+		{name: "thinking only"},
+		{name: "thinking and rejected call", rejectedCall: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := Client{
+				ModelProviderConfigID: testModelProviderConfigID,
+				EndpointPath:          testEndpointPath,
+				ProviderModelSlug:     "claude-test",
+			}
+			content := `{"type":"thinking","thinking":"reasoning step","signature":"sig_cutoff"}`
+			wantAssistant := []contentBlock{{Type: "thinking", Thinking: "reasoning step", Signature: "sig_cutoff"}}
+			if test.rejectedCall {
+				content += `,{"type":"tool_use","id":"toolu_cutoff","name":"run_command","input":null}`
+				wantAssistant = append(wantAssistant, contentBlock{
+					Type: "tool_use", ID: "toolu_cutoff", Name: "run_command", Input: json.RawMessage(`{}`),
+				})
+			}
+			resp, err := (protocol{client: client}).ParseResponse(t.Context(), route.Response{
+				StatusCode: http.StatusOK,
+				Body:       []byte(`{"id":"msg_cutoff","stop_reason":"max_tokens","content":[` + content + `]}`),
+			})
+			require.NoError(t, err)
+			require.NoError(t, model.ValidateProviderResponse(resp))
+			require.Len(t, resp.Content, len(wantAssistant))
+			if resp.Content[0].Type != model.ResponsePartTypeReasoning || resp.Content[0].Text != "reasoning step" {
+				t.Errorf("normalized thinking = %+v", resp.Content[0])
+			}
+			replay := testProviderReplay("claude-test", modelprotocol.APIFormatAnthropicMessages, resp.ProviderReplay)
+			message := messageAtSequence(anthropicReplayMessage("mcc_cutoff", replay), 2)
+			message.StopReason = resp.StopReason
+			message.Content, err = json.Marshal(resp.Content[:1])
+			require.NoError(t, err)
+			input := model.PrepareInput{
+				Policy: model.RequestPolicy{MaxOutputTokens: 64, CacheRetention: model.CacheRetentionNone},
+			}
+			if test.rejectedCall {
+				part := resp.Content[1]
+				require.NotEmpty(t, part.ToolCallError)
+				message = withToolCallLinks(message, "tcl_cutoff")
+				feedback, err := json.Marshal([]model.ResponsePart{{Type: model.ResponsePartTypeText, Text: part.ToolCallError}})
+				require.NoError(t, err)
+				input.Context.ToolResults = []modelcontext.ToolResultRef{{
+					ToolCallID: "tcl_cutoff", ModelCallContextID: "mcc_cutoff",
+					ProviderCallID: part.ProviderCallID, Name: part.ToolName, Input: part.ToolInput,
+					Outcome: executionstore.ToolResultOutcomeFailed, ContentParts: feedback,
+				}}
+			}
+			input.Context.Messages = []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "start"), message}
+			prepared, err := client.Prepare(t.Context(), input)
+			require.NoError(t, err)
+			type wireMessage struct {
+				Role    string            `json:"role"`
+				Content []json.RawMessage `json:"content"`
+			}
+			var payload, laterPayload struct {
+				Messages []wireMessage `json:"messages"`
+			}
+			require.NoError(t, json.Unmarshal(prepared.Body, &payload))
+			require.Len(t, payload.Messages, 3)
+			var assistant []contentBlock
+			for _, raw := range payload.Messages[1].Content {
+				var block contentBlock
+				require.NoError(t, json.Unmarshal(raw, &block))
+				assistant = append(assistant, block)
+			}
+			if diff := cmp.Diff(wantAssistant, assistant); diff != "" {
+				t.Errorf("signed assistant replay (-want +got):\n%s", diff)
+			}
+			feedback := payload.Messages[2]
+			require.Len(t, feedback.Content, 1)
+			if payload.Messages[1].Role != "assistant" || feedback.Role != "user" {
+				t.Errorf("replay and feedback roles = %q, %q", payload.Messages[1].Role, feedback.Role)
+			}
+			if test.rejectedCall {
+				var result toolResultBlock
+				require.NoError(t, json.Unmarshal(feedback.Content[0], &result))
+				if result.Type != "tool_result" || result.ToolUseID != "toolu_cutoff" || !result.IsError ||
+					!strings.Contains(string(feedback.Content[0]), resp.Content[1].ToolCallError) {
+					t.Errorf("failed tool feedback = %s", feedback.Content[0])
+				}
+			} else {
+				var notice textBlock
+				require.NoError(t, json.Unmarshal(feedback.Content[0], &notice))
+				if notice.Type != "text" || !strings.Contains(notice.Text, "[Automatic Omnara harness notice]") {
+					t.Errorf("cutoff notice = %s", feedback.Content[0])
+				}
+			}
+
+			input.Context.Messages = append(input.Context.Messages,
+				messageAtSequence(anthropicTextMessage(modelprotocol.RoleAssistant, "continued"), 3),
+				messageAtSequence(anthropicTextMessage(modelprotocol.RoleUser, "next"), 4),
+			)
+			later, err := client.Prepare(t.Context(), input)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(later.Body, &laterPayload))
+			require.Len(t, laterPayload.Messages, 5)
+			if diff := cmp.Diff(payload.Messages, laterPayload.Messages[:len(payload.Messages)]); diff != "" {
+				t.Errorf("serialized history prefix changed after later messages (-before +after):\n%s", diff)
+			}
+		})
 	}
 }
 

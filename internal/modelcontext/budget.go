@@ -12,13 +12,13 @@ const (
 )
 
 type ModelWindow struct {
-	ContextTokens          int `json:"context_tokens"`
-	RequestMaxOutputTokens int `json:"request_max_output_tokens,omitempty"`
-	SafetyMarginTokens     int `json:"safety_margin_tokens"`
+	ContextTokens       int `json:"context_tokens"`
+	OutputReserveTokens int `json:"output_reserve_tokens,omitempty"`
+	SafetyMarginTokens  int `json:"safety_margin_tokens"`
 }
 
 func (w ModelWindow) UsableInputTokens() int {
-	usable := w.ContextTokens - w.RequestMaxOutputTokens - w.SafetyMarginTokens
+	usable := w.ContextTokens - w.OutputReserveTokens - w.SafetyMarginTokens
 	if usable < 0 {
 		return 0
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorInitializesMCPConnectionsBeforeGeneration(t *testing.T) {
@@ -44,7 +45,7 @@ mcp:
     permission:
       mode: always_allow
 `
-	agent := fixture.createConfigAndProfileBookmark(t, ctx, "Kernel MCP", "kernel-mcp-agent", sourceYAML, now)
+	agent := fixture.createConfigAndProfileBookmark(t, ctx, "Kernel MCP", "kernel-mcp-agent", sourceYAML)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
 		executionstore.LaunchAgentInput{
@@ -235,7 +236,6 @@ mcp:
 		"Kernel MCP Connect Retry",
 		"kernel-mcp-connect-retry-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -352,7 +352,6 @@ mcp:
 		"Kernel MCP List Tools Failure",
 		"kernel-mcp-list-tools-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -423,22 +422,27 @@ mcp:
 	}
 }
 
-func TestAgentExecutorRefreshesExpiredMCPConnectionForAsyncToolCall(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	now := fixture.Now
-	user, err := storagetest.CreateVerifiedUser(
-		ctx,
-		fixture.Pool,
-		storagetest.CreateVerifiedUserInput{
-			Email:       "kernel-mcp-refresh@example.com",
-			DisplayName: "Kernel MCP Refresh User",
+func TestAgentExecutorRecoversMCPConnectionBeforeContinuation(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		retryError      error
+		interrupt       bool
+		failBegin       bool
+		wantInitializes int
+		wantSession     string
+	}{
+		{name: "ready refresh is reused", wantInitializes: 2, wantSession: "session-2"},
+		{
+			name: "refreshed session expires again", retryError: mcp.ErrSessionExpired,
+			wantInitializes: 3, wantSession: "session-3",
 		},
-	)
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	sourceYAML := `
+		{name: "interrupted refresh", interrupt: true, wantInitializes: 3, wantSession: "session-3"},
+		{name: "initialization storage failure", retryError: mcp.ErrSessionExpired, failBegin: true, wantInitializes: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newKernelFixture(t, ctx)
+			profile := fixture.createConfigAndProfileBookmark(t, ctx, "MCP Recovery", "mcp-recovery", `
 instruction: Use MCP tools.
 model:
   provider_config: openai-prod
@@ -448,97 +452,86 @@ mcp:
     url: https://example.com/mcp
     permission:
       mode: always_allow
-`
-	agent := fixture.createConfigAndProfileBookmark(
-		t,
-		ctx,
-		"Kernel MCP Refresh",
-		"kernel-mcp-refresh-agent",
-		sourceYAML,
-		now,
-	)
-	launch, err := fixture.Store.Execution().LaunchAgent(
-		ctx,
-		executionstore.LaunchAgentInput{
-			ProjectID:      kernelTestProjectID,
-			ProfileID:      agent.ID,
-			AgentConfigID:  agent.CurrentConfigID,
-			LaunchedBy:     kernelTestUserPrincipal(user.ID),
-			IdempotencyKey: "kernel-mcp-refresh-agent",
-		},
-	)
-	if err != nil {
-		t.Fatalf("launch agent: %v", err)
-	}
-	input := fixture.admitContentInputTurn(
-		t,
-		ctx,
-		launch.Agent.ID,
-		kernelTestUserID,
-		"use mcp",
-		now.Add(2*time.Millisecond),
-	)
-	modelClient := &sequenceKernelModel{
-		providerModelSlug: "test-model",
-		responses: []model.Response{
-			{
-				ID:         "resp-mcp-tool",
-				StopReason: model.StopReasonToolUse,
-				Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
-					{
-						ID:    "call_mcp_greet",
-						Name:  toolcatalog.MCPRuntimeToolName("docs", "greet"),
-						Input: json.RawMessage(`{"name":"Ada"}`),
-					},
-				}),
-			},
-			{
-				ID:         "resp-mcp-final",
-				Content:    []model.ResponsePart{{Type: "text", Text: "done after mcp"}},
-				StopReason: model.StopReasonEndTurn,
-			},
-		},
-	}
-	mcpClient := &fakeKernelMCPClient{
-		protocolVersion:    mcp.ProtocolVersion,
-		initializeAgentIDs: []string{"remote-session-1", "remote-session-2"},
-		tools: []*sdkmcp.Tool{
-			{Name: "greet", Description: "say hi", InputSchema: map[string]any{"type": "object"}},
-		},
-		callToolErrors: []error{mcp.ErrSessionExpired, nil},
-		callToolResult: &sdkmcp.CallToolResult{
-			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hello"}},
-		},
-	}
-	executor := AgentExecutor{
-		Store:         fixture.Store,
-		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
-		MCP:           mcpClient,
-		ToolExecutor:  tools.Executor{Store: fixture.Store, MCP: mcpClient},
-		Now:           func() time.Time { return now.Add(3 * time.Millisecond) },
-	}
-	_ = executeAsyncToolTurn(t, ctx, fixture, executor, input)
-	if mcpClient.initializeCount != 2 || mcpClient.notifyCount != 2 || mcpClient.listToolsCount != 2 ||
-		mcpClient.callToolCount != 2 {
-		t.Fatalf(
-			"unexpected mcp calls: initialize=%d notify=%d list=%d call=%d",
-			mcpClient.initializeCount,
-			mcpClient.notifyCount,
-			mcpClient.listToolsCount,
-			mcpClient.callToolCount,
-		)
-	}
-	if len(mcpClient.callToolConns) != 2 || mcpClient.callToolConns[0].MCPSessionID != "remote-session-1" ||
-		mcpClient.callToolConns[1].MCPSessionID != "remote-session-2" {
-		t.Fatalf("tool calls did not use refreshed mcp session: %+v", mcpClient.callToolConns)
-	}
-	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
-	if err != nil || !found {
-		t.Fatalf("load refreshed mcp connection: found=%t err=%v", found, err)
-	}
-	if conn.State != executionstore.MCPConnectionStateReady || conn.MCPSessionID != "remote-session-2" ||
-		conn.InitializeError != "" {
-		t.Fatalf("unexpected refreshed mcp connection: %+v", conn)
+`)
+			launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+				ProjectID: kernelTestProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
+				LaunchedBy: kernelTestUserPrincipal(kernelTestUserID), IdempotencyKey: "mcp-recovery",
+			})
+			require.NoError(t, err)
+			input := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "use mcp", fixture.Now)
+			toolName := toolcatalog.MCPRuntimeToolName("docs", "greet")
+			modelClient := &sequenceKernelModel{providerModelSlug: "test-model", responses: []model.Response{
+				{ID: "tool", StopReason: model.StopReasonToolUse, Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
+					{ID: "call_greet", Name: toolName, Input: json.RawMessage(`{"name":"Ada"}`)},
+				})},
+				{ID: "final", StopReason: model.StopReasonEndTurn, Content: []model.ResponsePart{{Type: "text", Text: "done"}}},
+			}}
+			mcpClient := &fakeKernelMCPClient{
+				protocolVersion: mcp.ProtocolVersion, initializeAgentIDs: []string{"session-1", "session-2", "session-3"},
+				tools:          []*sdkmcp.Tool{{Name: "greet", InputSchema: map[string]any{"type": "object"}}},
+				callToolErrors: []error{mcp.ErrSessionExpired, tc.retryError},
+				callToolResult: &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "hello"}}},
+			}
+			executor := AgentExecutor{
+				Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, modelClient), MCP: mcpClient,
+				ToolExecutor: tools.Executor{Store: fixture.Store, MCP: mcpClient},
+			}
+			require.NoError(t, executor.ExecuteModelWork(ctx, input))
+			scope := executeNextToolWork(t, ctx, fixture, executor, input)
+			select {
+			case <-scope.Done():
+			case <-time.After(15 * time.Second):
+				t.Fatal("async MCP tool work did not finish")
+			}
+			require.NoError(t, scope.Err())
+			if tc.interrupt {
+				conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
+				require.NoError(t, err)
+				require.True(t, found)
+				_, changed, err := fixture.Store.Execution().MarkMCPConnectionExpired(
+					ctx, kernelTestProjectID, launch.Agent.ID, conn.ID, conn.Generation,
+				)
+				require.NoError(t, err)
+				require.True(t, changed)
+				_, changed, err = fixture.Store.Execution().BeginMCPConnectionInitialization(
+					ctx, kernelTestProjectID, launch.Agent.ID, conn.ID,
+				)
+				require.NoError(t, err)
+				require.True(t, changed)
+			}
+			if tc.failBegin {
+				_, err := fixture.Pool.Exec(ctx, `ALTER TABLE agent_mcp_connections
+					ADD CONSTRAINT test_block_initialization CHECK (state <> 'initializing') NOT VALID`)
+				require.NoError(t, err)
+			}
+			next := executeNextModelWork(t, ctx, fixture, executor, input)
+			require.Equal(t, executionstore.ModelWorkContinue, next.Kind)
+			require.Equal(t, tc.wantInitializes, mcpClient.initializeCount)
+			require.Equal(t, tc.wantInitializes, mcpClient.notifyCount)
+			require.Equal(t, tc.wantInitializes, mcpClient.listToolsCount)
+			require.Equal(t, 2, mcpClient.callToolCount)
+			require.Len(t, mcpClient.callToolConns, 2)
+			require.Equal(t, "session-1", mcpClient.callToolConns[0].MCPSessionID)
+			require.Equal(t, "session-2", mcpClient.callToolConns[1].MCPSessionID)
+			if tc.failBegin {
+				require.Len(t, modelClient.prepared, 1, "storage failure must prevent the model request")
+				var code, recovery string
+				require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT error_code, recovery_kind
+					FROM model_call_contexts WHERE agent_id = $1 AND state = 'failed'`, launch.Agent.ID).
+					Scan(&code, &recovery))
+				require.Equal(t, preSendErrorCodeInitializeMCPFailed, code)
+				require.Equal(t, "retry", recovery)
+				return
+			}
+			require.Len(t, modelClient.prepared, 2)
+			require.Contains(t, toolSpecSet(modelClient.prepared[1].ToolSpecs), toolName)
+			conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, executionstore.MCPConnectionStateReady, conn.State)
+			require.Equal(t, tc.wantSession, conn.MCPSessionID)
+			require.Empty(t, conn.InitializeError)
+		})
 	}
 }
 
@@ -563,7 +556,6 @@ mcp:
 		"Kernel MCP Config Change",
 		"kernel-mcp-config-change",
 		oldSource,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID:      kernelTestProjectID,
@@ -576,7 +568,7 @@ mcp:
 		t.Fatalf("launch agent: %v", err)
 	}
 	newSource := strings.Replace(oldSource, "https://old.example.com/mcp", "https://new.example.com/mcp", 1)
-	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource, now.Add(time.Second))
+	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource)
 	nextConfig := executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -706,7 +698,6 @@ mcp:
 		"Kernel MCP Refresh Failure",
 		"kernel-mcp-refresh-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -877,7 +868,6 @@ mcp:
 		"Kernel MCP Failure",
 		"kernel-mcp-failure-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,

@@ -67,7 +67,3 @@ func completeProgressiveSummaryResponse(summary string) model.Response {
 		StopReason: model.StopReasonEndTurn,
 	}
 }
-
-func intPtrForKernelCompactionTest(value int) *int {
-	return &value
-}
