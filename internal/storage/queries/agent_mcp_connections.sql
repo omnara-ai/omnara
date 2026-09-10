@@ -44,11 +44,15 @@ SET endpoint_url = EXCLUDED.endpoint_url,
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.generation
       ELSE agent_mcp_connections.generation + 1
     END,
+    catalog_id = CASE
+      WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.catalog_id
+      ELSE NULL
+    END,
     updated_at = statement_timestamp()
 RETURNING id, agent_id, server_key, endpoint_url, config_hash, state,
           protocol_version, mcp_session_id, server_capabilities, server_info,
           tools_snapshot, initialize_error, generation, request_sequence,
-          created_at, updated_at;
+          created_at, updated_at, catalog_id;
 
 -- name: GetMCPConnection :one
 SELECT connection.id, connection.agent_id, connection.server_key,
@@ -57,7 +61,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -71,7 +75,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -85,7 +89,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -97,9 +101,10 @@ UPDATE agent_mcp_connections connection
 SET state = 'ready',
     protocol_version = sqlc.arg(protocol_version),
     mcp_session_id = sqlc.arg(mcp_session_id),
-    server_capabilities = sqlc.arg(server_capabilities),
-    server_info = sqlc.arg(server_info),
-    tools_snapshot = sqlc.arg(tools_snapshot),
+    server_capabilities = '{}'::jsonb,
+    server_info = '{}'::jsonb,
+    tools_snapshot = '[]'::jsonb,
+    catalog_id = sqlc.arg(catalog_id)::uuid,
     initialize_error = '',
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -115,7 +120,7 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at;
+          connection.created_at, connection.updated_at, connection.catalog_id;
 
 -- name: BeginMCPConnectionInitialization :one
 UPDATE agent_mcp_connections connection
@@ -129,14 +134,18 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.id = connection.agent_id
   AND connection.agent_id = sqlc.arg(agent_id)
   AND connection.id = sqlc.arg(id)
-  AND connection.state IN ('initializing', 'failed', 'expired')
+  AND (connection.state IN ('initializing', 'failed', 'expired')
+       OR (connection.state = 'ready' AND EXISTS (
+           SELECT 1 FROM mcp_server_catalogs catalog
+           WHERE catalog.id = connection.catalog_id AND catalog.refresh_error <> ''
+       )))
 RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.endpoint_url, connection.config_hash, connection.state,
           connection.protocol_version, connection.mcp_session_id,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at;
+          connection.created_at, connection.updated_at, connection.catalog_id;
 
 -- name: MarkMCPConnectionFailed :one
 UPDATE agent_mcp_connections connection
@@ -146,6 +155,7 @@ SET state = 'failed',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     initialize_error = sqlc.arg(initialize_error),
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -153,7 +163,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.id = connection.agent_id
   AND connection.agent_id = sqlc.arg(agent_id)
   AND connection.id = sqlc.arg(id)
-  AND connection.state = 'initializing'
+  AND connection.state IN ('initializing', 'ready')
   AND connection.generation = sqlc.arg(generation_observed)
 RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.endpoint_url, connection.config_hash, connection.state,
@@ -161,7 +171,7 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at;
+          connection.created_at, connection.updated_at, connection.catalog_id;
 
 -- name: ExpireRemovedMCPConnections :exec
 UPDATE agent_mcp_connections connection
@@ -171,6 +181,7 @@ SET state = 'expired',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     generation = connection.generation + 1,
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -188,6 +199,7 @@ SET state = 'expired',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     generation = generation + 1,
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -202,7 +214,7 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at;
+          connection.created_at, connection.updated_at, connection.catalog_id;
 
 -- name: NextMCPRequestSequence :one
 UPDATE agent_mcp_connections connection
@@ -213,3 +225,24 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND connection.agent_id = sqlc.arg(agent_id)
   AND connection.id = sqlc.arg(id)
 RETURNING (connection.request_sequence - 1)::bigint AS request_sequence;
+
+-- name: SetMCPConnectionCatalog :one
+UPDATE agent_mcp_connections connection
+SET protocol_version = sqlc.arg(protocol_version),
+    mcp_session_id = sqlc.arg(mcp_session_id),
+    catalog_id = sqlc.arg(catalog_id)::uuid,
+    updated_at = transaction_timestamp()
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id)
+  AND agent.id = connection.agent_id
+  AND connection.agent_id = sqlc.arg(agent_id)
+  AND connection.id = sqlc.arg(id)
+  AND connection.state = 'ready'
+  AND connection.generation = sqlc.arg(generation_observed)
+RETURNING connection.id, connection.agent_id, connection.server_key,
+          connection.endpoint_url, connection.config_hash, connection.state,
+          connection.protocol_version, connection.mcp_session_id,
+          connection.server_capabilities, connection.server_info,
+          connection.tools_snapshot, connection.initialize_error,
+          connection.generation, connection.request_sequence,
+          connection.created_at, connection.updated_at, connection.catalog_id;

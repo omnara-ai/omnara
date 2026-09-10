@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -124,24 +125,31 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	mcpInitialization := mcpInitializationRecovery
-	if input.Kind == executionstore.ModelWorkStart {
-		mcpInitialization = mcpInitializationOpening
+	var mcpTrigger mcp.ConnectionTrigger
+	switch input.Kind {
+	case executionstore.ModelWorkStart:
+		mcpTrigger = mcp.TriggerTurnStart
+	case executionstore.ModelWorkResume:
+		mcpTrigger = mcp.TriggerTurnResume
+	case executionstore.ModelWorkContinue:
+		mcpTrigger = mcp.TriggerTurnContinue
 	}
-	if err := e.ensureMCPConnections(
-		ctx,
-		claim.Context.OrgID,
-		input,
-		contract,
-		mcpInitialization,
-	); err != nil {
-		return e.recordNormalPreSendFailure(
-			ctx, input, claim, model.ResolvedClient{}, err,
-			modelretry.PreSendFailure{
-				Code:    preSendErrorCodeInitializeMCPFailed,
-				Message: "Omnara could not initialize the configured MCP connections.",
-			},
-		)
+	if mcpTrigger != 0 {
+		if err := e.ensureMCPConnections(
+			ctx,
+			claim.Context.OrgID,
+			input,
+			contract,
+			mcpTrigger,
+		); err != nil {
+			return e.recordNormalPreSendFailure(
+				ctx, input, claim, model.ResolvedClient{}, err,
+				modelretry.PreSendFailure{
+					Code:    preSendErrorCodeInitializeMCPFailed,
+					Message: "Omnara could not initialize the configured MCP connections.",
+				},
+			)
+		}
 	}
 	selection := modelSelectionForContext(claim.Context, contract.Model)
 	resolved, err := resolver.Resolve(ctx, selection)

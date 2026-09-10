@@ -64,6 +64,7 @@ func (s strictOpenAPIServer) ListMCPServerTools(
 	}
 	if s.server.store != nil {
 		manager.Secrets = s.server.store.Secrets()
+		manager.Execution = s.server.store.Execution()
 	}
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpServerToolsTimeout)
 	defer cancel()
@@ -181,7 +182,7 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 	err error,
 ) (openapi.ListMCPServerToolsResponseObject, error) {
 	message := textutil.TruncateRunes(strings.ToValidUTF8(err.Error(), "�"), mcpServerToolsErrorRunesLimit)
-	var httpErr *mcp.HTTPError
+	status, hasStatus := mcp.HTTPStatus(err)
 	switch {
 	case errors.Is(err, ssrf.ErrBlockedAddress):
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, message).WithCause(err)
@@ -192,8 +193,7 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 		).WithCause(err)
 	case errors.Is(err, context.Canceled):
 		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp server request was canceled").WithCause(err)
-	case errors.As(err, &httpErr) &&
-		(httpErr.Status == http.StatusUnauthorized || httpErr.Status == http.StatusForbidden):
+	case hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden):
 		return s.mcpServerAuthRequired(ctx, endpoint, message)
 	default:
 		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery failed", "error", err)

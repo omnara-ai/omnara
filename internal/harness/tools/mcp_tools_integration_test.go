@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -35,6 +36,13 @@ type ownedMCPToolClient struct {
 	callTool        func(context.Context) (*sdkmcp.CallToolResult, error)
 }
 
+func (*ownedMCPToolClient) Discover(context.Context, mcp.Conn, string) (mcp.DiscoverResult, error) {
+	return mcp.DiscoverResult{}, &mcp.HTTPError{
+		Status: http.StatusBadRequest,
+		Body:   []byte("Bad Request: session required"),
+	}
+}
+
 func (c *ownedMCPToolClient) Initialize(
 	context.Context,
 	mcp.Conn,
@@ -42,7 +50,7 @@ func (c *ownedMCPToolClient) Initialize(
 ) (string, mcp.InitializeResult, error) {
 	c.initializeCount.Add(1)
 	return "refreshed-session", mcp.InitializeResult{
-		ProtocolVersion:    mcp.ProtocolVersion,
+		ProtocolVersion:    mcp.LegacyProtocolVersion,
 		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
 		ServerInfo:         json.RawMessage(`{"name":"fixture"}`),
 	}, nil
@@ -77,8 +85,7 @@ func (c *ownedMCPToolClient) CallTool(
 	ctx context.Context,
 	_ mcp.Conn,
 	_ int64,
-	_ string,
-	_ json.RawMessage,
+	_ mcp.ToolCall,
 ) (*sdkmcp.CallToolResult, error) {
 	c.callToolCount.Add(1)
 	if c.callTool == nil {
@@ -208,7 +215,7 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	connected := make(chan connectionResult, 1)
 	go func() {
-		wireConn, connectErr := manager.Connection(
+		wireConn, _, connectErr := manager.Connection(
 			refreshCtx,
 			toolsTestOrgID,
 			toolsTestProjectID,
@@ -259,7 +266,7 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 	}
 	connected = make(chan connectionResult, 1)
 	go func() {
-		wireConn, connectErr := manager.Connection(
+		wireConn, _, connectErr := manager.Connection(
 			context.Background(),
 			toolsTestOrgID,
 			toolsTestProjectID,
@@ -321,7 +328,7 @@ func TestMCPConnectionRefreshesAndPersistsExpiredOAuthToken(t *testing.T) {
 		t.Fatalf("manually replaced MCP OAuth secret = %+v", payload)
 	}
 
-	wireConn, err = manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
+	wireConn, _, err = manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
 	if err != nil {
 		t.Fatalf("connect with persisted MCP OAuth token: %v", err)
 	}
@@ -387,7 +394,7 @@ func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
 		},
 	}
 	manager := mcp.Manager{Secrets: fixture.Store.Secrets()}
-	wireConn, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
+	wireConn, _, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", "")
 	if err != nil {
 		t.Fatalf("connect with granted AWS credentials: %v", err)
 	}
@@ -411,7 +418,7 @@ func TestSigV4MCPConnectionRechecksSecretGrant(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("delete AWS credentials grant: %v", err)
 	}
-	if _, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", ""); err == nil {
+	if _, _, err := manager.Connection(ctx, toolsTestOrgID, toolsTestProjectID, conn, server, "", ""); err == nil {
 		t.Fatal("expected revoked AWS credentials grant to block the connection")
 	}
 	if requests.Load() != 1 {
@@ -821,16 +828,45 @@ func markIntegrationMCPConnectionReady(
 	if err != nil || !found {
 		t.Fatalf("load MCP connection: found=%t err=%v", found, err)
 	}
+	owner := uuid.New()
+	placeholder, acquired, err := fixture.Store.Execution().AcquireMCPServerCatalogRefreshLease(
+		ctx,
+		executionstore.AcquireMCPServerCatalogRefreshLeaseInput{
+			Identity: executionstore.MCPServerCatalogIdentity{
+				OrgID:       toolsTestOrgID,
+				EndpointURL: conn.EndpointURL,
+			},
+			OwnerToken: owner,
+			TTL:        time.Minute,
+		},
+	)
+	if err != nil || !acquired {
+		t.Fatalf("acquire catalog lease: acquired=%t err=%v", acquired, err)
+	}
+	catalog, err := fixture.Store.Execution().MarkMCPServerCatalogFetched(
+		ctx,
+		executionstore.MarkMCPServerCatalogFetchedInput{
+			OrgID:              toolsTestOrgID,
+			ID:                 placeholder.ID,
+			OwnerToken:         owner,
+			ProtocolVersion:    mcp.LegacyProtocolVersion,
+			ServerCapabilities: json.RawMessage(`{"tools":{}}`),
+			ServerInfo:         json.RawMessage(`{"name":"fixture"}`),
+			ToolsSnapshot:      json.RawMessage(`[{"name":"greet"}]`),
+			ToolsFreshFor:      time.Minute,
+		},
+	)
+	if err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
 	if _, err := fixture.Store.Execution().MarkMCPConnectionReady(ctx, executionstore.MarkMCPConnectionReadyInput{
 		ProjectID:          toolsTestProjectID,
 		AgentID:            fixture.Agent.ID,
 		ID:                 conn.ID,
 		GenerationObserved: conn.Generation,
 		MCPSessionID:       "active-session",
-		ProtocolVersion:    mcp.ProtocolVersion,
-		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
-		ServerInfo:         json.RawMessage(`{"name":"fixture"}`),
-		ToolsSnapshot:      json.RawMessage(`[{"name":"greet"}]`),
+		ProtocolVersion:    mcp.LegacyProtocolVersion,
+		CatalogID:          catalog.ID,
 	}); err != nil {
 		t.Fatalf("mark MCP connection ready: %v", err)
 	}

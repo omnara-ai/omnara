@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -120,7 +122,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
 		if response.StatusCode < 200 || response.StatusCode > 299 {
 			return AuthRequirement{}, fmt.Errorf(
-				"mcp auth: initialize probe returned unexpected HTTP %d",
+				"mcp auth: server probe returned unexpected HTTP %d",
 				response.StatusCode,
 			)
 		}
@@ -298,25 +300,93 @@ func RefreshOAuthToken(ctx context.Context, input OAuthRefreshInput) (OAuthToken
 }
 
 func probeMCPAuth(ctx context.Context, endpoint string, client *http.Client) (*http.Response, error) {
-	requestBody, err := json.Marshal(map[string]any{
+	response, err := sendAuthProbe(ctx, endpoint, client, statelessAuthProbe)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
+		return response, nil
+	case response.StatusCode >= 200 && response.StatusCode <= 299:
+		body, _ := io.ReadAll(io.LimitReader(response.Body, statusErrorDecodeBytes))
+		_ = response.Body.Close()
+		if rpcErr, ok := decodeRPCErrorBody(body); !ok || !IndicatesLegacyServer(rpcErr) {
+			response.Body = io.NopCloser(bytes.NewReader(body))
+			return response, nil
+		}
+	default:
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
+		_ = response.Body.Close()
+	}
+	return sendAuthProbe(ctx, endpoint, client, legacyAuthProbe)
+}
+
+type authProbe struct {
+	body    []byte
+	headers http.Header
+}
+
+var authProbeClientInfo = &sdkmcp.Implementation{Name: "omnara-mcp-auth-probe", Version: "v0"}
+
+func statelessAuthProbe() (authProbe, error) {
+	params, err := withRequestMeta(json.RawMessage(`{}`), StatelessProtocolVersion, authProbeClientInfo)
+	if err != nil {
+		return authProbe{}, fmt.Errorf("mcp auth: build discover params: %w", err)
+	}
+	id, err := jsonrpc.MakeID(float64(discoverRequestID))
+	if err != nil {
+		return authProbe{}, fmt.Errorf("mcp auth: build discover request id: %w", err)
+	}
+	body, err := jsonrpc.EncodeMessage(&jsonrpc.Request{ID: id, Method: "server/discover", Params: params})
+	if err != nil {
+		return authProbe{}, fmt.Errorf("mcp auth: marshal discover request: %w", err)
+	}
+	headers, err := statelessRequestHeaders("server/discover", "", nil)
+	if err != nil {
+		return authProbe{}, err
+	}
+	headers.Set(headerProtocolVersion, StatelessProtocolVersion)
+	return authProbe{body: body, headers: headers}, nil
+}
+
+func legacyAuthProbe() (authProbe, error) {
+	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      initializeRequestID,
 		"method":  "initialize",
 		"params": map[string]any{
-			"protocolVersion": ProtocolVersion,
+			"protocolVersion": LegacyProtocolVersion,
 			"capabilities":    map[string]any{},
-			"clientInfo":      map[string]string{"name": "omnara-mcp-auth-probe", "version": "v0"},
+			"clientInfo":      authProbeClientInfo,
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("mcp auth: marshal initialize request: %w", err)
+		return authProbe{}, fmt.Errorf("mcp auth: marshal initialize request: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestBody))
+	return authProbe{body: body, headers: http.Header{}}, nil
+}
+
+func sendAuthProbe(
+	ctx context.Context,
+	endpoint string,
+	client *http.Client,
+	build func() (authProbe, error),
+) (*http.Response, error) {
+	probe, err := build()
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(probe.body))
 	if err != nil {
 		return nil, fmt.Errorf("mcp auth: build probe request: %w", err)
 	}
 	request.Header.Set("Content-Type", mediaTypeJSON)
 	request.Header.Set("Accept", acceptHeader)
+	for name, values := range probe.headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("mcp auth: send probe request: %w", err)

@@ -59,10 +59,6 @@ func (e Executor) dispatchMCPTool(
 	if err != nil {
 		return toolResultContent{}, err
 	}
-	seq, err := e.Store.Execution().NextMCPRequestSequence(ctx, turn.ProjectID, turn.AgentID, conn.ID)
-	if err != nil {
-		return toolResultContent{}, err
-	}
 	manager := mcp.Manager{
 		Execution:            e.Store.Execution(),
 		Secrets:              e.Store.Secrets(),
@@ -71,113 +67,29 @@ func (e Executor) dispatchMCPTool(
 		SigV4CredentialCache: e.SigV4CredentialCache,
 		OAuthHTTPClient:      e.MCPAuthHTTPClient,
 	}
-	wireConn, err := manager.Connection(
-		ctx,
-		turn.OrgID,
-		turn.ProjectID,
-		conn,
-		server,
-		conn.MCPSessionID,
-		conn.ProtocolVersion,
-	)
-	if err != nil {
-		return toolResultContent{}, err
-	}
-	if err := e.Store.Execution().EnsureRuntimeLockActive(
-		ctx,
-		turn.ProjectID,
-		turn.AgentID,
-		turn.RuntimeLockID,
-	); err != nil {
-		return toolResultContent{}, err
-	}
-	result, err := e.MCP.CallTool(ctx, wireConn, seq, remoteName, call.Input)
-	if errors.Is(err, mcp.ErrSessionExpired) {
-		if err := e.Store.Execution().EnsureRuntimeLockActive(
-			ctx,
-			turn.ProjectID,
-			turn.AgentID,
-			turn.RuntimeLockID,
-		); err != nil {
-			return toolResultContent{}, err
+	result, err := manager.CallTool(ctx, mcp.ToolCallInput{
+		OrgID:     turn.OrgID,
+		ProjectID: turn.ProjectID,
+		AgentID:   turn.AgentID,
+		Conn:      conn,
+		Server:    server,
+		Name:      remoteName,
+		Arguments: call.Input,
+		BeforeSend: func(ctx context.Context) error {
+			return e.Store.Execution().EnsureRuntimeLockActive(ctx, turn.ProjectID, turn.AgentID, turn.RuntimeLockID)
+		},
+	})
+	if cause := mcp.InitializationCause(err); cause != nil && mcp.InitializationRecorded(err) {
+		failed, resultErr := mcpConnectionFailedToolResult(serverKey, remoteName, cause)
+		if resultErr != nil {
+			return toolResultContent{}, resultErr
 		}
-		refresh, refreshErr := manager.RefreshExpired(
-			ctx,
-			turn.OrgID,
-			turn.ProjectID,
-			turn.AgentID,
-			conn,
-			server,
-		)
-		if cause := mcp.InitializationCause(refreshErr); cause != nil &&
-			mcp.InitializationRecorded(refreshErr) {
-			result, resultErr := mcpConnectionFailedToolResult(serverKey, remoteName, cause)
-			if resultErr != nil {
-				return toolResultContent{}, resultErr
-			}
-			return result, cause
-		}
-		if refreshErr != nil {
-			return toolResultContent{}, refreshErr
-		}
-		seq, err = e.Store.Execution().NextMCPRequestSequence(
-			ctx,
-			turn.ProjectID,
-			turn.AgentID,
-			refresh.Conn.ID,
-		)
-		if err != nil {
-			return toolResultContent{}, err
-		}
-		wireConn, err = manager.Connection(
-			ctx,
-			turn.OrgID,
-			turn.ProjectID,
-			refresh.Conn,
-			server,
-			refresh.Conn.MCPSessionID,
-			refresh.Conn.ProtocolVersion,
-		)
-		if err != nil {
-			return toolResultContent{}, err
-		}
-		if err := e.Store.Execution().EnsureRuntimeLockActive(
-			ctx,
-			turn.ProjectID,
-			turn.AgentID,
-			turn.RuntimeLockID,
-		); err != nil {
-			return toolResultContent{}, err
-		}
-		result, err = e.MCP.CallTool(ctx, wireConn, seq, remoteName, call.Input)
-		if errors.Is(err, mcp.ErrSessionExpired) {
-			if _, _, expireErr := e.Store.Execution().MarkMCPConnectionExpired(
-				ctx,
-				turn.ProjectID,
-				turn.AgentID,
-				refresh.Conn.ID,
-				refresh.Conn.Generation,
-			); expireErr != nil {
-				return toolResultContent{}, expireErr
-			}
-			result, resultErr := mcpConnectionFailedToolResult(serverKey, remoteName, err)
-			if resultErr != nil {
-				return toolResultContent{}, resultErr
-			}
-			return result, err
-		}
+		return failed, cause
 	}
 	if err != nil {
 		return toolResultContent{}, err
 	}
-	return e.mcpToolResultContent(
-		ctx,
-		turn,
-		toolCallID,
-		serverKey,
-		remoteName,
-		result,
-	)
+	return e.mcpToolResultContent(ctx, turn, toolCallID, serverKey, remoteName, result)
 }
 
 func (e Executor) runtimeMCPServerForTool(

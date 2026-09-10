@@ -47,7 +47,7 @@ func mcpTestHTTPClient(allowLoopback bool) *http.Client {
 func initialized(t *testing.T, client mcp.Client, endpoint string) mcp.Conn {
 	t.Helper()
 	ctx := context.Background()
-	sessionID, result, err := client.Initialize(ctx, mcp.Conn{EndpointURL: endpoint}, mcp.ProtocolVersion)
+	sessionID, result, err := client.Initialize(ctx, mcp.Conn{EndpointURL: endpoint}, mcp.LegacyProtocolVersion)
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestInitializeJSON(t *testing.T) {
 	sessionID, result, err := client.Initialize(
 		context.Background(),
 		mcp.Conn{EndpointURL: ts.URL},
-		mcp.ProtocolVersion,
+		mcp.LegacyProtocolVersion,
 	)
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
@@ -92,7 +92,7 @@ func TestInitializeSSE(t *testing.T) {
 	sessionID, result, err := client.Initialize(
 		context.Background(),
 		mcp.Conn{EndpointURL: ts.URL},
-		mcp.ProtocolVersion,
+		mcp.LegacyProtocolVersion,
 	)
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
@@ -126,7 +126,7 @@ func TestRoundTripJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal tool args: %v", err)
 	}
-	result, err := client.CallTool(context.Background(), conn, 3, "greet", args)
+	result, err := client.CallTool(context.Background(), conn, 3, mcp.ToolCall{Name: "greet", Arguments: args})
 	if err != nil {
 		t.Fatalf("tools/call: %v", err)
 	}
@@ -148,8 +148,7 @@ func TestClientSendsBearerAuthorization(t *testing.T) {
 		context.Background(),
 		mcp.Conn{EndpointURL: ts.URL, BearerToken: "secret-token"},
 		3,
-		"greet",
-		json.RawMessage(`{}`),
+		mcp.ToolCall{Name: "greet", Arguments: json.RawMessage(`{}`)},
 	)
 	if err == nil {
 		t.Fatal("expected server error")
@@ -168,7 +167,7 @@ func TestRoundTripSSE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal tool args: %v", err)
 	}
-	result, err := client.CallTool(context.Background(), conn, 3, "greet", args)
+	result, err := client.CallTool(context.Background(), conn, 3, mcp.ToolCall{Name: "greet", Arguments: args})
 	if err != nil {
 		t.Fatalf("tools/call: %v", err)
 	}
@@ -226,7 +225,7 @@ func TestSessionResumption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal resumed tool args: %v", err)
 	}
-	result, err := clientB.CallTool(context.Background(), resumed, 100, "greet", args)
+	result, err := clientB.CallTool(context.Background(), resumed, 100, mcp.ToolCall{Name: "greet", Arguments: args})
 	if err != nil {
 		t.Fatalf("resumed call: %v", err)
 	}
@@ -245,7 +244,7 @@ func TestSessionExpired404(t *testing.T) {
 	conn := mcp.Conn{
 		EndpointURL:     ts.URL,
 		MCPSessionID:    "stale-session",
-		ProtocolVersion: mcp.ProtocolVersion,
+		ProtocolVersion: mcp.LegacyProtocolVersion,
 	}
 	_, err := client.Call(context.Background(), conn, "tools/list", json.RawMessage(`{}`), 1)
 	if !errors.Is(err, mcp.ErrSessionExpired) {
@@ -398,7 +397,7 @@ func TestProtocolVersionHeader(t *testing.T) {
 		t.Errorf("expected no MCP-Protocol-Version header, got %q", v)
 	}
 
-	withVersion := mcp.Conn{EndpointURL: ts.URL, ProtocolVersion: mcp.ProtocolVersion}
+	withVersion := mcp.Conn{EndpointURL: ts.URL, ProtocolVersion: mcp.LegacyProtocolVersion}
 	_, err = client.Call(context.Background(), withVersion, "ping", json.RawMessage(`{}`), 2)
 	if err != nil {
 		t.Fatalf("call with version: %v", err)
@@ -407,8 +406,8 @@ func TestProtocolVersionHeader(t *testing.T) {
 	if !ok {
 		t.Fatalf("protocol header value shape = %T", got.Load())
 	}
-	if v != mcp.ProtocolVersion {
-		t.Errorf("expected MCP-Protocol-Version=%s, got %q", mcp.ProtocolVersion, v)
+	if v != mcp.LegacyProtocolVersion {
+		t.Errorf("expected MCP-Protocol-Version=%s, got %q", mcp.LegacyProtocolVersion, v)
 	}
 }
 
@@ -421,7 +420,7 @@ func TestJSONRPCErrorSurfacesAsRPCError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal missing tool args: %v", err)
 	}
-	_, err = client.CallTool(context.Background(), conn, 99, "does_not_exist", args)
+	_, err = client.CallTool(context.Background(), conn, 99, mcp.ToolCall{Name: "does_not_exist", Arguments: args})
 	if err == nil {
 		t.Fatalf("expected an error for unknown tool")
 	}
@@ -778,7 +777,7 @@ func TestHTTPClientContainsTransportPanic(t *testing.T) {
 	_, _, err := client.Initialize(
 		context.Background(),
 		mcp.Conn{EndpointURL: "https://example.com/mcp"},
-		mcp.ProtocolVersion,
+		mcp.LegacyProtocolVersion,
 	)
 	if err == nil || !strings.Contains(err.Error(), "mcp: HTTP request panicked: transport failure") {
 		t.Fatalf("initialize error = %v, want contained transport panic", err)

@@ -43,9 +43,10 @@ func TestServiceE2EMCPInitializesBeforeGeneration(t *testing.T) {
 		var state executionstore.MCPConnectionState
 		var tools string
 		err := env.db.QueryRow(ctx, `
-SELECT connection.state, connection.tools_snapshot::text
+SELECT connection.state, coalesce(catalog.tools_snapshot, connection.tools_snapshot)::text
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
+LEFT JOIN mcp_server_catalogs catalog ON catalog.id = connection.catalog_id
 WHERE agent.project_id = $1
   AND connection.agent_id = $2
   AND connection.server_key = 'docs'
@@ -134,9 +135,10 @@ WHERE agent.project_id = $1
 	var protocolVersion, mcpSessionID, tools string
 	if err := env.db.QueryRow(ctx, `
 SELECT connection.state, connection.protocol_version, connection.mcp_session_id,
-       connection.tools_snapshot::text
+       coalesce(catalog.tools_snapshot, connection.tools_snapshot)::text
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
+LEFT JOIN mcp_server_catalogs catalog ON catalog.id = connection.catalog_id
 WHERE agent.project_id = $1
   AND connection.agent_id = $2
   AND connection.server_key = 'docs'
@@ -501,5 +503,157 @@ func TestServiceE2ELiveMCPConfigChanges(t *testing.T) {
 			"removed MCP connection state=%q protocol=%q session=%q capabilities=%s server_info=%s tools=%s", state,
 			protocolVersion, sessionID, capabilities, serverInfo, tools,
 		)
+	}
+}
+
+func TestServiceE2EStatelessMCPToolCallUsesSharedCatalog(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "mcp-stateless-tool-call")
+	mcpServer := mcptest.NewStatelessServer(t, mcptest.StatelessOptions{
+		JSONResponse: true,
+		ToolsTTL:     time.Hour,
+		CacheScope:   "private",
+	})
+	mcpURL := mcpServer.URL
+
+	var requestCount atomic.Int64
+	var projectUUID string
+	var agentUUID string
+	const callID = "call_stateless_mcp_greet"
+	const modelText = "stateless MCP tool call completed"
+	openai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode OpenAI request: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount.Add(1) {
+		case 1:
+			if !requestContainsTool(body, "mcp__docs__greet") {
+				t.Errorf("first model request did not expose mcp__docs__greet tool: %+v", body["tools"])
+				http.Error(w, "missing mcp tool", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(
+				w,
+				`{"id":"resp_service_e2e_stateless_mcp_1","status":"completed","output":[`+
+					`{"id":"fc_service_e2e_stateless_mcp_1","type":"function_call",`+
+					`"call_id":%q,"name":"mcp__docs__greet","arguments":"{\"name\":\"Grace\"}"}],`+
+					`"usage":{"input_tokens":11,"output_tokens":4}}`,
+				callID,
+			)
+		case 2:
+			if !requestContainsToolResult(body, callID, "Hi Grace") {
+				t.Errorf("second model request did not include MCP tool result for %s: %+v", callID, body["input"])
+				http.Error(w, "missing mcp result", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write(
+				[]byte(
+					`{"id":"resp_service_e2e_stateless_mcp_2","status":"completed","output":[` +
+						`{"id":"msg_service_e2e_stateless_mcp_2","type":"message",` +
+						`"content":[{"type":"output_text","text":"` + modelText +
+						`"}]}],"usage":{"input_tokens":13,"output_tokens":5}}`,
+				),
+			)
+		default:
+			t.Errorf("unexpected extra OpenAI request: %+v", body)
+			http.Error(w, "too many requests", http.StatusInternalServerError)
+		}
+	}))
+	defer openai.Close()
+
+	env.startAPI(t, ctx)
+	project := env.bootstrapProjectViaAPIWithSource(t, ctx, "mcp-stateless-tool-call", strings.Join([]string{
+		"instruction: Call the MCP greet tool.",
+		"model:",
+		"  provider_config: openai-prod",
+		"  name: service-e2e-local",
+		"mcp:",
+		"  docs:",
+		"    url: " + mcpURL,
+		"    permission:",
+		"      mode: always_allow",
+		"      parameters: {}",
+	}, "\n")+"\n")
+	agentID := project.createAgent(t, ctx)
+	project.createInput(t, ctx, agentID, "use the docs greet MCP tool for Grace")
+	projectUUID = mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
+	agentUUID = mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
+	worker := env.startWorker(
+		t,
+		ctx,
+		project.projectID,
+		serviceWorkerOptions{ProviderConfig: "openai-prod", BaseURL: openai.URL, LogLevel: "info"},
+	)
+
+	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
+		var count int
+		err := env.db.QueryRow(
+			ctx,
+			`SELECT count(*) FROM agent_events event JOIN agents agent ON agent.id = event.agent_id JOIN content_blocks block ON block.agent_id = event.agent_id AND block.owner_model_output_id = event.model_output_id WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'model_output' AND block.block_kind = 'text' AND block.text_content = $3`,
+			projectUUID, agentUUID, modelText,
+		).
+			Scan(&count)
+		if err != nil {
+			return false, err.Error()
+		}
+		return count == 1, "assistant output not recorded yet; worker_logs=" + worker.logExcerpt()
+	})
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("OpenAI server saw %d requests, want 2", got)
+	}
+	if mcpServer.DiscoverCalls.Load() != 1 || mcpServer.ListToolsCalls.Load() != 1 || mcpServer.CallToolCalls.Load() != 1 {
+		t.Fatalf(
+			"unexpected stateless MCP traffic: discover=%d list=%d call=%d",
+			mcpServer.DiscoverCalls.Load(), mcpServer.ListToolsCalls.Load(), mcpServer.CallToolCalls.Load(),
+		)
+	}
+	var state executionstore.MCPConnectionState
+	var protocolVersion, sessionID string
+	var catalogTools string
+	var toolsTTLMs int
+	if err := env.db.QueryRow(ctx, `
+SELECT connection.state, connection.protocol_version, connection.mcp_session_id,
+       catalog.tools_snapshot::text, catalog.tools_ttl_ms
+FROM agent_mcp_connections connection
+JOIN agents agent ON agent.id = connection.agent_id
+JOIN mcp_server_catalogs catalog ON catalog.id = connection.catalog_id
+WHERE agent.project_id = $1
+  AND connection.agent_id = $2
+  AND connection.server_key = 'docs'
+`, projectUUID, agentUUID).
+		Scan(&state, &protocolVersion, &sessionID, &catalogTools, &toolsTTLMs); err != nil {
+		t.Fatalf("query stateless mcp connection and catalog: %v", err)
+	}
+	if state != executionstore.MCPConnectionStateReady || protocolVersion != mcptest.StatelessProtocolVersion ||
+		sessionID != "" || !strings.Contains(catalogTools, `"greet"`) || toolsTTLMs != int(time.Hour.Milliseconds()) {
+		t.Fatalf(
+			"unexpected stateless connection: state=%q protocol=%q session=%q ttl=%d tools=%s",
+			state, protocolVersion, sessionID, toolsTTLMs, catalogTools,
+		)
+	}
+	var toolCalls int
+	if err := env.db.QueryRow(ctx, `
+SELECT count(*)
+FROM tool_call_read_projection call
+WHERE call.project_id = $1
+  AND call.agent_id = $2
+  AND call.name = 'mcp__docs__greet'
+  AND call.type = 'mcp'
+  AND call.state = 'completed'
+`, projectUUID, agentUUID).
+		Scan(&toolCalls); err != nil {
+		t.Fatalf("query mcp tool calls: %v", err)
+	}
+	if toolCalls != 1 {
+		t.Fatalf("completed mcp__docs__greet tool calls = %d, want 1", toolCalls)
 	}
 }

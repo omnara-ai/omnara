@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -51,6 +52,18 @@ func TestListMCPServerToolsUsesProjectSecretForBearerAuth(t *testing.T) {
 	}
 	if testutil.RequireType[map[string]any](t, response["server_info"])["name"] != "weather" {
 		t.Fatalf("server_info = %+v", response["server_info"])
+	}
+	var cachedTools string
+	var cachedWithSecret bool
+	if err := pool.QueryRow(ctx, `
+SELECT catalog.tools_snapshot::text, catalog.secret_id IS NOT NULL
+FROM mcp_server_catalogs catalog
+WHERE catalog.endpoint_url = $1
+`, upstream.URL+"/mcp").Scan(&cachedTools, &cachedWithSecret); err != nil {
+		t.Fatalf("tool discovery did not populate the shared catalog: %v", err)
+	}
+	if !strings.Contains(cachedTools, `"search"`) || !cachedWithSecret {
+		t.Fatalf("cached catalog = %s (secret keyed %t)", cachedTools, cachedWithSecret)
 	}
 
 	unauthenticated := requestJSONWithHeaders(t, handler, http.MethodPost,

@@ -55,6 +55,10 @@ MCP tool names combine the server and tool: `mcp__{server}__{tool}`. For example
 
 These names appear in `model_output` tool calls and in [`GET /tool-calls`](/tools/custom#find-calls-waiting-for-you) with `type: "mcp"`. Server names cannot contain underscores, and the combined name must fit within 64 characters.
 
+## Protocol versions and tool caching
+
+* Omnara supports both stateless (`2026-07-28`) and session-based (`2025-11-25` and earlier) MCP servers. Stateless MCP servers use the cache TTLs returned by the server with a minimum freshness window of five minutes; capabilities and tools are cached keyed on org, server, and authentication information (if present).
+
 ## Bearer auth
 
 For servers that take a static token, store the token as a generic secret and reference it:

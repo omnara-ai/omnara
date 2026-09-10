@@ -61,6 +61,8 @@ func (f fakeMCPToolServer) handler() http.Handler {
 			return
 		}
 		switch message.Method {
+		case "server/discover":
+			http.Error(w, "Bad Request: Mcp-Session-Id header is required", http.StatusBadRequest)
 		case "initialize":
 			w.Header().Set("Mcp-Session-Id", "sess-1")
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -307,5 +309,52 @@ func TestListMCPServerToolsRequiresStoreForSecretAuth(t *testing.T) {
 	var apiErr apierror.ResponseError
 	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeServiceUnavailable {
 		t.Fatalf("err = %v, want service_unavailable", err)
+	}
+}
+
+func TestListMCPServerToolsReportsAuthRequiredFromJSONRPCUnauthorizedBody(t *testing.T) {
+	mux := http.NewServeMux()
+	upstream := httptest.NewServer(mux)
+	defer upstream.Close()
+	issuer := upstream.URL + "/issuer"
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+upstream.URL+`/prm"`)
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"jsonrpc": "2.0", "id": -2,
+			"error": map[string]any{"code": -32001, "message": "unauthorized"},
+		})
+	})
+	mux.HandleFunc("/prm", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"resource":              upstream.URL + "/mcp",
+			"authorization_servers": []string{issuer},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server/issuer", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"issuer":                           issuer,
+			"authorization_endpoint":           upstream.URL + "/authorize",
+			"token_endpoint":                   upstream.URL + "/token",
+			"response_types_supported":         []string{"code"},
+			"code_challenge_methods_supported": []string{"S256"},
+		})
+	})
+
+	response, err := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}.ListMCPServerTools(
+		mcpServerToolsTestContext(),
+		openapi.ListMCPServerToolsRequestObject{
+			Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+		},
+	)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	hint, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T", response)
+	}
+	if hint.Auth.Type != openapi.MCPServerAuthHintTypeOauth ||
+		hint.Auth.AuthorizationServer == nil || *hint.Auth.AuthorizationServer != issuer {
+		t.Fatalf("response = %+v, want oauth hint for %s", hint, issuer)
 	}
 }
