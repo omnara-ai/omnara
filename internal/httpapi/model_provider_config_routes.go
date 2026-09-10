@@ -338,6 +338,14 @@ func (s strictOpenAPIServer) providerModelCatalog(
 	orgID storage.ID,
 	record modelstore.ModelProviderConfigRecord,
 ) openapigen.ModelCatalog {
+	if record.APIVariant == modelprotocol.APIVariantBedrock &&
+		record.AuthKind == modelstore.ModelProviderAuthKindSigV4 {
+		models := []openapigen.DiscoveredProviderModel{}
+		return openapigen.ModelCatalog{
+			Status: openapigen.ModelCatalogStatusOk,
+			Models: &models,
+		}
+	}
 	failed := func(message string) openapigen.ModelCatalog {
 		logent.ModelCatalogProbeFailed(ctx, record.ID, message)
 		return openapigen.ModelCatalog{
@@ -1045,7 +1053,7 @@ func modelProviderConfigResponse(record modelstore.ModelProviderConfigRecord) (o
 		EndpointPath:       record.EndpointPath,
 		RequestTimeoutMs:   record.RequestTimeoutMS,
 		IdleTimeoutMs:      record.IdleTimeoutMS,
-		AuthKind:           openapigen.ModelProviderAuthKind(record.AuthKind),
+		AuthKind:           record.AuthKind,
 		AuthOptions:        jsonOrFallback(record.AuthOptions, json.RawMessage(`{}`)),
 		CredentialSecretId: credentialSecretID,
 		CreatedAt:          record.CreatedAt,

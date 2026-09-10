@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -56,7 +57,7 @@ type Executor struct {
 	MCP                      mcp.Client
 	IntegrationHTTPClient    *http.Client
 	MCPAuthHTTPClient        *http.Client
-	SigV4CredentialCache     *mcp.SigV4CredentialCache
+	SigV4CredentialCache     *sigv4.CredentialCache
 	WebSearch                webaccess.SearchProvider
 	WebFetcher               *webaccess.Fetcher
 	MachinePoolManager       machinePoolManager

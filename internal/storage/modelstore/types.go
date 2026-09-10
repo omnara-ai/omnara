@@ -13,6 +13,7 @@ import (
 const (
 	ModelProviderAuthKindBearerToken  = "bearer_token"
 	ModelProviderAuthKindAPIKeyHeader = "api_key_header"
+	ModelProviderAuthKindSigV4        = "sigv4"
 
 	ModelCacheRetentionNone  = "none"
 	ModelCacheRetentionShort = "short"

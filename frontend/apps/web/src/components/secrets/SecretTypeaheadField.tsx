@@ -4,7 +4,7 @@ import {
   useSecret,
   useSecrets,
 } from '@omnara/react'
-import type { Secret } from '@omnara/sdk'
+import type { Secret, SecretKind } from '@omnara/sdk'
 
 import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -20,8 +20,39 @@ const SecretCombobox = createResourceCombobox<Secret>({
 })
 
 /** Secrets machines and providers can reference at runtime. */
-function referencableSecret(secret: Secret) {
-  return secret.management_kind === 'tenant' && secret.kind === 'generic'
+function referencableSecret(secret: Secret, kind: SecretKind) {
+  return secret.management_kind === 'tenant' && secret.kind === kind
+}
+
+function listedSecrets(
+  orgSecrets: Secret[],
+  projectSecrets: Secret[],
+  projectId: string | undefined,
+  kind: SecretKind,
+) {
+  return (projectId === undefined ? orgSecrets : projectSecrets).filter((secret) =>
+    referencableSecret(secret, kind),
+  )
+}
+
+function includeKnownSecret(secrets: Secret[], knownSecret: Secret | undefined, kind: SecretKind) {
+  if (!knownSecret || !referencableSecret(knownSecret, kind)) return secrets
+  if (secrets.some((secret) => secret.id === knownSecret.id)) return secrets
+  return [knownSecret, ...secrets]
+}
+
+function selectedSecret(
+  secrets: Secret[],
+  resolvedSecret: Secret | undefined,
+  value: string,
+  kind: SecretKind,
+) {
+  const listed = secrets.find((secret) => secret.id === value)
+  if (listed) return listed
+  if (resolvedSecret?.id === value && referencableSecret(resolvedSecret, kind)) {
+    return resolvedSecret
+  }
+  return null
 }
 
 export function SecretSelect({
@@ -34,6 +65,7 @@ export function SecretSelect({
   onCreateSecret,
   knownSecret,
   emptyDescription,
+  kind = 'generic',
 }: {
   orgId: string
   /** When set, offers project-available secrets instead of org-owned ones. */
@@ -45,20 +77,21 @@ export function SecretSelect({
   onCreateSecret?: () => void
   knownSecret?: Secret
   emptyDescription?: string
+  kind?: SecretKind
 }) {
   const search = useTypeaheadSearch()
   const orgQuery = useSecrets(
     orgId,
     { kind: 'org' },
     {
-      filters: search.filters,
+      filters: { ...search.filters, kind },
       sort: 'name',
       pageSize: 25,
       enabled: enabled && projectId === undefined,
     },
   )
   const projectQuery = useProjectAvailableSecrets(orgId, projectId ?? '', {
-    filters: search.filters,
+    filters: { ...search.filters, kind },
     sort: 'name',
     pageSize: 25,
     enabled: enabled && projectId !== undefined,
@@ -66,13 +99,11 @@ export function SecretSelect({
   const query = projectId === undefined ? orgQuery : projectQuery
   const orgSecrets = useInfiniteQueryItems(orgQuery)
   const projectSecrets = useInfiniteQueryItems(projectQuery).map((access) => access.secret)
-  const listedSecrets = (projectId === undefined ? orgSecrets : projectSecrets).filter(
-    referencableSecret,
+  const secrets = includeKnownSecret(
+    listedSecrets(orgSecrets, projectSecrets, projectId, kind),
+    knownSecret,
+    kind,
   )
-  const secrets =
-    knownSecret && !listedSecrets.some((secret) => secret.id === knownSecret.id)
-      ? [knownSecret, ...listedSecrets]
-      : listedSecrets
   const selectedOrgSecret = useSecret(orgId, value, {
     enabled: enabled && projectId === undefined,
   })
@@ -80,16 +111,14 @@ export function SecretSelect({
     enabled: enabled && projectId !== undefined,
   })
   const resolvedSecret = selectedProjectSecret.data?.secret ?? selectedOrgSecret.data
-  const selectedSecret =
-    secrets.find((secret) => secret.id === value) ??
-    (resolvedSecret?.id === value && referencableSecret(resolvedSecret) ? resolvedSecret : null)
+  const selected = selectedSecret(secrets, resolvedSecret, value, kind)
   const empty = !query.isPending && !query.isError && secrets.length === 0
 
   return (
     <>
       <SecretCombobox
         items={secrets}
-        value={selectedSecret}
+        value={selected}
         onValueChange={(secret) => {
           onChange(secret?.id ?? '')
         }}
@@ -124,6 +153,7 @@ export function SecretTypeaheadField({
   emptyDescription,
   onCreateSecret,
   knownSecret,
+  kind = 'generic',
 }: {
   orgId: string
   enabled: boolean
@@ -134,6 +164,7 @@ export function SecretTypeaheadField({
   emptyDescription: string
   onCreateSecret?: () => void
   knownSecret?: Secret
+  kind?: SecretKind
 }) {
   return (
     <Field>
@@ -147,6 +178,7 @@ export function SecretTypeaheadField({
         onCreateSecret={onCreateSecret}
         knownSecret={knownSecret}
         emptyDescription={emptyDescription}
+        kind={kind}
       />
     </Field>
   )
