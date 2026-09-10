@@ -98,7 +98,7 @@ async function render(
     )
     await Promise.resolve()
   })
-  return { api, path, closed, queryClient, key, projectKey, otherKey }
+  return { api, client, path, closed, queryClient, key, projectKey, otherKey }
 }
 it('shows a masked stored field immediately and focus does not enable save', async () => {
   await render()
@@ -290,6 +290,60 @@ it.each(['', '3600'])(
     expect(ctx.api.requestsTo('PATCH', ctx.path)).toHaveLength(0)
   },
 )
+
+it('retains the last successful name after a later rename fails', async () => {
+  const ctx = await render()
+  let renames = 0
+  let replacements = 0
+  const api = fakeApi([
+    {
+      method: 'PATCH',
+      path: ctx.path,
+      respond: () =>
+        ++renames === 1
+          ? jsonResponse({ ...secret, name: 'saved-name' })
+          : jsonResponse({ code: 'conflict', error: 'Rename failed' }, 409),
+    },
+    {
+      method: 'POST',
+      path: ctx.path + '/versions',
+      respond: () =>
+        ++replacements === 1
+          ? jsonResponse({ code: 'conflict', error: 'Replacement failed' }, 409)
+          : jsonResponse({ ...secret, name: 'saved-name', current_version_number: 2 }),
+    },
+  ])
+  ctx.client.setConfig({ fetch: api.fetch })
+  await enter('Name', 'saved-name')
+  await enter('Value', 'replacement')
+  await submit()
+  expect(document.body.textContent).toContain('Name saved, but the value update failed.')
+  await enter('Name', 'rejected-name')
+  await submit()
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe('Rename failed')
+  expect(replacements).toBe(1)
+  expect(field('Value').value).toBe('replacement')
+  await enter('Name', 'saved-name')
+  await submit()
+  expect(api.requestsTo('PATCH', ctx.path).map((request) => request.body)).toEqual([
+    { name: 'saved-name' },
+    { name: 'rejected-name' },
+  ])
+  expect(replacements).toBe(2)
+  expect(ctx.closed).toHaveBeenCalledWith(false)
+})
+
+it('resets token lifetime when its credential change is undone', async () => {
+  await render({ kind: 'oauth_token_set', payload_keys: ['access_token'] })
+  await enter('Access token', 'replacement')
+  await enter('Access token lifetime (seconds)', '3600')
+  act(() => {
+    button('Undo access token change').click()
+  })
+  expect(button('Save changes').disabled).toBe(true)
+  await enter('Access token', 'another-token')
+  expect(field('Access token lifetime (seconds)').value).toBe('')
+})
 
 it('blocks resubmission and dismissal throughout both saves', async () => {
   function gate() {

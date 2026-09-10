@@ -1,6 +1,6 @@
 import { useCreateSecretVersion, useUpdateSecret } from '@omnara/react'
 import { ApiError, type Secret } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useReducer } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -32,42 +32,47 @@ export function EditSecretDialog({
 }) {
   const updateSecret = useUpdateSecret(orgId)
   const createVersion = useCreateSecretVersion(orgId, secret.id)
-  const [savedName, setSavedName] = useState(secret.name)
-  const [name, setName] = useState(secret.name)
-  const [updates, setUpdates] = useState<Record<string, string>>({})
-  const [lifetime, setLifetime] = useState('')
-  const [error, setError] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const [state, dispatch] = useReducer(editSecretReducer, {
+    draftName: secret.name,
+    persistedName: secret.name,
+    updates: {},
+    lifetime: '',
+    error: '',
+    submitting: false,
+  })
+  const { draftName, persistedName, updates, lifetime, error, submitting } = state
   const canEditValue =
     secret.management_kind === 'tenant' && requiredSecretKeys(secret.kind) !== undefined
   const changingToken = secret.kind === 'oauth_token_set' && updates.access_token !== undefined
   const replacement = prepareSecretReplacement(secret, updates, lifetime)
-  const nameChanged = normalizeResourceName(name) !== savedName
+  const nameChanged = normalizeResourceName(draftName) !== persistedName
   const hasUpdates = Object.keys(updates).length > 0
-  const valid = resourceNameValid(name) && !replacement.error && (nameChanged || hasUpdates)
+  const valid = resourceNameValid(draftName) && !replacement.error && (nameChanged || hasUpdates)
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting || !valid) return
-    setSubmitting(true)
-    setError('')
+    dispatch({ type: 'submit-started' })
     let renamed = false
     try {
       if (nameChanged) {
         const updated = await updateSecret.mutateAsync({
           secretID: secret.id,
-          name: normalizeResourceName(name),
+          name: normalizeResourceName(draftName),
         })
-        setSavedName(updated.name)
+        dispatch({ type: 'name-saved', name: updated.name })
         renamed = true
       }
       if (replacement.material) await createVersion.mutateAsync({ material: replacement.material })
+      dispatch({ type: 'submit-finished' })
       onOpenChange(false)
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not update secret'
-      setError(renamed ? `Name saved, but the value update failed. ${message}` : message)
+      dispatch({
+        type: 'submit-failed',
+        message: renamed ? `Name saved, but the value update failed. ${message}` : message,
+      })
     }
-    setSubmitting(false)
   }
 
   return (
@@ -96,20 +101,19 @@ export function EditSecretDialog({
                 <Input
                   id="edit-secret-name"
                   required
-                  value={name}
+                  value={draftName}
                   onChange={(event) => {
-                    setName(event.target.value)
+                    dispatch({ type: 'name-changed', name: event.target.value })
                   }}
                 />
-                <ResourceNameFieldError value={name} />
+                <ResourceNameFieldError value={draftName} />
               </Field>
               {canEditValue && (
                 <SecretValueEditor
                   secret={secret}
                   updates={updates}
                   onChange={(next) => {
-                    if (next.access_token === undefined) setLifetime('')
-                    setUpdates(next)
+                    dispatch({ type: 'credentials-changed', updates: next })
                   }}
                 />
               )}
@@ -123,7 +127,7 @@ export function EditSecretDialog({
                     max={2147483647}
                     value={lifetime}
                     onChange={(event) => {
-                      setLifetime(event.target.value)
+                      dispatch({ type: 'lifetime-changed', lifetime: event.target.value })
                     }}
                     placeholder="No expiry"
                   />
@@ -162,4 +166,45 @@ export function EditSecretDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+interface EditSecretState {
+  draftName: string
+  persistedName: string
+  updates: Record<string, string>
+  lifetime: string
+  error: string
+  submitting: boolean
+}
+
+type EditSecretAction =
+  | { type: 'name-changed'; name: string }
+  | { type: 'name-saved'; name: string }
+  | { type: 'credentials-changed'; updates: Record<string, string> }
+  | { type: 'lifetime-changed'; lifetime: string }
+  | { type: 'submit-started' }
+  | { type: 'submit-failed'; message: string }
+  | { type: 'submit-finished' }
+
+function editSecretReducer(state: EditSecretState, action: EditSecretAction): EditSecretState {
+  switch (action.type) {
+    case 'name-changed':
+      return { ...state, draftName: action.name }
+    case 'name-saved':
+      return { ...state, persistedName: action.name }
+    case 'credentials-changed':
+      return {
+        ...state,
+        updates: action.updates,
+        lifetime: action.updates.access_token === undefined ? '' : state.lifetime,
+      }
+    case 'lifetime-changed':
+      return { ...state, lifetime: action.lifetime }
+    case 'submit-started':
+      return { ...state, submitting: true, error: '' }
+    case 'submit-failed':
+      return { ...state, submitting: false, error: action.message }
+    case 'submit-finished':
+      return { ...state, submitting: false }
+  }
 }
