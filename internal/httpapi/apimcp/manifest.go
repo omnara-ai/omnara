@@ -14,26 +14,9 @@ var Tools = []Tool{
 	{Name: "orgs_list", OperationID: "listOrganizations", ReadOnly: true},
 	{Name: "orgs_create", OperationID: "createOrganization"},
 	{Name: "orgs_overview", OperationID: "getOrgOverview", ReadOnly: true},
-	{Name: "orgs_delete", OperationID: "deleteOrganization", Destructive: true},
 
 	{Name: "projects_list", OperationID: "listVisibleProjects", ReadOnly: true},
 	{Name: "projects_create", OperationID: "createProject"},
-	{Name: "projects_delete", OperationID: "deleteProject", Destructive: true},
-
-	{Name: "members_list", OperationID: "listOrgMembers", ReadOnly: true},
-	{Name: "members_update", OperationID: "updateOrgMember"},
-	{Name: "members_remove", OperationID: "removeOrgMember", Destructive: true},
-	{Name: "members_invites_list", OperationID: "listOrgInvitations", ReadOnly: true},
-	{Name: "members_invites_create", OperationID: "createOrgInvitation"},
-	{Name: "members_invites_delete", OperationID: "deleteOrgInvitation", Destructive: true},
-	{Name: "members_invites_pending", OperationID: "listPendingInvitations", ReadOnly: true},
-	{Name: "members_invites_accept", OperationID: "acceptInvitation"},
-	{Name: "members_invites_decline", OperationID: "declineInvitation"},
-
-	{Name: "keys_org_list", OperationID: "listOrgAPIKeys", ReadOnly: true},
-	{Name: "keys_org_get", OperationID: "getOrgAPIKey", ReadOnly: true},
-	{Name: "keys_personal_list", OperationID: "listPersonalAccessTokens", ReadOnly: true},
-	{Name: "keys_personal_revoke", OperationID: "revokePersonalAccessToken", Destructive: true},
 
 	{Name: "agents_list", OperationID: "listAgents", ReadOnly: true},
 	{Name: "agents_get", OperationID: "getAgent", ReadOnly: true},
