@@ -24,8 +24,8 @@ func TestAgentExecutorCompactionAbsorbsCompletedHistoricalToolGroup(t *testing.T
 		"openai/kernel-tool-history",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(1600),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(64),
+			ContextWindowTokens: new(1600),
+			MaxOutputTokens:     new(64),
 		},
 		"run_command",
 	)

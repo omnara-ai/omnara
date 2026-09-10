@@ -54,7 +54,7 @@ func TestReconcileDefaults(t *testing.T) {
 			Provider:           "blaxel",
 			ProviderAuthEnvVar: "RECONCILE_POOL_TOKEN",
 			MaxTotalMachines:   1,
-			MaxTotalMemoryMB:   intPtrForMachinePoolTest(1024),
+			MaxTotalMemoryMB:   new(1024),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
@@ -120,7 +120,7 @@ func TestReconcileDefaults(t *testing.T) {
 		t, ctx, store, created.Org.ID, initialProvider, "provider-token",
 	)
 	providerInvalidPool := initialPool
-	providerInvalidPool.MaxTotalCPU = intPtrForMachinePoolTest(99)
+	providerInvalidPool.MaxTotalCPU = new(99)
 	if _, err := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
 		DefaultMachinePools: []executionstore.DefaultMachinePoolTemplate{providerInvalidPool},
 	}); err == nil || !strings.Contains(err.Error(), "provider rejects max_total_cpu") {
@@ -342,13 +342,13 @@ model:
 	desiredPool.DefaultMachineProviderOptions = json.RawMessage(`{"image":"new","sleep_after_ms":30000}`)
 	desiredPool.RuntimeProtectionEnabled = true
 	desiredPool.MaxTotalMachines = 0
-	desiredPool.MaxTotalCPU = intPtrForMachinePoolTest(1)
-	desiredPool.MaxTotalMemoryMB = intPtrForMachinePoolTest(0)
-	desiredPool.MinMachineCPU = intPtrForMachinePoolTest(1)
-	desiredPool.MinMachineMemoryMB = intPtrForMachinePoolTest(512)
-	desiredPool.MaxMachineCPU = intPtrForMachinePoolTest(1)
-	desiredPool.MaxMachineMemoryMB = intPtrForMachinePoolTest(512)
-	desiredPool.DeleteAfterIdleMinutes = intPtrForMachinePoolTest(60)
+	desiredPool.MaxTotalCPU = new(1)
+	desiredPool.MaxTotalMemoryMB = new(0)
+	desiredPool.MinMachineCPU = new(1)
+	desiredPool.MinMachineMemoryMB = new(512)
+	desiredPool.MaxMachineCPU = new(1)
+	desiredPool.MaxMachineMemoryMB = new(512)
+	desiredPool.DeleteAfterIdleMinutes = new(60)
 	desiredProvider := initialProvider
 	desiredProvider.BaseURL = "https://new.example.com/v1"
 	desiredProvider.RequestTimeoutMS = 120000
@@ -647,8 +647,8 @@ func TestReconcileDefaultsLocksModelsBeforeMachinePools(t *testing.T) {
 				Provider:           "blaxel",
 				ProviderAuthEnvVar: "RECONCILE_LOCK_TOKEN",
 				MaxTotalMachines:   1,
-				MaxTotalMemoryMB:   intPtrForMachinePoolTest(4096),
-				MaxMachineMemoryMB: intPtrForMachinePoolTest(2048),
+				MaxTotalMemoryMB:   new(4096),
+				MaxMachineMemoryMB: new(2048),
 			},
 			defaultMachineFieldsForTest{
 				DefaultMachineCPU:             1,
@@ -779,8 +779,8 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 				Provider:           "blaxel",
 				ProviderAuthEnvVar: "RECONCILE_POOL_TOKEN",
 				MaxTotalMachines:   1,
-				MaxTotalMemoryMB:   intPtrForMachinePoolTest(4096),
-				MaxMachineMemoryMB: intPtrForMachinePoolTest(2048),
+				MaxTotalMemoryMB:   new(4096),
+				MaxMachineMemoryMB: new(2048),
 			},
 			defaultMachineFieldsForTest{
 				DefaultMachineCPU:             1,
@@ -824,7 +824,7 @@ func TestReconcileDefaultsContinuesAfterOrganizationFailure(t *testing.T) {
 
 	desiredPools := append([]executionstore.DefaultMachinePoolTemplate(nil), initialPools...)
 	desiredPools[0].Description = "new"
-	desiredPools[1].MaxTotalMemoryMB = intPtrForMachinePoolTest(8192)
+	desiredPools[1].MaxTotalMemoryMB = new(8192)
 	input := orglifecycle.ReconcileDefaultsInput{Apply: true, DefaultMachinePools: desiredPools}
 	result, err := store.Organizations().ReconcileDefaults(ctx, input)
 	if err == nil || !strings.Contains(err.Error(), failingOrg.Org.ID.String()) {

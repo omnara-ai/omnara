@@ -104,7 +104,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 	if err := validateConfiguredModelOptions(modelprotocol.APIFormatOpenAIResponses, configuredModelOptions{
 		ContextWindowTokens:    math.MaxInt32,
 		MaxOutputTokens:        new(math.MaxInt32 - 1),
-		DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(math.MaxInt32 - 1),
+		DefaultMaxOutputTokens: new(math.MaxInt32 - 1),
 	}); err != nil {
 		t.Fatalf("valid token bounds rejected: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			input: configuredModelOptions{
 				ContextWindowTokens:    100,
 				MaxOutputTokens:        new(10),
-				DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(11),
+				DefaultMaxOutputTokens: new(11),
 			},
 			messageContains: "default_max_output_tokens",
 		},
@@ -144,7 +144,7 @@ func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 			input: configuredModelOptions{
 				ContextWindowTokens:    100,
 				MaxOutputTokens:        new(100),
-				DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(100),
+				DefaultMaxOutputTokens: new(100),
 			},
 			messageContains: "max_output_tokens",
 		},
@@ -339,7 +339,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 		ConfiguredModelID:         configuredModelID,
 		ContextWindowTokens:       1000,
 		MaxOutputTokens:           new(200),
-		DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(100),
+		DefaultMaxOutputTokens:    new(100),
 		DefaultCacheRetention:     ModelCacheRetentionLong,
 		SupportsTools:             true,
 		SupportsReasoning:         true,
@@ -372,9 +372,9 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			baseRevision,
 			ProjectModelGrantRecord{
 				ConfiguredModelID:         configuredModelID,
-				ContextWindowTokens:       intPtrForModelProviderConfigStoreTest(800),
-				MaxOutputTokens:           intPtrForModelProviderConfigStoreTest(150),
-				DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(120),
+				ContextWindowTokens:       new(800),
+				MaxOutputTokens:           new(150),
+				DefaultMaxOutputTokens:    new(120),
 				SupportsTools:             boolPtrForModelProviderConfigStoreTest(false),
 				DefaultCacheRetention:     ModelCacheRetentionShort,
 				SupportedReasoningEfforts: []string{"low", "medium"},
@@ -435,7 +435,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			revision: baseRevision,
 			grant: ProjectModelGrantRecord{
 				ConfiguredModelID:   configuredModelID,
-				ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001),
+				ContextWindowTokens: new(1001),
 			},
 		},
 		{
@@ -482,7 +482,7 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		ConfiguredModelID:         configuredModelID,
 		ContextWindowTokens:       1000,
 		MaxOutputTokens:           new(200),
-		DefaultMaxOutputTokens:    intPtrForModelProviderConfigStoreTest(100),
+		DefaultMaxOutputTokens:    new(100),
 		DefaultCacheRetention:     ModelCacheRetentionLong,
 		SupportsTools:             true,
 		SupportsReasoning:         true,
@@ -494,8 +494,8 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		modelprotocol.APIFormatOpenAIResponses,
 		projectEffectiveRevision,
 		agentconfig.ModelOverrides{
-			ContextWindowTokens:    intPtrForModelProviderConfigStoreTest(800),
-			DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(120),
+			ContextWindowTokens:    new(800),
+			DefaultMaxOutputTokens: new(120),
 			CacheRetention:         ModelCacheRetentionShort,
 			ReasoningEffort:        "high",
 		},
@@ -518,11 +518,11 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 	}{
 		{
 			name:    "reject wider context",
-			options: agentconfig.ModelOverrides{ContextWindowTokens: intPtrForModelProviderConfigStoreTest(1001)},
+			options: agentconfig.ModelOverrides{ContextWindowTokens: new(1001)},
 		},
 		{
 			name:    "reject default output over ceiling",
-			options: agentconfig.ModelOverrides{DefaultMaxOutputTokens: intPtrForModelProviderConfigStoreTest(201)},
+			options: agentconfig.ModelOverrides{DefaultMaxOutputTokens: new(201)},
 		},
 		{
 			name:    "reject unsupported reasoning",
@@ -542,10 +542,6 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 			}
 		})
 	}
-}
-
-func intPtrForModelProviderConfigStoreTest(value int) *int {
-	return &value
 }
 
 func boolPtrForModelProviderConfigStoreTest(value bool) *bool {

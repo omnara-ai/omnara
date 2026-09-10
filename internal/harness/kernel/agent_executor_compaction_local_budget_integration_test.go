@@ -27,8 +27,8 @@ func TestAgentExecutorSendsFittingRequestAfterHighUsageTruncation(t *testing.T) 
 		"openai/kernel-test",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(10_000),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(6_000),
+			ContextWindowTokens: new(10_000),
+			MaxOutputTokens:     new(6_000),
 		},
 	)
 
@@ -570,8 +570,8 @@ func TestAgentExecutorCompactionKeepsToolCallResultGroupRaw(t *testing.T) {
 		"openai/kernel-test",
 		fixture.Now,
 		kernelConfiguredModelOptions{
-			ContextWindowTokens: intPtrForKernelCompactionTest(1600),
-			MaxOutputTokens:     intPtrForKernelCompactionTest(64),
+			ContextWindowTokens: new(1600),
+			MaxOutputTokens:     new(64),
 		},
 		"run_command",
 	)

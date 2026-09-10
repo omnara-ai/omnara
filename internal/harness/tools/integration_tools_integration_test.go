@@ -2185,10 +2185,6 @@ func resolvedToolsAgentConfigModel(
 	}
 }
 
-func intPtrForToolsTest(value int) *int {
-	return &value
-}
-
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
 	t.Helper()
 	id, err := storage.ParseID(compiled.Compiled.Model.ConfiguredModelID)
