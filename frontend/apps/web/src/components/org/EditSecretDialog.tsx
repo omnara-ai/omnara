@@ -66,9 +66,8 @@ export function EditSecretDialog({
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not update secret'
       setError(renamed ? `Name saved, but the value update failed. ${message}` : message)
-    } finally {
-      setSubmitting(false)
     }
+    setSubmitting(false)
   }
 
   return (

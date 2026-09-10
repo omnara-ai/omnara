@@ -1,5 +1,5 @@
 import type { Secret } from '@omnara/sdk'
-import { useId, useState } from 'react'
+import { type ChangeEvent, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -44,12 +44,23 @@ function StoredValueField({
   const id = useId()
   const [revealed, setRevealed] = useState(false)
   const edited = value !== undefined
+  const clearable = stored && !required
+  const visibilityLabel = revealed ? 'Hide' : 'Show'
+  const inputProps = {
+    id,
+    value: value ?? '',
+    placeholder: stored && !edited ? '••••••••••••' : undefined,
+    onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (event.target.value === '') setRevealed(false)
+      onChange(event.target.value)
+    },
+  }
   return (
     <Field>
       <div className="flex items-center justify-between">
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <div className="flex items-center gap-3">
-          {stored && !required && value !== '' && (
+          {clearable && value !== '' && (
             <Button
               type="button"
               variant="link"
@@ -84,45 +95,33 @@ function StoredValueField({
       <div className="flex gap-2">
         {multiline ? (
           <Textarea
-            id={id}
+            {...inputProps}
             autoComplete="off"
             spellCheck={false}
-            value={value ?? ''}
-            placeholder={stored && !edited ? '••••••••••••' : undefined}
             className={revealed ? undefined : '[-webkit-text-security:disc]'}
-            onChange={(event) => {
-              if (event.target.value === '') setRevealed(false)
-              onChange(event.target.value)
-            }}
           />
         ) : (
           <Input
-            id={id}
+            {...inputProps}
             type={revealed ? 'text' : 'password'}
             autoComplete="new-password"
-            value={value ?? ''}
-            placeholder={stored && !edited ? '••••••••••••' : undefined}
-            onChange={(event) => {
-              if (event.target.value === '') setRevealed(false)
-              onChange(event.target.value)
-            }}
           />
         )}
-        {edited && value !== '' && (
+        {Boolean(value) && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            aria-label={`${revealed ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+            aria-label={`${visibilityLabel} ${label.toLowerCase()}`}
             onClick={() => {
               setRevealed(!revealed)
             }}
           >
-            {revealed ? 'Hide' : 'Show'}
+            {visibilityLabel}
           </Button>
         )}
       </div>
-      {stored && value === '' && !required && (
+      {clearable && value === '' && (
         <FieldDescription>Will be removed when you save.</FieldDescription>
       )}
     </Field>
@@ -145,15 +144,13 @@ export function SecretValueEditor({
       : secret.kind === 'aws_credentials'
         ? awsFields
         : oauthKeys.filter((field) => field.value !== 'access_token_expires_in_seconds')
-  const required = requiredSecretKeys(secret.kind)
-  if (!required) return null
-  const visible = fields.filter(
-    (field) =>
-      required.includes(field.value) ||
-      secret.payload_keys.includes(field.value) ||
-      added.includes(field.value),
-  )
-  const available = fields.filter((field) => !visible.some((item) => item.value === field.value))
+  const requiredKeys = requiredSecretKeys(secret.kind)
+  if (!requiredKeys) return null
+  const required = new Set(requiredKeys)
+  const stored = new Set(secret.payload_keys)
+  const visibleKeys = new Set([...required, ...stored, ...added])
+  const visible = fields.filter((field) => visibleKeys.has(field.value))
+  const available = fields.filter((field) => !visibleKeys.has(field.value))
   return (
     <>
       {visible.map((field) => (
@@ -161,8 +158,8 @@ export function SecretValueEditor({
           key={field.value}
           label={field.label}
           multiline={secret.kind === 'generic'}
-          required={required.includes(field.value)}
-          stored={secret.payload_keys.includes(field.value)}
+          required={required.has(field.value)}
+          stored={stored.has(field.value)}
           value={updates[field.value]}
           onChange={(value) => {
             onChange({ ...updates, [field.value]: value })
