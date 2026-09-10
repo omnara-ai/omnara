@@ -74,8 +74,9 @@ var customScopeDiscovery = map[operationID]func(*apiMCPGrants, context.Context) 
 	operationDeleteProjectMachineGrant: (*apiMCPGrants).anyOrgManage,
 }
 
-func (g *apiMCPGrants) Allows(ctx context.Context, opID string) (bool, error) {
-	policy, ok := g.server.openAPIAuthorizer.policy(operationID(opID))
+func (g *apiMCPGrants) Allows(ctx context.Context, rawOperationID string) (bool, error) {
+	opID := operationID(rawOperationID)
+	policy, ok := g.server.openAPIAuthorizer.policy(opID)
 	if !ok || !principalSatisfies(g.principal, policy.principal) {
 		return false, nil
 	}
@@ -83,7 +84,7 @@ func (g *apiMCPGrants) Allows(ctx context.Context, opID string) (bool, error) {
 	case scopeKindNone:
 		return true, nil
 	case scopeKindCustom:
-		discover, ok := customScopeDiscovery[operationID(opID)]
+		discover, ok := customScopeDiscovery[opID]
 		if !ok {
 			return false, nil
 		}
@@ -91,6 +92,9 @@ func (g *apiMCPGrants) Allows(ctx context.Context, opID string) (bool, error) {
 	case scopeKindOrg:
 		return g.anyOrgRoleAllows(ctx, policy.scope.action)
 	case scopeKindProject, scopeKindAgent:
+		if allowed, err := g.anyOrgManage(ctx); err != nil || allowed {
+			return allowed, err
+		}
 		return g.anyProjectRoleAllows(ctx, policy.scope.action)
 	case scopeKindMachine:
 		if allowed, err := g.anyOrgManage(ctx); err != nil || allowed {

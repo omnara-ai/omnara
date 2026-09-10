@@ -3,9 +3,11 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 )
 
 func TestAPIDispatchEmitsRequestEvent(t *testing.T) {
@@ -47,6 +49,30 @@ func TestAPIDispatchEmitsRequestEvent(t *testing.T) {
 	for key, value := range want {
 		if event[key] != value {
 			t.Errorf("%s = %v, want %v", key, event[key], value)
+		}
+	}
+}
+
+func TestAPIMCPToolsMapToOperationPolicies(t *testing.T) {
+	t.Parallel()
+	spec, err := openapi.GetSpec()
+	if err != nil {
+		t.Fatalf("load spec: %v", err)
+	}
+	specOperationIDs := make(map[string]string)
+	for _, item := range spec.Paths.Map() {
+		for _, op := range item.Operations() {
+			specOperationIDs[strings.ToLower(op.OperationID)] = op.OperationID
+		}
+	}
+	for _, tool := range apimcp.Tools {
+		specOperationID, ok := specOperationIDs[strings.ToLower(tool.OperationID)]
+		if !ok {
+			t.Errorf("tool %q references unknown operation %q", tool.Name, tool.OperationID)
+			continue
+		}
+		if _, ok := openAPIOperationPolicies[operationID(specOperationID)]; !ok {
+			t.Errorf("tool %q operation %q has no policy", tool.Name, specOperationID)
 		}
 	}
 }
