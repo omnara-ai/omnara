@@ -61,9 +61,9 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 Provider timeouts apply to each attempt, including reasoning and response streaming:
 
 - `request_timeout_ms` sets the total deadline, defaulting to 3600000 (60 minutes).
-- `idle_timeout_ms` limits the wait for response headers or the next response bytes, defaulting to 300000 (5 minutes). Heartbeats count as activity; local response processing does not consume this idle budget. Increase it for endpoints that can remain silent for longer periods.
+- `idle_timeout_ms` limits the wait for response headers or more response data, defaulting to 300000 (5 minutes). Heartbeats count as activity. Increase it for endpoints that can remain silent for longer periods.
 
-Both values must be positive. Edit them in the provider dialog or through the API. Existing configured total deadlines are retained on upgrade. A timed-out attempt can enter the existing bounded retry policy, so a task can run longer than one request deadline.
+Edit these settings in the provider dialog or through the API. Existing total deadlines are retained on upgrade.
 
 ## Configure models
 
@@ -82,22 +82,13 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 
 Token settings have separate roles:
 
-- `context_window_tokens` is the shared input and output window and must be at least 2.
-- `max_output_tokens` is the model's known output capacity and is optional for every API format. Unknown capacity is returned as `null`; a `null` update clears it. Selecting a discovered model can prefill its published capacity. Creating a model without capacity leaves it unknown.
-- `default_max_output_tokens` is an optional request allowance, set only when explicitly configured. Discovery never populates it. Without an override, Omnara uses the known capacity and fits the allowance to the remaining context. When both settings are absent, Chat Completions and Responses omit the allowance and use the provider default.
+- `context_window_tokens` is the shared input and output window.
+- `max_output_tokens` is the model's output capacity. It is optional; selecting a discovered model can prefill it.
+- `default_max_output_tokens` is an optional output allowance for each request. When omitted, Omnara uses the known output capacity.
 
-For Messages with neither setting, Omnara uses a 64,000-token allowance. This
-fallback may exceed the limit of an unknown model; configure an explicit capacity
-or allowance in that case. The fallback does not update either stored setting.
-Existing context fitting and reasoning-budget validation still apply.
+Omnara fits the request allowance to the remaining context. If both output settings are omitted, Messages uses 64,000 tokens; Chat Completions and Responses use the provider default. Set an explicit capacity or allowance for Messages endpoints that support less.
 
-Project and agent context overrides can be smaller than an inherited output capacity; request preparation fits the allowance to that smaller window. An explicit default allowance must remain below the effective context window, including when inherited from the model or project.
-
-Compaction summarizes older history with the same configured model. Its output allowance is at most 16,384 tokens, further limited by the effective default allowance, known output ceiling, and half the context window. When needed to fit the first complete turn or smallest safe portion of history, Omnara reduces the summary allowance while preserving the provider minimum and context safety margin. Anthropic Messages summary requests omit explicitly enabled manual thinking; ordinary requests retain it. Adaptive thinking and other providers' reasoning settings remain unchanged. Summaries must contain text, contain no tool calls, and reduce the history. If a summary hits its output limit, Omnara retries with a smaller eligible portion where possible. At the smallest safe portion, a usable partial summary can become the checkpoint so work can continue.
-
-Normal context admission reserves generation headroom independently of a large output capacity. Responses that reach their output limit retain the `max_tokens` stop reason. Omnara preserves their text and reusable reasoning and continues the conversation. When there are no tool calls, the next request includes a harness notice explaining that the preceding response may be incomplete. These notices are derived from recorded outputs and remain in later request history; they do not create user inputs or error events.
-
-Tool calls are handled individually, including in responses that reach the output limit. Complete, valid calls follow the usual permission and execution flow. Invalid arguments and unavailable tools receive a paired failed tool result so the model can correct the call. Calls rejected during response parsing are recorded together with their failed results and never execute. Missing call identities or malformed provider envelopes use the provider-error and retry flow. A response with tools continues after all results settle; a response without tools stops when the provider reports `end_turn`.
+Agents automatically continue after an output-limit cutoff.
 
 Changing a model's runtime settings creates a new **revision** (`mrev_…`). Agents resolve the current revision before each model call, so the new settings apply to later calls from existing agents too.
 
