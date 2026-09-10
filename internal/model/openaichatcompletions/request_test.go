@@ -930,6 +930,9 @@ func TestPrepareSuppressesRejectedReplayAndRebuildsCanonicalToolExchange(t *test
 		t.Fatalf("prepare with replay suppressed: %v", err)
 	}
 	body := string(prepared.Body)
+	if strings.Contains(body, `"strict"`) {
+		t.Fatalf("tool declaration field leaked into rebuilt history: %s", body)
+	}
 	if strings.Contains(body, "private reasoning") ||
 		strings.Contains(body, "reasoning_content") {
 		t.Fatalf("suppressed replay leaked provider-only reasoning: %s", body)

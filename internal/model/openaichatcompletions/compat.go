@@ -23,6 +23,7 @@ const (
 
 type compat struct {
 	sendsStoreFalse              bool
+	sendsStrictFalse             bool
 	reasoningFormat              reasoningFormat
 	conversationKeyField         conversationKeyField
 	usageViaStreamOptions        bool
@@ -38,6 +39,7 @@ func compatFor(route model.ProviderRoute) compat {
 	switch route.APIVariant {
 	case modelprotocol.APIVariantOpenRouter:
 		return compat{
+			sendsStrictFalse:             true,
 			reasoningFormat:              reasoningFormatOpenRouter,
 			conversationKeyField:         conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,

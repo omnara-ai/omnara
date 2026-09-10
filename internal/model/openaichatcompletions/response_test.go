@@ -150,7 +150,7 @@ func TestParseResponseStoresRequestValidAssistantReplay(t *testing.T) {
 		`"annotations":[{"type":"url_citation"}],"provider_debug":"drop-me",` +
 		`"tool_calls":[{"id":"call_1","type":"function",` +
 		`"function":{"name":"parameterless_tool","arguments":"{}",` +
-		`"description":"drop-me","parameters":{}}}]},` +
+		`"description":"drop-me","parameters":{},"strict":false}}]},` +
 		`"finish_reason":"tool_calls"}]}`)
 	resp, err := (protocol{}).ParseResponse(context.Background(), route.Response{
 		StatusCode: http.StatusOK,

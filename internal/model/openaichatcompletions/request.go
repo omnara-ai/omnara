@@ -40,13 +40,13 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err != nil {
 		return nil, err
 	}
+	compat := c.compat()
 	payload := chatCompletionsRequest{
 		Model:    providerModelSlug,
 		Messages: messages,
-		Tools:    buildTools(input.Context.ToolSpecs),
+		Tools:    buildTools(input.Context.ToolSpecs, compat),
 		N:        1,
 	}
-	compat := c.compat()
 	if compat.sendsStoreFalse {
 		store := false
 		payload.Store = &store
@@ -156,8 +156,15 @@ func (m chatMessage) MarshalJSON() ([]byte, error) {
 }
 
 type chatToolDefinition struct {
-	Type     string       `json:"type"`
-	Function chatFunction `json:"function"`
+	Type     string                 `json:"type"`
+	Function chatFunctionDefinition `json:"function"`
+}
+
+type chatFunctionDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+	Strict      *bool           `json:"strict,omitempty"`
 }
 
 type chatToolCall struct {
@@ -167,10 +174,8 @@ type chatToolCall struct {
 }
 
 type chatFunction struct {
-	Name        string                   `json:"name,omitempty"`
-	Description string                   `json:"description,omitempty"`
-	Parameters  json.RawMessage          `json:"parameters,omitempty"`
-	Arguments   model.ToolArgumentString `json:"arguments,omitempty"`
+	Name      string                   `json:"name,omitempty"`
+	Arguments model.ToolArgumentString `json:"arguments,omitempty"`
 }
 
 func buildMessages(
@@ -269,7 +274,11 @@ func messageFromContext(
 	}
 }
 
-func buildTools(specs []modelcontext.ToolSpec) []chatToolDefinition {
+func buildTools(specs []modelcontext.ToolSpec, compat compat) []chatToolDefinition {
+	var strict *bool
+	if compat.sendsStrictFalse {
+		strict = new(false)
+	}
 	tools := make([]chatToolDefinition, 0, len(specs))
 	for _, spec := range specs {
 		parameters := spec.InputSchema
@@ -278,10 +287,11 @@ func buildTools(specs []modelcontext.ToolSpec) []chatToolDefinition {
 		}
 		tools = append(tools, chatToolDefinition{
 			Type: "function",
-			Function: chatFunction{
+			Function: chatFunctionDefinition{
 				Name:        spec.Name,
 				Description: spec.Description,
 				Parameters:  parameters,
+				Strict:      strict,
 			},
 		})
 	}
