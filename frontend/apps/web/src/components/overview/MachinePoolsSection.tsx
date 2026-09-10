@@ -279,7 +279,7 @@ function formatResourceUsage(pool: MachinePool) {
   }
   if (values.length === 0) return '—'
   return (
-    <span className="flex flex-col whitespace-nowrap">
+    <span className="flex flex-col whitespace-nowrap py-1.5">
       {values.map((value) => (
         <span key={value}>{value}</span>
       ))}

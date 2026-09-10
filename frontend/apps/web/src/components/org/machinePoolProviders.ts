@@ -120,7 +120,7 @@ const modal: MachinePoolProviderDefinition = {
     key: 'image',
     label: 'Image',
     placeholder: 'omnara/agent-sandbox',
-    description: 'Modal sandboxes currently support public linux/amd64 images only.',
+    description: 'Omnara currently supports public linux/amd64 images for Modal pools.',
     descriptionHref: 'https://modal.com/docs/guide/existing-images',
   },
   location: {
