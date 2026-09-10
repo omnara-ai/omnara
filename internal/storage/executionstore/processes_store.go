@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -327,7 +328,7 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 			RuntimeLockID:      input.RuntimeLockID,
 			State:              string(input.State),
 			SourceEndedAt:      input.SourceEndedAt,
-			ExitCode:           sqlcInt32Ptr(input.ExitCode),
+			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
 			ExitSignal:         input.ExitSignal,
 			StateReasonCode:    sqlcTextFromEmpty(input.StateReasonCode),
 			StateReasonMessage: input.StateReasonMessage,

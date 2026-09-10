@@ -179,22 +179,22 @@ func applyProjectModelGrantPatch(
 	input UpdateProjectModelGrantInput,
 ) ProjectModelGrantRecord {
 	if input.ContextWindowTokens.Set {
-		record.ContextWindowTokens = cloneIntPtr(input.ContextWindowTokens.Value)
+		record.ContextWindowTokens = storeutil.ClonePtr(input.ContextWindowTokens.Value)
 	}
 	if input.MaxOutputTokens.Set {
-		record.MaxOutputTokens = cloneIntPtr(input.MaxOutputTokens.Value)
+		record.MaxOutputTokens = storeutil.ClonePtr(input.MaxOutputTokens.Value)
 	}
 	if input.DefaultMaxOutputTokens.Set {
-		record.DefaultMaxOutputTokens = cloneIntPtr(input.DefaultMaxOutputTokens.Value)
+		record.DefaultMaxOutputTokens = storeutil.ClonePtr(input.DefaultMaxOutputTokens.Value)
 	}
 	if input.DefaultCacheRetention != nil {
 		record.DefaultCacheRetention = *input.DefaultCacheRetention
 	}
 	if input.SupportsTools.Set {
-		record.SupportsTools = cloneBoolPtr(input.SupportsTools.Value)
+		record.SupportsTools = storeutil.ClonePtr(input.SupportsTools.Value)
 	}
 	if input.SupportsReasoning.Set {
-		record.SupportsReasoning = cloneBoolPtr(input.SupportsReasoning.Value)
+		record.SupportsReasoning = storeutil.ClonePtr(input.SupportsReasoning.Value)
 	}
 	if input.DefaultReasoningEffort != nil {
 		record.DefaultReasoningEffort = *input.DefaultReasoningEffort
@@ -284,8 +284,8 @@ func (s *Store) ListProjectModelGrants(
 				MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 				DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 				DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-				SupportsTools:             cloneBoolPtr(row.SupportsTools),
-				SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+				SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+				SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 				DefaultReasoningEffort:    row.DefaultReasoningEffort,
 				SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 				InputModalities:           nonNilStringSlice(row.InputModalities),
@@ -332,8 +332,8 @@ func projectModelGrantRecordFromSQLC(row dbsqlc.ProjectModelGrant) ProjectModelG
 		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-		SupportsTools:             cloneBoolPtr(row.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 		DefaultReasoningEffort:    row.DefaultReasoningEffort,
 		SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 		InputModalities:           nonNilStringSlice(row.InputModalities),
@@ -355,8 +355,8 @@ func projectModelGrantRecordFromActiveSQLC(
 		MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
 		DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-		SupportsTools:             cloneBoolPtr(row.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(row.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
 		DefaultReasoningEffort:    row.DefaultReasoningEffort,
 		SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
 		InputModalities:           nonNilStringSlice(row.InputModalities),

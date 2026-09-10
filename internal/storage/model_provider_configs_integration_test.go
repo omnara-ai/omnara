@@ -423,7 +423,7 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 		MaxOutputTokens:           new(64000),
 		DefaultMaxOutputTokens:    new(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
-		SupportsTools:             boolPtr(true),
+		SupportsTools:             new(true),
 		SupportsReasoning:         true,
 		DefaultReasoningEffort:    "high",
 		SupportedReasoningEfforts: []string{"low", "medium", "high"},
@@ -774,8 +774,8 @@ model:
 		MaxOutputTokens:           new(64000),
 		DefaultMaxOutputTokens:    new(32000),
 		DefaultCacheRetention:     modelstore.ModelCacheRetentionShort,
-		SupportsTools:             boolPtr(true),
-		SupportsReasoning:         boolPtr(true),
+		SupportsTools:             new(true),
+		SupportsReasoning:         new(true),
 		DefaultReasoningEffort:    "medium",
 		SupportedReasoningEfforts: []string{"low", "medium"},
 		InputModalities:           []string{"text"},
@@ -1086,7 +1086,7 @@ func TestConfiguredModelUpdateSerializesWithAgentConfigCreation(t *testing.T) {
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: new(4096),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -1251,7 +1251,7 @@ func TestCreateAgentConfigRejectsStaleToolRequirementAfterGrantChanges(t *testin
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: new(4096),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -1260,7 +1260,7 @@ func TestCreateAgentConfigRejectsStaleToolRequirementAfterGrantChanges(t *testin
 		OrgID:             testOrgID,
 		ProjectID:         testProjectID,
 		ConfiguredModelID: configuredModel.ID,
-		SupportsTools:     boolPtr(true),
+		SupportsTools:     new(true),
 	})
 	if err != nil {
 		t.Fatalf("grant configured model with tools: %v", err)
@@ -1294,7 +1294,7 @@ tools:
 		OrgID:             testOrgID,
 		ProjectID:         testProjectID,
 		ConfiguredModelID: configuredModel.ID,
-		SupportsTools:     boolPtr(false),
+		SupportsTools:     new(false),
 	}); err != nil {
 		t.Fatalf("grant configured model without tools: %v", err)
 	}
@@ -1350,7 +1350,7 @@ func TestPatchConfiguredModelMergesAgainstLockedCurrentRevision(t *testing.T) {
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: new(4096),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -1616,7 +1616,7 @@ func TestDeleteConfiguredModelUsesLockedCurrentRevisionAfterConcurrentPatch(t *t
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: new(4096),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -1752,7 +1752,7 @@ func TestCreateAgentConfigUsesConfiguredModelAliasAfterRevisionUpdate(t *testing
 		ContextWindowTokens:    128000,
 		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: new(4096),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create configured model: %v", err)
@@ -1821,10 +1821,6 @@ model:
 
 func nullableInt(value int) patch.NullableInt {
 	return patch.NullableInt{Set: true, Value: new(value)}
-}
-
-func boolPtr(value bool) *bool {
-	return &value
 }
 
 func isSQLCheckViolation(err error) bool {
@@ -2067,7 +2063,7 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		ContextWindowTokens:    new(64000),
 		MaxOutputTokens:        new(4096),
 		DefaultMaxOutputTokens: new(2048),
-		SupportsTools:          boolPtr(true),
+		SupportsTools:          new(true),
 	})
 	if err != nil {
 		t.Fatalf("create project model grant: %v", err)
@@ -2079,8 +2075,8 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		ID:                        grant.ID,
 		ContextWindowTokens:       patch.NullableInt{Set: true},
 		MaxOutputTokens:           nullableInt(2048),
-		SupportsTools:             patch.NullableBool{Set: true, Value: boolPtr(false)},
-		DefaultReasoningEffort:    strPtrForModelGrantUpdateTest("low"),
+		SupportsTools:             patch.NullableBool{Set: true, Value: new(false)},
+		DefaultReasoningEffort:    new("low"),
 		SupportedReasoningEfforts: &[]string{"low", "medium"},
 	})
 	if err != nil {
@@ -2104,7 +2100,7 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 		ProjectID:                 testProjectID,
 		ID:                        grant.ID,
 		SupportsTools:             patch.NullableBool{Set: true},
-		DefaultReasoningEffort:    strPtrForModelGrantUpdateTest(""),
+		DefaultReasoningEffort:    new(""),
 		SupportedReasoningEfforts: &[]string{},
 	})
 	if err != nil {
@@ -2142,8 +2138,4 @@ func TestUpdateProjectModelGrantAppliesPatchSemantics(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("update missing project model grant error = %v, want storeerr.ErrNotFound", err)
 	}
-}
-
-func strPtrForModelGrantUpdateTest(value string) *string {
-	return &value
 }

@@ -137,22 +137,6 @@ func boolPtrDefault(value *bool, fallback bool) bool {
 	return *value
 }
 
-func cloneIntPtr(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneBoolPtr(value *bool) *bool {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
 func nonNilStringSlice(value []string) []string {
 	if value == nil {
 		return []string{}
@@ -721,8 +705,8 @@ func configuredModelRevisionFromConfiguredModel(input ConfiguredModelRecord) Con
 		ModelProviderConfigID:     input.ModelProviderConfigID,
 		ProviderModelSlug:         input.ProviderModelSlug,
 		ContextWindowTokens:       input.ContextWindowTokens,
-		MaxOutputTokens:           cloneIntPtr(input.MaxOutputTokens),
-		DefaultMaxOutputTokens:    cloneIntPtr(input.DefaultMaxOutputTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(input.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(input.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     input.DefaultCacheRetention,
 		SupportsTools:             input.SupportsTools,
 		SupportsReasoning:         input.SupportsReasoning,
@@ -769,10 +753,10 @@ func EffectiveConfiguredModelRevisionForProjectGrant(
 				storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
-		effective.MaxOutputTokens = cloneIntPtr(grant.MaxOutputTokens)
+		effective.MaxOutputTokens = storeutil.ClonePtr(grant.MaxOutputTokens)
 	}
 	if grant.DefaultMaxOutputTokens != nil {
-		effective.DefaultMaxOutputTokens = cloneIntPtr(grant.DefaultMaxOutputTokens)
+		effective.DefaultMaxOutputTokens = storeutil.ClonePtr(grant.DefaultMaxOutputTokens)
 	}
 	if grant.DefaultCacheRetention != "" {
 		effective.DefaultCacheRetention = grant.DefaultCacheRetention
@@ -888,7 +872,7 @@ func EffectiveConfiguredModelRevisionForAgentOptions(
 				storeerr.ErrInvalidModelProviderConfig,
 			)
 		}
-		effective.DefaultMaxOutputTokens = cloneIntPtr(options.DefaultMaxOutputTokens)
+		effective.DefaultMaxOutputTokens = storeutil.ClonePtr(options.DefaultMaxOutputTokens)
 	}
 	if options.CacheRetention != "" {
 		effective.DefaultCacheRetention = options.CacheRetention
@@ -930,12 +914,12 @@ func validateProjectModelGrantForConfiguredModel(
 		OrgID:                     input.OrgID,
 		ProjectID:                 input.ProjectID,
 		ConfiguredModelID:         input.ConfiguredModelID,
-		ContextWindowTokens:       cloneIntPtr(input.ContextWindowTokens),
-		MaxOutputTokens:           cloneIntPtr(input.MaxOutputTokens),
-		DefaultMaxOutputTokens:    cloneIntPtr(input.DefaultMaxOutputTokens),
+		ContextWindowTokens:       storeutil.ClonePtr(input.ContextWindowTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(input.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(input.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     input.DefaultCacheRetention,
-		SupportsTools:             cloneBoolPtr(input.SupportsTools),
-		SupportsReasoning:         cloneBoolPtr(input.SupportsReasoning),
+		SupportsTools:             storeutil.ClonePtr(input.SupportsTools),
+		SupportsReasoning:         storeutil.ClonePtr(input.SupportsReasoning),
 		DefaultReasoningEffort:    input.DefaultReasoningEffort,
 		SupportedReasoningEfforts: append([]string(nil), input.SupportedReasoningEfforts...),
 		InputModalities:           append([]string(nil), input.InputModalities...),

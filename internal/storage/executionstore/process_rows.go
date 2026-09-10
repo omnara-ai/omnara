@@ -3,6 +3,7 @@ package executionstore
 import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func processRecordFromSQLC(row dbsqlc.Process) ProcessRecord {
@@ -29,7 +30,7 @@ func processRecordFromSQLC(row dbsqlc.Process) ProcessRecord {
 		SourceStartedAt:       row.SourceStartedAt,
 		SourceEndedAt:         row.SourceEndedAt,
 		StateChangedAt:        row.StateChangedAt,
-		ExitCode:              intPtrFromSQLC(row.ExitCode),
+		ExitCode:              storeutil.IntPtr(row.ExitCode),
 		ExitSignal:            row.ExitSignal,
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,
@@ -72,7 +73,7 @@ func processRecordFromAcceptSQLC(row dbsqlc.AcceptDaemonProcessRow) ProcessRecor
 		SourceStartedAt:       row.SourceStartedAt,
 		SourceEndedAt:         row.SourceEndedAt,
 		StateChangedAt:        row.StateChangedAt,
-		ExitCode:              intPtrFromSQLC(row.ExitCode),
+		ExitCode:              storeutil.IntPtr(row.ExitCode),
 		ExitSignal:            row.ExitSignal,
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,

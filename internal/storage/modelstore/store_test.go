@@ -375,7 +375,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 				ContextWindowTokens:       new(800),
 				MaxOutputTokens:           new(150),
 				DefaultMaxOutputTokens:    new(120),
-				SupportsTools:             boolPtrForModelProviderConfigStoreTest(false),
+				SupportsTools:             new(false),
 				DefaultCacheRetention:     ModelCacheRetentionShort,
 				SupportedReasoningEfforts: []string{"low", "medium"},
 				InputModalities:           []string{"text"},
@@ -404,7 +404,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			baseRevision,
 			ProjectModelGrantRecord{
 				ConfiguredModelID: configuredModelID,
-				SupportsReasoning: boolPtrForModelProviderConfigStoreTest(false),
+				SupportsReasoning: new(false),
 			},
 		)
 		if err != nil {
@@ -443,7 +443,7 @@ func TestEffectiveConfiguredModelRevisionForProjectGrant(t *testing.T) {
 			revision: revisionWithToolSupport(baseRevision, false),
 			grant: ProjectModelGrantRecord{
 				ConfiguredModelID: configuredModelID,
-				SupportsTools:     boolPtrForModelProviderConfigStoreTest(true),
+				SupportsTools:     new(true),
 			},
 		},
 		{
@@ -542,10 +542,6 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 			}
 		})
 	}
-}
-
-func boolPtrForModelProviderConfigStoreTest(value bool) *bool {
-	return &value
 }
 
 func revisionWithToolSupport(revision ConfiguredModelRevisionRecord, supportsTools bool) ConfiguredModelRevisionRecord {

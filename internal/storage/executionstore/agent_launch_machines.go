@@ -233,12 +233,12 @@ func ensurePoolCapacityForConfigTx(
 		requested,
 		requestedMachines,
 		knownResourceCaps(requested, MachineResourceLimits{
-			MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
-			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
-			MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
-			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
-			MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
-			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
+			MaxTotalCPU:        storeutil.IntPtr(poolGrant.PoolMaxTotalCpu),
+			MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.PoolMaxTotalMemoryMb),
+			MinMachineCPU:      storeutil.IntPtr(poolGrant.PoolMinMachineCpu),
+			MinMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMinMachineMemoryMb),
+			MaxMachineCPU:      storeutil.IntPtr(poolGrant.PoolMaxMachineCpu),
+			MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMaxMachineMemoryMb),
 		}),
 	); err != nil {
 		return fmt.Errorf("machine pool %w", err)
@@ -264,12 +264,12 @@ func ensurePoolCapacityForConfigTx(
 		requested,
 		requestedMachines,
 		knownResourceCaps(requested, MachineResourceLimits{
-			MaxTotalCPU:        intPtrFromSQLC(poolGrant.GrantMaxTotalCpu),
-			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.GrantMaxTotalMemoryMb),
-			MinMachineCPU:      intPtrFromSQLC(poolGrant.GrantMinMachineCpu),
-			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMinMachineMemoryMb),
-			MaxMachineCPU:      intPtrFromSQLC(poolGrant.GrantMaxMachineCpu),
-			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.GrantMaxMachineMemoryMb),
+			MaxTotalCPU:        storeutil.IntPtr(poolGrant.GrantMaxTotalCpu),
+			MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.GrantMaxTotalMemoryMb),
+			MinMachineCPU:      storeutil.IntPtr(poolGrant.GrantMinMachineCpu),
+			MinMachineMemoryMB: storeutil.IntPtr(poolGrant.GrantMinMachineMemoryMb),
+			MaxMachineCPU:      storeutil.IntPtr(poolGrant.GrantMaxMachineCpu),
+			MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.GrantMaxMachineMemoryMb),
 		}),
 	); err != nil {
 		return fmt.Errorf("project machine pool %w", err)
@@ -298,7 +298,7 @@ func insertAgentMachineBindingTx(
 			Cwd:                    input.Cwd,
 			EnvOverlay:             normalizedJSON(input.EnvOverlay),
 			SecretEnvOverlay:       normalizedJSON(input.SecretEnvOverlay),
-			DeleteAfterIdleMinutes: sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+			DeleteAfterIdleMinutes: storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 			Metadata:               normalizedJSON(input.Metadata),
 		},
 	)

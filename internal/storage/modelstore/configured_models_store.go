@@ -402,8 +402,8 @@ func updateConfiguredModelInputFromCurrent(current ConfiguredModelRecord) config
 		Name:                      current.Name,
 		ProviderModelSlug:         current.ProviderModelSlug,
 		ContextWindowTokens:       current.ContextWindowTokens,
-		MaxOutputTokens:           cloneIntPtr(current.MaxOutputTokens),
-		DefaultMaxOutputTokens:    cloneIntPtr(current.DefaultMaxOutputTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(current.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(current.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     current.DefaultCacheRetention,
 		SupportsTools:             &supportsTools,
 		SupportsReasoning:         current.SupportsReasoning,
@@ -474,7 +474,7 @@ func configuredModelBehaviorChanged(current ConfiguredModelRecord, update config
 
 func applyNullableIntPatch(target **int, value patch.NullableInt) {
 	if value.Set {
-		*target = cloneIntPtr(value.Value)
+		*target = storeutil.ClonePtr(value.Value)
 	}
 }
 
@@ -870,8 +870,8 @@ func configuredModelRecordFromLockedConfiguredModelAndRevisionSQLC(
 		CurrentRevisionID:         configuredModel.CurrentRevisionID,
 		ProviderModelSlug:         revision.ProviderModelSlug,
 		ContextWindowTokens:       revision.ContextWindowTokens,
-		MaxOutputTokens:           cloneIntPtr(revision.MaxOutputTokens),
-		DefaultMaxOutputTokens:    cloneIntPtr(revision.DefaultMaxOutputTokens),
+		MaxOutputTokens:           storeutil.ClonePtr(revision.MaxOutputTokens),
+		DefaultMaxOutputTokens:    storeutil.ClonePtr(revision.DefaultMaxOutputTokens),
 		DefaultCacheRetention:     revision.DefaultCacheRetention,
 		SupportsTools:             revision.SupportsTools,
 		SupportsReasoning:         revision.SupportsReasoning,

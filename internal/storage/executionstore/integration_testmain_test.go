@@ -237,18 +237,6 @@ func idFromSQLCPtrForTest(value *ID) ID {
 	return *value
 }
 
-func sqlcInt32Ptr(value *int) *int32 {
-	if value == nil {
-		return nil
-	}
-	converted := int32(*value)
-	return &converted
-}
-
-func sameIntPtr(left, right *int) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
-}
-
 func testMachineProvisioning(
 	t *testing.T,
 	cpu int,

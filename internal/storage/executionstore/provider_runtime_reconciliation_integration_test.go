@@ -740,7 +740,7 @@ func TestEnablingRuntimeProtectionPreservesInflightWake(t *testing.T) {
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       fixture.machinePool.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(true),
+			RuntimeProtectionEnabled: new(true),
 		},
 	); err != nil {
 		t.Fatalf("enable runtime protection during wake: %v", err)
@@ -1010,7 +1010,7 @@ WHERE org_id = $1 AND id = $2
 					executionstore.UpdateMachinePoolInput{
 						OrgID:                    testOrgID,
 						ID:                       fixture.machinePool.ID,
-						RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+						RuntimeProtectionEnabled: new(false),
 					},
 				); err != nil {
 					t.Fatalf("disable runtime protection: %v", err)
@@ -1117,7 +1117,7 @@ WHERE org_id = $1 AND id = $2
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       fixture.machinePool.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+			RuntimeProtectionEnabled: new(false),
 		},
 	); err != nil {
 		t.Fatalf("disable protection after forced deletion claim: %v", err)

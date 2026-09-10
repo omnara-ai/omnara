@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
@@ -29,14 +30,6 @@ import (
 type rejectingMachinePoolProviders struct {
 	mergingMachinePoolProviders
 	reject bool
-}
-
-func intPtrFromSQLCForTest(value *int32) *int {
-	if value == nil {
-		return nil
-	}
-	converted := int(*value)
-	return &converted
 }
 
 func requireCurrentAgentLaunchReplay(
@@ -155,8 +148,8 @@ func createDefaultMachinePoolForTest(
 		ManagementKind:                string(management.Cluster),
 		Description:                   input.Description,
 		Provider:                      input.Provider,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -165,11 +158,11 @@ func createDefaultMachinePoolForTest(
 		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -234,7 +227,7 @@ func getAgentMachineBindingForTest(
 		Cwd:                    row.Cwd,
 		EnvOverlay:             row.EnvOverlay,
 		SecretEnvOverlay:       row.SecretEnvOverlay,
-		DeleteAfterIdleMinutes: intPtrFromSQLCForTest(row.DeleteAfterIdleMinutes),
+		DeleteAfterIdleMinutes: storeutil.IntPtr(row.DeleteAfterIdleMinutes),
 		Metadata:               row.Metadata,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,

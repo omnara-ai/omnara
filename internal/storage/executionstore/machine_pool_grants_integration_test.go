@@ -121,10 +121,6 @@ func projectGrantInputWithDefaultMachineOverlayForTest(
 	return input
 }
 
-func boolPtrForMachinePoolTest(value bool) *bool {
-	return &value
-}
-
 func TestMachinePoolRuntimeProtectionDefaultsOffAndToggleClearsMarkers(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -196,7 +192,7 @@ INSERT INTO machines(
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       protected.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+			RuntimeProtectionEnabled: new(false),
 		},
 	)
 	if err != nil {
@@ -230,7 +226,7 @@ INSERT INTO machines(
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       protected.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(true),
+			RuntimeProtectionEnabled: new(true),
 		},
 	); err != nil {
 		t.Fatalf("re-enable runtime protection: %v", err)
@@ -632,10 +628,10 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	}
 	if patched.Name != updated.Name || patched.Description != patchDescription ||
 		patched.DefaultCwd != updated.DefaultCwd || patched.ProviderAuthSecretID != updated.ProviderAuthSecretID ||
-		!sameIntPtr(patched.MaxTotalCPU, updated.MaxTotalCPU) ||
-		!sameIntPtr(patched.DeleteAfterIdleMinutes, updated.DeleteAfterIdleMinutes) ||
-		!sameIntPtr(patched.DefaultMachineCPU, updated.DefaultMachineCPU) ||
-		!sameIntPtr(patched.DefaultMachineMemoryMB, updated.DefaultMachineMemoryMB) ||
+		!storeutil.SameIntPtr(patched.MaxTotalCPU, updated.MaxTotalCPU) ||
+		!storeutil.SameIntPtr(patched.DeleteAfterIdleMinutes, updated.DeleteAfterIdleMinutes) ||
+		!storeutil.SameIntPtr(patched.DefaultMachineCPU, updated.DefaultMachineCPU) ||
+		!storeutil.SameIntPtr(patched.DefaultMachineMemoryMB, updated.DefaultMachineMemoryMB) ||
 		!sameJSON(patched.DefaultMachineEnv, updated.DefaultMachineEnv) ||
 		!sameJSON(patched.DefaultMachineSecretEnv, updated.DefaultMachineSecretEnv) ||
 		!sameJSON(patched.DefaultMachineProviderOptions, updated.DefaultMachineProviderOptions) ||

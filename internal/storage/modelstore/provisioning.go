@@ -178,9 +178,9 @@ func cloneDefaultModelProviderTemplate(template DefaultModelProviderTemplate) De
 	template.Models = append([]DefaultConfiguredModelTemplate(nil), template.Models...)
 	for i := range template.Models {
 		model := &template.Models[i]
-		model.MaxOutputTokens = cloneIntPtr(model.MaxOutputTokens)
-		model.DefaultMaxOutputTokens = cloneIntPtr(model.DefaultMaxOutputTokens)
-		model.SupportsTools = cloneBoolPtr(model.SupportsTools)
+		model.MaxOutputTokens = storeutil.ClonePtr(model.MaxOutputTokens)
+		model.DefaultMaxOutputTokens = storeutil.ClonePtr(model.DefaultMaxOutputTokens)
+		model.SupportsTools = storeutil.ClonePtr(model.SupportsTools)
 		model.SupportedReasoningEfforts = append([]string(nil), model.SupportedReasoningEfforts...)
 		model.InputModalities = append([]string(nil), model.InputModalities...)
 		model.OutputModalities = append([]string(nil), model.OutputModalities...)
