@@ -4,78 +4,119 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	pb "github.com/modal-labs/modal-client/go/proto/modal_proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
 func TestProviderProvisionCreatesSandbox(t *testing.T) {
-	api := newFakeAPI()
-	target := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
-	machineID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-
-	result, err := target.ProvisionMachine(
-		context.Background(),
-		testInstallationID(),
-		machineID,
-		testProvisioning(t, "us-east"),
-		"machine-token",
-		map[string]string{"APP_ENV": "production"},
-	)
-	if err != nil {
-		t.Fatalf("provision modal machine: %v", err)
-	}
-	name := testSandboxName(t, machineID)
-	if result.ProviderResourceID != "sb-"+name {
-		t.Fatalf("provider resource id = %q", result.ProviderResourceID)
-	}
-	request := api.createRequest
-	if request.Name != name || request.Image != "registry.example/daemon:latest" ||
-		request.CPU != 0.5 || request.MemoryMB != 1024 || request.Timeout != sandboxTimeout ||
-		request.Region != "us-east" || !reflect.DeepEqual(request.Tags, testOwnershipTags(t, machineID)) {
-		t.Fatalf("create request = %+v", request)
-	}
-	if !reflect.DeepEqual(request.Command, providers.ManagedDaemonLauncherArgs()) {
-		t.Fatalf("command = %#v", request.Command)
-	}
-	if request.Env["APP_ENV"] != "production" ||
-		request.Env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
-		request.Env[providers.ManagedBootstrapScriptEnvVar] == "" {
-		t.Fatalf("create env = %+v", request.Env)
-	}
-	if _, err := base64.StdEncoding.DecodeString(request.Env[providers.ManagedBootstrapScriptEnvVar]); err != nil {
-		t.Fatalf("decode bootstrap script: %v", err)
+	for _, region := range []string{"", "us-east"} {
+		t.Run("region="+region, func(t *testing.T) {
+			rpc := newFakeControlPlane()
+			machineID := uuid.New()
+			result, err := testProvider(t, rpc).ProvisionMachine(
+				context.Background(),
+				testInstallationID(),
+				machineID,
+				testProvisioning(t, region),
+				"machine-token",
+				map[string]string{"APP_ENV": "production"},
+			)
+			if err != nil {
+				t.Fatalf("provision modal machine: %v", err)
+			}
+			name := testSandboxName(t, machineID)
+			if result.ProviderResourceID != fakeSandboxID(name) {
+				t.Fatalf("provider resource id = %q", result.ProviderResourceID)
+			}
+			if rpc.app.GetAppName() != "agents" ||
+				rpc.app.GetEnvironmentName() != "staging" ||
+				rpc.app.GetObjectCreationType() != pb.ObjectCreationType_OBJECT_CREATION_TYPE_CREATE_IF_MISSING {
+				t.Fatalf("incorrect app request: %v", rpc.app)
+			}
+			if diff := cmp.Diff(
+				[]string{"FROM registry.example/daemon:latest"},
+				rpc.image.GetImage().GetDockerfileCommands(),
+			); diff != "" {
+				t.Fatal(diff)
+			}
+			env := rpc.secret.GetEnvDict()
+			if rpc.secret.GetEnvironmentName() != "staging" ||
+				env["APP_ENV"] != "production" ||
+				env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
+				env[providers.ManagedBootstrapScriptEnvVar] == "" {
+				t.Fatalf("create env = %+v", env)
+			}
+			if _, err := base64.StdEncoding.DecodeString(env[providers.ManagedBootstrapScriptEnvVar]); err != nil {
+				t.Fatalf("decode bootstrap script: %v", err)
+			}
+			definition := rpc.create.GetDefinition()
+			resources := definition.GetResources()
+			if resources.GetMilliCpu() != 500 ||
+				resources.GetMilliCpuMax() != 500 ||
+				resources.GetMemoryMb() != 1024 ||
+				resources.GetMemoryMbMax() != 1024 {
+				t.Fatalf("incorrect resources: %v", resources)
+			}
+			if rpc.create.GetAppId() != "ap-test" ||
+				definition.GetImageId() != "im-test" ||
+				definition.GetName() != name ||
+				definition.GetTimeoutSecs() != 86400 {
+				t.Fatalf("incorrect create request: %v", rpc.create)
+			}
+			if diff := cmp.Diff(providers.ManagedDaemonLauncherArgs(), definition.GetEntrypointArgs()); diff != "" {
+				t.Fatal(diff)
+			}
+			if diff := cmp.Diff([]string{"st-test"}, definition.GetSecretIds()); diff != "" {
+				t.Fatal(diff)
+			}
+			var regions []string
+			if region != "" {
+				regions = []string{region}
+			}
+			if diff := cmp.Diff(regions, definition.GetSchedulerPlacement().GetRegions()); diff != "" {
+				t.Fatal(diff)
+			}
+			if diff := cmp.Diff(testOwnershipTags(t, machineID), rpc.sandboxes[fakeSandboxID(name)].tags); diff != "" {
+				t.Fatal(diff)
+			}
+		})
 	}
 }
 
-func TestProviderProvisionOmitsAutomaticRegion(t *testing.T) {
-	api := newFakeAPI()
-	target := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
-	_, err := target.ProvisionMachine(
+func TestProviderProvisionFailsOnLookupError(t *testing.T) {
+	rpc := newFakeControlPlane()
+	rpc.lookupErr = status.Error(codes.PermissionDenied, "denied")
+	machineID := uuid.New()
+	_, err := testProvider(t, rpc).ProvisionMachine(
 		context.Background(),
 		testInstallationID(),
-		uuid.New(),
+		machineID,
 		testProvisioning(t, ""),
 		"machine-token",
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("provision modal machine: %v", err)
+	if status.Code(err) != codes.PermissionDenied || rpc.createCalls != 0 {
+		t.Fatalf("lookup failure: %v, create calls = %d", err, rpc.createCalls)
 	}
-	if api.createRequest.Region != "" {
-		t.Fatalf("region = %q, want automatic placement", api.createRequest.Region)
+	if rpc.lookup.GetAppName() != "agents" ||
+		rpc.lookup.GetEnvironmentName() != "staging" ||
+		rpc.lookup.GetSandboxName() != testSandboxName(t, machineID) {
+		t.Fatalf("incorrect lookup: %v", rpc.lookup)
 	}
 }
 
 func TestProviderProvisionAdoptsExistingSandbox(t *testing.T) {
-	api := newFakeAPI()
+	rpc := newFakeControlPlane()
 	machineID := uuid.New()
-	name := testSandboxName(t, machineID)
-	api.byName[name] = sandbox{ID: "sb-existing", Tags: testOwnershipTags(t, machineID), Running: true}
-	target := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
-	result, err := target.ProvisionMachine(
+	rpc.add(fakeSandboxID("existing"), testSandboxName(t, machineID), testOwnershipTags(t, machineID), true)
+	result, err := testProvider(t, rpc).ProvisionMachine(
 		context.Background(),
 		testInstallationID(),
 		machineID,
@@ -86,18 +127,17 @@ func TestProviderProvisionAdoptsExistingSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adopt modal sandbox: %v", err)
 	}
-	if result.ProviderResourceID != "sb-existing" || api.createCalls != 0 {
-		t.Fatalf("result = %+v, create calls = %d", result, api.createCalls)
+	if result.ProviderResourceID != fakeSandboxID("existing") || rpc.createCalls != 0 {
+		t.Fatalf("result = %+v, create calls = %d", result, rpc.createCalls)
 	}
 }
 
 func TestProviderProvisionRecoversAfterAmbiguousCreateError(t *testing.T) {
-	api := newFakeAPI()
-	api.createErr = errors.New("request timed out")
-	api.createOnError = true
-	target := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
+	rpc := newFakeControlPlane()
+	rpc.createErr = errors.New("request timed out")
+	rpc.createOnError = true
 	machineID := uuid.New()
-	result, err := target.ProvisionMachine(
+	result, err := testProvider(t, rpc).ProvisionMachine(
 		context.Background(),
 		testInstallationID(),
 		machineID,
@@ -108,105 +148,84 @@ func TestProviderProvisionRecoversAfterAmbiguousCreateError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recover modal sandbox: %v", err)
 	}
-	if result.ProviderResourceID != "sb-"+testSandboxName(t, machineID) {
+	if result.ProviderResourceID != fakeSandboxID(testSandboxName(t, machineID)) {
 		t.Fatalf("result = %+v", result)
 	}
 }
 
-func TestProviderRejectsSandboxWithoutOwnershipTag(t *testing.T) {
-	api := newFakeAPI()
-	machineID := uuid.New()
-	name := testSandboxName(t, machineID)
-	api.byName[name] = sandbox{ID: "sb-existing", Tags: map[string]string{}, Running: true}
-	target := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
-	_, err := target.ProvisionMachine(
-		context.Background(),
-		testInstallationID(),
-		machineID,
-		testProvisioning(t, ""),
-		"machine-token",
-		nil,
-	)
-	if err == nil {
-		t.Fatal("expected ownership error")
-	}
-}
-
 func TestProviderRetriesAfterExistingSandboxTerminates(t *testing.T) {
-	api := newFakeAPI()
+	rpc := newFakeControlPlane()
 	machineID := uuid.New()
 	name := testSandboxName(t, machineID)
-	api.byName[name] = sandbox{ID: "sb-terminated", Tags: testOwnershipTags(t, machineID)}
-	p := &provider{api: api, omnaraAPIURL: "https://api.omnara.test/v1"}
+	rpc.add(fakeSandboxID("terminated"), name, testOwnershipTags(t, machineID), false)
+	p := testProvider(t, rpc)
 	ctx := context.Background()
 	provisioning := testProvisioning(t, "")
 	result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
 	if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "" {
 		t.Fatalf("terminated sandbox result = %+v, error = %v", result, err)
 	}
-	if api.createCalls != 0 || api.deleteCalls != 0 {
+	if rpc.createCalls != 0 || len(rpc.terminated) != 0 {
 		t.Fatal("unexpected mutation of terminated sandbox")
 	}
-	delete(api.byName, name)
+	delete(rpc.sandboxes, fakeSandboxID("terminated"))
 	result, err = p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
-	if err != nil || result.ProviderResourceID != "sb-"+name || api.createCalls != 1 {
-		t.Fatalf("replacement sandbox result = %+v, error = %v, creates = %d", result, err, api.createCalls)
+	if err != nil || result.ProviderResourceID != fakeSandboxID(name) || rpc.createCalls != 1 {
+		t.Fatalf("replacement sandbox result = %+v, error = %v, creates = %d", result, err, rpc.createCalls)
 	}
 }
 
 func TestProviderDeleteIsIdempotentForMissingOrFinishedSandbox(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		target  sandbox
-		present bool
+		name         string
+		present      bool
+		terminateErr error
 	}{
-		{name: "missing", target: sandbox{ID: "sb-missing"}},
-		{name: "finished", target: sandbox{ID: "sb-finished", Running: false}, present: true},
+		{name: "missing"},
+		{name: "finished", present: true},
+		{name: "terminate not found", present: true, terminateErr: status.Error(codes.NotFound, "gone")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			api := newFakeAPI()
+			rpc := newFakeControlPlane()
+			rpc.terminateErr = test.terminateErr
 			machineID := uuid.New()
 			if test.present {
-				test.target.Tags = testOwnershipTags(t, machineID)
-				api.byID[test.target.ID] = test.target
+				running := test.terminateErr != nil
+				rpc.add(fakeSandboxID("target"), testSandboxName(t, machineID), testOwnershipTags(t, machineID), running)
 			}
-			target := &provider{api: api}
-			if err := target.DeleteMachine(
+			if err := testProvider(t, rpc).DeleteMachine(
 				context.Background(),
 				testInstallationID(),
 				machineID,
 				testProvisioning(t, ""),
-				test.target.ID,
+				fakeSandboxID("target"),
 			); err != nil {
 				t.Fatalf("delete absent sandbox: %v", err)
 			}
-			if api.deleteCalls != 0 {
-				t.Fatalf("delete calls = %d, want 0", api.deleteCalls)
+			if (len(rpc.terminated) != 0) != (test.terminateErr != nil) {
+				t.Fatalf("terminated = %v", rpc.terminated)
 			}
 		})
 	}
 }
 
 func TestProviderDeletesOwnedRunningSandbox(t *testing.T) {
-	api := newFakeAPI()
-	machineID := uuid.New()
-	api.byID["sb-running"] = sandbox{
-		ID:      "sb-running",
-		Tags:    testOwnershipTags(t, machineID),
-		Running: true,
-	}
-	target := &provider{api: api}
-	if err := target.DeleteMachine(
-		context.Background(),
-		testInstallationID(),
-		machineID,
-		testProvisioning(t, ""),
-		"sb-running",
-	); err != nil {
-		t.Fatalf("delete modal sandbox: %v", err)
-	}
-	if api.deletedID != "sb-running" {
-		t.Fatalf("deleted id = %q", api.deletedID)
+	for _, terminateErr := range []error{nil, status.Error(codes.PermissionDenied, "denied")} {
+		rpc := newFakeControlPlane()
+		rpc.terminateErr = terminateErr
+		machineID := uuid.New()
+		rpc.add(fakeSandboxID("running"), testSandboxName(t, machineID), testOwnershipTags(t, machineID), true)
+		err := testProvider(t, rpc).DeleteMachine(
+			context.Background(),
+			testInstallationID(),
+			machineID,
+			testProvisioning(t, ""),
+			fakeSandboxID("running"),
+		)
+		if (err != nil) != (terminateErr != nil) ||
+			len(rpc.terminated) != 1 || rpc.terminated[0] != fakeSandboxID("running") {
+			t.Fatalf("delete modal sandbox: %v, terminated = %v", err, rpc.terminated)
+		}
 	}
 }
 
@@ -214,15 +233,12 @@ func TestProviderRejectsMismatchedOwnershipTags(t *testing.T) {
 	for _, tag := range []string{installationTag, machineTag} {
 		for _, value := range []string{"", "another-owner"} {
 			t.Run(tag+"/"+value, func(t *testing.T) {
-				api := newFakeAPI()
+				rpc := newFakeControlPlane()
 				machineID := uuid.New()
-				name := testSandboxName(t, machineID)
 				tags := testOwnershipTags(t, machineID)
 				tags[tag] = value
-				current := sandbox{ID: "sb-foreign", Tags: tags, Running: true}
-				api.byName[name] = current
-				api.byID[current.ID] = current
-				p := &provider{api: api}
+				rpc.add(fakeSandboxID("foreign"), testSandboxName(t, machineID), tags, true)
+				p := testProvider(t, rpc)
 				ctx := context.Background()
 				provisioning := testProvisioning(t, "")
 				result, err := p.ProvisionMachine(ctx, testInstallationID(), machineID, provisioning, "token", nil)
@@ -232,17 +248,18 @@ func TestProviderRejectsMismatchedOwnershipTags(t *testing.T) {
 				if result.ProviderResourceID != "" {
 					t.Fatalf("returned foreign sandbox id: %q", result.ProviderResourceID)
 				}
-				if err := p.DeleteMachine(ctx, testInstallationID(), machineID, provisioning, current.ID); err == nil {
+				err = p.DeleteMachine(ctx, testInstallationID(), machineID, provisioning, fakeSandboxID("foreign"))
+				if err == nil {
 					t.Fatal("deleted foreign sandbox")
 				}
 				target := providers.RuntimeTarget{
-					InstallationID: testInstallationID(), MachineID: machineID, ProviderResourceID: current.ID,
+					InstallationID: testInstallationID(), MachineID: machineID, ProviderResourceID: fakeSandboxID("foreign"),
 				}
 				observations, err := p.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{target})
 				if err != nil || len(observations) != 1 || observations[0].State != providers.RuntimeStateUnknown {
 					t.Fatalf("foreign observation: %+v, %v", observations, err)
 				}
-				if api.createCalls != 0 || api.deleteCalls != 0 {
+				if rpc.createCalls != 0 || len(rpc.terminated) != 0 {
 					t.Fatal("mutated foreign sandbox")
 				}
 			})

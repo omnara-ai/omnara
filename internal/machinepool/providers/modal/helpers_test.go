@@ -3,9 +3,15 @@ package modal
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"testing"
 
 	"github.com/google/uuid"
+	pb "github.com/modal-labs/modal-client/go/proto/modal_proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -14,6 +20,26 @@ import (
 
 func testInstallationID() storage.ID {
 	return uuid.MustParse("00000000-0000-0000-0000-000000000002")
+}
+
+func testProvider(t *testing.T, rpc *fakeControlPlane) *provider {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	pb.RegisterModalClientServer(server, rpc)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	t.Setenv("MODAL_SERVER_URL", "http://"+listener.Addr().String())
+	t.Setenv("MODAL_LOGLEVEL", "ERROR")
+	return &provider{
+		app:          "agents",
+		environment:  "staging",
+		credential:   providerCredential{TokenID: "ak-test", TokenSecret: "as-test"},
+		omnaraAPIURL: "https://api.omnara.test/v1",
+	}
 }
 
 func testOwnershipTags(t *testing.T, machineID storage.ID) map[string]string {
@@ -63,6 +89,19 @@ func testPolicy(
 	}
 }
 
+func fakeSandboxID(seed string) string {
+	id := make([]byte, 0, 22)
+	for _, ch := range []byte(seed) {
+		if ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' {
+			id = append(id, ch)
+		}
+	}
+	for len(id) < 22 {
+		id = append(id, 'x')
+	}
+	return "sb-" + string(id[:22])
+}
+
 func testSandboxName(t *testing.T, machineID storage.ID) string {
 	t.Helper()
 	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
@@ -72,57 +111,178 @@ func testSandboxName(t *testing.T, machineID storage.ID) string {
 	return name
 }
 
-type fakeAPI struct {
-	byName        map[string]sandbox
-	byID          map[string]sandbox
-	createRequest createSandboxRequest
+type fakeSandbox struct {
+	name     string
+	tags     map[string]string
+	finished bool
+}
+
+type fakeControlPlane struct {
+	pb.UnimplementedModalClientServer
+	sandboxes     map[string]*fakeSandbox
+	app           *pb.AppGetOrCreateRequest
+	image         *pb.ImageGetOrCreateRequest
+	secret        *pb.SecretGetOrCreateRequest
+	create        *pb.SandboxCreateRequest
+	lookup        *pb.SandboxGetFromNameRequest
 	createCalls   int
 	createErr     error
 	createOnError bool
-	deleteCalls   int
-	deletedID     string
-	getByIDError  error
+	lookupErr     error
+	tagsErr       error
+	waitErr       error
+	terminateErr  error
+	terminated    []string
+	tagsHook      func(context.Context) error
 }
 
-func newFakeAPI() *fakeAPI {
-	return &fakeAPI{byName: map[string]sandbox{}, byID: map[string]sandbox{}}
+func newFakeControlPlane() *fakeControlPlane {
+	return &fakeControlPlane{sandboxes: map[string]*fakeSandbox{}}
 }
 
-func (a *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest) (sandbox, error) {
-	a.createCalls++
-	a.createRequest = request
-	created := sandbox{
-		ID:      "sb-" + request.Name,
-		Tags:    request.Tags,
-		Running: true,
+func (m *fakeControlPlane) add(id, name string, tags map[string]string, running bool) {
+	m.sandboxes[id] = &fakeSandbox{name: name, tags: tags, finished: !running}
+}
+
+func (m *fakeControlPlane) find(id string) (*fakeSandbox, error) {
+	if current, ok := m.sandboxes[id]; ok {
+		return current, nil
 	}
-	if a.createErr == nil || a.createOnError {
-		a.byName[request.Name] = created
-		a.byID[created.ID] = created
+	return nil, status.Error(codes.NotFound, "sandbox "+id+" not found")
+}
+
+func (*fakeControlPlane) AuthTokenGet(
+	context.Context,
+	*pb.AuthTokenGetRequest,
+) (*pb.AuthTokenGetResponse, error) {
+	return pb.AuthTokenGetResponse_builder{Token: "test-token"}.Build(), nil
+}
+
+func (m *fakeControlPlane) AppGetOrCreate(
+	_ context.Context,
+	req *pb.AppGetOrCreateRequest,
+) (*pb.AppGetOrCreateResponse, error) {
+	m.app = req
+	return pb.AppGetOrCreateResponse_builder{AppId: "ap-test"}.Build(), nil
+}
+
+func (*fakeControlPlane) EnvironmentGetOrCreate(
+	context.Context,
+	*pb.EnvironmentGetOrCreateRequest,
+) (*pb.EnvironmentGetOrCreateResponse, error) {
+	return pb.EnvironmentGetOrCreateResponse_builder{
+		Metadata: pb.EnvironmentMetadata_builder{
+			Settings: pb.EnvironmentSettings_builder{ImageBuilderVersion: "2024.10"}.Build(),
+		}.Build(),
+	}.Build(), nil
+}
+
+func (m *fakeControlPlane) ImageGetOrCreate(
+	_ context.Context,
+	req *pb.ImageGetOrCreateRequest,
+) (*pb.ImageGetOrCreateResponse, error) {
+	m.image = req
+	return pb.ImageGetOrCreateResponse_builder{
+		ImageId: "im-test",
+		Result:  pb.GenericResult_builder{Status: pb.GenericResult_GENERIC_STATUS_SUCCESS}.Build(),
+	}.Build(), nil
+}
+
+func (m *fakeControlPlane) SecretGetOrCreate(
+	_ context.Context,
+	req *pb.SecretGetOrCreateRequest,
+) (*pb.SecretGetOrCreateResponse, error) {
+	m.secret = req
+	return pb.SecretGetOrCreateResponse_builder{SecretId: "st-test"}.Build(), nil
+}
+
+func (m *fakeControlPlane) SandboxCreate(
+	_ context.Context,
+	req *pb.SandboxCreateRequest,
+) (*pb.SandboxCreateResponse, error) {
+	m.createCalls++
+	m.create = req
+	name := req.GetDefinition().GetName()
+	if m.createErr == nil || m.createOnError {
+		tags := make(map[string]string, len(req.GetTags()))
+		for _, tag := range req.GetTags() {
+			tags[tag.GetTagName()] = tag.GetTagValue()
+		}
+		m.add(fakeSandboxID(name), name, tags, true)
 	}
-	if a.createErr != nil {
-		return sandbox{}, a.createErr
+	if m.createErr != nil {
+		return nil, m.createErr
 	}
-	return created, nil
+	return pb.SandboxCreateResponse_builder{SandboxId: fakeSandboxID(name)}.Build(), nil
 }
 
-func (a *fakeAPI) GetSandboxByName(_ context.Context, name string) (sandbox, bool, error) {
-	target, found := a.byName[name]
-	return target, found, nil
-}
-
-func (a *fakeAPI) GetSandboxByID(_ context.Context, id string) (sandbox, bool, error) {
-	if a.getByIDError != nil {
-		return sandbox{}, false, a.getByIDError
+func (m *fakeControlPlane) SandboxGetFromName(
+	_ context.Context,
+	req *pb.SandboxGetFromNameRequest,
+) (*pb.SandboxGetFromNameResponse, error) {
+	m.lookup = req
+	if m.lookupErr != nil {
+		return nil, m.lookupErr
 	}
-	target, found := a.byID[id]
-	return target, found, nil
+	for id, current := range m.sandboxes {
+		if current.name == req.GetSandboxName() {
+			return pb.SandboxGetFromNameResponse_builder{SandboxId: id}.Build(), nil
+		}
+	}
+	return nil, status.Error(codes.NotFound, "sandbox "+req.GetSandboxName()+" not found")
 }
 
-func (a *fakeAPI) DeleteSandbox(_ context.Context, id string) error {
-	a.deleteCalls++
-	a.deletedID = id
-	return nil
+func (m *fakeControlPlane) SandboxTagsGet(
+	ctx context.Context,
+	req *pb.SandboxTagsGetRequest,
+) (*pb.SandboxTagsGetResponse, error) {
+	if m.tagsHook != nil {
+		if err := m.tagsHook(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if m.tagsErr != nil {
+		return nil, m.tagsErr
+	}
+	current, err := m.find(req.GetSandboxId())
+	if err != nil {
+		return nil, err
+	}
+	tags := make([]*pb.SandboxTag, 0, len(current.tags))
+	for name, value := range current.tags {
+		tags = append(tags, pb.SandboxTag_builder{TagName: name, TagValue: value}.Build())
+	}
+	return pb.SandboxTagsGetResponse_builder{Tags: tags}.Build(), nil
 }
 
-func (a *fakeAPI) Close() {}
+func (m *fakeControlPlane) SandboxWait(
+	_ context.Context,
+	req *pb.SandboxWaitRequest,
+) (*pb.SandboxWaitResponse, error) {
+	if m.waitErr != nil {
+		return nil, m.waitErr
+	}
+	current, err := m.find(req.GetSandboxId())
+	if err != nil {
+		return nil, err
+	}
+	response := pb.SandboxWaitResponse_builder{}
+	if current.finished {
+		response.Result = pb.GenericResult_builder{Status: pb.GenericResult_GENERIC_STATUS_SUCCESS}.Build()
+	}
+	return response.Build(), nil
+}
+
+func (m *fakeControlPlane) SandboxTerminate(
+	_ context.Context,
+	req *pb.SandboxTerminateRequest,
+) (*pb.SandboxTerminateResponse, error) {
+	m.terminated = append(m.terminated, req.GetSandboxId())
+	if m.terminateErr != nil {
+		return nil, m.terminateErr
+	}
+	if current, ok := m.sandboxes[req.GetSandboxId()]; ok {
+		current.finished = true
+	}
+	return pb.SandboxTerminateResponse_builder{}.Build(), nil
+}

@@ -40,24 +40,18 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := p.apiClient()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(api.Close)
-	p.api = modalLiveAPI{apiClient: api}
 	machineID := uuid.New()
-	name := testSandboxName(t, machineID)
 	provisioning := testProvisioning(t, strings.TrimSpace(os.Getenv("OMNARA_MODAL_TEST_REGION")))
 	rawImage, err := json.Marshal(image)
 	if err != nil {
 		t.Fatal(err)
 	}
 	provisioning.ProviderOptions["image"] = rawImage
+	provisioning.ProviderOptions["startup_script"] = json.RawMessage(`"sleep 300"`)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		current, found, err := api.GetSandboxByName(ctx, name)
+		id, found, err := p.InspectMachine(ctx, testInstallationID(), machineID, provisioning, "")
 		if err != nil {
 			t.Errorf("find live sandbox for cleanup: %v", err)
 			return
@@ -65,12 +59,7 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 		if !found {
 			return
 		}
-		if !sandboxOwnedBy(current, testInstallationID(), machineID) ||
-			current.Tags[providercontract.LiveResourceLabel] != providercontract.LiveResourceValue {
-			t.Error("refusing cleanup of unmarked sandbox")
-			return
-		}
-		if err := api.DeleteSandbox(ctx, current.ID); err != nil {
+		if err := p.DeleteMachine(ctx, testInstallationID(), machineID, provisioning, id); err != nil {
 			t.Errorf("cleanup live sandbox: %v", err)
 		}
 	})
@@ -124,15 +113,8 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 	if err != nil || observation.State != providers.RuntimeStateRunning {
 		t.Fatalf("sandbox after refused deletion: %+v, %v", observation, err)
 	}
-	invalidAPI, err := newModalAPI(config.App, config.Environment, providerCredential{
-		TokenID: tokenID, TokenSecret: "intentionally-invalid",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(invalidAPI.Close)
 	unauthorized := *p
-	unauthorized.api = invalidAPI
+	unauthorized.credential.TokenSecret = "intentionally-invalid"
 	authCtx, stopAuth := context.WithTimeout(ctx, 10*time.Second)
 	observation, err = unauthorized.ObserveRuntimeState(authCtx, target)
 	stopAuth()
@@ -170,17 +152,4 @@ func TestModalProviderLiveSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete replacement sandbox: %v", err)
 	}
-}
-
-type modalLiveAPI struct{ apiClient }
-
-func (api modalLiveAPI) CreateSandbox(
-	ctx context.Context,
-	request createSandboxRequest,
-) (sandbox, error) {
-	request.Tags[providercontract.LiveResourceLabel] = providercontract.LiveResourceValue
-	request.Env[providercontract.LiveResourceEnv] = providercontract.LiveResourceValue
-	request.Command = []string{"sleep", "300"}
-	request.Timeout = 5 * time.Minute
-	return api.apiClient.CreateSandbox(ctx, request)
 }

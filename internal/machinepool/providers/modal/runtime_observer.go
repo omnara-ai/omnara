@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	modalsdk "github.com/modal-labs/modal-client/go"
+
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
 )
@@ -29,19 +31,17 @@ func (p *provider) ObserveRuntimeStates(
 	if len(targets) == 0 {
 		return observations, nil
 	}
-	api, err := p.apiClient()
+	client, err := p.newClient()
 	if err != nil {
 		return nil, err
 	}
-	if p.api == nil {
-		defer api.Close()
-	}
+	defer client.Close()
 	for index, target := range targets {
 		if resourceCounts[target.ProviderResourceID] != 1 || machineCounts[target.MachineID] != 1 {
 			continue
 		}
 		observationCtx, cancel := context.WithTimeout(ctx, runtimeObservationTimeout)
-		observation, err := observeRuntimeState(observationCtx, api, target)
+		observation, err := observeRuntimeState(observationCtx, client, target)
 		cancel()
 		if err != nil {
 			return nil, err
@@ -55,19 +55,17 @@ func (p *provider) ObserveRuntimeState(
 	ctx context.Context,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
-	api, err := p.apiClient()
+	client, err := p.newClient()
 	if err != nil {
 		return target.UnknownObservation(), err
 	}
-	if p.api == nil {
-		defer api.Close()
-	}
-	return observeRuntimeState(ctx, api, target)
+	defer client.Close()
+	return observeRuntimeState(ctx, client, target)
 }
 
 func observeRuntimeState(
 	ctx context.Context,
-	api apiClient,
+	client *modalsdk.Client,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
 	observation := target.UnknownObservation()
@@ -76,7 +74,7 @@ func observeRuntimeState(
 		target.ProviderResourceID != strings.TrimSpace(target.ProviderResourceID) {
 		return observation, nil
 	}
-	current, found, err := api.GetSandboxByID(ctx, target.ProviderResourceID)
+	current, found, err := sandboxByID(ctx, client, target.ProviderResourceID)
 	if err != nil {
 		return observation, fmt.Errorf("observe modal sandbox runtime: %w", err)
 	}
@@ -84,7 +82,7 @@ func observeRuntimeState(
 		observation.State = providers.RuntimeStateTerminated
 		return observation, nil
 	}
-	if current.ID != target.ProviderResourceID || !sandboxOwnedBy(current, target.InstallationID, target.MachineID) {
+	if !sandboxOwnedBy(current, target.InstallationID, target.MachineID) {
 		return observation, nil
 	}
 	if current.Running {

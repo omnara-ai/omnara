@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	modalsdk "github.com/modal-labs/modal-client/go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -20,11 +24,24 @@ const (
 )
 
 type provider struct {
-	api          apiClient
 	app          string
 	environment  string
 	credential   providerCredential
 	omnaraAPIURL string
+}
+
+type sandbox struct {
+	ID      string
+	Tags    map[string]string
+	Running bool
+}
+
+func (p *provider) newClient() (*modalsdk.Client, error) {
+	return modalsdk.NewClientWithOptions(&modalsdk.ClientParams{
+		TokenID:     p.credential.TokenID,
+		TokenSecret: p.credential.TokenSecret,
+		Environment: p.environment,
+	})
 }
 
 func (*provider) ProvisioningTimeout() time.Duration {
@@ -60,14 +77,12 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	api, err := p.apiClient()
+	client, err := p.newClient()
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	if p.api == nil {
-		defer api.Close()
-	}
-	if existing, found, err := api.GetSandboxByName(ctx, name); err != nil {
+	defer client.Close()
+	if existing, found, err := p.sandboxByName(ctx, client, name); err != nil {
 		return providers.ProvisionMachineResult{}, err
 	} else if found {
 		return provisionResult(existing, installationID, machineID)
@@ -86,24 +101,43 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
-	created, err := api.CreateSandbox(ctx, createSandboxRequest{
-		Name:     name,
-		Image:    options.Image,
-		CPU:      float64(*machineProvisioning.CPU) / 2,
-		MemoryMB: *machineProvisioning.MemoryMB,
-		Timeout:  sandboxTimeout,
-		Command:  providers.ManagedDaemonLauncherArgs(),
-		Env:      env,
-		Region:   options.Region,
-		Tags:     map[string]string{installationTag: installationOwner, machineTag: machineOwner},
+	app, err := client.Apps.FromName(ctx, p.app, &modalsdk.AppFromNameParams{
+		Environment:     p.environment,
+		CreateIfMissing: true,
 	})
 	if err != nil {
-		if existing, found, inspectErr := api.GetSandboxByName(ctx, name); inspectErr == nil && found {
+		return providers.ProvisionMachineResult{}, err
+	}
+	var regions []string
+	if options.Region != "" {
+		regions = []string{options.Region}
+	}
+	cpu := float64(*machineProvisioning.CPU) / 2
+	tags := map[string]string{installationTag: installationOwner, machineTag: machineOwner}
+	created, err := client.Sandboxes.Create(
+		ctx,
+		app,
+		client.Images.FromRegistry(options.Image, nil),
+		&modalsdk.SandboxCreateParams{
+			CPU:            cpu,
+			CPULimit:       cpu,
+			MemoryMiB:      *machineProvisioning.MemoryMB,
+			MemoryLimitMiB: *machineProvisioning.MemoryMB,
+			Timeout:        sandboxTimeout,
+			Command:        providers.ManagedDaemonLauncherArgs(),
+			Env:            env,
+			Regions:        regions,
+			Name:           name,
+			Tags:           tags,
+		},
+	)
+	if err != nil {
+		if existing, found, inspectErr := p.sandboxByName(ctx, client, name); inspectErr == nil && found {
 			return provisionResult(existing, installationID, machineID)
 		}
 		return providers.ProvisionMachineResult{}, err
 	}
-	return provisionResult(created, installationID, machineID)
+	return provisionResult(sandbox{ID: created.SandboxID, Tags: tags, Running: true}, installationID, machineID)
 }
 
 func (p *provider) InspectMachine(
@@ -113,14 +147,12 @@ func (p *provider) InspectMachine(
 	_ executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
-	api, err := p.apiClient()
+	client, err := p.newClient()
 	if err != nil {
 		return "", false, err
 	}
-	if p.api == nil {
-		defer api.Close()
-	}
-	return inspectMachine(ctx, api, installationID, machineID, providerResourceID)
+	defer client.Close()
+	return p.inspectMachine(ctx, client, installationID, machineID, providerResourceID)
 }
 
 func (p *provider) DeleteMachine(
@@ -133,33 +165,31 @@ func (p *provider) DeleteMachine(
 	if providerResourceID == "" {
 		return errors.New("provider resource id is required")
 	}
-	api, err := p.apiClient()
+	client, err := p.newClient()
 	if err != nil {
 		return err
 	}
-	if p.api == nil {
-		defer api.Close()
-	}
-	resourceID, found, err := inspectMachine(ctx, api, installationID, machineID, providerResourceID)
+	defer client.Close()
+	resourceID, found, err := p.inspectMachine(ctx, client, installationID, machineID, providerResourceID)
 	if err == nil && !found {
-		resourceID, found, err = inspectMachine(ctx, api, installationID, machineID, "")
+		resourceID, found, err = p.inspectMachine(ctx, client, installationID, machineID, "")
 	}
 	if err != nil || !found {
 		return err
 	}
-	return api.DeleteSandbox(ctx, resourceID)
-}
-
-func (p *provider) apiClient() (apiClient, error) {
-	if p.api != nil {
-		return p.api, nil
+	target, err := client.Sandboxes.FromID(ctx, resourceID, nil)
+	if err != nil {
+		return err
 	}
-	return newModalAPI(p.app, p.environment, p.credential)
+	if _, err := target.Terminate(ctx, nil); err != nil && !isNotFound(err) {
+		return err
+	}
+	return nil
 }
 
-func inspectMachine(
+func (p *provider) inspectMachine(
 	ctx context.Context,
-	api apiClient,
+	client *modalsdk.Client,
 	installationID storage.ID,
 	machineID storage.ID,
 	providerResourceID string,
@@ -171,9 +201,9 @@ func inspectMachine(
 	var target sandbox
 	var found bool
 	if providerResourceID != "" {
-		target, found, err = api.GetSandboxByID(ctx, providerResourceID)
+		target, found, err = sandboxByID(ctx, client, providerResourceID)
 	} else {
-		target, found, err = api.GetSandboxByName(ctx, expectedName)
+		target, found, err = p.sandboxByName(ctx, client, expectedName)
 	}
 	if err != nil || !found {
 		return "", false, err
@@ -186,6 +216,60 @@ func inspectMachine(
 		return "", false, err
 	}
 	return result.ProviderResourceID, true, nil
+}
+
+func (p *provider) sandboxByName(
+	ctx context.Context,
+	client *modalsdk.Client,
+	name string,
+) (sandbox, bool, error) {
+	target, err := client.Sandboxes.FromName(
+		ctx,
+		p.app,
+		name,
+		&modalsdk.SandboxFromNameParams{Environment: p.environment},
+	)
+	if isNotFound(err) {
+		return sandbox{}, false, nil
+	}
+	if err != nil {
+		return sandbox{}, false, err
+	}
+	return describeSandbox(ctx, target)
+}
+
+func sandboxByID(ctx context.Context, client *modalsdk.Client, id string) (sandbox, bool, error) {
+	target, err := client.Sandboxes.FromID(ctx, id, nil)
+	if err != nil {
+		return sandbox{}, false, err
+	}
+	return describeSandbox(ctx, target)
+}
+
+func describeSandbox(ctx context.Context, target *modalsdk.Sandbox) (sandbox, bool, error) {
+	tags, err := target.GetTags(ctx, nil)
+	if isNotFound(err) {
+		return sandbox{}, false, nil
+	}
+	if err != nil {
+		return sandbox{}, false, err
+	}
+	exitCode, err := target.Poll(ctx, nil)
+	if isNotFound(err) {
+		return sandbox{}, false, nil
+	}
+	if err != nil {
+		return sandbox{}, false, err
+	}
+	return sandbox{ID: target.SandboxID, Tags: tags, Running: exitCode == nil}, true, nil
+}
+
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var notFound modalsdk.NotFoundError
+	return errors.As(err, &notFound) || status.Code(err) == codes.NotFound
 }
 
 func provisionResult(target sandbox, installationID, machineID storage.ID) (providers.ProvisionMachineResult, error) {

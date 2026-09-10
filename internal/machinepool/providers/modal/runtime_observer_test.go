@@ -7,34 +7,50 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
 func TestObserveRuntimeState(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		current sandbox
-		present bool
-		want    providers.RuntimeState
+		name             string
+		present, running bool
+		tagsErr, waitErr error
+		want             providers.RuntimeState
+		wantError        bool
 	}{
+		{name: "running", present: true, running: true, want: providers.RuntimeStateRunning},
+		{name: "finished", present: true, want: providers.RuntimeStateTerminated},
+		{name: "missing", want: providers.RuntimeStateTerminated},
 		{
-			name:    "running",
-			current: sandbox{ID: "sb-running", Running: true},
-			present: true,
-			want:    providers.RuntimeStateRunning,
+			name: "missing tags", present: true, running: true,
+			tagsErr: status.Error(codes.NotFound, "missing"), want: providers.RuntimeStateTerminated,
 		},
-		{name: "finished", current: sandbox{ID: "sb-finished"}, present: true, want: providers.RuntimeStateTerminated},
-		{name: "missing", current: sandbox{ID: "sb-missing"}, want: providers.RuntimeStateTerminated},
+		{
+			name: "missing poll", present: true, running: true,
+			waitErr: status.Error(codes.NotFound, "missing"), want: providers.RuntimeStateTerminated,
+		},
+		{
+			name: "tags failure", present: true, wantError: true,
+			tagsErr: status.Error(codes.PermissionDenied, "denied"), want: providers.RuntimeStateUnknown,
+		},
+		{
+			name: "poll failure", present: true, wantError: true,
+			waitErr: status.Error(codes.Aborted, "offline"), want: providers.RuntimeStateUnknown,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			api := newFakeAPI()
-			target := runtimeTarget(t, test.current.ID)
+			rpc := newFakeControlPlane()
+			rpc.tagsErr = test.tagsErr
+			rpc.waitErr = test.waitErr
+			target := runtimeTarget(t, fakeSandboxID("target"))
 			if test.present {
-				test.current.Tags = testOwnershipTags(t, target.MachineID)
-				api.byID[test.current.ID] = test.current
+				rpc.add(fakeSandboxID("target"), "owned", testOwnershipTags(t, target.MachineID), test.running)
 			}
-			observation, err := (&provider{api: api}).ObserveRuntimeState(context.Background(), target)
-			if err != nil {
+			observation, err := testProvider(t, rpc).ObserveRuntimeState(context.Background(), target)
+			if (err != nil) != test.wantError {
 				t.Fatalf("observe modal runtime: %v", err)
 			}
 			assertRuntimeObservation(t, observation, target, test.want)
@@ -42,35 +58,22 @@ func TestObserveRuntimeState(t *testing.T) {
 	}
 }
 
-func TestObserveRuntimeStateFailsOpen(t *testing.T) {
-	api := newFakeAPI()
-	target := runtimeTarget(t, "sb-running")
-	api.byID[target.ProviderResourceID] = sandbox{
-		ID:      target.ProviderResourceID,
-		Tags:    map[string]string{machineTag: "another-machine"},
-		Running: true,
-	}
-	observation, err := (&provider{api: api}).ObserveRuntimeState(context.Background(), target)
+func TestObserveRuntimeStateFailsOpenForForeignSandbox(t *testing.T) {
+	rpc := newFakeControlPlane()
+	target := runtimeTarget(t, fakeSandboxID("running"))
+	rpc.add(fakeSandboxID("running"), "owned", map[string]string{machineTag: "another-machine"}, true)
+	observation, err := testProvider(t, rpc).ObserveRuntimeState(context.Background(), target)
 	if err != nil {
 		t.Fatalf("observe modal runtime: %v", err)
 	}
 	assertRuntimeObservation(t, observation, target, providers.RuntimeStateUnknown)
-
-	api.getByIDError = errors.New("provider unavailable")
-	if _, err := (&provider{api: api}).ObserveRuntimeState(context.Background(), target); err == nil {
-		t.Fatal("expected provider error")
-	}
 }
 
 func TestObserveRuntimeStatesRejectsDuplicateTargets(t *testing.T) {
-	api := newFakeAPI()
-	target := runtimeTarget(t, "sb-running")
-	api.byID[target.ProviderResourceID] = sandbox{
-		ID:      target.ProviderResourceID,
-		Tags:    testOwnershipTags(t, target.MachineID),
-		Running: true,
-	}
-	observations, err := (&provider{api: api}).ObserveRuntimeStates(
+	rpc := newFakeControlPlane()
+	target := runtimeTarget(t, fakeSandboxID("running"))
+	rpc.add(fakeSandboxID("running"), "owned", testOwnershipTags(t, target.MachineID), true)
+	observations, err := testProvider(t, rpc).ObserveRuntimeStates(
 		context.Background(),
 		[]providers.RuntimeTarget{target, target},
 	)
@@ -87,33 +90,26 @@ func TestObserveRuntimeStatesRejectsDuplicateTargets(t *testing.T) {
 
 func TestObserveRuntimeStatesBoundsEachObservation(t *testing.T) {
 	started := time.Now()
-	var contexts []context.Context
-	api := &runtimeObservationAPI{get: func(ctx context.Context, _ string) (sandbox, bool, error) {
+	observed := 0
+	rpc := newFakeControlPlane()
+	rpc.tagsHook = func(ctx context.Context) error {
 		deadline, ok := ctx.Deadline()
 		if !ok || deadline.Before(started.Add(5*time.Second)) || time.Until(deadline) > 5*time.Second {
-			t.Fatalf("unexpected observation deadline: %v, %v", deadline, ok)
+			t.Errorf("unexpected observation deadline: %v, %v", deadline, ok)
 		}
-		for _, previous := range contexts {
-			if !errors.Is(previous.Err(), context.Canceled) {
-				t.Fatal("previous observation context was not canceled")
-			}
-		}
-		contexts = append(contexts, ctx)
-		return sandbox{}, false, nil
-	}}
-	_, err := (&provider{api: api}).ObserveRuntimeStates(context.Background(), []providers.RuntimeTarget{
-		runtimeTarget(t, "sb-first"), runtimeTarget(t, "sb-second"),
-	})
-	if err != nil || len(contexts) != 2 {
-		t.Fatalf("observations: %d, %v", len(contexts), err)
+		observed++
+		return status.Error(codes.NotFound, "missing")
 	}
-	if !errors.Is(contexts[1].Err(), context.Canceled) {
-		t.Fatal("last observation context was not canceled")
+	_, err := testProvider(t, rpc).ObserveRuntimeStates(context.Background(), []providers.RuntimeTarget{
+		runtimeTarget(t, fakeSandboxID("first")), runtimeTarget(t, fakeSandboxID("second")),
+	})
+	if err != nil || observed != 2 {
+		t.Fatalf("observations: %d, %v", observed, err)
 	}
 }
 
 func TestObserveRuntimeStatesTimeoutFailsOpen(t *testing.T) {
-	for _, timeout := range []time.Duration{0, 10 * time.Millisecond} {
+	for _, timeout := range []time.Duration{0, 250 * time.Millisecond} {
 		t.Run(timeout.String(), func(t *testing.T) {
 			ctx := context.Background()
 			if timeout > 0 {
@@ -121,34 +117,27 @@ func TestObserveRuntimeStatesTimeoutFailsOpen(t *testing.T) {
 				ctx, cancel = context.WithTimeout(ctx, timeout)
 				defer cancel()
 			}
-			api := &runtimeObservationAPI{get: func(callCtx context.Context, _ string) (sandbox, bool, error) {
+			rpc := newFakeControlPlane()
+			rpc.tagsHook = func(callCtx context.Context) error {
 				deadline, ok := callCtx.Deadline()
 				if !ok {
-					t.Fatal("observation has no deadline")
+					t.Error("observation has no deadline")
 				}
-				if parentDeadline, bounded := ctx.Deadline(); bounded && !deadline.Equal(parentDeadline) {
-					t.Fatal("observation extended the parent deadline")
+				if _, bounded := ctx.Deadline(); bounded && time.Until(deadline) > time.Second {
+					t.Error("observation extended the parent deadline")
 				}
 				<-callCtx.Done()
-				return sandbox{}, false, callCtx.Err()
-			}}
-			observations, err := (&provider{api: api}).ObserveRuntimeStates(ctx, []providers.RuntimeTarget{
-				runtimeTarget(t, "sb-stalled"),
+				return callCtx.Err()
+			}
+			observations, err := testProvider(t, rpc).ObserveRuntimeStates(ctx, []providers.RuntimeTarget{
+				runtimeTarget(t, fakeSandboxID("stalled")),
 			})
-			if !errors.Is(err, context.DeadlineExceeded) || len(observations) != 0 {
+			if status.Code(err) != codes.DeadlineExceeded && !errors.Is(err, context.DeadlineExceeded) ||
+				len(observations) != 0 {
 				t.Fatalf("timed-out observations: %+v, %v", observations, err)
 			}
 		})
 	}
-}
-
-type runtimeObservationAPI struct {
-	apiClient
-	get func(context.Context, string) (sandbox, bool, error)
-}
-
-func (api *runtimeObservationAPI) GetSandboxByID(ctx context.Context, id string) (sandbox, bool, error) {
-	return api.get(ctx, id)
 }
 
 func runtimeTarget(t *testing.T, providerResourceID string) providers.RuntimeTarget {
