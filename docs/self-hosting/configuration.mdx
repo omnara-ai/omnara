@@ -162,9 +162,9 @@ organization owners configure providers themselves.
 Templates also define model capacity and optional request defaults. Omit
 `default_max_output_tokens` to use the model's capacity. Every format may omit
 `max_output_tokens` when capacity is unknown. If both settings are absent, Messages
-looks up the provider's output limit and falls back to 64,000 tokens; other formats
-omit the request allowance. See [model output limits](/organization/model-providers)
-for provider requirements and context budgeting.
+uses a 64,000-token allowance; other formats omit the request allowance. See
+[model output limits](/organization/model-providers) for provider requirements and
+context budgeting.
 
 To reconcile configured defaults into existing organizations, run these commands
 with the same database and template environment as the API:

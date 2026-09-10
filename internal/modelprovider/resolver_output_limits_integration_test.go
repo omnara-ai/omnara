@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -20,7 +19,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,17 +43,20 @@ func TestResolverOutputAllowancePrecedenceAndWire(t *testing.T) {
 		Material: secrets.GenericMaterial{Value: "test-key"}, Actor: modelProviderUserPrincipal(user.ID),
 	})
 	require.NoError(t, err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		t.Errorf("unexpected provider request: %s %s", request.Method, request.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
 	for _, tc := range []struct {
 		name                                               string
 		format                                             modelprotocol.APIFormat
 		variant                                            modelprotocol.APIVariant
 		capacity, allowance, grantMax, grantDefault, agent *int
-		contextWindow, published, want                     int
-		lookup                                             bool
+		contextWindow, want                                int
 	}{
-		{name: "messages-discovered", published: 96000, want: 96000, lookup: true},
-		{name: "messages-fallback", want: 64000, lookup: true},
-		{name: "messages-context-fit", contextWindow: 32000, published: 96000, want: 96000, lookup: true},
+		{name: "messages-fallback", want: 64000},
+		{name: "messages-context-fit", contextWindow: 32000, want: 64000},
 		{name: "configured-default", allowance: new(12000), capacity: new(80000), want: 12000},
 		{name: "configured-ceiling", capacity: new(80000), want: 80000},
 		{name: "project-default", grantDefault: new(10000), want: 10000},
@@ -66,14 +67,6 @@ func TestResolverOutputAllowancePrecedenceAndWire(t *testing.T) {
 		{name: "responses-omission", format: modelprotocol.APIFormatOpenAIResponses},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var lookups atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				lookups.Add(1)
-				assert.Equal(t, http.MethodGet, request.Method)
-				assert.Equal(t, "/v1/models/"+tc.name, request.URL.Path)
-				assert.NoError(t, json.NewEncoder(w).Encode(map[string]int{"max_tokens": tc.published}))
-			}))
-			t.Cleanup(server.Close)
 			if tc.format == "" {
 				tc.format = modelprotocol.APIFormatAnthropicMessages
 			}
@@ -95,47 +88,39 @@ func TestResolverOutputAllowancePrecedenceAndWire(t *testing.T) {
 				MaxOutputTokens: tc.grantMax, DefaultMaxOutputTokens: tc.grantDefault,
 			})
 			require.NoError(t, err)
-			resolver := Resolver{Models: store.Models(), Secrets: store.Secrets(), AllowLoopback: true,
-				MessagesOutputLimits: &MessagesOutputLimits{}}
+			resolver := Resolver{Models: store.Models(), Secrets: store.Secrets(), AllowLoopback: true}
 			selection := model.Selection{
 				OrgID: created.Org.ID.String(), ProjectID: created.Project.ID.String(),
 				ConfiguredModelRevisionID: configured.CurrentRevisionID.String(),
 				Overrides:                 agentconfig.ModelOverrides{DefaultMaxOutputTokens: tc.agent},
 			}
-			for range 2 {
-				resolved, err := resolver.Resolve(ctx, selection)
-				require.NoError(t, err)
-				caps := resolved.Client.Capabilities()
-				prepared, err := model.PrepareForSend(ctx, resolved.Client, model.PrepareForSendInput{
-					Context: modelcontext.Bundle{SystemPrompt: "You are a concise assistant.", Messages: []modelcontext.Message{{
-						ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
-						Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-					}}},
-					Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
-				})
-				require.NoError(t, err)
-				require.True(t, prepared.InputBudget.Fits())
-				var wire map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(prepared.Body, &wire))
-				if tc.want == 0 {
-					for _, field := range []string{"max_tokens", "max_output_tokens", "max_completion_tokens"} {
-						require.NotContains(t, wire, field)
-					}
-				} else {
-					remaining := caps.ContextWindowTokens -
-						modelcontext.DefaultSafetyMarginTokens(caps.ContextWindowTokens) - prepared.InputTokenEstimate
-					want := min(tc.want, remaining)
-					var allowance int
-					require.NoError(t, json.Unmarshal(wire["max_tokens"], &allowance))
-					require.InDelta(t, want, allowance, 1)
-					require.Equal(t, prepared.MaxOutputTokens, allowance)
+			resolved, err := resolver.Resolve(ctx, selection)
+			require.NoError(t, err)
+			caps := resolved.Client.Capabilities()
+			prepared, err := model.PrepareForSend(ctx, resolved.Client, model.PrepareForSendInput{
+				Context: modelcontext.Bundle{SystemPrompt: "You are a concise assistant.", Messages: []modelcontext.Message{{
+					ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
+					Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+				}}},
+				Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
+			})
+			require.NoError(t, err)
+			require.True(t, prepared.InputBudget.Fits())
+			var wire map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(prepared.Body, &wire))
+			if tc.want == 0 {
+				for _, field := range []string{"max_tokens", "max_output_tokens", "max_completion_tokens"} {
+					require.NotContains(t, wire, field)
 				}
+			} else {
+				remaining := caps.ContextWindowTokens -
+					modelcontext.DefaultSafetyMarginTokens(caps.ContextWindowTokens) - prepared.InputTokenEstimate
+				want := min(tc.want, remaining)
+				var allowance int
+				require.NoError(t, json.Unmarshal(wire["max_tokens"], &allowance))
+				require.InDelta(t, want, allowance, 1)
+				require.Equal(t, prepared.MaxOutputTokens, allowance)
 			}
-			wantLookups := int32(0)
-			if tc.lookup {
-				wantLookups = 1
-			}
-			require.Equal(t, wantLookups, lookups.Load())
 			stored, err := store.Models().GetConfiguredModelByName(ctx, created.Org.ID, provider.ID, tc.name)
 			require.NoError(t, err)
 			require.Equal(t, configured.CurrentRevisionID, stored.CurrentRevisionID)

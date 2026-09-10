@@ -86,15 +86,10 @@ Token settings have separate roles:
 - `max_output_tokens` is the model's known output capacity and is optional for every API format. Unknown capacity is returned as `null`; a `null` update clears it. Selecting a discovered model can prefill its published capacity. Creating a model without capacity leaves it unknown.
 - `default_max_output_tokens` is an optional request allowance, set only when explicitly configured. Discovery never populates it. Without an override, Omnara uses the known capacity and fits the allowance to the remaining context. When both settings are absent, Chat Completions and Responses omit the allowance and use the provider default.
 
-For Messages with neither setting, Omnara looks up the configured provider's
-`/models/{model_id}` endpoint and uses its positive `max_tokens` value. Successful
-lookups are cached for an hour and unavailable limits for a minute, with a
-three-second lookup timeout. Lookup failures or missing limits use a
-64,000-token allowance. Bedrock uses this fallback directly because its Messages
-route does not expose the same model lookup API. This fallback may exceed the
-limit of an unknown model; configure an explicit capacity or allowance in that case.
-Runtime lookup and fallback do not update either stored setting. Existing context
-fitting and reasoning-budget validation still apply.
+For Messages with neither setting, Omnara uses a 64,000-token allowance. This
+fallback may exceed the limit of an unknown model; configure an explicit capacity
+or allowance in that case. The fallback does not update either stored setting.
+Existing context fitting and reasoning-budget validation still apply.
 
 Project and agent context overrides can be smaller than an inherited output capacity; request preparation fits the allowance to that smaller window. An explicit default allowance must remain below the effective context window, including when inherited from the model or project.
 

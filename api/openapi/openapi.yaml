@@ -7236,7 +7236,7 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
+          description: Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages uses 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -7296,7 +7296,7 @@ components:
           type: [integer, "null"]
           minimum: 1
           maximum: 2147483647
-          description: Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance.
+          description: Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages uses 64000 tokens; other formats omit the allowance.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:

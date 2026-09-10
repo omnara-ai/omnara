@@ -310,7 +310,7 @@ export type CreateConfiguredModelRequest = {
      */
     max_output_tokens?: number;
     /**
-     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
+     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages uses 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -362,7 +362,7 @@ export type UpdateConfiguredModelRequest = {
      */
     max_output_tokens?: number | null;
     /**
-     * Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages looks up the provider's model limit and falls back to 64000 tokens; other formats omit the allowance.
+     * Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages uses 64000 tokens; other formats omit the allowance.
      */
     default_max_output_tokens?: number | null;
     default_cache_retention?: ModelCacheRetention;
