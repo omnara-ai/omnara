@@ -141,6 +141,7 @@ export function GrantProjectModelDialog({
             <Field>
               <FieldLabel htmlFor="grant-project-model-provider">Provider</FieldLabel>
               <ModelProviderCombobox
+                id="grant-project-model-provider"
                 items={providers}
                 value={provider}
                 onValueChange={(nextProvider) => {
@@ -155,6 +156,7 @@ export function GrantProjectModelDialog({
             <Field>
               <FieldLabel htmlFor="grant-project-model">Models</FieldLabel>
               <ConfiguredModelMultiCombobox
+                id="grant-project-model"
                 items={models}
                 value={batch.items}
                 onValueChange={batch.setItems}

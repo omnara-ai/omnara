@@ -346,16 +346,17 @@ test('granting a model from the Builder does not create a profile or agent', asy
   })
   await grantModelsAction.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Grant models' })
-  const providerPicker = dialog.getByRole('combobox', { name: 'Search model providers…' })
+  const providerPicker = dialog.getByRole('combobox', { name: 'Provider', exact: true })
   expect((await providerListResponse).ok()).toBe(true)
-  await providerPicker.click()
+  await dialog.getByText('Provider', { exact: true }).click()
   const providerSearch = page.getByPlaceholder('Search model providers…')
   await expect(providerSearch).toBeFocused()
   await page.keyboard.type(providerConfig)
   await expect(providerSearch).toHaveValue(providerConfig)
   await page.getByRole('option', { name: providerConfig }).click()
   const configuredModelPicker = dialog.getByRole('combobox', {
-    name: 'Search configured models…',
+    name: 'Models',
+    exact: true,
   })
   await configuredModelPicker.fill(ungrantedModelName)
   await page.getByRole('option', { name: ungrantedModelName }).click()
