@@ -193,13 +193,8 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameDownloadFile,
 			semanticInputValidator: validateDownloadFileInput,
-			handler: toolHandler{
-				Transactional: runDownloadFile,
-				Async:         runDownloadFileAsync,
-				RunsAsync:     downloadFileRunsAsync,
-				Background:    wakeDownloadFile,
-			},
-			permissionModes: commonPermissionModeHandlers(downloadFilePermissionChallenge),
+			handler:                toolHandler{Transactional: runDownloadFile, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(downloadFilePermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteProcess,

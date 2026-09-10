@@ -52,65 +52,52 @@ func resolveSkillToolRequest(raw json.RawMessage) (skillToolInput, error) {
 	return input, nil
 }
 
-func lookupAttachedSkill(
+func runSkillTool(
 	ctx context.Context,
-	executor Executor,
-	turn Turn,
-	name string,
-) (*skillstore.SkillRecord, []string, int, error) {
-	contract, err := executor.runtimeContractForTurn(ctx, turn)
+	call asyncToolContext,
+) (asyncPhaseResult, error) {
+	contract, err := call.Executor.runtimeContractForTurn(ctx, call.Turn)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, err
 	}
 	if len(contract.Skills) == 0 {
-		return nil, nil, 0, nil
+		return failSkillTool("no skills are attached to this agent")
 	}
-	skillStore := executor.skillStore()
+	skillStore := call.Executor.skillStore()
 	if skillStore == nil {
-		return nil, nil, 0, errors.New("skill store is required")
+		return nil, errors.New("skill store is required")
 	}
+	input, err := resolveSkillToolRequest(call.Call.Input)
+	if err != nil {
+		return failSkillTool(fmt.Sprintf("invalid skill input: %v", err))
+	}
+	// The contract pins only skill identities; names and descriptions live on
+	// the latest revision, so resolve each attached skill now and match the
+	// requested name against current revision content. Skills deleted since
+	// compile simply drop out of the available set.
 	var match *skillstore.SkillRecord
 	available := make([]string, 0, len(contract.Skills))
 	for _, attached := range contract.Skills {
-		record, err := skillStore.GetSkillForDispatch(ctx, turn.ProjectID, attached.PublicID)
+		record, err := skillStore.GetSkillForDispatch(
+			ctx,
+			call.Turn.ProjectID,
+			attached.PublicID,
+		)
 		if storeerr.IsNotFound(err) {
 			continue
 		}
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"resolve skill %s for dispatch: %w",
 				attached.PublicID,
 				err,
 			)
 		}
 		available = append(available, record.Name)
-		if match == nil && record.Name == name {
+		if match == nil && record.Name == input.Name {
 			matched := record
 			match = &matched
 		}
-	}
-	return match, available, len(contract.Skills), nil
-}
-
-func runSkillTool(
-	ctx context.Context,
-	call asyncToolContext,
-) (asyncPhaseResult, error) {
-	input, err := resolveSkillToolRequest(call.Call.Input)
-	if err != nil {
-		return failSkillTool(fmt.Sprintf("invalid skill input: %v", err))
-	}
-	match, available, attachedCount, err := lookupAttachedSkill(
-		ctx,
-		call.Executor,
-		call.Turn,
-		input.Name,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if attachedCount == 0 {
-		return failSkillTool("no skills are attached to this agent")
 	}
 	if match == nil {
 		return failSkillTool(fmt.Sprintf(

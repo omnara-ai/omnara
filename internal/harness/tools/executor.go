@@ -116,7 +116,10 @@ func (e Executor) Dispatch(ctx context.Context, turn Turn, call model.ToolCall) 
 			errorCode = "malformed"
 		}
 		if errors.Is(execErr, ErrToolAuthorizationInvalidated) {
-			content, err = invalidatedAuthorizationContent()
+			content, err = structuredToolResultContent(map[string]any{
+				"error_code": ErrToolAuthorizationInvalidated.Error(),
+				"error":      "The approved tool request changed before it could run. Submit a new tool call for approval.",
+			})
 			if err != nil {
 				return Result{}, fmt.Errorf("marshal invalidated authorization result: %w", err)
 			}

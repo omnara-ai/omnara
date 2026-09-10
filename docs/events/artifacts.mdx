@@ -16,7 +16,7 @@ Model context identifies conversation attachments by their public `artifact_id`,
 
 ## Artifacts uploaded by an agent
 
-A successful [`upload_file`](/tools/built-in#upload_file) result contains the public `artifact_id` and canonical VFS `path` as structured data and a `media_ref` for presentation. Use the ID with the metadata and content endpoints below.
+A successful [`upload_file`](/tools/built-in#upload_file) result contains the public `artifact_id` as structured data and a `media_ref` for presentation. Use the ID with the metadata and content endpoints below.
 
 The relevant fields in the resulting event look like this:
 
@@ -29,8 +29,7 @@ The relevant fields in the resulting event look like this:
     {
       "type": "structured_data",
       "value": {
-        "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw",
-        "path": "/artifacts/art_z3jehcyd5n6a2bfgik7mv4qtrw"
+        "artifact_id": "art_z3jehcyd5n6a2bfgik7mv4qtrw"
       }
     },
     {
@@ -98,7 +97,7 @@ Full schema and playground: [Get artifact content](/api-reference/endpoints/even
 | --- | --- |
 | Inline `media` block on an [input](/events/sending-input#attach-files-and-images) | Persisted as an artifact; the stored event shows a `media_ref`. |
 | Inline `media` block on a [custom tool result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call) | Same conversion — submission accepts bytes, the timeline stores a reference. |
-| `upload_file` | The durable tool result stores the artifact ID, canonical VFS path, and a `media_ref`. |
+| `upload_file` | The durable tool result stores the artifact ID and a `media_ref`. |
 | Model output with media | The `model_output` event references it. |
 
 There's no general-purpose public endpoint for creating artifacts; they're created during agent interactions.
