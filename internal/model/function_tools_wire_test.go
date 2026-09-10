@@ -22,19 +22,32 @@ func TestFunctionToolsPreserveNonStrictSchemas(t *testing.T) {
 		},
 		"required":["query"]
 	}`)
-	for _, client := range []model.Client{
-		openaichatcompletions.Client{EndpointPath: "/chat/completions", ProviderModelSlug: "test-model"},
-		openaichatcompletions.Client{
-			EndpointPath: "/chat/completions", ProviderModelSlug: "test-model", APIVariant: modelprotocol.APIVariantOpenRouter,
+	for _, tc := range []struct {
+		client          model.Client
+		wantStrictField bool
+	}{
+		{client: openaichatcompletions.Client{EndpointPath: "/chat/completions", ProviderModelSlug: "test-model"}},
+		{
+			client: openaichatcompletions.Client{
+				EndpointPath: "/chat/completions", ProviderModelSlug: "test-model", APIVariant: modelprotocol.APIVariantOpenRouter,
+			},
+			wantStrictField: true,
 		},
-		openaichatcompletions.Client{
+		{client: openaichatcompletions.Client{
 			EndpointPath: "/chat/completions", ProviderModelSlug: "test-model", APIVariant: modelprotocol.APIVariantBedrock,
+		}},
+		{
+			client:          openairesponses.Client{EndpointPath: "/responses", ProviderModelSlug: "test-model"},
+			wantStrictField: true,
 		},
-		openairesponses.Client{EndpointPath: "/responses", ProviderModelSlug: "test-model"},
-		openairesponses.Client{
-			EndpointPath: "/responses", ProviderModelSlug: "test-model", APIVariant: modelprotocol.APIVariantBedrock,
+		{
+			client: openairesponses.Client{
+				EndpointPath: "/responses", ProviderModelSlug: "test-model", APIVariant: modelprotocol.APIVariantBedrock,
+			},
+			wantStrictField: true,
 		},
 	} {
+		client := tc.client
 		t.Run(string(client.APIFormat())+"/"+string(client.ModelAPIVariant()), func(t *testing.T) {
 			prepared, err := client.Prepare(t.Context(), model.PrepareInput{
 				Context: modelcontext.Bundle{
@@ -57,7 +70,11 @@ func TestFunctionToolsPreserveNonStrictSchemas(t *testing.T) {
 					require.NoError(t, json.Unmarshal(tool["function"], &function))
 					tool = function
 				}
-				require.Equal(t, `false`, string(tool["strict"]))
+				if tc.wantStrictField {
+					require.Equal(t, `false`, string(tool["strict"]))
+				} else {
+					require.NotContains(t, tool, "strict")
+				}
 				wantSchema := schema
 				if i == 1 {
 					wantSchema = json.RawMessage(`{"type":"object","properties":{}}`)

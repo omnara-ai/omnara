@@ -40,13 +40,13 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err != nil {
 		return nil, err
 	}
+	compat := c.compat()
 	payload := chatCompletionsRequest{
 		Model:    providerModelSlug,
 		Messages: messages,
-		Tools:    buildTools(input.Context.ToolSpecs),
+		Tools:    buildTools(input.Context.ToolSpecs, compat),
 		N:        1,
 	}
-	compat := c.compat()
 	if compat.sendsStoreFalse {
 		store := false
 		payload.Store = &store
@@ -164,7 +164,7 @@ type chatFunctionDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters"`
-	Strict      bool            `json:"strict"`
+	Strict      *bool           `json:"strict,omitempty"`
 }
 
 type chatToolCall struct {
@@ -274,7 +274,11 @@ func messageFromContext(
 	}
 }
 
-func buildTools(specs []modelcontext.ToolSpec) []chatToolDefinition {
+func buildTools(specs []modelcontext.ToolSpec, compat compat) []chatToolDefinition {
+	var strict *bool
+	if compat.sendsStrictFalse {
+		strict = new(false)
+	}
 	tools := make([]chatToolDefinition, 0, len(specs))
 	for _, spec := range specs {
 		parameters := spec.InputSchema
@@ -287,7 +291,7 @@ func buildTools(specs []modelcontext.ToolSpec) []chatToolDefinition {
 				Name:        spec.Name,
 				Description: spec.Description,
 				Parameters:  parameters,
-				Strict:      false,
+				Strict:      strict,
 			},
 		})
 	}
