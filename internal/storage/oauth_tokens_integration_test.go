@@ -81,7 +81,11 @@ func oauthRefreshInput(refreshToken string) identitystore.RefreshOAuthAccessToke
 	}
 }
 
-func (f oauthGrantFixture) issueTokens(t *testing.T, ctx context.Context, store *Store) identitystore.OAuthTokenSetRecord {
+func (f oauthGrantFixture) issueTokens(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) identitystore.OAuthTokenSetRecord {
 	t.Helper()
 	tokens, err := store.Identity().ExchangeOAuthAuthorizationCode(ctx, oauthExchangeInput(f.approve(t, ctx, store)))
 	if err != nil {
@@ -129,7 +133,8 @@ func TestOAuthRefreshLocksUserBeforeTokenAndObservesRevokeAll(t *testing.T) {
 	if !errors.Is(result.Err, storeerr.ErrUnauthorized) {
 		t.Fatalf("refresh after revoke-all error = %v, want ErrUnauthorized", result.Err)
 	}
-	if _, err := store.Identity().AuthenticateOAuthAccessToken(ctx, tokens.AccessToken); !errors.Is(err, storeerr.ErrUnauthorized) {
+	_, err := store.Identity().AuthenticateOAuthAccessToken(ctx, tokens.AccessToken)
+	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("revoked access token authenticate error = %v, want ErrUnauthorized", err)
 	}
 }
@@ -158,7 +163,8 @@ func TestOAuthRefreshReplayOfOlderRotatedTokenRevokesGrant(t *testing.T) {
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("replay of a twice-rotated refresh token: err = %v, want unauthorized", err)
 	}
-	if _, err := store.Identity().AuthenticateOAuthAccessToken(ctx, second.AccessToken); !errors.Is(err, storeerr.ErrUnauthorized) {
+	_, err = store.Identity().AuthenticateOAuthAccessToken(ctx, second.AccessToken)
+	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("latest access token after replay: err = %v, want unauthorized", err)
 	}
 	_, err = store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(second.RefreshToken))
