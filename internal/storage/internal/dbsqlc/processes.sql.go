@@ -17,10 +17,10 @@ const acceptDaemonProcess = `-- name: AcceptDaemonProcess :one
 WITH runtime AS MATERIALIZED (
   SELECT runtime.org_id, runtime.machine_id
   FROM online_daemon_runtimes runtime
-  WHERE runtime.id = $2::uuid
-    AND runtime.org_id = $3
-    AND runtime.machine_id = $4
-    AND runtime.daemon_token_id = $5::uuid
+  WHERE runtime.id = $3::uuid
+    AND runtime.org_id = $4
+    AND runtime.machine_id = $5
+    AND runtime.daemon_token_id = $6::uuid
 )
 UPDATE processes process
 SET execution_granted_at = statement_timestamp(),
@@ -33,6 +33,7 @@ WHERE process.org_id = runtime.org_id
   AND process.machine_id = runtime.machine_id
   AND process.id = $1
   AND process.state = 'queued'
+  AND process.created_at > statement_timestamp() - ($2::int * interval '1 second')
   AND EXISTS (
     SELECT 1
     FROM agent_machine_bindings binding
@@ -48,11 +49,12 @@ RETURNING process.id, process.org_id, process.project_id, process.agent_id, proc
 `
 
 type AcceptDaemonProcessParams struct {
-	ProcessID       uuid.UUID
-	DaemonRuntimeID uuid.UUID
-	OrgID           uuid.UUID
-	MachineID       uuid.UUID
-	DaemonTokenID   uuid.UUID
+	ProcessID           uuid.UUID
+	QueueTimeoutSeconds int32
+	DaemonRuntimeID     uuid.UUID
+	OrgID               uuid.UUID
+	MachineID           uuid.UUID
+	DaemonTokenID       uuid.UUID
 }
 
 type AcceptDaemonProcessRow struct {
@@ -87,6 +89,7 @@ type AcceptDaemonProcessRow struct {
 func (q *Queries) AcceptDaemonProcess(ctx context.Context, arg AcceptDaemonProcessParams) (AcceptDaemonProcessRow, error) {
 	row := q.db.QueryRow(ctx, acceptDaemonProcess,
 		arg.ProcessID,
+		arg.QueueTimeoutSeconds,
 		arg.DaemonRuntimeID,
 		arg.OrgID,
 		arg.MachineID,
@@ -1128,10 +1131,10 @@ const listDaemonProcessOffers = `-- name: ListDaemonProcessOffers :many
 WITH runtime AS MATERIALIZED (
   SELECT runtime.org_id, runtime.machine_id
   FROM online_daemon_runtimes runtime
-  WHERE runtime.id = $4::uuid
+  WHERE runtime.id = $5::uuid
     AND runtime.org_id = $1
     AND runtime.machine_id = $2
-    AND runtime.daemon_token_id = $5::uuid
+    AND runtime.daemon_token_id = $6::uuid
 )
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
@@ -1147,22 +1150,25 @@ JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
   AND process.state = 'queued'
+  AND process.created_at > statement_timestamp() - ($3::int * interval '1 second')
 ORDER BY process.created_at, process.id
-LIMIT $3
+LIMIT $4
 `
 
 type ListDaemonProcessOffersParams struct {
-	OrgID           uuid.UUID
-	MachineID       uuid.UUID
-	LimitCount      int32
-	DaemonRuntimeID uuid.UUID
-	DaemonTokenID   uuid.UUID
+	OrgID               uuid.UUID
+	MachineID           uuid.UUID
+	QueueTimeoutSeconds int32
+	LimitCount          int32
+	DaemonRuntimeID     uuid.UUID
+	DaemonTokenID       uuid.UUID
 }
 
 func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]Process, error) {
 	rows, err := q.db.Query(ctx, listDaemonProcessOffers,
 		arg.OrgID,
 		arg.MachineID,
+		arg.QueueTimeoutSeconds,
 		arg.LimitCount,
 		arg.DaemonRuntimeID,
 		arg.DaemonTokenID,

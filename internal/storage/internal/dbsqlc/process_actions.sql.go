@@ -386,6 +386,8 @@ func (q *Queries) GetProcessActionByToolCall(ctx context.Context, arg GetProcess
 
 const getProcessActionCreateBlocker = `-- name: GetProcessActionCreateBlocker :one
 SELECT process.state,
+  coalesce(process.execution_granted_at IS NOT NULL
+    AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted', false)::boolean AS terminal_read_supported,
   EXISTS (
     SELECT 1
     FROM process_actions terminate_action
@@ -414,15 +416,21 @@ type GetProcessActionCreateBlockerParams struct {
 }
 
 type GetProcessActionCreateBlockerRow struct {
-	State              string
-	HasTerminateAction bool
-	HasOnlineRuntime   bool
+	State                 string
+	TerminalReadSupported bool
+	HasTerminateAction    bool
+	HasOnlineRuntime      bool
 }
 
 func (q *Queries) GetProcessActionCreateBlocker(ctx context.Context, arg GetProcessActionCreateBlockerParams) (GetProcessActionCreateBlockerRow, error) {
 	row := q.db.QueryRow(ctx, getProcessActionCreateBlocker, arg.ProjectID, arg.AgentID, arg.ProcessID)
 	var i GetProcessActionCreateBlockerRow
-	err := row.Scan(&i.State, &i.HasTerminateAction, &i.HasOnlineRuntime)
+	err := row.Scan(
+		&i.State,
+		&i.TerminalReadSupported,
+		&i.HasTerminateAction,
+		&i.HasOnlineRuntime,
+	)
 	return i, err
 }
 
@@ -508,6 +516,7 @@ target AS MATERIALIZED (
         AND $3::text = 'read'
         AND process.state IN ('exited', 'failed', 'killed', 'unknown')
         AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted'
+        AND process.execution_granted_at IS NOT NULL
       )
     )
     AND (

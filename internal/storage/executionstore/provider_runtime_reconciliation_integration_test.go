@@ -1348,9 +1348,10 @@ func TestMachineWakeDeadlineProtectsQueuedWork(t *testing.T) {
 		t.Fatalf("begin machine wake = (%v, %v), want ready", disposition, err)
 	}
 	workQuery := dbsqlc.New(fixture.pool)
-	queuedDuringWake, err := workQuery.ListMachineUnreachableQueuedProcessToolCallsForMachine(
+	queuedDuringWake, err := workQuery.ListExpirableQueuedProcessToolCallsForMachine(
 		ctx,
-		dbsqlc.ListMachineUnreachableQueuedProcessToolCallsForMachineParams{
+		dbsqlc.ListExpirableQueuedProcessToolCallsForMachineParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			OrgID:                          testOrgID,
 			MachineID:                      machine.machineID,
 			MachineUnreachableGraceSeconds: 0,
@@ -1366,7 +1367,7 @@ func TestMachineWakeDeadlineProtectsQueuedWork(t *testing.T) {
 	); err != nil || failed {
 		t.Fatalf("direct expiry during wake = (%t, %v), want false/nil", failed, err)
 	}
-	if expired, err := fixture.store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx,
 		0,
 	); err != nil || expired != 0 {
@@ -1379,9 +1380,10 @@ WHERE org_id = $1 AND id = $2
 `, testOrgID, machine.machineID); err != nil {
 		t.Fatalf("expire wake deadline: %v", err)
 	}
-	queuedAfterWake, err := workQuery.ListMachineUnreachableQueuedProcessToolCallsForMachine(
+	queuedAfterWake, err := workQuery.ListExpirableQueuedProcessToolCallsForMachine(
 		ctx,
-		dbsqlc.ListMachineUnreachableQueuedProcessToolCallsForMachineParams{
+		dbsqlc.ListExpirableQueuedProcessToolCallsForMachineParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			OrgID:                          testOrgID,
 			MachineID:                      machine.machineID,
 			MachineUnreachableGraceSeconds: 0,
@@ -1391,7 +1393,7 @@ WHERE org_id = $1 AND id = $2
 	if err != nil || len(queuedAfterWake) != 1 {
 		t.Fatalf("queued work listed after wake = (%d, %v), want 1/nil", len(queuedAfterWake), err)
 	}
-	if expired, err := fixture.store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx,
 		0,
 	); err != nil || expired != 1 {
@@ -1464,7 +1466,7 @@ func TestRuntimeProtectionAndUnreachableExpiryConverge(t *testing.T) {
 			}
 			expireUnreachable := func(want int64) {
 				t.Helper()
-				expired, err := fixture.store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+				expired, err := fixture.store.Execution().ExpireProcessToolCallsForAllProjects(
 					ctx,
 					0,
 				)

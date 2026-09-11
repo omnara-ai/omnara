@@ -508,12 +508,12 @@ func TestMachineUnreachableProcessToolCallUnblocksWithoutTerminalizingProcess(t 
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, executionstore.ProcessToolMachineUnreachableGrace); err != nil ||
 		expired != 0 {
 		t.Fatalf("early machine-unreachable expiry count=%d err=%v", expired, err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable expiry count=%d err=%v", expired, err)
@@ -603,7 +603,7 @@ func TestMachineUnreachableResolvesTerminalProcessActions(t *testing.T) {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
 	if expired, err :=
-		fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+		fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 			ctx, 0); err != nil || expired != int64(len(seeded)) {
 		t.Fatalf(
 			"terminal action machine-unreachable expiry count=%d err=%v",
@@ -912,7 +912,7 @@ func TestMachineUnreachableResolvesAcceptedActionsInSequence(t *testing.T) {
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 2 {
 		t.Fatalf("machine-unreachable action expiry count=%d err=%v", expired, err)
@@ -1056,7 +1056,7 @@ func TestLateAcceptedActionReportAfterMachineUnreachableIsCleanupOnly(t *testing
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable action expiry count=%d err=%v", expired, err)
@@ -1143,7 +1143,7 @@ SELECT last_activity_at FROM processes WHERE id = $1
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, executionstore.ProcessToolMachineUnreachableGrace); err != nil ||
 		expired != 0 {
 		t.Fatalf(
@@ -1152,7 +1152,7 @@ SELECT last_activity_at FROM processes WHERE id = $1
 			err,
 		)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable queued process expiry count=%d err=%v", expired, err)
@@ -1251,7 +1251,7 @@ WHERE runtime.org_id = $1 AND runtime.machine_id = $2 AND runtime.id = $3
 		)
 	}
 
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx,
 		unreachableGrace,
 	); err != nil || expired != 1 {
@@ -1503,7 +1503,7 @@ func TestMachineUnreachableQueuedActionFailsBeforeActionGrant(t *testing.T) {
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	if expired, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable queued action expiry count=%d err=%v", expired, err)
@@ -1580,9 +1580,10 @@ func TestMachineUnreachableCandidatesAreOfflineMachineFirst(t *testing.T) {
 		len(records) != 1 {
 		t.Fatalf("end expired daemon runtime records=%d err=%v", len(records), err)
 	}
-	candidates, err := offline.Store.q.ListMachineUnreachableMachineCandidates(
+	candidates, err := offline.Store.q.ListProcessToolExpiryMachineCandidates(
 		ctx,
-		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+		dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			MachineUnreachableGraceSeconds: 0,
 			LimitCount:                     10,
 		},
@@ -1593,7 +1594,7 @@ func TestMachineUnreachableCandidatesAreOfflineMachineFirst(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].MachineID != offline.MachineID {
 		t.Fatalf("machine-unreachable candidates = %+v, want only offline machine %s", candidates, offline.MachineID)
 	}
-	if expired, err := offline.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if expired, err := offline.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx, 0); err != nil ||
 		expired != 1 {
 		t.Fatalf("machine-unreachable expiry count=%d err=%v", expired, err)
@@ -1664,9 +1665,10 @@ func TestMachineUnreachableCandidatesUseLatestRuntimeRecency(t *testing.T) {
 		fixture.MachineID,
 		replacementRuntime.ID,
 	)
-	candidates, err := fixture.Store.q.ListMachineUnreachableMachineCandidates(
+	candidates, err := fixture.Store.q.ListProcessToolExpiryMachineCandidates(
 		ctx,
-		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+		dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			MachineUnreachableGraceSeconds: int32(executionstore.ProcessToolMachineUnreachableGrace / time.Second),
 			LimitCount:                     10,
 		},
@@ -1677,9 +1679,10 @@ func TestMachineUnreachableCandidatesUseLatestRuntimeRecency(t *testing.T) {
 	if len(candidates) != 0 {
 		t.Fatalf("early candidates = %+v, want none because latest runtime is not past grace", candidates)
 	}
-	candidates, err = fixture.Store.q.ListMachineUnreachableMachineCandidates(
+	candidates, err = fixture.Store.q.ListProcessToolExpiryMachineCandidates(
 		ctx,
-		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+		dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			MachineUnreachableGraceSeconds: 0,
 			LimitCount:                     10,
 		},
@@ -1729,9 +1732,10 @@ func TestMachineUnreachableCandidatesSkipEarlierWorkWithinLatestRuntimeGrace(t *
 	matureDisconnectedAt := expireDaemonRuntimeForTest(t, ctx, mature)
 	waitForDatabaseTime(t, ctx, recent.Store.pool, matureDisconnectedAt.Add(time.Second))
 	expireDaemonRuntimeForTest(t, ctx, recent)
-	candidates, err := recent.Store.q.ListMachineUnreachableMachineCandidates(
+	candidates, err := recent.Store.q.ListProcessToolExpiryMachineCandidates(
 		ctx,
-		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+		dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			MachineUnreachableGraceSeconds: 1,
 			LimitCount:                     1,
 		},
@@ -1806,9 +1810,10 @@ func TestMachineUnreachableCandidatesIgnoreQueuedMutationsForTerminalProcess(t *
 		}
 	}
 	expireDaemonRuntimeForTest(t, ctx, fixture)
-	candidates, err := fixture.Store.q.ListMachineUnreachableMachineCandidates(
+	candidates, err := fixture.Store.q.ListProcessToolExpiryMachineCandidates(
 		ctx,
-		dbsqlc.ListMachineUnreachableMachineCandidatesParams{
+		dbsqlc.ListProcessToolExpiryMachineCandidatesParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			MachineUnreachableGraceSeconds: 0,
 			LimitCount:                     10,
 		},

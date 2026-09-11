@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -136,6 +137,9 @@ func (t *toolCallTransaction) processActionCreateBlocker(
 	}
 	state := ProcessState(row.State)
 	if isProcessTerminal(state) {
+		if input.ActionKind == ProcessActionKindRead && !row.TerminalReadSupported {
+			return storeerr.ErrProcessTerminal
+		}
 		if input.ActionKind == ProcessActionKindRead && !row.HasOnlineRuntime {
 			return storeerr.ErrNoOnlineDaemonRuntime
 		}
@@ -171,11 +175,12 @@ func (s *Store) ListDaemonProcessOffers(ctx context.Context, input DaemonWorkInp
 	rows, err := s.q.ListDaemonProcessOffers(
 		ctx,
 		dbsqlc.ListDaemonProcessOffersParams{
-			OrgID:           input.Authority.OrgID,
-			MachineID:       input.Authority.MachineID,
-			DaemonRuntimeID: input.Authority.DaemonRuntimeID,
-			DaemonTokenID:   input.Authority.DaemonTokenID,
-			LimitCount:      input.Limit,
+			QueueTimeoutSeconds: int32(ProcessQueueTimeout / time.Second),
+			OrgID:               input.Authority.OrgID,
+			MachineID:           input.Authority.MachineID,
+			DaemonRuntimeID:     input.Authority.DaemonRuntimeID,
+			DaemonTokenID:       input.Authority.DaemonTokenID,
+			LimitCount:          input.Limit,
 		},
 	)
 	if err != nil {
@@ -253,11 +258,12 @@ func (s *Store) AcceptDaemonProcess(
 	row, err := qtx.AcceptDaemonProcess(
 		ctx,
 		dbsqlc.AcceptDaemonProcessParams{
-			OrgID:           input.Authority.OrgID,
-			MachineID:       input.Authority.MachineID,
-			DaemonRuntimeID: input.Authority.DaemonRuntimeID,
-			DaemonTokenID:   input.Authority.DaemonTokenID,
-			ProcessID:       input.ProcessID,
+			QueueTimeoutSeconds: int32(ProcessQueueTimeout / time.Second),
+			OrgID:               input.Authority.OrgID,
+			MachineID:           input.Authority.MachineID,
+			DaemonRuntimeID:     input.Authority.DaemonRuntimeID,
+			DaemonTokenID:       input.Authority.DaemonTokenID,
+			ProcessID:           input.ProcessID,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
