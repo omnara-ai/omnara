@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,17 +49,40 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 	userID, sessionID := uuid.New(), uuid.New()
 	wantPrincipal := NewBrowserSessionPrincipal(userID, sessionID)
 	for _, tt := range []struct {
-		name       string
-		errs       []error
-		cancel     bool
-		emptyToken bool
-		expired    bool
-		wantErr    error
+		name        string
+		errs        []error
+		cancel      bool
+		emptyToken  bool
+		expired     bool
+		wantErr     error
+		cancelAfter time.Duration
+		wantElapsed time.Duration
 	}{
 		{name: "success", errs: []error{nil}},
-		{name: "retry succeeds", errs: []error{retryable, nil}},
+		{name: "retry succeeds", errs: []error{retryable, nil}, wantElapsed: 25 * time.Millisecond},
 		{name: "wrapped retryable error", errs: []error{fmt.Errorf("wrapped: %w", retryable), nil}},
-		{name: "retry exhausted", errs: []error{retryable, retryable}, wantErr: retryable},
+		{name: "second retry succeeds", errs: []error{retryable, retryable, nil}, wantElapsed: 75 * time.Millisecond},
+		{
+			name: "retry exhausted", errs: []error{retryable, retryable, writeTimeout},
+			wantErr: writeTimeout, wantElapsed: 75 * time.Millisecond,
+		},
+		{
+			name: "canceled during first backoff", errs: []error{writeTimeout},
+			cancelAfter: 10 * time.Millisecond, wantErr: context.Canceled, wantElapsed: 10 * time.Millisecond,
+		},
+		{
+			name: "canceled during second backoff", errs: []error{retryable, writeTimeout},
+			cancelAfter: 40 * time.Millisecond, wantErr: context.Canceled, wantElapsed: 40 * time.Millisecond,
+		},
+		{
+			name: "non-timeout canceled during first backoff", errs: []error{retryable},
+			cancelAfter: 10 * time.Millisecond, wantErr: context.Canceled, wantElapsed: 10 * time.Millisecond,
+		},
+		{
+			name: "non-timeout canceled during second backoff", errs: []error{retryable, retryable},
+			cancelAfter: 40 * time.Millisecond, wantErr: context.Canceled, wantElapsed: 40 * time.Millisecond,
+		},
+		{name: "retry returns partial write", errs: []error{retryable, partialTimeout}, wantErr: partialTimeout},
 		{name: "retry returns different error", errs: []error{retryable, queryError}, wantErr: queryError},
 		{name: "retry returns unauthorized", errs: []error{retryable, pgx.ErrNoRows}, wantErr: storeerr.ErrUnauthorized},
 		{name: "unauthorized", errs: []error{pgx.ErrNoRows}, wantErr: storeerr.ErrUnauthorized},
@@ -86,63 +110,73 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 		{name: "empty token", emptyToken: true, wantErr: storeerr.ErrUnauthorized},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			if tt.expired {
-				expiredCtx, expireCancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
-				defer expireCancel()
-				ctx = expiredCtx
-			}
-			calls := 0
-			token := "session-token"
-			if tt.emptyToken {
-				token = ""
-			}
-			wantArgs := []any{HashBearerToken(token), int64(7 * 24 * 60 * 60), int64(5 * 60)}
-			db := browserSessionQueryDB{queryRow: func(gotCtx context.Context, _ string, args ...any) pgx.Row {
-				if gotCtx != ctx {
-					t.Fatal("query did not preserve request context")
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if tt.cancelAfter > 0 {
+					timer := time.AfterFunc(tt.cancelAfter, cancel)
+					defer timer.Stop()
 				}
-				if !reflect.DeepEqual(args, wantArgs) {
-					t.Fatalf("query args = %v, want %v", args, wantArgs)
+				if tt.expired {
+					expiredCtx, expireCancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+					defer expireCancel()
+					ctx = expiredCtx
 				}
-				if calls >= len(tt.errs) {
-					t.Fatalf("unexpected query attempt %d", calls+1)
+				calls := 0
+				token := "session-token"
+				if tt.emptyToken {
+					token = ""
 				}
-				err := tt.errs[calls]
-				calls++
-				return browserSessionQueryRow(func(dest ...any) error {
-					if tt.cancel && calls == len(tt.errs) {
-						cancel()
+				wantArgs := []any{HashBearerToken(token), int64(7 * 24 * 60 * 60), int64(5 * 60)}
+				db := browserSessionQueryDB{queryRow: func(gotCtx context.Context, _ string, args ...any) pgx.Row {
+					if gotCtx != ctx {
+						t.Fatal("query did not preserve request context")
 					}
-					if err != nil {
-						return err
+					if !reflect.DeepEqual(args, wantArgs) {
+						t.Fatalf("query args = %v, want %v", args, wantArgs)
 					}
-					*testutil.RequireType[*uuid.UUID](t, dest[0]) = userID
-					*testutil.RequireType[*uuid.UUID](t, dest[1]) = sessionID
-					*testutil.RequireType[*string](t, dest[2]) = "csrf-hash"
-					*testutil.RequireType[*time.Time](t, dest[3]) = time.Now()
-					return nil
-				})
-			}}
-			s := &Store{q: dbsqlc.New(db)}
-			principal, csrfHash, err := s.AuthenticateBrowserSession(ctx, token)
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("error = %v, want %v", err, tt.wantErr)
-			}
-			if errors.Is(tt.wantErr, context.Canceled) && !strings.Contains(err.Error(), tt.errs[len(tt.errs)-1].Error()) {
-				t.Fatalf("cancellation lost socket error detail: %v", err)
-			}
-			if calls != len(tt.errs) {
-				t.Fatalf("query attempts = %d, want %d", calls, len(tt.errs))
-			}
-			if err == nil {
-				if !reflect.DeepEqual(principal, wantPrincipal) || csrfHash != "csrf-hash" {
-					t.Fatalf("authentication = %+v, %q; want %+v, csrf-hash", principal, csrfHash, wantPrincipal)
+					if calls >= len(tt.errs) {
+						t.Fatalf("unexpected query attempt %d", calls+1)
+					}
+					err := tt.errs[calls]
+					calls++
+					return browserSessionQueryRow(func(dest ...any) error {
+						if tt.cancel && calls == len(tt.errs) {
+							cancel()
+						}
+						if err != nil {
+							return err
+						}
+						*testutil.RequireType[*uuid.UUID](t, dest[0]) = userID
+						*testutil.RequireType[*uuid.UUID](t, dest[1]) = sessionID
+						*testutil.RequireType[*string](t, dest[2]) = "csrf-hash"
+						*testutil.RequireType[*time.Time](t, dest[3]) = time.Now()
+						return nil
+					})
+				}}
+				s := &Store{q: dbsqlc.New(db)}
+				started := time.Now()
+				principal, csrfHash, err := s.AuthenticateBrowserSession(ctx, token)
+				if tt.wantElapsed > 0 && time.Since(started) != tt.wantElapsed {
+					t.Fatalf("elapsed = %s, want %s", time.Since(started), tt.wantElapsed)
 				}
-			} else if !reflect.DeepEqual(principal, PrincipalRecord{}) || csrfHash != "" {
-				t.Fatalf("failed authentication returned credentials: %+v, %q", principal, csrfHash)
-			}
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tt.wantErr)
+				}
+				if errors.Is(tt.wantErr, context.Canceled) && !strings.Contains(err.Error(), tt.errs[len(tt.errs)-1].Error()) {
+					t.Fatalf("cancellation lost socket error detail: %v", err)
+				}
+				if calls != len(tt.errs) {
+					t.Fatalf("query attempts = %d, want %d", calls, len(tt.errs))
+				}
+				if err == nil {
+					if !reflect.DeepEqual(principal, wantPrincipal) || csrfHash != "csrf-hash" {
+						t.Fatalf("authentication = %+v, %q; want %+v, csrf-hash", principal, csrfHash, wantPrincipal)
+					}
+				} else if !reflect.DeepEqual(principal, PrincipalRecord{}) || csrfHash != "" {
+					t.Fatalf("failed authentication returned credentials: %+v, %q", principal, csrfHash)
+				}
+			})
 		})
 	}
 }

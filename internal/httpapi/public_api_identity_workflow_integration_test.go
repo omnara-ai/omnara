@@ -4109,6 +4109,7 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
 		cached            bool
+		staleConnections  int
 		cancelDuringWrite bool
 		partialWrite      bool
 		cancelBefore      bool
@@ -4116,6 +4117,8 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 	}{
 		{name: "live write timeout retries"},
 		{name: "cached live write timeout retries", cached: true},
+		{name: "two stale connections recover", staleConnections: 2},
+		{name: "two cached stale connections recover", cached: true, staleConnections: 2},
 		{name: "canceled prepare write", cancelDuringWrite: true},
 		{name: "canceled cached write", cached: true, cancelDuringWrite: true},
 		{name: "canceled partial write", cached: true, cancelDuringWrite: true, partialWrite: true},
@@ -4135,7 +4138,7 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			requestCtx, cancelRequest := context.WithCancel(ctx)
 			defer cancelRequest()
 			cfg := basePool.Config()
-			cfg.MaxConns = 1
+			cfg.MaxConns = int32(max(1, tc.staleConnections))
 			cfg.ShouldPing = func(context.Context, pgxpool.ShouldPingParams) bool { return false }
 			var failAcquire atomic.Bool
 			cfg.PrepareConn = func(context.Context, *pgx.Conn) (bool, error) {
@@ -4168,23 +4171,31 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.cached {
-				if _, _, err := store.Identity().AuthenticateBrowserSession(ctx, "browser-connection-token"); err != nil {
+			var acquired []*pgxpool.Conn
+			var conns []*browserAuthWriteConn
+			for range max(1, tc.staleConnections) {
+				if tc.cached {
+					if _, _, err := store.Identity().AuthenticateBrowserSession(ctx, "browser-connection-token"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				c, err := pool.Acquire(ctx)
+				if err != nil {
 					t.Fatal(err)
 				}
+				defer c.Release()
+				acquired = append(acquired, c)
+				netConn := c.Conn().PgConn().Conn()
+				if tlsConn, ok := netConn.(*tls.Conn); ok {
+					netConn = tlsConn.NetConn()
+				}
+				conn := testutil.RequireType[*browserAuthWriteConn](t, netConn)
+				conn.armed.Store(!tc.cancelBefore && !tc.failAcquire)
+				conns = append(conns, conn)
 			}
-			acquired, err := pool.Acquire(ctx)
-			if err != nil {
-				t.Fatal(err)
+			for _, c := range acquired {
+				c.Release()
 			}
-			defer acquired.Release()
-			netConn := acquired.Conn().PgConn().Conn()
-			if tlsConn, ok := netConn.(*tls.Conn); ok {
-				netConn = tlsConn.NetConn()
-			}
-			conn := testutil.RequireType[*browserAuthWriteConn](t, netConn)
-			conn.armed.Store(!tc.cancelBefore && !tc.failAcquire)
-			acquired.Release()
 			failAcquire.Store(tc.failAcquire)
 			if tc.cancelBefore {
 				cancelRequest()
@@ -4205,7 +4216,9 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			rec := httptest.NewRecorder()
 			tracked := logpkg.NewResponseRecorder(rec)
 			handler.ServeHTTP(tracked, req)
-			conn.armed.Store(false)
+			for _, conn := range conns {
+				conn.armed.Store(false)
+			}
 			event := decodeRequestEvent(t, buffer)
 			canceled := tc.cancelDuringWrite || tc.cancelBefore
 			switch {
@@ -4231,11 +4244,13 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 					t.Fatalf("retry did not authenticate once: calls=%d response=%d event=%+v", handlerCalls, rec.Code, event)
 				}
 			}
-			if tc.partialWrite && conn.bytesWritten.Load() == 0 {
-				t.Fatal("partial write did not send any bytes")
-			}
-			if !tc.cancelBefore && !tc.failAcquire && !conn.triggered.Load() {
-				t.Fatal("socket write failure was not exercised")
+			for _, conn := range conns {
+				if tc.partialWrite && conn.bytesWritten.Load() == 0 {
+					t.Fatal("partial write did not send any bytes")
+				}
+				if !tc.cancelBefore && !tc.failAcquire && !conn.triggered.Load() {
+					t.Fatal("socket write failure was not exercised")
+				}
 			}
 		})
 	}

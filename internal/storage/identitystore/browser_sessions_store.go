@@ -78,7 +78,20 @@ func (s *Store) AuthenticateBrowserSession(
 		TouchIntervalSeconds: int64(browserSessionTouchInterval / time.Second),
 	}
 	row, err := s.q.AuthenticateBrowserSession(ctx, params)
-	if err != nil && ctx.Err() == nil && pgconn.SafeToRetry(err) {
+	for _, delay := range [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond} {
+		if err == nil || ctx.Err() != nil || !pgconn.SafeToRetry(err) {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = fmt.Errorf("%s: %w", err.Error(), ctxErr)
+			break
+		}
 		row, err = s.q.AuthenticateBrowserSession(ctx, params)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
