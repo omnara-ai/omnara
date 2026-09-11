@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 func systemPrincipalForTest(id ID) identitystore.PrincipalRecord {
@@ -191,6 +193,69 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	}
 	if childAfter.State != executionstore.AgentStateArchived {
 		t.Fatalf("archiving the parent should archive the child, got %s", childAfter.State)
+	}
+}
+
+func TestLaunchSubagentRejectsForeignParentAndDepthLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-depth@example.com", "Subagent Depth")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-depth", "Subagent Depth", subagentParentYAML,
+	)
+	topLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-depth-top",
+	})
+	if err != nil {
+		t.Fatalf("launch top-level agent: %v", err)
+	}
+
+	otherProjectID := seedAdditionalProjectForTest(t, ctx, pool, "subagent_foreign_parent")
+	otherConfig := storagefixture.SeedAgentConfig(
+		t, ctx, store.Models(), store.Execution(), testOrgID, otherProjectID, subagentParentYAML,
+	)
+	foreignLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      otherProjectID,
+		AgentConfigID:  otherConfig.ID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-depth-foreign",
+	})
+	if err != nil {
+		t.Fatalf("launch agent in other project: %v", err)
+	}
+	_, err = spawnSubagentForTest(
+		t, ctx, store, topLaunch.Agent, profile.CurrentConfigID, "foreign", "subagent-depth-foreign-child", nil,
+		func(input *executionstore.LaunchAgentInput) {
+			input.Subagent.ParentAgentID = foreignLaunch.Agent.ID
+		},
+	)
+	if !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("spawn with a parent from another project: err = %v, want not found", err)
+	}
+
+	parent := topLaunch.Agent
+	for level := 1; level < executionstore.MaxSubagentDepth; level++ {
+		child, err := spawnSubagentForTest(
+			t, ctx, store, parent, profile.CurrentConfigID,
+			fmt.Sprintf("level-%d", level), fmt.Sprintf("subagent-depth-level-%d", level), nil,
+		)
+		if err != nil {
+			t.Fatalf("spawn subagent at depth %d: %v", level, err)
+		}
+		parent = child.Agent
+	}
+	_, err = spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "too-deep", "subagent-depth-too-deep", nil,
+	)
+	if !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("spawn at depth %d: err = %v, want invalid request", executionstore.MaxSubagentDepth, err)
 	}
 }
 
