@@ -2351,7 +2351,7 @@ func TestDeviceAuthFlowApprovesBrowserSessionAndMintsPAT(t *testing.T) {
 		http.MethodPost,
 		"http://app.omnara.test/api/auth/device/token",
 		url.Values{
-			"grant_type":  {"authorization_code"},
+			"grant_type":  {"client_credentials"},
 			"device_code": {started.DeviceCode},
 			"client_id":   {httpauth.OmnaraCLIClientID},
 		},

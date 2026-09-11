@@ -73,6 +73,7 @@ type Server struct {
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
+	oauthClientMetadataHTTPClient       *http.Client
 	mcpRegistry                         *mcpregistry.Registry
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
@@ -224,6 +225,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
+	}
+}
+
+func WithOAuthClientMetadataHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.oauthClientMetadataHTTPClient = client
 	}
 }
 
@@ -401,18 +408,19 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		}
 	}
 	server.authRoutes = httpauth.New(httpauth.Config{
-		Log:                  log,
-		Store:                authStore,
-		CompromiseRevoker:    compromiseRevoker,
-		Limiter:              server.authLimiter,
-		OAuthStates:          server.authOAuthStates,
-		Email:                server.email,
-		SignupEnabled:        server.authSignupEnabled,
-		ResetEnabled:         server.authResetEnabled,
-		PublicURL:            server.publicURL,
-		TrustedProxyNets:     server.trustedProxyNets,
-		PrincipalFromContext: principalFromContext,
-		HTTPClient:           server.authHTTPClient,
+		Log:                      log,
+		Store:                    authStore,
+		CompromiseRevoker:        compromiseRevoker,
+		Limiter:                  server.authLimiter,
+		OAuthStates:              server.authOAuthStates,
+		Email:                    server.email,
+		SignupEnabled:            server.authSignupEnabled,
+		ResetEnabled:             server.authResetEnabled,
+		PublicURL:                server.publicURL,
+		TrustedProxyNets:         server.trustedProxyNets,
+		PrincipalFromContext:     principalFromContext,
+		HTTPClient:               server.authHTTPClient,
+		ClientMetadataHTTPClient: server.oauthClientMetadataHTTPClient,
 	})
 	if server.agentEventWakeupSubscriber == nil {
 		return nil, fmt.Errorf("agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber")

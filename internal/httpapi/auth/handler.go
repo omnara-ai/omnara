@@ -49,6 +49,15 @@ type Store interface {
 	) (identitystore.DeviceAuthFlowPollRecord, error)
 	ApproveDeviceAuthFlow(context.Context, identitystore.ApproveDeviceAuthFlowInput) error
 	DenyDeviceAuthFlow(context.Context, identitystore.DenyDeviceAuthFlowInput) error
+	CreateOAuthAuthorizationCode(context.Context, identitystore.CreateOAuthAuthorizationCodeInput) (string, error)
+	ExchangeOAuthAuthorizationCode(
+		context.Context,
+		identitystore.ExchangeOAuthAuthorizationCodeInput,
+	) (identitystore.OAuthTokenSetRecord, error)
+	RefreshOAuthAccessToken(
+		context.Context,
+		identitystore.RefreshOAuthAccessTokenInput,
+	) (identitystore.OAuthTokenSetRecord, error)
 	PendingDeviceAuthFlow(
 		context.Context,
 		identitystore.DeviceAuthFlowPendingInput,
@@ -70,33 +79,35 @@ type EmailSender interface {
 type PrincipalFunc func(context.Context) (identitystore.PrincipalRecord, bool)
 
 type Handler struct {
-	log                  *slog.Logger
-	store                Store
-	compromiseRevoker    CompromiseRevoker
-	limiter              RateLimiter
-	oauthStates          OAuthStateStore
-	email                EmailSender
-	signupEnabled        bool
-	resetEnabled         bool
-	publicURL            string
-	trustedProxyNets     []*net.IPNet
-	principalFromContext PrincipalFunc
-	httpClient           *http.Client
+	log                      *slog.Logger
+	store                    Store
+	compromiseRevoker        CompromiseRevoker
+	limiter                  RateLimiter
+	oauthStates              OAuthStateStore
+	email                    EmailSender
+	signupEnabled            bool
+	resetEnabled             bool
+	publicURL                string
+	trustedProxyNets         []*net.IPNet
+	principalFromContext     PrincipalFunc
+	httpClient               *http.Client
+	clientMetadataHTTPClient *http.Client
 }
 
 type Config struct {
-	Log                  *slog.Logger
-	Store                Store
-	CompromiseRevoker    CompromiseRevoker
-	Limiter              RateLimiter
-	OAuthStates          OAuthStateStore
-	Email                EmailSender
-	SignupEnabled        bool
-	ResetEnabled         bool
-	PublicURL            string
-	TrustedProxyNets     []*net.IPNet
-	PrincipalFromContext PrincipalFunc
-	HTTPClient           *http.Client
+	Log                      *slog.Logger
+	Store                    Store
+	CompromiseRevoker        CompromiseRevoker
+	Limiter                  RateLimiter
+	OAuthStates              OAuthStateStore
+	Email                    EmailSender
+	SignupEnabled            bool
+	ResetEnabled             bool
+	PublicURL                string
+	TrustedProxyNets         []*net.IPNet
+	PrincipalFromContext     PrincipalFunc
+	HTTPClient               *http.Client
+	ClientMetadataHTTPClient *http.Client
 }
 
 type RouteAccess string
@@ -139,6 +150,9 @@ var authRouteContracts = []RouteContract{
 	{Method: http.MethodGet, Pattern: "/api/auth/device/pending", Access: RouteAccessBrowserSession},
 	{Method: http.MethodPost, Pattern: "/api/auth/device/approve", Access: RouteAccessBrowserSession},
 	{Method: http.MethodPost, Pattern: "/api/auth/device/deny", Access: RouteAccessBrowserSession},
+	{Method: http.MethodGet, Pattern: OAuthAuthorizePendingPath, Access: RouteAccessBrowserSession},
+	{Method: http.MethodPost, Pattern: OAuthAuthorizeApprovePath, Access: RouteAccessBrowserSession},
+	{Method: http.MethodPost, Pattern: OAuthAuthorizeDenyPath, Access: RouteAccessBrowserSession},
 }
 
 func RouteContracts() []RouteContract {
@@ -147,19 +161,27 @@ func RouteContracts() []RouteContract {
 
 func New(config Config) *Handler {
 	return &Handler{
-		log:                  config.Log,
-		store:                config.Store,
-		compromiseRevoker:    config.CompromiseRevoker,
-		limiter:              config.Limiter,
-		oauthStates:          config.OAuthStates,
-		email:                config.Email,
-		signupEnabled:        config.SignupEnabled,
-		resetEnabled:         config.ResetEnabled,
-		publicURL:            config.PublicURL,
-		trustedProxyNets:     config.TrustedProxyNets,
-		principalFromContext: config.PrincipalFromContext,
-		httpClient:           httpClientWithoutRedirects(config.HTTPClient),
+		log:                      config.Log,
+		store:                    config.Store,
+		compromiseRevoker:        config.CompromiseRevoker,
+		limiter:                  config.Limiter,
+		oauthStates:              config.OAuthStates,
+		email:                    config.Email,
+		signupEnabled:            config.SignupEnabled,
+		resetEnabled:             config.ResetEnabled,
+		publicURL:                config.PublicURL,
+		trustedProxyNets:         config.TrustedProxyNets,
+		principalFromContext:     config.PrincipalFromContext,
+		httpClient:               httpClientWithoutRedirects(config.HTTPClient),
+		clientMetadataHTTPClient: clientMetadataHTTPClient(config.ClientMetadataHTTPClient),
 	}
+}
+
+func clientMetadataHTTPClient(client *http.Client) *http.Client {
+	if client == nil {
+		return outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: defaultOutboundHTTPTimeout})
+	}
+	return outboundhttp.CloneWithoutRedirects(client)
 }
 
 func httpClientWithoutRedirects(client *http.Client) *http.Client {
@@ -184,8 +206,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/connectors/{connector}/login", h.connectorLoginRoute)
 	mux.HandleFunc("GET /api/auth/connectors/{connector}/callback", h.connectorCallbackRoute)
 	mux.HandleFunc("POST /api/auth/device/code", h.startDeviceAuthRoute)
-	mux.HandleFunc("POST /api/auth/device/token", h.pollDeviceAuthRoute)
+	mux.HandleFunc("POST /api/auth/device/token", h.tokenRoute)
 	mux.HandleFunc("GET /api/auth/device/pending", h.pendingDeviceAuthRoute)
 	mux.HandleFunc("POST /api/auth/device/approve", h.approveDeviceAuthRoute)
 	mux.HandleFunc("POST /api/auth/device/deny", h.denyDeviceAuthRoute)
+	mux.HandleFunc("GET /api/auth/oauth/authorize/pending", h.pendingOAuthAuthorizeRoute)
+	mux.HandleFunc("POST /api/auth/oauth/authorize/approve", h.approveOAuthAuthorizeRoute)
+	mux.HandleFunc("POST /api/auth/oauth/authorize/deny", h.denyOAuthAuthorizeRoute)
 }

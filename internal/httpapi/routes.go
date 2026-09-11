@@ -35,6 +35,7 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: mcpOAuthCallbackPath, Access: manualRouteAccessOAuthState},
 	{Method: http.MethodGet, Pattern: integrationOAuthCallbackPath, Access: manualRouteAccessAuthRequired},
 	{Method: http.MethodGet, Pattern: mcpOAuthClientMetadataPath, Access: manualRouteAccessStatic},
+	{Method: http.MethodGet, Pattern: mcpProtectedResourceMetadataPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodPost, Pattern: integrationEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
 	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
@@ -51,6 +52,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/mcp-oauth/callback", s.mcpOAuthCallbackRoute)
 	mux.HandleFunc("GET /api/integrations/oauth/callback", s.integrationOAuthCallbackRoute)
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/api/mcp", s.mcpProtectedResourceMetadataRoute)
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)

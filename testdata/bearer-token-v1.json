@@ -24,6 +24,11 @@
       "token": "omnara_daemon_v1_0000000000000000000000000000000000000000000_49kVrl"
     },
     {
+      "kind": "oauth",
+      "secret": "0000000000000000000000000000000000000000000",
+      "token": "omnara_oauth_v1_0000000000000000000000000000000000000000000_1WR7qh"
+    },
+    {
       "kind": "pat",
       "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
       "token": "omnara_pat_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_02iP9r"
@@ -37,6 +42,11 @@
       "kind": "daemon",
       "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
       "token": "omnara_daemon_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_0uXuZW"
+    },
+    {
+      "kind": "oauth",
+      "secret": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg",
+      "token": "omnara_oauth_v1_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg_2NTZtE"
     },
     {
       "kind": "pat",
@@ -54,6 +64,11 @@
       "token": "omnara_daemon_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_2lsHvM"
     },
     {
+      "kind": "oauth",
+      "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "token": "omnara_oauth_v1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0id49e"
+    },
+    {
       "kind": "pat",
       "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "token": "omnara_pat_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_3IA9xN"
@@ -67,6 +82,11 @@
       "kind": "daemon",
       "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
       "token": "omnara_daemon_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_2Ls0H2"
+    },
+    {
+      "kind": "oauth",
+      "secret": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "token": "omnara_oauth_v1_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz_0st1lu"
     }
   ]
 }

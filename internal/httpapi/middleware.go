@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
@@ -128,7 +129,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if s.store != nil {
 			if strings.HasPrefix(header, prefix) {
 				token := strings.TrimPrefix(header, prefix)
-				principal, kind, err := s.authenticateBearerToken(r.Context(), token)
+				principal, kind, err := s.authenticateBearerToken(r.Context(), r, token)
 				if err == nil {
 					logent.Authenticated(r.Context(), principal)
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal)))
@@ -151,7 +152,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 					kind,
 					logent.AuthResultUnauthorized,
 				)
-				apierror.Write(w, openapi.ErrorCodeUnauthorized)
+				s.writeUnauthorized(w, r)
 				return
 			}
 			sessionCookie, cookieErr := httpauth.BrowserSessionCookie(r, s.publicURL)
@@ -208,12 +209,20 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				logent.AuthResultUnauthorized,
 			)
 		}
-		apierror.Write(w, openapi.ErrorCodeUnauthorized)
+		s.writeUnauthorized(w, r)
 	})
+}
+
+func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == apimcp.Path {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+s.mcpProtectedResourceMetadataURL(r)+`"`)
+	}
+	apierror.Write(w, openapi.ErrorCodeUnauthorized)
 }
 
 func (s *Server) authenticateBearerToken(
 	ctx context.Context,
+	r *http.Request,
 	token string,
 ) (identitystore.PrincipalRecord, logent.TokenKind, error) {
 	kind, err := bearertoken.Parse(token)
@@ -221,6 +230,15 @@ func (s *Server) authenticateBearerToken(
 		return identitystore.PrincipalRecord{}, logent.TokenKindUnknown, storeerr.ErrUnauthorized
 	}
 	switch kind {
+	case bearertoken.KindOAuthAccess:
+		authenticated, err := s.store.Identity().AuthenticateOAuthAccessToken(ctx, token)
+		if err != nil {
+			return identitystore.PrincipalRecord{}, logent.TokenKindOAuthAccess, err
+		}
+		if r.URL.Path != apimcp.Path || authenticated.Resource != s.mcpResourceURL(r) {
+			return identitystore.PrincipalRecord{}, logent.TokenKindOAuthAccess, storeerr.ErrUnauthorized
+		}
+		return authenticated.Principal, logent.TokenKindOAuthAccess, nil
 	case bearertoken.KindPersonalAccess:
 		principal, err := s.store.Identity().AuthenticatePersonalAccessToken(ctx, token)
 		return principal, logent.TokenKindPersonalAccess, err

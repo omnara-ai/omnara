@@ -386,7 +386,9 @@ func runCoreMaintenanceTick(
 	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
 		authCleanup.DeletedBrowserSessions > 0 ||
 		authCleanup.DeletedAbandonedUsers > 0 ||
-		authCleanup.DeletedDeviceFlows > 0
+		authCleanup.DeletedDeviceFlows > 0 ||
+		authCleanup.DeletedOAuthCodes > 0 ||
+		authCleanup.DeletedOAuthTokens > 0
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
@@ -426,6 +428,10 @@ func runCoreMaintenanceTick(
 			authCleanup.DeletedAbandonedUsers,
 			"deleted_device_flows",
 			authCleanup.DeletedDeviceFlows,
+			"deleted_oauth_codes",
+			authCleanup.DeletedOAuthCodes,
+			"deleted_oauth_tokens",
+			authCleanup.DeletedOAuthTokens,
 		)
 	}
 }
