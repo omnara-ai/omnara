@@ -33,16 +33,9 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 	if err := decodeSingleStrictJSON(raw, &input, "run_command request"); err != nil {
 		return resolvedRunCommandRequest{}, fmt.Errorf("parse run_command request: %w", err)
 	}
-	machineRef := ""
-	if len(input.MachineRef) > 0 {
-		var rawMachineRef *string
-		if err := json.Unmarshal(input.MachineRef, &rawMachineRef); err != nil {
-			return resolvedRunCommandRequest{}, fmt.Errorf("parse machine_ref: %w", err)
-		}
-		if rawMachineRef == nil {
-			return resolvedRunCommandRequest{}, errors.New("machine_ref cannot be null")
-		}
-		machineRef = strings.TrimSpace(*rawMachineRef)
+	machineRef, err := resolveOptionalMachineRef(input.MachineRef)
+	if err != nil {
+		return resolvedRunCommandRequest{}, err
 	}
 	selector := processcmd.ShellDefault
 	if len(input.Shell) != 0 {

@@ -738,6 +738,7 @@ type processToolCallBatchItem struct {
 	ToolName string
 	ToolType string
 	Allowed  bool
+	Input    json.RawMessage
 }
 
 func builtInProcessToolCallBatchItem(testName, toolName string) processToolCallBatchItem {
@@ -856,6 +857,10 @@ func createToolCallBatchForProcessTest(
 		}
 		seenTestNames[item.TestName] = struct{}{}
 		providerCallID := "call_" + item.TestName
+		toolInput := item.Input
+		if len(toolInput) == 0 {
+			toolInput = json.RawMessage(`{}`)
+		}
 		bindings = append(bindings, executionstore.ToolCallBindingInput{
 			ProviderCallID: providerCallID,
 			Type:           item.ToolType,
@@ -864,7 +869,7 @@ func createToolCallBatchForProcessTest(
 			Type:           "tool_call",
 			ProviderCallID: providerCallID,
 			ToolName:       item.ToolName,
-			ToolInput:      json.RawMessage(`{}`),
+			ToolInput:      toolInput,
 		})
 	}
 	_, toolCalls, err := fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(

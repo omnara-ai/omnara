@@ -17,8 +17,8 @@ var recommendedMachineTools = [...]string{
 	toolcatalog.ToolNameListProcesses,
 	toolcatalog.ToolNameListMachines,
 	toolcatalog.ToolNameInspectMachine,
-	toolcatalog.ToolNameUploadArtifact,
-	toolcatalog.ToolNameDownloadArtifact,
+	toolcatalog.ToolNameUploadFile,
+	toolcatalog.ToolNameDownloadFile,
 }
 
 func agentConfigWarnings(contract agentconfig.RuntimeContract) []openapi.Warning {
@@ -28,6 +28,12 @@ func agentConfigWarnings(contract agentconfig.RuntimeContract) []openapi.Warning
 	enabled := make(map[string]struct{}, len(contract.Tools))
 	for _, tool := range contract.Tools {
 		enabled[tool.Name] = struct{}{}
+		switch tool.Name {
+		case toolcatalog.ToolNameUploadArtifact:
+			enabled[toolcatalog.ToolNameUploadFile] = struct{}{}
+		case toolcatalog.ToolNameDownloadArtifact:
+			enabled[toolcatalog.ToolNameDownloadFile] = struct{}{}
+		}
 	}
 	missing := make([]string, 0, len(recommendedMachineTools))
 	for _, name := range recommendedMachineTools {

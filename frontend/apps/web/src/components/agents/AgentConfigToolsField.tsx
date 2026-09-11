@@ -6,6 +6,7 @@ import {
   permissionSelection,
 } from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { legacyToolAliases } from '@/components/agents/builtInTools'
 import { PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,6 +40,8 @@ const toolDescriptions = new Map([
   ['delete_machine', 'Delete a machine created for the agent.'],
   ['list_machines', 'List the machines available to the agent.'],
   ['inspect_machine', 'View details about a machine available to the agent.'],
+  ['upload_file', "Copy a file into Omnara's virtual filesystem."],
+  ['download_file', "Copy a file from Omnara's virtual filesystem to a machine."],
   ['upload_artifact', 'Create an artifact from a regular file on an attached machine.'],
   ['download_artifact', 'Copy an artifact to an attached machine.'],
   ['ask_question', 'Ask the user a question and wait for their response.'],
@@ -60,8 +63,10 @@ export function AgentConfigToolsField({
   )
   const visibleTools = tools.filter((tool) => !hiddenToolNames.has(tool.name))
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
-  const availableTools = catalogTools.filter((entry) =>
-    tools.every((tool) => tool.name !== entry.name),
+  const availableTools = catalogTools.filter(
+    (entry) =>
+      !legacyToolAliases.has(entry.name) &&
+      tools.every((tool) => (legacyToolAliases.get(tool.name) ?? tool.name) !== entry.name),
   )
   const [openDescription, setOpenDescription] = useState<string | null>(null)
 

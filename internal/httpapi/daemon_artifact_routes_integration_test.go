@@ -98,6 +98,69 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		artifact.IdempotencyKey != "upload-artifact:"+fixture.ToolCallUUID.String() {
 		t.Fatalf("stored artifact = %+v content=%q", artifact, stored)
 	}
+	vfsFixture := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(time.Second),
+		"daemon-vfs-upload-success",
+		"upload_file",
+		nil,
+		func(storage.ID) json.RawMessage {
+			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		vfsFixture.authority(),
+		vfsFixture.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept vfs upload process: found=%t err=%v", found, err)
+	}
+	vfsResponse := requestDaemonArtifactUpload(
+		t,
+		handler,
+		vfsFixture,
+		"screenshot.png",
+		content,
+		http.StatusCreated,
+	)
+	if _, ok := vfsResponse["artifact_id"].(string); !ok {
+		t.Fatalf("vfs upload response = %+v", vfsResponse)
+	}
+	wrongVFSRoot := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(2*time.Second),
+		"daemon-vfs-upload-wrong-root",
+		"upload_file",
+		nil,
+		func(storage.ID) json.RawMessage {
+			return json.RawMessage(`{"path":"/memory","source":"notes.md"}`)
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		wrongVFSRoot.authority(),
+		wrongVFSRoot.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept wrong-root vfs upload process: found=%t err=%v", found, err)
+	}
+	requestDaemonArtifactUpload(
+		t,
+		handler,
+		wrongVFSRoot,
+		"notes.md",
+		[]byte("notes"),
+		http.StatusNotFound,
+	)
 
 	otherProject := bootstrapPublicHTTPProject(t, handler, "daemon-artifact-upload-other-org")
 	otherFixture := createDaemonProcessFixture(
@@ -106,7 +169,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		pool,
 		store,
 		otherProject,
-		now.Add(time.Second),
+		now.Add(3*time.Second),
 		"daemon-artifact-upload-other-org",
 		"upload_artifact",
 	)
@@ -126,7 +189,7 @@ func TestUploadDaemonArtifactAuthorizationAndPersistence(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(2*time.Second),
+		now.Add(4*time.Second),
 		"daemon-artifact-upload-wrong-tool",
 		"run_command",
 	)
@@ -333,6 +396,58 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		err != nil || disposition != "attachment" || params["filename"] != "report.pdf" {
 		t.Fatalf("download response headers=%v body=%q", recorder.Header(), recorder.Body.String())
 	}
+	var vfsArtifactID string
+	vfsFixture := createDaemonProcessFixtureWithToolInputBuilder(
+		t,
+		ctx,
+		pool,
+		store,
+		project,
+		now.Add(time.Second),
+		"daemon-vfs-download-success",
+		"download_file",
+		nil,
+		func(agentID storage.ID) json.RawMessage {
+			artifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+				ProjectID:   project.ProjectUUID,
+				AgentID:     agentID,
+				ContentType: "text/plain",
+				Filename:    "vfs.txt",
+				Content:     []byte("vfs bytes"),
+			})
+			if err != nil {
+				t.Fatalf("create vfs artifact: %v", err)
+			}
+			vfsArtifactID = testPublicID(t, publicid.KindArtifact, artifact.ID)
+			input, err := json.Marshal(map[string]string{
+				"path":        "/artifacts/" + vfsArtifactID,
+				"destination": "vfs.txt",
+			})
+			if err != nil {
+				t.Fatalf("marshal vfs download input: %v", err)
+			}
+			return input
+		},
+	)
+	if _, found, err := acceptDaemonProcessOfferForTest(
+		ctx,
+		store,
+		vfsFixture.authority(),
+		vfsFixture.ProcessUUID,
+	); err != nil || !found {
+		t.Fatalf("accept vfs download process: found=%t err=%v", found, err)
+	}
+	vfsRecorder := requestDaemonArtifactDownload(
+		t,
+		handler,
+		vfsFixture.Token,
+		vfsFixture.ToolCallUUID,
+		vfsArtifactID,
+		http.StatusOK,
+	)
+	if vfsRecorder.Body.String() != "vfs bytes" {
+		t.Fatalf("vfs download body = %q", vfsRecorder.Body.String())
+	}
 
 	otherArtifact, err := store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:   project.ProjectUUID,
@@ -359,7 +474,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(time.Second),
+		now.Add(2*time.Second),
 		"daemon-artifact-download-other-agent",
 		"download_artifact",
 	)
@@ -380,7 +495,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(2*time.Second),
+		now.Add(3*time.Second),
 		"daemon-artifact-download-cross-agent",
 		"download_artifact",
 		nil,
@@ -418,7 +533,7 @@ func TestDownloadDaemonArtifactAuthorizationAndContent(t *testing.T) {
 		pool,
 		store,
 		project,
-		now.Add(3*time.Second),
+		now.Add(4*time.Second),
 		"daemon-artifact-download-wrong-tool",
 		"run_command",
 		nil,
@@ -553,7 +668,7 @@ func TestDaemonArtifactProcessScopeRejectsWrongMachine(t *testing.T) {
 		fixture.OrgUUID,
 		storage.ID{1},
 		fixture.ToolCallUUID,
-		"upload_artifact",
+		[]string{"upload_artifact"},
 	)
 	if err != nil {
 		t.Fatalf("load wrong-machine scope: %v", err)

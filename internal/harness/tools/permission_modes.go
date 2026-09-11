@@ -422,13 +422,18 @@ func uploadArtifactPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Path", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
-	)
+	pathLabel := "Path"
+	if call.Name == toolcatalog.ToolNameUploadFile {
+		pathLabel = "Source"
+	}
+	items := []interactionform.ContextItem{
+		{Label: pathLabel, Value: resolved.Path},
+		{Label: "Machine", Value: binding.MachineRef},
+	}
+	if call.Name == toolcatalog.ToolNameUploadFile {
+		items = append(items, interactionform.ContextItem{Label: "Destination", Value: toolcatalog.ArtifactVFSRoot})
+	}
+	return permissionChallenge(call, mode, authorizationInput, items...)
 }
 
 func downloadArtifactPermissionChallenge(
@@ -454,14 +459,19 @@ func downloadArtifactPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	return permissionChallenge(
-		call,
-		mode,
-		authorizationInput,
-		interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID},
-		interactionform.ContextItem{Label: "Destination", Value: resolved.Path},
-		interactionform.ContextItem{Label: "Machine", Value: binding.MachineRef},
-	)
+	source := interactionform.ContextItem{Label: "Artifact", Value: resolved.ArtifactID}
+	if call.Name == toolcatalog.ToolNameDownloadFile {
+		source = interactionform.ContextItem{
+			Label: "Source",
+			Value: toolcatalog.ArtifactVFSRoot + "/" + resolved.ArtifactID,
+		}
+	}
+	items := []interactionform.ContextItem{
+		source,
+		{Label: "Destination", Value: resolved.Path},
+		{Label: "Machine", Value: binding.MachineRef},
+	}
+	return permissionChallenge(call, mode, authorizationInput, items...)
 }
 
 func (e Executor) machinePreparationError(cause error) error {

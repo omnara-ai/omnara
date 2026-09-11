@@ -8,6 +8,21 @@ import {
 } from './builtInTools'
 
 describe('machine tool completeness', () => {
+  it('preserves legacy tools and their permissions without adding equivalent file tools', () => {
+    const tools = recommendedMachineToolNames.map((name) => ({
+      name:
+        name === 'upload_file'
+          ? 'upload_artifact'
+          : name === 'download_file'
+            ? 'download_artifact'
+            : name,
+      permission: { mode: 'always_ask', parameters: {} },
+    }))
+
+    expect(hasMissingMachineTools(tools)).toBe(false)
+    expect(addMissingMachineTools(tools)).toBe(tools)
+  })
+
   it('detects and adds only missing machine tools', () => {
     const runCommand = {
       name: 'run_command',
@@ -37,8 +52,8 @@ describe('addMachineToolsForNewSourceSelection', () => {
       ...tools,
       ...recommendedMachineToolNames.map((name) => ({ name, permission: null })),
     ])
-    expect(result).toContainEqual({ name: 'upload_artifact', permission: null })
-    expect(result).toContainEqual({ name: 'download_artifact', permission: null })
+    expect(result).toContainEqual({ name: 'upload_file', permission: null })
+    expect(result).toContainEqual({ name: 'download_file', permission: null })
   })
 
   it('preserves existing tools and permissions without duplicates', () => {
