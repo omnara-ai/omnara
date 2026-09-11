@@ -140,10 +140,10 @@ func main() {
 		defer close(machineLoopDone)
 		runMachinePoolMaintenanceLoop(ctx, logger, machinePoolManager, cfg.MaintenanceInterval)
 	}()
-	idleSubagentLoopDone := make(chan struct{})
+	idleAgentArchiveLoopDone := make(chan struct{})
 	go func() {
-		defer close(idleSubagentLoopDone)
-		runIdleSubagentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
+		defer close(idleAgentArchiveLoopDone)
+		runIdleAgentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
 	}()
 	runtimeDiscoveryDone := make(chan struct{})
 	go func() {
@@ -218,7 +218,7 @@ func main() {
 	)
 	cancel()
 	<-machineLoopDone
-	<-idleSubagentLoopDone
+	<-idleAgentArchiveLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
 	<-defaultModelProviderDone
@@ -520,7 +520,7 @@ func runMachinePoolMaintenanceTick(
 	}
 }
 
-func runIdleSubagentArchiveLoop(
+func runIdleAgentArchiveLoop(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
@@ -530,7 +530,7 @@ func runIdleSubagentArchiveLoop(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		runIdleSubagentArchiveTick(ctx, log, store, machinePoolManager)
+		runIdleAgentArchiveTick(ctx, log, store, machinePoolManager)
 		select {
 		case <-ctx.Done():
 			return
@@ -539,24 +539,24 @@ func runIdleSubagentArchiveLoop(
 	}
 }
 
-func runIdleSubagentArchiveTick(
+func runIdleAgentArchiveTick(
 	ctx context.Context,
 	log *slog.Logger,
 	store *storage.Store,
 	machinePoolManager *machinepool.Manager,
 ) {
 	defer recoverMachinePoolMaintenancePanic(log)
-	machines, archived, err := store.Execution().ArchiveIdleSubagents(ctx, machinepool.DefaultReconcileBatchSize)
+	machines, archived, err := store.Execution().ArchiveIdleAgents(ctx, machinepool.DefaultReconcileBatchSize)
 	outcome := completedMaintenanceOutcome(ctx, err)
 	if outcome.err != nil {
-		log.Error("archive idle subagents", "archived_count", archived, "error", outcome.err)
+		log.Error("archive idle agents", "archived_count", archived, "error", outcome.err)
 	} else if !outcome.interrupted && archived > 0 {
-		log.Info("archived idle subagents", "archived_count", archived)
+		log.Info("archived idle agents", "archived_count", archived)
 	}
 	if len(machines) == 0 {
 		return
 	}
 	if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
-		log.Error("delete idle subagent machines", "machine_count", len(machines), "error", err)
+		log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
 	}
 }

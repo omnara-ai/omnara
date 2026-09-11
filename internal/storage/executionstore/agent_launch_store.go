@@ -27,9 +27,10 @@ type LaunchAgentInput struct {
 	// MessageActor attributes the initial Message input. When nil, the actor
 	// is derived from LaunchedBy, which must then be a user or org API key
 	// principal.
-	MessageActor   *ActorParams
-	IdempotencyKey string
-	Subagent       *SubagentLaunch
+	MessageActor            *ActorParams
+	IdempotencyKey          string
+	ArchiveAfterIdleMinutes *int
+	Subagent                *SubagentLaunch
 }
 
 type LaunchAgentResult struct {
@@ -131,12 +132,13 @@ func (s *Store) launchAgentOnce(
 		return LaunchAgentResult{}, err
 	}
 	insertInput := insertAgentInput{
-		OrgID:           project.OrgID,
-		ProjectID:       input.ProjectID,
-		AgentProfileID:  input.ProfileID,
-		Name:            agentName,
-		CurrentConfigID: config.ID,
-		IdempotencyKey:  input.IdempotencyKey,
+		OrgID:                   project.OrgID,
+		ProjectID:               input.ProjectID,
+		AgentProfileID:          input.ProfileID,
+		Name:                    agentName,
+		CurrentConfigID:         config.ID,
+		IdempotencyKey:          input.IdempotencyKey,
+		ArchiveAfterIdleMinutes: input.ArchiveAfterIdleMinutes,
 	}
 	var agent AgentRecord
 	var inserted bool
@@ -172,7 +174,6 @@ func (s *Store) launchAgentOnce(
 		}
 		insertInput.ParentAgentID = input.Subagent.ParentAgentID
 		insertInput.SubagentKey = input.Subagent.Key
-		insertInput.ArchiveAfterIdleMinutes = input.Subagent.ArchiveAfterIdleMinutes
 		agent, inserted, err = insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
 		if err != nil {
 			return LaunchAgentResult{}, err

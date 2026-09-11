@@ -350,12 +350,11 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 	return items, nil
 }
 
-const listIdleSubagentsForArchive = `-- name: ListIdleSubagentsForArchive :many
+const listIdleAgentsForArchive = `-- name: ListIdleAgentsForArchive :many
 WITH RECURSIVE candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at
   FROM agents agent
-  WHERE agent.parent_agent_id IS NOT NULL
-    AND agent.state = 'active'
+  WHERE agent.state = 'active'
     AND agent.archive_after_idle_minutes IS NOT NULL
     AND coalesce((
       SELECT event.created_at
@@ -405,25 +404,25 @@ ORDER BY candidate.created_at, candidate.id
 LIMIT $1::integer
 `
 
-type ListIdleSubagentsForArchiveParams struct {
+type ListIdleAgentsForArchiveParams struct {
 	RowLimit int32
 	AsOf     *time.Time
 }
 
-type ListIdleSubagentsForArchiveRow struct {
+type ListIdleAgentsForArchiveRow struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
-func (q *Queries) ListIdleSubagentsForArchive(ctx context.Context, arg ListIdleSubagentsForArchiveParams) ([]ListIdleSubagentsForArchiveRow, error) {
-	rows, err := q.db.Query(ctx, listIdleSubagentsForArchive, arg.RowLimit, arg.AsOf)
+func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgentsForArchiveParams) ([]ListIdleAgentsForArchiveRow, error) {
+	rows, err := q.db.Query(ctx, listIdleAgentsForArchive, arg.RowLimit, arg.AsOf)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListIdleSubagentsForArchiveRow{}
+	items := []ListIdleAgentsForArchiveRow{}
 	for rows.Next() {
-		var i ListIdleSubagentsForArchiveRow
+		var i ListIdleAgentsForArchiveRow
 		if err := rows.Scan(&i.ProjectID, &i.ID); err != nil {
 			return nil, err
 		}
