@@ -13,6 +13,71 @@ import (
 	"github.com/google/uuid"
 )
 
+const agentIdleForArchive = `-- name: AgentIdleForArchive :one
+WITH RECURSIVE subtree AS (
+  SELECT agent.project_id, agent.id, 1 AS depth
+  FROM agents agent
+  WHERE agent.project_id = $1
+    AND agent.id = $2
+  UNION ALL
+  SELECT child.project_id, child.id, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.parent_agent_id = subtree.id
+  WHERE child.project_id = subtree.project_id
+    AND child.state = 'active'
+    AND subtree.depth < 64
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM agents agent
+  WHERE agent.project_id = $1
+    AND agent.id = $2
+    AND agent.state = 'active'
+    AND agent.archive_after_idle_minutes IS NOT NULL
+    AND coalesce((
+      SELECT event.created_at
+      FROM agent_events event
+      WHERE event.agent_id = agent.id
+      ORDER BY event.sequence DESC
+      LIMIT 1
+    ), agent.created_at) < coalesce($3::timestamptz, statement_timestamp())
+      - make_interval(mins => agent.archive_after_idle_minutes)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM subtree
+      WHERE EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = subtree.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = subtree.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM tool_calls call
+          WHERE call.agent_id = subtree.id
+            AND call.state IN ('running', 'waiting', 'awaiting_permission')
+        )
+    )
+)::boolean AS idle
+`
+
+type AgentIdleForArchiveParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	AsOf      *time.Time
+}
+
+func (q *Queries) AgentIdleForArchive(ctx context.Context, arg AgentIdleForArchiveParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentIdleForArchive, arg.ProjectID, arg.AgentID, arg.AsOf)
+	var idle bool
+	err := row.Scan(&idle)
+	return idle, err
+}
+
 const countActiveChildAgentsForLaunch = `-- name: CountActiveChildAgentsForLaunch :one
 SELECT count(*)::integer AS total,
        count(*) FILTER (WHERE agent.subagent_key = $1::text)::integer AS same_key

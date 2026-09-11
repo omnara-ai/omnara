@@ -591,3 +591,14 @@ func (s *Store) ArchiveIdleAgentsAsOf(
 ) ([]MachineRecord, int, error) {
 	return s.archiveIdleAgents(ctx, &asOf, limit)
 }
+
+func (s *Store) ArchiveIdleAgentCandidateAsOf(
+	ctx context.Context,
+	projectID, agentID ID,
+	asOf time.Time,
+) (int, error) {
+	_, archived, err := s.archiveIdleCandidates(
+		ctx, []idleArchiveCandidate{{ProjectID: projectID, ID: agentID}}, &asOf,
+	)
+	return archived, err
+}

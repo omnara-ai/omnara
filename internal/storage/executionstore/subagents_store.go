@@ -737,23 +737,24 @@ func (s *Store) archiveIdleAgents(ctx context.Context, asOf *time.Time, limit in
 	for _, row := range rows {
 		candidates = append(candidates, idleArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
 	}
-	return s.archiveIdleCandidates(ctx, candidates, SubagentMessageKindArchived, "archive idle agent")
+	return s.archiveIdleCandidates(ctx, candidates, asOf)
 }
+
+var errIdleArchiveNoLongerEligible = errors.New("agent is no longer idle")
 
 func (s *Store) archiveIdleCandidates(
 	ctx context.Context,
 	candidates []idleArchiveCandidate,
-	notifyParentKind string,
-	commitScope string,
+	asOf *time.Time,
 ) ([]MachineRecord, int, error) {
 	var machines []MachineRecord
 	archived := 0
 	for _, candidate := range candidates {
 		released, err := storeutil.RetryTransaction(ctx, "archive_idle_agent", func() ([]MachineRecord, error) {
-			return s.archiveIdleCandidateOnce(ctx, candidate, notifyParentKind, commitScope)
+			return s.archiveIdleCandidateOnce(ctx, candidate, asOf)
 		})
 		if err != nil {
-			if errors.Is(err, storeerr.ErrNotFound) {
+			if errors.Is(err, storeerr.ErrNotFound) || errors.Is(err, errIdleArchiveNoLongerEligible) {
 				continue
 			}
 			return machines, archived, err
@@ -767,22 +768,37 @@ func (s *Store) archiveIdleCandidates(
 func (s *Store) archiveIdleCandidateOnce(
 	ctx context.Context,
 	candidate idleArchiveCandidate,
-	notifyParentKind string,
-	commitScope string,
+	asOf *time.Time,
 ) ([]MachineRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("begin %s: %w", commitScope, err)
+		return nil, fmt.Errorf("begin archive idle agent: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	released, err := archiveAgentTreeTx(
-		ctx, tx, dbsqlc.New(tx), txNotifications, candidate.ProjectID, candidate.ID, nil, notifyParentKind,
+	qtx := dbsqlc.New(tx)
+	locked, err := lockAgentTreeTx(ctx, tx, qtx, candidate.ProjectID, candidate.ID)
+	if err != nil {
+		return nil, err
+	}
+	idle, err := qtx.AgentIdleForArchive(ctx, dbsqlc.AgentIdleForArchiveParams{
+		ProjectID: candidate.ProjectID,
+		AgentID:   candidate.ID,
+		AsOf:      asOf,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("recheck idle agent for archive: %w", err)
+	}
+	if !idle {
+		return nil, errIdleArchiveNoLongerEligible
+	}
+	released, err := archiveLockedAgentTreeTx(
+		ctx, tx, qtx, txNotifications, locked, nil, SubagentMessageKindArchived,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, commitScope); err != nil {
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "archive idle agent"); err != nil {
 		return nil, err
 	}
 	return released, nil
