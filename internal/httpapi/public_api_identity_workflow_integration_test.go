@@ -6,9 +6,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,9 +22,12 @@ import (
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -4098,4 +4103,188 @@ func TestMachineRoutesRequireMachineAuthority(t *testing.T) {
 		http.StatusGone,
 		authHeaders(otherDaemonToken),
 	)
+}
+
+func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		cached            bool
+		cancelDuringWrite bool
+		partialWrite      bool
+		cancelBefore      bool
+		failAcquire       bool
+	}{
+		{name: "live write timeout retries"},
+		{name: "cached live write timeout retries", cached: true},
+		{name: "canceled prepare write", cancelDuringWrite: true},
+		{name: "canceled cached write", cached: true, cancelDuringWrite: true},
+		{name: "canceled partial write", cached: true, cancelDuringWrite: true, partialWrite: true},
+		{name: "already canceled", cancelBefore: true},
+		{name: "canceled request with acquisition failure", failAcquire: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+			defer stop()
+			basePool := openIntegrationDB(t, ctx)
+			user, err := storagetest.CreateVerifiedUser(ctx, basePool, storagetest.CreateVerifiedUserInput{
+				Email: "browser-connection@example.com", DisplayName: "Browser Connection",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requestCtx, cancelRequest := context.WithCancel(ctx)
+			defer cancelRequest()
+			cfg := basePool.Config()
+			cfg.MaxConns = 1
+			cfg.ShouldPing = func(context.Context, pgxpool.ShouldPingParams) bool { return false }
+			var failAcquire atomic.Bool
+			cfg.PrepareConn = func(context.Context, *pgx.Conn) (bool, error) {
+				if failAcquire.Load() {
+					cancelRequest()
+					return true, errors.New("database acquisition failed")
+				}
+				return true, nil
+			}
+			cfg.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+				conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+				if err != nil {
+					return nil, err
+				}
+				observed := &browserAuthWriteConn{Conn: conn, deadlineSet: make(chan struct{}), partialWrite: tc.partialWrite}
+				if tc.cancelDuringWrite {
+					observed.cancel = cancelRequest
+				}
+				return observed, nil
+			}
+			pool, err := pgxpool.NewWithConfig(ctx, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pool.Close()
+			store := storage.NewStore(pool)
+			session, err := store.Identity().CreateBrowserSession(ctx, identitystore.CreateBrowserSessionInput{
+				UserID: user.ID, Token: "browser-connection-token", CSRFToken: "csrf", TTL: time.Hour,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.cached {
+				if _, _, err := store.Identity().AuthenticateBrowserSession(ctx, "browser-connection-token"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			acquired, err := pool.Acquire(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer acquired.Release()
+			netConn := acquired.Conn().PgConn().Conn()
+			if tlsConn, ok := netConn.(*tls.Conn); ok {
+				netConn = tlsConn.NetConn()
+			}
+			conn := testutil.RequireType[*browserAuthWriteConn](t, netConn)
+			conn.armed.Store(!tc.cancelBefore && !tc.failAcquire)
+			acquired.Release()
+			failAcquire.Store(tc.failAcquire)
+			if tc.cancelBefore {
+				cancelRequest()
+			}
+			server := &Server{store: store}
+			buffer, logger := newRequestEventCapture()
+			handlerCalls := 0
+			handler := requestLog(logger)(server.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerCalls++
+				principal, ok := r.Context().Value(principalContextKey{}).(identitystore.PrincipalRecord)
+				if !ok || principal.ID != user.ID || principal.BrowserSessionID != session.ID {
+					t.Fatalf("unexpected authenticated principal: %+v", principal)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})))
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil).WithContext(requestCtx)
+			req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionCookieName, Value: "browser-connection-token"})
+			rec := httptest.NewRecorder()
+			tracked := logpkg.NewResponseRecorder(rec)
+			handler.ServeHTTP(tracked, req)
+			conn.armed.Store(false)
+			event := decodeRequestEvent(t, buffer)
+			canceled := tc.cancelDuringWrite || tc.cancelBefore
+			switch {
+			case tc.failAcquire:
+				if handlerCalls != 0 || rec.Code != http.StatusServiceUnavailable || event["http.status_code"] != float64(503) {
+					t.Fatalf("pool failure was suppressed: calls=%d response=%d event=%+v", handlerCalls, rec.Code, event)
+				}
+			case canceled:
+				if handlerCalls != 0 || rec.Body.Len() != 0 || tracked.Started() {
+					t.Fatalf(
+						"canceled auth produced a response or ran handler: calls=%d response=%d body=%s",
+						handlerCalls, rec.Code, rec.Body.String(),
+					)
+				}
+				if event["http.status_code"] != float64(499) || event["level"] != "info" {
+					t.Fatalf("canceled auth misclassified: %+v", event)
+				}
+				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "i/o timeout") {
+					t.Fatalf("missing actual socket timeout: %+v", event)
+				}
+			default:
+				if handlerCalls != 1 || rec.Code != http.StatusNoContent || event["http.status_code"] != float64(204) {
+					t.Fatalf("retry did not authenticate once: calls=%d response=%d event=%+v", handlerCalls, rec.Code, event)
+				}
+			}
+			if tc.partialWrite && conn.bytesWritten.Load() == 0 {
+				t.Fatal("partial write did not send any bytes")
+			}
+			if !tc.cancelBefore && !tc.failAcquire && !conn.triggered.Load() {
+				t.Fatal("socket write failure was not exercised")
+			}
+		})
+	}
+}
+
+type browserAuthWriteConn struct {
+	net.Conn
+	partialWrite bool
+	bytesWritten atomic.Int64
+	armed        atomic.Bool
+	triggered    atomic.Bool
+	signaled     atomic.Bool
+	cancel       context.CancelFunc
+	deadlineSet  chan struct{}
+}
+
+func (c *browserAuthWriteConn) SetDeadline(deadline time.Time) error {
+	err := c.Conn.SetDeadline(deadline)
+	if !deadline.IsZero() && !deadline.After(time.Now()) && c.signaled.CompareAndSwap(false, true) {
+		close(c.deadlineSet)
+	}
+	return err
+}
+
+func (c *browserAuthWriteConn) Write(p []byte) (int, error) {
+	if !c.armed.CompareAndSwap(true, false) {
+		return c.Conn.Write(p)
+	}
+	c.triggered.Store(true)
+	written := 0
+	if c.partialWrite {
+		n, err := c.Conn.Write(p[:1])
+		if err != nil {
+			return n, err
+		}
+		written = n
+		p = p[n:]
+	}
+	if c.cancel != nil {
+		c.cancel()
+		select {
+		case <-c.deadlineSet:
+		case <-time.After(time.Second):
+			return written, errors.New("pgx did not set cancellation deadline")
+		}
+	} else if err := c.Conn.SetWriteDeadline(time.Now().Add(-time.Second)); err != nil {
+		return 0, err
+	}
+	n, err := c.Conn.Write(p)
+	c.bytesWritten.Store(int64(written + n))
+	return written + n, err
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -185,6 +186,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 						logent.AuthResultUnavailable,
 						err,
 					)
+					if errors.Is(r.Context().Err(), context.Canceled) && errutil.OnlyMatches(err, context.Canceled) {
+						return
+					}
 					apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
 					return
 				}
