@@ -336,18 +336,43 @@ func renderQuestionForParent(form interactionform.Form) string {
 }
 
 func lockAgentWithParentTx(ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, projectID, agentID ID) error {
+	refs, err := agentWithParentLockRefsTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return err
+	}
+	return lifecyclelock.Agents(ctx, tx, refs)
+}
+
+func tryLockAgentWithParentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	projectID, agentID ID,
+) (bool, error) {
+	refs, err := agentWithParentLockRefsTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return false, err
+	}
+	return lifecyclelock.TryAgents(ctx, tx, refs)
+}
+
+func agentWithParentLockRefsTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID ID,
+) ([]lifecyclelock.AgentRef, error) {
 	parentID, err := qtx.GetAgentParentID(ctx, dbsqlc.GetAgentParentIDParams{ProjectID: projectID, ID: agentID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
+			return nil, storeerr.ErrNotFound
 		}
-		return fmt.Errorf("load agent parent: %w", err)
+		return nil, fmt.Errorf("load agent parent: %w", err)
 	}
 	refs := []lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}}
 	if parentID != nil {
 		refs = append(refs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: *parentID})
 	}
-	return lifecyclelock.Agents(ctx, tx, refs)
+	return refs, nil
 }
 
 func notifyParentAgentTx(

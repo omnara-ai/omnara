@@ -12,7 +12,7 @@ import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { CheckboxField } from '@/components/ui/field'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -63,15 +63,18 @@ export function AgentsTable({
   if (includeSubagents) filters.include_subagents = true
   const query = useAgents(orgId, projectId, { filters, sort: list.sort })
   const paged = usePagedQuery(query, `${list.queryKey}:${includeSubagents ? 'all' : 'top'}`)
-  const showToolbar =
-    useListToolbarVisibility(list, paged.pagination, query.isSuccess) || includeSubagents
+  const showToolbar = useListToolbarVisibility(
+    list,
+    paged.pagination,
+    query.isSuccess && !query.isPlaceholderData,
+  )
   const archiveAgent = useArchiveAgent(orgId, projectId)
   const navigate = useNavigate()
 
   return (
     <div className="flex flex-col gap-3">
-      {showToolbar && (
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {showToolbar && (
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
@@ -80,19 +83,16 @@ export function AgentsTable({
             onSortChange={list.setSort}
             placeholder="Search agents by name…"
           />
-          <Button
-            type="button"
-            size="sm"
-            variant={includeSubagents ? 'secondary' : 'outline'}
-            aria-pressed={includeSubagents}
-            onClick={() => {
-              setIncludeSubagents((value) => !value)
-            }}
-          >
-            Show subagents
-          </Button>
-        </div>
-      )}
+        )}
+        <CheckboxField
+          label="Show subagents"
+          className="w-auto"
+          checked={includeSubagents}
+          onChange={(event) => {
+            setIncludeSubagents(event.target.checked)
+          }}
+        />
+      </div>
       <DataTable
         columns={[
           {
