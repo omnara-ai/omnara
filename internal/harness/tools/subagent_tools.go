@@ -174,12 +174,12 @@ func failSubagentTransactionForStorageError(code string, cause error) (transacti
 	return failInTransaction(content, cause), nil
 }
 
-func failSubagentAsync(code string, cause error) (asyncPhaseResult, error) {
+func failSubagentTransaction(code string, cause error) (transactionalPhaseResult, error) {
 	content, err := toolFailureContent(code, cause.Error(), false)
 	if err != nil {
 		return nil, err
 	}
-	return failAsynchronously(content, cause), nil
+	return failInTransaction(content, cause), nil
 }
 
 func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSummary, error) {
@@ -197,7 +197,7 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 	}, nil
 }
 
-func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+func spawnAgent(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 	input, err := resolveSpawnAgentRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	}
 	subagent, ok := contract.Subagents[input.Agent]
 	if !ok {
-		return failSubagentAsync("spawn_agent_failed", fmt.Errorf(
+		return failSubagentTransaction("spawn_agent_failed", fmt.Errorf(
 			"unknown subagent key %q; configured keys: %s",
 			input.Agent,
 			strings.Join(contract.SubagentKeys(), ", "),
@@ -222,9 +222,9 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if err != nil {
 		return nil, err
 	}
-	childConfigID, childProfileID, err := executor.subagentLaunchConfig(ctx, call.Turn, parent, subagent)
+	launchConfig, err := executor.subagentLaunchConfig(ctx, call.Turn, parent, subagent)
 	if err != nil {
-		return failSubagentAsync("spawn_agent_failed", err)
+		return failSubagentTransaction("spawn_agent_failed", err)
 	}
 	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
 	if err != nil {
@@ -234,28 +234,38 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if name == "" {
 		name = input.Agent
 	}
-	launch, err := executor.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:     parent.ProjectID,
-		ProfileID:     childProfileID,
-		AgentConfigID: childConfigID,
-		LaunchedBy: identitystore.PrincipalRecord{
-			Type: identitystore.PrincipalTypeSystem,
-			ID:   parent.ID,
+	command := executionstore.LaunchSubagentForToolCall(
+		executionstore.LaunchAgentInput{
+			ProjectID:     parent.ProjectID,
+			ProfileID:     launchConfig.profileID,
+			AgentConfigID: launchConfig.configID,
+			DerivedConfig: launchConfig.derived,
+			LaunchedBy: identitystore.PrincipalRecord{
+				Type: identitystore.PrincipalTypeSystem,
+				ID:   parent.ID,
+			},
+			Name:                    &name,
+			Message:                 input.Task,
+			MessageActor:            actor,
+			IdempotencyKey:          "spawn:" + call.ToolCallID.String(),
+			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
+			Subagent: &executionstore.SubagentLaunch{
+				ParentAgentID:       parent.ID,
+				Key:                 input.Agent,
+				MaxConcurrent:       subagent.MaxConcurrent,
+				MaxSubagents:        contract.MaxSubagents,
+				ShareParentMachines: subagent.Type == agentconfig.SubagentTypeSelf,
+			},
 		},
-		Name:                    &name,
-		Message:                 input.Task,
-		MessageActor:            actor,
-		IdempotencyKey:          "spawn:" + call.ToolCallID.String(),
-		ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
-		Subagent: &executionstore.SubagentLaunch{
-			ParentAgentID:       parent.ID,
-			Key:                 input.Agent,
-			MaxConcurrent:       subagent.MaxConcurrent,
-			MaxSubagents:        contract.MaxSubagents,
-			ShareParentMachines: subagent.Type == agentconfig.SubagentTypeSelf,
+		func(launch executionstore.LaunchAgentResult) (executionstore.ToolCallCompletionInput, error) {
+			content, err := spawnAgentResultContent(launch.Agent, input.Agent)
+			if err != nil {
+				return executionstore.ToolCallCompletionInput{}, err
+			}
+			return successfulToolCallCompletion(content)
 		},
-	})
-	if err != nil {
+	)
+	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		if errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied) {
 			content, contentErr := toolFailureContent(
 				storeerr.ManagedWorkAdmissionDeniedCode, storeerr.InsufficientOmnaraCreditsMessage, false,
@@ -263,48 +273,56 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 			if contentErr != nil {
 				return nil, contentErr
 			}
-			return failAsynchronously(content, err), nil
+			return failInTransaction(content, err), nil
 		}
-		if subagentStorageErrorIsToolFailure(err) {
-			return failSubagentAsync("spawn_agent_failed", err)
-		}
-		return nil, err
-	}
-	if executor.MachinePoolManager != nil {
-		executor.MachinePoolManager.StartLaunchProvisioning(
-			ctx, executor.logger(), launch.Agent.OrgID, launch.ProvisionMachineIDs,
-		)
-	}
-	childPublicID, err := publicid.Encode(publicid.KindAgent, launch.Agent.ID)
+		return failSubagentTransactionForStorageError("spawn_agent_failed", err)
+	}), nil
+}
+
+func spawnAgentResultContent(child executionstore.AgentRecord, key string) (toolResultContent, error) {
+	childPublicID, err := publicid.Encode(publicid.KindAgent, child.ID)
 	if err != nil {
-		return nil, fmt.Errorf("encode subagent id: %w", err)
+		return toolResultContent{}, fmt.Errorf("encode subagent id: %w", err)
 	}
-	content, err := structuredToolResultContent(map[string]any{
+	return structuredToolResultContent(map[string]any{
 		"agent_id":  childPublicID,
-		"agent_ref": executionstore.SubagentRef(launch.Agent.ID),
-		"name":      launch.Agent.Name,
-		"key":       input.Agent,
+		"agent_ref": executionstore.SubagentRef(child.ID),
+		"name":      child.Name,
+		"key":       key,
 		"state":     executionstore.SubagentStateRunning,
 		"message": "Subagent started. Its final answer will arrive as a message from it; " +
 			"use read_agent to check its progress.",
 	})
-	if err != nil {
-		return nil, err
+}
+
+func provisionSubagentMachinesInBackground(ctx context.Context, call backgroundToolContext) error {
+	launch, ok := call.CommandResult.(executionstore.LaunchAgentResult)
+	if !ok || len(launch.ProvisionMachineIDs) == 0 || call.Executor.MachinePoolManager == nil {
+		return nil
 	}
-	return completeAsynchronously(content), nil
+	call.Executor.MachinePoolManager.StartLaunchProvisioning(
+		ctx, call.Executor.logger(), launch.Agent.OrgID, launch.ProvisionMachineIDs,
+	)
+	return nil
+}
+
+type subagentLaunchConfig struct {
+	configID  storage.ID
+	profileID storage.ID
+	derived   *executionstore.CreateAgentConfigInput
 }
 
 // subagentLaunchConfig picks the config a spawned subagent launches from. A
 // profile subagent with no overrides launches the profile's current config
-// and stays linked to the profile; any other subagent launches a derived,
-// unlinked config derived from its base's compiled definition with the key's
-// overrides applied.
+// and stays linked to the profile; any other subagent launches an unlinked
+// config derived from its base's compiled definition with the key's
+// overrides applied, created inside the launch transaction.
 func (e Executor) subagentLaunchConfig(
 	ctx context.Context,
 	turn Turn,
 	parent executionstore.AgentRecord,
 	subagent agentconfig.SubagentCompiled,
-) (storage.ID, storage.ID, error) {
+) (subagentLaunchConfig, error) {
 	var baseConfig executionstore.AgentConfigRecord
 	switch subagent.Type {
 	case agentconfig.SubagentTypeSelf:
@@ -312,37 +330,37 @@ func (e Executor) subagentLaunchConfig(
 			ctx, turn.ProjectID, turn.AgentID, turn.ModelCallContextID,
 		)
 		if err != nil {
-			return storage.NilID, storage.NilID, err
+			return subagentLaunchConfig{}, err
 		}
 		if !found {
-			return storage.NilID, storage.NilID, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
+			return subagentLaunchConfig{}, fmt.Errorf("model call context %s not found", turn.ModelCallContextID)
 		}
 		config, found, err := e.Store.Execution().GetAgentConfig(ctx, turn.ProjectID, contextRow.AgentConfigID)
 		if err != nil {
-			return storage.NilID, storage.NilID, err
+			return subagentLaunchConfig{}, err
 		}
 		if !found {
-			return storage.NilID, storage.NilID, fmt.Errorf("agent config %s not found", contextRow.AgentConfigID)
+			return subagentLaunchConfig{}, fmt.Errorf("agent config %s not found", contextRow.AgentConfigID)
 		}
 		baseConfig = config
 	case agentconfig.SubagentTypeProfile:
 		profileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
 		if err != nil {
-			return storage.NilID, storage.NilID, fmt.Errorf("decode subagent profile id: %w", err)
+			return subagentLaunchConfig{}, fmt.Errorf("decode subagent profile id: %w", err)
 		}
 		profile, err := e.Store.Execution().GetAgentProfile(ctx, turn.ProjectID, profileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return storage.NilID, storage.NilID, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
+				return subagentLaunchConfig{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
 			}
-			return storage.NilID, storage.NilID, err
+			return subagentLaunchConfig{}, err
 		}
 		if subagent.Model == nil && subagent.InstructionAppend == "" {
-			return profile.CurrentConfig.ID, profile.ID, nil
+			return subagentLaunchConfig{configID: profile.CurrentConfig.ID, profileID: profile.ID}, nil
 		}
 		baseConfig = profile.CurrentConfig
 	default:
-		return storage.NilID, storage.NilID, fmt.Errorf("unsupported subagent type %q", subagent.Type)
+		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
 	}
 	body, err := agentconfigcompile.DeriveSubagentConfig(
 		ctx,
@@ -353,13 +371,10 @@ func (e Executor) subagentLaunchConfig(
 		subagent,
 	)
 	if err != nil {
-		return storage.NilID, storage.NilID, fmt.Errorf("derive subagent config: %w", err)
+		return subagentLaunchConfig{}, fmt.Errorf("derive subagent config: %w", err)
 	}
-	childConfig, err := e.Store.Execution().CreateAgentConfig(ctx, body.CreateInput(parent.ProjectID))
-	if err != nil {
-		return storage.NilID, storage.NilID, fmt.Errorf("store subagent config: %w", err)
-	}
-	return childConfig.ID, storage.NilID, nil
+	derived := body.CreateInput(parent.ProjectID)
+	return subagentLaunchConfig{derived: &derived}, nil
 }
 
 func readAgent(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {

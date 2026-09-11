@@ -63,6 +63,7 @@ func (e Executor) dispatchToolHandler(
 					ctx,
 					handler.Transactional,
 					transactionalToolContext{
+						Executor:   e,
 						Reader:     reader,
 						Turn:       turn,
 						Call:       call,
@@ -550,6 +551,7 @@ type toolHandler struct {
 }
 
 type transactionalToolContext struct {
+	Executor   Executor
 	Reader     *executionstore.ToolCallReader
 	Turn       Turn
 	Call       model.ToolCall

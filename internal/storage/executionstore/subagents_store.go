@@ -655,6 +655,39 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	return nil
 }
 
+func LaunchSubagentForToolCall(
+	input LaunchAgentInput,
+	completion ToolCallCompletionBuilder[LaunchAgentResult],
+) ToolCallCommand {
+	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+		if completion == nil {
+			return nil, errors.New("subagent launch completion builder is required")
+		}
+		input, err := validateLaunchAgentInput(input)
+		if err != nil {
+			return nil, err
+		}
+		if input.Subagent == nil || input.Subagent.ParentAgentID != tx.input.AgentID {
+			return nil, errors.New("subagent launch must name the calling agent as parent")
+		}
+		result, err := tx.store.launchAgentTx(ctx, tx.tx, tx.q, tx.notifications, input)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.lockForMutation(ctx); err != nil {
+			return nil, err
+		}
+		toolCompletion, err := completion(result)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.completeToolCall(ctx, toolCompletion); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+}
+
 func StopSubagentForToolCall(
 	targetAgentID ID,
 	completion ToolCallCompletionInput,

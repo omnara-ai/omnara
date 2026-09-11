@@ -36,7 +36,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
-		[]string{"create_machine", "delete_machine", "stop_agent"},
+		[]string{"create_machine", "delete_machine", "stop_agent", "spawn_agent"},
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
@@ -52,7 +52,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"send_integration_message", "web_search", "web_fetch", "skill", "spawn_agent"},
+		[]string{"send_integration_message", "web_search", "web_fetch", "skill"},
 		expectedTopology{async: true},
 	)
 
