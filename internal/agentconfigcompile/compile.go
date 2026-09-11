@@ -66,59 +66,7 @@ func options(
 			}
 			return agentconfig.ResolvedModelSelection{}, err
 		}
-		configuredModel, err := store.Models().GetConfiguredModelByName(
-			ctx,
-			orgID,
-			providerConfig.ID,
-			configuredModelName,
-		)
-		if err != nil {
-			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-					"/model/name",
-					fmt.Errorf(
-						"configured model %q is not configured for model provider config %q: %w",
-						configuredModelName,
-						providerConfigName,
-						storeerr.ErrNotFound,
-					),
-				)
-			}
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
-			ctx,
-			orgID,
-			projectID,
-			configuredModel.ID,
-		)
-		if err != nil {
-			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-					"/model/name",
-					fmt.Errorf(
-						"configured model %q on model provider config %q does not have an active project grant: %w",
-						configuredModelName,
-						providerConfigName,
-						storeerr.ErrNotFound,
-					),
-				)
-			}
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		effectiveModel, err := modelstore.EffectiveConfiguredModelForProjectGrant(
-			providerConfig.APIFormat,
-			configuredModel,
-			grant,
-		)
-		if err != nil {
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		supportsTools := effectiveModel.SupportsTools
-		return agentconfig.ResolvedModelSelection{
-			ConfiguredModelID: configuredModel.ID.String(),
-			SupportsTools:     &supportsTools,
-		}, nil
+		return resolveGrantedModel(ctx, store, orgID, projectID, providerConfig, configuredModelName)
 	}
 	opts.ResolveMachineName = func(machineName string) (string, error) {
 		machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
@@ -175,6 +123,151 @@ func options(
 		}, nil
 	}
 	return opts
+}
+
+func resolveGrantedModel(
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID storage.ID,
+	providerConfig modelstore.ModelProviderConfigRecord,
+	configuredModelName string,
+) (agentconfig.ResolvedModelSelection, error) {
+	configuredModel, err := store.Models().GetConfiguredModelByName(
+		ctx,
+		orgID,
+		providerConfig.ID,
+		configuredModelName,
+	)
+	if err != nil {
+		if storeerr.IsNotFound(err) {
+			return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+				"/model/name",
+				fmt.Errorf(
+					"configured model %q is not configured for model provider config %q: %w",
+					configuredModelName,
+					providerConfig.Name,
+					storeerr.ErrNotFound,
+				),
+			)
+		}
+		return agentconfig.ResolvedModelSelection{}, err
+	}
+	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		orgID,
+		projectID,
+		configuredModel.ID,
+	)
+	if err != nil {
+		if storeerr.IsNotFound(err) {
+			return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+				"/model/name",
+				fmt.Errorf(
+					"configured model %q on model provider config %q does not have an active project grant: %w",
+					configuredModelName,
+					providerConfig.Name,
+					storeerr.ErrNotFound,
+				),
+			)
+		}
+		return agentconfig.ResolvedModelSelection{}, err
+	}
+	effectiveModel, err := modelstore.EffectiveConfiguredModelForProjectGrant(
+		providerConfig.APIFormat,
+		configuredModel,
+		grant,
+	)
+	if err != nil {
+		return agentconfig.ResolvedModelSelection{}, err
+	}
+	supportsTools := effectiveModel.SupportsTools
+	return agentconfig.ResolvedModelSelection{
+		ConfiguredModelID: configuredModel.ID.String(),
+		SupportsTools:     &supportsTools,
+	}, nil
+}
+
+func subagentModelResolver(
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID storage.ID,
+) agentconfig.SubagentModelResolver {
+	return func(
+		baseConfiguredModelID string,
+		override agentconfig.SubagentModelCompiled,
+	) (agentconfig.ResolvedModelSelection, error) {
+		baseModelID, err := storage.ParseID(baseConfiguredModelID)
+		if err != nil {
+			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("parse base configured model id: %w", err)
+		}
+		baseModel, err := store.Models().GetConfiguredModel(ctx, orgID, baseModelID)
+		if err != nil {
+			return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base configured model: %w", err)
+		}
+		var providerConfig modelstore.ModelProviderConfigRecord
+		if override.ProviderConfig != "" {
+			providerConfig, err = store.Models().GetModelProviderConfigByName(ctx, orgID, override.ProviderConfig)
+			if err != nil {
+				if storeerr.IsNotFound(err) {
+					return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
+						"/model/provider_config",
+						fmt.Errorf(
+							"model provider config %q was not found: %w", override.ProviderConfig, storeerr.ErrNotFound,
+						),
+					)
+				}
+				return agentconfig.ResolvedModelSelection{}, err
+			}
+		} else {
+			providerConfig, err = store.Models().GetModelProviderConfig(ctx, orgID, baseModel.ModelProviderConfigID)
+			if err != nil {
+				return agentconfig.ResolvedModelSelection{}, fmt.Errorf("load base model provider config: %w", err)
+			}
+		}
+		configuredModelName := override.Name
+		if configuredModelName == "" {
+			configuredModelName = baseModel.Name
+		}
+		return resolveGrantedModel(ctx, store, orgID, projectID, providerConfig, configuredModelName)
+	}
+}
+
+func DeriveSubagentConfig(
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID storage.ID,
+	base executionstore.AgentConfigRecord,
+	subagent agentconfig.SubagentCompiled,
+) (Body, error) {
+	var baseCompiled agentconfig.Compiled
+	if err := json.Unmarshal(base.CompiledDefinition, &baseCompiled); err != nil {
+		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
+	}
+	child, err := agentconfig.SubagentCompiledFrom(
+		baseCompiled,
+		subagent,
+		subagentModelResolver(ctx, store, orgID, projectID),
+	)
+	if err != nil {
+		return Body{}, err
+	}
+	encoded, err := agentconfig.EncodeCompiled(child)
+	if err != nil {
+		return Body{}, err
+	}
+	configuredModelID, err := storage.ParseID(child.Model.ConfiguredModelID)
+	if err != nil || configuredModelID == storage.NilID {
+		return Body{}, fmt.Errorf("subagent model must resolve to a configured project-granted model")
+	}
+	return Body{
+		Definition:         json.RawMessage(encoded.CanonicalJSON),
+		Source:             base.Source,
+		SourceFormat:       base.SourceFormat,
+		ConfiguredModelID:  configuredModelID,
+		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
+		CompilerVersion:    agentconfig.CompilerVersion,
+		DefinitionHash:     encoded.Hash,
+	}, nil
 }
 
 func Compile(

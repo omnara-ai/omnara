@@ -168,20 +168,33 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 	if err != nil {
 		return Result{}, validationErrorFrom(err, root)
 	}
-	canonical, err := json.Marshal(compiled)
+	encoded, err := EncodeCompiled(compiled)
 	if err != nil {
-		return Result{}, fmt.Errorf("marshal compiled agent config: %w", err)
+		return Result{}, err
 	}
-	canonical = canonicalizeJSON(canonical)
-	sum := sha256.Sum256(canonical)
 	return Result{
 		Compiled:        compiled,
-		CanonicalJSON:   canonical,
-		Hash:            hex.EncodeToString(sum[:]),
+		CanonicalJSON:   encoded.CanonicalJSON,
+		Hash:            encoded.Hash,
 		Source:          string(raw),
 		SourceFormat:    format,
 		CompilerVersion: CompilerVersion,
 	}, nil
+}
+
+type EncodedCompiled struct {
+	CanonicalJSON []byte
+	Hash          string
+}
+
+func EncodeCompiled(compiled Compiled) (EncodedCompiled, error) {
+	canonical, err := json.Marshal(compiled)
+	if err != nil {
+		return EncodedCompiled{}, fmt.Errorf("marshal compiled agent config: %w", err)
+	}
+	canonical = canonicalizeJSON(canonical)
+	sum := sha256.Sum256(canonical)
+	return EncodedCompiled{CanonicalJSON: canonical, Hash: hex.EncodeToString(sum[:])}, nil
 }
 
 func canonicalizeJSON(raw []byte) []byte {

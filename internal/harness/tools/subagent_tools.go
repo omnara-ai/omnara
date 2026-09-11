@@ -297,7 +297,8 @@ func spawnAgent(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 // subagentLaunchConfig picks the config a spawned subagent launches from. A
 // profile subagent with no overrides launches the profile's current config
 // and stays linked to the profile; any other subagent launches a derived,
-// unlinked config compiled from its base with the key's overrides applied.
+// unlinked config derived from its base's compiled definition with the key's
+// overrides applied.
 func (e Executor) subagentLaunchConfig(
 	ctx context.Context,
 	turn Turn,
@@ -343,28 +344,16 @@ func (e Executor) subagentLaunchConfig(
 	default:
 		return storage.NilID, storage.NilID, fmt.Errorf("unsupported subagent type %q", subagent.Type)
 	}
-	baseSource, err := agentconfig.ParseSource(
-		agentconfig.SourceFormat(baseConfig.SourceFormat),
-		[]byte(baseConfig.Source),
-	)
-	if err != nil {
-		return storage.NilID, storage.NilID, fmt.Errorf("parse base agent config source: %w", err)
-	}
-	childSource, err := json.Marshal(agentconfig.SubagentSource(baseSource, subagent))
-	if err != nil {
-		return storage.NilID, storage.NilID, fmt.Errorf("encode subagent config source: %w", err)
-	}
-	body, err := agentconfigcompile.Compile(
+	body, err := agentconfigcompile.DeriveSubagentConfig(
 		ctx,
 		e.Store,
 		parent.OrgID,
 		parent.ProjectID,
-		e.AgentConfigOptions,
-		agentconfig.SourceFormatJSON,
-		string(childSource),
+		baseConfig,
+		subagent,
 	)
 	if err != nil {
-		return storage.NilID, storage.NilID, fmt.Errorf("compile subagent config: %w", err)
+		return storage.NilID, storage.NilID, fmt.Errorf("derive subagent config: %w", err)
 	}
 	childConfig, err := e.Store.Execution().CreateAgentConfig(ctx, body.CreateInput(parent.ProjectID))
 	if err != nil {
