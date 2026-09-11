@@ -670,3 +670,70 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 		t.Fatalf("subagents after parent message = %+v", subagents)
 	}
 }
+
+func TestAgentRuntimeLockReaperSkipsSubagentWithContendedParent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-reap@example.com", "Subagent Reap")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-reap", "Subagent Reap", subagentParentYAML,
+	)
+	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-reap-parent",
+	})
+	if err != nil {
+		t.Fatalf("launch parent: %v", err)
+	}
+	parent := parentLaunch.Agent
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "reap", "subagent-reap-child", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	fixture := runtimeLockLeaseFixture{Pool: pool, Store: store, AgentID: child.Agent.ID}
+	lock := fixture.acquire(t, ctx, testWorkerProcessID, time.Minute)
+	expireAgentRuntimeLockForTest(t, ctx, store, lock.ID)
+
+	parentTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin parent lock holder: %v", err)
+	}
+	defer func() { _ = parentTx.Rollback(ctx) }()
+	if _, err := parentTx.Exec(
+		ctx,
+		`SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE`,
+		testProjectID,
+		parent.ID,
+	); err != nil {
+		t.Fatalf("lock parent row: %v", err)
+	}
+
+	reapCtx, cancelReap := context.WithTimeout(ctx, 2*time.Second)
+	reaped, err := store.Execution().ReapExpiredAgentRuntimeLocks(reapCtx, 100)
+	cancelReap()
+	if err != nil {
+		t.Fatalf("reap with contended parent: %v", err)
+	}
+	if reaped != 0 {
+		t.Fatalf("reaped %d runtime locks while parent was locked, want 0", reaped)
+	}
+	if err := parentTx.Commit(ctx); err != nil {
+		t.Fatalf("release parent row: %v", err)
+	}
+
+	reaped, err = store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100)
+	if err != nil {
+		t.Fatalf("reap after parent contention cleared: %v", err)
+	}
+	if reaped != 1 {
+		t.Fatalf("reaped %d runtime locks after parent contention cleared, want 1", reaped)
+	}
+}

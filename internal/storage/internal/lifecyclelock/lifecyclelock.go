@@ -256,6 +256,22 @@ func Agents(ctx context.Context, tx pgx.Tx, refs []AgentRef) error {
 	return nil
 }
 
+func TryAgents(ctx context.Context, tx pgx.Tx, refs []AgentRef) (bool, error) {
+	q := dbsqlc.New(tx)
+	for _, ref := range orderedAgentRefs(refs) {
+		if _, err := q.TryLockAgentInProject(
+			ctx,
+			dbsqlc.TryLockAgentInProjectParams{ProjectID: ref.ProjectID, ID: ref.AgentID},
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			return false, fmt.Errorf("try lock agent for lifecycle: %w", err)
+		}
+	}
+	return true, nil
+}
+
 func rowLockError(operation string, err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound

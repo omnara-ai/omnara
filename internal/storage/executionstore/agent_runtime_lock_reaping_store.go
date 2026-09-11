@@ -109,15 +109,15 @@ func reapExpiredAgentRuntimeLockTx(
 	retryBackoff func(int, string) time.Duration,
 ) (bool, error) {
 	qtx := dbsqlc.New(tx)
-	_, err := qtx.TryLockAgentForRuntimeLockReap(
-		ctx,
-		dbsqlc.TryLockAgentForRuntimeLockReapParams{ProjectID: projectID, AgentID: agentID},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	lockedAgent, err := tryLockAgentWithParentTx(ctx, tx, qtx, projectID, agentID)
+	if errors.Is(err, storeerr.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("lock agent for expired runtime lock reap: %w", err)
+	}
+	if !lockedAgent {
+		return false, nil
 	}
 	locked, err := qtx.LockExpiredAgentRuntimeLockForReap(
 		ctx,

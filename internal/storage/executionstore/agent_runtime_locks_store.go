@@ -390,11 +390,10 @@ func (s *Store) ReleaseAgentRuntimeLock(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	lockParams := dbsqlc.LockAgentInProjectParams{
-		ProjectID: projectID,
-		ID:        agentID,
-	}
-	if _, err := qtx.LockAgentInProject(ctx, lockParams); err != nil {
+	if err := lockAgentWithParentTx(ctx, tx, qtx, projectID, agentID); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return storeerr.ErrRuntimeLockInactive
+		}
 		return fmt.Errorf("lock agent for runtime lock release: %w", err)
 	}
 	releaseParams := dbsqlc.GetAgentRuntimeLockForReleaseParams{

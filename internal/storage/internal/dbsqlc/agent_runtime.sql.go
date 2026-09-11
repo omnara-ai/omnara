@@ -888,3 +888,27 @@ func (q *Queries) LockAgentLaunchIdempotencyKey(ctx context.Context, arg LockAge
 	_, err := q.db.Exec(ctx, lockAgentLaunchIdempotencyKey, arg.ProjectID, arg.IdempotencyKey)
 	return err
 }
+
+const tryLockAgentInProject = `-- name: TryLockAgentInProject :one
+SELECT id, org_id
+FROM agents
+WHERE project_id = $1 AND id = $2
+FOR UPDATE SKIP LOCKED
+`
+
+type TryLockAgentInProjectParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+type TryLockAgentInProjectRow struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+func (q *Queries) TryLockAgentInProject(ctx context.Context, arg TryLockAgentInProjectParams) (TryLockAgentInProjectRow, error) {
+	row := q.db.QueryRow(ctx, tryLockAgentInProject, arg.ProjectID, arg.ID)
+	var i TryLockAgentInProjectRow
+	err := row.Scan(&i.ID, &i.OrgID)
+	return i, err
+}
