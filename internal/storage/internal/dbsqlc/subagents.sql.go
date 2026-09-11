@@ -437,6 +437,7 @@ func (q *Queries) ListIdleSubagentsForArchive(ctx context.Context, arg ListIdleS
 
 const listParentMachineBindingsForSharing = `-- name: ListParentMachineBindingsForSharing :many
 SELECT pmgrant.id AS project_machine_grant_id,
+       binding.machine_id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
@@ -461,6 +462,7 @@ type ListParentMachineBindingsForSharingParams struct {
 
 type ListParentMachineBindingsForSharingRow struct {
 	ProjectMachineGrantID uuid.UUID
+	MachineID             uuid.UUID
 	Cwd                   string
 	EnvOverlay            json.RawMessage
 	SecretEnvOverlay      json.RawMessage
@@ -478,6 +480,7 @@ func (q *Queries) ListParentMachineBindingsForSharing(ctx context.Context, arg L
 		var i ListParentMachineBindingsForSharingRow
 		if err := rows.Scan(
 			&i.ProjectMachineGrantID,
+			&i.MachineID,
 			&i.Cwd,
 			&i.EnvOverlay,
 			&i.SecretEnvOverlay,

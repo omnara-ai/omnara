@@ -13,6 +13,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -89,41 +91,66 @@ func subagentDisplayName(agent AgentRecord) string {
 	return "agent"
 }
 
-func prepareSubagentLaunchTx(
+func lockSubagentParentSourcesTx(ctx context.Context, tx pgx.Tx, launch SubagentLaunch) error {
+	if isNilID(launch.ParentAgentID) || launch.Key == "" {
+		return errors.New("subagent launch requires a parent agent and key")
+	}
+	if !launch.ShareParentMachines {
+		return nil
+	}
+	return lifecyclelock.AgentSources(ctx, tx, launch.ParentAgentID)
+}
+
+func admitSubagentLaunchTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	projectID ID,
+	orgID, projectID ID,
 	launch SubagentLaunch,
-) (AgentRecord, error) {
-	if isNilID(launch.ParentAgentID) || launch.Key == "" {
-		return AgentRecord{}, errors.New("subagent launch requires a parent agent and key")
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: launch.ParentAgentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return AgentRecord{}, fmt.Errorf("parent agent: %w", storeerr.ErrNotFound)
+) ([]dbsqlc.ListParentMachineBindingsForSharingRow, error) {
+	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
+	if launch.ShareParentMachines {
+		rows, err := qtx.ListParentMachineBindingsForSharing(
+			ctx,
+			dbsqlc.ListParentMachineBindingsForSharingParams{ProjectID: projectID, AgentID: launch.ParentAgentID},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("list parent machine bindings: %w", err)
 		}
-		return AgentRecord{}, fmt.Errorf("lock parent agent: %w", err)
+		machineRefs := make([]lifecyclelock.MachineRef, 0, len(rows))
+		for _, row := range rows {
+			machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: row.MachineID})
+		}
+		if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+			return nil, err
+		}
+		sharedBindings = rows
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: projectID,
+		AgentID:   launch.ParentAgentID,
+	}}); err != nil {
+		if errors.Is(err, storeerr.ErrNotFound) {
+			return nil, fmt.Errorf("parent agent: %w", storeerr.ErrNotFound)
+		}
+		return nil, err
 	}
 	parent, err := loadAgentInProjectTx(ctx, tx, projectID, launch.ParentAgentID)
 	if err != nil {
-		return AgentRecord{}, err
+		return nil, err
 	}
 	if parent.State != AgentStateActive {
-		return AgentRecord{}, fmt.Errorf("parent agent is archived: %w", storeerr.ErrStateTransitionConflict)
+		return nil, fmt.Errorf("parent agent is archived: %w", storeerr.ErrStateTransitionConflict)
 	}
 	depth, err := qtx.CountAgentAncestors(ctx, dbsqlc.CountAgentAncestorsParams{
 		ProjectID: projectID,
 		AgentID:   launch.ParentAgentID,
 	})
 	if err != nil {
-		return AgentRecord{}, fmt.Errorf("count subagent ancestors: %w", err)
+		return nil, fmt.Errorf("count subagent ancestors: %w", err)
 	}
 	if int(depth)+1 >= MaxSubagentDepth {
-		return AgentRecord{}, storeerr.InvalidRequest(
+		return nil, storeerr.InvalidRequest(
 			fmt.Errorf("subagent depth limit of %d reached", MaxSubagentDepth),
 		)
 	}
@@ -133,32 +160,26 @@ func prepareSubagentLaunchTx(
 		ParentAgentID: &launch.ParentAgentID,
 	})
 	if err != nil {
-		return AgentRecord{}, fmt.Errorf("count active subagents: %w", err)
+		return nil, fmt.Errorf("count active subagents: %w", err)
 	}
 	if launch.MaxConcurrent != nil && int(siblings.SameKey) >= *launch.MaxConcurrent {
-		return AgentRecord{}, resourceLimitExceeded(
+		return nil, resourceLimitExceeded(
 			fmt.Sprintf("active subagents for key %q", launch.Key),
 			int64(*launch.MaxConcurrent),
 		)
 	}
 	if launch.MaxSubagents != nil && int(siblings.Total) >= *launch.MaxSubagents {
-		return AgentRecord{}, resourceLimitExceeded("active subagents", int64(*launch.MaxSubagents))
+		return nil, resourceLimitExceeded("active subagents", int64(*launch.MaxSubagents))
 	}
-	return parent, nil
+	return sharedBindings, nil
 }
 
 func shareParentMachineBindingsTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, parentAgentID, childAgentID ID,
+	projectID, childAgentID ID,
+	rows []dbsqlc.ListParentMachineBindingsForSharingRow,
 ) ([]AgentMachineBindingRecord, error) {
-	rows, err := qtx.ListParentMachineBindingsForSharing(
-		ctx,
-		dbsqlc.ListParentMachineBindingsForSharingParams{ProjectID: projectID, AgentID: parentAgentID},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list parent machine bindings: %w", err)
-	}
 	if len(rows) == 0 {
 		return nil, nil
 	}
@@ -315,27 +336,19 @@ func renderQuestionForParent(form interactionform.Form) string {
 	return builder.String()
 }
 
-// lockParentAgentTx takes the parent's row lock before any of the child's
-// own locks so that every transaction touching a parent and its subagent
-// locks the ancestor first, matching the parent-initiated paths.
-func lockParentAgentTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) error {
+func lockAgentWithParentTx(ctx context.Context, tx pgx.Tx, qtx *dbsqlc.Queries, projectID, agentID ID) error {
 	parentID, err := qtx.GetAgentParentID(ctx, dbsqlc.GetAgentParentIDParams{ProjectID: projectID, ID: agentID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			return storeerr.ErrNotFound
 		}
 		return fmt.Errorf("load agent parent: %w", err)
 	}
-	if parentID == nil {
-		return nil
+	refs := []lifecyclelock.AgentRef{{ProjectID: projectID, AgentID: agentID}}
+	if parentID != nil {
+		refs = append(refs, lifecyclelock.AgentRef{ProjectID: projectID, AgentID: *parentID})
 	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: *parentID},
-	); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("lock parent agent: %w", err)
-	}
-	return nil
+	return lifecyclelock.Agents(ctx, tx, refs)
 }
 
 func notifyParentAgentTx(
@@ -588,6 +601,12 @@ func SendSubagentMessageForToolCall(
 }
 
 func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input SendSubagentMessageInput) error {
+	if err := lifecyclelock.Agents(ctx, t.tx, []lifecyclelock.AgentRef{
+		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
+		{ProjectID: t.input.ProjectID, AgentID: input.TargetAgentID},
+	}); err != nil {
+		return err
+	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return err
 	}
@@ -642,9 +661,6 @@ func StopSubagentForToolCall(
 	completion ToolCallCompletionInput,
 ) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		if err := tx.lockForMutation(ctx); err != nil {
-			return nil, err
-		}
 		child, err := loadAgentInProjectTx(ctx, tx.tx, tx.input.ProjectID, targetAgentID)
 		if err != nil {
 			return nil, err
@@ -654,6 +670,9 @@ func StopSubagentForToolCall(
 		}
 		machines, err := archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil, "")
 		if err != nil {
+			return nil, err
+		}
+		if err := tx.lockForMutation(ctx); err != nil {
 			return nil, err
 		}
 		if _, err := tx.completeToolCall(ctx, completion); err != nil {
@@ -698,29 +717,43 @@ func (s *Store) archiveSubagentCandidates(
 	var machines []MachineRecord
 	archived := 0
 	for _, candidate := range candidates {
-		txNotifications := s.newTxNotifications()
-		tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+		released, err := storeutil.RetryTransaction(ctx, "archive_subagent", func() ([]MachineRecord, error) {
+			return s.archiveSubagentCandidateOnce(ctx, candidate, notifyParentKind, commitScope)
+		})
 		if err != nil {
-			return machines, archived, fmt.Errorf("begin %s: %w", commitScope, err)
-		}
-		released, err := archiveAgentTreeTx(
-			ctx, tx, dbsqlc.New(tx), txNotifications, candidate.ProjectID, candidate.ID, nil, notifyParentKind,
-		)
-		if err != nil {
-			_ = tx.Rollback(ctx)
 			if errors.Is(err, storeerr.ErrNotFound) {
 				continue
 			}
-			return machines, archived, err
-		}
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, commitScope); err != nil {
-			_ = tx.Rollback(ctx)
 			return machines, archived, err
 		}
 		machines = append(machines, released...)
 		archived++
 	}
 	return machines, archived, nil
+}
+
+func (s *Store) archiveSubagentCandidateOnce(
+	ctx context.Context,
+	candidate subagentArchiveCandidate,
+	notifyParentKind string,
+	commitScope string,
+) ([]MachineRecord, error) {
+	txNotifications := s.newTxNotifications()
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin %s: %w", commitScope, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	released, err := archiveAgentTreeTx(
+		ctx, tx, dbsqlc.New(tx), txNotifications, candidate.ProjectID, candidate.ID, nil, notifyParentKind,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, commitScope); err != nil {
+		return nil, err
+	}
+	return released, nil
 }
 
 // ReadSubagentEvents returns one page of a subagent's event log for its

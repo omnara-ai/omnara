@@ -101,6 +101,7 @@ ORDER BY descendants.depth, descendants.id;
 
 -- name: ListParentMachineBindingsForSharing :many
 SELECT pmgrant.id AS project_machine_grant_id,
+       binding.machine_id,
        binding.cwd,
        binding.env_overlay,
        binding.secret_env_overlay,
