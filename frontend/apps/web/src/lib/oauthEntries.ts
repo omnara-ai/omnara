@@ -41,6 +41,12 @@ export function oauthTokenSetMaterial(
   for (const entry of entries) {
     if (entry.value !== '') values[entry.key] = entry.value
   }
+  return oauthTokenSetMaterialFromValues(values)
+}
+
+export function oauthTokenSetMaterialFromValues(
+  values: Partial<Record<OAuthKey, string>>,
+): OAuthTokenSetSecretMaterial | undefined {
   if (!values.access_token) return undefined
 
   let accessTokenExpiresInSeconds: number | undefined

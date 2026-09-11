@@ -218,6 +218,19 @@ export function useUpdateSecret(orgID: string) {
   })
 }
 
+export function useCreateSecretVersion(orgID: string, secretID: string) {
+  const queryClient = useQueryClient()
+  return useScopedMutation(
+    sdk.createSecretVersion,
+    { orgID, secretID },
+    {
+      onSuccess: async () => {
+        await invalidateSecretQueries(queryClient, orgID)
+      },
+    },
+  )
+}
+
 export function useGrantSecretToProject(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()

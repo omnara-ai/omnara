@@ -3,7 +3,6 @@ import { ApiError, type ProjectSecretAccess, type Secret } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { Ellipsis } from '@/components/icons'
-import { EditSecretDialog } from '@/components/org/EditSecretDialog'
 import { GrantToProjectDialog } from '@/components/projects/GrantToProjectDialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +18,7 @@ export function SecretRowActions({
   availability,
   projectName,
   canDelete,
-  canEdit = false,
+  onEdit,
   canGrant = false,
 }: {
   orgId: string
@@ -27,20 +26,16 @@ export function SecretRowActions({
   availability?: ProjectSecretAccess['availability']
   projectName?: string
   canDelete: boolean
-  canEdit?: boolean
+  onEdit?: (secret: Secret) => void
   canGrant?: boolean
 }) {
-  const deleteSecretMutation = useDeleteSecret(orgId)
-  const deleteSecretGrantMutation = useDeleteSecretGrant(orgId)
   const grantSecretMutation = useGrantSecretToProject(orgId)
-  const [editOpen, setEditOpen] = useState(false)
   const [grantOpen, setGrantOpen] = useState(false)
   const mcpUrl = secret.metadata.mcp_url
-  const canCopyMcpConfig = mcpUrl !== undefined && mcpUrl !== ''
-  const isGrant = availability?.source === 'grant'
+  const canCopyMcpConfig = Boolean(mcpUrl)
   const tenantManaged = secret.management_kind === 'tenant'
   const allowDelete = canDelete && tenantManaged
-  const allowEdit = canEdit && tenantManaged
+  const allowEdit = onEdit !== undefined && tenantManaged
   const allowGrant = canGrant && tenantManaged
 
   if (!allowDelete && !canCopyMcpConfig && !allowEdit && !allowGrant) {
@@ -67,25 +62,6 @@ export function SecretRowActions({
     }
   }
 
-  async function deleteSecret() {
-    const message = isGrant ? 'Remove this secret grant?' : 'Delete this secret?'
-    if (!window.confirm(message)) {
-      return
-    }
-    try {
-      if (availability?.source === 'grant') {
-        await deleteSecretGrantMutation.mutateAsync({
-          secretID: secret.id,
-          grantID: availability.grant_id,
-        })
-      } else {
-        await deleteSecretMutation.mutateAsync(secret.id)
-      }
-    } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Could not delete secret')
-    }
-  }
-
   return (
     <>
       <DropdownMenu>
@@ -98,7 +74,7 @@ export function SecretRowActions({
           {allowEdit && (
             <DropdownMenuItem
               onSelect={() => {
-                setEditOpen(true)
+                onEdit(secret)
               }}
             >
               Edit
@@ -123,38 +99,15 @@ export function SecretRowActions({
             </DropdownMenuItem>
           )}
           {allowDelete && (
-            <DropdownMenuItem
-              variant="destructive"
-              className={isGrant ? 'items-start' : undefined}
-              onSelect={() => {
-                void deleteSecret()
-              }}
-            >
-              {isGrant ? (
-                <span className="flex flex-col gap-0.5">
-                  <span>Remove secret grant</span>
-                  <span className="text-muted-foreground text-xs font-normal">
-                    Removes {projectName ?? 'this project'}&rsquo;s access to this secret
-                  </span>
-                </span>
-              ) : (
-                'Delete'
-              )}
-            </DropdownMenuItem>
+            <SecretDeleteAction
+              orgId={orgId}
+              secret={secret}
+              availability={availability}
+              projectName={projectName}
+            />
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* Mounted only while open so the dialogs seed fresh state each time. */}
-      {allowEdit && editOpen && (
-        <EditSecretDialog
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setEditOpen(false)
-          }}
-          orgId={orgId}
-          secret={secret}
-        />
-      )}
       {allowGrant && grantOpen && (
         <GrantToProjectDialog
           open
@@ -171,5 +124,61 @@ export function SecretRowActions({
         />
       )}
     </>
+  )
+}
+
+function SecretDeleteAction({
+  orgId,
+  secret,
+  availability,
+  projectName,
+}: {
+  orgId: string
+  secret: Secret
+  availability?: ProjectSecretAccess['availability']
+  projectName?: string
+}) {
+  const deleteSecretMutation = useDeleteSecret(orgId)
+  const deleteSecretGrantMutation = useDeleteSecretGrant(orgId)
+  const isGrant = availability?.source === 'grant'
+
+  async function deleteSecret() {
+    const message = isGrant ? 'Remove this secret grant?' : 'Delete this secret?'
+    if (!window.confirm(message)) {
+      return
+    }
+    try {
+      if (availability?.source === 'grant') {
+        await deleteSecretGrantMutation.mutateAsync({
+          secretID: secret.id,
+          grantID: availability.grant_id,
+        })
+      } else {
+        await deleteSecretMutation.mutateAsync(secret.id)
+      }
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Could not delete secret')
+    }
+  }
+
+  return (
+    <DropdownMenuItem
+      variant="destructive"
+      className={isGrant ? 'items-start' : undefined}
+      onSelect={() => {
+        void deleteSecret()
+      }}
+    >
+      {isGrant ? (
+        <span className="flex flex-col gap-0.5">
+          <span>Remove secret grant</span>
+          <span className="text-muted-foreground text-xs font-normal">
+            Removes {projectName ?? 'this project'}&rsquo;s access to this secret
+          </span>
+        </span>
+      ) : (
+        'Delete'
+      )}
+    </DropdownMenuItem>
   )
 }

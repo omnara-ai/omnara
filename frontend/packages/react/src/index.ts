@@ -206,6 +206,7 @@ export {
   type SecretListSort,
   type SecretOwnerScope,
   useCreateSecret,
+  useCreateSecretVersion,
   useDeleteSecret,
   useDeleteSecretGrant,
   useGrantSecretToProject,
