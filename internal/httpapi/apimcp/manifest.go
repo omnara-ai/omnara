@@ -21,6 +21,9 @@ var Tools = []Tool{
 	{Name: "agents_get", OperationID: "getAgent"},
 	{Name: "agents_launch", OperationID: "createAgent"},
 	{Name: "agents_update", OperationID: "updateAgentConfig"},
+
+	{Name: "configs_get", OperationID: "getAgentConfig"},
+	{Name: "configs_create", OperationID: "createAgentConfig"},
 	{Name: "agents_input", OperationID: "createAgentInput"},
 	{Name: "agents_cancel", OperationID: "cancelAgent", Destructive: true},
 	{Name: "agents_archive", OperationID: "archiveAgent", Destructive: true},
