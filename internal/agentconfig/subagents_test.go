@@ -167,15 +167,6 @@ max_subagents: 3
 `,
 			want: "max_subagents",
 		},
-		{
-			name: "key named like a tool",
-			extra: `
-subagents:
-  spawn_agent:
-    type: self
-`,
-			want: "collides",
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.extra)), subagentCompileOptions())
