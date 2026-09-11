@@ -254,7 +254,7 @@ func TestSubagentArchiveNotifiesParent(t *testing.T) {
 	}
 }
 
-func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
+func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -278,7 +278,7 @@ func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
 	middle, err := spawnSubagentForTest(
 		t, ctx, store, top, profile.CurrentConfigID, "middle", "subagent-idle-middle", nil,
 		func(input *executionstore.LaunchAgentInput) {
-			input.Subagent.ArchiveAfterIdleMinutes = intPtrForSubagentTest(1)
+			input.ArchiveAfterIdleMinutes = intPtrForSubagentTest(1)
 		},
 	)
 	if err != nil {
@@ -307,7 +307,7 @@ func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
 	}
 	asOf := time.Now().Add(2 * time.Hour)
 
-	_, archived, err := store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	_, archived, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf is running: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
 	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf has a wakeup: %v", err)
 	}
@@ -334,14 +334,14 @@ func TestArchiveIdleSubagentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, leaf.Agent.ID); err != nil {
 		t.Fatalf("clear leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleSubagents(ctx, 10)
+	_, archived, err = store.Execution().ArchiveIdleAgents(ctx, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents before the idle window: %v", err)
 	}
 	if archived != 0 {
 		t.Fatalf("archived %d subagents before the idle window elapsed, want 0", archived)
 	}
-	_, archived, err = store.Execution().ArchiveIdleSubagentsAsOf(ctx, asOf, 10)
+	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents: %v", err)
 	}

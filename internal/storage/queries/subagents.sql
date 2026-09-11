@@ -137,12 +137,11 @@ WHERE interaction.project_id = sqlc.arg(project_id)
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- name: ListIdleSubagentsForArchive :many
+-- name: ListIdleAgentsForArchive :many
 WITH RECURSIVE candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at
   FROM agents agent
-  WHERE agent.parent_agent_id IS NOT NULL
-    AND agent.state = 'active'
+  WHERE agent.state = 'active'
     AND agent.archive_after_idle_minutes IS NOT NULL
     AND coalesce((
       SELECT event.created_at

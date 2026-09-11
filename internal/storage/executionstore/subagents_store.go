@@ -37,12 +37,11 @@ const (
 )
 
 type SubagentLaunch struct {
-	ParentAgentID           ID
-	Key                     string
-	MaxConcurrent           *int
-	MaxSubagents            *int
-	ShareParentMachines     bool
-	ArchiveAfterIdleMinutes *int
+	ParentAgentID       ID
+	Key                 string
+	MaxConcurrent       *int
+	MaxSubagents        *int
+	ShareParentMachines bool
 }
 
 type SubagentStatus struct {
@@ -682,43 +681,43 @@ func StopSubagentForToolCall(
 	})
 }
 
-type subagentArchiveCandidate struct {
+type idleArchiveCandidate struct {
 	ProjectID ID
 	ID        ID
 }
 
-func (s *Store) ArchiveIdleSubagents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
-	return s.archiveIdleSubagents(ctx, nil, limit)
+func (s *Store) ArchiveIdleAgents(ctx context.Context, limit int) ([]MachineRecord, int, error) {
+	return s.archiveIdleAgents(ctx, nil, limit)
 }
 
-func (s *Store) archiveIdleSubagents(ctx context.Context, asOf *time.Time, limit int) ([]MachineRecord, int, error) {
+func (s *Store) archiveIdleAgents(ctx context.Context, asOf *time.Time, limit int) ([]MachineRecord, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.q.ListIdleSubagentsForArchive(
-		ctx, dbsqlc.ListIdleSubagentsForArchiveParams{AsOf: asOf, RowLimit: int32(limit)},
+	rows, err := s.q.ListIdleAgentsForArchive(
+		ctx, dbsqlc.ListIdleAgentsForArchiveParams{AsOf: asOf, RowLimit: int32(limit)},
 	)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list idle subagents: %w", err)
+		return nil, 0, fmt.Errorf("list idle agents: %w", err)
 	}
-	candidates := make([]subagentArchiveCandidate, 0, len(rows))
+	candidates := make([]idleArchiveCandidate, 0, len(rows))
 	for _, row := range rows {
-		candidates = append(candidates, subagentArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
+		candidates = append(candidates, idleArchiveCandidate{ProjectID: row.ProjectID, ID: row.ID})
 	}
-	return s.archiveSubagentCandidates(ctx, candidates, SubagentMessageKindArchived, "archive idle subagent")
+	return s.archiveIdleCandidates(ctx, candidates, SubagentMessageKindArchived, "archive idle agent")
 }
 
-func (s *Store) archiveSubagentCandidates(
+func (s *Store) archiveIdleCandidates(
 	ctx context.Context,
-	candidates []subagentArchiveCandidate,
+	candidates []idleArchiveCandidate,
 	notifyParentKind string,
 	commitScope string,
 ) ([]MachineRecord, int, error) {
 	var machines []MachineRecord
 	archived := 0
 	for _, candidate := range candidates {
-		released, err := storeutil.RetryTransaction(ctx, "archive_subagent", func() ([]MachineRecord, error) {
-			return s.archiveSubagentCandidateOnce(ctx, candidate, notifyParentKind, commitScope)
+		released, err := storeutil.RetryTransaction(ctx, "archive_idle_agent", func() ([]MachineRecord, error) {
+			return s.archiveIdleCandidateOnce(ctx, candidate, notifyParentKind, commitScope)
 		})
 		if err != nil {
 			if errors.Is(err, storeerr.ErrNotFound) {
@@ -732,9 +731,9 @@ func (s *Store) archiveSubagentCandidates(
 	return machines, archived, nil
 }
 
-func (s *Store) archiveSubagentCandidateOnce(
+func (s *Store) archiveIdleCandidateOnce(
 	ctx context.Context,
-	candidate subagentArchiveCandidate,
+	candidate idleArchiveCandidate,
 	notifyParentKind string,
 	commitScope string,
 ) ([]MachineRecord, error) {

@@ -19,8 +19,7 @@ CREATE INDEX agents_parent_agent_idx
 
 CREATE INDEX agents_idle_archive_candidates_idx
     ON agents(created_at, id)
-    WHERE parent_agent_id IS NOT NULL
-      AND state = 'active'
+    WHERE state = 'active'
       AND archive_after_idle_minutes IS NOT NULL;
 
 -- +goose StatementBegin
