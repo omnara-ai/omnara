@@ -160,9 +160,6 @@ func compileSubagents(
 	for _, key := range keys {
 		entry := source.Subagents[key]
 		pointer := jsonPointer("subagents", key)
-		if toolcatalog.IsSubagentToolName(key) {
-			return nil, issuef(pointer, "key %q collides with a subagent tool name", key)
-		}
 		out := SubagentCompiled{
 			Type:                    entry.Type,
 			Description:             strings.TrimSpace(entry.Description),
