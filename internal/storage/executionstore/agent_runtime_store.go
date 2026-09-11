@@ -582,34 +582,49 @@ func lockAgentTreeForArchiveTx(
 	return nil
 }
 
-func archiveAgentTreeTx(
+type lockedAgentTree struct {
+	root AgentRecord
+	ids  []ID
+}
+
+func lockAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	projectID, agentID ID,
+) (lockedAgentTree, error) {
+	root, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	tree, err := listActiveAgentTreeTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	if err := lockAgentTreeForArchiveTx(ctx, tx, qtx, root, tree); err != nil {
+		return lockedAgentTree{}, err
+	}
+	root, err = loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return lockedAgentTree{}, err
+	}
+	return lockedAgentTree{root: root, ids: tree}, nil
+}
+
+func archiveLockedAgentTreeTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	txNotifications *notifications.TxNotifications,
-	projectID, agentID ID,
+	locked lockedAgentTree,
 	actor *ActorParams,
 	notifyParentKind string,
 ) ([]MachineRecord, error) {
-	root, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	tree, err := listActiveAgentTreeTx(ctx, qtx, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if err := lockAgentTreeForArchiveTx(ctx, tx, qtx, root, tree); err != nil {
-		return nil, err
-	}
-	root, err = loadAgentInProjectTx(ctx, tx, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
+	root := locked.root
 	alreadyArchived := root.State == AgentStateArchived
 	var machines []MachineRecord
-	for index := len(tree) - 1; index >= 0; index-- {
-		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, tree[index], actor)
+	for index := len(locked.ids) - 1; index >= 0; index-- {
+		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, root.ProjectID, locked.ids[index], actor)
 		if err != nil {
 			return nil, err
 		}
@@ -624,4 +639,20 @@ func archiveAgentTreeTx(
 		}
 	}
 	return machines, nil
+}
+
+func archiveAgentTreeTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	txNotifications *notifications.TxNotifications,
+	projectID, agentID ID,
+	actor *ActorParams,
+	notifyParentKind string,
+) ([]MachineRecord, error) {
+	locked, err := lockAgentTreeTx(ctx, tx, qtx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, actor, notifyParentKind)
 }

@@ -448,6 +448,71 @@ func agentIDsForTest(agents []executionstore.AgentRecord) []string {
 	return out
 }
 
+func TestArchiveIdleAgentRechecksEligibilityUnderLock(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-recheck@example.com", "Subagent Recheck")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-recheck", "Subagent Recheck", subagentParentYAML,
+	)
+	topLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-recheck-top",
+	})
+	if err != nil {
+		t.Fatalf("launch top-level agent: %v", err)
+	}
+	child, err := spawnSubagentForTest(
+		t, ctx, store, topLaunch.Agent, profile.CurrentConfigID, "child", "subagent-recheck-child", nil,
+		func(input *executionstore.LaunchAgentInput) {
+			input.ArchiveAfterIdleMinutes = intPtrForSubagentTest(1)
+		},
+	)
+	if err != nil {
+		t.Fatalf("spawn child subagent: %v", err)
+	}
+	asOf := time.Now().Add(2 * time.Hour)
+
+	archived, err := store.Execution().ArchiveIdleAgentCandidateAsOf(ctx, testProjectID, child.Agent.ID, asOf)
+	if err != nil {
+		t.Fatalf("archive candidate with a pending wakeup: %v", err)
+	}
+	if archived != 0 {
+		t.Fatalf("archived %d agents while the candidate had a pending wakeup, want 0", archived)
+	}
+	current, err := store.Execution().GetAgentInProject(ctx, testProjectID, child.Agent.ID)
+	if err != nil {
+		t.Fatalf("load child: %v", err)
+	}
+	if current.State != executionstore.AgentStateActive {
+		t.Fatalf("child state = %s, want active after a skipped archive", current.State)
+	}
+
+	if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, child.Agent.ID); err != nil {
+		t.Fatalf("clear child wakeup: %v", err)
+	}
+	archived, err = store.Execution().ArchiveIdleAgentCandidateAsOf(ctx, testProjectID, child.Agent.ID, asOf)
+	if err != nil {
+		t.Fatalf("archive idle candidate: %v", err)
+	}
+	if archived != 1 {
+		t.Fatalf("archived %d agents, want 1", archived)
+	}
+	current, err = store.Execution().GetAgentInProject(ctx, testProjectID, child.Agent.ID)
+	if err != nil {
+		t.Fatalf("load child: %v", err)
+	}
+	if current.State != executionstore.AgentStateArchived {
+		t.Fatalf("child state = %s, want archived", current.State)
+	}
+}
+
 func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

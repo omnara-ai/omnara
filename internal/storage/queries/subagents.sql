@@ -189,3 +189,54 @@ WHERE NOT EXISTS (
 )
 ORDER BY candidate.created_at, candidate.id
 LIMIT sqlc.arg(row_limit)::integer;
+
+-- name: AgentIdleForArchive :one
+WITH RECURSIVE subtree AS (
+  SELECT agent.project_id, agent.id, 1 AS depth
+  FROM agents agent
+  WHERE agent.project_id = sqlc.arg(project_id)
+    AND agent.id = sqlc.arg(agent_id)
+  UNION ALL
+  SELECT child.project_id, child.id, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.parent_agent_id = subtree.id
+  WHERE child.project_id = subtree.project_id
+    AND child.state = 'active'
+    AND subtree.depth < 64
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM agents agent
+  WHERE agent.project_id = sqlc.arg(project_id)
+    AND agent.id = sqlc.arg(agent_id)
+    AND agent.state = 'active'
+    AND agent.archive_after_idle_minutes IS NOT NULL
+    AND coalesce((
+      SELECT event.created_at
+      FROM agent_events event
+      WHERE event.agent_id = agent.id
+      ORDER BY event.sequence DESC
+      LIMIT 1
+    ), agent.created_at) < coalesce(sqlc.narg(as_of)::timestamptz, statement_timestamp())
+      - make_interval(mins => agent.archive_after_idle_minutes)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM subtree
+      WHERE EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = subtree.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = subtree.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM tool_calls call
+          WHERE call.agent_id = subtree.id
+            AND call.state IN ('running', 'waiting', 'awaiting_permission')
+        )
+    )
+)::boolean AS idle;
