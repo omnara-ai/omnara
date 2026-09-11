@@ -113,6 +113,39 @@ Keep polling at the returned interval. After `slow_down`, add five seconds to th
 
 A denied or expired flow returns `400` with `"access_denied"` or `"expired_token"`. The PAT does not expire automatically; it appears in the approving user's token list, where it can be revoked, and is used as a bearer token for subsequent API calls.
 
+## Connecting MCP clients
+
+The Omnara API is also exposed as an MCP server at `https://app.omnara.com/api/mcp`. MCP clients that support the [MCP authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) discover the OAuth endpoints themselves and sign you in through the browser, so no token needs to be pasted into the client.
+
+Add the server to your client's `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "type": "http",
+      "url": "https://app.omnara.com/api/mcp"
+    }
+  }
+}
+```
+
+On first use the client opens the dashboard's **Authorize access to Omnara** page. Approve it and the client stores its own short-lived tokens, refreshing them in the background.
+
+Clients without OAuth support can pass a personal access token or org API key instead:
+
+```json
+{
+  "mcpServers": {
+    "omnara": {
+      "type": "http",
+      "url": "https://app.omnara.com/api/mcp",
+      "headers": { "Authorization": "Bearer omnara_pat_v1_…" }
+    }
+  }
+}
+```
+
 ## Managing tokens
 
 The **API Tokens** page — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.

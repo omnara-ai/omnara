@@ -83,20 +83,26 @@ func (h *Handler) startDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) pollDeviceAuthRoute(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) tokenRoute(w http.ResponseWriter, r *http.Request) {
 	form, ok := parseOAuthForm(w, r)
 	if !ok {
 		return
 	}
-	grantType := form.Get("grant_type")
-	if grantType == "" {
+	switch form.Get("grant_type") {
+	case "":
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
-		return
-	}
-	if grantType != OAuthDeviceGrantType {
+	case OAuthDeviceGrantType:
+		h.deviceCodeGrant(w, r, form)
+	case OAuthAuthorizationCodeGrant:
+		h.authorizationCodeGrant(w, r, form)
+	case OAuthRefreshTokenGrant:
+		h.refreshTokenGrant(w, r, form)
+	default:
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type is not supported")
-		return
 	}
+}
+
+func (h *Handler) deviceCodeGrant(w http.ResponseWriter, r *http.Request, form url.Values) {
 	deviceCode := form.Get("device_code")
 	clientID := form.Get("client_id")
 	if deviceCode == "" || clientID == "" {

@@ -279,6 +279,42 @@ type DeviceAuthFlowPollInput struct {
 	ClientID   string
 }
 
+type CreateOAuthAuthorizationCodeInput struct {
+	UserID           ID
+	BrowserSessionID ID
+	ClientID         string
+	ClientName       string
+	RedirectURI      string
+	CodeChallenge    string
+	Resource         string
+}
+
+type ExchangeOAuthAuthorizationCodeInput struct {
+	Code         string
+	ClientID     string
+	RedirectURI  string
+	CodeVerifier string
+	Resource     string
+}
+
+type RefreshOAuthAccessTokenInput struct {
+	RefreshToken string
+	ClientID     string
+	Resource     string
+}
+
+type OAuthTokenSetRecord struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    time.Duration
+	Resource     string
+}
+
+type OAuthAccessTokenAuthentication struct {
+	Principal PrincipalRecord
+	Resource  string
+}
+
 type DeviceAuthFlowPollRecord struct {
 	Status   DeviceAuthFlowStatus
 	Token    string
@@ -455,6 +491,7 @@ type PrincipalRecord struct {
 	OrgAPIKeyID           ID
 	BrowserSessionID      ID
 	MachineDaemonTokenID  ID
+	OAuthAccessTokenID    ID
 }
 
 func NewUserPrincipal(userID ID) PrincipalRecord {
@@ -466,6 +503,14 @@ func NewPersonalAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
 		Type:                  PrincipalTypeUser,
 		ID:                    userID,
 		PersonalAccessTokenID: tokenID,
+	}
+}
+
+func NewOAuthAccessTokenPrincipal(userID, tokenID ID) PrincipalRecord {
+	return PrincipalRecord{
+		Type:               PrincipalTypeUser,
+		ID:                 userID,
+		OAuthAccessTokenID: tokenID,
 	}
 }
 

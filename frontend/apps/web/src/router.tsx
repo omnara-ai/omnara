@@ -180,6 +180,15 @@ const deviceAuthRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/DeviceAuth'), 'DeviceAuth'),
 })
 
+const oauthAuthorizeRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/oauth/authorize',
+  beforeLoad: ({ context, location }) => {
+    requireOrganization(context.me, location.href)
+  },
+  component: lazyRouteComponent(() => import('@/routes/OAuthAuthorize'), 'OAuthAuthorize'),
+})
+
 const onboardingRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/onboarding',
@@ -237,6 +246,7 @@ const routeTree = rootRoute.addChildren([
   forgotPasswordRoute,
   authenticatedRoute.addChildren([
     deviceAuthRoute,
+    oauthAuthorizeRoute,
     onboardingRoute,
     invitationsRoute,
     onboardedRoute.addChildren([
