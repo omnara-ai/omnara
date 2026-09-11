@@ -11,6 +11,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { projectSkillOwnerLabel } from '@/lib/skills'
 
@@ -35,6 +36,7 @@ export function ProjectSkillGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Skill grants"
+        guide={guides.skills}
         toolbar={
           <ResourceListToolbar
             search={list.search}

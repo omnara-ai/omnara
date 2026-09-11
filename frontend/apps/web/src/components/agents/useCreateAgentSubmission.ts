@@ -62,7 +62,7 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
           config: profile.configId,
         })
         await navigate({
-          to: '/projects/$projectId/agents/$agentId',
+          to: '/projects/$projectId/agents/$agentId/events',
           params: { projectId, agentId: launch.agent.id },
         })
       } else {

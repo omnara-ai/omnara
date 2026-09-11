@@ -10,6 +10,7 @@ import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { SectionTitle } from '@/components/layout/SectionTitle'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Badge } from '@/components/ui/badge'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -18,6 +19,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { type Guide, guides } from '@/lib/docs'
 
 export function AgentsSection({
   orgId,
@@ -35,6 +37,7 @@ export function AgentsSection({
         projectId={projectId}
         canManage={canManage}
         title="Agents"
+        guide={guides.agents}
         emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
       />
     </div>
@@ -48,6 +51,7 @@ export function AgentsTable({
   canManage,
   profileId,
   title,
+  guide,
   emptyMessage,
 }: {
   orgId: string
@@ -55,6 +59,7 @@ export function AgentsTable({
   canManage: boolean
   profileId?: string
   title?: string
+  guide?: Guide
   emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
@@ -80,7 +85,11 @@ export function AgentsTable({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {title && <h2 className="type-title shrink-0 sm:mr-80">{title}</h2>}
+        {title && (
+          <div className="shrink-0 sm:mr-80">
+            <SectionTitle title={title} guide={guide} />
+          </div>
+        )}
         <div className="flex min-w-0 flex-1 justify-end">
           <ResourceListToolbar
             search={list.search}

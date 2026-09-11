@@ -1,45 +1,8 @@
-import type { AgentEvent, ListAgentEventsResponse } from '@omnara/sdk'
+import { abbreviate, agentEventPreview } from '@omnara/react'
+import type { ListAgentEventsResponse } from '@omnara/sdk'
 import * as z from 'zod'
 
 import type { OutputFormat } from './format.ts'
-import { abbreviate } from './output.ts'
-
-interface ContentBlockLike {
-  type: string
-  text?: string
-  name?: string
-  value?: unknown
-}
-
-export function blockText(block: ContentBlockLike): string {
-  switch (block.type) {
-    case 'text':
-      return block.text ?? ''
-    case 'tool_call':
-      return `[tool_call ${block.name ?? ''}]`
-    case 'structured_data':
-      return JSON.stringify(block.value)
-    default:
-      return `[${block.type}]`
-  }
-}
-
-const previewWidth = 80
-
-function eventPreview(event: AgentEvent): string {
-  switch (event.event_kind) {
-    case 'agent_input':
-    case 'model_output':
-      return abbreviate(event.content_blocks.map(blockText).join(' '), previewWidth)
-    case 'tool_result':
-      return abbreviate(
-        `${event.outcome}: ${event.content_blocks.map(blockText).join(' ')}`,
-        previewWidth,
-      )
-    case 'context_checkpoint':
-      return abbreviate(`context summarized: ${event.summary}`, previewWidth)
-  }
-}
 
 export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (response) => {
   const page = {
@@ -47,7 +10,7 @@ export const formatAgentEventList: OutputFormat<ListAgentEventsResponse> = (resp
       sequence: event.sequence,
       event_kind: event.event_kind,
       turn_sequence: event.turn_sequence,
-      preview: eventPreview(event),
+      preview: agentEventPreview(event),
       created_at: event.created_at,
     })),
     has_more: response.has_more,

@@ -127,7 +127,7 @@ export function RecentAgentsSection({
           getRowId={(agent) => agent.id}
           onRowClick={(agent) => {
             void navigate({
-              to: '/projects/$projectId/agents/$agentId',
+              to: '/projects/$projectId/agents/$agentId/events',
               params: { projectId: agent.project_id, agentId: agent.id },
             })
           }}

@@ -16,6 +16,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -83,6 +84,7 @@ export function AgentProfilesSection({
         )}
         <SearchHeader
           title="Agent profiles"
+          guide={guides.agentProfiles}
           toolbar={
             <ResourceListToolbar
               search={list.search}

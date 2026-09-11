@@ -14,6 +14,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
@@ -59,6 +60,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Skills"
+          guide={guides.skills}
           toolbar={
             <ResourceListToolbar
               search={list.search}

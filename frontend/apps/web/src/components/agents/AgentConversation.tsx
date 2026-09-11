@@ -43,8 +43,11 @@ export function AgentConversation({
             <div className="m-auto max-w-sm py-16 text-center">
               <p className="font-medium">Conversation unavailable</p>
               <p className="text-muted-foreground mt-1 text-sm">
-                Refresh the page to try loading it again.
+                The conversation history could not be loaded.
               </p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={chat.retryHistory}>
+                Try again
+              </Button>
             </div>
           ) : chat.messages.length === 0 ? (
             <div className="m-auto flex max-w-sm flex-col items-center py-16 text-center">
