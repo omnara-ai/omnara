@@ -134,6 +134,50 @@ func TestOAuthRefreshLocksUserBeforeTokenAndObservesRevokeAll(t *testing.T) {
 	}
 }
 
+func TestOAuthRefreshReplayOfOlderRotatedTokenRevokesGrant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	fixture := newOAuthGrantFixture(t, ctx, store, "oauth-replay")
+	original := fixture.issueTokens(t, ctx, store)
+	first, err := store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(original.RefreshToken))
+	if err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+	second, err := store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(first.RefreshToken))
+	if err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+	if _, err := store.Identity().AuthenticateOAuthAccessToken(ctx, second.AccessToken); err != nil {
+		t.Fatalf("authenticate latest access token before replay: %v", err)
+	}
+
+	_, err = store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(original.RefreshToken))
+	if !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("replay of a twice-rotated refresh token: err = %v, want unauthorized", err)
+	}
+	if _, err := store.Identity().AuthenticateOAuthAccessToken(ctx, second.AccessToken); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("latest access token after replay: err = %v, want unauthorized", err)
+	}
+	_, err = store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(second.RefreshToken))
+	if !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("latest refresh token after replay: err = %v, want unauthorized", err)
+	}
+
+	if _, err := store.Identity().CleanupInactiveAuthState(ctx); err != nil {
+		t.Fatalf("cleanup inactive auth state: %v", err)
+	}
+	var retired int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM oauth_retired_refresh_tokens`).Scan(&retired); err != nil {
+		t.Fatalf("count retired refresh tokens: %v", err)
+	}
+	if retired != 0 {
+		t.Fatalf("retired refresh tokens after cleanup = %d, want 0", retired)
+	}
+}
+
 func TestOAuthExchangeLocksUserBeforeAuthorizationCode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

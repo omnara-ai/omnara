@@ -401,15 +401,6 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("grace access token status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	rec = performRequest(handler, newOAuthFormRequest(http.MethodPost, tokenEndpoint, refreshForm))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid_grant"`) {
-		t.Fatalf("original refresh token third use status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	rec = performRequest(handler, mcpToolCallRequest(graceAccess, "whoami"))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("grace access token after untracked replay status=%d body=%s", rec.Code, rec.Body.String())
-	}
-
 	if _, err := pool.Exec(
 		ctx,
 		`UPDATE oauth_access_tokens

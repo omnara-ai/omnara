@@ -64,3 +64,13 @@ CREATE INDEX oauth_access_tokens_active_user_idx
 
 CREATE INDEX oauth_access_tokens_cleanup_idx
     ON oauth_access_tokens(refresh_expires_at, id);
+
+CREATE TABLE oauth_retired_refresh_tokens (
+    refresh_token_hash text PRIMARY KEY,
+    oauth_access_token_id uuid NOT NULL REFERENCES oauth_access_tokens(id) ON DELETE CASCADE,
+    retired_at timestamptz NOT NULL,
+    CHECK (refresh_token_hash <> '')
+);
+
+CREATE INDEX oauth_retired_refresh_tokens_token_idx
+    ON oauth_retired_refresh_tokens(oauth_access_token_id);

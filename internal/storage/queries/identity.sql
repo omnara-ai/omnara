@@ -1392,37 +1392,51 @@ VALUES (
 RETURNING id;
 
 -- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT user_id
-FROM oauth_access_tokens
-WHERE refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
-   OR previous_refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+SELECT token.user_id
+FROM oauth_access_tokens token
+LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
+WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+   OR retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
 LIMIT 1;
 
 -- name: RotateOAuthAccessToken :one
-UPDATE oauth_access_tokens
-SET token_hash = sqlc.arg(token_hash),
-    refresh_token_hash = sqlc.arg(refresh_token_hash),
-    previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
-    rotated_at = transaction_timestamp(),
-    expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
-    refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
-WHERE client_id = sqlc.arg(client_id)
-  AND revoked_at IS NULL
-  AND refresh_expires_at > transaction_timestamp()
-  AND (
-    refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
-    OR (
-      previous_refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
-      AND rotated_at > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+WITH rotated AS (
+  UPDATE oauth_access_tokens
+  SET token_hash = sqlc.arg(token_hash),
+      refresh_token_hash = sqlc.arg(refresh_token_hash),
+      previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
+      rotated_at = transaction_timestamp(),
+      expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+  WHERE oauth_access_tokens.client_id = sqlc.arg(client_id)
+    AND oauth_access_tokens.revoked_at IS NULL
+    AND oauth_access_tokens.refresh_expires_at > transaction_timestamp()
+    AND (
+      oauth_access_tokens.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+      OR (
+        oauth_access_tokens.previous_refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+        AND oauth_access_tokens.rotated_at
+          > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+      )
     )
-  )
-RETURNING id, user_id, resource;
+  RETURNING oauth_access_tokens.id, oauth_access_tokens.user_id, oauth_access_tokens.resource,
+    oauth_access_tokens.previous_refresh_token_hash
+), retired AS (
+  INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
+  SELECT rotated.previous_refresh_token_hash, rotated.id, transaction_timestamp()
+  FROM rotated
+  ON CONFLICT (refresh_token_hash) DO NOTHING
+)
+SELECT id, user_id, resource
+FROM rotated;
 
 -- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
-UPDATE oauth_access_tokens
+UPDATE oauth_access_tokens token
 SET revoked_at = transaction_timestamp()
-WHERE previous_refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
-  AND revoked_at IS NULL;
+FROM oauth_retired_refresh_tokens retired
+WHERE retired.oauth_access_token_id = token.id
+  AND retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+  AND token.revoked_at IS NULL;
 
 -- name: AuthenticateOAuthAccessToken :one
 WITH authenticated AS MATERIALIZED (

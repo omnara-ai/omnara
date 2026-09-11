@@ -2485,10 +2485,11 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 }
 
 const getOAuthAccessTokenUserByRefreshToken = `-- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT user_id
-FROM oauth_access_tokens
-WHERE refresh_token_hash = $1::text
-   OR previous_refresh_token_hash = $1::text
+SELECT token.user_id
+FROM oauth_access_tokens token
+LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
+WHERE token.refresh_token_hash = $1::text
+   OR retired.refresh_token_hash = $1::text
 LIMIT 1
 `
 
@@ -4507,10 +4508,12 @@ func (q *Queries) RevokeBrowserSessionsForUser(ctx context.Context, arg RevokeBr
 }
 
 const revokeOAuthAccessTokenForRefreshTokenReuse = `-- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
-UPDATE oauth_access_tokens
+UPDATE oauth_access_tokens token
 SET revoked_at = transaction_timestamp()
-WHERE previous_refresh_token_hash = $1::text
-  AND revoked_at IS NULL
+FROM oauth_retired_refresh_tokens retired
+WHERE retired.oauth_access_token_id = token.id
+  AND retired.refresh_token_hash = $1::text
+  AND token.revoked_at IS NULL
 `
 
 type RevokeOAuthAccessTokenForRefreshTokenReuseParams struct {
@@ -4586,24 +4589,35 @@ func (q *Queries) RevokePersonalAccessTokensForUser(ctx context.Context, arg Rev
 }
 
 const rotateOAuthAccessToken = `-- name: RotateOAuthAccessToken :one
-UPDATE oauth_access_tokens
-SET token_hash = $1,
-    refresh_token_hash = $2,
-    previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
-    rotated_at = transaction_timestamp(),
-    expires_at = transaction_timestamp() + ($3::bigint * interval '1 second'),
-    refresh_expires_at = transaction_timestamp() + ($4::bigint * interval '1 second')
-WHERE client_id = $5
-  AND revoked_at IS NULL
-  AND refresh_expires_at > transaction_timestamp()
-  AND (
-    refresh_token_hash = $6
-    OR (
-      previous_refresh_token_hash = $6
-      AND rotated_at > transaction_timestamp() - ($7::bigint * interval '1 second')
+WITH rotated AS (
+  UPDATE oauth_access_tokens
+  SET token_hash = $1,
+      refresh_token_hash = $2,
+      previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
+      rotated_at = transaction_timestamp(),
+      expires_at = transaction_timestamp() + ($3::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + ($4::bigint * interval '1 second')
+  WHERE oauth_access_tokens.client_id = $5
+    AND oauth_access_tokens.revoked_at IS NULL
+    AND oauth_access_tokens.refresh_expires_at > transaction_timestamp()
+    AND (
+      oauth_access_tokens.refresh_token_hash = $6
+      OR (
+        oauth_access_tokens.previous_refresh_token_hash = $6
+        AND oauth_access_tokens.rotated_at
+          > transaction_timestamp() - ($7::bigint * interval '1 second')
+      )
     )
-  )
-RETURNING id, user_id, resource
+  RETURNING oauth_access_tokens.id, oauth_access_tokens.user_id, oauth_access_tokens.resource,
+    oauth_access_tokens.previous_refresh_token_hash
+), retired AS (
+  INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
+  SELECT rotated.previous_refresh_token_hash, rotated.id, transaction_timestamp()
+  FROM rotated
+  ON CONFLICT (refresh_token_hash) DO NOTHING
+)
+SELECT id, user_id, resource
+FROM rotated
 `
 
 type RotateOAuthAccessTokenParams struct {
