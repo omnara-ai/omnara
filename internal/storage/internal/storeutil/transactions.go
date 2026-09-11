@@ -13,6 +13,8 @@ import (
 
 const maxTransactionAttempts = 3
 
+var ErrRetryTransaction = errors.New("transaction must be retried")
+
 // RetryTransaction requires run to own the complete transaction and avoid irreversible work before commit.
 func RetryTransaction[T any](ctx context.Context, operation string, run func() (T, error)) (out T, finalErr error) {
 	var event *log.Event
@@ -81,6 +83,9 @@ func retryableTransactionSQLState(err error) string {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == "40001" || pgErr.Code == "40P01") {
 		return pgErr.Code
+	}
+	if errors.Is(err, ErrRetryTransaction) {
+		return "retry"
 	}
 	return ""
 }

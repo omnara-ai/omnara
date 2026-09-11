@@ -42,14 +42,8 @@ func (s *Store) CancelAgent(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if err := lockParentAgentTx(ctx, qtx, input.ProjectID, input.AgentID); err != nil {
+	if err := lockAgentWithParentTx(ctx, tx, qtx, input.ProjectID, input.AgentID); err != nil {
 		return CancelAgentResult{}, err
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
-		return CancelAgentResult{}, fmt.Errorf("lock agent for cancel: %w", err)
 	}
 	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, NilID)
 	if err != nil {

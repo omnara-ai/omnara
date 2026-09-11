@@ -504,35 +504,84 @@ func archiveAgentTx(
 	return machines, nil
 }
 
-// lockAgentForArchiveTx takes the machine-source advisory lock before the
-// agent row, the same order createPoolMachine and ChangeAgentConfig use.
-func lockAgentForArchiveTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, agentID ID) error {
-	if err := qtx.LockAgentMachineSources(
-		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-	); err != nil {
-		return fmt.Errorf("lock archived agent machine sources: %w", err)
-	}
-	if err := qtx.LockAttachedAgentPoolMachines(
-		ctx,
-		dbsqlc.LockAttachedAgentPoolMachinesParams{ProjectID: projectID, AgentID: agentID},
-	); err != nil {
-		return fmt.Errorf("lock archived agent pool machines: %w", err)
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: projectID, ID: agentID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
+func listActiveAgentTreeTx(ctx context.Context, qtx *dbsqlc.Queries, projectID, rootID ID) ([]ID, error) {
+	tree := []ID{rootID}
+	for index := 0; index < len(tree); index++ {
+		parentID := tree[index]
+		childIDs, err := qtx.ListActiveChildAgentIDs(ctx, dbsqlc.ListActiveChildAgentIDsParams{
+			ProjectID:     projectID,
+			ParentAgentID: &parentID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list subagents for archive: %w", err)
 		}
-		return fmt.Errorf("lock agent for archive: %w", err)
+		tree = append(tree, childIDs...)
+	}
+	return tree, nil
+}
+
+func sameAgentIDSet(left, right []ID) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := make(map[ID]struct{}, len(left))
+	for _, id := range left {
+		seen[id] = struct{}{}
+	}
+	for _, id := range right {
+		if _, ok := seen[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func lockAgentTreeForArchiveTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	root AgentRecord,
+	tree []ID,
+) error {
+	if err := lifecyclelock.AgentSources(ctx, tx, tree...); err != nil {
+		return err
+	}
+	var machineRefs []lifecyclelock.MachineRef
+	for _, agentID := range tree {
+		machineIDs, err := qtx.ListAttachedAgentPoolMachineIDsForLifecycle(
+			ctx,
+			dbsqlc.ListAttachedAgentPoolMachineIDsForLifecycleParams{ProjectID: root.ProjectID, AgentID: agentID},
+		)
+		if err != nil {
+			return fmt.Errorf("list archived agent pool machines: %w", err)
+		}
+		for _, machineID := range machineIDs {
+			machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: root.OrgID, MachineID: machineID})
+		}
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return err
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(tree)+1)
+	for _, agentID := range tree {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: root.ProjectID, AgentID: agentID})
+	}
+	if !isNilID(root.ParentAgentID) {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{ProjectID: root.ProjectID, AgentID: root.ParentAgentID})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return err
+	}
+	lockedTree, err := listActiveAgentTreeTx(ctx, qtx, root.ProjectID, root.ID)
+	if err != nil {
+		return err
+	}
+	if !sameAgentIDSet(tree, lockedTree) {
+		return fmt.Errorf("subagent tree changed during archive: %w", storeutil.ErrRetryTransaction)
 	}
 	return nil
 }
 
-// archiveAgentTreeTx archives an agent after archiving every active subagent
-// beneath it, then tells the parent (when asked) that the subagent is gone.
 func archiveAgentTreeTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -542,43 +591,34 @@ func archiveAgentTreeTx(
 	actor *ActorParams,
 	notifyParentKind string,
 ) ([]MachineRecord, error) {
-	if notifyParentKind != "" {
-		if err := lockParentAgentTx(ctx, qtx, projectID, agentID); err != nil {
-			return nil, err
-		}
-	}
-	if err := lockAgentForArchiveTx(ctx, qtx, projectID, agentID); err != nil {
-		return nil, err
-	}
-	agent, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	root, err := loadAgentInProjectTx(ctx, tx, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
-	alreadyArchived := agent.State == AgentStateArchived
-	childIDs, err := qtx.ListActiveChildAgentIDs(ctx, dbsqlc.ListActiveChildAgentIDsParams{
-		ProjectID:     projectID,
-		ParentAgentID: &agentID,
-	})
+	tree, err := listActiveAgentTreeTx(ctx, qtx, projectID, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("list subagents for archive: %w", err)
+		return nil, err
 	}
+	if err := lockAgentTreeForArchiveTx(ctx, tx, qtx, root, tree); err != nil {
+		return nil, err
+	}
+	root, err = loadAgentInProjectTx(ctx, tx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	alreadyArchived := root.State == AgentStateArchived
 	var machines []MachineRecord
-	for _, childID := range childIDs {
-		released, err := archiveAgentTreeTx(ctx, tx, qtx, txNotifications, projectID, childID, actor, "")
+	for index := len(tree) - 1; index >= 0; index-- {
+		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, tree[index], actor)
 		if err != nil {
 			return nil, err
 		}
 		machines = append(machines, released...)
 	}
-	released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
-	if err != nil {
-		return nil, err
-	}
-	machines = append(machines, released...)
-	if notifyParentKind != "" && !alreadyArchived && !isNilID(agent.ParentAgentID) {
-		if err := notifyParentAgentTx(ctx, txNotifications, tx, qtx, agent, subagentMessage{
+	if notifyParentKind != "" && !alreadyArchived && !isNilID(root.ParentAgentID) {
+		if err := notifyParentAgentTx(ctx, txNotifications, tx, qtx, root, subagentMessage{
 			Kind:           notifyParentKind,
-			IdempotencyKey: notifyParentKind + ":" + agent.ID.String(),
+			IdempotencyKey: notifyParentKind + ":" + root.ID.String(),
 		}); err != nil {
 			return nil, err
 		}

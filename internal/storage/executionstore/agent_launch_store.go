@@ -113,6 +113,11 @@ func (s *Store) launchAgentOnce(
 		}
 		profile = &record
 	}
+	if input.Subagent != nil {
+		if err := lockSubagentParentSourcesTx(ctx, tx, *input.Subagent); err != nil {
+			return LaunchAgentResult{}, err
+		}
+	}
 	agentName := launchAgentName(input.Name, profile)
 	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, input.AgentConfigID)
 	if err != nil {
@@ -133,32 +138,21 @@ func (s *Store) launchAgentOnce(
 		CurrentConfigID: config.ID,
 		IdempotencyKey:  input.IdempotencyKey,
 	}
-	if input.Subagent != nil {
-		if _, err := prepareSubagentLaunchTx(ctx, tx, qtx, input.ProjectID, *input.Subagent); err != nil {
+	var agent AgentRecord
+	var inserted bool
+	if input.Subagent == nil {
+		agent, inserted, err = insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
+		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		insertInput.ParentAgentID = input.Subagent.ParentAgentID
-		insertInput.SubagentKey = input.Subagent.Key
-		insertInput.ArchiveAfterIdleMinutes = input.Subagent.ArchiveAfterIdleMinutes
-		if input.Subagent.ShareParentMachines {
-			machineSources = nil
+		if !inserted {
+			if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
+				return LaunchAgentResult{}, err
+			}
+			return LaunchAgentResult{Agent: agent}, nil
 		}
-	}
-	agent, inserted, err := insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
-	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	if !inserted {
-		if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
-			return LaunchAgentResult{}, err
-		}
-		return LaunchAgentResult{Agent: agent}, nil
-	}
-	result := LaunchAgentResult{
-		Agent:       agent,
-		AgentConfig: config,
-		MCPServers:  contract.MCPServers,
-		Created:     true,
+	} else if input.Subagent.ShareParentMachines {
+		machineSources = nil
 	}
 	if err := s.resolveLaunchMachineSourcesTx(
 		ctx,
@@ -169,6 +163,32 @@ func (s *Store) launchAgentOnce(
 		machineSources,
 	); err != nil {
 		return LaunchAgentResult{}, err
+	}
+	var sharedBindings []dbsqlc.ListParentMachineBindingsForSharingRow
+	if input.Subagent != nil {
+		sharedBindings, err = admitSubagentLaunchTx(ctx, tx, qtx, project.OrgID, input.ProjectID, *input.Subagent)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		insertInput.ParentAgentID = input.Subagent.ParentAgentID
+		insertInput.SubagentKey = input.Subagent.Key
+		insertInput.ArchiveAfterIdleMinutes = input.Subagent.ArchiveAfterIdleMinutes
+		agent, inserted, err = insertAdmittedAgentTx(ctx, tx, qtx, insertInput)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		if !inserted {
+			if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "idempotent launch agent"); err != nil {
+				return LaunchAgentResult{}, err
+			}
+			return LaunchAgentResult{Agent: agent}, nil
+		}
+	}
+	result := LaunchAgentResult{
+		Agent:       agent,
+		AgentConfig: config,
+		MCPServers:  contract.MCPServers,
+		Created:     true,
 	}
 	for _, source := range machineSources {
 		if source.PoolGrantForLaunch.ID == NilID {
@@ -265,7 +285,7 @@ func (s *Store) launchAgentOnce(
 		}
 	}
 	if input.Subagent != nil && input.Subagent.ShareParentMachines {
-		shared, err := shareParentMachineBindingsTx(ctx, qtx, input.ProjectID, input.Subagent.ParentAgentID, agent.ID)
+		shared, err := shareParentMachineBindingsTx(ctx, qtx, input.ProjectID, agent.ID, sharedBindings)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}

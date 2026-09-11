@@ -165,12 +165,15 @@ func orderedIDs(ids []uuid.UUID) []uuid.UUID {
 	return deduped
 }
 
-func AgentSources(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) error {
-	if err := dbsqlc.New(tx).LockAgentMachineSources(
-		ctx,
-		dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
-	); err != nil {
-		return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
+func AgentSources(ctx context.Context, tx pgx.Tx, agentIDs ...uuid.UUID) error {
+	q := dbsqlc.New(tx)
+	for _, agentID := range orderedIDs(agentIDs) {
+		if err := q.LockAgentMachineSources(
+			ctx,
+			dbsqlc.LockAgentMachineSourcesParams{AgentID: agentID},
+		); err != nil {
+			return fmt.Errorf("lock agent machine sources for lifecycle: %w", err)
+		}
 	}
 	return nil
 }
