@@ -4589,31 +4589,42 @@ func (q *Queries) RevokePersonalAccessTokensForUser(ctx context.Context, arg Rev
 }
 
 const rotateOAuthAccessToken = `-- name: RotateOAuthAccessToken :one
-WITH rotated AS (
-  UPDATE oauth_access_tokens
-  SET token_hash = $1,
-      refresh_token_hash = $2,
-      previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
-      rotated_at = transaction_timestamp(),
-      expires_at = transaction_timestamp() + ($3::bigint * interval '1 second'),
-      refresh_expires_at = transaction_timestamp() + ($4::bigint * interval '1 second')
-  WHERE oauth_access_tokens.client_id = $5
-    AND oauth_access_tokens.revoked_at IS NULL
-    AND oauth_access_tokens.refresh_expires_at > transaction_timestamp()
+WITH presented AS (
+  SELECT token.id
+  FROM oauth_access_tokens token
+  WHERE token.client_id = $1
+    AND token.revoked_at IS NULL
+    AND token.refresh_expires_at > transaction_timestamp()
     AND (
-      oauth_access_tokens.refresh_token_hash = $6
-      OR (
-        oauth_access_tokens.previous_refresh_token_hash = $6
-        AND oauth_access_tokens.rotated_at
-          > transaction_timestamp() - ($7::bigint * interval '1 second')
+      token.refresh_token_hash = $2
+      OR EXISTS (
+        SELECT 1
+        FROM oauth_retired_refresh_tokens latest
+        WHERE latest.oauth_access_token_id = token.id
+          AND latest.refresh_token_hash = $2
+          AND latest.retired_at
+            > transaction_timestamp() - ($3::bigint * interval '1 second')
+          AND latest.retired_at = (
+            SELECT max(retired.retired_at)
+            FROM oauth_retired_refresh_tokens retired
+            WHERE retired.oauth_access_token_id = token.id
+          )
       )
     )
-  RETURNING oauth_access_tokens.id, oauth_access_tokens.user_id, oauth_access_tokens.resource,
-    oauth_access_tokens.previous_refresh_token_hash
+), rotated AS (
+  UPDATE oauth_access_tokens token
+  SET token_hash = $4,
+      refresh_token_hash = $5,
+      expires_at = transaction_timestamp() + ($6::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + ($7::bigint * interval '1 second')
+  FROM presented
+  WHERE token.id = presented.id
+  RETURNING token.id, token.user_id, token.resource
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
-  SELECT rotated.previous_refresh_token_hash, rotated.id, transaction_timestamp()
+  SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
   FROM rotated
+  JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
 SELECT id, user_id, resource
@@ -4621,13 +4632,13 @@ FROM rotated
 `
 
 type RotateOAuthAccessTokenParams struct {
+	ClientID                  string
+	PresentedRefreshTokenHash string
+	ReuseGraceSeconds         int64
 	TokenHash                 string
 	RefreshTokenHash          string
 	AccessTtlSeconds          int64
 	RefreshTtlSeconds         int64
-	ClientID                  string
-	PresentedRefreshTokenHash string
-	ReuseGraceSeconds         int64
 }
 
 type RotateOAuthAccessTokenRow struct {
@@ -4638,13 +4649,13 @@ type RotateOAuthAccessTokenRow struct {
 
 func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAccessTokenParams) (RotateOAuthAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, rotateOAuthAccessToken,
+		arg.ClientID,
+		arg.PresentedRefreshTokenHash,
+		arg.ReuseGraceSeconds,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
 		arg.RefreshTtlSeconds,
-		arg.ClientID,
-		arg.PresentedRefreshTokenHash,
-		arg.ReuseGraceSeconds,
 	)
 	var i RotateOAuthAccessTokenRow
 	err := row.Scan(&i.ID, &i.UserID, &i.Resource)

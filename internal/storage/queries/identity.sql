@@ -1400,31 +1400,42 @@ WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
 LIMIT 1;
 
 -- name: RotateOAuthAccessToken :one
-WITH rotated AS (
-  UPDATE oauth_access_tokens
-  SET token_hash = sqlc.arg(token_hash),
-      refresh_token_hash = sqlc.arg(refresh_token_hash),
-      previous_refresh_token_hash = oauth_access_tokens.refresh_token_hash,
-      rotated_at = transaction_timestamp(),
-      expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
-      refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
-  WHERE oauth_access_tokens.client_id = sqlc.arg(client_id)
-    AND oauth_access_tokens.revoked_at IS NULL
-    AND oauth_access_tokens.refresh_expires_at > transaction_timestamp()
+WITH presented AS (
+  SELECT token.id
+  FROM oauth_access_tokens token
+  WHERE token.client_id = sqlc.arg(client_id)
+    AND token.revoked_at IS NULL
+    AND token.refresh_expires_at > transaction_timestamp()
     AND (
-      oauth_access_tokens.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
-      OR (
-        oauth_access_tokens.previous_refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
-        AND oauth_access_tokens.rotated_at
-          > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+      token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+      OR EXISTS (
+        SELECT 1
+        FROM oauth_retired_refresh_tokens latest
+        WHERE latest.oauth_access_token_id = token.id
+          AND latest.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+          AND latest.retired_at
+            > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+          AND latest.retired_at = (
+            SELECT max(retired.retired_at)
+            FROM oauth_retired_refresh_tokens retired
+            WHERE retired.oauth_access_token_id = token.id
+          )
       )
     )
-  RETURNING oauth_access_tokens.id, oauth_access_tokens.user_id, oauth_access_tokens.resource,
-    oauth_access_tokens.previous_refresh_token_hash
+), rotated AS (
+  UPDATE oauth_access_tokens token
+  SET token_hash = sqlc.arg(token_hash),
+      refresh_token_hash = sqlc.arg(refresh_token_hash),
+      expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+  FROM presented
+  WHERE token.id = presented.id
+  RETURNING token.id, token.user_id, token.resource
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
-  SELECT rotated.previous_refresh_token_hash, rotated.id, transaction_timestamp()
+  SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
   FROM rotated
+  JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
 SELECT id, user_id, resource

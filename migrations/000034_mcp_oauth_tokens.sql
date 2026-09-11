@@ -34,8 +34,6 @@ CREATE TABLE oauth_access_tokens (
     resource text NOT NULL,
     token_hash text NOT NULL,
     refresh_token_hash text NOT NULL,
-    previous_refresh_token_hash text,
-    rotated_at timestamptz,
     created_at timestamptz NOT NULL,
     expires_at timestamptz NOT NULL,
     refresh_expires_at timestamptz NOT NULL,
@@ -43,15 +41,11 @@ CREATE TABLE oauth_access_tokens (
     revoked_at timestamptz,
     UNIQUE (token_hash),
     UNIQUE (refresh_token_hash),
-    UNIQUE (previous_refresh_token_hash),
     CHECK (octet_length(client_id) BETWEEN 1 AND 2048 AND (client_id COLLATE "C") !~ '[[:cntrl:]]'),
     CHECK (char_length(client_name) BETWEEN 1 AND 128 AND client_name !~ '[[:cntrl:]]'),
     CHECK (octet_length(resource) BETWEEN 1 AND 2048 AND (resource COLLATE "C") !~ '[[:cntrl:]]'),
     CHECK (token_hash <> ''),
     CHECK (refresh_token_hash <> ''),
-    CHECK (previous_refresh_token_hash IS NULL OR previous_refresh_token_hash <> refresh_token_hash),
-    CHECK ((previous_refresh_token_hash IS NULL) = (rotated_at IS NULL)),
-    CHECK (rotated_at IS NULL OR rotated_at >= created_at),
     CHECK (expires_at > created_at),
     CHECK (refresh_expires_at >= expires_at),
     CHECK (last_used_at IS NULL OR last_used_at >= created_at),
@@ -73,4 +67,4 @@ CREATE TABLE oauth_retired_refresh_tokens (
 );
 
 CREATE INDEX oauth_retired_refresh_tokens_token_idx
-    ON oauth_retired_refresh_tokens(oauth_access_token_id);
+    ON oauth_retired_refresh_tokens(oauth_access_token_id, retired_at DESC);

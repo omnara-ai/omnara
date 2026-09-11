@@ -403,10 +403,11 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 	}
 	if _, err := pool.Exec(
 		ctx,
-		`UPDATE oauth_access_tokens
-		 SET rotated_at = rotated_at - ($2::bigint * interval '1 second'),
-		     created_at = created_at - ($2::bigint * interval '1 second')
-		 WHERE user_id = $1`,
+		`UPDATE oauth_retired_refresh_tokens retired
+		 SET retired_at = retired.retired_at - ($2::bigint * interval '1 second')
+		 FROM oauth_access_tokens token
+		 WHERE retired.oauth_access_token_id = token.id
+		   AND token.user_id = $1`,
 		user.ID,
 		int64(identitystore.OAuthRefreshTokenReuseGrace/time.Second)+1,
 	); err != nil {
