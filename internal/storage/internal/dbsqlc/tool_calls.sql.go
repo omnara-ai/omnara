@@ -188,89 +188,6 @@ func (q *Queries) CompleteCustomToolCall(ctx context.Context, arg CompleteCustom
 	return i, err
 }
 
-const completeMachineUnreachableToolCall = `-- name: CompleteMachineUnreachableToolCall :one
-WITH locked_agent AS MATERIALIZED (
-  SELECT agent.project_id, agent.id
-  FROM agents agent
-  WHERE agent.project_id = $3
-    AND agent.id = $4
-  FOR UPDATE
-)
-UPDATE tool_calls call
-SET state = 'completed',
-    runtime_lock_id = NULL
-FROM locked_agent agent
-CROSS JOIN tool_call_read_projection projection
-WHERE call.agent_id = agent.id
-  AND call.id = $1
-  AND call.state = 'waiting'
-  AND call.type = 'built_in'
-  AND projection.project_id = agent.project_id
-  AND projection.agent_id = call.agent_id
-  AND projection.id = call.id
-RETURNING call.id, projection.project_id, call.agent_id,
-  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
-  call.provider_call_id,
-  call.name, call.input,
-  call.type, call.state,
-  $2::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
-  call.created_at
-`
-
-type CompleteMachineUnreachableToolCallParams struct {
-	ID        uuid.UUID
-	Outcome   string
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-type CompleteMachineUnreachableToolCallRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-}
-
-func (q *Queries) CompleteMachineUnreachableToolCall(ctx context.Context, arg CompleteMachineUnreachableToolCallParams) (CompleteMachineUnreachableToolCallRow, error) {
-	row := q.db.QueryRow(ctx, completeMachineUnreachableToolCall,
-		arg.ID,
-		arg.Outcome,
-		arg.ProjectID,
-		arg.AgentID,
-	)
-	var i CompleteMachineUnreachableToolCallRow
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AgentID,
-		&i.TurnID,
-		&i.SourceEventID,
-		&i.ModelCallContextID,
-		&i.ProviderCallID,
-		&i.Name,
-		&i.Input,
-		&i.Type,
-		&i.State,
-		&i.Outcome,
-		&i.RuntimeLockID,
-		&i.ResultContentParts,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const completeRuntimeToolCall = `-- name: CompleteRuntimeToolCall :one
 WITH live_runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
@@ -894,6 +811,89 @@ func (q *Queries) CompleteToolCallFromStartedProcess(ctx context.Context, arg Co
 		arg.AgentID,
 	)
 	var i CompleteToolCallFromStartedProcessRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.SourceEventID,
+		&i.ModelCallContextID,
+		&i.ProviderCallID,
+		&i.Name,
+		&i.Input,
+		&i.Type,
+		&i.State,
+		&i.Outcome,
+		&i.RuntimeLockID,
+		&i.ResultContentParts,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const completeWaitingBuiltInToolCall = `-- name: CompleteWaitingBuiltInToolCall :one
+WITH locked_agent AS MATERIALIZED (
+  SELECT agent.project_id, agent.id
+  FROM agents agent
+  WHERE agent.project_id = $3
+    AND agent.id = $4
+  FOR UPDATE
+)
+UPDATE tool_calls call
+SET state = 'completed',
+    runtime_lock_id = NULL
+FROM locked_agent agent
+CROSS JOIN tool_call_read_projection projection
+WHERE call.agent_id = agent.id
+  AND call.id = $1
+  AND call.state = 'waiting'
+  AND call.type = 'built_in'
+  AND projection.project_id = agent.project_id
+  AND projection.agent_id = call.agent_id
+  AND projection.id = call.id
+RETURNING call.id, projection.project_id, call.agent_id,
+  projection.turn_id, projection.source_event_id, projection.model_call_context_id,
+  call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  $2::text AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at
+`
+
+type CompleteWaitingBuiltInToolCallParams struct {
+	ID        uuid.UUID
+	Outcome   string
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type CompleteWaitingBuiltInToolCallRow struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	SourceEventID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderCallID     string
+	Name               string
+	Input              json.RawMessage
+	Type               string
+	State              string
+	Outcome            string
+	RuntimeLockID      *uuid.UUID
+	ResultContentParts json.RawMessage
+	CreatedAt          time.Time
+}
+
+func (q *Queries) CompleteWaitingBuiltInToolCall(ctx context.Context, arg CompleteWaitingBuiltInToolCallParams) (CompleteWaitingBuiltInToolCallRow, error) {
+	row := q.db.QueryRow(ctx, completeWaitingBuiltInToolCall,
+		arg.ID,
+		arg.Outcome,
+		arg.ProjectID,
+		arg.AgentID,
+	)
+	var i CompleteWaitingBuiltInToolCallRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,

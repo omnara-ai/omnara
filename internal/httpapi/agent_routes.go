@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
@@ -22,13 +23,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
-	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -60,16 +59,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if err != nil {
 		return nil, agentConfigCompileError(err)
 	}
-	config, err := s.server.store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
-		ProjectID:               project.ID,
-		Definition:              compiled.Definition,
-		Source:                  compiled.Source,
-		SourceFormat:            compiled.SourceFormat,
-		ConfiguredModelID:       compiled.ConfiguredModelID,
-		CompiledDefinition:      compiled.CompiledDefinition,
-		CompilerVersion:         compiled.CompilerVersion,
-		EffectiveDefinitionHash: compiled.DefinitionHash,
-	})
+	config, err := s.server.store.Execution().CreateAgentConfig(ctx, compiled.CreateInput(project.ID))
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -653,6 +643,16 @@ func (s strictOpenAPIServer) listAgents(
 		}
 		filters.AgentProfileID = &agentProfileID
 	}
+	if params.ParentAgentId != nil && *params.ParentAgentId != "" {
+		parentAgentID, err := publicid.Decode(publicid.KindAgent, *params.ParentAgentId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid parent agent filter")
+		}
+		filters.ParentAgentID = &parentAgentID
+	}
+	if params.IncludeSubagents != nil {
+		filters.IncludeSubagents = *params.IncludeSubagents
+	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
@@ -879,16 +879,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
 	result, err := s.server.store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID:               project.ID,
-			Definition:              compiled.Definition,
-			Source:                  compiled.Source,
-			SourceFormat:            compiled.SourceFormat,
-			ConfiguredModelID:       compiled.ConfiguredModelID,
-			CompiledDefinition:      compiled.CompiledDefinition,
-			CompilerVersion:         compiled.CompilerVersion,
-			EffectiveDefinitionHash: compiled.DefinitionHash,
-		},
+		CreateAgentConfigInput:  compiled.CreateInput(project.ID),
 		AgentID:                 agent.ID,
 		ExpectedCurrentConfigID: expectedCurrentConfigID,
 		ActorType:               principal.Type,
@@ -990,6 +981,24 @@ func (s *Server) currentAgentResponse(
 	if err != nil {
 		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
 	}
+	subagents, err := s.store.Execution().ListSubagents(ctx, record.ProjectID, record.ID)
+	if err != nil {
+		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
+	}
+	subagentSummaries := make([]openapi.SubagentSummary, 0, len(subagents))
+	for _, subagent := range subagents {
+		subagentID, err := publicID(publicid.KindAgent, subagent.AgentID)
+		if err != nil {
+			return openapi.GetAgentResponse{}, err
+		}
+		subagentSummaries = append(subagentSummaries, openapi.SubagentSummary{
+			Id:             subagentID,
+			Name:           subagent.Name,
+			Key:            subagent.Key,
+			State:          openapi.SubagentSummaryState(subagent.State),
+			LastActivityAt: subagent.LastActivityAt,
+		})
+	}
 	mcpConnections := make([]openapi.AgentMCPConnection, 0, len(connections))
 	for _, connection := range connections {
 		mcpConnections = append(mcpConnections, openapi.AgentMCPConnection{
@@ -1006,6 +1015,7 @@ func (s *Server) currentAgentResponse(
 		Agent:          agent,
 		MachineIds:     machineIDs,
 		McpConnections: mcpConnections,
+		Subagents:      &subagentSummaries,
 	}, nil
 }
 
@@ -1269,176 +1279,28 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-type compiledAgentConfigBody struct {
-	Definition         json.RawMessage
-	Source             string
-	SourceFormat       string
-	ConfiguredModelID  storage.ID
-	CompiledDefinition json.RawMessage
-	CompilerVersion    string
-	DefinitionHash     string
-}
-
 func (s *Server) compileAgentConfigBodyForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
 	sourceFormatRaw, source string,
-) (compiledAgentConfigBody, error) {
+) (agentconfigcompile.Body, error) {
 	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
 	if err != nil {
-		return compiledAgentConfigBody{}, err
+		return agentconfigcompile.Body{}, err
 	}
-	if source == "" {
-		return compiledAgentConfigBody{}, fmt.Errorf("source is required")
-	}
-	opts := s.agentConfigOptions
-	opts.ValidateSecretID = func(secretID string, expectedKind secrets.Kind) error {
-		decoded, err := publicid.Decode(publicid.KindSecret, secretID)
-		if err != nil {
-			return err
-		}
-		return s.store.Secrets().ValidateProjectSecretReference(ctx, project.OrgID, project.ID, decoded, expectedKind)
-	}
-	opts.ResolveModelSelection = func(
-		providerConfigName string,
-		configuredModelName string,
-	) (agentconfig.ResolvedModelSelection, error) {
-		providerConfig, err := s.store.Models().GetModelProviderConfigByName(ctx, project.OrgID, providerConfigName)
-		if err != nil {
-			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-					"/model/provider_config",
-					fmt.Errorf("model provider config %q was not found: %w", providerConfigName, storeerr.ErrNotFound),
-				)
-			}
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		configuredModel, err := s.store.Models().GetConfiguredModelByName(
-			ctx,
-			project.OrgID,
-			providerConfig.ID,
-			configuredModelName,
-		)
-		if err != nil {
-			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-					"/model/name",
-					fmt.Errorf(
-						"configured model %q is not configured for model provider config %q: %w",
-						configuredModelName,
-						providerConfigName,
-						storeerr.ErrNotFound,
-					),
-				)
-			}
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		grant, err := s.store.Models().GetActiveProjectModelGrantForConfiguredModel(
-			ctx,
-			project.OrgID,
-			project.ID,
-			configuredModel.ID,
-		)
-		if err != nil {
-			if storeerr.IsNotFound(err) {
-				return agentconfig.ResolvedModelSelection{}, agentconfig.NewIssue(
-					"/model/name",
-					fmt.Errorf(
-						"configured model %q on model provider config %q does not have an active project grant: %w",
-						configuredModelName,
-						providerConfigName,
-						storeerr.ErrNotFound,
-					),
-				)
-			}
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		effectiveModel, err := modelstore.EffectiveConfiguredModelForProjectGrant(
-			providerConfig.APIFormat,
-			configuredModel,
-			grant,
-		)
-		if err != nil {
-			return agentconfig.ResolvedModelSelection{}, err
-		}
-		supportsTools := effectiveModel.SupportsTools
-		return agentconfig.ResolvedModelSelection{
-			ConfiguredModelID: configuredModel.ID.String(),
-			SupportsTools:     &supportsTools,
-		}, nil
-	}
-	opts.ResolveMachineName = func(machineName string) (string, error) {
-		machineID, err := s.store.Execution().ResolveAgentConfigMachineName(ctx, project.ID, machineName)
-		if err != nil {
-			return "", err
-		}
-		return publicID(publicid.KindMachine, machineID)
-	}
-	opts.ResolveMachinePoolName = func(machinePoolName string) (string, error) {
-		machinePoolID, err := s.store.Execution().ResolveAgentConfigMachinePoolName(
-			ctx,
-			project.OrgID,
-			project.ID,
-			machinePoolName,
-		)
-		if err != nil {
-			return "", err
-		}
-		return publicID(publicid.KindMachinePool, machinePoolID)
-	}
-	opts.ResolveSkillID = func(skillID string) (agentconfig.SkillResolution, error) {
-		records, missing, err := s.skills.GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
-			OrgID:     project.OrgID,
-			ProjectID: project.ID,
-			IDs:       []string{skillID},
-		})
-		if err != nil {
-			return agentconfig.SkillResolution{}, err
-		}
-		if len(missing) > 0 {
-			return agentconfig.SkillResolution{}, fmt.Errorf("skill not found or not visible: %s", skillID)
-		}
-		if len(records) != 1 {
-			return agentconfig.SkillResolution{}, fmt.Errorf("skill resolver returned %d records for %s", len(records), skillID)
-		}
-		rec := records[0]
-		encoded, err := publicID(publicid.KindSkill, rec.ID)
-		if err != nil {
-			return agentconfig.SkillResolution{}, fmt.Errorf("encode skill public id: %w", err)
-		}
-		return agentconfig.SkillResolution{
-			PublicID: encoded,
-			Name:     rec.Name,
-		}, nil
-	}
-	result, err := agentconfig.Compile(sourceFormat, []byte(source), opts)
-	if err != nil {
-		return compiledAgentConfigBody{}, err
-	}
-	resolvedConfiguredModelID, err := storage.ParseID(result.Compiled.Model.ConfiguredModelID)
-	if err != nil || resolvedConfiguredModelID == storage.NilID {
-		return compiledAgentConfigBody{}, fmt.Errorf(
-			"model.provider_config and model.name must resolve to a configured project-granted model",
-		)
-	}
-	if err := s.store.Execution().ValidateAgentConfigMachineSources(
+	body, err := agentconfigcompile.Compile(
 		ctx,
+		s.store,
+		project.OrgID,
 		project.ID,
-		json.RawMessage(result.CanonicalJSON),
-		agentconfig.CompilerVersion,
-		result.Hash,
-	); err != nil {
-		return compiledAgentConfigBody{}, err
+		s.agentConfigOptions,
+		sourceFormat,
+		source,
+	)
+	if err != nil {
+		return agentconfigcompile.Body{}, err
 	}
-	return compiledAgentConfigBody{
-		Definition:         json.RawMessage(result.CanonicalJSON),
-		Source:             result.Source,
-		SourceFormat:       string(result.SourceFormat),
-		ConfiguredModelID:  resolvedConfiguredModelID,
-		CompiledDefinition: json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:    agentconfig.CompilerVersion,
-		DefinitionHash:     result.Hash,
-	}, nil
+	return body, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {

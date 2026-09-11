@@ -72,3 +72,11 @@ func sqlcStrings[T ~string](values []T) []string {
 	}
 	return out
 }
+
+func sqlcInt32Ptr(value *int) *int32 {
+	if value == nil {
+		return nil
+	}
+	v := int32(*value)
+	return &v
+}

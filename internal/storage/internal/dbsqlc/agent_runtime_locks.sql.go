@@ -629,23 +629,3 @@ func (q *Queries) RequestAgentRuntimeCancel(ctx context.Context, arg RequestAgen
 	)
 	return i, err
 }
-
-const tryLockAgentForRuntimeLockReap = `-- name: TryLockAgentForRuntimeLockReap :one
-SELECT id
-FROM agents
-WHERE project_id = $1
-  AND id = $2
-FOR UPDATE SKIP LOCKED
-`
-
-type TryLockAgentForRuntimeLockReapParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) TryLockAgentForRuntimeLockReap(ctx context.Context, arg TryLockAgentForRuntimeLockReapParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, tryLockAgentForRuntimeLockReap, arg.ProjectID, arg.AgentID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}

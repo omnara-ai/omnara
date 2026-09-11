@@ -4,15 +4,23 @@ import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 import {
   extractBasicConfig,
   type MachineEntry,
-  type McpEntry,
-  type McpToolEntry,
   normalizeMultiline,
-  type PermissionEntry,
-  type PermissionSelection,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import {
+  type BasicMcpServer,
+  type BasicMcpTool,
+  type McpAuthType,
+  mcpWire,
+  permissionWire,
+} from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
+import {
+  type BasicSubagent,
+  subagentsValid,
+  subagentWire,
+} from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { addMachineToolsForNewSourceSelection } from '@/components/agents/builtInTools'
 import {
@@ -32,26 +40,7 @@ import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
-export type McpAuthType = 'none' | 'oauth' | 'bearer' | 'sigv4'
-
-export interface BasicMcpTool {
-  name: string
-  enabled: boolean | null
-  permission: PermissionSelection | null
-}
-
-export interface BasicMcpServer {
-  id: string
-  name: string
-  url: string
-  permission: PermissionSelection | null
-  defaultEnabled: boolean
-  authType: McpAuthType
-  secretId: string
-  service: string
-  region: string
-  tools: BasicMcpTool[]
-}
+export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 
 export type MachineSourceKind = 'pool' | 'machine'
 
@@ -80,6 +69,8 @@ export interface BasicConfig {
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
   skillIds: string[]
+  subagents: BasicSubagent[]
+  maxSubagents: string
 }
 
 export function newMachineSource(kind: MachineSourceKind): BasicMachineSource {
@@ -109,6 +100,8 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   mcpServers: [],
   skillIds: [],
+  subagents: [],
+  maxSubagents: '',
 }
 
 export interface BasicConfigSession {
@@ -160,6 +153,8 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     tools: draft.tools,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
+    subagents: draft.subagents,
+    maxSubagents: draft.maxSubagents,
     setInstruction: (instruction: string) => {
       patch({ instruction })
     },
@@ -186,6 +181,12 @@ export function useAgentBuilderForm(session: BasicConfigSession, seedConfig?: Ba
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
     },
+    setSubagents: (subagents: BasicSubagent[]) => {
+      patch(subagents.length === 0 ? { subagents, maxSubagents: '' } : { subagents })
+    },
+    setMaxSubagents: (maxSubagents: string) => {
+      patch({ maxSubagents })
+    },
     reportModelUnavailable: setModelUnavailable,
     reportUnavailableSourceIds: setUnavailableSourceIds,
     reportUnavailableSkillIds: setUnavailableSkillIds,
@@ -199,7 +200,8 @@ export function basicConfigValid(draft: BasicConfig) {
     resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&
     mcpServerNamesUnique(draft.mcpServers) &&
-    draft.mcpServers.every(mcpServerValid)
+    draft.mcpServers.every(mcpServerValid) &&
+    subagentsValid(draft.subagents, draft.maxSubagents)
   )
 }
 
@@ -367,6 +369,19 @@ function applyToDocument(
   )
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
+    'subagents',
+    config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
+    baseline == null
+      ? null
+      : baseline.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
+    set,
+    del,
+  )
+  if (config.maxSubagents !== (baseline?.maxSubagents ?? '')) {
+    if (config.maxSubagents === '') del(['max_subagents'])
+    else set(['max_subagents'], Number(config.maxSubagents))
+  }
+  applyNamedEntries(
     'mcp',
     config.mcpServers.map((server) => [server.name, mcpWire(server)]),
     baseline == null ? null : baseline.mcpServers.map((server) => [server.name, mcpWire(server)]),
@@ -503,40 +518,4 @@ function toolWire(tool: BasicTool): ToolEntry {
   const wire: ToolEntry = { type: 'built_in' }
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   return wire
-}
-
-function mcpWire(server: BasicMcpServer): McpEntry {
-  const wire: McpEntry = { url: server.url.trim() }
-  if (server.permission != null) wire.permission = permissionWire(server.permission)
-  wire.default_enabled = server.defaultEnabled
-  if (server.authType !== 'none') {
-    const secretId = server.secretId.trim()
-    wire.auth =
-      server.authType === 'sigv4'
-        ? {
-            type: 'sigv4',
-            secret_id: secretId,
-            service: server.service.trim(),
-            region: server.region.trim(),
-          }
-        : { type: server.authType, secret_id: secretId }
-  }
-  const tools = server.tools.filter((tool) => tool.enabled != null || tool.permission != null)
-  if (tools.length > 0) {
-    wire.tools = Object.fromEntries(tools.map((tool) => [tool.name, mcpToolWire(tool)]))
-  }
-  return wire
-}
-
-function mcpToolWire(tool: BasicMcpTool): McpToolEntry {
-  const wire: McpToolEntry = {}
-  if (tool.enabled != null) wire.enabled = tool.enabled
-  if (tool.permission != null) wire.permission = permissionWire(tool.permission)
-  return wire
-}
-
-function permissionWire(permission: PermissionSelection): PermissionEntry {
-  return Object.keys(permission.parameters).length > 0
-    ? { mode: permission.mode, parameters: permission.parameters }
-    : { mode: permission.mode }
 }

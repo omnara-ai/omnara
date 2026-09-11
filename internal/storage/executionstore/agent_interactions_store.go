@@ -184,6 +184,9 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		}
 		return existing, nil
 	}
+	if err := lockAgentWithParentTx(ctx, t.tx, t.q, t.input.ProjectID, t.input.AgentID); err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -209,7 +212,11 @@ func (t *toolCallTransaction) createQuestionInteraction(
 		return AgentInteractionRecord{}, fmt.Errorf("load created question interaction: %w", err)
 	}
 	t.hasDurableCompletionOwner = true
-	return agentInteractionRecordFromSQLC(row), nil
+	record := agentInteractionRecordFromSQLC(row)
+	if err := handleSubagentQuestionTx(ctx, t.notifications, t.tx, t.q, record); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
 }
 
 func markToolCallAwaitingPermissionTx(
@@ -265,6 +272,23 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	record, err := resolveAgentInteractionTx(ctx, txNotifications, tx, qtx, input)
+	if err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
+		return AgentInteractionRecord{}, err
+	}
+	return record, nil
+}
+
+func resolveAgentInteractionTx(
+	ctx context.Context,
+	txNotifications *notifications.TxNotifications,
+	tx pgx.Tx,
+	qtx *dbsqlc.Queries,
+	input ResolveAgentInteractionInput,
+) (AgentInteractionRecord, error) {
 	if _, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -423,9 +447,6 @@ func (s *Store) ResolveAgentInteraction(
 		},
 	); err != nil {
 		return AgentInteractionRecord{}, fmt.Errorf("mark interaction resolution wakeup: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "resolve agent interaction"); err != nil {
-		return AgentInteractionRecord{}, err
 	}
 	return record, nil
 }
@@ -846,30 +867,20 @@ func (s *Store) ListAgentInteractionsForAgent(
 	if input.Limit <= 0 {
 		return ListAgentInteractionsForAgentResult{}, errors.New("limit must be positive")
 	}
-	params := dbsqlc.ListAgentInteractionsForAgentParams{
+	page, err := s.ListAgentInteractions(ctx, ListAgentInteractionsInput{
 		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
-		State:     string(input.State),
-		RowLimit:  int64(input.Limit) + 1,
-	}
-	if input.After.Set {
-		createdAt := input.After.CreatedAt
-		id := input.After.ID
-		params.CursorCreatedAt = &createdAt
-		params.CursorID = &id
-	}
-	rows, err := s.q.ListAgentInteractionsForAgent(ctx, params)
+		AgentIDs:  []ID{input.AgentID},
+		State:     input.State,
+		Limit:     input.Limit,
+		After:     input.After,
+	})
 	if err != nil {
-		return ListAgentInteractionsForAgentResult{}, fmt.Errorf("list agent interactions: %w", err)
+		return ListAgentInteractionsForAgentResult{}, err
 	}
-	result := ListAgentInteractionsForAgentResult{}
-	if len(rows) > input.Limit {
-		result.HasMore = true
-		rows = rows[:input.Limit]
-	}
-	result.Interactions = make([]AgentInteractionRecord, 0, len(rows))
-	for _, row := range rows {
-		result.Interactions = append(result.Interactions, agentInteractionRecordFromSQLC(row))
+	result := ListAgentInteractionsForAgentResult{HasMore: page.HasMore}
+	result.Interactions = make([]AgentInteractionRecord, 0, len(page.Interactions))
+	for _, item := range page.Interactions {
+		result.Interactions = append(result.Interactions, item.AgentInteractionRecord)
 	}
 	return result, nil
 }

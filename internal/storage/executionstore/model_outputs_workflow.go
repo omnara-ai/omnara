@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/events"
@@ -438,6 +439,9 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		return events.Event{}, fmt.Errorf("begin record model output: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockAgentWithParentTx(ctx, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID); err != nil {
+		return events.Event{}, err
+	}
 	if err := ensureRuntimeLockActiveTx(
 		ctx,
 		tx,
@@ -566,6 +570,18 @@ func (s *Store) RecordModelOutputAndCompleteContext(
 		); err != nil {
 			return events.Event{}, err
 		}
+		if turnText, ended := modelOutputEndsTurn(input.ProviderResponse); ended {
+			message := subagentMessage{
+				Kind:           SubagentMessageKindResult,
+				Text:           turnText,
+				IdempotencyKey: "model_output:" + modelOutput.ID.String(),
+			}
+			if err := handleSubagentTurnEndedTx(
+				ctx, txNotifications, tx, dbsqlc.New(tx), input.ProjectID, input.AgentID, message,
+			); err != nil {
+				return events.Event{}, err
+			}
+		}
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "record model output"); err != nil {
 		return events.Event{}, err
@@ -672,4 +688,11 @@ func completeSuccessfulNormalModelCallTx(
 		return err
 	}
 	return nil
+}
+
+func modelOutputEndsTurn(envelope modelenvelope.ResponseEnvelope) (string, bool) {
+	if envelope.HasToolCalls() {
+		return "", false
+	}
+	return strings.TrimSpace(envelope.Text()), true
 }

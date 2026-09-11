@@ -29,6 +29,8 @@ type Compiled struct {
 	Tools          map[string]ToolCompiled      `json:"tools,omitempty"`
 	MCP            map[string]MCPServerCompiled `json:"mcp,omitempty"`
 	Skills         []SkillCompiled              `json:"skills,omitempty"`
+	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
+	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
 }
 
 // SkillCompiled pins a skill's identity into the agent contract. Only the
@@ -149,6 +151,7 @@ type CompileOptions struct {
 	ResolveMachineName        func(machineName string) (string, error)
 	ResolveMachinePoolName    func(machinePoolName string) (string, error)
 	ResolveSkillID            func(skillID string) (SkillResolution, error)
+	ResolveAgentProfileName   func(profileName string) (string, error)
 }
 
 type ResolvedModelSelection struct {
@@ -165,20 +168,33 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 	if err != nil {
 		return Result{}, validationErrorFrom(err, root)
 	}
-	canonical, err := json.Marshal(compiled)
+	encoded, err := EncodeCompiled(compiled)
 	if err != nil {
-		return Result{}, fmt.Errorf("marshal compiled agent config: %w", err)
+		return Result{}, err
 	}
-	canonical = canonicalizeJSON(canonical)
-	sum := sha256.Sum256(canonical)
 	return Result{
 		Compiled:        compiled,
-		CanonicalJSON:   canonical,
-		Hash:            hex.EncodeToString(sum[:]),
+		CanonicalJSON:   encoded.CanonicalJSON,
+		Hash:            encoded.Hash,
 		Source:          string(raw),
 		SourceFormat:    format,
 		CompilerVersion: CompilerVersion,
 	}, nil
+}
+
+type EncodedCompiled struct {
+	CanonicalJSON []byte
+	Hash          string
+}
+
+func EncodeCompiled(compiled Compiled) (EncodedCompiled, error) {
+	canonical, err := json.Marshal(compiled)
+	if err != nil {
+		return EncodedCompiled{}, fmt.Errorf("marshal compiled agent config: %w", err)
+	}
+	canonical = canonicalizeJSON(canonical)
+	sum := sha256.Sum256(canonical)
+	return EncodedCompiled{CanonicalJSON: canonical, Hash: hex.EncodeToString(sum[:])}, nil
 }
 
 func canonicalizeJSON(raw []byte) []byte {
@@ -248,6 +264,17 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		}
 		compiled.Skills = skills
 	}
+	if err := validateSubagentToolConfiguration(source); err != nil {
+		return Compiled{}, err
+	}
+	subagents, err := compileSubagents(source, opts)
+	if err != nil {
+		return Compiled{}, err
+	}
+	if len(subagents) > 0 {
+		compiled.Subagents = subagents
+		compiled.MaxSubagents = source.MaxSubagents
+	}
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
 		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", compiledModel.sourceName)
 	}
@@ -292,7 +319,7 @@ func requiresModelToolSupport(compiled Compiled) bool {
 			return true
 		}
 	}
-	if len(compiled.MCP) > 0 {
+	if len(compiled.MCP) > 0 || len(compiled.Subagents) > 0 {
 		return true
 	}
 	return implicitlyEnablesSkillTool(compiled)

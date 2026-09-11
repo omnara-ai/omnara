@@ -506,7 +506,7 @@ RETURNING call.id, projection.project_id, call.agent_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at;
 
--- name: CompleteMachineUnreachableToolCall :one
+-- name: CompleteWaitingBuiltInToolCall :one
 WITH locked_agent AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent

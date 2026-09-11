@@ -63,6 +63,7 @@ func (e Executor) dispatchToolHandler(
 					ctx,
 					handler.Transactional,
 					transactionalToolContext{
+						Executor:   e,
 						Reader:     reader,
 						Turn:       turn,
 						Call:       call,
@@ -189,6 +190,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 				p.call,
 				p.handler.Background,
 				p.toolCallID,
+				execution.CommandResult,
 			)
 		}
 		return toolDispatchAwaiting{}, false, nil
@@ -200,6 +202,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 				p.call,
 				p.handler.Background,
 				p.toolCallID,
+				execution.CommandResult,
 			)
 		}
 		return toolDispatchCompleted{}, false, nil
@@ -245,6 +248,7 @@ func (e Executor) submitBackgroundTool(
 	call model.ToolCall,
 	handler backgroundToolHandler,
 	toolCallID storage.ID,
+	commandResult any,
 ) {
 	if handler == nil || e.BackgroundRunner == nil {
 		return
@@ -253,10 +257,11 @@ func (e Executor) submitBackgroundTool(
 		executionCtx, cancel := context.WithTimeout(ctx, backgroundExecutionTimeout)
 		defer cancel()
 		return handler(executionCtx, backgroundToolContext{
-			Executor:   e,
-			Turn:       turn,
-			Call:       call,
-			ToolCallID: toolCallID,
+			Executor:      e,
+			Turn:          turn,
+			Call:          call,
+			ToolCallID:    toolCallID,
+			CommandResult: commandResult,
 		})
 	})
 }
@@ -534,6 +539,7 @@ func (e Executor) executeAsyncTool(
 		call.Call,
 		handler.Background,
 		call.ToolCallID,
+		nil,
 	)
 	return nil
 }
@@ -545,6 +551,7 @@ type toolHandler struct {
 }
 
 type transactionalToolContext struct {
+	Executor   Executor
 	Reader     *executionstore.ToolCallReader
 	Turn       Turn
 	Call       model.ToolCall
@@ -559,10 +566,11 @@ type asyncToolContext struct {
 }
 
 type backgroundToolContext struct {
-	Executor   Executor
-	Turn       Turn
-	Call       model.ToolCall
-	ToolCallID storage.ID
+	Executor      Executor
+	Turn          Turn
+	Call          model.ToolCall
+	ToolCallID    storage.ID
+	CommandResult any
 }
 
 type transactionalToolHandler func(

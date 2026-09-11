@@ -2,6 +2,7 @@ import type { ToolPermissionSelection } from '@omnara/sdk'
 import type { Document } from 'yaml'
 import { z } from 'zod'
 
+import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type {
   BasicConfig,
   BasicMachineSource,
@@ -104,6 +105,27 @@ export type ToolEntry = z.infer<typeof toolEntry>
 
 const optionalText = z.string().nullable().optional()
 
+const subagentModelEntry = z.strictObject({
+  provider_config: z.string().optional(),
+  name: z.string().optional(),
+  context_window_tokens: positiveCount,
+  default_max_output_tokens: positiveCount,
+  cache_retention: z.string().optional(),
+  reasoning: z.strictObject({ effort: z.string() }).optional(),
+})
+export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
+
+const subagentEntry = z.strictObject({
+  type: z.enum(['profile', 'self']),
+  profile: z.string().optional(),
+  description: z.string().optional(),
+  model: subagentModelEntry.optional(),
+  instruction: z.strictObject({ append: z.string().optional() }).optional(),
+  max_concurrent: positiveCount,
+  archive_after_idle_minutes: positiveCount,
+})
+export type SubagentEntry = z.infer<typeof subagentEntry>
+
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
@@ -112,6 +134,8 @@ const basicDocument = z.looseObject({
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
+  subagents: z.record(z.string(), subagentEntry).optional(),
+  max_subagents: positiveCount,
 })
 
 export function extractBasicConfig(document: Document): BasicConfig | null {
@@ -137,6 +161,22 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     })),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
+    subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
+    maxSubagents: countDraft(doc.max_subagents),
+  }
+}
+
+function subagentDraft(key: string, entry: z.infer<typeof subagentEntry>): BasicSubagent {
+  return {
+    id: crypto.randomUUID(),
+    key,
+    type: entry.type,
+    profileName: entry.profile ?? '',
+    description: entry.description ?? '',
+    instructionAppend: normalizeMultiline(entry.instruction?.append ?? ''),
+    maxConcurrent: countDraft(entry.max_concurrent),
+    archiveAfterIdleMinutes: countDraft(entry.archive_after_idle_minutes),
+    modelOverride: entry.model,
   }
 }
 

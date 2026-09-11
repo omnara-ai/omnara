@@ -4,11 +4,14 @@
 WITH inserted AS (
     INSERT INTO agents(
         org_id, project_id, state, name, agent_profile_id, current_config_id,
-        idempotency_key, created_at, updated_at
+        idempotency_key, parent_agent_id, subagent_key,
+        archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
         sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
+        sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
+        sqlc.narg(archive_after_idle_minutes),
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
@@ -19,12 +22,14 @@ WITH inserted AS (
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, org_id, project_id, state, name,
               agent_profile_id, current_config_id, integration_target_id,
-              idempotency_key, next_event_sequence, created_at, updated_at, archived_at
+              idempotency_key, next_event_sequence, created_at, updated_at, archived_at,
+              parent_agent_id, subagent_key
 )
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
        agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       agent.parent_agent_id, agent.subagent_key,
        coalesce(configured_model.name, '') AS model_name,
        coalesce(model_provider_config.name, '') AS model_provider_config_name
 FROM inserted agent
@@ -53,6 +58,7 @@ SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
        agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       agent.parent_agent_id, agent.subagent_key,
        coalesce(configured_model.name, '') AS model_name,
        coalesce(model_provider_config.name, '') AS model_provider_config_name
 FROM agents agent
@@ -72,7 +78,8 @@ WHERE agent.project_id = sqlc.arg(project_id)
 SELECT id, org_id, project_id, state, name,
        agent_profile_id, current_config_id, integration_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
-       next_event_sequence, created_at, updated_at, archived_at
+       next_event_sequence, created_at, updated_at, archived_at,
+       parent_agent_id, subagent_key
 FROM agents
 WHERE id = $1;
 
@@ -83,6 +90,7 @@ SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
        agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
+       agent.parent_agent_id, agent.subagent_key,
        coalesce(configured_model.name, '') AS model_name,
        coalesce(model_provider_config.name, '') AS model_provider_config_name
 FROM agents agent
@@ -112,6 +120,8 @@ SELECT agent.id,
        agent.created_at,
        agent.updated_at,
        agent.archived_at,
+       agent.parent_agent_id,
+       agent.subagent_key,
        coalesce(install.provider, '') AS integration_target_provider,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
@@ -158,11 +168,13 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+  AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
+  AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
-       archived_at, integration_target_provider,
+       archived_at, parent_agent_id, subagent_key, integration_target_provider,
        integration_target_provider_tenant_id, integration_target_provider_ref,
        integration_target_provider_ref_kind,
        integration_target_display_name, model_name,
@@ -195,6 +207,8 @@ SELECT agent.id,
        agent.created_at,
        agent.updated_at,
        agent.archived_at,
+       agent.parent_agent_id,
+       agent.subagent_key,
        coalesce(install.provider, '') AS integration_target_provider,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
@@ -228,6 +242,8 @@ WHERE agent.project_id = sqlc.arg(project_id)
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+  AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
+  AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
     sqlc.arg(cursor_set)::boolean = false
     OR (agent.created_at, agent.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
@@ -249,6 +265,8 @@ SELECT agent.id,
        agent.created_at,
        agent.updated_at,
        agent.archived_at,
+       agent.parent_agent_id,
+       agent.subagent_key,
        coalesce(install.provider, '') AS integration_target_provider,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
@@ -277,6 +295,7 @@ JOIN model_provider_configs model_provider_config
  AND model_provider_config.id = configured_model.model_provider_config_id
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.state = 'active'
+  AND agent.parent_agent_id IS NULL
 ORDER BY agent.updated_at DESC, agent.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
@@ -305,3 +324,9 @@ SELECT id, org_id
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE;
+
+-- name: TryLockAgentInProject :one
+SELECT id, org_id
+FROM agents
+WHERE project_id = $1 AND id = $2
+FOR UPDATE SKIP LOCKED;

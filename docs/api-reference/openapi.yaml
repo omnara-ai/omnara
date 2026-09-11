@@ -3179,6 +3179,18 @@ paths:
           description: Return only agents launched from this agent profile.
           schema:
             $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
         - name: sort
           in: query
           schema:
@@ -3947,6 +3959,12 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
+        - name: include_subagents
+          in: query
+          required: false
+          description: Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -8852,11 +8870,33 @@ components:
           $ref: '#/components/schemas/AgentConfigID'
         model:
           $ref: '#/components/schemas/AgentModel'
+        parent_agent_id:
+          description: Set when this agent is a subagent spawned by another agent.
+          $ref: '#/components/schemas/AgentID'
+        subagent_key:
+          description: The `subagents` key this agent was spawned from.
+          type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
+          $ref: '#/components/schemas/Timestamp'
+    SubagentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, key, state, last_activity_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentID'
+        name:
+          $ref: '#/components/schemas/AgentName'
+        key:
+          type: string
+        state:
+          type: string
+          enum: [running, idle, waiting_on_human, archived]
+        last_activity_at:
           $ref: '#/components/schemas/Timestamp'
     AgentModel:
       type: object
@@ -8927,6 +8967,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AgentMCPConnection'
+        subagents:
+          description: Direct subagents of this agent, in creation order.
+          type: array
+          items:
+            $ref: '#/components/schemas/SubagentSummary'
     ListAgentsResponse:
       type: object
       additionalProperties: false
@@ -10174,6 +10219,11 @@ components:
         tool_name:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        subagent_key:
+          type: string
+          description: Present when the interaction belongs to a subagent of the listed agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

@@ -47,22 +47,6 @@ FROM agent_interactions interaction
     AND interaction.id = sqlc.arg(id)
 ) AS stopped;
 
--- name: ListAgentInteractionsForAgent :many
-SELECT id, project_id, agent_id, turn_id,
-       model_call_context_id, tool_call_id, provider_call_id,
-       interaction_kind, state, request, resolution,
-       resolved_by_input_id, created_at, resolved_at
-FROM agent_interaction_read_projection
-WHERE project_id = sqlc.arg(project_id)
-  AND agent_id = sqlc.arg(agent_id)
-  AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state))
-  AND (
-    sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (created_at, id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
-  )
-ORDER BY created_at ASC, id ASC
-LIMIT sqlc.arg(row_limit)::bigint;
-
 -- name: GetAgentInteractionByToolCallKind :one
 SELECT id, project_id, agent_id, turn_id,
        model_call_context_id, tool_call_id, provider_call_id,

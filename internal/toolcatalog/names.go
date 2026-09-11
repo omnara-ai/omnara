@@ -1,6 +1,9 @@
 package toolcatalog
 
-import "regexp"
+import (
+	"regexp"
+	"slices"
+)
 
 const (
 	ToolNamePattern                = `^[A-Za-z_][A-Za-z0-9_]{0,63}$`
@@ -21,6 +24,25 @@ const (
 	ToolNameUploadArtifact         = "upload_artifact"
 	ToolNameDownloadArtifact       = "download_artifact"
 	ToolNameSkill                  = "skill"
+	ToolNameSpawnAgent             = "spawn_agent"
+	ToolNameReadAgent              = "read_agent"
+	ToolNameSendAgentMessage       = "send_agent_message"
+	ToolNameStopAgent              = "stop_agent"
+	ToolNameListAgents             = "list_agents"
 )
+
+func SubagentToolNames() []string {
+	return []string{
+		ToolNameSpawnAgent,
+		ToolNameReadAgent,
+		ToolNameSendAgentMessage,
+		ToolNameStopAgent,
+		ToolNameListAgents,
+	}
+}
+
+func IsSubagentToolName(name string) bool {
+	return slices.Contains(SubagentToolNames(), name)
+}
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

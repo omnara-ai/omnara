@@ -1330,9 +1330,25 @@ export type Agent = {
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
+    /**
+     * Set when this agent is a subagent spawned by another agent.
+     */
+    parent_agent_id?: AgentId;
+    /**
+     * The `subagents` key this agent was spawned from.
+     */
+    subagent_key?: string;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
+};
+
+export type SubagentSummary = {
+    id: AgentId;
+    name: AgentName;
+    key: string;
+    state: 'running' | 'idle' | 'waiting_on_human' | 'archived';
+    last_activity_at: Timestamp;
 };
 
 export type AgentModel = {
@@ -1372,6 +1388,10 @@ export type GetAgentResponse = {
      * The agent's MCP server connections, ordered by server key.
      */
     mcp_connections: Array<AgentMcpConnection>;
+    /**
+     * Direct subagents of this agent, in creation order.
+     */
+    subagents?: Array<SubagentSummary>;
 };
 
 export type ListAgentsResponse = {
@@ -2087,6 +2107,11 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    agent_name?: AgentName;
+    /**
+     * Present when the interaction belongs to a subagent of the listed agent.
+     */
+    subagent_key?: string;
     interaction_kind: AgentInteractionKind;
     state: AgentInteractionState;
     request: InteractionForm;
@@ -8431,6 +8456,14 @@ export type ListAgentsData = {
          * Return only agents launched from this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -9389,6 +9422,10 @@ export type ListAgentInteractionsData = {
     };
     query?: {
         state?: AgentInteractionState;
+        /**
+         * Also return interactions from every subagent beneath this agent. Resolve those against the subagent's own agent_id.
+         */
+        include_subagents?: boolean;
         /**
          * Maximum number of items to return in one page.
          */
