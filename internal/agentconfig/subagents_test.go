@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -190,8 +189,8 @@ subagents:
 	}
 }
 
-func TestSubagentSourceStripsSpawningFromSelfForks(t *testing.T) {
-	source, err := ParseSource(SourceFormatYAML, []byte(validAgentSource(`
+func TestSubagentCompiledFromStripsSpawningFromSelfForks(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   run_command: {}
   spawn_agent:
@@ -205,15 +204,24 @@ subagents:
     instruction:
       append: Be brief.
 max_subagents: 2
-`)))
+`)), subagentCompileOptions())
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("compile: %v", err)
 	}
-	child := SubagentSource(source, SubagentCompiled{
-		Type:              SubagentTypeSelf,
-		Model:             &SubagentModelCompiled{Name: "gpt-small"},
-		InstructionAppend: "Be brief.",
+	base := result.Compiled
+	var resolvedBase string
+	var resolvedOverride SubagentModelCompiled
+	child, err := SubagentCompiledFrom(base, base.Subagents["fork"], func(
+		baseConfiguredModelID string,
+		override SubagentModelCompiled,
+	) (ResolvedModelSelection, error) {
+		resolvedBase = baseConfiguredModelID
+		resolvedOverride = override
+		return ResolvedModelSelection{ConfiguredModelID: "22222222-2222-2222-2222-222222222222"}, nil
 	})
+	if err != nil {
+		t.Fatalf("derive self fork: %v", err)
+	}
 	if child.Subagents != nil || child.MaxSubagents != nil {
 		t.Fatalf("self fork kept subagents: %+v", child)
 	}
@@ -223,45 +231,50 @@ max_subagents: 2
 	if _, ok := child.Tools["run_command"]; !ok {
 		t.Fatalf("self fork lost run_command tool")
 	}
-	if child.Model.Name != "gpt-small" || child.Model.ProviderConfig != "openai-prod" {
-		t.Fatalf("model merge = %+v", child.Model)
+	if _, ok := base.Tools["spawn_agent"]; !ok {
+		t.Fatalf("deriving the child mutated the base tools")
+	}
+	if resolvedBase != base.Model.ConfiguredModelID || resolvedOverride.Name != "gpt-small" {
+		t.Fatalf("model resolution = base %q override %+v", resolvedBase, resolvedOverride)
+	}
+	if child.Model.ConfiguredModelID != "22222222-2222-2222-2222-222222222222" {
+		t.Fatalf("child model = %+v", child.Model)
 	}
 	if !strings.HasSuffix(child.Instruction, "\n\nBe brief.") {
 		t.Fatalf("instruction = %q", child.Instruction)
 	}
-	profileChild := SubagentSource(source, SubagentCompiled{Type: SubagentTypeProfile})
-	if profileChild.Subagents == nil {
-		t.Fatalf("profile children keep their own subagents block")
+	profileChild, err := SubagentCompiledFrom(base, SubagentCompiled{Type: SubagentTypeProfile}, nil)
+	if err != nil {
+		t.Fatalf("derive profile child: %v", err)
+	}
+	if profileChild.Subagents == nil || profileChild.Model != base.Model {
+		t.Fatalf("profile children keep their own subagents block and model: %+v", profileChild)
 	}
 }
 
-func TestSubagentSourceRecompilesPermissionsWithoutParameters(t *testing.T) {
-	source, err := ParseSource(SourceFormatYAML, []byte(validAgentSource(`
+func TestSubagentCompiledFromRejectsToollessModelOverride(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
-  web_search:
-    permission:
-      mode: always_ask
-mcp:
-  linear:
-    url: https://mcp.example.com/mcp
-    permission:
-      mode: always_ask
-    tools:
-      create_issue:
-        permission:
-          mode: always_deny
+  run_command: {}
 subagents:
   fork:
     type: self
-`)))
+    model:
+      name: gpt-no-tools
+`)), subagentCompileOptions())
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("compile: %v", err)
 	}
-	child, err := json.Marshal(SubagentSource(source, SubagentCompiled{Type: SubagentTypeSelf}))
-	if err != nil {
-		t.Fatalf("marshal child source: %v", err)
-	}
-	if _, err := Compile(SourceFormatJSON, child, subagentCompileOptions()); err != nil {
-		t.Fatalf("compile child source: %v", err)
+	supportsTools := false
+	_, err = SubagentCompiledFrom(result.Compiled, result.Compiled.Subagents["fork"], func(
+		string, SubagentModelCompiled,
+	) (ResolvedModelSelection, error) {
+		return ResolvedModelSelection{
+			ConfiguredModelID: "22222222-2222-2222-2222-222222222222",
+			SupportsTools:     &supportsTools,
+		}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not support tools") {
+		t.Fatalf("derive with tool-less model: err = %v", err)
 	}
 }

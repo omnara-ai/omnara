@@ -1,13 +1,11 @@
 package agentconfig
 
 import (
-	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 const (
@@ -82,18 +80,21 @@ func (override *SubagentModelCompiled) ApplyTo(base AgentConfigModelSource) Agen
 	return base
 }
 
-// SubagentSource derives the source document a subagent launches from: the
-// base config minus everything that would let the child spawn further
-// subagents (for self forks), plus the key's model and instruction
-// overrides.
-func SubagentSource(base AgentConfigSource, subagent SubagentCompiled) AgentConfigSource {
+type SubagentModelResolver func(
+	baseConfiguredModelID string,
+	override SubagentModelCompiled,
+) (ResolvedModelSelection, error)
+
+func SubagentCompiledFrom(
+	base Compiled,
+	subagent SubagentCompiled,
+	resolveModel SubagentModelResolver,
+) (Compiled, error) {
 	child := base
-	child.Model = subagent.Model.ApplyTo(base.Model)
+	child.Tools = copyTools(base.Tools)
 	if subagent.InstructionAppend != "" {
 		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + subagent.InstructionAppend
 	}
-	child.Tools = toolsWithEncodablePermissions(base.Tools)
-	child.MCP = mcpWithEncodablePermissions(base.MCP)
 	if subagent.Type == SubagentTypeSelf {
 		child.Subagents = nil
 		child.MaxSubagents = nil
@@ -106,50 +107,46 @@ func SubagentSource(base AgentConfigSource, subagent SubagentCompiled) AgentConf
 			child.Tools = nil
 		}
 	}
-	return child
+	if subagent.Model == nil {
+		return child, nil
+	}
+	override := *subagent.Model
+	if override.ContextWindowTokens != nil {
+		child.Model.ContextWindowTokens = override.ContextWindowTokens
+	}
+	if override.DefaultMaxOutputTokens != nil {
+		child.Model.DefaultMaxOutputTokens = override.DefaultMaxOutputTokens
+	}
+	if override.CacheRetention != "" {
+		child.Model.CacheRetention = strings.TrimSpace(override.CacheRetention)
+	}
+	if override.Reasoning != nil {
+		child.Model.Reasoning = &ModelReasoningCompiled{Effort: strings.TrimSpace(override.Reasoning.Effort)}
+	}
+	if override.ProviderConfig == "" && override.Name == "" {
+		return child, nil
+	}
+	if resolveModel == nil {
+		return Compiled{}, issuef(jsonPointer("model"), "subagent model overrides require a SubagentModelResolver")
+	}
+	resolved, err := resolveModel(base.Model.ConfiguredModelID, override)
+	if err != nil {
+		return Compiled{}, issueOr(jsonPointer("model"), err)
+	}
+	child.Model.ConfiguredModelID = resolved.ConfiguredModelID
+	if resolved.SupportsTools != nil && !*resolved.SupportsTools && requiresModelToolSupport(child) {
+		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", override.Name)
+	}
+	return child, nil
 }
 
-// Selections decoded from a source omit parameters when the document did, and
-// an empty RawMessage re-encodes as null, which the schema rejects.
-func encodablePermission(selection *toolpermission.Selection) *toolpermission.Selection {
-	if selection == nil {
-		return nil
-	}
-	copied := *selection
-	if len(copied.Parameters) == 0 {
-		copied.Parameters = json.RawMessage(`{}`)
-	}
-	return &copied
-}
-
-func toolsWithEncodablePermissions(tools map[string]AgentConfigToolSource) map[string]AgentConfigToolSource {
+func copyTools(tools map[string]ToolCompiled) map[string]ToolCompiled {
 	if len(tools) == 0 {
 		return nil
 	}
-	out := make(map[string]AgentConfigToolSource, len(tools))
+	out := make(map[string]ToolCompiled, len(tools))
 	for name, tool := range tools {
-		tool.Permission = encodablePermission(tool.Permission)
 		out[name] = tool
-	}
-	return out
-}
-
-func mcpWithEncodablePermissions(servers map[string]AgentConfigMCPSource) map[string]AgentConfigMCPSource {
-	if len(servers) == 0 {
-		return nil
-	}
-	out := make(map[string]AgentConfigMCPSource, len(servers))
-	for key, server := range servers {
-		server.Permission = encodablePermission(server.Permission)
-		if len(server.Tools) > 0 {
-			tools := make(map[string]AgentConfigMCPToolSource, len(server.Tools))
-			for name, tool := range server.Tools {
-				tool.Permission = encodablePermission(tool.Permission)
-				tools[name] = tool
-			}
-			server.Tools = tools
-		}
-		out[key] = server
 	}
 	return out
 }
