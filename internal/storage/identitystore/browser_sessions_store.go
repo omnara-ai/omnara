@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -70,18 +72,38 @@ func (s *Store) AuthenticateBrowserSession(
 	if token == "" {
 		return PrincipalRecord{}, "", storeerr.ErrUnauthorized
 	}
-	row, err := s.q.AuthenticateBrowserSession(
-		ctx,
-		dbsqlc.AuthenticateBrowserSessionParams{
-			TokenHash:            HashBearerToken(token),
-			IdleTimeoutSeconds:   int64(browserSessionIdleDuration / time.Second),
-			TouchIntervalSeconds: int64(browserSessionTouchInterval / time.Second),
-		},
-	)
+	params := dbsqlc.AuthenticateBrowserSessionParams{
+		TokenHash:            HashBearerToken(token),
+		IdleTimeoutSeconds:   int64(browserSessionIdleDuration / time.Second),
+		TouchIntervalSeconds: int64(browserSessionTouchInterval / time.Second),
+	}
+	row, err := s.q.AuthenticateBrowserSession(ctx, params)
+	for _, delay := range [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond} {
+		if err == nil || ctx.Err() != nil || !pgconn.SafeToRetry(err) {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = fmt.Errorf("%s: %w", err.Error(), ctxErr)
+			break
+		}
+		row, err = s.q.AuthenticateBrowserSession(ctx, params)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PrincipalRecord{}, "", storeerr.ErrUnauthorized
 	}
 	if err != nil {
+		var timeoutErr net.Error
+		var connectErr *pgconn.ConnectError
+		if errors.Is(ctx.Err(), context.Canceled) &&
+			!errors.As(err, &connectErr) && errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+			err = fmt.Errorf("%s: %w", err.Error(), context.Canceled)
+		}
 		return PrincipalRecord{}, "", fmt.Errorf("authenticate browser session: %w", err)
 	}
 	return NewBrowserSessionPrincipal(row.UserID, row.BrowserSessionID), row.CsrfTokenHash, nil
