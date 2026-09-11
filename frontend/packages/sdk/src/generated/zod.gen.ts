@@ -2571,6 +2571,10 @@ export const zCurrentUserOrg = z.object({
     created_at: zTimestamp
 });
 
+export const zListOrganizationsResponse = z.object({
+    data: z.array(zCurrentUserOrg)
+});
+
 export const zCurrentUser = z.object({
     user: zCurrentUserIdentity,
     orgs: z.array(zCurrentUserOrg)
@@ -2752,6 +2756,11 @@ export const zRecordMachineFailureQuery = z.object({
  * Machine failure recorded.
  */
 export const zRecordMachineFailureResponse = z.void();
+
+/**
+ * Organizations the authenticated principal belongs to, with its role in each.
+ */
+export const zListOrganizationsResponse2 = zListOrganizationsResponse;
 
 export const zCreateOrganizationBody = zCreateOrganizationRequest;
 

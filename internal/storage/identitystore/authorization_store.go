@@ -147,3 +147,35 @@ func getOrgMembershipForPrincipalTx(
 		return orgMembershipRow{}, pgx.ErrNoRows
 	}
 }
+
+type PrincipalRoles struct {
+	OrgRoles     []string
+	ProjectRoles []string
+}
+
+func (s *Store) ListPrincipalRoles(ctx context.Context, principal PrincipalRecord) (PrincipalRoles, error) {
+	if principal.Type == "" || isNilID(principal.ID) {
+		return PrincipalRoles{}, storeerr.ErrUnauthorized
+	}
+	userID, orgAPIKeyID := AccountPrincipalIDs(principal)
+	if userID == nil && orgAPIKeyID == nil {
+		return PrincipalRoles{}, nil
+	}
+	rows, err := s.q.ListPrincipalRoles(ctx, dbsqlc.ListPrincipalRolesParams{
+		UserID:      userID,
+		OrgApiKeyID: orgAPIKeyID,
+	})
+	if err != nil {
+		return PrincipalRoles{}, fmt.Errorf("list principal roles: %w", err)
+	}
+	roles := PrincipalRoles{}
+	for _, row := range rows {
+		switch row.Scope {
+		case "org":
+			roles.OrgRoles = append(roles.OrgRoles, row.Role)
+		case "project":
+			roles.ProjectRoles = append(roles.ProjectRoles, row.Role)
+		}
+	}
+	return roles, nil
+}

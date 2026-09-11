@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/integration"
@@ -74,6 +76,8 @@ type Server struct {
 	mcpRegistry                         *mcpregistry.Registry
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
+	apiMCP                              *mcpsdk.Server
+	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
 
@@ -375,6 +379,10 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		return nil, fmt.Errorf("create openapi operation authorizer: %w", err)
 	}
 	server.openAPIAuthorizer = openAPIAuthorizer
+	server.apiMCP, err = server.newAPIMCPServer()
+	if err != nil {
+		return nil, fmt.Errorf("create api mcp server: %w", err)
+	}
 	for _, opt := range opts {
 		opt(server)
 	}
@@ -457,6 +465,8 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
+	apiDispatch := chain(mux, s.apiDispatchMiddlewares(mux)...)
+	s.apiDispatch.Store(&apiDispatch)
 	middlewares := make([]middleware, 0, 7)
 	if s.recorder != nil {
 		middlewares = append(middlewares, s.recorder.Middleware(mux))
