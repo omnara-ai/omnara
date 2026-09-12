@@ -3,6 +3,7 @@ module github.com/omnara-ai/omnara
 go 1.27.1
 
 require (
+	github.com/ArkerHQ/arker-sdk/go v0.1.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alexflint/go-arg v1.6.1
