@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
@@ -26,6 +27,7 @@ func TestDefaultCatalogProviders(t *testing.T) {
 		name       string
 		definition any
 	}{
+		{name: "arker", definition: arker.Definition{}},
 		{name: "blaxel", definition: blaxel.Definition{}},
 		{name: "daytona", definition: daytona.Definition{}},
 		{name: "freestyle", definition: freestyle.Definition{}},
