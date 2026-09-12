@@ -21,7 +21,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
 
-const mcpOAuthTestPublicURL = "https://omnara.test"
+const (
+	mcpOAuthTestPublicURL    = "https://omnara.test"
+	mcpOAuthTestPublicAPIURL = "https://api.omnara.test"
+)
 
 type mcpOAuthTestClient struct {
 	server      *httptest.Server
@@ -134,6 +137,7 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL(mcpOAuthTestPublicURL),
+		WithPublicAPIURL(mcpOAuthTestPublicAPIURL+"/v1"),
 		WithOAuthClientMetadataHTTPClient(client.server.Client()),
 		WithAuthRateLimiter(allowAllAuthLimiter{}),
 	)
@@ -154,13 +158,13 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated mcp status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	wantChallenge := `Bearer resource_metadata="` + mcpOAuthTestPublicURL + `/.well-known/oauth-protected-resource/api/mcp"`
+	wantChallenge := `Bearer resource_metadata="` + mcpOAuthTestPublicURL + `/.well-known/oauth-protected-resource/mcp"`
 	if got := rec.Header().Get("WWW-Authenticate"); got != wantChallenge {
 		t.Fatalf("WWW-Authenticate = %q, want %q", got, wantChallenge)
 	}
 
 	rec = performRequest(handler, httptest.NewRequest(
-		http.MethodGet, mcpOAuthTestPublicURL+"/.well-known/oauth-protected-resource/api/mcp", nil,
+		http.MethodGet, mcpOAuthTestPublicURL+"/.well-known/oauth-protected-resource/mcp", nil,
 	))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("protected resource metadata status=%d body=%s", rec.Code, rec.Body.String())
@@ -168,6 +172,27 @@ func TestMCPServerOAuthAuthorizationCodeFlow(t *testing.T) {
 	prm := decodeJSONBody(t, rec)
 	if prm["resource"] != resource || jsonFirstElement(t, prm, "authorization_servers") != mcpOAuthTestPublicURL {
 		t.Fatalf("protected resource metadata = %v", prm)
+	}
+
+	apiHostResource := mcpOAuthTestPublicAPIURL + apimcp.Path
+	apiHostToolCall := mcpToolCallRequest("", "whoami")
+	apiHostToolCall.URL.Host = "api.omnara.test"
+	apiHostToolCall.Host = "api.omnara.test"
+	rec = performRequest(handler, apiHostToolCall)
+	wantAPIHostChallenge := `Bearer resource_metadata="` + mcpOAuthTestPublicAPIURL + `/.well-known/oauth-protected-resource/mcp"`
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") != wantAPIHostChallenge {
+		t.Fatalf("api host unauthenticated mcp status=%d WWW-Authenticate=%q", rec.Code, rec.Header().Get("WWW-Authenticate"))
+	}
+	rec = performRequest(handler, httptest.NewRequest(
+		http.MethodGet, mcpOAuthTestPublicAPIURL+"/.well-known/oauth-protected-resource/mcp", nil,
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("api host protected resource metadata status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	apiHostPRM := decodeJSONBody(t, rec)
+	if apiHostPRM["resource"] != apiHostResource ||
+		jsonFirstElement(t, apiHostPRM, "authorization_servers") != mcpOAuthTestPublicURL {
+		t.Fatalf("api host protected resource metadata = %v", apiHostPRM)
 	}
 
 	rec = performRequest(handler, httptest.NewRequest(

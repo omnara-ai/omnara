@@ -115,7 +115,7 @@ A denied or expired flow returns `400` with `"access_denied"` or `"expired_token
 
 ## Connecting MCP clients
 
-The Omnara API is also exposed as an MCP server at `https://app.omnara.com/api/mcp`. MCP clients that support the [MCP authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) discover the OAuth endpoints themselves and sign you in through the browser, so no token needs to be pasted into the client.
+The Omnara API is also exposed as an MCP server at `https://app.omnara.com/mcp`. MCP clients that support the [MCP authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) discover the OAuth endpoints themselves and sign you in through the browser, so no token needs to be pasted into the client.
 
 Add the server to your client's `mcp.json`:
 
@@ -124,7 +124,7 @@ Add the server to your client's `mcp.json`:
   "mcpServers": {
     "omnara": {
       "type": "http",
-      "url": "https://app.omnara.com/api/mcp"
+      "url": "https://app.omnara.com/mcp"
     }
   }
 }
@@ -139,7 +139,7 @@ Clients without OAuth support can pass a personal access token or org API key in
   "mcpServers": {
     "omnara": {
       "type": "http",
-      "url": "https://app.omnara.com/api/mcp",
+      "url": "https://app.omnara.com/mcp",
       "headers": { "Authorization": "Bearer omnara_pat_v1_…" }
     }
   }

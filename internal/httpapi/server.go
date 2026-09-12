@@ -417,6 +417,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		SignupEnabled:            server.authSignupEnabled,
 		ResetEnabled:             server.authResetEnabled,
 		PublicURL:                server.publicURL,
+		MCPResourceURLs:          server.mcpResourceURLs(),
 		TrustedProxyNets:         server.trustedProxyNets,
 		PrincipalFromContext:     principalFromContext,
 		HTTPClient:               server.authHTTPClient,

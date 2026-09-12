@@ -72,12 +72,15 @@ func (r oauthAuthorizeRequest) redirectError(code, description string) *oauthAut
 	return &oauthAuthorizeError{code: code, description: description, redirectURI: r.RedirectURI, state: r.State}
 }
 
-func (h *Handler) mcpResourceURL(r *http.Request) string {
+func (h *Handler) allowedMCPResourceURLs(r *http.Request) []string {
+	if len(h.mcpResourceURLs) > 0 {
+		return h.mcpResourceURLs
+	}
 	issuer := h.issuerURL(r)
 	if issuer == "" {
-		return ""
+		return nil
 	}
-	return issuer + apimcp.Path
+	return []string{issuer + apimcp.Path}
 }
 
 func parseOAuthAuthorizeRequest(values url.Values) (oauthAuthorizeRequest, *oauthAuthorizeError) {
@@ -105,7 +108,7 @@ func parseOAuthAuthorizeRequest(values url.Values) (oauthAuthorizeRequest, *oaut
 	return request, nil
 }
 
-func (r oauthAuthorizeRequest) validateGrantParams(values url.Values, resource string) *oauthAuthorizeError {
+func (r oauthAuthorizeRequest) validateGrantParams(values url.Values, resources []string) *oauthAuthorizeError {
 	if values.Get("response_type") != "code" {
 		return r.redirectError("unsupported_response_type", "response_type must be code")
 	}
@@ -125,8 +128,8 @@ func (r oauthAuthorizeRequest) validateGrantParams(values url.Values, resource s
 	if r.Resource == "" {
 		return r.redirectError("invalid_target", "resource is required")
 	}
-	if r.Resource != resource {
-		return r.redirectError("invalid_target", "resource must be "+resource)
+	if !slices.Contains(resources, r.Resource) {
+		return r.redirectError("invalid_target", "resource must be one of "+strings.Join(resources, ", "))
 	}
 	return nil
 }
@@ -249,8 +252,8 @@ func (h *Handler) resolveOAuthAuthorizeRequest(
 	r *http.Request,
 	values url.Values,
 ) (oauthAuthorizeRequest, oauthClientMetadata, *oauthAuthorizeError) {
-	resource := h.mcpResourceURL(r)
-	if resource == "" {
+	resources := h.allowedMCPResourceURLs(r)
+	if len(resources) == 0 {
 		return oauthAuthorizeRequest{}, oauthClientMetadata{}, clientError(
 			"temporarily_unavailable", "issuer is not configured",
 		)
@@ -268,7 +271,7 @@ func (h *Handler) resolveOAuthAuthorizeRequest(
 			"invalid_request", "redirect_uri is not registered for this client",
 		)
 	}
-	if authErr := request.validateGrantParams(values, resource); authErr != nil {
+	if authErr := request.validateGrantParams(values, resources); authErr != nil {
 		return oauthAuthorizeRequest{}, oauthClientMetadata{}, authErr
 	}
 	return request, metadata, nil

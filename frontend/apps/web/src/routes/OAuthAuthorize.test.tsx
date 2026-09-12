@@ -25,7 +25,7 @@ function oauthAuthorizeApi({
       redirect_uri: 'http://127.0.0.1:3000/callback',
       redirect_host: '127.0.0.1:3000',
       loopback: true,
-      resource: 'https://omnara.test/api/mcp',
+      resource: 'https://omnara.test/mcp',
     }),
   approve = () => jsonResponse({ redirect_url: 'http://127.0.0.1:3000/callback?code=abc' }),
   deny = neverResponds,
