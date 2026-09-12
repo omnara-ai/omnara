@@ -1,3 +1,5 @@
+github.com/ArkerHQ/arker-sdk/go v0.1.0 h1:ZjKbmS1Dd4aargEKKmJuN1VqAFCdwP13BE9wkYNqYyo=
+github.com/ArkerHQ/arker-sdk/go v0.1.0/go.mod h1:nDF2lS4j0dtPnk/ADFg+R9haoPqA3+TbnWGeicuUvkY=
 github.com/JohannesKaufmann/dom v0.3.1 h1:J16l9JAHWgkFPR3VIPbQ1gvS0cWab6laK1q7PFL3qh0=
 github.com/JohannesKaufmann/dom v0.3.1/go.mod h1:BZPkf8ZeYrBgABjwJn9iiKt8aiCtkxpHkevms+Yp2DE=
 github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2 h1:XFJZFWESIWlUEHHjzBuv8RvrtCWnSGlimEX17ysSDb8=
