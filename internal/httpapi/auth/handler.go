@@ -88,6 +88,7 @@ type Handler struct {
 	signupEnabled            bool
 	resetEnabled             bool
 	publicURL                string
+	mcpResourceURLs          []string
 	trustedProxyNets         []*net.IPNet
 	principalFromContext     PrincipalFunc
 	httpClient               *http.Client
@@ -104,6 +105,7 @@ type Config struct {
 	SignupEnabled            bool
 	ResetEnabled             bool
 	PublicURL                string
+	MCPResourceURLs          []string
 	TrustedProxyNets         []*net.IPNet
 	PrincipalFromContext     PrincipalFunc
 	HTTPClient               *http.Client
@@ -170,6 +172,7 @@ func New(config Config) *Handler {
 		signupEnabled:            config.SignupEnabled,
 		resetEnabled:             config.ResetEnabled,
 		publicURL:                config.PublicURL,
+		mcpResourceURLs:          config.MCPResourceURLs,
 		trustedProxyNets:         config.TrustedProxyNets,
 		principalFromContext:     config.PrincipalFromContext,
 		httpClient:               httpClientWithoutRedirects(config.HTTPClient),

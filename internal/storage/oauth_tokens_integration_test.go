@@ -18,7 +18,7 @@ import (
 const (
 	oauthTestClientID    = "https://client.example/oauth/client.json"
 	oauthTestRedirectURI = "http://127.0.0.1:3000/callback"
-	oauthTestResource    = "https://omnara.test/api/mcp"
+	oauthTestResource    = "https://omnara.test/mcp"
 	oauthTestVerifier    = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 

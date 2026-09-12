@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const testResource = "https://omnara.test/api/mcp"
+const testResource = "https://omnara.test/mcp"
 
 func validAuthorizeValues() url.Values {
 	return url.Values{
@@ -29,7 +29,7 @@ func resolveAuthorizeValues(values url.Values) (oauthAuthorizeRequest, *oauthAut
 	if authErr != nil {
 		return oauthAuthorizeRequest{}, authErr
 	}
-	if authErr := request.validateGrantParams(values, testResource); authErr != nil {
+	if authErr := request.validateGrantParams(values, []string{testResource}); authErr != nil {
 		return oauthAuthorizeRequest{}, authErr
 	}
 	return request, nil
