@@ -128,7 +128,7 @@ export function EditModelGrantDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Edit model grant</DialogTitle>
           <DialogDescription>

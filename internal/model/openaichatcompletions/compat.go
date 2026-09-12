@@ -1,6 +1,8 @@
 package openaichatcompletions
 
 import (
+	"strings"
+
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -21,12 +23,14 @@ const (
 
 type compat struct {
 	sendsStoreFalse              bool
+	sendsStrictFalse             bool
 	reasoningFormat              reasoningFormat
 	conversationKeyField         conversationKeyField
 	usageViaStreamOptions        bool
 	usageChunkCompletesStream    bool
 	refinesErrorsFromRawDetails  bool
 	reportsServedProviderAndCost bool
+	reportsNativeFinishReason    bool
 	parsesPDFDocuments           bool
 	routesFallbackModels         bool
 }
@@ -35,10 +39,12 @@ func compatFor(route model.ProviderRoute) compat {
 	switch route.APIVariant {
 	case modelprotocol.APIVariantOpenRouter:
 		return compat{
+			sendsStrictFalse:             true,
 			reasoningFormat:              reasoningFormatOpenRouter,
 			conversationKeyField:         conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
 			reportsServedProviderAndCost: true,
+			reportsNativeFinishReason:    true,
 			parsesPDFDocuments:           true,
 			routesFallbackModels:         true,
 		}
@@ -72,4 +78,18 @@ func (c Client) providerRoute() model.ProviderRoute {
 
 func (c Client) compat() compat {
 	return compatFor(c.providerRoute())
+}
+
+func (c compat) outputTruncated(finishReason, nativeFinishReason string) bool {
+	if finishReason == "length" {
+		return true
+	}
+	if c.reportsNativeFinishReason &&
+		(finishReason == "" || finishReason == "stop" || finishReason == "tool_calls" || finishReason == "function_call") {
+		switch strings.ToLower(strings.TrimSpace(nativeFinishReason)) {
+		case "length", "max_tokens", "max_output_tokens":
+			return true
+		}
+	}
+	return false
 }

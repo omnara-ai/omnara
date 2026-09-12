@@ -293,19 +293,19 @@ func completeMachinePoolInputForTest(
 	input executionstore.CreateMachinePoolInput,
 ) executionstore.CreateMachinePoolInput {
 	if input.DefaultMachineCPU == nil {
-		input.DefaultMachineCPU = intPtrForMachinePoolTest(1)
+		input.DefaultMachineCPU = new(1)
 	}
 	if input.DefaultMachineMemoryMB == nil {
-		input.DefaultMachineMemoryMB = intPtrForMachinePoolTest(1024)
+		input.DefaultMachineMemoryMB = new(1024)
 	}
 	input.DefaultMachineEnv = normalizedJSON(input.DefaultMachineEnv)
 	input.DefaultMachineSecretEnv = normalizedJSON(input.DefaultMachineSecretEnv)
 	input.DefaultMachineProviderOptions = normalizedJSON(input.DefaultMachineProviderOptions)
 	if input.MaxTotalCPU == nil {
-		input.MaxTotalCPU = intPtrForMachinePoolTest(32)
+		input.MaxTotalCPU = new(32)
 	}
 	if input.MaxTotalMemoryMB == nil {
-		input.MaxTotalMemoryMB = intPtrForMachinePoolTest(65536)
+		input.MaxTotalMemoryMB = new(65536)
 	}
 	if input.MaxMachineCPU == nil {
 		input.MaxMachineCPU = input.MaxTotalCPU
@@ -329,10 +329,10 @@ func machinePoolInputWithDefaultMachineForTest(
 	fields defaultMachineFieldsForTest,
 ) executionstore.CreateMachinePoolInput {
 	if fields.DefaultMachineCPU != 0 {
-		input.DefaultMachineCPU = intPtrForMachinePoolTest(fields.DefaultMachineCPU)
+		input.DefaultMachineCPU = new(fields.DefaultMachineCPU)
 	}
 	if fields.DefaultMachineMemoryMB != 0 {
-		input.DefaultMachineMemoryMB = intPtrForMachinePoolTest(fields.DefaultMachineMemoryMB)
+		input.DefaultMachineMemoryMB = new(fields.DefaultMachineMemoryMB)
 	}
 	input.DefaultMachineEnv = fields.DefaultMachineEnv
 	input.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
@@ -345,19 +345,15 @@ func defaultMachinePoolTemplateWithDefaultMachineForTest(
 	fields defaultMachineFieldsForTest,
 ) executionstore.DefaultMachinePoolTemplate {
 	if fields.DefaultMachineCPU != 0 {
-		template.DefaultMachineCPU = intPtrForMachinePoolTest(fields.DefaultMachineCPU)
+		template.DefaultMachineCPU = new(fields.DefaultMachineCPU)
 	}
 	if fields.DefaultMachineMemoryMB != 0 {
-		template.DefaultMachineMemoryMB = intPtrForMachinePoolTest(fields.DefaultMachineMemoryMB)
+		template.DefaultMachineMemoryMB = new(fields.DefaultMachineMemoryMB)
 	}
 	template.DefaultMachineEnv = fields.DefaultMachineEnv
 	template.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
 	template.DefaultMachineProviderOptions = fields.DefaultMachineProviderOptions
 	return template
-}
-
-func intPtrForMachinePoolTest(value int) *int {
-	return &value
 }
 
 func secretPublicIDForTest(t *testing.T, id ID) string {

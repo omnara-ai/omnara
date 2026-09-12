@@ -36,6 +36,7 @@ target AS MATERIALIZED (
         AND sqlc.arg(action_kind)::text = 'read'
         AND process.state IN ('exited', 'failed', 'killed', 'unknown')
         AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted'
+        AND process.execution_granted_at IS NOT NULL
       )
     )
     AND (
@@ -59,6 +60,8 @@ RETURNING id, org_id, project_id, agent_id, process_id, tool_call_id, runtime_lo
 
 -- name: GetProcessActionCreateBlocker :one
 SELECT process.state,
+  coalesce(process.execution_granted_at IS NOT NULL
+    AND process.state_reason_code IS DISTINCT FROM 'machine_storage_exhausted', false)::boolean AS terminal_read_supported,
   EXISTS (
     SELECT 1
     FROM process_actions terminate_action

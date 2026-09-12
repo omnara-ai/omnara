@@ -42,16 +42,21 @@ func Int32Ptr(value *int) *int32 {
 	if value == nil {
 		return nil
 	}
-	v := int32(*value)
-	return &v
+	return new(int32(*value))
 }
 
 func IntPtr(value *int32) *int {
 	if value == nil {
 		return nil
 	}
-	v := int(*value)
-	return &v
+	return new(int(*value))
+}
+
+func ClonePtr[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	return new(*value)
 }
 
 func SameIntPtr(left, right *int) bool {

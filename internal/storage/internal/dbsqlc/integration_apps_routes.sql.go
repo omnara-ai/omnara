@@ -547,27 +547,6 @@ func (q *Queries) ListActiveIntegrationRoutes(ctx context.Context, arg ListActiv
 	return items, nil
 }
 
-const lockIntegrationAppProjectOwner = `-- name: LockIntegrationAppProjectOwner :one
-SELECT project.id
-FROM projects project
-WHERE project.org_id = $1
-  AND project.id = $2
-  AND project.deleted_at IS NULL
-FOR SHARE OF project
-`
-
-type LockIntegrationAppProjectOwnerParams struct {
-	OrgID          uuid.UUID
-	OwnerProjectID uuid.UUID
-}
-
-func (q *Queries) LockIntegrationAppProjectOwner(ctx context.Context, arg LockIntegrationAppProjectOwnerParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationAppProjectOwner, arg.OrgID, arg.OwnerProjectID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
-}
-
 const lockIntegrationInstallForRouteMutation = `-- name: LockIntegrationInstallForRouteMutation :one
 SELECT id
 FROM integration_installs

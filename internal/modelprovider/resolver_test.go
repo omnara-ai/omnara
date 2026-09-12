@@ -9,19 +9,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/route"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCapabilitiesForRevisionMapsRuntimePolicyFields(t *testing.T) {
 	record := modelstore.ConfiguredModelRevisionRecord{
 		ContextWindowTokens:    200000,
-		MaxOutputTokens:        64000,
-		DefaultMaxOutputTokens: intPtr(32000),
+		MaxOutputTokens:        new(64000),
+		DefaultMaxOutputTokens: new(32000),
 		DefaultCacheRetention:  modelstore.ModelCacheRetentionShort,
 		SupportsTools:          true,
 		SupportsReasoning:      true,
@@ -37,7 +42,7 @@ func TestCapabilitiesForRevisionMapsRuntimePolicyFields(t *testing.T) {
 
 	got := capabilitiesForRevision(record)
 	if got.ContextWindowTokens != 200000 ||
-		got.MaxOutputTokens != 64000 ||
+		(got.MaxOutputTokens == nil || *got.MaxOutputTokens != 64000) ||
 		got.DefaultMaxOutputTokens != 32000 ||
 		got.DefaultCacheRetention != model.CacheRetentionShort ||
 		got.SupportsTools == nil || !*got.SupportsTools ||
@@ -50,6 +55,10 @@ func TestCapabilitiesForRevisionMapsRuntimePolicyFields(t *testing.T) {
 	}
 	if policy := model.RequestPolicyFromCapabilities(got); policy.MaxOutputTokens != 32000 {
 		t.Fatalf("request policy max_output_tokens = %d, want configured default 32000", policy.MaxOutputTokens)
+	}
+	*got.MaxOutputTokens = 1
+	if *record.MaxOutputTokens != 64000 {
+		t.Fatal("capability mutation changed source revision")
 	}
 }
 
@@ -167,7 +176,10 @@ func TestHTTPClientForProviderConfigReusesGuardedTransport(t *testing.T) {
 		t.Fatalf("transport = %T, want *http.Transport", first.Transport)
 	}
 	if transport.ResponseHeaderTimeout != 0 {
-		t.Fatalf("response header timeout = %s, want disabled for model generation budget", transport.ResponseHeaderTimeout)
+		t.Fatalf(
+			"response header timeout = %s, want disabled for model generation budget",
+			transport.ResponseHeaderTimeout,
+		)
 	}
 	if first.Timeout != 2500*time.Millisecond || second.Timeout != 5*time.Second {
 		t.Fatalf("timeouts = %s/%s, want 2.5s/5s", first.Timeout, second.Timeout)
@@ -243,6 +255,61 @@ func TestHTTPClientForProviderConfigDefersRedirectHandlingToRoute(t *testing.T) 
 	}
 }
 
-func intPtr(value int) *int {
-	return &value
+func TestEffectiveRevisionReachesAnthropicWire(t *testing.T) {
+	for _, narrowed := range []bool{false, true} {
+		name := "unknown capacity with project allowance"
+		if narrowed {
+			name = "inherited capacity with project and agent narrowing"
+		}
+		t.Run(name, func(t *testing.T) {
+			revision := modelstore.ConfiguredModelRevisionRecord{ContextWindowTokens: 128000}
+			grant := modelstore.ProjectModelGrantRecord{DefaultMaxOutputTokens: new(32000)}
+			overrides := agentconfig.ModelOverrides{}
+			if narrowed {
+				revision.MaxOutputTokens = new(64000)
+				grant = modelstore.ProjectModelGrantRecord{ContextWindowTokens: new(48000)}
+				overrides.ContextWindowTokens = new(32000)
+			}
+			effective, err := modelstore.EffectiveConfiguredModelRevisionForProjectGrant(
+				modelprotocol.APIFormatAnthropicMessages, revision, grant,
+			)
+			require.NoError(t, err)
+			effective, err = modelstore.EffectiveConfiguredModelRevisionForAgentOptions(
+				modelprotocol.APIFormatAnthropicMessages, effective, overrides,
+			)
+			require.NoError(t, err)
+			caps := capabilitiesForRevision(effective)
+			client := anthropicmessages.Client{
+				EndpointPath: "/messages", ProviderModelSlug: "custom-model", ModelCapabilities: caps,
+			}
+			prepared, err := model.PrepareForSend(t.Context(), client, model.PrepareForSendInput{
+				Context: modelcontext.Bundle{Messages: []modelcontext.Message{{
+					ID: "input", Sequence: 1, Role: modelprotocol.RoleUser,
+					Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+				}}},
+				Policy: model.RequestPolicyFromCapabilities(caps), ErrorSource: "test",
+			})
+			require.NoError(t, err)
+			var wire struct {
+				MaxTokens int `json:"max_tokens"`
+			}
+			require.NoError(t, json.Unmarshal(prepared.Body, &wire))
+			want := 32000
+			if narrowed {
+				if caps.ContextWindowTokens != 32000 {
+					t.Fatalf("context = %d, want 32000", caps.ContextWindowTokens)
+				}
+				if diff := cmp.Diff(new(64000), caps.MaxOutputTokens); diff != "" {
+					t.Fatalf("inherited capacity (-want +got):\n%s", diff)
+				}
+				want = 32000 - modelcontext.DefaultSafetyMarginTokens(32000) - prepared.InputTokenEstimate
+			} else if caps.MaxOutputTokens != nil {
+				t.Fatalf("capacity = %d, want unknown", *caps.MaxOutputTokens)
+			}
+			if !prepared.InputBudget.Fits() || prepared.MaxOutputTokens != want || wire.MaxTokens != want {
+				t.Fatalf("budget=%+v recorded=%d wire=%d, want fitting allowance %d",
+					prepared.InputBudget, prepared.MaxOutputTokens, wire.MaxTokens, want)
+			}
+		})
+	}
 }

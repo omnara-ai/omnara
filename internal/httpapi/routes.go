@@ -5,6 +5,7 @@ import (
 
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 )
@@ -34,12 +35,14 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: mcpOAuthCallbackPath, Access: manualRouteAccessOAuthState},
 	{Method: http.MethodGet, Pattern: integrationOAuthCallbackPath, Access: manualRouteAccessAuthRequired},
 	{Method: http.MethodGet, Pattern: mcpOAuthClientMetadataPath, Access: manualRouteAccessStatic},
+	{Method: http.MethodGet, Pattern: mcpProtectedResourceMetadataPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodPost, Pattern: integrationEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
 	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: omnaradInstallPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: webConfigPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: healthzPath, Access: manualRouteAccessStatic},
+	{Method: http.MethodPost, Pattern: apimcp.Path, Access: manualRouteAccessAuthRequired},
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -49,12 +52,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/mcp-oauth/callback", s.mcpOAuthCallbackRoute)
 	mux.HandleFunc("GET /api/integrations/oauth/callback", s.integrationOAuthCallbackRoute)
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.mcpProtectedResourceMetadataRoute)
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
 	mux.HandleFunc("GET /api/web-config", s.webConfigRoute)
 	mux.HandleFunc("GET /healthz", s.healthzRoute)
+	mux.Handle("/mcp", apimcp.NewHandler(s.apiMCP))
 	openapi.HandlerWithOptions(s.strictOpenAPIHandler(), openapi.StdHTTPServerOptions{
 		BaseURL:    openAPIBasePath,
 		BaseRouter: mux,

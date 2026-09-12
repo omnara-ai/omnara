@@ -2262,6 +2262,10 @@ func TestChannelFoundationInstallDeletionRevokesConcurrentBinding(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create uncommitted concurrent binding: %v", err)
 	}
+	var creatorPID int32
+	if err := creatorTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&creatorPID); err != nil {
+		t.Fatalf("load concurrent binding creator backend: %v", err)
+	}
 
 	access := &blockingDeleteInstallAccess{
 		reachedClear:  make(chan struct{}),
@@ -2273,17 +2277,17 @@ func TestChannelFoundationInstallDeletionRevokesConcurrentBinding(t *testing.T) 
 		deleteDone <- deletingStore.DeleteIntegrationInstall(ctx, testProjectID, install.ID)
 	}()
 
+	integrationdb.WaitForLockWaitBlockedBy(
+		t, ctx, pool, "-- name: LockIntegrationInstallLifecycleExclusive ", creatorPID,
+	)
+	if err := creatorTx.Commit(ctx); err != nil {
+		t.Fatalf("commit concurrent binding create: %v", err)
+	}
 	select {
 	case <-access.reachedClear:
 		close(access.continueClear)
-	case <-time.After(500 * time.Millisecond):
-		// Older target-before-agent ordering blocks before the observer. Releasing
-		// the creator lets deletion finish so the final assertion exposes an
-		// active orphan instead of hanging the test.
-		close(access.continueClear)
-	}
-	if err := creatorTx.Commit(ctx); err != nil {
-		t.Fatalf("commit concurrent binding create: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("delete install did not reach target cleanup after binding commit")
 	}
 	select {
 	case err := <-deleteDone:
@@ -2345,7 +2349,7 @@ func TestChannelFoundationInstallDeletionFencesConcurrentTargetCreation(t *testi
 		deleteDone <- store.Integrations().DeleteIntegrationInstall(ctx, testProjectID, install.ID)
 	}()
 	integrationdb.WaitForLockWaitBlockedBy(
-		t, ctx, pool, "UPDATE integration_installs%credential_secret_id = NULL", creatorPID,
+		t, ctx, pool, "-- name: LockIntegrationInstallLifecycleExclusive ", creatorPID,
 	)
 	if err := creatorTx.Commit(ctx); err != nil {
 		t.Fatalf("commit concurrent target create: %v", err)

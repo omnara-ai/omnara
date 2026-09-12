@@ -32,9 +32,11 @@ const (
 
 const (
 	ProcessToolReasonMachineUnreachable = "machine_unreachable"
+	ProcessToolReasonQueueTimeout       = "process_queue_timeout"
 )
 
 const ProcessToolMachineUnreachableGrace = 30 * time.Second
+const ProcessQueueTimeout = 5 * time.Minute
 
 type ProcessActionKind = processaction.Kind
 

@@ -284,7 +284,18 @@ func (s *Store) ResolveAgentInteraction(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
+	if hasIntegrationOrigin {
+		install, err := s.integrations.GetIntegrationInstallByIDTx(ctx, tx, input.IntegrationInstallID)
+		if err != nil {
+			return AgentInteractionRecord{}, err
+		}
+		if install.ProjectID != input.ProjectID {
+			return AgentInteractionRecord{}, storeerr.ErrConflict
+		}
+		if err := lockIntegrationInputAgentTx(ctx, tx, install, input.AgentID); err != nil {
+			return AgentInteractionRecord{}, err
+		}
+	} else if _, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
 	); err != nil {

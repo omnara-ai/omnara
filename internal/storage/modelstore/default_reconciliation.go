@@ -2,12 +2,10 @@ package modelstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
@@ -17,6 +15,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 	tx pgx.Tx,
 	prepared *DefaultModelProviderTemplate,
 	rows []dbsqlc.ModelProviderConfig,
+	defaultProjectID ID,
 	apply bool,
 ) ([]string, []string, error) {
 	if prepared == nil {
@@ -51,6 +50,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			BaseURL:            prepared.BaseURL,
 			EndpointPath:       prepared.EndpointPath,
 			RequestTimeoutMS:   prepared.RequestTimeoutMS,
+			IdleTimeoutMS:      prepared.IdleTimeoutMS,
 			AuthKind:           prepared.AuthKind,
 			AuthOptions:        prepared.AuthOptions,
 			CredentialSecretID: current.CredentialSecretID,
@@ -65,6 +65,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			if apply {
 				if _, err := updateModelProviderConfigTx(
 					ctx,
+					tx,
 					qtx,
 					modelProviderConfigUpdate{
 						OrgID:              current.OrgID,
@@ -72,6 +73,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 						BaseURL:            prepared.BaseURL,
 						EndpointPath:       prepared.EndpointPath,
 						RequestTimeoutMS:   prepared.RequestTimeoutMS,
+						IdleTimeoutMS:      prepared.IdleTimeoutMS,
 						AuthKind:           prepared.AuthKind,
 						AuthOptions:        prepared.AuthOptions,
 						CredentialSecretID: current.CredentialSecretID,
@@ -83,18 +85,6 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 					return nil, nil, fmt.Errorf("update default model provider %q: %w", prepared.Name, err)
 				}
 			}
-		}
-		defaultProjectID := NilID
-		project, err := qtx.GetProjectByIdempotencyKey(
-			ctx,
-			dbsqlc.GetProjectByIdempotencyKeyParams{
-				OrgID: current.OrgID, IdempotencyKey: identitystore.DefaultProjectKey,
-			},
-		)
-		if err == nil {
-			defaultProjectID = project.ID
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, fmt.Errorf("load default project: %w", err)
 		}
 		modelRows, err := qtx.ListConfiguredModels(ctx, dbsqlc.ListConfiguredModelsParams{
 			OrgID: current.OrgID, ModelProviderConfigID: current.ID, RowLimit: math.MaxInt64,
@@ -121,7 +111,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 					modelTemplate.Name,
 				))
 				if apply {
-					created, err := s.createConfiguredModelTx(ctx, qtx, desired, management.Cluster)
+					created, err := s.createConfiguredModelTx(ctx, tx, qtx, desired, management.Cluster)
 					if err != nil {
 						return nil, nil, fmt.Errorf("add default configured model %q: %w", modelTemplate.Name, err)
 					}

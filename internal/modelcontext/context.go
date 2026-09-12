@@ -78,6 +78,14 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 			}
 		}
 	}
+	if checkpointRef != nil {
+		checkpointRef.EndsWithOutputLimit, err = b.Store.IsOutputLimitBoundary(
+			ctx, input.ProjectID, input.AgentID, checkpointRef.SummarizedThroughEventSequence,
+		)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("load checkpoint output boundary: %w", err)
+		}
+	}
 	messages, err := loadTranscriptWindow(
 		ctx,
 		b.Store,

@@ -37,6 +37,27 @@ describe('projectAgentChat input lifecycle', () => {
     hasOlderEvents: false,
   }
 
+  it.each(['max_tokens', 'end_turn'] as const)(
+    'restores work status from the stop reason: %s',
+    (reason) => {
+      const result = projectAgentChat({
+        ...base,
+        localInputs: [],
+        backlogInputs: [],
+        events: [
+          userInputEvent(),
+          event({
+            sequence: 12,
+            stop_reason: reason,
+            content_blocks: [{ type: 'text', text: 'Model output.' }],
+          }),
+        ],
+      })
+      expect(result.isWorking).toBe(reason === 'max_tokens')
+      expect(result.status).toBe(reason === 'max_tokens' ? 'streaming' : 'ready')
+    },
+  )
+
   it('keeps an idle send in the conversation while the server backlog copy waits for admission', () => {
     const result = projectAgentChat({
       ...base,

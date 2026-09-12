@@ -20,14 +20,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/testutil"
-
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -1820,7 +1819,8 @@ func TestPublicMaxTokensModelOutputReplaysAcrossEventAPIs(t *testing.T) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") &&
-			strings.Contains(line, `"stop_reason":"max_tokens"`) {
+			strings.Contains(line, `"stop_reason":"max_tokens"`) &&
+			strings.Contains(line, "partial but durable output") {
 			return
 		}
 	}

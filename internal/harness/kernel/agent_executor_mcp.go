@@ -18,32 +18,12 @@ const (
 	mcpInitResultSucceeded = "succeeded"
 )
 
-type mcpInitializationMode uint8
-
-const (
-	mcpInitializationNone mcpInitializationMode = iota
-	mcpInitializationOpening
-	mcpInitializationResume
-)
-
-func shouldInitializeMCPConnection(mode mcpInitializationMode, state executionstore.MCPConnectionState) bool {
-	switch mode {
-	case mcpInitializationOpening:
-		return mcp.ShouldInitialize(state)
-	case mcpInitializationResume:
-		return state == executionstore.MCPConnectionStateInitializing ||
-			state == executionstore.MCPConnectionStateExpired
-	default:
-		return false
-	}
-}
-
 func (e AgentExecutor) ensureMCPConnections(
 	ctx context.Context,
 	orgID storage.ID,
 	input ModelWorkExecution,
 	contract agentconfig.RuntimeContract,
-	mode mcpInitializationMode,
+	trigger mcp.ConnectionTrigger,
 ) error {
 	if len(contract.MCPServers) == 0 {
 		connections, err := e.Store.Execution().ListAgentMCPConnections(ctx, input.ProjectID, input.AgentID)
@@ -63,13 +43,7 @@ func (e AgentExecutor) ensureMCPConnections(
 	if err != nil {
 		return err
 	}
-	pending := make([]executionstore.MCPConnectionRecord, 0, len(connections))
-	for _, conn := range connections {
-		if shouldInitializeMCPConnection(mode, conn.State) {
-			pending = append(pending, conn)
-		}
-	}
-	if len(pending) == 0 {
+	if len(connections) == 0 {
 		return nil
 	}
 	if e.MCP == nil {
@@ -87,9 +61,9 @@ func (e AgentExecutor) ensureMCPConnections(
 		SigV4CredentialCache: e.SigV4CredentialCache,
 		OAuthHTTPClient:      e.MCPAuthHTTPClient,
 	}
-	errs := make(chan error, len(pending))
+	errs := make(chan error, len(connections))
 	var wg sync.WaitGroup
-	for index, conn := range pending {
+	for index, conn := range connections {
 		wg.Add(1)
 		go func() {
 			var resultErr error
@@ -114,20 +88,25 @@ func (e AgentExecutor) ensureMCPConnections(
 				resultErr = errors.New("mcp connection has no matching runtime server config")
 				return
 			}
-			result, err := manager.InitializePending(
+			result, err := manager.EnsureConnection(
 				ctx,
 				orgID,
 				input.ProjectID,
 				input.AgentID,
 				conn,
 				server,
+				trigger,
 			)
 			if !result.Changed {
+				if err != nil && !mcp.InitializationRecorded(err) {
+					resultErr = err
+				}
 				return
 			}
 			cause := mcp.InitializationCause(err)
 			if err != nil {
-				if !mcp.InitializationRecorded(err) {
+				hadTools := conn.State == executionstore.MCPConnectionStateReady || conn.UsesCatalog()
+				if !mcp.InitializationRecorded(err) || hadTools {
 					resultErr = err
 				}
 				logConn := result.Conn

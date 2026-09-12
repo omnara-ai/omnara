@@ -16,7 +16,7 @@ describe('machine pool memory inputs', () => {
       ...machinePoolFormDefaults,
       name: 'default',
       image: 'alpine:latest',
-      workspace: 'workspace',
+      providerScope: 'workspace',
       secretId: 'secret_1',
       memoryGb: '1.25',
       maxMachines: '3',
@@ -24,6 +24,7 @@ describe('machine pool memory inputs', () => {
     }
 
     expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, providerScope: '' })).toBe(false)
     expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '0' })).toBe(false)
     expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '4' })).toBe(false)
     expect(machinePoolFormValid({ ...values, deleteAfterIdleMinutes: '5' })).toBe(true)
@@ -44,7 +45,7 @@ describe('machine pool memory inputs', () => {
       ...machinePoolFormDefaults,
       name: 'paused',
       image: 'alpine:latest',
-      workspace: 'workspace',
+      providerScope: 'workspace',
       secretId: 'secret_1',
       maxMachines: '0',
     }
@@ -62,7 +63,7 @@ describe('machine pool names', () => {
   const validValues = {
     ...machinePoolFormDefaults,
     image: 'alpine:latest',
-    workspace: 'workspace',
+    providerScope: 'workspace',
     secretId: 'secret_1',
   }
 
@@ -77,6 +78,74 @@ describe('machine pool names', () => {
     'rejects invalid name %j',
     (name) => {
       expect(machinePoolFormValid({ ...validValues, name })).toBe(false)
+    },
+  )
+})
+
+describe('Modal machine pools', () => {
+  it.each(['agents', '', '  '])(
+    'creates a pool with app %j and automatic region placement',
+    (app) => {
+      const values = {
+        ...machinePoolFormDefaults,
+        provider: 'modal' as const,
+        name: 'modal-pool',
+        providerScope: app,
+        image: 'registry.example/daemon:latest',
+        location: '',
+        secretId: 'sec_modal',
+      }
+
+      expect(machinePoolFormValid(values)).toBe(true)
+      const protectedValues = { ...values, runtimeProtectionEnabled: true }
+      expect(machinePoolFormValid(protectedValues)).toBe(true)
+      expect(machinePoolCreateRequest(protectedValues)).toMatchObject({
+        provider: 'modal',
+        provider_config: { app: app.trim() },
+        default_machine_provider_options: { image: 'registry.example/daemon:latest' },
+        default_machine_cpu: 1,
+        default_machine_memory_mb: 1024,
+        runtime_protection_enabled: true,
+      })
+      expect(machinePoolCreateRequest(values).default_machine_provider_options).not.toHaveProperty(
+        'region',
+      )
+    },
+  )
+
+  it.each(['new-app', ''])(
+    'preserves hidden config when updating app to %j and clearing region',
+    (app) => {
+      const pool = machinePool({
+        provider: 'modal',
+        provider_config: {
+          app: 'old-app',
+          environment: 'staging',
+          allowed_images: ['registry.example/daemon:latest'],
+          allowed_regions: ['us-east'],
+        },
+        default_machine_provider_options: {
+          image: 'registry.example/daemon:latest',
+          region: 'us-east',
+        },
+      })
+      const values = machinePoolFormFromPool(pool)
+      if (values === null) throw new Error('expected Modal form values')
+
+      const request = machinePoolUpdateRequest(pool, {
+        ...values,
+        providerScope: app,
+        location: '',
+      })
+      expect(request.provider_config).toEqual({
+        app,
+        environment: 'staging',
+        allowed_images: ['registry.example/daemon:latest'],
+        allowed_regions: ['us-east'],
+      })
+      expect(request.default_machine_provider_options).toEqual({
+        image: 'registry.example/daemon:latest',
+      })
     },
   )
 })
@@ -116,7 +185,7 @@ describe('machine pool edit state', () => {
       name: 'pool',
       description: 'Original description',
       provider: 'blaxel',
-      workspace: 'old-workspace',
+      providerScope: 'old-workspace',
       image: 'old-image',
       location: 'old-region',
       startupScript: 'echo old',
@@ -142,7 +211,7 @@ describe('machine pool edit state', () => {
       ...values,
       name: 'R&D updated 😀',
       description: ' updated description ',
-      workspace: 'new-workspace',
+      providerScope: 'new-workspace',
       image: 'new-image',
       location: 'new-region',
       startupScript: '',

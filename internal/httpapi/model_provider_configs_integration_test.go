@@ -59,7 +59,8 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		providerConfig["endpoint_path"] != "/responses" ||
 		providerConfig["auth_kind"] != "bearer_token" ||
 		len(testutil.RequireType[map[string]any](t, providerConfig["auth_options"])) != 0 ||
-		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) {
+		providerConfig["request_timeout_ms"] != float64(modelstore.DefaultModelProviderRequestTimeoutMS) ||
+		providerConfig["idle_timeout_ms"] != float64(modelstore.DefaultModelProviderIdleTimeoutMS) {
 		t.Fatalf("preset did not materialize OpenAI provider config: %+v", providerConfig)
 	}
 	openRouterConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
@@ -211,7 +212,7 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		len(testutil.RequireType[map[string]any](t, resetAuthProviderConfig["auth_options"])) != 0 {
 		t.Fatalf("auth_kind patch should reset omitted auth_options to defaults: %+v", resetAuthProviderConfig)
 	}
-	defaultedConfiguredModel := requestJSONWithHeaders(
+	unknownConfiguredModel := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -221,9 +222,9 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
-	if defaultedConfiguredModel["max_output_tokens"] != float64(8_192) ||
-		defaultedConfiguredModel["default_max_output_tokens"] != float64(4_096) {
-		t.Fatalf("defaulted configured model limits = %+v", defaultedConfiguredModel)
+	if unknownConfiguredModel["max_output_tokens"] != nil ||
+		unknownConfiguredModel["default_max_output_tokens"] != nil {
+		t.Fatalf("unknown configured model limits = %+v", unknownConfiguredModel)
 	}
 	configuredModel := requestJSONWithHeaders(
 		t,
@@ -338,7 +339,6 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		`{"name":null}`,
 		`{"provider_model_slug":null}`,
 		`{"context_window_tokens":null}`,
-		`{"max_output_tokens":null}`,
 		`{"default_cache_retention":null}`,
 		`{"supports_tools":null}`,
 		`{"supports_reasoning":null}`,
@@ -408,18 +408,12 @@ model:
 	if _, ok := grant["metadata"]; ok {
 		t.Fatalf("model grant response should not include metadata: %+v", grant)
 	}
-	replayedGrant := testutil.RequireType[map[string]any](
-		t,
-		requestJSONWithHeaders(
-			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusOK,
-			authHeaders(project.AdminToken),
-		)["grant"],
+	duplicate := requestJSONWithHeaders(
+		t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusConflict,
+		authHeaders(project.AdminToken),
 	)
-	if replayedGrant["id"] != grant["id"] {
-		t.Fatalf("model grant replay mismatch: first=%+v replay=%+v", grant, replayedGrant)
-	}
-	if _, ok := replayedGrant["metadata"]; ok {
-		t.Fatalf("replayed model grant response should not include metadata: %+v", replayedGrant)
+	if duplicate["code"] != "conflict" {
+		t.Fatalf("duplicate grant error = %v, want conflict", duplicate)
 	}
 	grantPath := project.ProjectPath + "/model-grants/" + testutil.RequireType[string](t, grant["id"])
 	patchedGrant := testutil.RequireType[map[string]any](t, requestJSONWithHeaders(
@@ -1043,6 +1037,96 @@ func TestGetModelCatalog(t *testing.T) {
 	}
 	if message, _ := failedCatalog["error"].(string); !strings.Contains(message, "invalid api key") {
 		t.Fatalf("model catalog error should carry the provider message: %+v", failedCatalog)
+	}
+
+	awsSecret := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"catalog-aws-credentials","material":{"kind":"aws_credentials","access_key_id":"AKIAEXAMPLE","secret_access_key":"secret"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	genericSecret := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"catalog-sigv4-wrong-kind","material":{"kind":"generic","value":"key"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"catalog-sigv4-wrong-kind","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"catalog-sigv4-region-mismatch","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-east-1"},"credential_secret_id":"`+testutil.RequireType[string](t, awsSecret["id"])+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	createdSigV4 := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"catalog-bedrock-sigv4","api_format":"openai-chat-completions","api_variant":"bedrock","base_url":"https://bedrock-mantle.us-west-2.api.aws/v1","auth_kind":"sigv4","auth_options":{"service":"bedrock-mantle","region":"us-west-2"},"credential_secret_id":"`+testutil.RequireType[string](t, awsSecret["id"])+`"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
+	sigV4Catalog := testutil.RequireType[map[string]any](t, createdSigV4["model_catalog"])
+	if sigV4Catalog["status"] != "ok" || len(testutil.RequireType[[]any](t, sigV4Catalog["models"])) != 0 {
+		t.Fatalf("SigV4 Bedrock catalog should succeed without probing: %+v", sigV4Catalog)
+	}
+	sigV4ConfigID := testutil.RequireType[string](t, createdModelProviderConfig(t, createdSigV4)["id"])
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
+		`{"auth_options":{"service":"bedrock-mantle","region":"us-east-1"}}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
+		`{"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+	updatedSigV4 := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPut,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+sigV4ConfigID,
+		`{"auth_kind":"bearer_token","auth_options":{},"credential_secret_id":"`+testutil.RequireType[string](t, genericSecret["id"])+`"}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if updatedSigV4["auth_kind"] != "bearer_token" ||
+		updatedSigV4["credential_secret_id"] != genericSecret["id"] {
+		t.Fatalf("SigV4 provider auth update mismatch: %+v", updatedSigV4)
 	}
 }
 

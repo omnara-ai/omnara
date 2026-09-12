@@ -23,12 +23,12 @@ func TestResolveMachineProvisioningAppliesOverlays(t *testing.T) {
 		testMachineProvisioningOverlay(
 			t,
 			nil,
-			ptrForMachineTest(2048),
+			new(2048),
 			map[string]any{"metro": "dfw", "grant_only": true},
 		),
 		testMachineProvisioningOverlay(
 			t,
-			ptrForMachineTest(2),
+			new(2),
 			nil,
 			map[string]any{"metro": "ord", "source_only": true},
 		),
@@ -88,8 +88,8 @@ func TestResolveMachineProvisioningKeepsPoolDefaultSeparate(t *testing.T) {
 	if _, err := store.ResolveMachineProvisioning(
 		"test",
 		MachinePoolProviderPolicy{DefaultProvisioning: poolDefault},
-		testMachineProvisioningOverlay(t, nil, ptrForMachineTest(2048), nil),
-		testMachineProvisioningOverlay(t, ptrForMachineTest(2), nil, nil),
+		testMachineProvisioningOverlay(t, nil, new(2048), nil),
+		testMachineProvisioningOverlay(t, new(2), nil, nil),
 	); err != nil {
 		t.Fatalf("resolve machine provisioning: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestResolveMachineProvisioningKeepsPoolDefaultSeparate(t *testing.T) {
 func TestResolveMachineEnvironmentNullInheritsAndKeyNullClears(t *testing.T) {
 	resolved, err := resolveMachineEnvironment(
 		MachineEnvironment{Env: map[string]string{"A": "pool", "B": "pool"}},
-		MachineEnvironmentOverlay{Env: map[string]*string{"A": nil, "C": ptrForMachineTest("source")}},
+		MachineEnvironmentOverlay{Env: map[string]*string{"A": nil, "C": new("source")}},
 	)
 	if err != nil {
 		t.Fatalf("resolve machine environment: %v", err)
@@ -120,12 +120,12 @@ func TestResolveMachineEnvironmentAppliesOverlaysInOrder(t *testing.T) {
 	resolved, err := resolveMachineEnvironment(
 		base,
 		MachineEnvironmentOverlay{Env: map[string]*string{
-			"A": ptrForMachineTest("grant"),
-			"C": ptrForMachineTest("grant"),
+			"A": new("grant"),
+			"C": new("grant"),
 		}},
 		MachineEnvironmentOverlay{Env: map[string]*string{
 			"A": nil,
-			"D": ptrForMachineTest("source"),
+			"D": new("source"),
 		}},
 	)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestResolveMachineEnvironmentAppliesOverlaysInOrder(t *testing.T) {
 func TestResolveMachineEnvironmentAppliesOverlaysCaseInsensitively(t *testing.T) {
 	resolved, err := resolveMachineEnvironment(
 		MachineEnvironment{Env: map[string]string{"App_Mode": "pool", "Delete_Me": "pool"}},
-		MachineEnvironmentOverlay{Env: map[string]*string{"app_mode": ptrForMachineTest("grant")}},
+		MachineEnvironmentOverlay{Env: map[string]*string{"app_mode": new("grant")}},
 		MachineEnvironmentOverlay{Env: map[string]*string{"DELETE_ME": nil}},
 	)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestResolveMachineEnvironmentAppliesOverlaysCaseInsensitively(t *testing.T)
 func TestResolveMachineEnvironmentRejectsNULValue(t *testing.T) {
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{},
-		MachineEnvironmentOverlay{Env: map[string]*string{"VALUE": ptrForMachineTest("invalid\x00value")}},
+		MachineEnvironmentOverlay{Env: map[string]*string{"VALUE": new("invalid\x00value")}},
 	); err == nil || err.Error() != "env.VALUE cannot contain NUL" {
 		t.Fatalf("resolve machine environment error = %v", err)
 	}
@@ -212,7 +212,7 @@ func TestResolveMachineEnvironmentBoundsMergedEntryCount(t *testing.T) {
 	)
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{Env: env},
-		MachineEnvironmentOverlay{Env: map[string]*string{"OVERFLOW": ptrForMachineTest("")}},
+		MachineEnvironmentOverlay{Env: map[string]*string{"OVERFLOW": new("")}},
 	); err == nil || err.Error() != want {
 		t.Fatalf("merged entry-count validation error = %v", err)
 	}
@@ -232,7 +232,7 @@ func TestResolveMachineEnvironmentRejectsSecretEnvEnvConflict(t *testing.T) {
 	secretID := secretPublicIDForUnitTest(t, "reverse-conflict")
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{SecretEnv: map[string]string{"API_TOKEN": secretID}},
-		MachineEnvironmentOverlay{Env: map[string]*string{"API_TOKEN": ptrForMachineTest("plain")}},
+		MachineEnvironmentOverlay{Env: map[string]*string{"API_TOKEN": new("plain")}},
 	); err == nil || err.Error() != "env and secret_env cannot both set key API_TOKEN" {
 		t.Fatalf("secret_env/env conflict error = %v", err)
 	}
@@ -257,8 +257,8 @@ func TestResolveMachineEnvironmentRejectsCaseInsensitiveDuplicates(t *testing.T)
 	if _, err := resolveMachineEnvironment(
 		MachineEnvironment{},
 		MachineEnvironmentOverlay{Env: map[string]*string{
-			"App_Mode": ptrForMachineTest("one"),
-			"APP_MODE": ptrForMachineTest("two"),
+			"App_Mode": new("one"),
+			"APP_MODE": new("two"),
 		}},
 	); err == nil || err.Error() != "env cannot set key APP_MODE more than once with different casing" {
 		t.Fatalf("case-insensitive overlay duplicate error = %v", err)
@@ -279,7 +279,7 @@ func TestResolveMachineEnvironmentValidatesEnvNames(t *testing.T) {
 		},
 		"overlay_equals": {
 			overlays: []MachineEnvironmentOverlay{{
-				Env: map[string]*string{"BAD=KEY": ptrForMachineTest("value")},
+				Env: map[string]*string{"BAD=KEY": new("value")},
 			}},
 		},
 		"overlay_secret": {
@@ -319,7 +319,7 @@ func TestResolveMachineEnvironmentNullDeleteCanMoveKeyBetweenMaps(t *testing.T) 
 			SecretEnv: map[string]*string{"PASSWORD": nil},
 		},
 		MachineEnvironmentOverlay{
-			Env:       map[string]*string{"PASSWORD": ptrForMachineTest("plain-password")},
+			Env:       map[string]*string{"PASSWORD": new("plain-password")},
 			SecretEnv: map[string]*string{"API_TOKEN": &secretID},
 		},
 	)

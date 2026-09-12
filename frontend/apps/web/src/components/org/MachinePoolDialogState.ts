@@ -44,7 +44,7 @@ export interface MachinePoolFormValues {
   name: string
   description: string
   provider: MachinePoolProvider
-  workspace: string
+  providerScope: string
   image: string
   location: string
   startupScript: string
@@ -74,7 +74,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   name: '',
   description: '',
   provider: 'blaxel',
-  workspace: '',
+  providerScope: '',
   image: '',
   location: machinePoolProviderDefinitions.blaxel.location.defaultValue,
   startupScript: '',
@@ -142,7 +142,7 @@ export function machinePoolFormAfterProviderChange(
   return {
     ...values,
     provider,
-    workspace: '',
+    providerScope: '',
     image: '',
     location: nextDefinition.location.defaultValue,
     cpu:
@@ -188,8 +188,8 @@ export function machinePoolFormValid(
     (clusterEdit ||
       (resourceNameValid(values.name) &&
         values.image.trim() !== '' &&
-        values.location.trim() !== '' &&
-        (!provider.requiresWorkspace || values.workspace.trim() !== '') &&
+        (!provider.location.required || values.location.trim() !== '') &&
+        (!provider.scope?.required || values.providerScope.trim() !== '') &&
         values.secretId !== '')) &&
     maxMachinesValid &&
     cpuValid &&
@@ -226,14 +226,21 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     values.startupScript.trim() === '' ? {} : { startup_script: values.startupScript }
   switch (values.provider) {
     case 'unikraft':
+    case 'modal':
       return {
         ...common,
-        provider: 'unikraft',
+        provider: values.provider,
+        provider_config:
+          values.provider === 'modal' ? { app: values.providerScope.trim() } : undefined,
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         default_machine_provider_options: {
           image: values.image.trim(),
-          metro: values.location.trim(),
+          ...(values.provider === 'unikraft'
+            ? { metro: values.location.trim() }
+            : values.location.trim() === ''
+              ? {}
+              : { region: values.location.trim() }),
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -253,7 +260,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
           region: values.location.trim(),
           ...startupScript,
         },
-        provider_config: { workspace: values.workspace.trim() },
+        provider_config: { workspace: values.providerScope.trim() },
         max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
@@ -294,7 +301,10 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     name: pool.name,
     description: pool.description,
     provider,
-    workspace: providerOptionStrings(pool.provider_config).workspace ?? '',
+    providerScope:
+      (definition.scope
+        ? providerOptionStrings(pool.provider_config)[definition.scope.key]
+        : undefined) ?? '',
     image: options[definition.resource.key] ?? '',
     location: options[definition.location.key] ?? '',
     startupScript: options.startup_script ?? '',
@@ -339,7 +349,9 @@ export function machinePoolUpdateRequest(
     ),
   )
   defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
-  defaultMachineProviderOptions[definition.location.key] = values.location.trim()
+  if (values.location.trim() !== '') {
+    defaultMachineProviderOptions[definition.location.key] = values.location.trim()
+  }
   if (values.startupScript.trim() !== '') {
     defaultMachineProviderOptions.startup_script = values.startupScript
   }
@@ -364,8 +376,13 @@ export function machinePoolUpdateRequest(
   }
   switch (values.provider) {
     case 'unikraft':
+    case 'modal':
       return {
         ...common,
+        provider_config:
+          values.provider === 'modal'
+            ? { ...pool.provider_config, app: values.providerScope.trim() }
+            : undefined,
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -388,7 +405,7 @@ export function machinePoolUpdateRequest(
       return {
         ...common,
         default_machine_memory_mb: memoryMb,
-        provider_config: { ...pool.provider_config, workspace: values.workspace.trim() },
+        provider_config: { ...pool.provider_config, workspace: values.providerScope.trim() },
         max_total_memory_mb:
           optionalMemoryMbPreservingOriginal(values.maxTotalMemoryGb, pool.max_total_memory_mb) ??
           memoryMb * maxMachines,
@@ -439,18 +456,19 @@ function clusterMachinePoolUpdateRequest(
     default_machine_env: envFromRows(values.envRows) ?? {},
     default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
+    min_machine_memory_mb: optionalMemoryMbOrNull(
+      values.minMachineMemoryGb,
+      pool.min_machine_memory_mb,
+    ),
   }
   switch (values.provider) {
     case 'unikraft':
+    case 'modal':
       return {
         ...common,
         default_machine_cpu: cpu,
         default_machine_memory_mb: memoryMb,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
-        min_machine_memory_mb: optionalMemoryMbOrNull(
-          values.minMachineMemoryGb,
-          pool.min_machine_memory_mb,
-        ),
         max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
         max_machine_memory_mb:
           optionalMemoryMbPreservingOriginal(
@@ -462,10 +480,6 @@ function clusterMachinePoolUpdateRequest(
       return {
         ...common,
         default_machine_memory_mb: memoryMb,
-        min_machine_memory_mb: optionalMemoryMbOrNull(
-          values.minMachineMemoryGb,
-          pool.min_machine_memory_mb,
-        ),
         max_machine_memory_mb:
           optionalMemoryMbPreservingOriginal(
             values.maxMachineMemoryGb,
@@ -476,10 +490,6 @@ function clusterMachinePoolUpdateRequest(
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
-        min_machine_memory_mb: optionalMemoryMbOrNull(
-          values.minMachineMemoryGb,
-          pool.min_machine_memory_mb,
-        ),
         max_machine_cpu: cpu,
         max_machine_memory_mb: memoryMb,
       }

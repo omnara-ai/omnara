@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
@@ -37,6 +39,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 )
 
 var (
@@ -244,7 +247,6 @@ func (f kernelFixture) createNamedAgentWithModelOptions(
 		name,
 		agentProfileIdempotencyKey,
 		sourceYAML,
-		now,
 		modelOptions,
 	)
 	launch, err := f.Store.Execution().LaunchAgent(
@@ -267,7 +269,6 @@ func (f kernelFixture) createConfigAndProfileBookmark(
 	t *testing.T,
 	ctx context.Context,
 	name, idempotencyKey, sourceYAML string,
-	now time.Time,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
 	return f.createConfigAndProfileBookmarkWithModelOptions(
@@ -276,7 +277,6 @@ func (f kernelFixture) createConfigAndProfileBookmark(
 		name,
 		idempotencyKey,
 		sourceYAML,
-		now,
 		kernelConfiguredModelOptions{},
 	)
 }
@@ -285,11 +285,10 @@ func (f kernelFixture) createConfigAndProfileBookmarkWithModelOptions(
 	t *testing.T,
 	ctx context.Context,
 	name, idempotencyKey, sourceYAML string,
-	now time.Time,
 	modelOptions kernelConfiguredModelOptions,
 ) executionstore.AgentProfileRecord {
 	t.Helper()
-	compiled := f.compileAgentYAMLResolvedWithModelOptions(t, ctx, sourceYAML, now, modelOptions)
+	compiled := f.compileAgentYAMLResolvedWithModelOptions(t, ctx, sourceYAML, modelOptions)
 	config, err := f.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
 		Definition:              json.RawMessage(compiled.CanonicalJSON),
@@ -319,17 +318,15 @@ func (f kernelFixture) compileAgentYAMLResolved(
 	t *testing.T,
 	ctx context.Context,
 	sourceYAML string,
-	now time.Time,
 ) agentconfig.Result {
 	t.Helper()
-	return f.compileAgentYAMLResolvedWithModelOptions(t, ctx, sourceYAML, now, kernelConfiguredModelOptions{})
+	return f.compileAgentYAMLResolvedWithModelOptions(t, ctx, sourceYAML, kernelConfiguredModelOptions{})
 }
 
 func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	t *testing.T,
 	ctx context.Context,
 	sourceYAML string,
-	now time.Time,
 	modelOptions kernelConfiguredModelOptions,
 ) agentconfig.Result {
 	t.Helper()
@@ -337,7 +334,7 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 	if err != nil {
 		t.Fatalf("parse agent config source: %v", err)
 	}
-	configuredModel := f.ensureModelSelection(t, ctx, source.Model.ProviderConfig, source.Model.Name, now, modelOptions)
+	configuredModel := f.ensureModelSelection(t, ctx, source.Model.ProviderConfig, source.Model.Name, modelOptions)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(
 			providerConfigName string,
@@ -392,60 +389,31 @@ func (f kernelFixture) ensureModelSelection(
 	t *testing.T,
 	ctx context.Context,
 	providerConfigName, configuredModelName string,
-	now time.Time,
 	options kernelConfiguredModelOptions,
 ) modelstore.ConfiguredModelRecord {
 	t.Helper()
-	providerConfig, err := f.Store.Models().GetModelProviderConfigByName(ctx, kernelTestOrgID, providerConfigName)
-	if err != nil {
-		if !storeerr.IsNotFound(err) {
-			t.Fatalf("load model provider config %q: %v", providerConfigName, err)
-		}
-		secret, err := f.ensureProviderCredential(t, ctx, providerConfigName, now)
-		if err != nil {
-			t.Fatalf("ensure provider credential: %v", err)
-		}
-		providerConfig, err = f.Store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
-			OrgID:              kernelTestOrgID,
-			Name:               providerConfigName,
-			APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-			APIVariant:         "default",
-			BaseURL:            "https://api.openai.com/v1",
-			CredentialSecretID: secret.ID,
-		})
-		if err != nil {
-			t.Fatalf("create model provider config %q: %v", providerConfigName, err)
-		}
-	}
-	if providerConfig.ManagementKind == management.Cluster {
+	provider := storagefixture.EnsureModelProvider(t, ctx, f.Store.Models(), f.Store.Secrets(),
+		storagefixture.ModelProviderInput{OrgID: kernelTestOrgID, UserID: kernelTestUserID, Name: providerConfigName})
+	if provider.ManagementKind == management.Cluster {
 		configuredModel, err := f.Store.Models().GetConfiguredModelByName(
-			ctx,
-			kernelTestOrgID,
-			providerConfig.ID,
-			configuredModelName,
+			ctx, kernelTestOrgID, provider.ID, configuredModelName,
 		)
-		if err != nil {
-			t.Fatalf("load cluster configured model %s/%s: %v", providerConfigName, configuredModelName, err)
-		}
+		require.NoError(t, err, "load cluster configured model %s/%s", providerConfigName, configuredModelName)
 		return configuredModel
 	}
-	configuredModel, err := f.Store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                 kernelTestOrgID,
-		ModelProviderConfigID: providerConfig.ID,
-		Name:                  configuredModelName,
-		ProviderModelSlug:     configuredModelName,
-		ContextWindowTokens:   firstKernelTestInt(options.ContextWindowTokens, 128000),
-		MaxOutputTokens:       firstKernelTestInt(options.MaxOutputTokens, 8192),
-	})
-	if err != nil {
-		t.Fatalf("create configured model %s/%s: %v", providerConfigName, configuredModelName, err)
+	input := storagefixture.DefaultModelInput(kernelTestOrgID, provider.ID, configuredModelName)
+	if options.ContextWindowTokens != nil {
+		input.ContextWindowTokens = *options.ContextWindowTokens
 	}
-	if _, err := f.Store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-		OrgID:             kernelTestOrgID,
-		ProjectID:         kernelTestProjectID,
-		ConfiguredModelID: configuredModel.ID,
-	}); err != nil {
-		t.Fatalf("grant configured model %s/%s: %v", providerConfigName, configuredModelName, err)
+	if options.MaxOutputTokens != nil {
+		input.MaxOutputTokens = options.MaxOutputTokens
+	}
+	configuredModel := storagefixture.EnsureModelAccess(t, ctx, f.Store.Models(), kernelTestProjectID, input)
+	if options.ContextWindowTokens != nil {
+		require.Equal(t, *options.ContextWindowTokens, configuredModel.ContextWindowTokens)
+	}
+	if options.MaxOutputTokens != nil {
+		require.Equal(t, options.MaxOutputTokens, configuredModel.MaxOutputTokens)
 	}
 	return configuredModel
 }
@@ -491,7 +459,7 @@ func (f kernelFixture) provisionClusterModel(
 				Name:                configuredModelName,
 				ProviderModelSlug:   configuredModelName,
 				ContextWindowTokens: 128000,
-				MaxOutputTokens:     8192,
+				MaxOutputTokens:     new(8192),
 			}},
 		},
 	); err != nil {
@@ -516,45 +484,6 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 `, kernelTestOrgID, allowed); err != nil {
 		t.Fatalf("set managed work admission to %v: %v", allowed, err)
 	}
-}
-
-func firstKernelTestInt(value *int, fallback int) int {
-	if value != nil {
-		return *value
-	}
-	return fallback
-}
-
-func (f kernelFixture) ensureProviderCredential(
-	t *testing.T,
-	ctx context.Context,
-	providerConfigName string,
-	now time.Time,
-) (secretstore.SecretRecord, error) {
-	t.Helper()
-	name := "kernel-provider-" + providerConfigName
-	secret, err := f.Store.Secrets().GetSecretByOwnerName(
-		ctx,
-		kernelTestOrgID,
-		secretstore.SecretOwnerOrg,
-		storage.NilID,
-		storage.NilID,
-		name,
-	)
-	if err == nil {
-		return secret, nil
-	}
-	if !storeerr.IsNotFound(err) {
-		return secretstore.SecretRecord{}, err
-	}
-	secret, _, err = f.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     kernelTestOrgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      name,
-		Material:  secrets.GenericMaterial{Value: "test-key"},
-		Actor:     kernelTestUserPrincipal(kernelTestUserID),
-	})
-	return secret, err
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) storage.ID {
@@ -724,6 +653,14 @@ func modelWorkExecutionFromClaimForKernelTest(claim executionstore.ClaimedAgentW
 	}
 }
 
+func (f kernelFixture) releaseModelRuntimeLock(t *testing.T, ctx context.Context, work ModelWorkExecution) {
+	t.Helper()
+	err := f.Store.Execution().ReleaseAgentRuntimeLock(ctx, work.ProjectID, work.AgentID, work.RuntimeLockID)
+	if err != nil {
+		t.Fatalf("release model-work runtime: %v", err)
+	}
+}
+
 func nextToolWorkExecution(
 	t *testing.T,
 	ctx context.Context,
@@ -731,14 +668,7 @@ func nextToolWorkExecution(
 	prior ModelWorkExecution,
 ) ToolWorkExecution {
 	t.Helper()
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		prior.ProjectID,
-		prior.AgentID,
-		prior.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release model-work runtime: %v", err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, prior)
 	claim := claimNextAgentWorkForKernelTest(
 		t,
 		ctx,
@@ -886,14 +816,7 @@ func continueTurnOnNewLeaseForKernelTest(
 	now time.Time,
 ) ModelWorkExecution {
 	t.Helper()
-	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
-		ctx,
-		prior.ProjectID,
-		prior.AgentID,
-		prior.RuntimeLockID,
-	); err != nil {
-		t.Fatalf("release prior runtime lease: %v", err)
-	}
+	fixture.releaseModelRuntimeLock(t, ctx, prior)
 	claimAt := now
 	if wallNow := time.Now().UTC(); claimAt.Before(wallNow) {
 		claimAt = wallNow.Add(time.Second)
@@ -1049,8 +972,8 @@ func (m *sequenceKernelModel) Capabilities() model.Capabilities {
 	if capabilities.ContextWindowTokens == 0 {
 		capabilities.ContextWindowTokens = 128000
 	}
-	if capabilities.MaxOutputTokens == 0 {
-		capabilities.MaxOutputTokens = 8192
+	if capabilities.MaxOutputTokens == nil {
+		capabilities.MaxOutputTokens = new(8192)
 	}
 	return capabilities
 }
@@ -1192,7 +1115,7 @@ func (r *selectionRecordingResolver) Resolve(
 	r.selections = append(r.selections, selection)
 	capabilities := model.Capabilities{
 		ContextWindowTokens:    128000,
-		MaxOutputTokens:        8192,
+		MaxOutputTokens:        new(8192),
 		DefaultMaxOutputTokens: 4096,
 		DefaultCacheRetention:  model.CacheRetention(selection.Overrides.CacheRetention),
 		SupportsReasoning:      true,
@@ -1236,18 +1159,63 @@ type fakeKernelMCPClient struct {
 	initializeAgentIDs      []string
 	lastAgentID             string
 	protocolVersion         string
+	stateless               bool
+	toolsTTLMs              int
 	tools                   []*sdkmcp.Tool
 	failInitializeEndpoints map[string]error
 	failInitializeSequences map[string][]error
 	listToolsErrors         []error
+	beforeListTools         func(context.Context) error
 	callToolErrors          []error
 	callToolResult          *sdkmcp.CallToolResult
 	callToolConns           []mcp.Conn
+	callToolCalls           []mcp.ToolCall
 
-	initializeCount int
-	notifyCount     int
-	listToolsCount  int
-	callToolCount   int
+	discoverCount     int
+	initializeCount   int
+	notifyCount       int
+	listToolsCount    int
+	listToolsDeadline time.Time
+	callToolCount     int
+}
+
+func (c *fakeKernelMCPClient) Discover(
+	_ context.Context,
+	conn mcp.Conn,
+	protocolVersion string,
+) (mcp.DiscoverResult, error) {
+	c.mu.Lock()
+	c.discoverCount++
+	stateless := c.stateless
+	var err error
+	if sequence := c.failInitializeSequences[conn.EndpointURL]; stateless && len(sequence) != 0 {
+		err = sequence[0]
+		c.failInitializeSequences[conn.EndpointURL] = sequence[1:]
+	}
+	if stateless && err == nil {
+		err = c.failInitializeEndpoints[conn.EndpointURL]
+	}
+	c.mu.Unlock()
+	if !stateless {
+		return mcp.DiscoverResult{}, &mcp.HTTPError{
+			Status: http.StatusBadRequest,
+			Body:   []byte("Bad Request: session required"),
+		}
+	}
+	if err != nil {
+		return mcp.DiscoverResult{}, err
+	}
+	if !mcp.IsStatelessProtocolVersion(protocolVersion) || conn.MCPSessionID != "" {
+		return mcp.DiscoverResult{}, fmt.Errorf("unexpected discover conn: %+v version %q", conn, protocolVersion)
+	}
+	return mcp.DiscoverResult{
+		ProtocolVersion:    protocolVersion,
+		SupportedVersions:  []string{protocolVersion},
+		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
+		ServerInfo:         json.RawMessage(`{"name":"fake-mcp","version":"v0"}`),
+		Instructions:       "fake stateless server",
+		Cache:              mcp.CacheHint{TTLMs: c.toolsTTLMs, CacheScope: "private"},
+	}, nil
 }
 
 func (c *fakeKernelMCPClient) Initialize(
@@ -1308,25 +1276,36 @@ func (c *fakeKernelMCPClient) Call(context.Context, mcp.Conn, string, json.RawMe
 }
 
 func (c *fakeKernelMCPClient) ListTools(
-	_ context.Context,
+	ctx context.Context,
 	conn mcp.Conn,
 	requestID int64,
 	_ string,
 ) (mcp.ToolsPage, error) {
 	c.mu.Lock()
 	c.listToolsCount++
+	c.listToolsDeadline, _ = ctx.Deadline()
 	agentID := c.expectedAgentIDLocked()
 	var err error
 	if len(c.listToolsErrors) != 0 {
 		err = c.listToolsErrors[0]
 		c.listToolsErrors = c.listToolsErrors[1:]
 	}
+	beforeListTools := c.beforeListTools
 	c.mu.Unlock()
+	if err == nil && beforeListTools != nil {
+		err = beforeListTools(ctx)
+	}
 	if err != nil {
 		return mcp.ToolsPage{}, err
 	}
 	if requestID <= 0 {
 		return mcp.ToolsPage{}, fmt.Errorf("request id = %d, want positive", requestID)
+	}
+	if c.stateless {
+		if conn.MCPSessionID != "" || !conn.Stateless() {
+			return mcp.ToolsPage{}, fmt.Errorf("unexpected stateless list conn: %+v", conn)
+		}
+		return mcp.ToolsPage{Tools: c.tools, TTLMs: c.toolsTTLMs, CacheScope: "private"}, nil
 	}
 	if conn.MCPSessionID != agentID || conn.ProtocolVersion != c.protocolVersion {
 		return mcp.ToolsPage{}, fmt.Errorf("unexpected list conn: %+v", conn)
@@ -1338,12 +1317,12 @@ func (c *fakeKernelMCPClient) CallTool(
 	_ context.Context,
 	conn mcp.Conn,
 	_ int64,
-	_ string,
-	_ json.RawMessage,
+	call mcp.ToolCall,
 ) (*sdkmcp.CallToolResult, error) {
 	c.mu.Lock()
 	c.callToolCount++
 	c.callToolConns = append(c.callToolConns, conn)
+	c.callToolCalls = append(c.callToolCalls, call)
 	var err error
 	if len(c.callToolErrors) != 0 {
 		err = c.callToolErrors[0]

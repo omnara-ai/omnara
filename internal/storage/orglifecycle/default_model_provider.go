@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -143,11 +144,32 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.Claim.OrgID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
+	defaultProject, projectErr := qtx.GetProjectByIdempotencyKey(
+		ctx,
+		dbsqlc.GetProjectByIdempotencyKeyParams{
+			OrgID:          input.Claim.OrgID,
+			IdempotencyKey: identitystore.DefaultProjectKey,
+		},
+	)
+	if projectErr != nil && !errors.Is(projectErr, pgx.ErrNoRows) {
+		return fmt.Errorf("load default project: %w", projectErr)
+	}
+	if errors.Is(projectErr, pgx.ErrNoRows) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.Claim.OrgID); err != nil {
+			return err
 		}
-		return fmt.Errorf("lock organization for default model provider provisioning: %w", err)
+	} else {
+		if err := lifecyclelock.EnterActiveProject(
+			ctx,
+			tx,
+			input.Claim.OrgID,
+			defaultProject.ID,
+		); err != nil {
+			if !errors.Is(err, storeerr.ErrNotFound) {
+				return err
+			}
+			projectErr = pgx.ErrNoRows
+		}
 	}
 	creatorUserID, err := qtx.LockDefaultModelProviderProvisioning(
 		ctx,
@@ -182,14 +204,7 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("load default model provider %q: %w", prepared.Name, err)
 	}
-	defaultProject, err := qtx.GetProjectByIdempotencyKey(
-		ctx,
-		dbsqlc.GetProjectByIdempotencyKeyParams{
-			OrgID:          input.Claim.OrgID,
-			IdempotencyKey: identitystore.DefaultProjectKey,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(projectErr, pgx.ErrNoRows) {
 		return finishSupersededDefaultModelProviderProvisioning(
 			ctx,
 			tx,
@@ -197,9 +212,6 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 			input.Claim,
 			"default project is missing",
 		)
-	}
-	if err != nil {
-		return fmt.Errorf("load default project: %w", err)
 	}
 	credentialNameID, err := uuid.NewV7()
 	if err != nil {

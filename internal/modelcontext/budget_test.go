@@ -118,9 +118,9 @@ func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 
 func TestModelWindowComputesExactUsableInputBoundary(t *testing.T) {
 	window := ModelWindow{
-		ContextTokens:          10_000,
-		RequestMaxOutputTokens: 2_000,
-		SafetyMarginTokens:     1_000,
+		ContextTokens:       10_000,
+		OutputReserveTokens: 2_000,
+		SafetyMarginTokens:  1_000,
 	}
 	if got := window.UsableInputTokens(); got != 7_000 {
 		t.Fatalf("usable input = %d, want 7000", got)

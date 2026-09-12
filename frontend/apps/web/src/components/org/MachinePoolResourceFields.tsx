@@ -32,7 +32,7 @@ export function MachinePoolResourceFields({
           <MachinePoolInputField
             id="mpool-location"
             label={definition.location.label}
-            required
+            required={definition.location.required}
             value={location}
             placeholder={definition.location.placeholder}
             autoComplete="off"

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -66,6 +67,7 @@ mcp:
 		t.Fatalf("unexpected new mcp connection: %+v", conn)
 	}
 	wrongProjectID := seedAdditionalProjectForTest(t, ctx, pool, "mcp_connection_wrong_scope")
+	catalog := seedCatalogForTest(t, ctx, store, "https://example.com/mcp", `[{"name":"search"}]`)
 	if _, err := store.Execution().MarkMCPConnectionReady(ctx, executionstore.MarkMCPConnectionReadyInput{
 		ProjectID:          wrongProjectID,
 		AgentID:            launch.Agent.ID,
@@ -73,9 +75,7 @@ mcp:
 		GenerationObserved: conn.Generation,
 		MCPSessionID:       "wrong-project-session",
 		ProtocolVersion:    "2025-11-25",
-		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
-		ServerInfo:         json.RawMessage(`{"name":"wrong-project"}`),
-		ToolsSnapshot:      json.RawMessage(`[{"name":"wrong-project"}]`),
+		CatalogID:          catalog.ID,
 	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("wrong-project ready error = %v, want state transition conflict", err)
 	}
@@ -147,15 +147,14 @@ mcp:
 		GenerationObserved: conn.Generation,
 		MCPSessionID:       "remote-session",
 		ProtocolVersion:    "2025-11-25",
-		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
-		ServerInfo:         json.RawMessage(`{"name":"fixture"}`),
-		ToolsSnapshot:      json.RawMessage(`[{"name":"search"}]`),
+		CatalogID:          catalog.ID,
 	})
 	if err != nil {
 		t.Fatalf("mark ready: %v", err)
 	}
 	if ready.State != executionstore.MCPConnectionStateReady || ready.MCPSessionID != "remote-session" ||
-		ready.ProtocolVersion != "2025-11-25" {
+		ready.ProtocolVersion != "2025-11-25" || !ready.UsesCatalog() ||
+		!jsoncanonical.Equal(ready.ToolsSnapshot, json.RawMessage(`[{"name":"search"}]`)) {
 		t.Fatalf("unexpected ready connection: %+v", ready)
 	}
 	seq, err := store.Execution().NextMCPRequestSequence(ctx, testProjectID, launch.Agent.ID, conn.ID)
@@ -213,9 +212,7 @@ mcp:
 		GenerationObserved: ready.Generation,
 		MCPSessionID:       "stale-session",
 		ProtocolVersion:    "2025-11-25",
-		ServerCapabilities: json.RawMessage(`{"tools":{}}`),
-		ServerInfo:         json.RawMessage(`{"name":"stale"}`),
-		ToolsSnapshot:      json.RawMessage(`[{"name":"stale"}]`),
+		CatalogID:          catalog.ID,
 	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("stale generation ready should conflict, got %v", err)
 	}

@@ -15,6 +15,8 @@ import {
 export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfig<TItem>) {
   return function BoundResourceMultiCombobox({
     items,
+    id,
+    required,
     value,
     onValueChange,
     search,
@@ -31,7 +33,14 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
     const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
 
     return (
-      <Combobox {...rootProps} multiple value={value} onValueChange={onValueChange}>
+      <Combobox
+        {...rootProps}
+        id={id}
+        required={required}
+        multiple
+        value={value}
+        onValueChange={onValueChange}
+      >
         <ComboboxChips>
           <ComboboxValue>
             {value.map((item) => (
@@ -43,7 +52,7 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
               </ComboboxChip>
             ))}
           </ComboboxValue>
-          <ComboboxChipsInput aria-label={placeholder} placeholder={placeholder} />
+          <ComboboxChipsInput aria-label={id ? undefined : placeholder} placeholder={placeholder} />
         </ComboboxChips>
         <ResourceComboboxContent
           config={config}

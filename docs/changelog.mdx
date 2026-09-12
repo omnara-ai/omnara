@@ -1,0 +1,68 @@
+---
+title: Changelog
+description: New features, improvements, and fixes in Omnara
+icon: "list"
+mode: "center"
+---
+
+<Update
+  label="September 9, 2026"
+  description="Introducing Omnara"
+  rss={{
+    title: "Introducing Omnara",
+    description: "Run agents that keep their history, use your choice of models and tools, and work with people in your product or in Slack."
+  }}
+>
+
+## Introducing Omnara
+
+On September 2, we relaunched Omnara as the open-source alternative to Claude Managed Agents. Run agents for yourself or your team, or build them into your product through the API. Omnara handles durable execution, sandboxes, and conversation history while you choose how each agent works. Here’s what we’ve shipped so far.
+
+<Frame>
+  <iframe
+    className="w-full aspect-video rounded-xl"
+    src="https://www.youtube.com/embed/6i3ScDe7gcs"
+    title="Introducing Omnara"
+    frameBorder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+  ></iframe>
+</Frame>
+
+### Agents that pick up where they left off
+
+Agents keep their conversation history across crashes, restarts, and machine disconnects, so work can resume without starting a new conversation. Set one up in the dashboard or with a small [configuration file](/agents/configuration). Save that setup as a profile to reuse it whenever you need a new agent.
+
+### Choose your models and machines
+
+Use models from OpenAI, Anthropic, OpenRouter, or Amazon Bedrock, or connect a compatible model you host yourself. You can choose the [model](/organization/model-providers) that fits each agent's work.
+
+When an agent needs to run commands, it can use an Omnara-managed sandbox or a [machine you connect](/machines/overview), such as a laptop or server. You can also bring your own Blaxel, Unikraft Cloud, or Daytona account. Agents can create sandboxes when they need them and release them when the work is done.
+
+### Connect tools and share skills
+
+Agents can search the web, run commands, and work with files using built-in tools. Connect [MCP servers](/tools/mcp) to give them access to your services and data, or add custom tools for actions in your own application. You can browse available MCP servers and their tools in the dashboard.
+
+[Skills](/tools/skills) let you package instructions and supporting files for work your agents do regularly. Upload and edit them in the dashboard, then reuse them across agents and projects.
+
+### Work with agents as they run
+
+Follow an agent's progress live, send a correction while it's working, or queue up its next task. You can decide which [actions need approval](/tools/permissions), and agents can pause to ask questions when they need your input.
+
+You can also attach images and documents to a conversation. Agents can return reports, spreadsheets, and other files for you to view or download.
+
+### Slack and scheduled work
+
+Connect an agent profile to [Slack](/integrations/slack) so your team can work with it in threads and DMs. Each conversation keeps its own history, and people can answer questions, approve actions, and receive files directly in Slack.
+
+For recurring work, schedules can start a new agent or send a task to an existing one. We've included [examples](/examples/overview) that collect updates from X, Reddit, LinkedIn, and PostHog and deliver a digest to Slack.
+
+### Build agents into your product
+
+The [REST API](/api/overview), TypeScript SDK, and CLI let you launch agents, send messages, follow their progress, and respond to requests for input. You can build these interactions into your own application or work with agents from your terminal.
+
+For teams, projects and roles control who can manage or use agents and shared resources. Store credentials as secrets and choose which projects can access your models, machines, and skills.
+
+Get started on [Omnara Cloud](https://app.omnara.com) or [self-host](/self-hosting/deployment) on your own infrastructure. Omnara is open source under Apache 2.0. The [quickstart](/quickstart) walks through launching your first agent.
+
+</Update>

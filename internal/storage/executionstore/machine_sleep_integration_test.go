@@ -190,7 +190,7 @@ func TestAsleepMachineUnreachableExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start process against asleep machine: %v", err)
 	}
-	if _, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if _, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx,
 		0,
 	); err != nil {
@@ -562,9 +562,10 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start second process: %v", err)
 	}
-	eligible, err := fixture.Store.q.ListMachineUnreachableQueuedProcessToolCallsForMachine(
+	eligible, err := fixture.Store.q.ListExpirableQueuedProcessToolCallsForMachine(
 		ctx,
-		dbsqlc.ListMachineUnreachableQueuedProcessToolCallsForMachineParams{
+		dbsqlc.ListExpirableQueuedProcessToolCallsForMachineParams{
+			QueueTimeoutSeconds:            int32(executionstore.ProcessQueueTimeout / time.Second),
 			OrgID:                          fixture.OrgID,
 			MachineID:                      fixture.MachineID,
 			MachineUnreachableGraceSeconds: 1,
@@ -577,7 +578,7 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	if len(eligible) != 1 || eligible[0].ID != firstProcess.ID {
 		t.Fatalf("eligible queued processes = %v, want only first process", eligible)
 	}
-	if _, err := fixture.Store.Execution().ExpireMachineUnreachableProcessToolCallsForAllProjects(
+	if _, err := fixture.Store.Execution().ExpireProcessToolCallsForAllProjects(
 		ctx,
 		time.Second,
 	); err != nil {

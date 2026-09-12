@@ -7,10 +7,138 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
+
+func TestLegacyFixedAgentInstallTriggerSerializesWithOrganizationDeletion(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name          string
+		deletionFirst bool
+	}{
+		{name: "install-first"},
+		{name: "deletion-first", deletionFirst: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newSecretIntegrationStore(pool)
+			admin, agent, credentialID := createFixedIntegrationFixture(t, ctx, store, "legacy-org-"+test.name)
+			actor, err := executionstore.OmnaraActorParams(testOrgID, identitystore.NewUserPrincipal(admin.ID))
+			require.NoError(t, err)
+
+			blocker := integrationdb.BeginTx(t, ctx, pool)
+			var blockerPID int32
+			require.NoError(t, blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID))
+			if test.deletionFirst {
+				// The raw insert must wait on the deleting backend's organization gate,
+				// before this project gate or the agent FK can block it on our backend.
+				require.NoError(t, lifecyclelock.ProjectExclusive(ctx, blocker, testProjectID))
+			}
+			_, err = blocker.Exec(ctx, `SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE`,
+				testProjectID, agent.ID)
+			require.NoError(t, err)
+
+			startInstall := func() <-chan integrationdb.AsyncResult[string] {
+				return integrationdb.RunAsync(func() (string, error) {
+					var id string
+					err := pool.QueryRow(ctx, `
+INSERT INTO integration_installs(
+    org_id, project_id, agent_id, installed_by_user_id, provider,
+    integration_kind, connection_mode, state, provider_tenant_id,
+    provider_account_ref, provider_agent_display_name, credential_secret_id,
+    provider_config, provider_identity, provider_metadata, created_at, updated_at
+)
+VALUES (
+    $1, $2, $3, $4, 'slack', 'workspace_single_agent', 'webhook', 'active',
+    'legacy-org-workspace', 'legacy-org-bot', 'Legacy Omnara', $5,
+    '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+    transaction_timestamp(), transaction_timestamp()
+)
+RETURNING id::text
+`, testOrgID, testProjectID, agent.ID, admin.ID, credentialID).Scan(&id)
+					return id, err
+				})
+			}
+			startDeletion := func() <-chan error {
+				return integrationdb.RunAsyncError(func() error {
+					_, err := store.Organizations().DeleteOrganizationOnceForIntegration(ctx, testOrgID, actor)
+					return err
+				})
+			}
+
+			var installDone <-chan integrationdb.AsyncResult[string]
+			var deleteDone <-chan error
+			if test.deletionFirst {
+				deleteDone = startDeletion()
+				integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentInProject ", blockerPID)
+				deletionPID := integrationLifecycleWaiterPID(t, ctx, pool, "-- name: LockAgentInProject ", blockerPID)
+				installDone = startInstall()
+				integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "INSERT INTO integration_installs(", deletionPID)
+			} else {
+				// The compatibility trigger must hold the organization shared gate
+				// while its fixed-agent FK waits on our agent row lock.
+				installDone = startInstall()
+				integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "INSERT INTO integration_installs(", blockerPID)
+				installPID := integrationLifecycleWaiterPID(t, ctx, pool, "INSERT INTO integration_installs(", blockerPID)
+				deleteDone = startDeletion()
+				integrationdb.WaitForLockWaitBlockedBy(
+					t, ctx, pool, "-- name: LockOrganizationLifecycleExclusive ", installPID,
+				)
+			}
+
+			require.NoError(t, blocker.Commit(ctx))
+			require.NoError(t, integrationdb.Await(t, deleteDone, "organization deletion without retries"))
+			installOutcome := integrationdb.Await(t, installDone, "raw fixed-agent installation")
+			if test.deletionFirst {
+				var pgErr *pgconn.PgError
+				require.ErrorAs(t, installOutcome.Err, &pgErr)
+				require.Equal(t, "23503", pgErr.Code)
+				require.Equal(t, "integration installation requires an active project", pgErr.Message)
+				var apps, installs int
+				require.NoError(t, pool.QueryRow(ctx, `
+SELECT (SELECT count(*) FROM integration_apps WHERE owner_project_id = $1),
+       (SELECT count(*) FROM integration_installs WHERE project_id = $1)
+`, testProjectID).Scan(&apps, &installs))
+				require.Zero(t, apps, "rejected raw insert must not leave a compatibility app")
+				require.Zero(t, installs, "raw insert must not survive organization deletion")
+			} else {
+				require.NoError(t, installOutcome.Err)
+				var installedAgentID ID
+				var installDeleted, appDeleted bool
+				require.NoError(t, pool.QueryRow(ctx, `
+SELECT install.agent_id, install.deleted_at IS NOT NULL, app.deleted_at IS NOT NULL
+FROM integration_installs install
+JOIN integration_apps app ON app.id = install.integration_app_id
+WHERE install.id = $1
+`, installOutcome.Value).Scan(&installedAgentID, &installDeleted, &appDeleted))
+				require.Equal(t, agent.ID, installedAgentID)
+				require.True(t, installDeleted, "organization deletion must sweep the admitted raw install")
+				require.True(t, appDeleted, "organization deletion must sweep its compatibility app")
+			}
+			var orgDeleted, projectDeleted bool
+			var agentState string
+			require.NoError(t, pool.QueryRow(ctx, `
+SELECT organization.deleted_at IS NOT NULL, project.deleted_at IS NOT NULL, agent.state
+FROM orgs organization
+JOIN projects project ON project.org_id = organization.id
+JOIN agents agent ON agent.project_id = project.id
+WHERE organization.id = $1 AND project.id = $2 AND agent.id = $3
+`, testOrgID, testProjectID, agent.ID).Scan(&orgDeleted, &projectDeleted, &agentState))
+			require.True(t, orgDeleted)
+			require.True(t, projectDeleted)
+			require.Equal(t, "archived", agentState)
+		})
+	}
+}
 
 func TestLegacyInstallTriggerCannotRacePastProjectDeletion(t *testing.T) {
 	t.Parallel()
@@ -40,7 +168,7 @@ func TestLegacyInstallTriggerCannotRacePastProjectDeletion(t *testing.T) {
 	}
 	if _, err := deletion.Exec(
 		ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`,
+		`SELECT pg_advisory_xact_lock(hashtextextended('project_lifecycle:' || $1::uuid::text, 0))`,
 		testProjectID.String(),
 	); err != nil {
 		t.Fatalf("lock project lifecycle exclusively: %v", err)

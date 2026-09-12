@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/registryname"
 	secretspkg "github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -33,31 +34,12 @@ func (s *Store) CreateIntegrationApp(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
 	if !isNilID(input.OwnerProjectID) {
-		if err := lockProjectLifecycleShared(ctx, qtx, input.OwnerProjectID); err != nil {
-			return IntegrationAppRecord{}, err
-		}
+		err = lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.OwnerProjectID)
+	} else {
+		err = lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID)
 	}
-	if _, err := qtx.LockOrganizationLifecycleShared(
-		ctx,
-		dbsqlc.LockOrganizationLifecycleSharedParams{OrgID: input.OrgID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return IntegrationAppRecord{}, storeerr.ErrNotFound
-		}
-		return IntegrationAppRecord{}, fmt.Errorf("lock integration app organization owner: %w", err)
-	}
-	if !isNilID(input.OwnerProjectID) {
-		if _, err := qtx.LockIntegrationAppProjectOwner(
-			ctx,
-			dbsqlc.LockIntegrationAppProjectOwnerParams{
-				OrgID: input.OrgID, OwnerProjectID: input.OwnerProjectID,
-			},
-		); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return IntegrationAppRecord{}, storeerr.ErrNotFound
-			}
-			return IntegrationAppRecord{}, fmt.Errorf("lock integration app project owner: %w", err)
-		}
+	if err != nil {
+		return IntegrationAppRecord{}, err
 	}
 	row, err := qtx.InsertIntegrationApp(ctx, dbsqlc.InsertIntegrationAppParams{
 		OrgID:                      input.OrgID,
@@ -247,6 +229,9 @@ func (s *Store) CreateIntegrationRoute(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if _, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID); err != nil {
+		return IntegrationRouteRecord{}, err
+	}
 	if _, err := qtx.LockIntegrationInstallForRouteMutation(
 		ctx,
 		dbsqlc.LockIntegrationInstallForRouteMutationParams{
@@ -359,7 +344,7 @@ func (s *Store) DeleteIntegrationRoute(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if err := lockProjectLifecycleShared(ctx, qtx, projectID); err != nil {
+	if _, err := lockIntegrationInstallLifecycleShared(ctx, tx, projectID, integrationInstallID); err != nil {
 		return err
 	}
 	if _, err := qtx.LockIntegrationInstallForRouteMutation(
@@ -409,7 +394,7 @@ func (s *Store) CreateIntegrationTargetBinding(
 	defer func() { _ = tx.Rollback(ctx) }()
 	record, err := createIntegrationTargetBinding(
 		ctx,
-		s.q.WithTx(tx),
+		tx,
 		input,
 	)
 	if err != nil {
@@ -429,12 +414,12 @@ func (s *Store) CreateIntegrationTargetBindingTx(
 	if tx == nil {
 		return IntegrationTargetBindingRecord{}, errors.New("transaction is required")
 	}
-	return createIntegrationTargetBinding(ctx, dbsqlc.New(tx), input)
+	return createIntegrationTargetBinding(ctx, tx, input)
 }
 
 func createIntegrationTargetBinding(
 	ctx context.Context,
-	q *dbsqlc.Queries,
+	tx pgx.Tx,
 	input CreateIntegrationTargetBindingInput,
 ) (IntegrationTargetBindingRecord, error) {
 	var err error
@@ -442,6 +427,10 @@ func createIntegrationTargetBinding(
 	if err != nil {
 		return IntegrationTargetBindingRecord{}, err
 	}
+	if _, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID); err != nil {
+		return IntegrationTargetBindingRecord{}, err
+	}
+	q := dbsqlc.New(tx)
 	if _, err := q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: input.ProjectID,
 		ID:        input.AgentID,

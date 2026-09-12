@@ -57,6 +57,208 @@ func (q *Queries) CheckMachineUnreachableForToolExpiry(ctx context.Context, arg 
 	return unreachable, err
 }
 
+const expireQueuedProcessToolCall = `-- name: ExpireQueuedProcessToolCall :one
+WITH cutoff AS (
+  SELECT statement_timestamp() - ($7::int * interval '1 second') AS queued_before
+)
+UPDATE processes process
+SET state = 'failed',
+    state_reason_code = CASE
+      WHEN process.created_at <= cutoff.queued_before
+      THEN 'process_queue_timeout'
+      ELSE 'machine_unreachable'
+    END,
+    state_reason_message = CASE
+      WHEN process.created_at <= cutoff.queued_before
+      THEN 'machine did not accept the command before its queue deadline; execution was not granted'
+      ELSE ''
+    END,
+    state_changed_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+FROM cutoff
+WHERE process.project_id = $1
+  AND process.agent_id = $2
+  AND process.id = $3
+  AND process.org_id = $4
+  AND process.machine_id = $5
+  AND process.state = 'queued'
+  AND (
+    process.created_at <= cutoff.queued_before
+    OR $6::boolean
+  )
+  AND EXISTS (
+    SELECT 1 FROM machines machine
+    WHERE machine.org_id = process.org_id AND machine.id = process.machine_id
+      AND machine.lifecycle_state = 'active' AND machine.deleted_at IS NULL
+  )
+  AND EXISTS (
+    SELECT 1
+    FROM tool_calls tool_call
+    WHERE tool_call.agent_id = process.agent_id
+      AND tool_call.id = process.tool_call_id
+      AND tool_call.type = 'built_in'
+      AND tool_call.state = 'waiting'
+  )
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+`
+
+type ExpireQueuedProcessToolCallParams struct {
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	ID                  uuid.UUID
+	OrgID               uuid.UUID
+	MachineID           uuid.UUID
+	MachineUnreachable  bool
+	QueueTimeoutSeconds int32
+}
+
+func (q *Queries) ExpireQueuedProcessToolCall(ctx context.Context, arg ExpireQueuedProcessToolCallParams) (Process, error) {
+	row := q.db.QueryRow(ctx, expireQueuedProcessToolCall,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ID,
+		arg.OrgID,
+		arg.MachineID,
+		arg.MachineUnreachable,
+		arg.QueueTimeoutSeconds,
+	)
+	var i Process
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.ToolCallID,
+		&i.RuntimeLockID,
+		&i.AgentMachineBindingID,
+		&i.MachineID,
+		&i.ExecutionGrantedAt,
+		&i.IoMode,
+		&i.Command,
+		&i.ShellSelector,
+		&i.Cwd,
+		&i.Env,
+		&i.SecretEnv,
+		&i.TimeoutSeconds,
+		&i.InitialWaitMs,
+		&i.DefaultOutputCursor,
+		&i.State,
+		&i.StateReasonCode,
+		&i.StateReasonMessage,
+		&i.SourceStartedAt,
+		&i.SourceEndedAt,
+		&i.StateChangedAt,
+		&i.ExitCode,
+		&i.ExitSignal,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActivityAt,
+	)
+	return i, err
+}
+
+const listExpirableQueuedProcessToolCallsForMachine = `-- name: ListExpirableQueuedProcessToolCallsForMachine :many
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+FROM processes process
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
+  AND tool_call.id = process.tool_call_id
+JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
+LEFT JOIN LATERAL (
+  SELECT runtime.effective_end_at AS unreachable_at
+  FROM daemon_runtime_connection_facts runtime
+  WHERE runtime.org_id = process.org_id
+    AND runtime.machine_id = process.machine_id
+  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
+  LIMIT 1
+) latest_runtime ON true
+LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
+  AND online.machine_id = process.machine_id
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND process.state = 'queued'
+  AND process.tool_call_id IS NOT NULL
+  AND tool_call.type = 'built_in'
+  AND tool_call.state = 'waiting'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND (
+    process.created_at <= transaction_timestamp() - ($3::int * interval '1 second')
+    OR (
+      (machine.wake_attempt_expires_at IS NULL
+        OR machine.wake_attempt_expires_at <= transaction_timestamp())
+      AND online.id IS NULL
+      AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - ($4::int * interval '1 second')
+    )
+  )
+ORDER BY process.created_at, process.id
+LIMIT $5
+`
+
+type ListExpirableQueuedProcessToolCallsForMachineParams struct {
+	OrgID                          uuid.UUID
+	MachineID                      uuid.UUID
+	QueueTimeoutSeconds            int32
+	MachineUnreachableGraceSeconds int32
+	LimitCount                     int32
+}
+
+func (q *Queries) ListExpirableQueuedProcessToolCallsForMachine(ctx context.Context, arg ListExpirableQueuedProcessToolCallsForMachineParams) ([]Process, error) {
+	rows, err := q.db.Query(ctx, listExpirableQueuedProcessToolCallsForMachine,
+		arg.OrgID,
+		arg.MachineID,
+		arg.QueueTimeoutSeconds,
+		arg.MachineUnreachableGraceSeconds,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Process{}
+	for rows.Next() {
+		var i Process
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.ToolCallID,
+			&i.RuntimeLockID,
+			&i.AgentMachineBindingID,
+			&i.MachineID,
+			&i.ExecutionGrantedAt,
+			&i.IoMode,
+			&i.Command,
+			&i.ShellSelector,
+			&i.Cwd,
+			&i.Env,
+			&i.SecretEnv,
+			&i.TimeoutSeconds,
+			&i.InitialWaitMs,
+			&i.DefaultOutputCursor,
+			&i.State,
+			&i.StateReasonCode,
+			&i.StateReasonMessage,
+			&i.SourceStartedAt,
+			&i.SourceEndedAt,
+			&i.StateChangedAt,
+			&i.ExitCode,
+			&i.ExitSignal,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastActivityAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMachineUnreachableAcceptedProcessActionToolCallsForMachine = `-- name: ListMachineUnreachableAcceptedProcessActionToolCallsForMachine :many
 SELECT action.id, action.org_id, action.project_id, action.agent_id, action.process_id, action.tool_call_id, action.runtime_lock_id, action.action_kind, action.seq, action.payload, action.state, action.created_at, action.updated_at, action.state_reason_code, action.state_reason_message
 FROM process_actions action
@@ -239,157 +441,6 @@ func (q *Queries) ListMachineUnreachableAcceptedProcessToolCallsForMachine(ctx c
 	return items, nil
 }
 
-const listMachineUnreachableMachineCandidates = `-- name: ListMachineUnreachableMachineCandidates :many
-WITH cutoff AS MATERIALIZED (
-  SELECT transaction_timestamp() AS observed_at,
-         transaction_timestamp()
-           - ($2::int * interval '1 second') AS unreachable_before
-), process_work AS MATERIALIZED (
-  SELECT process.org_id, process.machine_id, process.created_at AS work_at
-  FROM processes process
-  JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
-    AND tool_call.id = process.tool_call_id
-  JOIN machines machine ON machine.org_id = process.org_id
-    AND machine.id = process.machine_id
-  LEFT JOIN LATERAL (
-    SELECT runtime.effective_end_at AS unreachable_at
-    FROM daemon_runtime_connection_facts runtime
-    WHERE runtime.org_id = process.org_id
-      AND runtime.machine_id = process.machine_id
-    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
-    LIMIT 1
-  ) latest_runtime ON true
-  CROSS JOIN cutoff
-  WHERE process.state IN ('queued', 'starting', 'running')
-    AND process.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
-    AND tool_call.type = 'built_in'
-    AND tool_call.state = 'waiting'
-    AND machine.lifecycle_state = 'active'
-    AND machine.deleted_at IS NULL
-    AND (
-      machine.wake_attempt_expires_at IS NULL
-      OR machine.wake_attempt_expires_at <= cutoff.observed_at
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes online
-      WHERE online.org_id = process.org_id
-        AND online.machine_id = process.machine_id
-    )
-  ORDER BY process.created_at, process.id
-  LIMIT $1
-), action_work AS MATERIALIZED (
-  SELECT action.org_id, process.machine_id, action.created_at AS work_at
-  FROM process_actions action
-  JOIN processes process ON process.org_id = action.org_id
-    AND process.project_id = action.project_id
-    AND process.agent_id = action.agent_id
-    AND process.id = action.process_id
-  JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
-    AND tool_call.id = action.tool_call_id
-  JOIN machines machine ON machine.org_id = action.org_id
-    AND machine.id = process.machine_id
-  LEFT JOIN LATERAL (
-    SELECT runtime.effective_end_at AS unreachable_at
-    FROM daemon_runtime_connection_facts runtime
-    WHERE runtime.org_id = action.org_id
-      AND runtime.machine_id = process.machine_id
-    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
-    LIMIT 1
-  ) latest_runtime ON true
-  CROSS JOIN cutoff
-  WHERE action.state IN ('queued', 'accepted')
-    AND action.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.unreachable_at, action.created_at) <= cutoff.unreachable_before
-    AND (
-      action.state = 'accepted'
-      OR process.state IN ('starting', 'running')
-      OR (
-        action.action_kind = 'read'
-        AND process.state IN ('exited', 'failed', 'killed', 'unknown')
-      )
-    )
-    AND tool_call.type = 'built_in'
-    AND tool_call.state = 'waiting'
-    AND machine.lifecycle_state = 'active'
-    AND machine.deleted_at IS NULL
-    AND (
-      machine.wake_attempt_expires_at IS NULL
-      OR machine.wake_attempt_expires_at <= cutoff.observed_at
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes online
-      WHERE online.org_id = action.org_id
-        AND online.machine_id = process.machine_id
-    )
-  ORDER BY action.created_at, action.id
-  LIMIT $1
-), machine_work AS MATERIALIZED (
-  SELECT work.org_id, work.machine_id, min(work.work_at)::timestamptz AS earliest_work_at
-  FROM (
-    SELECT org_id, machine_id, work_at FROM process_work
-    UNION ALL
-    SELECT org_id, machine_id, work_at FROM action_work
-  ) work
-  GROUP BY work.org_id, work.machine_id
-), candidates AS (
-  SELECT work.org_id,
-         work.machine_id,
-         greatest(
-           work.earliest_work_at,
-           coalesce(latest_runtime.unreachable_at, work.earliest_work_at)
-         )::timestamptz AS unreachable_at
-  FROM machine_work work
-  LEFT JOIN LATERAL (
-    SELECT runtime.effective_end_at AS unreachable_at
-    FROM daemon_runtime_connection_facts runtime
-    WHERE runtime.org_id = work.org_id
-      AND runtime.machine_id = work.machine_id
-    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
-    LIMIT 1
-  ) latest_runtime ON true
-)
-SELECT candidates.org_id, candidates.machine_id, candidates.unreachable_at
-FROM candidates
-CROSS JOIN cutoff
-WHERE candidates.unreachable_at <= cutoff.unreachable_before
-ORDER BY candidates.unreachable_at, candidates.org_id, candidates.machine_id
-LIMIT $1
-`
-
-type ListMachineUnreachableMachineCandidatesParams struct {
-	LimitCount                     int32
-	MachineUnreachableGraceSeconds int32
-}
-
-type ListMachineUnreachableMachineCandidatesRow struct {
-	OrgID         uuid.UUID
-	MachineID     uuid.UUID
-	UnreachableAt time.Time
-}
-
-func (q *Queries) ListMachineUnreachableMachineCandidates(ctx context.Context, arg ListMachineUnreachableMachineCandidatesParams) ([]ListMachineUnreachableMachineCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listMachineUnreachableMachineCandidates, arg.LimitCount, arg.MachineUnreachableGraceSeconds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListMachineUnreachableMachineCandidatesRow{}
-	for rows.Next() {
-		var i ListMachineUnreachableMachineCandidatesRow
-		if err := rows.Scan(&i.OrgID, &i.MachineID, &i.UnreachableAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listMachineUnreachableQueuedProcessActionToolCallsForMachine = `-- name: ListMachineUnreachableQueuedProcessActionToolCallsForMachine :many
 SELECT action.id, action.org_id, action.project_id, action.agent_id, action.process_id, action.tool_call_id, action.runtime_lock_id, action.action_kind, action.seq, action.payload, action.state, action.created_at, action.updated_at, action.state_reason_code, action.state_reason_message
 FROM process_actions action
@@ -482,93 +533,143 @@ func (q *Queries) ListMachineUnreachableQueuedProcessActionToolCallsForMachine(c
 	return items, nil
 }
 
-const listMachineUnreachableQueuedProcessToolCallsForMachine = `-- name: ListMachineUnreachableQueuedProcessToolCallsForMachine :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
-FROM processes process
-JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
-  AND tool_call.id = process.tool_call_id
-JOIN machines machine ON machine.org_id = process.org_id
-  AND machine.id = process.machine_id
-LEFT JOIN LATERAL (
-  SELECT runtime.effective_end_at AS unreachable_at
-  FROM daemon_runtime_connection_facts runtime
-  WHERE runtime.org_id = process.org_id
-    AND runtime.machine_id = process.machine_id
-  ORDER BY runtime.effective_end_at DESC, runtime.id DESC
-  LIMIT 1
-) latest_runtime ON true
-LEFT JOIN online_daemon_runtimes online ON online.org_id = process.org_id
-  AND online.machine_id = process.machine_id
-WHERE process.org_id = $1
-  AND process.machine_id = $2
-  AND process.state = 'queued'
-  AND process.tool_call_id IS NOT NULL
-  AND tool_call.type = 'built_in'
-  AND tool_call.state = 'waiting'
-  AND machine.lifecycle_state = 'active'
-  AND machine.deleted_at IS NULL
-  AND (
-    machine.wake_attempt_expires_at IS NULL
-    OR machine.wake_attempt_expires_at <= transaction_timestamp()
-  )
-  AND online.id IS NULL
-  AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - ($3::int * interval '1 second')
-ORDER BY process.created_at, process.id
-LIMIT $4
+const listProcessToolExpiryMachineCandidates = `-- name: ListProcessToolExpiryMachineCandidates :many
+WITH cutoff AS MATERIALIZED (
+  SELECT transaction_timestamp() AS observed_at,
+         transaction_timestamp()
+           - ($2::int * interval '1 second') AS unreachable_before,
+         transaction_timestamp()
+           - ($3::int * interval '1 second') AS queued_before
+), process_work AS MATERIALIZED (
+  SELECT process.org_id, process.machine_id,
+         CASE
+           WHEN process.state = 'queued' AND process.created_at <= cutoff.queued_before
+           THEN process.created_at + ($3::int * interval '1 second')
+           ELSE greatest(process.created_at, latest_runtime.unreachable_at)
+             + ($2::int * interval '1 second')
+         END AS expires_at
+  FROM processes process
+  JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
+    AND tool_call.id = process.tool_call_id
+  JOIN machines machine ON machine.org_id = process.org_id
+    AND machine.id = process.machine_id
+  LEFT JOIN LATERAL (
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
+    WHERE runtime.org_id = process.org_id
+      AND runtime.machine_id = process.machine_id
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
+    LIMIT 1
+  ) latest_runtime ON true
+  CROSS JOIN cutoff
+  WHERE process.state IN ('queued', 'starting', 'running')
+    AND process.created_at <= greatest(cutoff.unreachable_before, cutoff.queued_before)
+    AND tool_call.type = 'built_in'
+    AND tool_call.state = 'waiting'
+    AND machine.lifecycle_state = 'active'
+    AND machine.deleted_at IS NULL
+    AND (
+      (process.state = 'queued'
+        AND process.created_at <= cutoff.queued_before)
+      OR (
+        process.created_at <= cutoff.unreachable_before
+        AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
+        AND (machine.wake_attempt_expires_at IS NULL
+          OR machine.wake_attempt_expires_at <= cutoff.observed_at)
+        AND NOT EXISTS (
+          SELECT 1 FROM online_daemon_runtimes online
+          WHERE online.org_id = process.org_id AND online.machine_id = process.machine_id
+        )
+      )
+    )
+  ORDER BY process.created_at, process.id
+  LIMIT $1
+), action_work AS MATERIALIZED (
+  SELECT action.org_id, process.machine_id,
+         greatest(action.created_at, latest_runtime.unreachable_at)
+           + ($2::int * interval '1 second') AS expires_at
+  FROM process_actions action
+  JOIN processes process ON process.org_id = action.org_id
+    AND process.project_id = action.project_id
+    AND process.agent_id = action.agent_id
+    AND process.id = action.process_id
+  JOIN tool_calls tool_call ON tool_call.agent_id = action.agent_id
+    AND tool_call.id = action.tool_call_id
+  JOIN machines machine ON machine.org_id = action.org_id
+    AND machine.id = process.machine_id
+  LEFT JOIN LATERAL (
+    SELECT runtime.effective_end_at AS unreachable_at
+    FROM daemon_runtime_connection_facts runtime
+    WHERE runtime.org_id = action.org_id
+      AND runtime.machine_id = process.machine_id
+    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
+    LIMIT 1
+  ) latest_runtime ON true
+  CROSS JOIN cutoff
+  WHERE action.state IN ('queued', 'accepted')
+    AND action.created_at <= cutoff.unreachable_before
+    AND coalesce(latest_runtime.unreachable_at, action.created_at) <= cutoff.unreachable_before
+    AND (
+      action.state = 'accepted'
+      OR process.state IN ('starting', 'running')
+      OR (
+        action.action_kind = 'read'
+        AND process.state IN ('exited', 'failed', 'killed', 'unknown')
+      )
+    )
+    AND tool_call.type = 'built_in'
+    AND tool_call.state = 'waiting'
+    AND machine.lifecycle_state = 'active'
+    AND machine.deleted_at IS NULL
+    AND (
+      machine.wake_attempt_expires_at IS NULL
+      OR machine.wake_attempt_expires_at <= cutoff.observed_at
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM online_daemon_runtimes online
+      WHERE online.org_id = action.org_id
+        AND online.machine_id = process.machine_id
+    )
+  ORDER BY action.created_at, action.id
+  LIMIT $1
+), machine_work AS (
+  SELECT work.org_id, work.machine_id, min(work.expires_at)::timestamptz AS expires_at
+  FROM (
+    SELECT org_id, machine_id, expires_at FROM process_work
+    UNION ALL
+    SELECT org_id, machine_id, expires_at FROM action_work
+  ) work
+  GROUP BY work.org_id, work.machine_id
+)
+SELECT org_id, machine_id, expires_at
+FROM machine_work
+ORDER BY expires_at, org_id, machine_id
+LIMIT $1
 `
 
-type ListMachineUnreachableQueuedProcessToolCallsForMachineParams struct {
-	OrgID                          uuid.UUID
-	MachineID                      uuid.UUID
-	MachineUnreachableGraceSeconds int32
+type ListProcessToolExpiryMachineCandidatesParams struct {
 	LimitCount                     int32
+	MachineUnreachableGraceSeconds int32
+	QueueTimeoutSeconds            int32
 }
 
-func (q *Queries) ListMachineUnreachableQueuedProcessToolCallsForMachine(ctx context.Context, arg ListMachineUnreachableQueuedProcessToolCallsForMachineParams) ([]Process, error) {
-	rows, err := q.db.Query(ctx, listMachineUnreachableQueuedProcessToolCallsForMachine,
-		arg.OrgID,
-		arg.MachineID,
-		arg.MachineUnreachableGraceSeconds,
-		arg.LimitCount,
-	)
+type ListProcessToolExpiryMachineCandidatesRow struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	ExpiresAt time.Time
+}
+
+func (q *Queries) ListProcessToolExpiryMachineCandidates(ctx context.Context, arg ListProcessToolExpiryMachineCandidatesParams) ([]ListProcessToolExpiryMachineCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listProcessToolExpiryMachineCandidates, arg.LimitCount, arg.MachineUnreachableGraceSeconds, arg.QueueTimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Process{}
+	items := []ListProcessToolExpiryMachineCandidatesRow{}
 	for rows.Next() {
-		var i Process
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.ToolCallID,
-			&i.RuntimeLockID,
-			&i.AgentMachineBindingID,
-			&i.MachineID,
-			&i.ExecutionGrantedAt,
-			&i.IoMode,
-			&i.Command,
-			&i.ShellSelector,
-			&i.Cwd,
-			&i.Env,
-			&i.SecretEnv,
-			&i.TimeoutSeconds,
-			&i.InitialWaitMs,
-			&i.DefaultOutputCursor,
-			&i.State,
-			&i.StateReasonCode,
-			&i.StateReasonMessage,
-			&i.SourceStartedAt,
-			&i.SourceEndedAt,
-			&i.StateChangedAt,
-			&i.ExitCode,
-			&i.ExitSignal,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.LastActivityAt,
-		); err != nil {
+		var i ListProcessToolExpiryMachineCandidatesRow
+		if err := rows.Scan(&i.OrgID, &i.MachineID, &i.ExpiresAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

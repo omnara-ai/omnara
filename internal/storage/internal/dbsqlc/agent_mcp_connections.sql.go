@@ -7,7 +7,6 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -24,14 +23,18 @@ WHERE agent.project_id = $1
   AND agent.id = connection.agent_id
   AND connection.agent_id = $2
   AND connection.id = $3
-  AND connection.state IN ('initializing', 'failed', 'expired')
+  AND (connection.state IN ('initializing', 'failed', 'expired')
+       OR (connection.state = 'ready' AND EXISTS (
+           SELECT 1 FROM mcp_server_catalogs catalog
+           WHERE catalog.id = connection.catalog_id AND catalog.refresh_error <> ''
+       )))
 RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.endpoint_url, connection.config_hash, connection.state,
           connection.protocol_version, connection.mcp_session_id,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at
+          connection.created_at, connection.updated_at, connection.catalog_id
 `
 
 type BeginMCPConnectionInitializationParams struct {
@@ -60,6 +63,7 @@ func (q *Queries) BeginMCPConnectionInitialization(ctx context.Context, arg Begi
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -72,6 +76,7 @@ SET state = 'expired',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     generation = connection.generation + 1,
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -100,7 +105,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = $1
@@ -134,6 +139,7 @@ func (q *Queries) GetMCPConnection(ctx context.Context, arg GetMCPConnectionPara
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -145,7 +151,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = $1
@@ -179,6 +185,7 @@ func (q *Queries) GetMCPConnectionByID(ctx context.Context, arg GetMCPConnection
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -229,11 +236,15 @@ SET endpoint_url = EXCLUDED.endpoint_url,
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.generation
       ELSE agent_mcp_connections.generation + 1
     END,
+    catalog_id = CASE
+      WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.catalog_id
+      ELSE NULL
+    END,
     updated_at = statement_timestamp()
 RETURNING id, agent_id, server_key, endpoint_url, config_hash, state,
           protocol_version, mcp_session_id, server_capabilities, server_info,
           tools_snapshot, initialize_error, generation, request_sequence,
-          created_at, updated_at
+          created_at, updated_at, catalog_id
 `
 
 type GetOrCreateMCPConnectionParams struct {
@@ -270,6 +281,7 @@ func (q *Queries) GetOrCreateMCPConnection(ctx context.Context, arg GetOrCreateM
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -281,7 +293,7 @@ SELECT connection.id, connection.agent_id, connection.server_key,
        connection.server_capabilities, connection.server_info,
        connection.tools_snapshot, connection.initialize_error,
        connection.generation, connection.request_sequence,
-       connection.created_at, connection.updated_at
+       connection.created_at, connection.updated_at, connection.catalog_id
 FROM agent_mcp_connections connection
 JOIN agents agent ON agent.id = connection.agent_id
 WHERE agent.project_id = $1
@@ -320,6 +332,7 @@ func (q *Queries) ListAgentMCPConnections(ctx context.Context, arg ListAgentMCPC
 			&i.RequestSequence,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CatalogID,
 		); err != nil {
 			return nil, err
 		}
@@ -339,6 +352,7 @@ SET state = 'expired',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     generation = generation + 1,
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -353,7 +367,7 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at
+          connection.created_at, connection.updated_at, connection.catalog_id
 `
 
 type MarkMCPConnectionExpiredParams struct {
@@ -388,6 +402,7 @@ func (q *Queries) MarkMCPConnectionExpired(ctx context.Context, arg MarkMCPConne
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -400,6 +415,7 @@ SET state = 'failed',
     server_capabilities = '{}'::jsonb,
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
+    catalog_id = NULL,
     initialize_error = $1,
     updated_at = transaction_timestamp()
 FROM agents agent
@@ -407,7 +423,7 @@ WHERE agent.project_id = $2
   AND agent.id = connection.agent_id
   AND connection.agent_id = $3
   AND connection.id = $4
-  AND connection.state = 'initializing'
+  AND connection.state IN ('initializing', 'ready')
   AND connection.generation = $5
 RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.endpoint_url, connection.config_hash, connection.state,
@@ -415,7 +431,7 @@ RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at
+          connection.created_at, connection.updated_at, connection.catalog_id
 `
 
 type MarkMCPConnectionFailedParams struct {
@@ -452,6 +468,7 @@ func (q *Queries) MarkMCPConnectionFailed(ctx context.Context, arg MarkMCPConnec
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -461,33 +478,32 @@ UPDATE agent_mcp_connections connection
 SET state = 'ready',
     protocol_version = $1,
     mcp_session_id = $2,
-    server_capabilities = $3,
-    server_info = $4,
-    tools_snapshot = $5,
+    server_capabilities = '{}'::jsonb,
+    server_info = '{}'::jsonb,
+    tools_snapshot = '[]'::jsonb,
+    catalog_id = $3::uuid,
     initialize_error = '',
     updated_at = transaction_timestamp()
 FROM agents agent
-WHERE agent.project_id = $6
+WHERE agent.project_id = $4
   AND agent.id = connection.agent_id
-  AND connection.agent_id = $7
-  AND connection.id = $8
+  AND connection.agent_id = $5
+  AND connection.id = $6
   AND connection.state = 'initializing'
-  AND connection.generation = $9
+  AND connection.generation = $7
 RETURNING connection.id, connection.agent_id, connection.server_key,
           connection.endpoint_url, connection.config_hash, connection.state,
           connection.protocol_version, connection.mcp_session_id,
           connection.server_capabilities, connection.server_info,
           connection.tools_snapshot, connection.initialize_error,
           connection.generation, connection.request_sequence,
-          connection.created_at, connection.updated_at
+          connection.created_at, connection.updated_at, connection.catalog_id
 `
 
 type MarkMCPConnectionReadyParams struct {
 	ProtocolVersion    string
 	McpSessionID       string
-	ServerCapabilities json.RawMessage
-	ServerInfo         json.RawMessage
-	ToolsSnapshot      json.RawMessage
+	CatalogID          uuid.UUID
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	ID                 uuid.UUID
@@ -498,9 +514,7 @@ func (q *Queries) MarkMCPConnectionReady(ctx context.Context, arg MarkMCPConnect
 	row := q.db.QueryRow(ctx, markMCPConnectionReady,
 		arg.ProtocolVersion,
 		arg.McpSessionID,
-		arg.ServerCapabilities,
-		arg.ServerInfo,
-		arg.ToolsSnapshot,
+		arg.CatalogID,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.ID,
@@ -524,6 +538,7 @@ func (q *Queries) MarkMCPConnectionReady(ctx context.Context, arg MarkMCPConnect
 		&i.RequestSequence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CatalogID,
 	)
 	return i, err
 }
@@ -550,4 +565,69 @@ func (q *Queries) NextMCPRequestSequence(ctx context.Context, arg NextMCPRequest
 	var request_sequence int64
 	err := row.Scan(&request_sequence)
 	return request_sequence, err
+}
+
+const setMCPConnectionCatalog = `-- name: SetMCPConnectionCatalog :one
+UPDATE agent_mcp_connections connection
+SET protocol_version = $1,
+    mcp_session_id = $2,
+    catalog_id = $3::uuid,
+    updated_at = transaction_timestamp()
+FROM agents agent
+WHERE agent.project_id = $4
+  AND agent.id = connection.agent_id
+  AND connection.agent_id = $5
+  AND connection.id = $6
+  AND connection.state = 'ready'
+  AND connection.generation = $7
+RETURNING connection.id, connection.agent_id, connection.server_key,
+          connection.endpoint_url, connection.config_hash, connection.state,
+          connection.protocol_version, connection.mcp_session_id,
+          connection.server_capabilities, connection.server_info,
+          connection.tools_snapshot, connection.initialize_error,
+          connection.generation, connection.request_sequence,
+          connection.created_at, connection.updated_at, connection.catalog_id
+`
+
+type SetMCPConnectionCatalogParams struct {
+	ProtocolVersion    string
+	McpSessionID       string
+	CatalogID          uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ID                 uuid.UUID
+	GenerationObserved int64
+}
+
+func (q *Queries) SetMCPConnectionCatalog(ctx context.Context, arg SetMCPConnectionCatalogParams) (AgentMcpConnection, error) {
+	row := q.db.QueryRow(ctx, setMCPConnectionCatalog,
+		arg.ProtocolVersion,
+		arg.McpSessionID,
+		arg.CatalogID,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.ID,
+		arg.GenerationObserved,
+	)
+	var i AgentMcpConnection
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.ServerKey,
+		&i.EndpointUrl,
+		&i.ConfigHash,
+		&i.State,
+		&i.ProtocolVersion,
+		&i.McpSessionID,
+		&i.ServerCapabilities,
+		&i.ServerInfo,
+		&i.ToolsSnapshot,
+		&i.InitializeError,
+		&i.Generation,
+		&i.RequestSequence,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CatalogID,
+	)
+	return i, err
 }

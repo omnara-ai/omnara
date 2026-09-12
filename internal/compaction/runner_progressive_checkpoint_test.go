@@ -169,7 +169,7 @@ func TestRunnerValidatesCandidateWithSerializedNormalProviderRequest(t *testing.
 	client := &summaryModel{
 		caps: model.Capabilities{
 			ContextWindowTokens:    10_000,
-			MaxOutputTokens:        1_024,
+			MaxOutputTokens:        new(1_024),
 			DefaultMaxOutputTokens: 1_024,
 		},
 		sourceInputTokens:           500,
@@ -206,7 +206,7 @@ func TestRunnerRejectsProgressiveCheckpointWithoutRemainingSemanticSource(t *tes
 	client := &summaryModel{
 		caps: model.Capabilities{
 			ContextWindowTokens:    10_000,
-			MaxOutputTokens:        1_024,
+			MaxOutputTokens:        new(1_024),
 			DefaultMaxOutputTokens: 1_024,
 		},
 		sourceInputTokens:           500,

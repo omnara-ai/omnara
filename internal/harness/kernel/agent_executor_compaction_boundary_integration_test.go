@@ -80,7 +80,7 @@ func TestAgentExecutorRecoversInterruptedRetryCompaction(t *testing.T) {
 		providerModelSlug: "kernel-test",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{
@@ -505,7 +505,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 		providerModelSlug: "truncated-compaction-config-boundary",
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     128,
+			MaxOutputTokens:     new(128),
 		},
 		responses: []model.Response{
 			{

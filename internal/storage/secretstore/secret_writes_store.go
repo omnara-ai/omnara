@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -21,7 +22,7 @@ func (s *Store) CreateTx(
 	tx pgx.Tx,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
-	return s.createSecretTx(ctx, s.q.WithTx(tx), input)
+	return s.createSecretTx(ctx, tx, s.q.WithTx(tx), input)
 }
 
 func (s *Store) CreateSecret(
@@ -41,7 +42,7 @@ func (s *Store) CreateSecret(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	record, version, err := s.createSecretTx(ctx, qtx, input)
+	record, version, err := s.createSecretTx(ctx, tx, qtx, input)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
@@ -91,6 +92,7 @@ func (s *Store) CreateSecret(
 
 func (s *Store) createSecretTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
@@ -99,6 +101,18 @@ func (s *Store) createSecretTx(
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
 	input.Name = normalizedName
+	if isNilID(input.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, SecretVersionRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		input.OwnerProjectID,
+	); err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
 	material, err := secrets.CanonicalizeMaterial(input.Material)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
@@ -107,10 +121,7 @@ func (s *Store) createSecretTx(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("%v", err)
 	}
-	if err := lockSecretCreationOwnerLifecycleShared(ctx, qtx, input); err != nil {
-		return SecretRecord{}, SecretVersionRecord{}, err
-	}
-	if err := validateSecretOwnerMembershipTx(
+	if err := lockActiveSecretOwnerMembershipTx(
 		ctx,
 		qtx,
 		input.OrgID,
@@ -161,49 +172,6 @@ func (s *Store) createSecretTx(
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
 	return record, version, nil
-}
-
-// Project ownership enters the project lifecycle before the organization row,
-// matching project and organization deletion. Every owner kind then locks the
-// live organization so a soft-deleted parent cannot gain a new secret.
-func lockSecretCreationOwnerLifecycleShared(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	input CreateSecretInput,
-) error {
-	if input.OwnerKind == SecretOwnerProject {
-		if isNilID(input.OwnerProjectID) {
-			return invalidSecretRequest("project-owned secret requires an owner project")
-		}
-		if err := qtx.LockProjectLifecycleShared(
-			ctx,
-			dbsqlc.LockProjectLifecycleSharedParams{ProjectID: input.OwnerProjectID.String()},
-		); err != nil {
-			return fmt.Errorf("lock secret owner project lifecycle: %w", err)
-		}
-	}
-	if _, err := qtx.LockOrganizationLifecycleShared(
-		ctx,
-		dbsqlc.LockOrganizationLifecycleSharedParams{OrgID: input.OrgID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
-		}
-		return fmt.Errorf("lock secret owner organization lifecycle: %w", err)
-	}
-	if input.OwnerKind != SecretOwnerProject {
-		return nil
-	}
-	if _, err := qtx.GetProject(ctx, dbsqlc.GetProjectParams{
-		OrgID: input.OrgID,
-		ID:    input.OwnerProjectID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
-		}
-		return fmt.Errorf("load secret owner project: %w", err)
-	}
-	return nil
 }
 
 type insertSecretVersionTxInput struct {
@@ -286,6 +254,22 @@ func (s *Store) UpdateSecretMetadata(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, err
+	}
+	if isNilID(secret.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
+		ctx,
+		tx,
+		input.OrgID,
+		secret.OwnerProjectID,
+	); err != nil {
+		return SecretRecord{}, err
+	}
 	if _, err := qtx.LockSecret(
 		ctx,
 		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
@@ -357,14 +341,19 @@ func (s *Store) CreateSecretVersion(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	// Integration credential rotation updates dependent installation and app
-	// revisions. Enter the owner's lifecycle before taking the secret row so
-	// project or organization deletion cannot acquire those locks in reverse.
-	if err := lockSecretOwnerLifecycleShared(
+	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
+	if isNilID(secret.OwnerProjectID) {
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, SecretVersionRecord{}, err
+		}
+	} else if err := lifecyclelock.EnterActiveProject(
 		ctx,
-		qtx,
+		tx,
 		input.OrgID,
-		input.SecretID,
+		secret.OwnerProjectID,
 	); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
@@ -377,7 +366,7 @@ func (s *Store) CreateSecretVersion(
 		}
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("lock secret: %w", err)
 	}
-	secret, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	secret, err = getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
@@ -476,46 +465,6 @@ func (s *Store) CreateSecretVersion(
 	return updated, version, nil
 }
 
-// lockSecretOwnerLifecycleShared must run before LockSecret or DeleteSecret.
-// Secret authority is immutable, and callers re-read the live row after
-// locking it, so organization/project deletion cannot take dependent rows in
-// the reverse order. This helper does not fence user-account deletion.
-func lockSecretOwnerLifecycleShared(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	orgID, secretID ID,
-) error {
-	secret, err := getSecretTx(ctx, qtx, orgID, secretID)
-	if err != nil {
-		return err
-	}
-	if secret.OwnerKind == SecretOwnerProject {
-		if isNilID(secret.OwnerProjectID) {
-			return fmt.Errorf("project-owned secret %s has no owner project", secretID)
-		}
-		if err := qtx.LockProjectLifecycleShared(
-			ctx,
-			dbsqlc.LockProjectLifecycleSharedParams{ProjectID: secret.OwnerProjectID.String()},
-		); err != nil {
-			return fmt.Errorf("lock secret owner project lifecycle: %w", err)
-		}
-		return nil
-	}
-	// Organization deletion removes every secret in the organization, including
-	// user-owned secrets, so every non-project owner enters the organization
-	// lifecycle before taking a secret or OAuth-lease row.
-	if _, err := qtx.LockOrganizationLifecycleShared(
-		ctx,
-		dbsqlc.LockOrganizationLifecycleSharedParams{OrgID: orgID},
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
-		}
-		return fmt.Errorf("lock secret owner organization lifecycle: %w", err)
-	}
-	return nil
-}
-
 func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (SecretRecord, error) {
 	if isNilID(input.OrgID) || isNilID(input.SecretID) || isNilID(input.Actor.ID) {
 		return SecretRecord{}, invalidSecretRequest("org, secret, and actor are required")
@@ -530,26 +479,68 @@ func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (Secr
 	if err := s.authorizeSecretManage(ctx, record, input.Actor); err != nil {
 		return SecretRecord{}, err
 	}
+	return storeutil.RetryTransaction(ctx, "delete_secret", func() (SecretRecord, error) {
+		return s.deleteSecretOnce(ctx, input, record)
+	})
+}
+
+func (s *Store) deleteSecretOnce(
+	ctx context.Context,
+	input DeleteSecretInput,
+	observed SecretRecord,
+) (SecretRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return SecretRecord{}, fmt.Errorf("begin delete secret: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	// Enter the owner lifecycle before locking the secret and scanning its
-	// references. Credential-association triggers take a conflicting shared lock,
-	// so either the association commits first and is observed below, or it waits
-	// and rejects the deleted secret.
-	if err := lockSecretOwnerLifecycleShared(ctx, qtx, input.OrgID, input.SecretID); err != nil {
-		return SecretRecord{}, err
+	switch observed.OwnerKind {
+	case SecretOwnerProject:
+		if err := lifecyclelock.EnterActiveProject(
+			ctx,
+			tx,
+			input.OrgID,
+			observed.OwnerProjectID,
+		); err != nil {
+			return SecretRecord{}, err
+		}
+	case SecretOwnerOrg, SecretOwnerUser:
+		if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+			return SecretRecord{}, err
+		}
+	default:
+		return SecretRecord{}, invalidSecretRequest("unsupported secret owner kind %q", observed.OwnerKind)
 	}
-	if _, err := qtx.DeleteSecret(ctx, dbsqlc.DeleteSecretParams{
-		OrgID: input.OrgID, ID: input.SecretID,
-	}); err != nil {
+	if observed.OwnerKind == SecretOwnerUser {
+		if _, err := qtx.LockUserForUpdate(
+			ctx,
+			dbsqlc.LockUserForUpdateParams{ID: observed.OwnerUserID},
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return SecretRecord{}, storeerr.ErrNotFound
+			}
+			return SecretRecord{}, fmt.Errorf("lock secret owner: %w", err)
+		}
+	}
+	// FOR UPDATE conflicts with credential-association triggers' FOR SHARE.
+	// Scan references only after taking this lock so a concurrent association
+	// either becomes visible here or waits and rejects the deleted secret.
+	if _, err := qtx.LockSecret(
+		ctx,
+		dbsqlc.LockSecretParams{OrgID: input.OrgID, ID: input.SecretID},
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SecretRecord{}, storeerr.ErrNotFound
 		}
-		return SecretRecord{}, fmt.Errorf("delete secret: %w", err)
+		return SecretRecord{}, fmt.Errorf("lock secret for deletion: %w", err)
+	}
+	record, err := getSecretTx(ctx, qtx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretRecord{}, err
+	}
+	if err := management.RequireTenant(record.ManagementKind, "secrets"); err != nil {
+		return SecretRecord{}, err
 	}
 	referenced, err := qtx.SecretIsReferenced(ctx, dbsqlc.SecretIsReferencedParams{
 		OrgID: input.OrgID, SecretID: input.SecretID,
@@ -559,6 +550,11 @@ func (s *Store) DeleteSecret(ctx context.Context, input DeleteSecretInput) (Secr
 	}
 	if referenced {
 		return SecretRecord{}, storeerr.ErrConflict
+	}
+	if _, err := qtx.DeleteSecret(ctx, dbsqlc.DeleteSecretParams{
+		OrgID: input.OrgID, ID: input.SecretID,
+	}); err != nil {
+		return SecretRecord{}, fmt.Errorf("delete secret: %w", err)
 	}
 	if err := qtx.DeleteSecretGrantsForSecret(ctx, dbsqlc.DeleteSecretGrantsForSecretParams{
 		OrgID: input.OrgID, SecretID: input.SecretID,

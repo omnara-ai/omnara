@@ -19,13 +19,6 @@ SELECT id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, u
 FROM orgs
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 
--- name: LockOrganizationLifecycleShared :one
-SELECT id
-FROM orgs
-WHERE id = sqlc.arg(org_id)
-  AND deleted_at IS NULL
-FOR SHARE;
-
 -- name: DeleteOrganization :execrows
 UPDATE orgs SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
@@ -33,6 +26,13 @@ WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 -- name: DeleteOrganizationProjects :exec
 UPDATE projects SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
+
+-- name: LockOrganizationMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id)
+ORDER BY id
+FOR UPDATE;
 
 -- name: DeleteOrganizationMemberships :exec
 DELETE FROM org_memberships
@@ -42,11 +42,6 @@ WHERE org_id = sqlc.arg(org_id);
 -- Invitations must not mint memberships in a deleted organization.
 DELETE FROM org_invitations
 WHERE org_id = sqlc.arg(org_id);
-
--- name: OrgExistsActive :one
-SELECT EXISTS (
-  SELECT 1 FROM orgs WHERE id = sqlc.arg(id) AND deleted_at IS NULL
-) AS org_exists;
 
 -- name: DeleteOrganizationConfiguredModels :exec
 UPDATE configured_models SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
@@ -118,6 +113,13 @@ SELECT id FROM agents
 WHERE project_id = sqlc.arg(project_id) AND state = 'active'
 ORDER BY id;
 
+-- name: ListActiveAgentRefsForOrganizationDeletion :many
+SELECT project_id, id AS agent_id
+FROM agents
+WHERE org_id = sqlc.arg(org_id)
+  AND state = 'active'
+ORDER BY project_id, id;
+
 -- name: ProjectHasActiveAgentsForDeletion :one
 SELECT EXISTS (
   SELECT 1 FROM agents
@@ -151,7 +153,10 @@ WHERE org.idempotency_key = sqlc.arg(idempotency_key)::text
 
 -- name: CreateProject :one
 INSERT INTO projects(org_id, name, idempotency_key, created_at, updated_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(name), sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp())
+SELECT org.id, sqlc.arg(name), sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp()
+FROM orgs org
+WHERE org.id = sqlc.arg(org_id)
+  AND org.deleted_at IS NULL
 ON CONFLICT (org_id, idempotency_key) DO NOTHING
 RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at;
 
@@ -408,6 +413,13 @@ WHERE id = $1 AND deleted_at IS NULL;
 UPDATE users SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
 
+-- name: LockUserOrgMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE user_id = sqlc.arg(user_id)::uuid
+ORDER BY id
+FOR UPDATE;
+
 -- name: DeleteUserOrgMemberships :exec
 -- Project memberships hang off the org membership row and delete with it.
 DELETE FROM org_memberships
@@ -486,6 +498,16 @@ SELECT EXISTS (
         AND other.user_id <> membership.user_id
     )
 ) AS is_last_owner;
+
+-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = sqlc.arg(user_id)::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org;
 
 -- name: LockUserForUpdate :one
 SELECT id
@@ -839,7 +861,12 @@ WHERE auth_connector_id = sqlc.arg(auth_connector_id) AND subject = sqlc.arg(sub
 
 -- name: AddProjectMembership :one
 INSERT INTO project_memberships(org_id, project_id, org_membership_id, role, created_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(project_id), sqlc.arg(org_membership_id), sqlc.arg(role), transaction_timestamp())
+SELECT project.org_id, project.id, sqlc.arg(org_membership_id), sqlc.arg(role), transaction_timestamp()
+FROM projects project
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+WHERE project.org_id = sqlc.arg(org_id)
+  AND project.id = sqlc.arg(project_id)
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, org_membership_id)
 DO UPDATE SET role = excluded.role
 RETURNING org_id, project_id, org_membership_id, role, created_at;
@@ -980,6 +1007,15 @@ SELECT o.id, o.name, om.role, o.created_at
 FROM org_memberships om
 JOIN orgs o ON o.id = om.org_id
 WHERE om.user_id = sqlc.arg(user_id)::uuid
+  AND o.deleted_at IS NULL
+ORDER BY o.name, o.id;
+
+-- name: ListOrgMembershipsForPrincipal :many
+SELECT o.id, o.name, om.role, o.created_at
+FROM org_memberships om
+JOIN orgs o ON o.id = om.org_id
+WHERE ((sqlc.narg(user_id)::uuid IS NOT NULL AND om.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid))
   AND o.deleted_at IS NULL
 ORDER BY o.name, o.id;
 
@@ -1241,6 +1277,11 @@ FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND normalized_email = sqlc.arg(normalized_email);
 
+-- name: GetOrgInvitationForLifecycle :one
+SELECT id, org_id
+FROM org_invitations
+WHERE id = sqlc.arg(id);
+
 -- name: ListPendingOrgInvitationsForEmails :many
 SELECT invitation.id,
        invitation.org_id,
@@ -1357,3 +1398,177 @@ SELECT EXISTS (
 SELECT role
 FROM org_memberships om
 WHERE om.org_id = sqlc.arg(org_id) AND om.user_id = sqlc.arg(user_id)::uuid;
+
+-- name: ListPrincipalRoles :many
+SELECT 'org'::text AS scope, om.role
+FROM org_memberships om
+JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
+WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND om.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND om.org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
+UNION
+SELECT 'project'::text AS scope, roles.role
+FROM principal_project_authorization_roles roles
+WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_id)::uuid)
+   OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
+
+-- name: CreateOAuthAuthorizationCode :one
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+VALUES (
+  sqlc.arg(code_hash),
+  sqlc.arg(user_id),
+  sqlc.arg(client_id),
+  sqlc.arg(client_name),
+  sqlc.arg(redirect_uri),
+  sqlc.arg(code_challenge),
+  sqlc.arg(resource),
+  transaction_timestamp(),
+  transaction_timestamp() + (sqlc.arg(ttl_seconds)::bigint * interval '1 second')
+)
+RETURNING id;
+
+-- name: GetActiveOAuthAuthorizationCodeUserByHash :one
+SELECT user_id
+FROM oauth_authorization_codes
+WHERE code_hash = sqlc.arg(code_hash)
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp();
+
+-- name: ConsumeOAuthAuthorizationCode :one
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE code_hash = sqlc.arg(code_hash)
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp()
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource;
+
+-- name: ConsumeOAuthAuthorizationCodesForUser :exec
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE user_id = sqlc.arg(user_id)
+  AND consumed_at IS NULL;
+
+-- name: DeleteExpiredOAuthAuthorizationCodes :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_authorization_codes
+    WHERE expires_at <= transaction_timestamp()
+    ORDER BY expires_at, id
+    LIMIT sqlc.arg(limit_count)
+)
+DELETE FROM oauth_authorization_codes
+USING candidates
+WHERE oauth_authorization_codes.id = candidates.id;
+
+-- name: CreateOAuthAccessToken :one
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+VALUES (
+  sqlc.arg(user_id),
+  sqlc.arg(client_id),
+  sqlc.arg(client_name),
+  sqlc.arg(resource),
+  sqlc.arg(token_hash),
+  sqlc.arg(refresh_token_hash),
+  transaction_timestamp(),
+  transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+  transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+)
+RETURNING id;
+
+-- name: GetOAuthAccessTokenUserByRefreshToken :one
+SELECT token.user_id
+FROM oauth_access_tokens token
+LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
+WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+   OR retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+LIMIT 1;
+
+-- name: RotateOAuthAccessToken :one
+WITH presented AS (
+  SELECT token.id
+  FROM oauth_access_tokens token
+  WHERE token.client_id = sqlc.arg(client_id)
+    AND token.revoked_at IS NULL
+    AND token.refresh_expires_at > transaction_timestamp()
+    AND (
+      token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+      OR EXISTS (
+        SELECT 1
+        FROM oauth_retired_refresh_tokens latest
+        WHERE latest.oauth_access_token_id = token.id
+          AND latest.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)
+          AND latest.retired_at
+            > transaction_timestamp() - (sqlc.arg(reuse_grace_seconds)::bigint * interval '1 second')
+          AND latest.retired_at = (
+            SELECT max(retired.retired_at)
+            FROM oauth_retired_refresh_tokens retired
+            WHERE retired.oauth_access_token_id = token.id
+          )
+      )
+    )
+), rotated AS (
+  UPDATE oauth_access_tokens token
+  SET token_hash = sqlc.arg(token_hash),
+      refresh_token_hash = sqlc.arg(refresh_token_hash),
+      expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
+  FROM presented
+  WHERE token.id = presented.id
+  RETURNING token.id, token.user_id, token.resource
+), retired AS (
+  INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
+  SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
+  FROM rotated
+  JOIN oauth_access_tokens old ON old.id = rotated.id
+  ON CONFLICT (refresh_token_hash) DO NOTHING
+)
+SELECT id, user_id, resource
+FROM rotated;
+
+-- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
+UPDATE oauth_access_tokens token
+SET revoked_at = transaction_timestamp()
+FROM oauth_retired_refresh_tokens retired
+WHERE retired.oauth_access_token_id = token.id
+  AND retired.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
+  AND token.revoked_at IS NULL;
+
+-- name: AuthenticateOAuthAccessToken :one
+WITH authenticated AS MATERIALIZED (
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  FROM oauth_access_tokens t
+  WHERE t.token_hash = sqlc.arg(token_hash)
+    AND t.revoked_at IS NULL
+    AND t.expires_at > transaction_timestamp()
+  LIMIT 1
+), touched AS (
+  UPDATE oauth_access_tokens token
+  SET last_used_at = transaction_timestamp()
+  FROM authenticated
+  WHERE token.id = authenticated.oauth_access_token_id
+    AND (
+      token.last_used_at IS NULL
+      OR token.last_used_at < transaction_timestamp() - (sqlc.arg(touch_interval_seconds)::bigint * interval '1 second')
+    )
+  RETURNING token.id
+)
+SELECT user_id, oauth_access_token_id, resource
+FROM authenticated;
+
+-- name: RevokeOAuthAccessTokensForUser :exec
+UPDATE oauth_access_tokens
+SET revoked_at = statement_timestamp()
+WHERE user_id = sqlc.arg(user_id)
+  AND revoked_at IS NULL;
+
+-- name: DeleteInactiveOAuthAccessTokens :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_access_tokens
+    WHERE refresh_expires_at <= transaction_timestamp()
+       OR revoked_at IS NOT NULL
+    ORDER BY refresh_expires_at, id
+    LIMIT sqlc.arg(limit_count)
+)
+DELETE FROM oauth_access_tokens
+USING candidates
+WHERE oauth_access_tokens.id = candidates.id;

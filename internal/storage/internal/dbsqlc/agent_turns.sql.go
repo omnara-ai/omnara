@@ -151,6 +151,37 @@ func (q *Queries) InsertAgentTurn(ctx context.Context, arg InsertAgentTurnParams
 	return i, err
 }
 
+const isOutputLimitBoundary = `-- name: IsOutputLimitBoundary :one
+SELECT EXISTS (
+  SELECT 1
+  FROM agent_events event
+  JOIN agents agent ON agent.id = event.agent_id
+  JOIN model_outputs output ON output.agent_id = event.agent_id
+    AND output.id = event.model_output_id
+  WHERE agent.project_id = $1
+    AND event.agent_id = $2
+    AND event.sequence = $3
+    AND output.stop_reason = 'max_tokens'
+    AND NOT EXISTS (
+      SELECT 1 FROM tool_calls call
+      WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id
+    )
+)::boolean
+`
+
+type IsOutputLimitBoundaryParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	EventSequence int64
+}
+
+func (q *Queries) IsOutputLimitBoundary(ctx context.Context, arg IsOutputLimitBoundaryParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isOutputLimitBoundary, arg.ProjectID, arg.AgentID, arg.EventSequence)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listAgentEventsBeforeForRead = `-- name: ListAgentEventsBeforeForRead :many
 SELECT projection.id, projection.org_id, projection.project_id, projection.agent_id,
        projection.turn_id, projection.turn_sequence, projection.is_opening_event,
@@ -420,6 +451,7 @@ SELECT event.id,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
        output.provider_replay,
+       coalesce(output.stop_reason, '') AS stop_reason,
        CASE
          WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -477,7 +509,7 @@ WHERE scoped_agent.project_id = $1
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, input.input_kind
+  output.provider_replay, output.stop_reason, input.input_kind
 ORDER BY event.sequence ASC
 LIMIT $5
 `
@@ -503,6 +535,7 @@ type ListContextEventsRow struct {
 	ApiFormat                  string
 	ApiVariant                 string
 	ProviderReplay             *json.RawMessage
+	StopReason                 string
 	ContentParts               json.RawMessage
 }
 
@@ -534,6 +567,7 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.ApiFormat,
 			&i.ApiVariant,
 			&i.ProviderReplay,
+			&i.StopReason,
 			&i.ContentParts,
 		); err != nil {
 			return nil, err

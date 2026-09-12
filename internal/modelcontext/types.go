@@ -109,6 +109,7 @@ type Message struct {
 	Content              json.RawMessage                      `json:"content"`
 	ProviderReplay       json.RawMessage                      `json:"-"`
 	ProviderReplaySource modelenvelope.ProviderReplayIdentity `json:"-"`
+	StopReason           modelenvelope.StopReason             `json:"-"`
 }
 
 type ToolSpec struct {
@@ -152,4 +153,5 @@ type CheckpointRef struct {
 	ID                             string `json:"-"`
 	SummarizedThroughEventSequence int64  `json:"summarized_through_event_sequence"`
 	Summary                        string `json:"summary"`
+	EndsWithOutputLimit            bool   `json:"-"`
 }

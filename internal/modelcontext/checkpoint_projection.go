@@ -28,5 +28,9 @@ func ProjectedCheckpointContent(checkpoint CheckpointRef) string {
 	b.WriteString("<context_checkpoint>\n")
 	b.WriteString(checkpointBoundaryEscaper.Replace(checkpoint.Summary))
 	b.WriteString("\n</context_checkpoint>")
+	if checkpoint.EndsWithOutputLimit {
+		b.WriteString("\n\n")
+		b.WriteString(outputLimitNotice)
+	}
 	return b.String()
 }

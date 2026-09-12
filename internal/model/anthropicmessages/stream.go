@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 var errAnthropicStreamTerminal = errors.New("anthropic stream reached a terminal event")
@@ -99,11 +100,11 @@ func (p protocol) ConsumeStream(
 			Cause:      err,
 		}
 	}
-	out, err := p.ParseResponse(ctx, route.Response{
+	out, err := p.parseResponse(route.Response{
 		StatusCode: statusCode,
 		Header:     header,
 		Body:       responseBody,
-	})
+	}, true)
 	if err != nil {
 		emit.Error(ctx, err.Error())
 		if _, ok := model.ClassifyError(err); !ok {
@@ -119,7 +120,7 @@ func (p protocol) ConsumeStream(
 		}
 		return out, err
 	}
-	acc.restoreMalformedToolInputs(&out)
+	acc.rejectIncompleteToolInputs(&out)
 	emit.MessageStop(ctx, out.StopReason, out.Usage)
 	return out, nil
 }
@@ -139,12 +140,17 @@ type anthropicStreamAccumulator struct {
 	stopReasonRaw  string
 	usageRaw       usage
 	content        []json.RawMessage
-	toolInputs     []string
+	toolInputs     []anthropicStreamToolInput
 	activeBlock    *anthropicStreamBlock
 	activeBlockIdx int
 	nextBlockIdx   int
 	sawMessageStop bool
 	streamErr      error
+}
+
+type anthropicStreamToolInput struct {
+	blockIndex int
+	rawInput   string
 }
 
 func (a *anthropicStreamAccumulator) partialResponse() model.Response {
@@ -394,7 +400,10 @@ func (a *anthropicStreamAccumulator) closeBlock(ctx context.Context, index int) 
 		a.content = append(a.content, rawBlock)
 	}
 	if block.kind == model.StreamBlockToolUse {
-		a.toolInputs = append(a.toolInputs, strings.TrimSpace(block.toolInputJSON.String()))
+		a.toolInputs = append(a.toolInputs, anthropicStreamToolInput{
+			blockIndex: index,
+			rawInput:   strings.TrimSpace(block.toolInputJSON.String()),
+		})
 	}
 	if block.kind != "" {
 		a.emit.BlockStop(ctx, index)
@@ -410,7 +419,7 @@ func (a *anthropicStreamAccumulator) abortOpenBlocks(ctx context.Context) {
 	}
 }
 
-func (a *anthropicStreamAccumulator) restoreMalformedToolInputs(response *model.Response) {
+func (a *anthropicStreamAccumulator) rejectIncompleteToolInputs(response *model.Response) {
 	toolIndex := 0
 	for index := range response.Content {
 		part := &response.Content[index]
@@ -420,10 +429,14 @@ func (a *anthropicStreamAccumulator) restoreMalformedToolInputs(response *model.
 		if toolIndex >= len(a.toolInputs) {
 			return
 		}
-		raw := a.toolInputs[toolIndex]
+		input := a.toolInputs[toolIndex]
 		toolIndex++
-		if raw != "" && !json.Valid([]byte(raw)) {
-			part.ToolInput = json.RawMessage(raw)
+		if input.rawInput == "" &&
+			(response.StopReason != model.StopReasonMaxTokens || input.blockIndex != a.nextBlockIdx-1) {
+			continue
+		}
+		if input.rawInput == "" || modelenvelope.ValidateToolInput(json.RawMessage(input.rawInput)) != nil {
+			part.ToolCallError = model.IncompleteToolCallError
 		}
 	}
 }

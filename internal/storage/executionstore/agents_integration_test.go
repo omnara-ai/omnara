@@ -1792,16 +1792,36 @@ machine_sources:
 tools:
   run_command: {}
 `
-	changeAgentConfigFromYAMLForTest(
+	removalConfig := mustCreateAgentConfigFromYAML(
 		t,
 		ctx,
 		store,
-		launch.Agent.ID,
-		user.ID,
-		"live-explicit-remove",
+
 		secondOnlyYAML,
-		"idem-live-explicit-remove",
 	)
+	// A source removal must lock only its own agent, even when another agent
+	// shares the grant. Locking all grant agents here can invert their order
+	// against a concurrent source removal that already holds the other agent.
+	sharedTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(sharedTx).LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
+		ProjectID: testProjectID, ID: shared.Agent.ID,
+	}); err != nil {
+		t.Fatalf("lock shared machine's other agent: %v", err)
+	}
+	removalCtx, cancelRemoval := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelRemoval()
+	if _, err := store.Execution().IntegrationChangeAgentConfigOnce(removalCtx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(removalConfig),
+		AgentID:                launch.Agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                user.ID,
+		IdempotencyKey:         "idem-live-explicit-remove",
+	}); err != nil {
+		t.Fatalf("remove explicit source while another grant agent is locked: %v", err)
+	}
+	if err := sharedTx.Commit(ctx); err != nil {
+		t.Fatalf("release shared machine's other agent: %v", err)
+	}
 	released := getAgentMachineBindingForTest(t, ctx, store, testProjectID, launch.Agent.ID, firstBinding.ID)
 	if released.State != "released" {
 		t.Fatalf("removed explicit binding state = %s, want released", released.State)

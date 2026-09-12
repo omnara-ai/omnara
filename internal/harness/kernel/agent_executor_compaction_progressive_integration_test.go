@@ -105,7 +105,7 @@ func TestAgentExecutorProgressiveCompactionCompletesWithoutReexpandingSource(t *
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     256,
+			MaxOutputTokens:     new(256),
 		},
 		responses: []model.Response{
 			{
@@ -407,7 +407,7 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		},
 		capabilities: model.Capabilities{
 			ContextWindowTokens: 128000,
-			MaxOutputTokens:     256,
+			MaxOutputTokens:     new(256),
 		},
 		responses: []model.Response{
 			completeProgressiveSummaryResponse("step one summary"),

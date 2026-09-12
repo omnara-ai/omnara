@@ -3,9 +3,9 @@ package kernel
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -125,21 +125,22 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	mcpInitialization := mcpInitializationNone
+	var mcpTrigger mcp.ConnectionTrigger
 	switch input.Kind {
 	case executionstore.ModelWorkStart:
-		mcpInitialization = mcpInitializationOpening
+		mcpTrigger = mcp.TriggerTurnStart
 	case executionstore.ModelWorkResume:
-		mcpInitialization = mcpInitializationResume
+		mcpTrigger = mcp.TriggerTurnResume
 	case executionstore.ModelWorkContinue:
+		mcpTrigger = mcp.TriggerTurnContinue
 	}
-	if mcpInitialization != mcpInitializationNone {
+	if mcpTrigger != 0 {
 		if err := e.ensureMCPConnections(
 			ctx,
 			claim.Context.OrgID,
 			input,
 			contract,
-			mcpInitialization,
+			mcpTrigger,
 		); err != nil {
 			return e.recordNormalPreSendFailure(
 				ctx, input, claim, model.ResolvedClient{}, err,
@@ -308,18 +309,6 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
-	response = model.WithoutToolCallsOnMaxTokens(response)
-	if err := model.ValidateProviderResponse(response); err != nil {
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			claim,
-			resolved,
-			model.MalformedProviderResponse(string(apiFormat), err),
-			true,
-			response,
-		)
-	}
 	envelope, err := model.NewResponseEnvelopeForStorage(
 		client.RequestedProviderModelSlug(),
 		apiFormat,
@@ -357,10 +346,7 @@ func (e AgentExecutor) finishModelResponse(
 	errorSource := modelErrorSourceForClient(client)
 	calls := model.ToolCallsFromEnvelope(step.Envelope)
 	reason := step.Envelope.Normalized.StopReason
-	if cause, invalid := invalidModelToolCallResponse(
-		errorSource,
-		calls,
-	); invalid {
+	if cause := invalidModelResponse(errorSource, reason, calls); cause != nil {
 		return e.recordNormalFailure(
 			ctx,
 			input,
@@ -371,115 +357,11 @@ func (e AgentExecutor) finishModelResponse(
 			step.Response,
 		)
 	}
-	switch reason {
-	case model.StopReasonToolUse:
-		if len(calls) == 0 {
-			cause := model.MalformedProviderSuccess(
-				errorSource,
-				string(reason),
-				"The model stopped for tool use without returning a supported tool call.",
-				nil,
-			)
-			return e.recordNormalFailure(
-				ctx,
-				input,
-				executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-				step.Resolved,
-				cause,
-				true,
-				step.Response,
-			)
-		}
+	if len(calls) > 0 {
 		step.State = modelStepToolUse
 		return step, nil
-	case model.StopReasonEndTurn:
-		return e.recordSuccessfulModelOutput(ctx, input, step)
-	case model.StopReasonRefusal, model.StopReasonContentFilter:
-		if len(calls) > 0 {
-			cause := model.MalformedProviderSuccess(
-				errorSource,
-				"contradictory_stop_reason",
-				fmt.Sprintf("The model returned stop reason %q together with tool calls.", reason),
-				nil,
-			)
-			return e.recordNormalFailure(
-				ctx,
-				input,
-				executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-				step.Resolved,
-				cause,
-				true,
-				step.Response,
-			)
-		}
-		return e.recordSuccessfulModelOutput(ctx, input, step)
-	case model.StopReasonMaxTokens:
-		return e.recordSuccessfulModelOutput(ctx, input, step)
-	case model.StopReasonContextWindow:
-		cause := model.ProviderError{
-			Kind:    model.ErrorKindContextWindow,
-			Source:  errorSource,
-			Code:    string(reason),
-			Message: "The model provider reported that the context window was exceeded.",
-		}
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-			step.Resolved,
-			cause,
-			true,
-			step.Response,
-		)
-	case model.StopReasonPause:
-		cause := model.ProviderError{
-			Kind:    model.ErrorKindInvalidRequest,
-			Source:  errorSource,
-			Code:    string(reason),
-			Message: fmt.Sprintf("The model returned unsupported stop reason %q.", reason),
-		}
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-			step.Resolved,
-			cause,
-			true,
-			step.Response,
-		)
-	case model.StopReasonUnknown:
-		cause := model.MalformedProviderSuccess(
-			errorSource,
-			string(reason),
-			fmt.Sprintf("The model returned unsupported stop reason %q.", reason),
-			nil,
-		)
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-			step.Resolved,
-			cause,
-			true,
-			step.Response,
-		)
-	default:
-		cause := model.MalformedProviderSuccess(
-			errorSource,
-			string(reason),
-			fmt.Sprintf("The model returned unknown stop reason %q.", reason),
-			nil,
-		)
-		return e.recordNormalFailure(
-			ctx,
-			input,
-			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
-			step.Resolved,
-			cause,
-			true,
-			step.Response,
-		)
 	}
+	return e.recordSuccessfulModelOutput(ctx, input, step)
 }
 
 func (e AgentExecutor) recordSuccessfulModelOutput(

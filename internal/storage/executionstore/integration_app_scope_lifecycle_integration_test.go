@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -450,6 +451,9 @@ func TestSharedIntegrationAppCreationCannotRacePastOrganizationDeletion(t *testi
 	if err := deletion.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&deletionPID); err != nil {
 		t.Fatalf("load organization deletion backend: %v", err)
 	}
+	if err := lifecyclelock.OrganizationExclusive(ctx, deletion, testOrgID); err != nil {
+		t.Fatalf("lock organization lifecycle exclusively: %v", err)
+	}
 	if _, err := deletion.Exec(
 		ctx,
 		`UPDATE orgs SET deleted_at = statement_timestamp() WHERE id = $1`,
@@ -555,7 +559,7 @@ func TestOrganizationDeletionSweepsSharedAppCreationThatStartedFirst(t *testing.
 		)
 		deleteDone <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleExclusive", 1)
 	if err := secretBlocker.Commit(ctx); err != nil {
 		t.Fatalf("release shared app credential: %v", err)
 	}

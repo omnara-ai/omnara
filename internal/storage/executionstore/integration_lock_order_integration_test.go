@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 )
@@ -96,7 +97,7 @@ LIMIT 1
 		t,
 		ctx,
 		pool,
-		"-- name: LockAgentInProject ",
+		"-- name: LockProjectLifecycleExclusive ",
 		targetPID,
 	)
 	if err := appHolder.Rollback(ctx); err != nil {
@@ -167,7 +168,7 @@ func TestChannelDeletesEnterProjectLifecycleBeforeRowMutation(t *testing.T) {
 		}
 		if _, err := blocker.Exec(
 			ctx,
-			`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`,
+			`SELECT pg_advisory_xact_lock(hashtextextended('project_lifecycle:' || $1::uuid::text, 0))`,
 			testProjectID.String(),
 		); err != nil {
 			t.Fatalf("lock %s project lifecycle: %v", label, err)
@@ -782,6 +783,9 @@ func TestOrganizationSecretRotationEntersOrganizationLifecycleBeforeSecret(t *te
 	var deletionPID int32
 	if err := deletion.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&deletionPID); err != nil {
 		t.Fatalf("load organization deletion backend: %v", err)
+	}
+	if err := lifecyclelock.OrganizationExclusive(ctx, deletion, testOrgID); err != nil {
+		t.Fatalf("lock organization lifecycle exclusively: %v", err)
 	}
 	if _, err := deletion.Exec(
 		ctx,

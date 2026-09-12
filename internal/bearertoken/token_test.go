@@ -38,8 +38,8 @@ func TestGoldenVectors(t *testing.T) {
 		fixture.ChecksumLength != checksumLength {
 		t.Fatalf("shared token parameters do not match implementation: %+v", fixture)
 	}
-	if len(fixture.Vectors) != 16 {
-		t.Fatalf("golden vector count = %d, want 16", len(fixture.Vectors))
+	if len(fixture.Vectors) != 20 {
+		t.Fatalf("golden vector count = %d, want 20", len(fixture.Vectors))
 	}
 	for _, test := range fixture.Vectors {
 		got, err := format(test.Kind, test.Secret)
@@ -63,7 +63,7 @@ func TestGoldenVectors(t *testing.T) {
 
 func TestGenerateProducesCanonicalDistinctTokens(t *testing.T) {
 	for _, kind := range []Kind{
-		KindPersonalAccess, KindOrganization, KindDaemon, KindChannelConnector,
+		KindPersonalAccess, KindOrganization, KindDaemon, KindChannelConnector, KindOAuthAccess,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			seen := make(map[string]struct{}, 128)
@@ -118,10 +118,18 @@ func TestParseRejectsMalformedTokens(t *testing.T) {
 }
 
 func TestValidateRejectsWrongKind(t *testing.T) {
-	token, err := format(KindOrganization, strings.Repeat("B", secretLength))
-	require.NoError(t, err)
-	if err := Validate(token, KindPersonalAccess); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("Validate wrong kind error = %v, want ErrInvalid", err)
+	kinds := []Kind{KindPersonalAccess, KindOrganization, KindDaemon, KindChannelConnector, KindOAuthAccess}
+	for _, kind := range kinds {
+		token, err := format(kind, strings.Repeat("B", secretLength))
+		require.NoError(t, err)
+		for _, other := range kinds {
+			if other == kind {
+				continue
+			}
+			if err := Validate(token, other); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Validate %s as %s error = %v, want ErrInvalid", kind, other, err)
+			}
+		}
 	}
 }
 

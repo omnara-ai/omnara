@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/benbjohnson/clock"
 	"github.com/google/uuid"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
@@ -25,6 +27,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -72,14 +75,17 @@ type Server struct {
 	replyPublisher                      replyChannelPublisher
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
-	sigV4CredentialCache                *mcp.SigV4CredentialCache
+	sigV4CredentialCache                *sigv4.CredentialCache
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
+	oauthClientMetadataHTTPClient       *http.Client
 	mcpRegistry                         *mcpregistry.Registry
 	channelConnectorAuth                *channelconnector.Authenticator
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
+	apiMCP                              *mcpsdk.Server
+	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
 
@@ -238,6 +244,12 @@ func WithAuthHTTPClient(client *http.Client) Option {
 	}
 }
 
+func WithOAuthClientMetadataHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.oauthClientMetadataHTTPClient = client
+	}
+}
+
 func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 	return func(s *Server) {
 		s.mcpRegistry = registry
@@ -360,8 +372,6 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
-// WithModelDiscoverer replaces the default provider-native model discovery,
-// e.g. to add catalog enrichment in production or stub discovery in tests.
 func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	return func(s *Server) {
 		s.modelDiscoverer = discoverer
@@ -413,6 +423,10 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		return nil, fmt.Errorf("create openapi operation authorizer: %w", err)
 	}
 	server.openAPIAuthorizer = openAPIAuthorizer
+	server.apiMCP, err = server.newAPIMCPServer()
+	if err != nil {
+		return nil, fmt.Errorf("create api mcp server: %w", err)
+	}
 	for _, opt := range opts {
 		opt(server)
 	}
@@ -445,18 +459,20 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		}
 	}
 	server.authRoutes = httpauth.New(httpauth.Config{
-		Log:                  log,
-		Store:                authStore,
-		CompromiseRevoker:    compromiseRevoker,
-		Limiter:              server.authLimiter,
-		OAuthStates:          server.authOAuthStates,
-		Email:                server.email,
-		SignupEnabled:        server.authSignupEnabled,
-		ResetEnabled:         server.authResetEnabled,
-		PublicURL:            server.publicURL,
-		TrustedProxyNets:     server.trustedProxyNets,
-		PrincipalFromContext: principalFromContext,
-		HTTPClient:           server.authHTTPClient,
+		Log:                      log,
+		Store:                    authStore,
+		CompromiseRevoker:        compromiseRevoker,
+		Limiter:                  server.authLimiter,
+		OAuthStates:              server.authOAuthStates,
+		Email:                    server.email,
+		SignupEnabled:            server.authSignupEnabled,
+		ResetEnabled:             server.authResetEnabled,
+		PublicURL:                server.publicURL,
+		MCPResourceURLs:          server.mcpResourceURLs(),
+		TrustedProxyNets:         server.trustedProxyNets,
+		PrincipalFromContext:     principalFromContext,
+		HTTPClient:               server.authHTTPClient,
+		ClientMetadataHTTPClient: server.oauthClientMetadataHTTPClient,
 	})
 	if server.agentEventWakeupSubscriber == nil {
 		return nil, fmt.Errorf("agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber")
@@ -499,7 +515,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
-	server.sigV4CredentialCache, err = mcp.NewSigV4CredentialCache()
+	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
 	if err != nil {
 		return nil, err
 	}
@@ -509,6 +525,8 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
+	apiDispatch := chain(mux, s.apiDispatchMiddlewares(mux)...)
+	s.apiDispatch.Store(&apiDispatch)
 	middlewares := make([]middleware, 0, 7)
 	if s.recorder != nil {
 		middlewares = append(middlewares, s.recorder.Middleware(mux))

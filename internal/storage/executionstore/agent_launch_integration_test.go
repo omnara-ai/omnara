@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
@@ -29,14 +30,6 @@ import (
 type rejectingMachinePoolProviders struct {
 	mergingMachinePoolProviders
 	reject bool
-}
-
-func intPtrFromSQLCForTest(value *int32) *int {
-	if value == nil {
-		return nil
-	}
-	converted := int(*value)
-	return &converted
 }
 
 func requireCurrentAgentLaunchReplay(
@@ -112,10 +105,10 @@ func createLaunchTestMachinePool(
 					Name:               name,
 					Provider:           provider,
 					MaxTotalMachines:   maxActiveMachines,
-					MaxTotalCPU:        intPtrForMachinePoolTest(32),
-					MaxTotalMemoryMB:   intPtrForMachinePoolTest(65536),
-					MaxMachineCPU:      intPtrForMachinePoolTest(32),
-					MaxMachineMemoryMB: intPtrForMachinePoolTest(65536),
+					MaxTotalCPU:        new(32),
+					MaxTotalMemoryMB:   new(65536),
+					MaxMachineCPU:      new(32),
+					MaxMachineMemoryMB: new(65536),
 				},
 				defaultMachineFields,
 			),
@@ -155,8 +148,8 @@ func createDefaultMachinePoolForTest(
 		ManagementKind:                string(management.Cluster),
 		Description:                   input.Description,
 		Provider:                      input.Provider,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -165,11 +158,11 @@ func createDefaultMachinePoolForTest(
 		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -234,7 +227,7 @@ func getAgentMachineBindingForTest(
 		Cwd:                    row.Cwd,
 		EnvOverlay:             row.EnvOverlay,
 		SecretEnvOverlay:       row.SecretEnvOverlay,
-		DeleteAfterIdleMinutes: intPtrFromSQLCForTest(row.DeleteAfterIdleMinutes),
+		DeleteAfterIdleMinutes: storeutil.IntPtr(row.DeleteAfterIdleMinutes),
 		Metadata:               row.Metadata,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
@@ -1215,7 +1208,7 @@ tools:
 		})
 		loweredDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForLifecycle", 1)
 	select {
 	case change := <-loweredDone:
 		t.Fatalf("config change completed before waiting on pool lock: %v", change.err)
@@ -1300,7 +1293,7 @@ tools:
 		})
 		removalDone <- configChangeResult{result: result, err: changeErr}
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAttachedAgentPoolMachines", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineForLifecycle", 1)
 	select {
 	case change := <-removalDone:
 		t.Fatalf("config removal completed before waiting on machine lock: %v", change.err)
@@ -1351,6 +1344,28 @@ tools:
 		originalMachine.Machine.ID,
 		future.Machine.Machine.ID,
 	)
+	replayedRemoval, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(removedConfig),
+		AgentID:                launch.Agent.ID,
+		ActorType:              identitystore.PrincipalTypeUser,
+		ActorID:                user.ID,
+		IdempotencyKey:         "idem-live-pool-removed",
+	})
+	if err != nil {
+		t.Fatalf("replay removed pool config: %v", err)
+	}
+	if replayedRemoval.ConfigChange.AgentInput.ID != removed.ConfigChange.AgentInput.ID ||
+		replayedRemoval.ConfigChange.Event.ID != removed.ConfigChange.Event.ID {
+		t.Fatalf("removed pool config replay = %+v, want %+v", replayedRemoval.ConfigChange, removed.ConfigChange)
+	}
+	if len(replayedRemoval.DeleteMachines) != len(removed.DeleteMachines) {
+		t.Fatalf("replayed pool source deletions = %+v, want %+v", replayedRemoval.DeleteMachines, removed.DeleteMachines)
+	}
+	for _, machine := range replayedRemoval.DeleteMachines {
+		if !removedIDs[machine.ID] {
+			t.Fatalf("replayed unexpected pool source deletion: %+v", machine)
+		}
+	}
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID); err != nil {
 		t.Fatalf("delete removed machine pool: %v", err)
 	}
@@ -2992,7 +3007,7 @@ func TestLaunchAgentProjectPoolGrantCapacityIgnoresRevokedGrantDeletingUsage(t *
 					Name:             "Launch Project Pool Capacity Replace Pool",
 					Provider:         "test",
 					MaxTotalMachines: 5,
-					MaxTotalCPU:      intPtrForMachinePoolTest(10),
+					MaxTotalCPU:      new(10),
 				},
 				defaultMachineFieldsForTest{
 					DefaultMachineCPU:             2,

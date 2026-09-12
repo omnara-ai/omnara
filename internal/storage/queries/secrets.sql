@@ -86,6 +86,14 @@ FROM secrets
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
 FOR UPDATE;
 
+-- name: LockSecretForReference :one
+-- @sqlc-vet-disable secrets-deleted-at
+-- Tombstoned rows remain lockable so admission waits before fresh revalidation.
+SELECT id
+FROM secrets
+WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
+FOR SHARE;
+
 -- name: GetSecretVersion :one
 SELECT id, org_id, secret_id, version_number, payload_keys, encryption_scheme, key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at,
        (oauth_access_token_expires_at IS NOT NULL)::boolean AS oauth_access_token_expires,

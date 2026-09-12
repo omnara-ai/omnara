@@ -1,10 +1,18 @@
--- name: ListMachineUnreachableMachineCandidates :many
+-- name: ListProcessToolExpiryMachineCandidates :many
 WITH cutoff AS MATERIALIZED (
   SELECT transaction_timestamp() AS observed_at,
          transaction_timestamp()
-           - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS unreachable_before
+           - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS unreachable_before,
+         transaction_timestamp()
+           - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second') AS queued_before
 ), process_work AS MATERIALIZED (
-  SELECT process.org_id, process.machine_id, process.created_at AS work_at
+  SELECT process.org_id, process.machine_id,
+         CASE
+           WHEN process.state = 'queued' AND process.created_at <= cutoff.queued_before
+           THEN process.created_at + (sqlc.arg(queue_timeout_seconds)::int * interval '1 second')
+           ELSE greatest(process.created_at, latest_runtime.unreachable_at)
+             + (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
+         END AS expires_at
   FROM processes process
   JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
     AND tool_call.id = process.tool_call_id
@@ -20,26 +28,31 @@ WITH cutoff AS MATERIALIZED (
   ) latest_runtime ON true
   CROSS JOIN cutoff
   WHERE process.state IN ('queued', 'starting', 'running')
-    AND process.created_at <= cutoff.unreachable_before
-    AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
+    AND process.created_at <= greatest(cutoff.unreachable_before, cutoff.queued_before)
     AND tool_call.type = 'built_in'
     AND tool_call.state = 'waiting'
     AND machine.lifecycle_state = 'active'
     AND machine.deleted_at IS NULL
     AND (
-      machine.wake_attempt_expires_at IS NULL
-      OR machine.wake_attempt_expires_at <= cutoff.observed_at
-    )
-    AND NOT EXISTS (
-      SELECT 1
-      FROM online_daemon_runtimes online
-      WHERE online.org_id = process.org_id
-        AND online.machine_id = process.machine_id
+      (process.state = 'queued'
+        AND process.created_at <= cutoff.queued_before)
+      OR (
+        process.created_at <= cutoff.unreachable_before
+        AND coalesce(latest_runtime.unreachable_at, process.created_at) <= cutoff.unreachable_before
+        AND (machine.wake_attempt_expires_at IS NULL
+          OR machine.wake_attempt_expires_at <= cutoff.observed_at)
+        AND NOT EXISTS (
+          SELECT 1 FROM online_daemon_runtimes online
+          WHERE online.org_id = process.org_id AND online.machine_id = process.machine_id
+        )
+      )
     )
   ORDER BY process.created_at, process.id
   LIMIT sqlc.arg(limit_count)
 ), action_work AS MATERIALIZED (
-  SELECT action.org_id, process.machine_id, action.created_at AS work_at
+  SELECT action.org_id, process.machine_id,
+         greatest(action.created_at, latest_runtime.unreachable_at)
+           + (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS expires_at
   FROM process_actions action
   JOIN processes process ON process.org_id = action.org_id
     AND process.project_id = action.project_id
@@ -85,39 +98,21 @@ WITH cutoff AS MATERIALIZED (
     )
   ORDER BY action.created_at, action.id
   LIMIT sqlc.arg(limit_count)
-), machine_work AS MATERIALIZED (
-  SELECT work.org_id, work.machine_id, min(work.work_at)::timestamptz AS earliest_work_at
+), machine_work AS (
+  SELECT work.org_id, work.machine_id, min(work.expires_at)::timestamptz AS expires_at
   FROM (
-    SELECT org_id, machine_id, work_at FROM process_work
+    SELECT org_id, machine_id, expires_at FROM process_work
     UNION ALL
-    SELECT org_id, machine_id, work_at FROM action_work
+    SELECT org_id, machine_id, expires_at FROM action_work
   ) work
   GROUP BY work.org_id, work.machine_id
-), candidates AS (
-  SELECT work.org_id,
-         work.machine_id,
-         greatest(
-           work.earliest_work_at,
-           coalesce(latest_runtime.unreachable_at, work.earliest_work_at)
-         )::timestamptz AS unreachable_at
-  FROM machine_work work
-  LEFT JOIN LATERAL (
-    SELECT runtime.effective_end_at AS unreachable_at
-    FROM daemon_runtime_connection_facts runtime
-    WHERE runtime.org_id = work.org_id
-      AND runtime.machine_id = work.machine_id
-    ORDER BY runtime.effective_end_at DESC, runtime.id DESC
-    LIMIT 1
-  ) latest_runtime ON true
 )
-SELECT candidates.org_id, candidates.machine_id, candidates.unreachable_at
-FROM candidates
-CROSS JOIN cutoff
-WHERE candidates.unreachable_at <= cutoff.unreachable_before
-ORDER BY candidates.unreachable_at, candidates.org_id, candidates.machine_id
+SELECT org_id, machine_id, expires_at
+FROM machine_work
+ORDER BY expires_at, org_id, machine_id
 LIMIT sqlc.arg(limit_count);
 
--- name: ListMachineUnreachableQueuedProcessToolCallsForMachine :many
+-- name: ListExpirableQueuedProcessToolCallsForMachine :many
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
@@ -143,11 +138,14 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND machine.lifecycle_state = 'active'
   AND machine.deleted_at IS NULL
   AND (
-    machine.wake_attempt_expires_at IS NULL
-    OR machine.wake_attempt_expires_at <= transaction_timestamp()
+    process.created_at <= transaction_timestamp() - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second')
+    OR (
+      (machine.wake_attempt_expires_at IS NULL
+        OR machine.wake_attempt_expires_at <= transaction_timestamp())
+      AND online.id IS NULL
+      AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
+    )
   )
-  AND online.id IS NULL
-  AND greatest(latest_runtime.unreachable_at, process.created_at) <= transaction_timestamp() - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
 ORDER BY process.created_at, process.id
 LIMIT sqlc.arg(limit_count);
 
@@ -203,6 +201,50 @@ WHERE process.project_id = sqlc.arg(project_id)
   AND process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
   AND process.state = 'queued'
+  AND EXISTS (
+    SELECT 1
+    FROM tool_calls tool_call
+    WHERE tool_call.agent_id = process.agent_id
+      AND tool_call.id = process.tool_call_id
+      AND tool_call.type = 'built_in'
+      AND tool_call.state = 'waiting'
+  )
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at;
+
+-- name: ExpireQueuedProcessToolCall :one
+WITH cutoff AS (
+  SELECT statement_timestamp() - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second') AS queued_before
+)
+UPDATE processes process
+SET state = 'failed',
+    state_reason_code = CASE
+      WHEN process.created_at <= cutoff.queued_before
+      THEN 'process_queue_timeout'
+      ELSE 'machine_unreachable'
+    END,
+    state_reason_message = CASE
+      WHEN process.created_at <= cutoff.queued_before
+      THEN 'machine did not accept the command before its queue deadline; execution was not granted'
+      ELSE ''
+    END,
+    state_changed_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+FROM cutoff
+WHERE process.project_id = sqlc.arg(project_id)
+  AND process.agent_id = sqlc.arg(agent_id)
+  AND process.id = sqlc.arg(id)
+  AND process.org_id = sqlc.arg(org_id)
+  AND process.machine_id = sqlc.arg(machine_id)
+  AND process.state = 'queued'
+  AND (
+    process.created_at <= cutoff.queued_before
+    OR sqlc.arg(machine_unreachable)::boolean
+  )
+  AND EXISTS (
+    SELECT 1 FROM machines machine
+    WHERE machine.org_id = process.org_id AND machine.id = process.machine_id
+      AND machine.lifecycle_state = 'active' AND machine.deleted_at IS NULL
+  )
   AND EXISTS (
     SELECT 1
     FROM tool_calls tool_call

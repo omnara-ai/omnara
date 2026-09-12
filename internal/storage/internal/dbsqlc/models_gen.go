@@ -129,6 +129,7 @@ type AgentMcpConnection struct {
 	RequestSequence    int64
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	CatalogID          *uuid.UUID
 }
 
 type AgentRuntimeLock struct {
@@ -206,7 +207,7 @@ type ConfiguredModelRevision struct {
 	ModelProviderConfigID     uuid.UUID
 	ProviderModelSlug         string
 	ContextWindowTokens       int32
-	MaxOutputTokens           int32
+	MaxOutputTokens           *int32
 	DefaultMaxOutputTokens    *int32
 	DefaultCacheRetention     *string
 	SupportsTools             bool
@@ -444,6 +445,34 @@ type MachinePool struct {
 	DeleteAfterIdleMinutes        *int32
 }
 
+type McpServerCatalog struct {
+	ID                    uuid.UUID
+	OrgID                 uuid.UUID
+	EndpointUrl           string
+	SecretID              *uuid.UUID
+	SecretVersionID       *uuid.UUID
+	AwsRegion             string
+	AwsService            string
+	Revision              int64
+	ProtocolVersion       string
+	ServerCapabilities    json.RawMessage
+	ServerInfo            json.RawMessage
+	Instructions          string
+	DiscoverCacheScope    string
+	DiscoverTtlMs         int32
+	DiscoverExpiresAt     *time.Time
+	ToolsSnapshot         json.RawMessage
+	ToolsCacheScope       string
+	ToolsTtlMs            int32
+	ToolsExpiresAt        *time.Time
+	FetchedAt             *time.Time
+	RefreshOwnerToken     *uuid.UUID
+	RefreshLeaseExpiresAt *time.Time
+	RefreshError          string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
 type ModelProviderConfig struct {
 	ID                 uuid.UUID
 	OrgID              uuid.UUID
@@ -460,6 +489,7 @@ type ModelProviderConfig struct {
 	DeletedAt          *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
 }
 
 type OrgApiKey struct {

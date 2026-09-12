@@ -81,7 +81,7 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	}
 	client := &summaryModel{caps: model.Capabilities{
 		ContextWindowTokens:    200_000,
-		MaxOutputTokens:        64_000,
+		MaxOutputTokens:        new(64_000),
 		DefaultMaxOutputTokens: 2_048,
 		SupportsReasoning:      true,
 		SupportedReasoningEfforts: []string{
@@ -129,12 +129,12 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 		}
 		if client.preparedBundles[index].ContextCheckpoint == nil {
 			sawSummaryRequest = true
-			if policy.MaxOutputTokens != preferredSummaryOutputTokens {
+			if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
 				t.Fatalf(
 					"summary policy %d output = %d, want %d",
 					index,
 					policy.MaxOutputTokens,
-					preferredSummaryOutputTokens,
+					client.Capabilities().DefaultMaxOutputTokens,
 				)
 			}
 			continue

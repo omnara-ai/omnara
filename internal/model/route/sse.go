@@ -90,9 +90,19 @@ func (t HTTPTransport) StreamingDo(
 	if err != nil {
 		return StreamingResponse{}, err
 	}
-	httpClient := t.httpClient()
-	resp, err := httpClient.Do(req)
+	requestCtx, cancel := context.WithCancelCause(ctx)
+	idleTimeout := t.IdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultProviderIdleTimeout
+	}
+	stop := watchProviderIdle(cancel, idleTimeout)
+	resp, err := t.httpClient().Do(req.WithContext(requestCtx))
+	stop()
+	if errors.Is(context.Cause(requestCtx), errProviderIdleTimeout) {
+		err = errProviderIdleTimeout
+	}
 	if err != nil {
+		cancel(nil)
 		if resp == nil {
 			return StreamingResponse{}, err
 		}
@@ -102,7 +112,11 @@ func (t HTTPTransport) StreamingDo(
 			Header:     resp.Header,
 		}, errors.Join(err, closeErr)
 	}
-	return StreamingResponse{StatusCode: resp.StatusCode, Header: resp.Header, Body: resp.Body}, nil
+	return StreamingResponse{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header,
+		Body:       &idleResponseBody{ReadCloser: resp.Body, ctx: requestCtx, cancel: cancel, timeout: idleTimeout},
+	}, nil
 }
 
 func ReadAllAndClose(resp StreamingResponse, maxBytes int64) ([]byte, bool, error) {

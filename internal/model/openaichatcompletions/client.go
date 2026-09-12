@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/route"
@@ -20,6 +21,7 @@ type Client struct {
 	EndpointPath          string
 	ProviderModelSlug     string
 	HTTPClient            *http.Client
+	IdleTimeout           time.Duration
 	ModelCapabilities     model.Capabilities
 	APIVariant            modelprotocol.APIVariant
 	APIVariantOptions     json.RawMessage
@@ -61,7 +63,7 @@ func (c Client) routeClient() route.Client {
 		ModelCapabilities: c.ModelCapabilities,
 		Endpoint:          c.endpoint(),
 		Auth:              c.Auth,
-		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost},
+		Transport:         route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
 		Protocol:          protocol{client: c},
 	}
 }

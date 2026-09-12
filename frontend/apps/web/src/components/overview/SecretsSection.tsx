@@ -1,4 +1,5 @@
 import { type SecretListSort, type SecretOwnerScope, useSecrets } from '@omnara/react'
+import type { Secret } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
@@ -6,6 +7,7 @@ import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { CreateSecretDialog } from '@/components/org/CreateSecretDialog'
+import { EditSecretDialog } from '@/components/org/EditSecretDialog'
 import { McpOAuthOutcomeDialog } from '@/components/secrets/McpOAuthOutcomeDialog'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
 import { Button } from '@/components/ui/button'
@@ -58,6 +60,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
   const paged = usePagedQuery(query, list.queryKey)
   const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const [open, setOpen] = useState(false)
+  const [editingSecret, setEditingSecret] = useState<Secret | null>(null)
 
   const newSecretButton = () =>
     canManage ? (
@@ -122,7 +125,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
                   orgId={activeOrg.id}
                   secret={secret}
                   canDelete={canManage}
-                  canEdit={canManage}
+                  onEdit={canManage ? setEditingSecret : undefined}
                   canGrant={canManage}
                 />
               ),
@@ -158,6 +161,16 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
       </div>
       {canManage && (
         <CreateSecretDialog open={open} onOpenChange={setOpen} orgId={activeOrg.id} owner={owner} />
+      )}
+      {editingSecret && (
+        <EditSecretDialog
+          open
+          orgId={activeOrg.id}
+          secret={editingSecret}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEditingSecret(null)
+          }}
+        />
       )}
       <McpOAuthOutcomeDialog />
     </>

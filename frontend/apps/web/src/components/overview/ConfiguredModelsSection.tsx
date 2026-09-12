@@ -141,7 +141,10 @@ export function ConfiguredModelsSection() {
                     onEdit={
                       option.model.management_kind === 'tenant'
                         ? () => {
-                            setActiveDialog({ kind: 'edit', model: option.model })
+                            setActiveDialog({
+                              kind: 'edit',
+                              model: option.model,
+                            })
                           }
                         : undefined
                     }

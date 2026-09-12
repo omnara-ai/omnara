@@ -6,6 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
@@ -20,7 +21,7 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCall
 		AgentConfigID:             row.AgentConfigID,
 		ConfiguredModelRevisionID: row.ConfiguredModelRevisionID,
 		InputEventSequence:        row.InputEventSequence,
-		SourceEventSequenceEnd:    int64PtrFromSQLC(row.SourceEventSequenceEnd),
+		SourceEventSequenceEnd:    storeutil.ClonePtr(row.SourceEventSequenceEnd),
 		RuntimeLockID:             row.RuntimeLockID,
 		State:                     ModelCallState(row.State),
 		RecoveryKind:              ModelCallRecoveryKind(stringFromSQLCText(row.RecoveryKind)),
@@ -54,12 +55,4 @@ func providerMetadataFromSQLC(raw json.RawMessage) modelenvelope.ProviderMetadat
 		return modelenvelope.ProviderMetadata{}
 	}
 	return metadata
-}
-
-func int64PtrFromSQLC(value *int64) *int64 {
-	if value == nil {
-		return nil
-	}
-	valueCopy := *value
-	return &valueCopy
 }

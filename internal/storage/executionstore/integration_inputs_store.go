@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -65,11 +66,36 @@ func (s *Store) CreateIntegrationTargetContentInput(
 	if !isNilID(input.IntegrationTargetBindingID) {
 		agentID = input.AgentID
 	}
-	if _, err := qtx.LockAgentInProject(
+	if err := lockIntegrationInputAgentTx(ctx, tx, install, agentID); err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if _, err := qtx.LockIntegrationInstallForMutation(
 		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: install.ProjectID, ID: agentID},
+		dbsqlc.LockIntegrationInstallForMutationParams{
+			ProjectID: install.ProjectID,
+			ID:        install.ID,
+		},
 	); err != nil {
-		return AgentInputRecord{}, nil, fmt.Errorf("lock agent for integration input: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AgentInputRecord{}, nil, storeerr.ErrNotFound
+		}
+		return AgentInputRecord{}, nil, fmt.Errorf("lock integration install for input: %w", err)
+	}
+	install, err = s.integrations.GetIntegrationInstallByIDTx(ctx, tx, input.IntegrationInstallID)
+	if err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	target, err = s.integrations.GetIntegrationTargetTx(
+		ctx,
+		tx,
+		install.ProjectID,
+		input.IntegrationTargetID,
+	)
+	if err != nil {
+		return AgentInputRecord{}, nil, err
+	}
+	if target.IntegrationInstallID != install.ID {
+		return AgentInputRecord{}, nil, storeerr.ErrConflict
 	}
 	idempotencyScope := integrationstore.IdempotencyScope(install)
 	var binding integrationstore.IntegrationTargetBindingRecord
@@ -255,23 +281,27 @@ func (s *Store) CreateBoundIntegrationTargetContentInput(
 	if install.ProjectID != targetInput.ProjectID {
 		return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrConflict
 	}
+	if err := lockIntegrationInputAgentTx(ctx, tx, install, targetInput.AgentID); err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
+	if _, err := qtx.LockIntegrationInstallForMutation(
+		ctx,
+		dbsqlc.LockIntegrationInstallForMutationParams{ProjectID: install.ProjectID, ID: install.ID},
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrNotFound
+		}
+		return CreateBoundIntegrationTargetContentResult{}, fmt.Errorf("lock integration install for bound input: %w", err)
+	}
+	install, err = s.integrations.GetIntegrationInstallByIDTx(ctx, tx, targetInput.IntegrationInstallID)
+	if err != nil {
+		return CreateBoundIntegrationTargetContentResult{}, err
+	}
 	if install.State != integrationstore.IntegrationInstallStateActive {
 		return CreateBoundIntegrationTargetContentResult{}, storeerr.ErrUnauthorized
 	}
 	if err := integrationstore.ValidateProviderUserTenant(install, input.ProviderTenantID); err != nil {
 		return CreateBoundIntegrationTargetContentResult{}, err
-	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{
-			ProjectID: targetInput.ProjectID,
-			ID:        targetInput.AgentID,
-		},
-	); err != nil {
-		return CreateBoundIntegrationTargetContentResult{}, fmt.Errorf(
-			"lock agent for bound integration input: %w",
-			err,
-		)
 	}
 	if err := integrationstore.LockIntegrationRuntimeLeaseForMutation(
 		ctx,
@@ -445,4 +475,25 @@ func integrationTargetInputByIdempotency(
 		return AgentInputRecord{}, false, storeerr.ErrIdempotencyConflict
 	}
 	return agentInput, true, nil
+}
+
+func lockIntegrationInputAgentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	install integrationstore.IntegrationInstallRecord,
+	agentID ID,
+) error {
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, install.ProjectID); err != nil {
+		return err
+	}
+	if err := dbsqlc.New(tx).LockIntegrationInstallLifecycleShared(
+		ctx,
+		dbsqlc.LockIntegrationInstallLifecycleSharedParams{InstallID: install.ID},
+	); err != nil {
+		return fmt.Errorf("lock integration install lifecycle for input: %w", err)
+	}
+	return lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: install.ProjectID,
+		AgentID:   agentID,
+	}})
 }

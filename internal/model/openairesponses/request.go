@@ -130,6 +130,7 @@ type responsesTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Parameters  json.RawMessage `json:"parameters"`
+	Strict      bool            `json:"strict"`
 }
 
 func buildTools(specs []modelcontext.ToolSpec) []responsesTool {
@@ -141,7 +142,9 @@ func buildTools(specs []modelcontext.ToolSpec) []responsesTool {
 		}
 		tools = append(
 			tools,
-			responsesTool{Type: "function", Name: spec.Name, Description: spec.Description, Parameters: parameters},
+			responsesTool{
+				Type: "function", Name: spec.Name, Description: spec.Description, Parameters: parameters, Strict: false,
+			},
 		)
 	}
 	return tools

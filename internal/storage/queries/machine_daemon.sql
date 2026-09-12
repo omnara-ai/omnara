@@ -125,14 +125,6 @@ WHERE org_id = sqlc.arg(org_id)
 DELETE FROM project_machine_grants
 WHERE org_id = sqlc.arg(org_id) AND machine_id = sqlc.arg(machine_id);
 
--- name: ListActiveProjectsForMachineConnection :many
-SELECT id
-FROM projects
-WHERE org_id = sqlc.arg(org_id)
-  AND id = ANY(sqlc.arg(project_ids)::uuid[])
-  AND deleted_at IS NULL
-ORDER BY id;
-
 -- name: UpsertProjectMachineGrant :one
 INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, idempotency_key, metadata, created_at, updated_at)
 SELECT project.org_id, project.id, machine.id, sqlc.arg(source_kind), sqlc.narg(project_machine_pool_grant_id)::uuid, sqlc.arg(description), sqlc.narg(idempotency_key), sqlc.arg(metadata), statement_timestamp(), statement_timestamp()

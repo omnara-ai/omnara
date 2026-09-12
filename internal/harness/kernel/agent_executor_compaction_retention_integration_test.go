@@ -71,7 +71,7 @@ func TestAgentExecutorClampsPreferredRawTailToSerializedModelBudget(t *testing.T
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, currentInput, now.Add(4*time.Second))
 	capabilities := model.Capabilities{
 		ContextWindowTokens:    10_000,
-		MaxOutputTokens:        1_024,
+		MaxOutputTokens:        new(1_024),
 		DefaultMaxOutputTokens: 1_024,
 	}
 	preferredTailTokens := compaction.RecentTailTargetTokens(model.UsableInputTokensForRequest(

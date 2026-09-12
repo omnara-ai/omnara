@@ -1,6 +1,7 @@
 import { Tooltip as TooltipPrimitive } from 'radix-ui'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useContext } from 'react'
 
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 import { cn } from '@/lib/utils'
 
 function TooltipProvider({
@@ -34,8 +35,9 @@ function TooltipContent({
   children,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Content>) {
+  const dialogContainer = useContext(DialogContainerContext)
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={dialogContainer ?? undefined}>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}

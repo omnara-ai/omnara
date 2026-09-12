@@ -252,11 +252,16 @@ WITH inserted AS (
         org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, created_at, updated_at
     )
-    VALUES (
+    SELECT
         $1, $2, 'active', $3,
         $4, $5, $6,
         transaction_timestamp(), transaction_timestamp()
-    )
+    FROM projects project
+    JOIN orgs org ON org.id = project.org_id
+    WHERE project.org_id = $1
+      AND project.id = $2
+      AND project.deleted_at IS NULL
+      AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, org_id, project_id, state, name,
               agent_profile_id, current_config_id, integration_target_id,
@@ -820,33 +825,5 @@ type LockAgentLaunchIdempotencyKeyParams struct {
 
 func (q *Queries) LockAgentLaunchIdempotencyKey(ctx context.Context, arg LockAgentLaunchIdempotencyKeyParams) error {
 	_, err := q.db.Exec(ctx, lockAgentLaunchIdempotencyKey, arg.ProjectID, arg.IdempotencyKey)
-	return err
-}
-
-const lockProjectLifecycleExclusive = `-- name: LockProjectLifecycleExclusive :exec
-SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
-`
-
-type LockProjectLifecycleExclusiveParams struct {
-	ProjectID string
-}
-
-func (q *Queries) LockProjectLifecycleExclusive(ctx context.Context, arg LockProjectLifecycleExclusiveParams) error {
-	_, err := q.db.Exec(ctx, lockProjectLifecycleExclusive, arg.ProjectID)
-	return err
-}
-
-const lockProjectLifecycleShared = `-- name: LockProjectLifecycleShared :exec
-SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))
-`
-
-type LockProjectLifecycleSharedParams struct {
-	ProjectID string
-}
-
-// Project-owned resource creation takes the shared side: creates never conflict
-// with each other, only with project/org deletion, which holds the exclusive side.
-func (q *Queries) LockProjectLifecycleShared(ctx context.Context, arg LockProjectLifecycleSharedParams) error {
-	_, err := q.db.Exec(ctx, lockProjectLifecycleShared, arg.ProjectID)
 	return err
 }

@@ -19,8 +19,10 @@ func TestCompatForVariant(t *testing.T) {
 			usageChunkCompletesStream: true,
 		},
 		modelprotocol.APIVariantOpenRouter: {
-			reasoningFormat: reasoningFormatOpenRouter, conversationKeyField: conversationKeyFieldSessionID,
+			sendsStrictFalse: true,
+			reasoningFormat:  reasoningFormatOpenRouter, conversationKeyField: conversationKeyFieldSessionID,
 			refinesErrorsFromRawDetails:  true,
+			reportsNativeFinishReason:    true,
 			reportsServedProviderAndCost: true, parsesPDFDocuments: true, routesFallbackModels: true,
 		},
 	} {

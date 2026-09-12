@@ -143,7 +143,7 @@ func TestIntegrationAppCreationCannotRacePastProjectDeletion(t *testing.T) {
 	}
 	if _, err := deletion.Exec(
 		ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`,
+		`SELECT pg_advisory_xact_lock(hashtextextended('project_lifecycle:' || $1::uuid::text, 0))`,
 		testProjectID.String(),
 	); err != nil {
 		t.Fatalf("lock project lifecycle exclusively: %v", err)
@@ -345,7 +345,7 @@ func TestNativeInstallCreationCannotRacePastProjectDeletion(t *testing.T) {
 	}
 	if _, err := deletion.Exec(
 		ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`,
+		`SELECT pg_advisory_xact_lock(hashtextextended('project_lifecycle:' || $1::uuid::text, 0))`,
 		testProjectID.String(),
 	); err != nil {
 		t.Fatalf("lock project lifecycle exclusively: %v", err)
@@ -449,7 +449,14 @@ func TestProjectDeletionSweepsNativeInstallCreationThatStartedFirst(t *testing.T
 		t,
 		ctx,
 		pool,
-		"-- name: InsertIntegrationInstall ",
+		"-- name: LockSecretForReference ",
+		blockerPID,
+	)
+	installPID := integrationLifecycleWaiterPID(
+		t,
+		ctx,
+		pool,
+		"-- name: LockSecretForReference ",
 		blockerPID,
 	)
 
@@ -463,7 +470,13 @@ func TestProjectDeletionSweepsNativeInstallCreationThatStartedFirst(t *testing.T
 		)
 		deleteDone <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectLifecycleExclusive", 1)
+	integrationdb.WaitForLockWaitBlockedBy(
+		t,
+		ctx,
+		pool,
+		"-- name: LockProjectLifecycleExclusive ",
+		installPID,
+	)
 	if err := credentialBlocker.Commit(ctx); err != nil {
 		t.Fatalf("release native integration credential: %v", err)
 	}

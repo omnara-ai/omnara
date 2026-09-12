@@ -3,6 +3,7 @@ package modelenvelope
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -17,6 +18,20 @@ func TestProviderMetadataJSONShape(t *testing.T) {
 			name:     "openrouter",
 			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{Provider: "Moonshot AI"}},
 			want:     `{"openrouter":{"provider":"Moonshot AI"}}`,
+		},
+		{
+			name: "provider with null character omitted",
+			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
+				Provider: "bad\x00provider",
+			}},
+			want: `{}`,
+		},
+		{
+			name: "oversized provider omitted",
+			metadata: ProviderMetadata{OpenRouter: OpenRouterMetadata{
+				Provider: strings.Repeat("x", maxProviderNameBytes+1),
+			}},
+			want: `{}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

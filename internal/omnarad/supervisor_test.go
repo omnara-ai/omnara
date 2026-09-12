@@ -506,3 +506,63 @@ func waitForMarkerLine(t *testing.T, lines <-chan string, want string) {
 		}
 	}
 }
+
+type enospcWriter struct{}
+
+func (enospcWriter) Write([]byte) (int, error) {
+	return 0, syscall.ENOSPC
+}
+
+func TestSupervisorChildSurvivesOutputWriteFailure(t *testing.T) {
+	for _, failedDestination := range []string{"stdout", "stderr", "service_log"} {
+		t.Run(failedDestination, func(t *testing.T) {
+			home := t.TempDir()
+			count := filepath.Join(t.TempDir(), "count")
+			require.NoError(t, os.MkdirAll(filepath.Join(home, "bin"), 0o700))
+			writeTestExecutable(t, canonicalDaemonPath(home), `#!/bin/sh
+printf x >> "$SUPERVISOR_COUNT"
+echo first
+echo first-error >&2
+sleep 0.2
+echo second
+echo second-error >&2
+exit 0
+`)
+			t.Setenv("SUPERVISOR_COUNT", count)
+			var stdout, stderr bytes.Buffer
+			logPath := filepath.Join(t.TempDir(), "service.log")
+			logFile, err := os.Create(logPath)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, logFile.Close()) })
+			var stdoutWriter, stderrWriter, logWriter io.Writer = &stdout, &stderr, logFile
+			switch failedDestination {
+			case "stdout":
+				stdoutWriter = enospcWriter{}
+			case "stderr":
+				stderrWriter = enospcWriter{}
+			case "service_log":
+				logWriter = enospcWriter{}
+			}
+			childStdout, childStderr := supervisorChildWriters(stdoutWriter, stderrWriter, logWriter)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = runSupervisorLoop(
+				ctx, home, 10*time.Millisecond, make(chan os.Signal),
+				childStdout, childStderr, discardLogger(),
+			)
+			require.NoError(t, err)
+			require.NoError(t, ctx.Err())
+			require.Equal(t, "x", readTestFile(t, count))
+			if failedDestination != "stdout" {
+				require.Equal(t, "first\nsecond\n", stdout.String())
+			}
+			if failedDestination != "stderr" {
+				require.Equal(t, "first-error\nsecond-error\n", stderr.String())
+			}
+			if failedDestination != "service_log" {
+				require.ElementsMatch(t, []string{"first", "second", "first-error", "second-error"},
+					strings.Fields(readTestFile(t, logPath)))
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ import (
 const (
 	Blaxel   = "blaxel"
 	Daytona  = "daytona"
+	Modal    = "modal"
 	Unikraft = "unikraft"
 )
 

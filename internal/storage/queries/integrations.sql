@@ -94,6 +94,24 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
+-- name: LockIntegrationInstallForMutation :one
+SELECT id
+FROM integration_installs
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: LockIntegrationInstallLifecycleShared :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('integration_install_lifecycle:' || sqlc.arg(install_id)::uuid::text, 0)
+);
+
+-- name: LockIntegrationInstallLifecycleExclusive :exec
+SELECT pg_advisory_xact_lock(
+  hashtextextended('integration_install_lifecycle:' || sqlc.arg(install_id)::uuid::text, 0)
+);
+
 -- name: GetIntegrationInstallByID :one
 SELECT id, org_id, project_id, agent_profile_id, agent_id, installed_by_user_id,
   provider, integration_kind, connection_mode, state,
@@ -178,9 +196,26 @@ UPDATE integration_targets SET deleted_at = statement_timestamp(), updated_at = 
 WHERE project_id = sqlc.arg(project_id) AND integration_install_id = sqlc.arg(integration_install_id)
   AND deleted_at IS NULL;
 
+-- name: ListIntegrationInstallAgentIDsForLifecycle :many
+-- @sqlc-vet-disable integration-targets-deleted-at
+-- Include historical native targets whose agents may still hold references and
+-- active connector bindings that deletion will revoke.
+SELECT target.agent_id::uuid AS agent_id
+FROM integration_targets target
+WHERE target.project_id = sqlc.arg(project_id)
+  AND target.integration_install_id = sqlc.arg(integration_install_id)
+  AND target.agent_id IS NOT NULL
+UNION
+SELECT binding.agent_id
+FROM integration_target_bindings binding
+WHERE binding.project_id = sqlc.arg(project_id)
+  AND binding.integration_install_id = sqlc.arg(integration_install_id)
+  AND binding.revoked_at IS NULL
+ORDER BY agent_id;
+
 -- name: ClearDeletedIntegrationTargetsFromAgents :exec
 -- @sqlc-vet-disable integration-targets-deleted-at
--- Clears agent references to targets that were just soft deleted.
+-- Clears agent references before soft deleting the install's targets.
 UPDATE agents agent SET integration_target_id = NULL, updated_at = statement_timestamp()
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.integration_target_id IN (
@@ -249,7 +284,7 @@ VALUES (
   sqlc.arg(display_name), sqlc.arg(provider_metadata),
   transaction_timestamp(), transaction_timestamp()
 )
-ON CONFLICT (project_id, integration_install_id, provider_ref) WHERE deleted_at IS NULL DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_install_id, target_ref, provider_ref,
   provider_ref_kind, display_name, provider_metadata, deleted_at, created_at, updated_at;
 

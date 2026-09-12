@@ -1,11 +1,3 @@
--- name: LockIntegrationAppProjectOwner :one
-SELECT project.id
-FROM projects project
-WHERE project.org_id = sqlc.arg(org_id)
-  AND project.id = sqlc.arg(owner_project_id)
-  AND project.deleted_at IS NULL
-FOR SHARE OF project;
-
 -- name: InsertIntegrationApp :one
 INSERT INTO integration_apps(
   org_id, owner_project_id, provider, provider_app_ref, display_name,

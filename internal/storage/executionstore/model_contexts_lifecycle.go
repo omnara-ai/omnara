@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -226,12 +227,12 @@ func finishModelCallContextWithAuthorityTx(
 		ErrorMessage:                        input.ErrorMessage,
 		ErrorDetails:                        normalizedJSONOrObject(input.ErrorDetails),
 		RetryDelayMicroseconds:              retryDelayMicroseconds,
-		InputTokensTotal:                    sqlcInt32Ptr(usage.InputTokens),
-		UncachedInputTokens:                 sqlcInt32Ptr(usage.UncachedInputTokens),
-		CacheReadInputTokens:                sqlcInt32Ptr(usage.CacheReadTokens),
-		CacheWriteInputTokens:               sqlcInt32Ptr(usage.CacheWriteTokens),
-		OutputTokensTotal:                   sqlcInt32Ptr(usage.OutputTokens),
-		ReasoningOutputTokens:               sqlcInt32Ptr(usage.ReasoningTokens),
+		InputTokensTotal:                    storeutil.Int32Ptr(usage.InputTokens),
+		UncachedInputTokens:                 storeutil.Int32Ptr(usage.UncachedInputTokens),
+		CacheReadInputTokens:                storeutil.Int32Ptr(usage.CacheReadTokens),
+		CacheWriteInputTokens:               storeutil.Int32Ptr(usage.CacheWriteTokens),
+		OutputTokensTotal:                   storeutil.Int32Ptr(usage.OutputTokens),
+		ReasoningOutputTokens:               storeutil.Int32Ptr(usage.ReasoningTokens),
 		ProviderReportedCostUsd:             providerReportedCostUSDToSQLC(input.ProviderReportedCostUSD),
 		ProviderMetadata:                    providerMetadata,
 		ID:                                  input.ModelCallContextID,

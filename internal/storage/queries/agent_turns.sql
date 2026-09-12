@@ -203,6 +203,23 @@ WHERE EXISTS (
     WHERE frontier.turn_id = turn.id
   );
 
+-- name: IsOutputLimitBoundary :one
+SELECT EXISTS (
+  SELECT 1
+  FROM agent_events event
+  JOIN agents agent ON agent.id = event.agent_id
+  JOIN model_outputs output ON output.agent_id = event.agent_id
+    AND output.id = event.model_output_id
+  WHERE agent.project_id = sqlc.arg(project_id)
+    AND event.agent_id = sqlc.arg(agent_id)
+    AND event.sequence = sqlc.arg(event_sequence)
+    AND output.stop_reason = 'max_tokens'
+    AND NOT EXISTS (
+      SELECT 1 FROM tool_calls call
+      WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id
+    )
+)::boolean;
+
 -- name: ListContextEvents :many
 SELECT event.id,
        event.agent_input_id,
@@ -216,6 +233,7 @@ SELECT event.id,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
        output.provider_replay,
+       coalesce(output.stop_reason, '') AS stop_reason,
        CASE
          WHEN event.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND event.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -273,6 +291,6 @@ WHERE scoped_agent.project_id = sqlc.arg(project_id)
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, input.input_kind
+  output.provider_replay, output.stop_reason, input.input_kind
 ORDER BY event.sequence ASC
 LIMIT sqlc.arg(page_limit);

@@ -46,7 +46,6 @@ model:
 		"Kernel Context Model Options",
 		"kernel-context-model-options-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -125,7 +124,6 @@ model:
 		"Kernel Implicit Integration Tool",
 		"kernel-implicit-integration-tool-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -224,7 +222,6 @@ model:
 		"Kernel Unavailable Grant",
 		"kernel-unavailable-grant-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -708,7 +705,6 @@ tools:
 		"Kernel Tool Support",
 		"kernel-tool-support-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,

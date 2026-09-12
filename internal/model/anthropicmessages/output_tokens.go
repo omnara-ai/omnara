@@ -13,18 +13,32 @@ const minimumManualThinkingBudgetTokens = 1_024
 
 var _ model.OutputTokenLimitProvider = Client{}
 
+func (c Client) WithoutManualThinking() (model.Client, error) {
+	_, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
+	if err != nil || !enabled {
+		return c, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(c.APIVariantOptions, &fields); err != nil {
+		return c, err
+	}
+	delete(fields, "thinking")
+	c.APIVariantOptions, err = json.Marshal(fields)
+	return c, err
+}
+
 func (c Client) OutputTokenLimits() (model.OutputTokenLimits, error) {
 	budget, enabled, err := anthropicManualThinkingBudget(c.APIVariantOptions)
 	if err != nil {
 		return model.OutputTokenLimits{}, fmt.Errorf("invalid Anthropic thinking configuration: %w", err)
 	}
 	if !enabled {
-		return model.OutputTokenLimits{}, nil
+		return model.OutputTokenLimits{Minimum: 1, Required: true}, nil
 	}
 	// Manual thinking shares Anthropic's total output limit and, without the
 	// interleaved-thinking beta, budget_tokens must be less than max_tokens.
 	// https://platform.claude.com/docs/en/build-with-claude/extended-thinking#budget-rules-and-tuning
-	return model.OutputTokenLimits{Minimum: budget + 1}, nil
+	return model.OutputTokenLimits{Minimum: budget + 1, Required: true}, nil
 }
 
 func anthropicManualThinkingBudget(options json.RawMessage) (int, bool, error) {

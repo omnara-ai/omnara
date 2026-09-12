@@ -103,6 +103,7 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 	defer cancel()
 	env := newDaemonOnlyServiceE2EEnvironment(t, ctx, "deterministic-anthropic-compaction")
 
+	thinking := map[string]any{"type": "enabled", "budget_tokens": 24576}
 	var requestCount atomic.Int64
 	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/messages" {
@@ -124,7 +125,18 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 			t.Errorf("unexpected model in Anthropic request: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		switch requestCount.Add(1) {
+		call := requestCount.Add(1)
+		if call == 3 {
+			if _, exists := body["thinking"]; exists {
+				t.Errorf("compaction request retained manual thinking: %+v", body["thinking"])
+			}
+			if body["max_tokens"] != float64(16384) {
+				t.Errorf("summary allowance = %v, want 16384", body["max_tokens"])
+			}
+		} else if mustJSONString(body["thinking"]) != mustJSONString(thinking) || body["max_tokens"] != float64(32768) {
+			t.Errorf("normal request lost configured thinking or allowance: %+v", body)
+		}
+		switch call {
 		case 1:
 			writeAnthropicMessage(w, "msg_anthropic_before_compaction", "anthropic history before compaction")
 		case 2:
@@ -181,8 +193,9 @@ func TestServiceE2EDeterministicAnthropicCompactionRetryContinuesTurn(t *testing
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "anthropic-prod", ConfiguredModelName: "service-e2e-claude"}: {
 				ContextWindowTokens:    128000,
-				MaxOutputTokens:        8192,
-				DefaultMaxOutputTokens: 64,
+				MaxOutputTokens:        64000,
+				DefaultMaxOutputTokens: 32768,
+				APIVariantOptions:      map[string]any{"thinking": thinking},
 			},
 		},
 	)

@@ -181,6 +181,96 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
+  it('settles cutoff text without completing recovery or discarding successor deltas', async () => {
+    const session = startSession()
+    const stream = await connection(0)
+    stream.push({ event: 'agent_input', data: userInputEvent() })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(1, {
+        kind: 'block_start',
+        block_index: 0,
+        block: { kind: 'text' },
+      }),
+    })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(2, { kind: 'text_delta', block_index: 0, delta: 'Provisional text' }),
+    })
+    await waitForSnapshot(session, (s) =>
+      s.messages.flatMap(messageText).includes('Provisional text'),
+    )
+    // Successor frames may arrive before the preceding durable event.
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(
+        1,
+        {
+          kind: 'block_start',
+          block_index: 0,
+          block: { kind: 'text' },
+        },
+        { model_call_context_id: 'successor' },
+      ),
+    })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(
+        2,
+        {
+          kind: 'text_delta',
+          block_index: 0,
+          delta: 'Continuing the answer',
+        },
+        { model_call_context_id: 'successor' },
+      ),
+    })
+    stream.push({
+      event: 'model_output',
+      data: event({
+        sequence: 12,
+        stop_reason: 'max_tokens',
+        content_blocks: [{ type: 'text', text: 'Partial output.' }],
+      }),
+    })
+    stream.push({
+      event: 'model_output_delta',
+      data: delta(3, {
+        kind: 'text_delta',
+        block_index: 0,
+        delta: 'stale text',
+      }),
+    })
+    const recovering = await waitForSnapshot(
+      session,
+      (s) =>
+        s.messages.flatMap(messageText).includes('Continuing the answer') &&
+        s.messages.flatMap(messageText).includes('Partial output.'),
+    )
+    expect(recovering.status).toBe('streaming')
+    expect(recovering.messages.flatMap(messageText).join(' ')).not.toMatch(/Provisional|stale/)
+    stream.connectionState({
+      state: 'reconnecting',
+      attempt: 1,
+      delayMs: 1,
+      error: new AgentEventStreamError({ kind: 'transport', message: 'disconnected' }),
+    })
+    expect(read(session).status).toBe('streaming')
+    expect(read(session).messages.flatMap(messageText)).not.toContain('Continuing the answer')
+    stream.connectionState({ state: 'connected', reconnected: true })
+    stream.push({
+      event: 'model_output',
+      data: event({
+        sequence: 13,
+        model_call_context_id: 'successor',
+        stop_reason: 'end_turn',
+        content_blocks: [{ type: 'text', text: 'Done.' }],
+      }),
+    })
+    await waitForSnapshot(session, (s) => s.status === 'ready')
+    session.disconnect()
+  })
+
   it('streams a tool call under its shared public id and applies the result', async () => {
     const session = startSession()
     await connection(0)

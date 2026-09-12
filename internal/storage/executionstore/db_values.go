@@ -55,29 +55,6 @@ func sqlcRawMessageFromEmpty(value json.RawMessage) *json.RawMessage {
 	return &value
 }
 
-func sqlcInt32Ptr(value *int) *int32 {
-	if value == nil {
-		return nil
-	}
-	v := int32(*value)
-	return &v
-}
-
-func intPtrFromSQLC(value *int32) *int {
-	if value == nil {
-		return nil
-	}
-	v := int(*value)
-	return &v
-}
-
-func sameIntPtr(left, right *int) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
-}
-
 func stringFromSQLCText(value *string) string {
 	if value == nil {
 		return ""

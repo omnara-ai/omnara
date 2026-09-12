@@ -31,19 +31,19 @@ func completeMachinePoolInputForTest(
 	input executionstore.CreateMachinePoolInput,
 ) executionstore.CreateMachinePoolInput {
 	if input.DefaultMachineCPU == nil {
-		input.DefaultMachineCPU = intPtrForMachinePoolTest(1)
+		input.DefaultMachineCPU = new(1)
 	}
 	if input.DefaultMachineMemoryMB == nil {
-		input.DefaultMachineMemoryMB = intPtrForMachinePoolTest(1024)
+		input.DefaultMachineMemoryMB = new(1024)
 	}
 	input.DefaultMachineEnv = normalizedJSON(input.DefaultMachineEnv)
 	input.DefaultMachineSecretEnv = normalizedJSON(input.DefaultMachineSecretEnv)
 	input.DefaultMachineProviderOptions = normalizedJSON(input.DefaultMachineProviderOptions)
 	if input.MaxTotalCPU == nil {
-		input.MaxTotalCPU = intPtrForMachinePoolTest(32)
+		input.MaxTotalCPU = new(32)
 	}
 	if input.MaxTotalMemoryMB == nil {
-		input.MaxTotalMemoryMB = intPtrForMachinePoolTest(65536)
+		input.MaxTotalMemoryMB = new(65536)
 	}
 	if input.MaxMachineCPU == nil {
 		input.MaxMachineCPU = input.MaxTotalCPU
@@ -67,10 +67,10 @@ func machinePoolInputWithDefaultMachineForTest(
 	fields defaultMachineFieldsForTest,
 ) executionstore.CreateMachinePoolInput {
 	if fields.DefaultMachineCPU != 0 {
-		input.DefaultMachineCPU = intPtrForMachinePoolTest(fields.DefaultMachineCPU)
+		input.DefaultMachineCPU = new(fields.DefaultMachineCPU)
 	}
 	if fields.DefaultMachineMemoryMB != 0 {
-		input.DefaultMachineMemoryMB = intPtrForMachinePoolTest(fields.DefaultMachineMemoryMB)
+		input.DefaultMachineMemoryMB = new(fields.DefaultMachineMemoryMB)
 	}
 	input.DefaultMachineEnv = fields.DefaultMachineEnv
 	input.DefaultMachineSecretEnv = fields.DefaultMachineSecretEnv
@@ -119,14 +119,6 @@ func projectGrantInputWithDefaultMachineOverlayForTest(
 	input.DefaultMachineSecretEnvOverlay = fields.DefaultMachineSecretEnvOverlay
 	input.DefaultMachineProviderOptionsOverlay = fields.DefaultMachineProviderOptionsOverlay
 	return input
-}
-
-func intPtrForMachinePoolTest(value int) *int {
-	return &value
-}
-
-func boolPtrForMachinePoolTest(value bool) *bool {
-	return &value
 }
 
 func TestMachinePoolRuntimeProtectionDefaultsOffAndToggleClearsMarkers(t *testing.T) {
@@ -200,7 +192,7 @@ INSERT INTO machines(
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       protected.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(false),
+			RuntimeProtectionEnabled: new(false),
 		},
 	)
 	if err != nil {
@@ -234,7 +226,7 @@ INSERT INTO machines(
 		executionstore.UpdateMachinePoolInput{
 			OrgID:                    testOrgID,
 			ID:                       protected.ID,
-			RuntimeProtectionEnabled: boolPtrForMachinePoolTest(true),
+			RuntimeProtectionEnabled: new(true),
 		},
 	); err != nil {
 		t.Fatalf("re-enable runtime protection: %v", err)
@@ -344,8 +336,8 @@ func TestUpdateMachinePoolRejectsUnknownDefaultMachineSecret(t *testing.T) {
 			ID:    created.ID,
 		},
 		defaultMachineUpdateFieldsForTest{
-			DefaultMachineCPU:             intPtrForMachinePoolTest(1),
-			DefaultMachineMemoryMB:        intPtrForMachinePoolTest(1024),
+			DefaultMachineCPU:             new(1),
+			DefaultMachineMemoryMB:        new(1024),
 			DefaultMachineSecretEnv:       json.RawMessage(`{"API_TOKEN":"` + missingSecretID + `"}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"initial"}`),
 		},
@@ -402,10 +394,10 @@ func TestCreateMachinePoolRequiresDefaultMachineProviderOptions(t *testing.T) {
 		Provider:             "test",
 		ProviderAuthSecretID: providerAuthSecretID,
 		MaxTotalMachines:     1,
-		MaxTotalCPU:          intPtrForMachinePoolTest(maxCPU),
-		MaxTotalMemoryMB:     intPtrForMachinePoolTest(maxMemoryMB),
-		MaxMachineCPU:        intPtrForMachinePoolTest(maxCPU),
-		MaxMachineMemoryMB:   intPtrForMachinePoolTest(maxMemoryMB),
+		MaxTotalCPU:          new(maxCPU),
+		MaxTotalMemoryMB:     new(maxMemoryMB),
+		MaxMachineCPU:        new(maxCPU),
+		MaxMachineMemoryMB:   new(maxMemoryMB),
 	}, defaultMachineFieldsForTest{
 		DefaultMachineCPU:      1,
 		DefaultMachineMemoryMB: 1024,
@@ -438,10 +430,10 @@ func TestCreateMachinePoolAllowsOmittedDefaultMachineEnv(t *testing.T) {
 			Provider:             "test",
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     1,
-			MaxTotalCPU:          intPtrForMachinePoolTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForMachinePoolTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
@@ -575,8 +567,8 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 			Metadata: resourcemeta.Metadata{"team": "infra"},
 		},
 		defaultMachineUpdateFieldsForTest{
-			DefaultMachineCPU:             intPtrForMachinePoolTest(2),
-			DefaultMachineMemoryMB:        intPtrForMachinePoolTest(2048),
+			DefaultMachineCPU:             new(2),
+			DefaultMachineMemoryMB:        new(2048),
 			DefaultMachineEnv:             json.RawMessage(`{"SECRET":"value"}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"updated"}`),
 		},
@@ -636,10 +628,10 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	}
 	if patched.Name != updated.Name || patched.Description != patchDescription ||
 		patched.DefaultCwd != updated.DefaultCwd || patched.ProviderAuthSecretID != updated.ProviderAuthSecretID ||
-		!sameIntPtr(patched.MaxTotalCPU, updated.MaxTotalCPU) ||
-		!sameIntPtr(patched.DeleteAfterIdleMinutes, updated.DeleteAfterIdleMinutes) ||
-		!sameIntPtr(patched.DefaultMachineCPU, updated.DefaultMachineCPU) ||
-		!sameIntPtr(patched.DefaultMachineMemoryMB, updated.DefaultMachineMemoryMB) ||
+		!storeutil.SameIntPtr(patched.MaxTotalCPU, updated.MaxTotalCPU) ||
+		!storeutil.SameIntPtr(patched.DeleteAfterIdleMinutes, updated.DeleteAfterIdleMinutes) ||
+		!storeutil.SameIntPtr(patched.DefaultMachineCPU, updated.DefaultMachineCPU) ||
+		!storeutil.SameIntPtr(patched.DefaultMachineMemoryMB, updated.DefaultMachineMemoryMB) ||
 		!sameJSON(patched.DefaultMachineEnv, updated.DefaultMachineEnv) ||
 		!sameJSON(patched.DefaultMachineSecretEnv, updated.DefaultMachineSecretEnv) ||
 		!sameJSON(patched.DefaultMachineProviderOptions, updated.DefaultMachineProviderOptions) ||
@@ -836,10 +828,10 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 				Provider:             "test",
 				ProviderAuthSecretID: providerAuthSecretID,
 				MaxTotalMachines:     1,
-				MaxTotalCPU:          intPtrForMachinePoolTest(4),
-				MaxTotalMemoryMB:     intPtrForMachinePoolTest(4096),
-				MaxMachineCPU:        intPtrForMachinePoolTest(4),
-				MaxMachineMemoryMB:   intPtrForMachinePoolTest(4096),
+				MaxTotalCPU:          new(4),
+				MaxTotalMemoryMB:     new(4096),
+				MaxMachineCPU:        new(4),
+				MaxMachineMemoryMB:   new(4096),
 			},
 			tc.fields,
 		))
@@ -859,10 +851,10 @@ func TestMachineConfigEnvRejectsReservedOmnaraNamespace(t *testing.T) {
 			Provider:             "test",
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     2,
-			MaxTotalCPU:          intPtrForMachinePoolTest(4),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(4096),
-			MaxMachineCPU:        intPtrForMachinePoolTest(4),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(4096),
+			MaxTotalCPU:          new(4),
+			MaxTotalMemoryMB:     new(4096),
+			MaxMachineCPU:        new(4),
+			MaxMachineMemoryMB:   new(4096),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
@@ -1015,10 +1007,10 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 			Provider:             "test",
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     2,
-			MaxTotalCPU:          intPtrForMachinePoolTest(4),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(4096),
-			MaxMachineCPU:        intPtrForMachinePoolTest(4),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(4096),
+			MaxTotalCPU:          new(4),
+			MaxTotalMemoryMB:     new(4096),
+			MaxMachineCPU:        new(4),
+			MaxMachineMemoryMB:   new(4096),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
@@ -1318,10 +1310,10 @@ func TestCreateProjectMachinePoolGrantAppliesOnlyPerMachineLimitsToResolvedResou
 			Provider:             "test.provider",
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     5,
-			MaxTotalCPU:          intPtrForMachinePoolTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForMachinePoolTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             4,
@@ -1991,80 +1983,110 @@ tools:
 	}
 }
 
-func TestRevokeProjectMachinePoolGrantWaitsForMachinePoolLock(t *testing.T) {
+func TestMachinePoolDeletionAndGrantRevocationSerialize(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	machinePool, err := store.Execution().CreateMachinePool(
-		ctx,
-		completeMachinePoolCreateInputForTest(
-			t,
-			ctx,
-			store,
-			executionstore.CreateMachinePoolInput{
-				OrgID:            testOrgID,
-				Name:             "Revoke Lock Pool",
-				Provider:         "test",
-				MaxTotalMachines: 1,
-			},
-		))
-
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
-		ctx,
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:          testOrgID,
-			ProjectID:      testProjectID,
-			MachinePoolID:  machinePool.ID,
-			IdempotencyKey: "idem-pmpg-revoke-lock",
-		})
-
-	if err != nil {
-		t.Fatalf("create pool grant: %v", err)
-	}
-	lockTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin pool lock tx: %v", err)
-	}
-	defer func() { _ = lockTx.Rollback(ctx) }()
-	if _, err := lockTx.Exec(
-		ctx,
-		`SELECT id FROM machine_pools WHERE org_id = $1 AND id = $2 FOR UPDATE`,
-		testOrgID,
-		machinePool.ID,
-	); err != nil {
-		t.Fatalf("lock machine pool row: %v", err)
-	}
-	revokeDone := make(chan error, 1)
-	go func() {
-		_, revokeErr := store.Execution().DeleteProjectMachinePoolGrant(
-			ctx,
-			testOrgID,
-			testProjectID,
-			poolGrant.ID,
-		)
-		revokeDone <- revokeErr
-	}()
-	integrationdb.WaitForLockWaiters(t, ctx, pool, "FROM machine_pools", 1)
-	select {
-	case revokeErr := <-revokeDone:
-		t.Fatalf("revoke completed before waiting on machine pool row lock: %v", revokeErr)
-	default:
-	}
-	if err := lockTx.Rollback(ctx); err != nil {
-		t.Fatalf("release machine pool row lock: %v", err)
-	}
-	select {
-	case revokeErr := <-revokeDone:
-		if revokeErr != nil {
-			t.Fatalf("revoke after machine pool lock release: %v", revokeErr)
+	for _, revokeFirst := range []bool{false, true} {
+		name := "pool deletion first"
+		if revokeFirst {
+			name = "grant revocation first"
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pool grant revoke after lock release")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool, WithMachinePoolProviders(mergingMachinePoolProviders{}))
+			machinePool, err := store.Execution().CreateMachinePool(
+				ctx,
+				completeMachinePoolCreateInputForTest(t, ctx, store, executionstore.CreateMachinePoolInput{
+					OrgID:            testOrgID,
+					Name:             "Revoke Lock Pool",
+					Provider:         "test",
+					MaxTotalMachines: 1,
+				}),
+			)
+			if err != nil {
+				t.Fatalf("create machine pool: %v", err)
+			}
+			poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+				ctx,
+				executionstore.CreateProjectMachinePoolGrantInput{
+					OrgID:          testOrgID,
+					ProjectID:      testProjectID,
+					MachinePoolID:  machinePool.ID,
+					IdempotencyKey: "idem-pmpg-revoke-lock",
+				},
+			)
+			if err != nil {
+				t.Fatalf("create pool grant: %v", err)
+			}
+
+			// Pause the winner after it owns the pool, so the competing operation
+			// must wait before enumerating or removing the pool's grants.
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockProjectMachinePoolGrantForLifecycle(
+				ctx,
+				dbsqlc.LockProjectMachinePoolGrantForLifecycleParams{ID: poolGrant.ID},
+			); err != nil {
+				t.Fatalf("lock pool grant: %v", err)
+			}
+			deletePool := func() error {
+				_, err := store.Execution().IntegrationDeleteMachinePoolOnce(ctx, testOrgID, machinePool.ID)
+				return err
+			}
+			revokeGrant := func() error {
+				_, err := store.Execution().IntegrationDeleteProjectMachinePoolGrantOnce(
+					ctx, testOrgID, testProjectID, poolGrant.ID,
+				)
+				return err
+			}
+			var deleteDone, revokeDone <-chan error
+			if revokeFirst {
+				revokeDone = integrationdb.RunAsyncError(revokeGrant)
+			} else {
+				deleteDone = integrationdb.RunAsyncError(deletePool)
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectMachinePoolGrantForLifecycle", 1)
+			if revokeFirst {
+				deleteDone = integrationdb.RunAsyncError(deletePool)
+			} else {
+				revokeDone = integrationdb.RunAsyncError(revokeGrant)
+			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachinePoolForUpdate", 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release pool grant: %v", err)
+			}
+
+			if err := integrationdb.Await(t, deleteDone, "pool deletion"); err != nil {
+				t.Fatalf("delete pool in one transaction attempt: %v", err)
+			}
+			revokeErr := integrationdb.Await(t, revokeDone, "grant revocation")
+			if revokeFirst {
+				if revokeErr != nil {
+					t.Fatalf("revoke grant before pool deletion: %v", revokeErr)
+				}
+			} else if !errors.Is(revokeErr, storeerr.ErrNotFound) {
+				t.Fatalf("revoke grant after pool deletion = %v, want not found", revokeErr)
+			}
+			if _, err := store.Execution().GetMachinePool(ctx, testOrgID, machinePool.ID); !storeerr.IsNotFound(err) {
+				t.Fatalf("deleted pool lookup = %v, want not found", err)
+			}
+			var remainingGrants int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM project_machine_pool_grants WHERE machine_pool_id = $1`,
+				machinePool.ID,
+			).Scan(&remainingGrants); err != nil {
+				t.Fatalf("count remaining pool grants: %v", err)
+			}
+			if remainingGrants != 0 {
+				t.Fatalf("remaining pool grants = %d, want zero", remainingGrants)
+			}
+			if _, err := store.Execution().DeleteProjectMachinePoolGrant(
+				ctx, testOrgID, testProjectID, poolGrant.ID,
+			); !errors.Is(err, storeerr.ErrNotFound) {
+				t.Fatalf("repeat grant deletion = %v, want not found", err)
+			}
+		})
 	}
 }
 
@@ -3021,10 +3043,10 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 			Provider:             "test.provider",
 			ProviderAuthSecretID: providerAuthSecretID,
 			MaxTotalMachines:     5,
-			MaxTotalCPU:          intPtrForMachinePoolTest(maxCPU),
-			MaxTotalMemoryMB:     intPtrForMachinePoolTest(maxMemoryMB),
-			MaxMachineCPU:        intPtrForMachinePoolTest(maxCPU),
-			MaxMachineMemoryMB:   intPtrForMachinePoolTest(maxMemoryMB),
+			MaxTotalCPU:          new(maxCPU),
+			MaxTotalMemoryMB:     new(maxMemoryMB),
+			MaxMachineCPU:        new(maxCPU),
+			MaxMachineMemoryMB:   new(maxMemoryMB),
 		},
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             4,
@@ -3041,13 +3063,13 @@ func TestUpdateProjectMachinePoolGrantAppliesPatchSemantics(t *testing.T) {
 		ProjectID:                testProjectID,
 		MachinePoolID:            machinePool.ID,
 		Description:              "before",
-		DefaultMachineCPU:        intPtrForMachinePoolTest(2),
+		DefaultMachineCPU:        new(2),
 		DefaultMachineEnvOverlay: json.RawMessage(`{"KEEP":"yes"}`),
 		DefaultCwd:               "/before",
-		MaxTotalCPU:              intPtrForMachinePoolTest(8),
-		MinMachineCPU:            intPtrForMachinePoolTest(0),
-		MaxMachineCPU:            intPtrForMachinePoolTest(4),
-		DeleteAfterIdleMinutes:   intPtrForMachinePoolTest(15),
+		MaxTotalCPU:              new(8),
+		MinMachineCPU:            new(0),
+		MaxMachineCPU:            new(4),
+		DeleteAfterIdleMinutes:   new(15),
 	})
 	if err != nil {
 		t.Fatalf("create grant: %v", err)

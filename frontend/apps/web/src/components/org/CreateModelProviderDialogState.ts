@@ -2,7 +2,10 @@ import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omn
 
 import { resourceNameValid } from '@/lib/resource-name'
 
-import { configuredModelSuggestedName } from './CreateConfiguredModelDialogState'
+import {
+  configuredModelSuggestedName,
+  configuredModelTokenLimitsError,
+} from './CreateConfiguredModelDialogState'
 
 export const modelProviderOptions = [
   { value: 'openai', label: 'OpenAI', keyPlaceholder: 'sk-…' },
@@ -36,6 +39,13 @@ export const bedrockAPIOptions = [
 
 export type BedrockAPI = (typeof bedrockAPIOptions)[number]['value']
 
+export const bedrockAuthOptions = [
+  { value: 'api-key', label: 'API key' },
+  { value: 'sigv4', label: 'AWS credentials (SigV4)' },
+] as const
+
+export type BedrockAuth = (typeof bedrockAuthOptions)[number]['value']
+
 export const awsRegionPattern = /^[a-z0-9]+(?:-[a-z0-9]+)+-\d+$/
 
 export function modelProviderOption(value: ModelProviderOption) {
@@ -46,10 +56,15 @@ export function bedrockAPIOption(value: BedrockAPI) {
   return bedrockAPIOptions.find((option) => option.value === value) ?? bedrockAPIOptions[0]
 }
 
+export function bedrockAuthOption(value: BedrockAuth) {
+  return bedrockAuthOptions.find((option) => option.value === value) ?? bedrockAuthOptions[0]
+}
+
 export interface CreateModelProviderFormValues {
   name: string
   provider: ModelProviderOption
   bedrockAPI: BedrockAPI
+  bedrockAuth: BedrockAuth
   region: string
   secretId: string
 }
@@ -58,6 +73,7 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
   name: '',
   provider: 'openai',
   bedrockAPI: 'chat-completions-v1',
+  bedrockAuth: 'api-key',
   region: 'us-west-2',
   secretId: '',
 }
@@ -77,8 +93,8 @@ export function providerSecretName(provider: ModelProviderOption) {
 export function configuredModelRequestForDiscoveredModel(
   model: DiscoveredProviderModel,
 ): CreateConfiguredModelRequest {
-  if (model.context_window_tokens === undefined || model.context_window_tokens < 2) {
-    throw new Error(`No context window was reported for ${model.slug}`)
+  if (!canCreateDiscoveredModel(model) || model.context_window_tokens === undefined) {
+    throw new Error(`Token limits are missing or invalid for ${model.slug}`)
   }
   const request: CreateConfiguredModelRequest = {
     name: configuredModelSuggestedName(model.slug),
@@ -89,4 +105,12 @@ export function configuredModelRequestForDiscoveredModel(
   }
   if (model.max_output_tokens !== undefined) request.max_output_tokens = model.max_output_tokens
   return request
+}
+
+export function canCreateDiscoveredModel(model: DiscoveredProviderModel) {
+  return !configuredModelTokenLimitsError({
+    contextWindowTokens: String(model.context_window_tokens ?? ''),
+    maxOutputTokens: String(model.max_output_tokens ?? ''),
+    defaultMaxOutputTokens: '',
+  })
 }

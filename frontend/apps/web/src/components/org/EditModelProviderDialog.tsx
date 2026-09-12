@@ -10,15 +10,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
+
+import { awsRegionPattern } from './CreateModelProviderDialogState'
 
 interface EditModelProviderState {
   baseUrl: string
   endpointPath: string
   timeout: string
+  idleTimeout: string
+  region: string
   status: SubmitStatus
 }
 
@@ -38,6 +42,8 @@ export function EditModelProviderDialog({
     baseUrl: provider.base_url,
     endpointPath: provider.endpoint_path,
     timeout: String(provider.request_timeout_ms),
+    idleTimeout: String(provider.idle_timeout_ms),
+    region: provider.auth_options.region ?? '',
     status: idle,
   })
   const errorMessage = statusError(state.status)
@@ -51,6 +57,14 @@ export function EditModelProviderDialog({
         base_url: state.baseUrl.trim(),
         endpoint_path: state.endpointPath.trim(),
         request_timeout_ms: Number(state.timeout),
+        idle_timeout_ms: Number(state.idleTimeout),
+        auth_options:
+          provider.auth_kind === 'sigv4'
+            ? {
+                service: provider.auth_options.service,
+                region: state.region.trim(),
+              }
+            : undefined,
       })
       onOpenChange(false)
     } catch (err) {
@@ -89,21 +103,64 @@ export function EditModelProviderDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Request timeout (ms)</FieldLabel>
+              <FieldLabel>Total request timeout (ms)</FieldLabel>
               <Input
                 type="number"
                 min="1"
+                max="2147483647"
+                required
                 value={state.timeout}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, timeout: event.target.value }))
                 }}
               />
+              <FieldDescription>
+                The total deadline includes reasoning and streaming for one attempt. Retries start a
+                new deadline.
+              </FieldDescription>
             </Field>
+            <Field>
+              <FieldLabel>Idle timeout (ms)</FieldLabel>
+              <Input
+                type="number"
+                min="1"
+                max="2147483647"
+                required
+                value={state.idleTimeout}
+                onChange={(event) => {
+                  setState((prev) => ({ ...prev, idleTimeout: event.target.value }))
+                }}
+              />
+              <FieldDescription>
+                Maximum wait for response headers or more response data. Heartbeats count as
+                activity.
+              </FieldDescription>
+            </Field>
+            {provider.auth_kind === 'sigv4' && (
+              <Field>
+                <FieldLabel>AWS signing region</FieldLabel>
+                <Input
+                  required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  pattern={awsRegionPattern.source}
+                  value={state.region}
+                  onChange={(event) => {
+                    setState((prev) => ({ ...prev, region: event.target.value }))
+                  }}
+                />
+              </Field>
+            )}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={mutation.isPending || state.baseUrl.trim() === ''}
+                disabled={
+                  mutation.isPending ||
+                  state.baseUrl.trim() === '' ||
+                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim()))
+                }
                 loading={mutation.isPending}
               >
                 Save changes

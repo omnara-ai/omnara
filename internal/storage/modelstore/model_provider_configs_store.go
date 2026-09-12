@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -30,39 +31,37 @@ func (s *Store) CreateModelProviderConfig(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	record, err := s.createModelProviderConfigTx(ctx, qtx, input)
+	record, err := s.createModelProviderConfigTx(ctx, tx, qtx, input)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	if record.Created {
-		if err := resourceguard.Lock(
-			ctx,
-			qtx,
-			resourceModelProviderConfigs,
-			input.OrgID.String(),
-		); err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
-			ctx,
-			dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	if err := resourceguard.Lock(
+		ctx,
+		qtx,
+		resourceModelProviderConfigs,
+		input.OrgID.String(),
+	); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	configCount, err := qtx.CountActiveTenantModelProviderConfigsForOrg(
+		ctx,
+		dbsqlc.CountActiveTenantModelProviderConfigsForOrgParams{OrgID: input.OrgID},
+	)
+	if err != nil {
+		return ModelProviderConfigRecord{}, fmt.Errorf(
+			"count tenant model provider configs: %w",
+			err,
 		)
-		if err != nil {
-			return ModelProviderConfigRecord{}, fmt.Errorf(
-				"count tenant model provider configs: %w",
-				err,
-			)
-		}
-		if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
-			return ModelProviderConfigRecord{}, resourceLimitExceeded(
-				"active model provider configs",
-				limits.MaxActiveTenantModelProviderConfigsPerOrg,
-			)
-		}
+	}
+	if configCount > limits.MaxActiveTenantModelProviderConfigsPerOrg {
+		return ModelProviderConfigRecord{}, resourceLimitExceeded(
+			"active model provider configs",
+			limits.MaxActiveTenantModelProviderConfigsPerOrg,
+		)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("commit create model provider config: %w", err)
@@ -72,6 +71,7 @@ func (s *Store) CreateModelProviderConfig(
 
 func (s *Store) createModelProviderConfigTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input CreateModelProviderConfigInput,
 ) (ModelProviderConfigRecord, error) {
@@ -106,19 +106,33 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
-	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
+	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	input.RequestTimeoutMS = normalizeModelProviderTimeoutMS(input.RequestTimeoutMS, DefaultModelProviderRequestTimeoutMS)
+	input.IdleTimeoutMS = normalizeModelProviderTimeoutMS(input.IdleTimeoutMS, DefaultModelProviderIdleTimeoutMS)
+	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := validateModelProviderTimeoutMS("idle_timeout_ms", input.IdleTimeoutMS); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
 	if err := management.Validate(input.managementKind); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	if err := validateModelProviderCredentialTx(
 		ctx,
-		qtx,
+		tx,
 		input.OrgID,
 		input.CredentialSecretID,
 		input.managementKind,
+		input.AuthKind,
 	); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -133,42 +147,21 @@ func (s *Store) createModelProviderConfigTx(
 			BaseUrl:            input.BaseURL,
 			EndpointPath:       input.EndpointPath,
 			RequestTimeoutMs:   int32(input.RequestTimeoutMS),
+			IdleTimeoutMs:      int32(input.IdleTimeoutMS),
 			AuthKind:           input.AuthKind,
 			AuthOptions:        input.AuthOptions,
 			CredentialSecretID: &input.CredentialSecretID,
 		},
 	)
-	if err == nil {
-		record := modelProviderConfigRecordFromSQLC(row)
-		record.Created = true
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		if storeutil.IsUniqueViolation(err) {
-			return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
+	if err != nil {
+		if storeutil.IsUniqueViolationOnConstraint(err, "model_provider_configs_active_name_idx") {
+			return ModelProviderConfigRecord{}, storeerr.Tag(storeerr.ErrConflict, fmt.Errorf(
+				"a model provider config named %q already exists", input.Name,
+			))
 		}
 		return ModelProviderConfigRecord{}, fmt.Errorf("insert model provider config: %w", err)
 	}
-	existingRow, err := qtx.GetModelProviderConfigByName(
-		ctx,
-		dbsqlc.GetModelProviderConfigByNameParams{OrgID: input.OrgID, Name: input.Name},
-	)
-	if err != nil {
-		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config by name: %w", err)
-	}
-	record := modelProviderConfigRecordFromSQLC(existingRow)
-	if !sameModelProviderConfigIntent(record, input) {
-		return ModelProviderConfigRecord{}, modelProviderConfigNameConflict(input.Name)
-	}
-	return record, nil
-}
-
-func modelProviderConfigNameConflict(name string) error {
-	return fmt.Errorf(
-		"a model provider config named %q already exists with a different configuration: %w",
-		name,
-		storeerr.ErrIdempotencyConflict,
-	)
+	return modelProviderConfigRecordFromSQLC(row), nil
 }
 
 func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id ID) (ModelProviderConfigRecord, error) {
@@ -253,29 +246,38 @@ func (s *Store) ListModelProviderConfigs(
 
 func validateModelProviderCredentialTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	tx pgx.Tx,
 	orgID, credentialSecretID ID,
 	managementKind management.Kind,
+	authKind string,
 ) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, credentialSecretID)
+	credential, err := secretops.LockReference(ctx, tx, orgID, credentialSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	return validateModelProviderCredentialRecord(credential, managementKind)
+	return validateModelProviderCredentialRecord(credential, managementKind, authKind)
 }
 
-func validateModelProviderCredentialRecord(credential secretops.Facts, managementKind management.Kind) error {
+func validateModelProviderCredentialRecord(
+	credential secretops.Facts,
+	managementKind management.Kind,
+	authKind string,
+) error {
 	if credential.OwnerKind != secretstore.SecretOwnerOrg {
 		return fmt.Errorf("model provider credential secret must be org-owned: %w", storeerr.ErrNotFound)
 	}
-	if credential.Kind != secretstore.SecretKindGeneric {
+	expectedKind, err := ModelProviderCredentialSecretKind(authKind)
+	if err != nil {
+		return err
+	}
+	if credential.Kind != expectedKind {
 		return fmt.Errorf(
 			"model provider credential secret kind %q does not match required kind %q: %w",
 			credential.Kind,
-			secretstore.SecretKindGeneric,
+			expectedKind,
 			storeerr.ErrInvalidSecretRequest,
 		)
 	}
@@ -301,6 +303,9 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	currentRow, err := qtx.LockModelProviderConfigForMutation(
 		ctx,
 		dbsqlc.LockModelProviderConfigForMutationParams{OrgID: input.OrgID, ID: input.ID},
@@ -320,7 +325,7 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	record, err := updateModelProviderConfigTx(ctx, qtx, update, management.Tenant)
+	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -332,6 +337,7 @@ func (s *Store) PatchModelProviderConfig(
 
 func updateModelProviderConfigTx(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
 	input modelProviderConfigUpdate,
 	managementKind management.Kind,
@@ -339,8 +345,15 @@ func updateModelProviderConfigTx(
 	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
 		input,
-		func(ctx context.Context, orgID, credentialSecretID ID) error {
-			return validateModelProviderCredentialTx(ctx, qtx, orgID, credentialSecretID, managementKind)
+		func(ctx context.Context, orgID, credentialSecretID ID, authKind string) error {
+			return validateModelProviderCredentialTx(
+				ctx,
+				tx,
+				orgID,
+				credentialSecretID,
+				managementKind,
+				authKind,
+			)
 		},
 	)
 	if err != nil {
@@ -355,6 +368,7 @@ func updateModelProviderConfigTx(
 			BaseUrl:            update.BaseURL,
 			EndpointPath:       update.EndpointPath,
 			RequestTimeoutMs:   int32(update.RequestTimeoutMS),
+			IdleTimeoutMs:      int32(update.IdleTimeoutMS),
 			AuthKind:           update.AuthKind,
 			AuthOptions:        update.AuthOptions,
 			CredentialSecretID: &update.CredentialSecretID,
@@ -375,7 +389,7 @@ func updateModelProviderConfigTx(
 func normalizeModelProviderConfigUpdate(
 	ctx context.Context,
 	input modelProviderConfigUpdate,
-	validateCredential func(context.Context, ID, ID) error,
+	validateCredential func(context.Context, ID, ID, string) error,
 ) (modelProviderConfigUpdate, error) {
 	if isNilID(input.OrgID) || isNilID(input.ID) || input.BaseURL == "" || input.EndpointPath == "" ||
 		input.AuthKind == "" ||
@@ -398,14 +412,22 @@ func normalizeModelProviderConfigUpdate(
 	if err := ValidateModelProviderAuth(input.AuthKind, input.AuthOptions); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
-	input.RequestTimeoutMS = normalizeModelProviderRequestTimeoutMS(input.RequestTimeoutMS)
-	if err := validateModelProviderRequestTimeoutMS(input.RequestTimeoutMS); err != nil {
+	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateModelProviderTimeoutMS("idle_timeout_ms", input.IdleTimeoutMS); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
 	if err := validateModelProviderAPIVariant(input.APIFormat, input.APIVariant); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
-	if err := validateCredential(ctx, input.OrgID, input.CredentialSecretID); err != nil {
+	if err := validateModelProviderAuthAPIVariant(input.AuthKind, input.APIVariant); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateModelProviderSigV4EndpointRegion(input.BaseURL, input.AuthKind, input.AuthOptions); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
+	if err := validateCredential(ctx, input.OrgID, input.CredentialSecretID, input.AuthKind); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
 	return input, nil
@@ -420,6 +442,7 @@ func updateModelProviderConfigInputFromCurrent(
 		BaseURL:            current.BaseURL,
 		EndpointPath:       current.EndpointPath,
 		RequestTimeoutMS:   current.RequestTimeoutMS,
+		IdleTimeoutMS:      current.IdleTimeoutMS,
 		AuthKind:           current.AuthKind,
 		AuthOptions:        current.AuthOptions,
 		CredentialSecretID: current.CredentialSecretID,
@@ -441,6 +464,9 @@ func applyModelProviderConfigPatch(
 	}
 	if patch.RequestTimeoutMS != nil {
 		update.RequestTimeoutMS = *patch.RequestTimeoutMS
+	}
+	if patch.IdleTimeoutMS != nil {
+		update.IdleTimeoutMS = *patch.IdleTimeoutMS
 	}
 	if patch.AuthKind != nil {
 		update.AuthKind = *patch.AuthKind
@@ -518,6 +544,7 @@ func modelProviderConfigRecordFromSQLC(row dbsqlc.ModelProviderConfig) ModelProv
 		BaseURL:            row.BaseUrl,
 		EndpointPath:       row.EndpointPath,
 		RequestTimeoutMS:   int(row.RequestTimeoutMs),
+		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),
@@ -538,6 +565,7 @@ func modelProviderConfigRecordFromListSQLC(row dbsqlc.ListModelProviderConfigsRo
 		BaseURL:            row.BaseUrl,
 		EndpointPath:       row.EndpointPath,
 		RequestTimeoutMS:   int(row.RequestTimeoutMs),
+		IdleTimeoutMS:      int(row.IdleTimeoutMs),
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: idFromSQLCPtr(row.CredentialSecretID),

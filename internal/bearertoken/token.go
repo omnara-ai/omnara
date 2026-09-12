@@ -16,6 +16,7 @@ const (
 	KindOrganization     Kind = "org"
 	KindDaemon           Kind = "daemon"
 	KindChannelConnector Kind = "connector"
+	KindOAuthAccess      Kind = "oauth"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 	organizationPrefix     = "omnara_" + string(KindOrganization) + "_v1_"
 	daemonPrefix           = "omnara_" + string(KindDaemon) + "_v1_"
 	channelConnectorPrefix = "omnara_" + string(KindChannelConnector) + "_v1_"
+	oauthAccessPrefix      = "omnara_" + string(KindOAuthAccess) + "_v1_"
 
 	checksumSeparator = '_'
 	base62Radix       = uint32(len(alphabet))
@@ -105,6 +107,8 @@ func prefixForKind(kind Kind) (string, bool) {
 		return daemonPrefix, true
 	case KindChannelConnector:
 		return channelConnectorPrefix, true
+	case KindOAuthAccess:
+		return oauthAccessPrefix, true
 	default:
 		return "", false
 	}
@@ -120,6 +124,8 @@ func kindAndPrefix(token string) (Kind, string, bool) {
 		return KindDaemon, daemonPrefix, true
 	case strings.HasPrefix(token, channelConnectorPrefix):
 		return KindChannelConnector, channelConnectorPrefix, true
+	case strings.HasPrefix(token, oauthAccessPrefix):
+		return KindOAuthAccess, oauthAccessPrefix, true
 	default:
 		return "", "", false
 	}

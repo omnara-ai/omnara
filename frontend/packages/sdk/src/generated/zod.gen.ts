@@ -285,7 +285,13 @@ export const zModelApiFormat = z.enum([
     'anthropic-messages'
 ]);
 
-export const zModelProviderAuthKind = z.enum(['bearer_token', 'api_key_header']);
+export const zModelProviderAuthKind = z.enum([
+    'bearer_token',
+    'api_key_header',
+    'sigv4'
+]);
+
+export const zModelProviderAuthKindResponse = z.string();
 
 export const zModelProviderApiVariant = z.enum([
     'default',
@@ -348,7 +354,7 @@ export const zUpdateConfiguredModelRequest = z.object({
     name: zResourceName.optional(),
     provider_model_slug: z.string().min(1).optional(),
     context_window_tokens: z.int().gte(2).lte(2147483647).optional(),
-    max_output_tokens: z.int().gte(1).lte(2147483647).optional(),
+    max_output_tokens: z.int().gte(1).lte(2147483647).nullish(),
     default_max_output_tokens: z.int().gte(1).lte(2147483647).nullish(),
     default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean().optional(),
@@ -426,9 +432,12 @@ export const zCreateModelProviderConfigRequest = z.object({
     base_url: z.string().min(1).optional(),
     endpoint_path: z.string().min(1).regex(/^\//).optional(),
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
+    idle_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }).optional(),
     credential_secret_id: zSecretId
 });
@@ -440,9 +449,12 @@ export const zUpdateModelProviderConfigRequest = z.object({
     base_url: z.string().min(1).optional(),
     endpoint_path: z.string().min(1).regex(/^\//).optional(),
     request_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
+    idle_timeout_ms: z.int().gte(1).lte(2147483647).optional(),
     auth_kind: zModelProviderAuthKind.optional(),
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }).optional(),
     credential_secret_id: zSecretId.optional()
 });
@@ -545,9 +557,12 @@ export const zModelProviderConfig = z.object({
     base_url: z.string(),
     endpoint_path: z.string(),
     request_timeout_ms: z.int(),
-    auth_kind: zModelProviderAuthKind,
+    idle_timeout_ms: z.int(),
+    auth_kind: zModelProviderAuthKindResponse,
     auth_options: z.object({
-        header_name: z.string().min(1).optional()
+        header_name: z.string().min(1).optional(),
+        service: z.string().min(1).max(64).optional(),
+        region: z.string().min(1).max(64).optional()
     }),
     credential_secret_id: zSecretId,
     created_at: zTimestamp,
@@ -573,7 +588,7 @@ export const zConfiguredModel = z.object({
     current_revision_id: zConfiguredModelRevisionId,
     provider_model_slug: z.string(),
     context_window_tokens: z.int(),
-    max_output_tokens: z.int(),
+    max_output_tokens: z.int().nullable(),
     default_max_output_tokens: z.int().nullish(),
     default_cache_retention: zModelCacheRetention.optional(),
     supports_tools: z.boolean(),
@@ -1000,7 +1015,7 @@ export const zAgentConfigModel = z.object({
     api_format: zModelApiFormat,
     api_variant: zModelProviderApiVariantResponse,
     context_window_tokens: z.int(),
-    max_output_tokens: z.int(),
+    max_output_tokens: z.int().nullable(),
     default_max_output_tokens: z.int().nullish(),
     default_cache_retention: zModelCacheRetention,
     supports_tools: z.boolean(),
@@ -2264,7 +2279,7 @@ export const zCreateMachinePoolRequestBase = z.object({
 
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
-        provider: z.enum(['unikraft']),
+        provider: z.enum(['unikraft', 'modal']),
         default_machine_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         default_machine_memory_mb: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
         max_total_cpu: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
@@ -2811,6 +2826,10 @@ export const zCurrentUserOrg = z.object({
     created_at: zTimestamp
 });
 
+export const zListOrganizationsResponse = z.object({
+    data: z.array(zCurrentUserOrg)
+});
+
 export const zCurrentUser = z.object({
     user: zCurrentUserIdentity,
     orgs: z.array(zCurrentUserOrg)
@@ -2992,6 +3011,11 @@ export const zRecordMachineFailureQuery = z.object({
  * Machine failure recorded.
  */
 export const zRecordMachineFailureResponse = z.void();
+
+/**
+ * Organizations the authenticated principal belongs to, with its role in each.
+ */
+export const zListOrganizationsResponse2 = zListOrganizationsResponse;
 
 export const zCreateOrganizationBody = zCreateOrganizationRequest;
 
@@ -4384,7 +4408,7 @@ export const zCreateModelProviderConfigPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateModelProviderConfigResponse2 = zCreateModelProviderConfigResponse;
 
@@ -4453,7 +4477,7 @@ export const zCreateConfiguredModelPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateConfiguredModelResponse = zConfiguredModel;
 
@@ -4506,7 +4530,7 @@ export const zCreateProjectModelGrantPath = z.object({
 });
 
 /**
- * Route response.
+ * Created route response.
  */
 export const zCreateProjectModelGrantResponse = zProjectModelGrantEnvelope;
 

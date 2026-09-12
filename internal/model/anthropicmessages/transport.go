@@ -23,7 +23,7 @@ func (c Client) routeClient() route.Client {
 			c.Auth,
 			route.Headers{"Anthropic-Version": APIVersion},
 		},
-		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost},
+		Transport: route.HTTPTransport{Client: c.HTTPClient, Method: http.MethodPost, IdleTimeout: c.IdleTimeout},
 		Protocol:  protocol{client: c},
 	}
 }

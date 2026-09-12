@@ -50,25 +50,30 @@ func (q *Queries) AddOrgAPIKeyOrgMembership(ctx context.Context, arg AddOrgAPIKe
 
 const addProjectMembership = `-- name: AddProjectMembership :one
 INSERT INTO project_memberships(org_id, project_id, org_membership_id, role, created_at)
-VALUES ($1, $2, $3, $4, transaction_timestamp())
+SELECT project.org_id, project.id, $1, $2, transaction_timestamp()
+FROM projects project
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+WHERE project.org_id = $3
+  AND project.id = $4
+  AND project.deleted_at IS NULL
 ON CONFLICT (project_id, org_membership_id)
 DO UPDATE SET role = excluded.role
 RETURNING org_id, project_id, org_membership_id, role, created_at
 `
 
 type AddProjectMembershipParams struct {
-	OrgID           uuid.UUID
-	ProjectID       uuid.UUID
 	OrgMembershipID uuid.UUID
 	Role            string
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
 }
 
 func (q *Queries) AddProjectMembership(ctx context.Context, arg AddProjectMembershipParams) (ProjectMembership, error) {
 	row := q.db.QueryRow(ctx, addProjectMembership,
-		arg.OrgID,
-		arg.ProjectID,
 		arg.OrgMembershipID,
 		arg.Role,
+		arg.OrgID,
+		arg.ProjectID,
 	)
 	var i ProjectMembership
 	err := row.Scan(
@@ -248,6 +253,47 @@ func (q *Queries) AuthenticateBrowserSession(ctx context.Context, arg Authentica
 	return i, err
 }
 
+const authenticateOAuthAccessToken = `-- name: AuthenticateOAuthAccessToken :one
+WITH authenticated AS MATERIALIZED (
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  FROM oauth_access_tokens t
+  WHERE t.token_hash = $1
+    AND t.revoked_at IS NULL
+    AND t.expires_at > transaction_timestamp()
+  LIMIT 1
+), touched AS (
+  UPDATE oauth_access_tokens token
+  SET last_used_at = transaction_timestamp()
+  FROM authenticated
+  WHERE token.id = authenticated.oauth_access_token_id
+    AND (
+      token.last_used_at IS NULL
+      OR token.last_used_at < transaction_timestamp() - ($2::bigint * interval '1 second')
+    )
+  RETURNING token.id
+)
+SELECT user_id, oauth_access_token_id, resource
+FROM authenticated
+`
+
+type AuthenticateOAuthAccessTokenParams struct {
+	TokenHash            string
+	TouchIntervalSeconds int64
+}
+
+type AuthenticateOAuthAccessTokenRow struct {
+	UserID             uuid.UUID
+	OauthAccessTokenID uuid.UUID
+	Resource           string
+}
+
+func (q *Queries) AuthenticateOAuthAccessToken(ctx context.Context, arg AuthenticateOAuthAccessTokenParams) (AuthenticateOAuthAccessTokenRow, error) {
+	row := q.db.QueryRow(ctx, authenticateOAuthAccessToken, arg.TokenHash, arg.TouchIntervalSeconds)
+	var i AuthenticateOAuthAccessTokenRow
+	err := row.Scan(&i.UserID, &i.OauthAccessTokenID, &i.Resource)
+	return i, err
+}
+
 const authenticatePersonalAccessToken = `-- name: AuthenticatePersonalAccessToken :one
 WITH authenticated AS MATERIALIZED (
   SELECT pat.user_id, pat.id AS personal_access_token_id, pat.last_used_at
@@ -307,6 +353,60 @@ func (q *Queries) ConsumeAuthDeviceFlow(ctx context.Context, arg ConsumeAuthDevi
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const consumeOAuthAuthorizationCode = `-- name: ConsumeOAuthAuthorizationCode :one
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE code_hash = $1
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp()
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource
+`
+
+type ConsumeOAuthAuthorizationCodeParams struct {
+	CodeHash string
+}
+
+type ConsumeOAuthAuthorizationCodeRow struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	ClientID      string
+	ClientName    string
+	RedirectUri   string
+	CodeChallenge string
+	Resource      string
+}
+
+func (q *Queries) ConsumeOAuthAuthorizationCode(ctx context.Context, arg ConsumeOAuthAuthorizationCodeParams) (ConsumeOAuthAuthorizationCodeRow, error) {
+	row := q.db.QueryRow(ctx, consumeOAuthAuthorizationCode, arg.CodeHash)
+	var i ConsumeOAuthAuthorizationCodeRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		&i.ClientName,
+		&i.RedirectUri,
+		&i.CodeChallenge,
+		&i.Resource,
+	)
+	return i, err
+}
+
+const consumeOAuthAuthorizationCodesForUser = `-- name: ConsumeOAuthAuthorizationCodesForUser :exec
+UPDATE oauth_authorization_codes
+SET consumed_at = transaction_timestamp()
+WHERE user_id = $1
+  AND consumed_at IS NULL
+`
+
+type ConsumeOAuthAuthorizationCodesForUserParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) ConsumeOAuthAuthorizationCodesForUser(ctx context.Context, arg ConsumeOAuthAuthorizationCodesForUserParams) error {
+	_, err := q.db.Exec(ctx, consumeOAuthAuthorizationCodesForUser, arg.UserID)
+	return err
 }
 
 const consumeOrgInvitationForEmail = `-- name: ConsumeOrgInvitationForEmail :one
@@ -596,6 +696,92 @@ func (q *Queries) CreateBrowserSession(ctx context.Context, arg CreateBrowserSes
 	return i, err
 }
 
+const createOAuthAccessToken = `-- name: CreateOAuthAccessToken :one
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  transaction_timestamp(),
+  transaction_timestamp() + ($7::bigint * interval '1 second'),
+  transaction_timestamp() + ($8::bigint * interval '1 second')
+)
+RETURNING id
+`
+
+type CreateOAuthAccessTokenParams struct {
+	UserID            uuid.UUID
+	ClientID          string
+	ClientName        string
+	Resource          string
+	TokenHash         string
+	RefreshTokenHash  string
+	AccessTtlSeconds  int64
+	RefreshTtlSeconds int64
+}
+
+func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAccessTokenParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createOAuthAccessToken,
+		arg.UserID,
+		arg.ClientID,
+		arg.ClientName,
+		arg.Resource,
+		arg.TokenHash,
+		arg.RefreshTokenHash,
+		arg.AccessTtlSeconds,
+		arg.RefreshTtlSeconds,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createOAuthAuthorizationCode = `-- name: CreateOAuthAuthorizationCode :one
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  transaction_timestamp(),
+  transaction_timestamp() + ($8::bigint * interval '1 second')
+)
+RETURNING id
+`
+
+type CreateOAuthAuthorizationCodeParams struct {
+	CodeHash      string
+	UserID        uuid.UUID
+	ClientID      string
+	ClientName    string
+	RedirectUri   string
+	CodeChallenge string
+	Resource      string
+	TtlSeconds    int64
+}
+
+func (q *Queries) CreateOAuthAuthorizationCode(ctx context.Context, arg CreateOAuthAuthorizationCodeParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createOAuthAuthorizationCode,
+		arg.CodeHash,
+		arg.UserID,
+		arg.ClientID,
+		arg.ClientName,
+		arg.RedirectUri,
+		arg.CodeChallenge,
+		arg.Resource,
+		arg.TtlSeconds,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createOrg = `-- name: CreateOrg :one
 INSERT INTO orgs(id, name, idempotency_key, created_at, updated_at)
 VALUES ($1, $2, $3, transaction_timestamp(), transaction_timestamp())
@@ -698,15 +884,18 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 
 const createProject = `-- name: CreateProject :one
 INSERT INTO projects(org_id, name, idempotency_key, created_at, updated_at)
-VALUES ($1, $2, $3, transaction_timestamp(), transaction_timestamp())
+SELECT org.id, $1, $2, transaction_timestamp(), transaction_timestamp()
+FROM orgs org
+WHERE org.id = $3
+  AND org.deleted_at IS NULL
 ON CONFLICT (org_id, idempotency_key) DO NOTHING
 RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 `
 
 type CreateProjectParams struct {
-	OrgID          uuid.UUID
 	Name           string
 	IdempotencyKey *string
+	OrgID          uuid.UUID
 }
 
 type CreateProjectRow struct {
@@ -719,7 +908,7 @@ type CreateProjectRow struct {
 }
 
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error) {
-	row := q.db.QueryRow(ctx, createProject, arg.OrgID, arg.Name, arg.IdempotencyKey)
+	row := q.db.QueryRow(ctx, createProject, arg.Name, arg.IdempotencyKey, arg.OrgID)
 	var i CreateProjectRow
 	err := row.Scan(
 		&i.ID,
@@ -1019,6 +1208,31 @@ func (q *Queries) DeleteExpiredAuthDeviceFlows(ctx context.Context, arg DeleteEx
 	return result.RowsAffected(), nil
 }
 
+const deleteExpiredOAuthAuthorizationCodes = `-- name: DeleteExpiredOAuthAuthorizationCodes :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_authorization_codes
+    WHERE expires_at <= transaction_timestamp()
+    ORDER BY expires_at, id
+    LIMIT $1
+)
+DELETE FROM oauth_authorization_codes
+USING candidates
+WHERE oauth_authorization_codes.id = candidates.id
+`
+
+type DeleteExpiredOAuthAuthorizationCodesParams struct {
+	LimitCount int32
+}
+
+func (q *Queries) DeleteExpiredOAuthAuthorizationCodes(ctx context.Context, arg DeleteExpiredOAuthAuthorizationCodesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredOAuthAuthorizationCodes, arg.LimitCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteInactiveBrowserSessions = `-- name: DeleteInactiveBrowserSessions :execrows
 WITH candidates AS (
     SELECT id
@@ -1043,6 +1257,32 @@ type DeleteInactiveBrowserSessionsParams struct {
 
 func (q *Queries) DeleteInactiveBrowserSessions(ctx context.Context, arg DeleteInactiveBrowserSessionsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteInactiveBrowserSessions, arg.LimitCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteInactiveOAuthAccessTokens = `-- name: DeleteInactiveOAuthAccessTokens :execrows
+WITH candidates AS (
+    SELECT id
+    FROM oauth_access_tokens
+    WHERE refresh_expires_at <= transaction_timestamp()
+       OR revoked_at IS NOT NULL
+    ORDER BY refresh_expires_at, id
+    LIMIT $1
+)
+DELETE FROM oauth_access_tokens
+USING candidates
+WHERE oauth_access_tokens.id = candidates.id
+`
+
+type DeleteInactiveOAuthAccessTokensParams struct {
+	LimitCount int32
+}
+
+func (q *Queries) DeleteInactiveOAuthAccessTokens(ctx context.Context, arg DeleteInactiveOAuthAccessTokensParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteInactiveOAuthAccessTokens, arg.LimitCount)
 	if err != nil {
 		return 0, err
 	}
@@ -1975,6 +2215,25 @@ func (q *Queries) GetActiveBrowserSessionForUserByID(ctx context.Context, arg Ge
 	return id, err
 }
 
+const getActiveOAuthAuthorizationCodeUserByHash = `-- name: GetActiveOAuthAuthorizationCodeUserByHash :one
+SELECT user_id
+FROM oauth_authorization_codes
+WHERE code_hash = $1
+  AND consumed_at IS NULL
+  AND expires_at > transaction_timestamp()
+`
+
+type GetActiveOAuthAuthorizationCodeUserByHashParams struct {
+	CodeHash string
+}
+
+func (q *Queries) GetActiveOAuthAuthorizationCodeUserByHash(ctx context.Context, arg GetActiveOAuthAuthorizationCodeUserByHashParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getActiveOAuthAuthorizationCodeUserByHash, arg.CodeHash)
+	var user_id uuid.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const getActiveUserAuthTokenByHash = `-- name: GetActiveUserAuthTokenByHash :one
 SELECT token.id,
        token.user_id,
@@ -2352,6 +2611,26 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 	return id, err
 }
 
+const getOAuthAccessTokenUserByRefreshToken = `-- name: GetOAuthAccessTokenUserByRefreshToken :one
+SELECT token.user_id
+FROM oauth_access_tokens token
+LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
+WHERE token.refresh_token_hash = $1::text
+   OR retired.refresh_token_hash = $1::text
+LIMIT 1
+`
+
+type GetOAuthAccessTokenUserByRefreshTokenParams struct {
+	PresentedRefreshTokenHash string
+}
+
+func (q *Queries) GetOAuthAccessTokenUserByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenUserByRefreshTokenParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getOAuthAccessTokenUserByRefreshToken, arg.PresentedRefreshTokenHash)
+	var user_id uuid.UUID
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const getOrg = `-- name: GetOrg :one
 SELECT id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
 FROM orgs
@@ -2518,6 +2797,28 @@ func (q *Queries) GetOrgCreationReplayForUser(ctx context.Context, arg GetOrgCre
 		&i.ProjectCreatedAt,
 		&i.ProjectUpdatedAt,
 	)
+	return i, err
+}
+
+const getOrgInvitationForLifecycle = `-- name: GetOrgInvitationForLifecycle :one
+SELECT id, org_id
+FROM org_invitations
+WHERE id = $1
+`
+
+type GetOrgInvitationForLifecycleParams struct {
+	ID uuid.UUID
+}
+
+type GetOrgInvitationForLifecycleRow struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+func (q *Queries) GetOrgInvitationForLifecycle(ctx context.Context, arg GetOrgInvitationForLifecycleParams) (GetOrgInvitationForLifecycleRow, error) {
+	row := q.db.QueryRow(ctx, getOrgInvitationForLifecycle, arg.ID)
+	var i GetOrgInvitationForLifecycleRow
+	err := row.Scan(&i.ID, &i.OrgID)
 	return i, err
 }
 
@@ -2935,6 +3236,43 @@ func (q *Queries) ListActiveAgentIDsForProjectDeletion(ctx context.Context, arg 
 	return items, nil
 }
 
+const listActiveAgentRefsForOrganizationDeletion = `-- name: ListActiveAgentRefsForOrganizationDeletion :many
+SELECT project_id, id AS agent_id
+FROM agents
+WHERE org_id = $1
+  AND state = 'active'
+ORDER BY project_id, id
+`
+
+type ListActiveAgentRefsForOrganizationDeletionParams struct {
+	OrgID uuid.UUID
+}
+
+type ListActiveAgentRefsForOrganizationDeletionRow struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+func (q *Queries) ListActiveAgentRefsForOrganizationDeletion(ctx context.Context, arg ListActiveAgentRefsForOrganizationDeletionParams) ([]ListActiveAgentRefsForOrganizationDeletionRow, error) {
+	rows, err := q.db.Query(ctx, listActiveAgentRefsForOrganizationDeletion, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveAgentRefsForOrganizationDeletionRow{}
+	for rows.Next() {
+		var i ListActiveAgentRefsForOrganizationDeletionRow
+		if err := rows.Scan(&i.ProjectID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveProjectIDsForOrganization = `-- name: ListActiveProjectIDsForOrganization :many
 SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL ORDER BY id
 `
@@ -3171,6 +3509,53 @@ func (q *Queries) ListOrgMembers(ctx context.Context, arg ListOrgMembersParams) 
 	return items, nil
 }
 
+const listOrgMembershipsForPrincipal = `-- name: ListOrgMembershipsForPrincipal :many
+SELECT o.id, o.name, om.role, o.created_at
+FROM org_memberships om
+JOIN orgs o ON o.id = om.org_id
+WHERE (($1::uuid IS NOT NULL AND om.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND om.org_api_key_id = $2::uuid))
+  AND o.deleted_at IS NULL
+ORDER BY o.name, o.id
+`
+
+type ListOrgMembershipsForPrincipalParams struct {
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+type ListOrgMembershipsForPrincipalRow struct {
+	ID        uuid.UUID
+	Name      string
+	Role      string
+	CreatedAt time.Time
+}
+
+func (q *Queries) ListOrgMembershipsForPrincipal(ctx context.Context, arg ListOrgMembershipsForPrincipalParams) ([]ListOrgMembershipsForPrincipalRow, error) {
+	rows, err := q.db.Query(ctx, listOrgMembershipsForPrincipal, arg.UserID, arg.OrgApiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrgMembershipsForPrincipalRow{}
+	for rows.Next() {
+		var i ListOrgMembershipsForPrincipalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrgMembershipsForUser = `-- name: ListOrgMembershipsForUser :many
 SELECT o.id, o.name, om.role, o.created_at
 FROM org_memberships om
@@ -3328,6 +3713,49 @@ func (q *Queries) ListPersonalAccessTokensForUser(ctx context.Context, arg ListP
 			&i.LastUsedAt,
 			&i.RevokedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPrincipalRoles = `-- name: ListPrincipalRoles :many
+SELECT 'org'::text AS scope, om.role
+FROM org_memberships om
+JOIN orgs org ON org.id = om.org_id AND org.deleted_at IS NULL
+WHERE ($1::uuid IS NOT NULL AND om.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND om.org_api_key_id = $2::uuid)
+UNION
+SELECT 'project'::text AS scope, roles.role
+FROM principal_project_authorization_roles roles
+WHERE ($1::uuid IS NOT NULL AND roles.user_id = $1::uuid)
+   OR ($2::uuid IS NOT NULL AND roles.org_api_key_id = $2::uuid)
+`
+
+type ListPrincipalRolesParams struct {
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+type ListPrincipalRolesRow struct {
+	Scope string
+	Role  string
+}
+
+func (q *Queries) ListPrincipalRoles(ctx context.Context, arg ListPrincipalRolesParams) ([]ListPrincipalRolesRow, error) {
+	rows, err := q.db.Query(ctx, listPrincipalRoles, arg.UserID, arg.OrgApiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPrincipalRolesRow{}
+	for rows.Next() {
+		var i ListPrincipalRolesRow
+		if err := rows.Scan(&i.Scope, &i.Role); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3711,6 +4139,41 @@ func (q *Queries) ListVisibleProjectRolesForPrincipal(ctx context.Context, arg L
 	return items, nil
 }
 
+const lockActiveOwnedOrganizationsForUser = `-- name: LockActiveOwnedOrganizationsForUser :many
+SELECT org.id
+FROM org_memberships membership
+JOIN orgs org ON org.id = membership.org_id
+WHERE membership.user_id = $1::uuid
+  AND membership.role = 'owner'
+  AND org.deleted_at IS NULL
+ORDER BY org.id
+FOR UPDATE OF org
+`
+
+type LockActiveOwnedOrganizationsForUserParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockActiveOwnedOrganizationsForUser(ctx context.Context, arg LockActiveOwnedOrganizationsForUserParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveOwnedOrganizationsForUser, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockNormalizedEmailKey = `-- name: LockNormalizedEmailKey :exec
 SELECT pg_advisory_xact_lock(hashtext($1::text))
 `
@@ -3742,23 +4205,21 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	return id, err
 }
 
-const lockOrganizationLifecycleShared = `-- name: LockOrganizationLifecycleShared :one
+const lockOrganizationMembershipsForDeletion = `-- name: LockOrganizationMembershipsForDeletion :exec
 SELECT id
-FROM orgs
-WHERE id = $1
-  AND deleted_at IS NULL
-FOR SHARE
+FROM org_memberships
+WHERE org_id = $1
+ORDER BY id
+FOR UPDATE
 `
 
-type LockOrganizationLifecycleSharedParams struct {
+type LockOrganizationMembershipsForDeletionParams struct {
 	OrgID uuid.UUID
 }
 
-func (q *Queries) LockOrganizationLifecycleShared(ctx context.Context, arg LockOrganizationLifecycleSharedParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockOrganizationLifecycleShared, arg.OrgID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) LockOrganizationMembershipsForDeletion(ctx context.Context, arg LockOrganizationMembershipsForDeletionParams) error {
+	_, err := q.db.Exec(ctx, lockOrganizationMembershipsForDeletion, arg.OrgID)
+	return err
 }
 
 const lockUserEmailsByNormalizedEmail = `-- name: LockUserEmailsByNormalizedEmail :many
@@ -3844,6 +4305,23 @@ func (q *Queries) LockUserOrgMembership(ctx context.Context, arg LockUserOrgMemb
 	return i, err
 }
 
+const lockUserOrgMembershipsForDeletion = `-- name: LockUserOrgMembershipsForDeletion :exec
+SELECT id
+FROM org_memberships
+WHERE user_id = $1::uuid
+ORDER BY id
+FOR UPDATE
+`
+
+type LockUserOrgMembershipsForDeletionParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockUserOrgMembershipsForDeletion(ctx context.Context, arg LockUserOrgMembershipsForDeletionParams) error {
+	_, err := q.db.Exec(ctx, lockUserOrgMembershipsForDeletion, arg.UserID)
+	return err
+}
+
 const machineProjectVisibleToPrincipal = `-- name: MachineProjectVisibleToPrincipal :one
 SELECT EXISTS (
   SELECT 1
@@ -3908,23 +4386,6 @@ func (q *Queries) MarkAuthDeviceFlowPolled(ctx context.Context, arg MarkAuthDevi
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const orgExistsActive = `-- name: OrgExistsActive :one
-SELECT EXISTS (
-  SELECT 1 FROM orgs WHERE id = $1 AND deleted_at IS NULL
-) AS org_exists
-`
-
-type OrgExistsActiveParams struct {
-	ID uuid.UUID
-}
-
-func (q *Queries) OrgExistsActive(ctx context.Context, arg OrgExistsActiveParams) (bool, error) {
-	row := q.db.QueryRow(ctx, orgExistsActive, arg.ID)
-	var org_exists bool
-	err := row.Scan(&org_exists)
-	return org_exists, err
 }
 
 const orgMemberOwnedSecretsReferenced = `-- name: OrgMemberOwnedSecretsReferenced :one
@@ -4174,6 +4635,43 @@ func (q *Queries) RevokeBrowserSessionsForUser(ctx context.Context, arg RevokeBr
 	return err
 }
 
+const revokeOAuthAccessTokenForRefreshTokenReuse = `-- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
+UPDATE oauth_access_tokens token
+SET revoked_at = transaction_timestamp()
+FROM oauth_retired_refresh_tokens retired
+WHERE retired.oauth_access_token_id = token.id
+  AND retired.refresh_token_hash = $1::text
+  AND token.revoked_at IS NULL
+`
+
+type RevokeOAuthAccessTokenForRefreshTokenReuseParams struct {
+	PresentedRefreshTokenHash string
+}
+
+func (q *Queries) RevokeOAuthAccessTokenForRefreshTokenReuse(ctx context.Context, arg RevokeOAuthAccessTokenForRefreshTokenReuseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeOAuthAccessTokenForRefreshTokenReuse, arg.PresentedRefreshTokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const revokeOAuthAccessTokensForUser = `-- name: RevokeOAuthAccessTokensForUser :exec
+UPDATE oauth_access_tokens
+SET revoked_at = statement_timestamp()
+WHERE user_id = $1
+  AND revoked_at IS NULL
+`
+
+type RevokeOAuthAccessTokensForUserParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) RevokeOAuthAccessTokensForUser(ctx context.Context, arg RevokeOAuthAccessTokensForUserParams) error {
+	_, err := q.db.Exec(ctx, revokeOAuthAccessTokensForUser, arg.UserID)
+	return err
+}
+
 const revokePersonalAccessToken = `-- name: RevokePersonalAccessToken :one
 UPDATE personal_access_tokens
 SET revoked_at = COALESCE(revoked_at, transaction_timestamp())
@@ -4233,6 +4731,80 @@ type RevokeProjectIntegrationTargetBindingsParams struct {
 func (q *Queries) RevokeProjectIntegrationTargetBindings(ctx context.Context, arg RevokeProjectIntegrationTargetBindingsParams) error {
 	_, err := q.db.Exec(ctx, revokeProjectIntegrationTargetBindings, arg.ProjectID)
 	return err
+}
+
+const rotateOAuthAccessToken = `-- name: RotateOAuthAccessToken :one
+WITH presented AS (
+  SELECT token.id
+  FROM oauth_access_tokens token
+  WHERE token.client_id = $1
+    AND token.revoked_at IS NULL
+    AND token.refresh_expires_at > transaction_timestamp()
+    AND (
+      token.refresh_token_hash = $2
+      OR EXISTS (
+        SELECT 1
+        FROM oauth_retired_refresh_tokens latest
+        WHERE latest.oauth_access_token_id = token.id
+          AND latest.refresh_token_hash = $2
+          AND latest.retired_at
+            > transaction_timestamp() - ($3::bigint * interval '1 second')
+          AND latest.retired_at = (
+            SELECT max(retired.retired_at)
+            FROM oauth_retired_refresh_tokens retired
+            WHERE retired.oauth_access_token_id = token.id
+          )
+      )
+    )
+), rotated AS (
+  UPDATE oauth_access_tokens token
+  SET token_hash = $4,
+      refresh_token_hash = $5,
+      expires_at = transaction_timestamp() + ($6::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + ($7::bigint * interval '1 second')
+  FROM presented
+  WHERE token.id = presented.id
+  RETURNING token.id, token.user_id, token.resource
+), retired AS (
+  INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
+  SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
+  FROM rotated
+  JOIN oauth_access_tokens old ON old.id = rotated.id
+  ON CONFLICT (refresh_token_hash) DO NOTHING
+)
+SELECT id, user_id, resource
+FROM rotated
+`
+
+type RotateOAuthAccessTokenParams struct {
+	ClientID                  string
+	PresentedRefreshTokenHash string
+	ReuseGraceSeconds         int64
+	TokenHash                 string
+	RefreshTokenHash          string
+	AccessTtlSeconds          int64
+	RefreshTtlSeconds         int64
+}
+
+type RotateOAuthAccessTokenRow struct {
+	ID       uuid.UUID
+	UserID   uuid.UUID
+	Resource string
+}
+
+func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAccessTokenParams) (RotateOAuthAccessTokenRow, error) {
+	row := q.db.QueryRow(ctx, rotateOAuthAccessToken,
+		arg.ClientID,
+		arg.PresentedRefreshTokenHash,
+		arg.ReuseGraceSeconds,
+		arg.TokenHash,
+		arg.RefreshTokenHash,
+		arg.AccessTtlSeconds,
+		arg.RefreshTtlSeconds,
+	)
+	var i RotateOAuthAccessTokenRow
+	err := row.Scan(&i.ID, &i.UserID, &i.Resource)
+	return i, err
 }
 
 const updateAuthConnectorConfig = `-- name: UpdateAuthConnectorConfig :one

@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -404,7 +405,7 @@ func TestAgentExecutorRecordsOutputLimitConflictBeforeProviderPreparation(t *tes
 	baseClient := &sequenceKernelModel{providerModelSlug: "output-limit-conflict"}
 	modelClient := &outputLimitKernelModel{
 		sequenceKernelModel: baseClient,
-		minimumOutputTokens: baseClient.Capabilities().MaxOutputTokens + 1,
+		minimumOutputTokens: *baseClient.Capabilities().MaxOutputTokens + 1,
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -504,7 +505,6 @@ model:
 		"Kernel Model Options",
 		"kernel-model-options-agent",
 		sourceYAML,
-		now,
 	)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -519,7 +519,14 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		launch.Agent.ID,
+		kernelTestUserID,
+		"hello",
+		now.Add(2*time.Millisecond),
+	)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "request-options-model",
 		responses: []model.Response{
@@ -907,17 +914,24 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "malformed-semantic-model",
-		responses: []model.Response{{
-			ID:                      "resp-malformed-semantic",
-			ServedProviderModelSlug: "served-malformed-semantic",
-			Content: []model.ResponsePart{{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: "call_1",
-				ToolInput:      json.RawMessage(`{}`),
-			}},
-			StopReason: model.StopReasonToolUse,
-			Usage:      model.Usage{InputTokens: 17, OutputTokens: 5},
-		}},
+		responses: []model.Response{
+			{
+				ID:                      "resp-malformed-semantic",
+				ServedProviderModelSlug: "served-malformed-semantic",
+				Content: []model.ResponsePart{{
+					Type:           model.ResponsePartTypeToolCall,
+					ProviderCallID: "call_1",
+					ToolInput:      json.RawMessage(`{}`),
+				}},
+				StopReason: model.StopReasonToolUse,
+				Usage:      model.Usage{InputTokens: 17, OutputTokens: 5},
+				ProviderMetadata: modelenvelope.ProviderMetadata{
+					OpenRouter: modelenvelope.OpenRouterMetadata{
+						Provider: "test-provider",
+					},
+				},
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -931,7 +945,7 @@ func TestAgentExecutorRetainsSafeEvidenceFromSemanticallyMalformedResponse(t *te
 
 	var state executionstore.ModelCallState
 	var recoveryKind executionstore.ModelCallRecoveryKind
-	var errorCode, responseID string
+	var errorCode, responseID, servingProvider string
 	var errorDetails json.RawMessage
 	var inputTokens, outputTokens int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -939,6 +953,7 @@ SELECT context.state,
 	       context.recovery_kind,
 	       context.error_code,
 	       context.provider_response_id,
+	       coalesce(context.provider_metadata->'openrouter'->>'provider', ''),
 	       context.error_details,
 	       coalesce(context.input_tokens_total, 0),
 	       coalesce(context.output_tokens_total, 0)
@@ -951,6 +966,7 @@ WHERE context.project_id = $1
 		&recoveryKind,
 		&errorCode,
 		&responseID,
+		&servingProvider,
 		&errorDetails,
 		&inputTokens,
 		&outputTokens,
@@ -970,6 +986,9 @@ WHERE context.project_id = $1
 	}
 	if inputTokens != 17 || outputTokens != 5 {
 		t.Fatalf("malformed response usage = input %d output %d", inputTokens, outputTokens)
+	}
+	if servingProvider != "test-provider" {
+		t.Fatalf("malformed response serving provider = %q, want test-provider", servingProvider)
 	}
 }
 
@@ -1186,13 +1205,17 @@ func TestAgentExecutorRoutesSerializedProviderRequestOverflowThroughCompactionBe
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-compaction-summary",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Historical work completed."}},
+				ID: "resp-compaction-summary",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "Historical work completed."},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 			{
-				ID:         "resp-after-compaction",
-				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "continued after compaction"}},
+				ID: "resp-after-compaction",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "continued after compaction"},
+				},
 				StopReason: model.StopReasonEndTurn,
 			},
 		},

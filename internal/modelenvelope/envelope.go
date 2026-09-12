@@ -43,6 +43,7 @@ type ResponsePart struct {
 	ProviderCallID string           `json:"provider_call_id,omitempty"`
 	ToolName       string           `json:"tool_name,omitempty"`
 	ToolInput      json.RawMessage  `json:"tool_input,omitempty"`
+	ToolCallError  string           `json:"-"`
 }
 
 func NormalizeToolInput(input json.RawMessage) (json.RawMessage, error) {
@@ -109,6 +110,9 @@ func (e ResponseEnvelope) Validate() error {
 }
 
 func validateResponsePart(part ResponsePart) error {
+	if part.ToolCallError != "" && part.Type != ResponsePartTypeToolCall {
+		return errors.New("only tool_call parts can carry a tool call error")
+	}
 	switch part.Type {
 	case ResponsePartTypeText, ResponsePartTypeError:
 		if part.ProviderCallID != "" ||
@@ -153,17 +157,6 @@ func HasToolCallParts(parts []ResponsePart) bool {
 		}
 	}
 	return false
-}
-
-func (e ResponseEnvelope) StripToolCallParts() []ResponsePart {
-	out := make([]ResponsePart, 0, len(e.Normalized.Content))
-	for _, part := range e.Normalized.Content {
-		if part.Type == ResponsePartTypeToolCall {
-			continue
-		}
-		out = append(out, part)
-	}
-	return out
 }
 
 func (e ResponseEnvelope) Text() string {
@@ -213,15 +206,11 @@ func IsDurableModelOutputStopReason(reason StopReason) bool {
 }
 
 func NormalizeStopReason(reason StopReason, hasToolCalls bool) StopReason {
-	// A response that proposes tool calls is a tool-use turn regardless of
-	// how the provider labels the stop (OpenAI reports end_turn).
-	if reason == "" || reason == StopReasonEndTurn {
+	if reason == "" {
 		if hasToolCalls {
 			return StopReasonToolUse
 		}
-		if reason == "" {
-			return StopReasonEndTurn
-		}
+		return StopReasonEndTurn
 	}
 	switch reason {
 	case StopReasonEndTurn,

@@ -12,6 +12,7 @@ import { GrantPoolToProjectDialog } from '@/components/org/GrantPoolToProjectDia
 import {
   isMachinePoolProvider,
   machinePoolProviderDefinitions,
+  machinePoolScopeValue,
 } from '@/components/org/machinePoolProviders'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
 import { Button } from '@/components/ui/button'
@@ -278,7 +279,7 @@ function formatResourceUsage(pool: MachinePool) {
   }
   if (values.length === 0) return '—'
   return (
-    <span className="flex flex-col whitespace-nowrap">
+    <span className="flex flex-col whitespace-nowrap py-1.5">
       {values.map((value) => (
         <span key={value}>{value}</span>
       ))}
@@ -290,6 +291,8 @@ function providerDetails(pool: MachinePool): DetailItem[] {
   if (!isMachinePoolProvider(pool.provider)) return []
   const definition = machinePoolProviderDefinitions[pool.provider]
   const options = providerOptionStrings(pool.default_machine_provider_options)
+  const location = options[definition.location.key]
+  const defaultLocation = definition.location.required ? undefined : 'Automatic'
   const details: DetailItem[] = [
     {
       label: `${definition.label} ${definition.resource.label.toLowerCase()}`,
@@ -298,13 +301,13 @@ function providerDetails(pool: MachinePool): DetailItem[] {
     },
     {
       label: `${definition.label} ${definition.location.label.toLowerCase()}`,
-      value: options[definition.location.key],
+      value: location == null || location === '' ? defaultLocation : location,
     },
   ]
-  if (definition.requiresWorkspace) {
+  if (definition.scope) {
     details.push({
-      label: `${definition.label} workspace`,
-      value: providerOptionStrings(pool.provider_config).workspace,
+      label: `${definition.label} ${definition.scope.label.toLowerCase()}`,
+      value: machinePoolScopeValue(pool.provider, pool.provider_config),
     })
   }
   return details

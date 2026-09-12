@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -43,7 +44,7 @@ func (s *Store) GetOrCreateIntegrationTargetForBindingTx(
 	if tx == nil {
 		return IntegrationTargetRecord{}, errors.New("transaction is required")
 	}
-	return s.createIntegrationTarget(ctx, dbsqlc.New(tx), input, true)
+	return s.createIntegrationTarget(ctx, tx, input, true)
 }
 
 func (s *Store) createIntegrationTargetInTransaction(
@@ -58,7 +59,7 @@ func (s *Store) createIntegrationTargetInTransaction(
 	defer func() { _ = tx.Rollback(ctx) }()
 	record, err := s.createIntegrationTarget(
 		ctx,
-		dbsqlc.New(tx),
+		tx,
 		input,
 		bindingManaged,
 	)
@@ -73,7 +74,7 @@ func (s *Store) createIntegrationTargetInTransaction(
 
 func (s *Store) createIntegrationTarget(
 	ctx context.Context,
-	q *dbsqlc.Queries,
+	tx pgx.Tx,
 	input CreateIntegrationTargetInput,
 	bindingManaged bool,
 ) (IntegrationTargetRecord, error) {
@@ -96,9 +97,24 @@ func (s *Store) createIntegrationTarget(
 		return IntegrationTargetRecord{}, err
 	}
 	input.ProviderMetadata = providerMetadata
-	install, err := getIntegrationInstall(ctx, q, input.ProjectID, input.IntegrationInstallID)
+	q := dbsqlc.New(tx)
+	install, err := lockIntegrationInstallLifecycleShared(ctx, tx, input.ProjectID, input.IntegrationInstallID)
 	if err != nil {
 		return IntegrationTargetRecord{}, err
+	}
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: input.ProjectID, AgentID: input.AgentID,
+	}}); err != nil {
+		return IntegrationTargetRecord{}, err
+	}
+	agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+		ProjectID: input.ProjectID, ID: input.AgentID,
+	})
+	if err != nil {
+		return IntegrationTargetRecord{}, integrationChannelReadError("revalidate integration target agent", err)
+	}
+	if agent.State != "active" {
+		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	if install.State != IntegrationInstallStateActive {
 		return IntegrationTargetRecord{}, storeerr.ErrUnauthorized
@@ -128,17 +144,16 @@ func (s *Store) createIntegrationTarget(
 		}
 		return IntegrationTargetRecord{}, fmt.Errorf("lock integration target authority: %w", err)
 	}
-	var row dbsqlc.IntegrationTarget
 	creatorAgentID := input.AgentID
 	if bindingManaged {
 		creatorAgentID = NilID
 	}
 	for range 5 {
-		targetRef, refErr := newIntegrationTargetRef(install.Provider)
+		targetRef, refErr := s.targetRefGenerator(install.Provider)
 		if refErr != nil {
 			return IntegrationTargetRecord{}, refErr
 		}
-		row, err = q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
+		row, insertErr := q.InsertIntegrationTarget(ctx, dbsqlc.InsertIntegrationTargetParams{
 			ProjectID:            input.ProjectID,
 			AgentID:              sqlcIDFromNil(creatorAgentID),
 			IntegrationInstallID: input.IntegrationInstallID,
@@ -148,11 +163,14 @@ func (s *Store) createIntegrationTarget(
 			DisplayName:          input.DisplayName,
 			ProviderMetadata:     input.ProviderMetadata,
 		})
-		if !storeutil.IsUniqueViolationOnConstraint(err, "integration_targets_agent_target_ref_idx") {
-			break
+		if insertErr == nil {
+			record := integrationTargetRecordFromInsertSQLC(row, install.OrgID)
+			record.Created = true
+			return record, nil
 		}
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(insertErr, pgx.ErrNoRows) {
+			return IntegrationTargetRecord{}, integrationChannelWriteError("insert integration target", insertErr)
+		}
 		existing, getErr := q.GetIntegrationTargetByProviderRef(
 			ctx,
 			dbsqlc.GetIntegrationTargetByProviderRefParams{
@@ -162,7 +180,7 @@ func (s *Store) createIntegrationTarget(
 			},
 		)
 		if errors.Is(getErr, pgx.ErrNoRows) {
-			return IntegrationTargetRecord{}, storeerr.ErrNotFound
+			continue
 		}
 		if getErr != nil {
 			return IntegrationTargetRecord{}, fmt.Errorf("load existing integration target: %w", getErr)
@@ -204,15 +222,7 @@ func (s *Store) createIntegrationTarget(
 		}
 		return integrationTargetRecordFromInsertSQLC(updated, install.OrgID), nil
 	}
-	if err != nil {
-		return IntegrationTargetRecord{}, integrationChannelWriteError(
-			"insert integration target",
-			err,
-		)
-	}
-	record := integrationTargetRecordFromInsertSQLC(row, install.OrgID)
-	record.Created = true
-	return record, nil
+	return IntegrationTargetRecord{}, storeerr.ErrConflict
 }
 
 func newIntegrationTargetRef(provider string) (string, error) {

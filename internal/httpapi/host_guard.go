@@ -13,6 +13,7 @@ import (
 type configuredOrigin struct {
 	scheme string
 	host   string
+	url    string
 }
 
 func parseConfiguredOrigin(raw string) (configuredOrigin, error) {
@@ -25,7 +26,11 @@ func parseConfiguredOrigin(raw string) (configuredOrigin, error) {
 		return configuredOrigin{}, fmt.Errorf("invalid public URL %q", raw)
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	return configuredOrigin{scheme: scheme, host: httporigin.CanonicalHost(scheme, parsed.Host)}, nil
+	return configuredOrigin{
+		scheme: scheme,
+		host:   httporigin.CanonicalHost(scheme, parsed.Host),
+		url:    scheme + "://" + parsed.Host,
+	}, nil
 }
 
 func (o configuredOrigin) matchesHost(rawHost string) bool {

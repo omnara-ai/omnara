@@ -57,10 +57,14 @@ func ValidateProviderResponse(response Response) error {
 		}{
 			{name: "type", value: string(part.Type)},
 			{name: "text", value: part.Text},
+			{name: "tool call error", value: part.ToolCallError},
 		} {
 			if err := validateProviderString(field.value); err != nil {
 				return fmt.Errorf("response content part %d %s: %w", index, field.name, err)
 			}
+		}
+		if part.ToolCallError != "" && part.Type != ResponsePartTypeToolCall {
+			return fmt.Errorf("response content part %d: only tool calls can carry a tool call error", index)
 		}
 		for _, field := range []struct {
 			name  string

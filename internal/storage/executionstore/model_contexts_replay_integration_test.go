@@ -180,7 +180,7 @@ WHERE id = $1
 			Name:                  "replay-cutoff-other-model",
 			ProviderModelSlug:     originalRevision.ProviderModelSlug,
 			ContextWindowTokens:   128_000,
-			MaxOutputTokens:       8_192,
+			MaxOutputTokens:       new(8_192),
 		},
 	)
 	if err != nil {

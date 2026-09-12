@@ -26,8 +26,8 @@ func TestPostgresIntegrationChannelsMigrationBackfillsLegacySlack(t *testing.T) 
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 
-	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 30); err != nil {
-		t.Fatalf("apply migrations through version 30: %v", err)
+	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 34); err != nil {
+		t.Fatalf("apply migrations through version 34: %v", err)
 	}
 	fixture := seedLegacyChannelMigrationFixture(t, ctx, db)
 	deletedProjectFixture := seedLegacyChannelMigrationFixture(t, ctx, db)

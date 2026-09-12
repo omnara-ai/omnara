@@ -384,7 +384,9 @@ export type ProjectModelGrantId = string;
 
 export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'anthropic-messages';
 
-export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header';
+export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
+
+export type ModelProviderAuthKindResponse = string;
 
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
@@ -419,15 +421,21 @@ export type CreateModelProviderConfigRequest = {
      */
     endpoint_path?: string;
     /**
-     * Provider request timeout in milliseconds. Omitted value defaults to 600000.
+     * Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Defaults to 3600000 (60 minutes). Retries have separate deadlines.
      */
     request_timeout_ms?: number;
+    /**
+     * Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Defaults to 300000 (5 minutes). Local response processing does not consume this idle budget.
+     */
+    idle_timeout_ms?: number;
     auth_kind?: ModelProviderAuthKind;
     /**
-     * Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}.
+     * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id: SecretId;
 };
@@ -445,15 +453,21 @@ export type UpdateModelProviderConfigRequest = {
      */
     endpoint_path?: string;
     /**
-     * Provider request timeout in milliseconds.
+     * Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Retries have separate deadlines.
      */
     request_timeout_ms?: number;
+    /**
+     * Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Local response processing does not consume this idle budget.
+     */
+    idle_timeout_ms?: number;
     auth_kind?: ModelProviderAuthKind;
     /**
-     * Non-secret API-key placement settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}.
+     * Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}. With sigv4, set the AWS signing service and region.
      */
     auth_options?: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id?: SecretId;
 };
@@ -471,12 +485,15 @@ export type ModelProviderConfig = {
     base_url: string;
     endpoint_path: string;
     request_timeout_ms: number;
-    auth_kind: ModelProviderAuthKind;
+    idle_timeout_ms: number;
+    auth_kind: ModelProviderAuthKindResponse;
     /**
-     * Non-secret API-key placement settings for this provider config.
+     * Non-secret authentication settings for this provider config.
      */
     auth_options: {
         header_name?: string;
+        service?: string;
+        region?: string;
     };
     credential_secret_id: SecretId;
     created_at: Timestamp;
@@ -538,11 +555,11 @@ export type CreateConfiguredModelRequest = {
      */
     context_window_tokens: number;
     /**
-     * Optional configured output-token ceiling. When omitted, Omnara stores the smaller of 8,192 tokens and half the context window. It must not exceed the provider's supported limit. Omnara uses it for request validation and context budgeting.
+     * Optional known output-token ceiling. Omitted capacity remains unknown; selecting a discovered model can supply its published ceiling. Explicit values must not exceed the provider's supported limit.
      */
     max_output_tokens?: number;
     /**
-     * Optional normal per-request output-token cap. When omitted, Omnara stores the smaller of 4,096 tokens and max_output_tokens.
+     * Optional normal per-request output allowance. Discovery never populates this field. When omitted, requests use the known output ceiling. If both are absent, Messages uses 64000 tokens; other formats omit the allowance. Runtime allowances are fitted to available context.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -590,11 +607,11 @@ export type UpdateConfiguredModelRequest = {
      */
     context_window_tokens?: number;
     /**
-     * Configured output-token ceiling for this model. Omitted keeps the current value; it cannot be cleared.
+     * Known output-token ceiling for this model. Omitted keeps the current value. Null clears it to unknown for every API format.
      */
-    max_output_tokens?: number;
+    max_output_tokens?: number | null;
     /**
-     * Default per-request output-token cap sent to the provider unless an agent config overrides it. Required for Anthropic Messages.
+     * Optional per-request output allowance unless a project or agent overrides it. Without a default or known ceiling, Messages uses 64000 tokens; other formats omit the allowance.
      */
     default_max_output_tokens?: number | null;
     default_cache_retention?: ModelCacheRetention;
@@ -644,9 +661,9 @@ export type ConfiguredModel = {
      */
     context_window_tokens: number;
     /**
-     * Configured output-token ceiling for this model.
+     * Known output-token ceiling for this model, or null when unknown.
      */
-    max_output_tokens: number;
+    max_output_tokens: number | null;
     /**
      * Default per-request output-token cap sent to the provider unless an agent config overrides it.
      */
@@ -1367,9 +1384,9 @@ export type AgentConfigModel = {
      */
     context_window_tokens: number;
     /**
-     * Effective largest output-token cap Omnara allows for this agent config.
+     * Effective known output-token ceiling after model and project settings, or null when unknown.
      */
-    max_output_tokens: number;
+    max_output_tokens: number | null;
     /**
      * Effective per-request output-token cap sent to the provider.
      */
@@ -2686,7 +2703,7 @@ export type Artifact = {
 };
 
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'unikraft';
+    provider: 'unikraft' | 'modal';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
@@ -3341,6 +3358,10 @@ export type CurrentUserOrg = {
     created_at: Timestamp;
 };
 
+export type ListOrganizationsResponse = {
+    data: Array<CurrentUserOrg>;
+};
+
 export type CurrentUser = {
     user: CurrentUserIdentity;
     orgs: Array<CurrentUserOrg>;
@@ -3799,6 +3820,63 @@ export type RecordMachineFailureResponses = {
 };
 
 export type RecordMachineFailureResponse = RecordMachineFailureResponses[keyof RecordMachineFailureResponses];
+
+export type ListOrganizationsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/orgs';
+};
+
+export type ListOrganizationsErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrganizationsError = ListOrganizationsErrors[keyof ListOrganizationsErrors];
+
+export type ListOrganizationsResponses = {
+    /**
+     * Organizations the authenticated principal belongs to, with its role in each.
+     */
+    200: ListOrganizationsResponse;
+};
+
+export type ListOrganizationsResponse2 = ListOrganizationsResponses[keyof ListOrganizationsResponses];
 
 export type CreateOrganizationData = {
     body: CreateOrganizationRequest;
@@ -11480,10 +11558,6 @@ export type CreateModelProviderConfigError = CreateModelProviderConfigErrors[key
 
 export type CreateModelProviderConfigResponses = {
     /**
-     * Route response.
-     */
-    200: CreateModelProviderConfigResponse;
-    /**
      * Created route response.
      */
     201: CreateModelProviderConfigResponse;
@@ -11901,10 +11975,6 @@ export type CreateConfiguredModelError = CreateConfiguredModelErrors[keyof Creat
 
 export type CreateConfiguredModelResponses = {
     /**
-     * Route response.
-     */
-    200: ConfiguredModel;
-    /**
      * Created route response.
      */
     201: ConfiguredModel;
@@ -12192,10 +12262,6 @@ export type CreateProjectModelGrantErrors = {
 export type CreateProjectModelGrantError = CreateProjectModelGrantErrors[keyof CreateProjectModelGrantErrors];
 
 export type CreateProjectModelGrantResponses = {
-    /**
-     * Route response.
-     */
-    200: ProjectModelGrantEnvelope;
     /**
      * Created route response.
      */

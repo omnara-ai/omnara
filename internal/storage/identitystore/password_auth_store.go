@@ -30,6 +30,8 @@ type AuthStateCleanupResult struct {
 	DeletedBrowserSessions int64
 	DeletedAbandonedUsers  int64
 	DeletedDeviceFlows     int64
+	DeletedOAuthCodes      int64
+	DeletedOAuthTokens     int64
 }
 
 func (s *Store) StartPasswordSignup(
@@ -112,6 +114,20 @@ func (s *Store) CleanupInactiveAuthState(ctx context.Context) (AuthStateCleanupR
 	if err != nil {
 		return AuthStateCleanupResult{}, fmt.Errorf("delete expired auth device flows: %w", err)
 	}
+	deletedAuthorizationCodes, err := s.q.DeleteExpiredOAuthAuthorizationCodes(
+		ctx,
+		dbsqlc.DeleteExpiredOAuthAuthorizationCodesParams{LimitCount: authCleanupBatchSize},
+	)
+	if err != nil {
+		return AuthStateCleanupResult{}, fmt.Errorf("delete expired oauth authorization codes: %w", err)
+	}
+	deletedOAuthTokens, err := s.q.DeleteInactiveOAuthAccessTokens(
+		ctx,
+		dbsqlc.DeleteInactiveOAuthAccessTokensParams{LimitCount: authCleanupBatchSize},
+	)
+	if err != nil {
+		return AuthStateCleanupResult{}, fmt.Errorf("delete inactive oauth access tokens: %w", err)
+	}
 	deletedBrowserSessions, err := s.q.DeleteInactiveBrowserSessions(
 		ctx,
 		dbsqlc.DeleteInactiveBrowserSessionsParams{LimitCount: authCleanupBatchSize},
@@ -131,6 +147,8 @@ func (s *Store) CleanupInactiveAuthState(ctx context.Context) (AuthStateCleanupR
 		DeletedBrowserSessions: deletedBrowserSessions,
 		DeletedAbandonedUsers:  deletedUsers,
 		DeletedDeviceFlows:     deletedDeviceFlows,
+		DeletedOAuthCodes:      deletedAuthorizationCodes,
+		DeletedOAuthTokens:     deletedOAuthTokens,
 	}, nil
 }
 
@@ -629,6 +647,18 @@ func (s *Store) RevokeUserAuthTokensTx(ctx context.Context, tx pgx.Tx, userID ID
 		dbsqlc.RevokePersonalAccessTokensForUserParams{UserID: userID},
 	); err != nil {
 		return fmt.Errorf("revoke compromised personal access tokens: %w", err)
+	}
+	if err := qtx.RevokeOAuthAccessTokensForUser(
+		ctx,
+		dbsqlc.RevokeOAuthAccessTokensForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("revoke compromised oauth access tokens: %w", err)
+	}
+	if err := qtx.ConsumeOAuthAuthorizationCodesForUser(
+		ctx,
+		dbsqlc.ConsumeOAuthAuthorizationCodesForUserParams{UserID: userID},
+	); err != nil {
+		return fmt.Errorf("consume compromised oauth authorization codes: %w", err)
 	}
 	return nil
 }

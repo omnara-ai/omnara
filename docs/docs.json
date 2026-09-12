@@ -153,6 +153,13 @@
             }
           }
         ]
+      },
+      {
+        "tab": "Changelog",
+        "icon": "list",
+        "pages": [
+          "changelog"
+        ]
       }
     ]
   },

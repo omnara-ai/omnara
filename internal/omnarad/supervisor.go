@@ -71,10 +71,24 @@ func runForegroundSupervisor(ctx context.Context, home string, log *slog.Logger)
 			log.Warn("close daemon service log failed", "error", err)
 		}
 	}()
-	childStdout := io.MultiWriter(os.Stdout, logFile)
-	childStderr := io.MultiWriter(os.Stderr, logFile)
+	childStdout, childStderr := supervisorChildWriters(os.Stdout, os.Stderr, logFile)
 	log = slog.New(logpkg.NewJSONHandler(childStdout, nil))
 	return runSupervisorLoop(ctx, home, daemonRestartDelay, restart, childStdout, childStderr, log)
+}
+
+func supervisorChildWriters(stdout, stderr, logFile io.Writer) (io.Writer, io.Writer) {
+	serviceLog := bestEffortWriter{w: logFile}
+	return io.MultiWriter(bestEffortWriter{w: stdout}, serviceLog),
+		io.MultiWriter(bestEffortWriter{w: stderr}, serviceLog)
+}
+
+type bestEffortWriter struct {
+	w io.Writer
+}
+
+func (b bestEffortWriter) Write(p []byte) (int, error) {
+	_, _ = b.w.Write(p)
+	return len(p), nil
 }
 
 func runSupervisorLoop(

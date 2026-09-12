@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
@@ -33,21 +34,6 @@ func (r Response) HasToolCalls() bool {
 		}
 	}
 	return false
-}
-
-func WithoutToolCallsOnMaxTokens(response Response) Response {
-	if NormalizeStopReason(response.StopReason, response.HasToolCalls()) != StopReasonMaxTokens {
-		return response
-	}
-	content := make([]ResponsePart, 0, len(response.Content))
-	for _, part := range response.Content {
-		if part.Type != ResponsePartTypeToolCall {
-			content = append(content, part)
-		}
-	}
-	response.Content = content
-	response.ProviderReplay = nil
-	return response
 }
 
 func (r Response) Text() string {
@@ -111,6 +97,57 @@ type ResponsePart struct {
 	ProviderCallID string           `json:"provider_call_id,omitempty"`
 	ToolName       string           `json:"tool_name,omitempty"`
 	ToolInput      json.RawMessage  `json:"tool_input,omitempty"`
+	ToolCallError  string           `json:"-"`
+}
+
+const IncompleteToolCallError = "The tool call was incomplete and was not executed. Retry with complete arguments, splitting large inputs into smaller calls."
+
+const UnparseableToolCallName = "unparseable_tool_call"
+
+// ToolArgumentString preserves call identity by decoding non-string arguments as
+// empty input for NewToolCallPart to reject.
+type ToolArgumentString string
+
+func (a *ToolArgumentString) UnmarshalJSON(raw []byte) error {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		value = ""
+	}
+	*a = ToolArgumentString(value)
+	return nil
+}
+
+// NewToolCallPart keeps rejected attempts representable in provider history.
+// Storage must record ToolCallError as a failed result in the same transaction
+// as the call, before its placeholder input can be admitted for execution.
+func NewToolCallPart(id, name string, input json.RawMessage) ResponsePart {
+	part := ResponsePart{
+		Type: ResponsePartTypeToolCall, ToolName: name,
+	}
+	if strings.TrimSpace(id) != "" {
+		part.ProviderCallID = id
+	}
+	if strings.TrimSpace(name) == "" {
+		part.ToolName = UnparseableToolCallName
+		part.ToolCallError = "The tool call had no usable tool name and was not executed. Retry using an available tool name."
+	}
+	normalized, err := modelenvelope.NormalizeToolInput(input)
+	inputError := "The tool arguments must be a complete JSON object and were not executed. " +
+		"Retry with valid JSON, splitting large inputs into smaller calls."
+	if err == nil {
+		err = dbsafe.JSONStrings(normalized)
+		inputError = "The tool arguments contain unsupported characters and were not executed. " +
+			"Retry without null characters or invalid Unicode."
+	}
+	if err != nil {
+		part.ToolInput = json.RawMessage(`{}`)
+		if part.ToolCallError == "" {
+			part.ToolCallError = inputError
+		}
+	} else {
+		part.ToolInput = normalized
+	}
+	return part
 }
 
 const (
@@ -141,7 +178,6 @@ func NewResponseEnvelopeForStorage(
 	apiVariant modelprotocol.APIVariant,
 	response Response,
 ) (modelenvelope.ResponseEnvelope, error) {
-	response = WithoutToolCallsOnMaxTokens(response)
 	if err := ValidateProviderResponse(response); err != nil {
 		return modelenvelope.ResponseEnvelope{}, err
 	}
@@ -199,6 +235,7 @@ func NewResponseEnvelopeForStorage(
 				ProviderCallID: part.ProviderCallID,
 				ToolName:       part.ToolName,
 				ToolInput:      toolInput,
+				ToolCallError:  part.ToolCallError,
 			})
 		default:
 			return modelenvelope.ResponseEnvelope{}, fmt.Errorf(

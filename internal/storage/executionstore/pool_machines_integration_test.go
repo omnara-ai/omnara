@@ -387,7 +387,7 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 			IdempotencyKey: "idem-agent-pool-machine-resolved-grant",
 		},
 		defaultMachineOverlayFieldsForTest{
-			DefaultMachineMemoryMB:               intPtrForMachinePoolTest(4096),
+			DefaultMachineMemoryMB:               new(4096),
 			DefaultMachineEnvOverlay:             json.RawMessage(`{"GRANT":"one","SHARED":"grant","REMOVE":null}`),
 			DefaultMachineProviderOptionsOverlay: json.RawMessage(`{"image":"grant","grant_only":"grant"}`),
 		},
@@ -536,9 +536,9 @@ func TestCreatePoolMachinePersistsProviderIntentWithoutExternalResolution(t *tes
 					Provider:           "external",
 					MaxTotalMachines:   2,
 					MaxTotalCPU:        &maxCPU,
-					MaxTotalMemoryMB:   intPtrForMachinePoolTest(2048),
+					MaxTotalMemoryMB:   new(2048),
 					MaxMachineCPU:      &maxCPU,
-					MaxMachineMemoryMB: intPtrForMachinePoolTest(2048),
+					MaxMachineMemoryMB: new(2048),
 				},
 				defaultMachineFieldsForTest{
 					DefaultMachineCPU:             1,
@@ -814,8 +814,8 @@ func TestCreatePoolMachineRejectsResourceCapacity(t *testing.T) {
 				Name:             "Capacity Pool",
 				Provider:         "test.provider",
 				MaxTotalMachines: 5,
-				MaxTotalCPU:      intPtrForMachinePoolTest(maxCPU),
-				MaxMachineCPU:    intPtrForMachinePoolTest(maxCPU),
+				MaxTotalCPU:      new(maxCPU),
+				MaxMachineCPU:    new(maxCPU),
 			},
 			defaultMachineFieldsForTest{
 				DefaultMachineCPU:             2,

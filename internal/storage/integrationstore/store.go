@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/channelconnector"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -33,27 +34,43 @@ type Access interface {
 }
 
 type Store struct {
-	pool   *pgxpool.Pool
-	q      *dbsqlc.Queries
-	access Access
+	pool               *pgxpool.Pool
+	q                  *dbsqlc.Queries
+	access             Access
+	targetRefGenerator func(string) (string, error)
 }
 
 func New(pool *pgxpool.Pool, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), access: access}
+	return &Store{
+		pool:               pool,
+		q:                  dbsqlc.New(pool),
+		access:             access,
+		targetRefGenerator: newIntegrationTargetRef,
+	}
 }
 
-func lockProjectLifecycleShared(
+// lockIntegrationInstallLifecycleShared enters scope gates before any agent or
+// installation row locks, matching installation deletion's admission boundary.
+func lockIntegrationInstallLifecycleShared(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID ID,
-) error {
-	if err := qtx.LockProjectLifecycleShared(
-		ctx,
-		dbsqlc.LockProjectLifecycleSharedParams{ProjectID: projectID.String()},
-	); err != nil {
-		return fmt.Errorf("lock project lifecycle: %w", err)
+	tx pgx.Tx,
+	projectID, installID ID,
+) (IntegrationInstallRecord, error) {
+	q := dbsqlc.New(tx)
+	install, err := getIntegrationInstall(ctx, q, projectID, installID)
+	if err != nil {
+		return IntegrationInstallRecord{}, err
 	}
-	return nil
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, install.OrgID, projectID); err != nil {
+		return IntegrationInstallRecord{}, err
+	}
+	if err := q.LockIntegrationInstallLifecycleShared(
+		ctx,
+		dbsqlc.LockIntegrationInstallLifecycleSharedParams{InstallID: installID},
+	); err != nil {
+		return IntegrationInstallRecord{}, fmt.Errorf("lock integration install lifecycle: %w", err)
+	}
+	return getIntegrationInstall(ctx, q, projectID, installID)
 }
 
 func isNilID(id ID) bool {

@@ -337,10 +337,11 @@ BEGIN
     END IF;
 
     -- Old API binaries do not know about integration_apps or the shared side
-    -- of the project lifecycle protocol. Acquire it here before creating the
-    -- compatibility app. The project row lock also serializes with deletion by
-    -- binaries old enough not to use the advisory lock at all.
-    PERFORM pg_advisory_xact_lock_shared(hashtextextended(NEW.project_id::text, 0));
+    -- of the scope lifecycle protocol. Acquire organization then project gates
+    -- before creating the compatibility app. The project row lock also
+    -- serializes with binaries that do not use advisory locks at all.
+    PERFORM pg_advisory_xact_lock_shared(hashtextextended('organization_lifecycle:' || NEW.org_id::text, 0));
+    PERFORM pg_advisory_xact_lock_shared(hashtextextended('project_lifecycle:' || NEW.project_id::text, 0));
     PERFORM 1
     FROM projects project
     JOIN orgs organization ON organization.id = project.org_id

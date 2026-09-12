@@ -101,11 +101,17 @@ func (h *Handler) passwordSignupRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func safeSignupReturnTo(value string) string {
-	if len(value) > 256 {
+	if len(value) > oauthAuthorizeRequestMaxBytes {
 		return "/"
 	}
 	target, err := url.Parse(SafeReturnTo(value))
-	if err != nil || target.Path != "/device" || target.Fragment != "" {
+	if err != nil || target.Fragment != "" {
+		return "/"
+	}
+	if target.Path == OAuthAuthorizePagePath {
+		return OAuthAuthorizePagePath + "?" + target.RawQuery
+	}
+	if target.Path != "/device" || len(value) > 256 {
 		return "/"
 	}
 	query, err := url.ParseQuery(target.RawQuery)

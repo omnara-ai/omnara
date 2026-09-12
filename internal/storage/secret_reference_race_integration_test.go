@@ -74,11 +74,13 @@ INSERT INTO integration_apps(
 		)
 		deleted <- deleteResult{err: deleteErr}
 	}()
+	// Deletion locks the secret before scanning references; the association
+	// trigger's FOR SHARE keeps that scan behind the uncommitted association.
 	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		pool,
-		"-- name: DeleteSecret ",
+		"-- name: LockSecret ",
 		associationPID,
 	)
 	if err := associationTx.Commit(ctx); err != nil {
@@ -165,11 +167,13 @@ INSERT INTO integration_installs(
 		)
 		deleted <- deleteResult{err: deleteErr}
 	}()
+	// Deletion locks the secret before scanning references; the association
+	// trigger's FOR SHARE keeps that scan behind the uncommitted association.
 	integrationdb.WaitForLockWaitBlockedBy(
 		t,
 		ctx,
 		pool,
-		"-- name: DeleteSecret ",
+		"-- name: LockSecret ",
 		associationPID,
 	)
 	if err := associationTx.Commit(ctx); err != nil {

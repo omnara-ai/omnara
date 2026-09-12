@@ -59,7 +59,6 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 	}
 	out := responseEvidence(decoded)
 	out.StopReason = stopReasonFromResponse(decoded)
-	truncated := out.StopReason == model.StopReasonMaxTokens
 	responseReplayItems := make([]json.RawMessage, 0, len(decoded.Output))
 	hasToolCall := false
 	seenItemIDs := make(map[string]struct{}, len(decoded.Output))
@@ -77,13 +76,6 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				)
 			}
 			seenItemIDs[item.ID] = struct{}{}
-		}
-		if !truncated {
-			replayItem, err := responseOutputItemForReplay(rawItem, item)
-			if err != nil {
-				return out, p.invalidResponseError(resp, decoded, err)
-			}
-			responseReplayItems = append(responseReplayItems, replayItem)
 		}
 		switch item.Type {
 		case "message":
@@ -128,30 +120,20 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				})
 			}
 		case "function_call":
-			if truncated {
-				continue
-			}
-			if strings.TrimSpace(item.CallID) == "" || strings.TrimSpace(item.Name) == "" {
+			if strings.TrimSpace(item.CallID) == "" {
 				return out, p.invalidResponseError(
 					resp,
 					decoded,
-					errors.New("openai-responses function call is missing call_id or name"),
+					errors.New("openai-responses function call is missing call_id"),
 				)
 			}
-			arguments := json.RawMessage(item.Arguments)
-			if err := modelenvelope.ValidateToolInput(arguments); err != nil {
-				return out, p.invalidResponseError(
-					resp,
-					decoded,
-					fmt.Errorf("openai-responses function call has invalid arguments: %w", err),
-				)
+			part := model.NewToolCallPart(item.CallID, item.Name, json.RawMessage(item.Arguments))
+			if item.Status != "" && item.Status != "completed" {
+				part.ToolCallError = model.IncompleteToolCallError
 			}
-			out.Content = append(out.Content, model.ResponsePart{
-				Type:           model.ResponsePartTypeToolCall,
-				ProviderCallID: item.CallID,
-				ToolName:       item.Name,
-				ToolInput:      arguments,
-			})
+			out.Content = append(out.Content, part)
+			item.Name = part.ToolName
+			item.Arguments = model.ToolArgumentString(part.ToolInput)
 			hasToolCall = true
 		default:
 			if !validProviderOnlyResponseItem(item) {
@@ -162,15 +144,22 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 				)
 			}
 		}
+		replayItem, err := responseOutputItemForReplay(rawItem, item)
+		if err != nil {
+			return out, p.invalidResponseError(resp, decoded, err)
+		}
+		responseReplayItems = append(responseReplayItems, replayItem)
 	}
-	if !truncated && len(responseReplayItems) > 0 {
+	if len(responseReplayItems) > 0 {
 		items, err := json.Marshal(responseReplayItems)
 		if err != nil {
 			return out, p.invalidResponseError(resp, decoded, err)
 		}
 		out.ProviderReplay = items
 	}
-	out.StopReason = modelenvelope.NormalizeStopReason(out.StopReason, hasToolCall)
+	if out.StopReason == model.StopReasonEndTurn && hasToolCall {
+		out.StopReason = model.StopReasonToolUse
+	}
 	return out, nil
 }
 
@@ -201,6 +190,12 @@ func responseFunctionCallForReplay(
 		return nil, err
 	}
 	fields["arguments"] = arguments
+	name, err := json.Marshal(item.Name)
+	if err != nil {
+		return nil, err
+	}
+	fields["name"] = name
+	delete(fields, "status")
 	return json.Marshal(fields)
 }
 
@@ -255,14 +250,15 @@ type responsesTokenDetails struct {
 }
 
 type responsesOutputItem struct {
-	ID               string                 `json:"id"`
-	Type             string                 `json:"type"`
-	CallID           string                 `json:"call_id"`
-	Name             string                 `json:"name"`
-	Arguments        string                 `json:"arguments"`
-	Content          []responsesContentPart `json:"content"`
-	Summary          []responsesSummaryPart `json:"summary"`
-	EncryptedContent string                 `json:"encrypted_content"`
+	ID               string                   `json:"id"`
+	Type             string                   `json:"type"`
+	Status           string                   `json:"status"`
+	CallID           string                   `json:"call_id"`
+	Name             string                   `json:"name"`
+	Arguments        model.ToolArgumentString `json:"arguments"`
+	Content          []responsesContentPart   `json:"content"`
+	Summary          []responsesSummaryPart   `json:"summary"`
+	EncryptedContent string                   `json:"encrypted_content"`
 }
 
 type responsesContentPart struct {
@@ -320,17 +316,18 @@ func stopReasonFromResponse(response responsesResponse) modelenvelope.StopReason
 	if response.Status == "failed" {
 		return modelenvelope.StopReasonUnknown
 	}
+	reason := modelenvelope.StopReasonEndTurn
 	if response.Status == "incomplete" {
 		switch response.IncompleteDetails.Reason {
 		case "max_output_tokens":
-			return modelenvelope.StopReasonMaxTokens
+			reason = modelenvelope.StopReasonMaxTokens
 		case "content_filter":
 			return modelenvelope.StopReasonContentFilter
 		default:
 			return modelenvelope.StopReasonUnknown
 		}
 	}
-	if response.Status != "" && response.Status != "completed" {
+	if response.Status != "" && response.Status != "completed" && response.Status != "incomplete" {
 		return modelenvelope.StopReasonUnknown
 	}
 	for _, rawItem := range response.Output {
@@ -344,5 +341,5 @@ func stopReasonFromResponse(response responsesResponse) modelenvelope.StopReason
 			}
 		}
 	}
-	return modelenvelope.StopReasonEndTurn
+	return reason
 }

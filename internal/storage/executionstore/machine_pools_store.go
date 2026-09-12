@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -318,9 +319,6 @@ func (s *Store) CreateMachinePool(
 	if err != nil {
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
-	if err := validateMachinePoolProviderAuth(ctx, s.q, input.OrgID, input.ProviderAuthSecretID); err != nil {
-		return MachinePoolRecord{}, err
-	}
 	if err := s.validatePoolDefaultsTx(ctx, s.q, input, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
 	}
@@ -330,6 +328,12 @@ func (s *Store) CreateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	if err := validateMachinePoolProviderAuth(ctx, tx, input.OrgID, input.ProviderAuthSecretID); err != nil {
+		return MachinePoolRecord{}, err
+	}
 	record, err := insertMachinePool(ctx, qtx, input)
 	if err == nil {
 		if err := lockResourceCreation(ctx, qtx, resourceMachinePools, input.OrgID.String()); err != nil {
@@ -388,8 +392,8 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		record.ManagementKind == input.ManagementKind &&
 		record.Description == input.Description &&
 		record.Provider == input.Provider &&
-		sameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) &&
-		sameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.DefaultMachineCPU, input.DefaultMachineCPU) &&
+		storeutil.SameIntPtr(record.DefaultMachineMemoryMB, input.DefaultMachineMemoryMB) &&
 		sameJSON(record.DefaultMachineEnv, input.DefaultMachineEnv) &&
 		sameJSON(record.DefaultMachineSecretEnv, input.DefaultMachineSecretEnv) &&
 		sameJSON(record.DefaultMachineProviderOptions, input.DefaultMachineProviderOptions) &&
@@ -399,13 +403,13 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		record.ProviderAuthEnvVar == input.ProviderAuthEnvVar &&
 		record.RuntimeProtectionEnabled == input.RuntimeProtectionEnabled &&
 		record.MaxTotalMachines == input.MaxTotalMachines &&
-		sameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
-		sameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
-		sameIntPtr(record.MinMachineCPU, input.MinMachineCPU) &&
-		sameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
-		sameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
-		sameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
-		sameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
+		storeutil.SameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
+		storeutil.SameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
+		storeutil.SameIntPtr(record.MinMachineCPU, input.MinMachineCPU) &&
+		storeutil.SameIntPtr(record.MinMachineMemoryMB, input.MinMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.MaxMachineCPU, input.MaxMachineCPU) &&
+		storeutil.SameIntPtr(record.MaxMachineMemoryMB, input.MaxMachineMemoryMB) &&
+		storeutil.SameIntPtr(record.DeleteAfterIdleMinutes, input.DeleteAfterIdleMinutes) &&
 		sameMetadata(record.Metadata, input.Metadata)
 }
 
@@ -541,8 +545,8 @@ func prepareMachinePoolConfigInput(
 	if err != nil {
 		return machinePoolDefaults{}, fmt.Errorf("machine pool default_machine fields: %w", err)
 	}
-	input.DefaultMachineCPU = intPtrFromSQLC(provisioningColumns.CPU)
-	input.DefaultMachineMemoryMB = intPtrFromSQLC(provisioningColumns.MemoryMB)
+	input.DefaultMachineCPU = storeutil.IntPtr(provisioningColumns.CPU)
+	input.DefaultMachineMemoryMB = storeutil.IntPtr(provisioningColumns.MemoryMB)
 	input.DefaultMachineEnv = env
 	input.DefaultMachineSecretEnv = secretEnv
 	input.DefaultMachineProviderOptions = provisioningColumns.ProviderOptions
@@ -562,8 +566,8 @@ func prepareMachinePoolConfigInput(
 	return machinePoolDefaults{Provisioning: poolProvisioning, Environment: poolEnvironment}, nil
 }
 
-func validateMachinePoolProviderAuth(ctx context.Context, qtx *dbsqlc.Queries, orgID, providerAuthSecretID ID) error {
-	credential, err := secretops.GetFacts(ctx, qtx, orgID, providerAuthSecretID)
+func validateMachinePoolProviderAuth(ctx context.Context, tx pgx.Tx, orgID, providerAuthSecretID ID) error {
+	credential, err := secretops.LockReference(ctx, tx, orgID, providerAuthSecretID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storeerr.ErrNotFound
 	}
@@ -605,8 +609,8 @@ func insertMachinePool(
 		ManagementKind:                string(input.ManagementKind),
 		Description:                   input.Description,
 		Provider:                      input.Provider,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -616,13 +620,13 @@ func insertMachinePool(
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
-		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 storeutil.Int32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            storeutil.Int32Ptr(input.MinMachineMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 	if err != nil {
@@ -646,12 +650,25 @@ func (s *Store) UpdateMachinePool(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	locked, err := qtx.LockMachinePoolForUpdate(
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	if err := lifecyclelock.Pools(
 		ctx,
-		dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: input.ID},
+		tx,
+		[]lifecyclelock.PoolRef{{OrgID: input.OrgID, PoolID: input.ID}},
+	); err != nil {
+		return MachinePoolRecord{}, err
+	}
+	locked, err := qtx.GetMachinePool(
+		ctx,
+		dbsqlc.GetMachinePoolParams{OrgID: input.OrgID, ID: input.ID},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MachinePoolRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
-		return MachinePoolRecord{}, fmt.Errorf("lock machine pool for update: %w", err)
+		return MachinePoolRecord{}, fmt.Errorf("load machine pool for update: %w", err)
 	}
 	if management.Kind(locked.ManagementKind) == management.Cluster {
 		if err := validateClusterMachinePoolUpdate(input); err != nil {
@@ -668,8 +685,8 @@ func (s *Store) UpdateMachinePool(
 		ManagementKind:                management.Kind(locked.ManagementKind),
 		Description:                   locked.Description,
 		Provider:                      locked.Provider,
-		DefaultMachineCPU:             intPtrFromSQLC(locked.DefaultMachineCpu),
-		DefaultMachineMemoryMB:        intPtrFromSQLC(locked.DefaultMachineMemoryMb),
+		DefaultMachineCPU:             storeutil.IntPtr(locked.DefaultMachineCpu),
+		DefaultMachineMemoryMB:        storeutil.IntPtr(locked.DefaultMachineMemoryMb),
 		DefaultMachineEnv:             locked.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       locked.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: locked.DefaultMachineProviderOptions,
@@ -679,13 +696,13 @@ func (s *Store) UpdateMachinePool(
 		ProviderAuthEnvVar:            locked.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      locked.RuntimeProtectionEnabled,
 		MaxTotalMachines:              locked.MaxTotalMachines,
-		MaxTotalCPU:                   intPtrFromSQLC(locked.MaxTotalCpu),
-		MaxTotalMemoryMB:              intPtrFromSQLC(locked.MaxTotalMemoryMb),
-		MinMachineCPU:                 intPtrFromSQLC(locked.MinMachineCpu),
-		MinMachineMemoryMB:            intPtrFromSQLC(locked.MinMachineMemoryMb),
-		MaxMachineCPU:                 intPtrFromSQLC(locked.MaxMachineCpu),
-		MaxMachineMemoryMB:            intPtrFromSQLC(locked.MaxMachineMemoryMb),
-		DeleteAfterIdleMinutes:        intPtrFromSQLC(locked.DeleteAfterIdleMinutes),
+		MaxTotalCPU:                   storeutil.IntPtr(locked.MaxTotalCpu),
+		MaxTotalMemoryMB:              storeutil.IntPtr(locked.MaxTotalMemoryMb),
+		MinMachineCPU:                 storeutil.IntPtr(locked.MinMachineCpu),
+		MinMachineMemoryMB:            storeutil.IntPtr(locked.MinMachineMemoryMb),
+		MaxMachineCPU:                 storeutil.IntPtr(locked.MaxMachineCpu),
+		MaxMachineMemoryMB:            storeutil.IntPtr(locked.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        storeutil.IntPtr(locked.DeleteAfterIdleMinutes),
 		Metadata:                      lockedMetadata,
 	}
 	if input.Name != nil {
@@ -758,12 +775,34 @@ func (s *Store) UpdateMachinePool(
 		return MachinePoolRecord{}, storeerr.InvalidRequest(err)
 	}
 	if merged.ManagementKind == management.Tenant {
-		if err := validateMachinePoolProviderAuth(ctx, qtx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
+		if err := validateMachinePoolProviderAuth(ctx, tx, merged.OrgID, merged.ProviderAuthSecretID); err != nil {
 			return MachinePoolRecord{}, err
 		}
 	}
 	if err := s.validatePoolDefaultsTx(ctx, qtx, merged, poolDefaults); err != nil {
 		return MachinePoolRecord{}, err
+	}
+	if locked.RuntimeProtectionEnabled != merged.RuntimeProtectionEnabled {
+		machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
+			ctx,
+			dbsqlc.ListMachinePoolMachineIDsForLifecycleParams{
+				OrgID:         input.OrgID,
+				MachinePoolID: input.ID,
+			},
+		)
+		if err != nil {
+			return MachinePoolRecord{}, fmt.Errorf("list machine pool machines for runtime protection update: %w", err)
+		}
+		machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+		for _, machineID := range machineIDs {
+			machineRefs = append(machineRefs, lifecyclelock.MachineRef{
+				OrgID:     input.OrgID,
+				MachineID: machineID,
+			})
+		}
+		if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+			return MachinePoolRecord{}, err
+		}
 	}
 	row, err := updateMachinePoolRow(ctx, qtx, input.ID, merged)
 	if err != nil {
@@ -827,8 +866,8 @@ func updateMachinePoolRow(
 		ManagementKind:                string(input.ManagementKind),
 		Name:                          input.Name,
 		Description:                   input.Description,
-		DefaultMachineCpu:             sqlcInt32Ptr(input.DefaultMachineCPU),
-		DefaultMachineMemoryMb:        sqlcInt32Ptr(input.DefaultMachineMemoryMB),
+		DefaultMachineCpu:             storeutil.Int32Ptr(input.DefaultMachineCPU),
+		DefaultMachineMemoryMb:        storeutil.Int32Ptr(input.DefaultMachineMemoryMB),
 		DefaultMachineEnv:             input.DefaultMachineEnv,
 		DefaultMachineSecretEnv:       input.DefaultMachineSecretEnv,
 		DefaultMachineProviderOptions: input.DefaultMachineProviderOptions,
@@ -837,13 +876,13 @@ func updateMachinePoolRow(
 		ProviderAuthSecretID:          sqlcIDFromNil(input.ProviderAuthSecretID),
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
 		MaxTotalMachines:              input.MaxTotalMachines,
-		MaxTotalCpu:                   sqlcInt32Ptr(input.MaxTotalCPU),
-		MaxTotalMemoryMb:              sqlcInt32Ptr(input.MaxTotalMemoryMB),
-		MinMachineCpu:                 sqlcInt32Ptr(input.MinMachineCPU),
-		MinMachineMemoryMb:            sqlcInt32Ptr(input.MinMachineMemoryMB),
-		MaxMachineCpu:                 sqlcInt32Ptr(input.MaxMachineCPU),
-		MaxMachineMemoryMb:            sqlcInt32Ptr(input.MaxMachineMemoryMB),
-		DeleteAfterIdleMinutes:        sqlcInt32Ptr(input.DeleteAfterIdleMinutes),
+		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
+		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
+		MinMachineCpu:                 storeutil.Int32Ptr(input.MinMachineCPU),
+		MinMachineMemoryMb:            storeutil.Int32Ptr(input.MinMachineMemoryMB),
+		MaxMachineCpu:                 storeutil.Int32Ptr(input.MaxMachineCPU),
+		MaxMachineMemoryMb:            storeutil.Int32Ptr(input.MaxMachineMemoryMB),
+		DeleteAfterIdleMinutes:        storeutil.Int32Ptr(input.DeleteAfterIdleMinutes),
 		Metadata:                      metadata,
 	})
 }
@@ -945,12 +984,21 @@ func (s *Store) DeleteMachinePool(ctx context.Context, orgID, id ID) ([]MachineR
 	if pool.ManagementKind == management.Cluster {
 		return nil, fmt.Errorf("cluster-managed machine pools cannot be deleted: %w", storeerr.ErrStateTransitionConflict)
 	}
+	return storeutil.RetryTransaction(ctx, "delete_machine_pool", func() ([]MachineRecord, error) {
+		return s.deleteMachinePoolOnce(ctx, orgID, id)
+	})
+}
+
+func (s *Store) deleteMachinePoolOnce(ctx context.Context, orgID, id ID) ([]MachineRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete machine pool: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	txNotifications := s.newTxNotifications()
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
 	machines, err := s.DeleteMachinePoolTx(ctx, tx, txNotifications, orgID, id)
 	if err != nil {
 		return nil, err
@@ -972,13 +1020,58 @@ func (s *Store) DeleteMachinePoolTx(
 		ctx,
 		dbsqlc.LockMachinePoolForUpdateParams{OrgID: orgID, ID: id},
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, storeerr.ErrNotFound
+		}
 		return nil, fmt.Errorf("lock machine pool for delete: %w", err)
 	}
-	if _, err := qtx.LockMachinePoolMachinesForUpdate(
+	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
 		ctx,
-		dbsqlc.LockMachinePoolMachinesForUpdateParams{OrgID: orgID, MachinePoolID: &id},
-	); err != nil {
-		return nil, fmt.Errorf("lock machine pool machines for archive: %w", err)
+		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
+			OrgID:         orgID,
+			MachinePoolID: id,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
+	}
+	grantIDs := make([]ID, 0, len(poolGrantRefs))
+	for _, grantRef := range poolGrantRefs {
+		grantIDs = append(grantIDs, grantRef.ID)
+	}
+	if err := lifecyclelock.PoolGrants(ctx, tx, grantIDs); err != nil {
+		return nil, err
+	}
+	machineIDs, err := qtx.ListMachinePoolMachineIDsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolMachineIDsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool machines for lifecycle: %w", err)
+	}
+	machineRefs := make([]lifecyclelock.MachineRef, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineRefs = append(machineRefs, lifecyclelock.MachineRef{OrgID: orgID, MachineID: machineID})
+	}
+	if err := lifecyclelock.Machines(ctx, tx, machineRefs); err != nil {
+		return nil, err
+	}
+	agentRows, err := qtx.ListMachinePoolAgentRefsForLifecycle(
+		ctx,
+		dbsqlc.ListMachinePoolAgentRefsForLifecycleParams{OrgID: orgID, MachinePoolID: id},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list machine pool agents for lifecycle: %w", err)
+	}
+	agentRefs := make([]lifecyclelock.AgentRef, 0, len(agentRows))
+	for _, agentRow := range agentRows {
+		agentRefs = append(agentRefs, lifecyclelock.AgentRef{
+			ProjectID: agentRow.ProjectID,
+			AgentID:   agentRow.AgentID,
+		})
+	}
+	if err := lifecyclelock.Agents(ctx, tx, agentRefs); err != nil {
+		return nil, err
 	}
 	if _, err := qtx.DeleteMachinePool(
 		ctx,
@@ -994,16 +1087,6 @@ func (s *Store) DeleteMachinePoolTx(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mark machine pool machines deleting: %w", err)
-	}
-	poolGrantRefs, err := qtx.ListProjectMachinePoolGrantRefsForMachinePool(
-		ctx,
-		dbsqlc.ListProjectMachinePoolGrantRefsForMachinePoolParams{
-			OrgID:         orgID,
-			MachinePoolID: id,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list project machine pool grants for machine pool: %w", err)
 	}
 	// Process completion joins the grant rows, so it runs before the deletes.
 	for _, poolGrantRef := range poolGrantRefs {

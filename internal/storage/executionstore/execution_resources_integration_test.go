@@ -460,7 +460,7 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 		},
 	}}
 	if err := store.Execution().IntegrationResolveLaunchMachineSourcesTx(
-		ctx, qtx, testOrgID, testProjectID, sources,
+		ctx, bindingTx, qtx, testOrgID, testProjectID, sources,
 	); err != nil {
 		t.Fatalf("resolve binding environment: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 		})
 		updateDone <- updateErr
 	}()
-	integrationdb.WaitForLockWaiters(t, ctx, pool, "machine_environment:", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockMachineExecutionDefaults", 1)
 	select {
 	case updateErr := <-updateDone:
 		t.Fatalf("machine update completed before binding commit: %v", updateErr)
@@ -609,6 +609,27 @@ func TestReleasedAgentMachineBindingRejectsReplay(t *testing.T) {
 			afterReplay.UpdatedAt,
 			releasedAt,
 		)
+	}
+}
+
+func TestCreateProjectMachineGrantMissingMachineReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+
+	_, _, err := store.Execution().CreateProjectMachineGrant(
+		ctx,
+		executionstore.CreateProjectMachineGrantInput{
+			OrgID:          testOrgID,
+			ProjectID:      testProjectID,
+			MachineID:      testID("missing_project_machine_grant_machine"),
+			IdempotencyKey: "idem-missing-project-machine-grant-machine",
+		},
+	)
+	if !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("create project machine grant error = %v, want ErrNotFound", err)
 	}
 }
 

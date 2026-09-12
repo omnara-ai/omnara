@@ -48,11 +48,11 @@ func TestListAllToolsFollowsCursors(t *testing.T) {
 		{Tools: []*sdkmcp.Tool{{Name: "c"}}, NextCursor: "2"},
 		{Tools: []*sdkmcp.Tool{{Name: "d"}}},
 	}}
-	tools, err := listAllTools(context.Background(), client, Conn{}, sequentialRequestIDs())
+	listing, err := listAllTools(context.Background(), client, Conn{}, sequentialRequestIDs())
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if got := listedToolNames(tools); fmt.Sprint(got) != "[a b c d]" {
+	if got := listedToolNames(listing.Tools); fmt.Sprint(got) != "[a b c d]" {
 		t.Fatalf("tools = %v", got)
 	}
 	if fmt.Sprint(client.requestIDs) != "[1 2 3]" {
@@ -65,12 +65,12 @@ func TestListAllToolsStopsOnEmptyPageWithCursor(t *testing.T) {
 		{Tools: []*sdkmcp.Tool{{Name: "a"}}, NextCursor: "1"},
 		{NextCursor: "1"},
 	}}
-	tools, err := listAllTools(context.Background(), client, Conn{}, sequentialRequestIDs())
+	listing, err := listAllTools(context.Background(), client, Conn{}, sequentialRequestIDs())
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools) != 1 || len(client.requestIDs) != 2 {
-		t.Fatalf("tools = %v after %d requests", listedToolNames(tools), len(client.requestIDs))
+	if len(listing.Tools) != 1 || len(client.requestIDs) != 2 {
+		t.Fatalf("tools = %v after %d requests", listedToolNames(listing.Tools), len(client.requestIDs))
 	}
 }
 

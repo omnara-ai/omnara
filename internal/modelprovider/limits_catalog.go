@@ -54,7 +54,7 @@ func NewLimitsCatalog() *LimitsCatalog {
 }
 
 func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []DiscoveredModel) []DiscoveredModel {
-	if !anyModelMissingContextWindow(models) {
+	if !anyModelMissingLimits(models) {
 		return models
 	}
 	entries := c.snapshot(ctx)
@@ -62,26 +62,28 @@ func (c *LimitsCatalog) FillMissingLimits(ctx context.Context, models []Discover
 		return models
 	}
 	for i := range models {
-		if models[i].ContextWindowTokens != nil {
+		if models[i].ContextWindowTokens != nil && models[i].MaxOutputTokens != nil {
 			continue
 		}
 		limits, found := lookupCatalogLimits(entries, models[i].Slug)
-		if !found || limits.contextWindowTokens == nil {
+		if !found {
 			continue
 		}
-		models[i].ContextWindowTokens = limits.contextWindowTokens
+		if models[i].ContextWindowTokens == nil {
+			models[i].ContextWindowTokens = limits.contextWindowTokens
+		}
 		maxOutput := models[i].MaxOutputTokens
 		if maxOutput == nil {
 			maxOutput = limits.maxOutputTokens
 		}
-		models[i].MaxOutputTokens = clampedMaxOutput(limits.contextWindowTokens, maxOutput)
+		models[i].MaxOutputTokens = clampedMaxOutput(models[i].ContextWindowTokens, maxOutput)
 	}
 	return models
 }
 
-func anyModelMissingContextWindow(models []DiscoveredModel) bool {
+func anyModelMissingLimits(models []DiscoveredModel) bool {
 	for _, model := range models {
-		if model.ContextWindowTokens == nil {
+		if model.ContextWindowTokens == nil || model.MaxOutputTokens == nil {
 			return true
 		}
 	}

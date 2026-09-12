@@ -98,10 +98,6 @@ func TestMachineProvisioningFromRecordAllowsUnresolvedProviderResources(t *testi
 	}
 }
 
-func ptrForMachineTest[T any](value T) *T {
-	return &value
-}
-
 func mustTestRawJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)

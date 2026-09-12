@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -152,16 +153,16 @@ func (s *Store) resolvePoolMachineProvisioningConfig(
 	agentMachine agentconfig.RuntimeMachine,
 ) (MachineProvisioningConfig, error) {
 	poolDefault, err := MachineProvisioningFromDefaults(
-		intPtrFromSQLC(poolGrant.DefaultMachineCpu),
-		intPtrFromSQLC(poolGrant.DefaultMachineMemoryMb),
+		storeutil.IntPtr(poolGrant.DefaultMachineCpu),
+		storeutil.IntPtr(poolGrant.DefaultMachineMemoryMb),
 		poolGrant.DefaultMachineProviderOptions,
 	)
 	if err != nil {
 		return MachineProvisioningConfig{}, fmt.Errorf("machine pool default_machine fields: %w", err)
 	}
 	projectOverlay, err := machineProvisioningOverlayFromColumns(
-		intPtrFromSQLC(poolGrant.GrantDefaultMachineCpu),
-		intPtrFromSQLC(poolGrant.GrantDefaultMachineMemoryMb),
+		storeutil.IntPtr(poolGrant.GrantDefaultMachineCpu),
+		storeutil.IntPtr(poolGrant.GrantDefaultMachineMemoryMb),
 		poolGrant.GrantDefaultMachineProviderOptionsOverlay,
 	)
 	if err != nil {
@@ -170,12 +171,12 @@ func (s *Store) resolvePoolMachineProvisioningConfig(
 	policy := MachinePoolProviderPolicy{
 		DefaultProvisioning: poolDefault,
 		ResourceLimits: MachineResourceLimits{
-			MaxTotalCPU:        intPtrFromSQLC(poolGrant.PoolMaxTotalCpu),
-			MaxTotalMemoryMB:   intPtrFromSQLC(poolGrant.PoolMaxTotalMemoryMb),
-			MinMachineCPU:      intPtrFromSQLC(poolGrant.PoolMinMachineCpu),
-			MinMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMinMachineMemoryMb),
-			MaxMachineCPU:      intPtrFromSQLC(poolGrant.PoolMaxMachineCpu),
-			MaxMachineMemoryMB: intPtrFromSQLC(poolGrant.PoolMaxMachineMemoryMb),
+			MaxTotalCPU:        storeutil.IntPtr(poolGrant.PoolMaxTotalCpu),
+			MaxTotalMemoryMB:   storeutil.IntPtr(poolGrant.PoolMaxTotalMemoryMb),
+			MinMachineCPU:      storeutil.IntPtr(poolGrant.PoolMinMachineCpu),
+			MinMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMinMachineMemoryMb),
+			MaxMachineCPU:      storeutil.IntPtr(poolGrant.PoolMaxMachineCpu),
+			MaxMachineMemoryMB: storeutil.IntPtr(poolGrant.PoolMaxMachineMemoryMb),
 		},
 		ProviderConfig: poolGrant.ProviderConfig,
 	}
@@ -515,19 +516,9 @@ func machineProvisioningToColumns(
 	if err != nil {
 		return MachineProvisioningColumns{}, err
 	}
-	var cpu *int32
-	if machineProvisioning.CPU != nil {
-		value := int32(*machineProvisioning.CPU)
-		cpu = &value
-	}
-	var memoryMB *int32
-	if machineProvisioning.MemoryMB != nil {
-		value := int32(*machineProvisioning.MemoryMB)
-		memoryMB = &value
-	}
 	return MachineProvisioningColumns{
-		CPU:             cpu,
-		MemoryMB:        memoryMB,
+		CPU:             storeutil.Int32Ptr(machineProvisioning.CPU),
+		MemoryMB:        storeutil.Int32Ptr(machineProvisioning.MemoryMB),
 		ProviderOptions: providerOptions,
 	}, nil
 }

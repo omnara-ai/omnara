@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,20 +16,76 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/openairesponses"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
-func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T) {
+func TestCompactionResponseOutcomePrecedesSummaryContent(t *testing.T) {
+	tests := []struct {
+		reason    model.StopReason
+		tools     bool
+		kind      model.ErrorKind
+		code      string
+		ambiguous bool
+	}{
+		{model.StopReasonMaxTokens, false, "", "", false},
+		{model.StopReasonMaxTokens, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonContextWindow, false, model.ErrorKindContextWindow, "context_window", false},
+		{model.StopReasonContextWindow, true, model.ErrorKindContextWindow, "context_window", false},
+		{model.StopReasonRefusal, false, model.ErrorKindInvalidRequest, "refusal", false},
+		{model.StopReasonRefusal, true, model.ErrorKindInvalidRequest, "refusal", false},
+		{model.StopReasonContentFilter, false, model.ErrorKindInvalidRequest, "content_filter", false},
+		{model.StopReasonContentFilter, true, model.ErrorKindInvalidRequest, "content_filter", false},
+		{model.StopReasonPause, false, model.ErrorKindInvalidRequest, "pause", false},
+		{model.StopReasonPause, true, model.ErrorKindInvalidRequest, "pause", false},
+		{model.StopReasonError, false, model.ErrorKindUnknown, "error", true},
+		{model.StopReasonError, true, model.ErrorKindUnknown, "error", true},
+		{model.StopReasonUnknown, false, model.ErrorKindUnknown, "unknown", true},
+		{model.StopReasonUnknown, true, model.ErrorKindUnknown, "unknown", true},
+		{model.StopReasonToolUse, false, model.ErrorKindUnknown, "tool_use", true},
+		{model.StopReasonToolUse, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonEndTurn, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonEndTurn, false, "", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%s/tools=%t", tc.reason, tc.tools), func(t *testing.T) {
+			response := model.Response{
+				StopReason: tc.reason,
+				Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: " summary "}},
+			}
+			if tc.tools {
+				response.Content = append(response.Content, model.ResponsePart{
+					Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1",
+					ToolName: "unexpected", ToolInput: json.RawMessage(`{}`),
+				})
+			}
+			summary, err := validateCompactionResponse("test-provider", response)
+			if tc.code == "" {
+				if err != nil || summary != "summary" {
+					t.Fatalf("completed summary=%q error=%v", summary, err)
+				}
+				return
+			}
+			providerErr, ok := model.ClassifyError(err)
+			if summary != "" || !ok || providerErr.Kind != tc.kind || providerErr.Code != tc.code ||
+				model.IsAmbiguousProviderOutcome(err) != tc.ambiguous {
+				t.Fatalf("summary=%q error=%+v, want kind=%s code=%s ambiguous=%t", summary, err, tc.kind, tc.code, tc.ambiguous)
+			}
+		})
+	}
+}
+
+func TestCompactionModelHonorsOutputLimits(t *testing.T) {
 	supportsTools := false
 	tests := []struct {
 		name       string
 		caps       model.Capabilities
 		wantOutput int
-		wantFloor  int
 	}{
 		{
-			name: "summary cap changes only output policy",
+			name: "explicit default wins with a known maximum",
 			caps: model.Capabilities{
-				MaxOutputTokens:           64_000,
+				ContextWindowTokens:       200000,
+				MaxOutputTokens:           new(64_000),
 				DefaultMaxOutputTokens:    2_048,
 				DefaultCacheRetention:     model.CacheRetentionShort,
 				SupportsTools:             &supportsTools,
@@ -36,31 +93,44 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 				DefaultReasoningEffort:    "high",
 				SupportedReasoningEfforts: []string{"low", "medium", "high"},
 			},
-			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  2_048,
+			wantOutput: 2_048,
 		},
 		{
 			name: "model output limit below summary cap is retained",
 			caps: model.Capabilities{
-				MaxOutputTokens:           8_192,
-				DefaultMaxOutputTokens:    2_048,
+				ContextWindowTokens:       200000,
+				MaxOutputTokens:           new(8_192),
 				SupportsReasoning:         true,
 				DefaultReasoningEffort:    "low",
 				SupportedReasoningEfforts: []string{"low", "high"},
 			},
 			wantOutput: 8_192,
-			wantFloor:  2_048,
 		},
 		{
 			name: "default output limit is used when model maximum is unavailable",
 			caps: model.Capabilities{
+				ContextWindowTokens:       200000,
 				DefaultMaxOutputTokens:    2_048,
 				SupportsReasoning:         true,
 				DefaultReasoningEffort:    "vendor-deep",
 				SupportedReasoningEfforts: []string{"vendor-deep"},
 			},
 			wantOutput: 2_048,
-			wantFloor:  2_048,
+		},
+		{
+			name:       "runtime allowance with unknown capacity retains preferred summary size",
+			caps:       model.Capabilities{ContextWindowTokens: 200000, DefaultMaxOutputTokens: 64000},
+			wantOutput: preferredSummaryOutputTokens,
+		},
+		{
+			name:       "unknown allowance retains summary cap",
+			caps:       model.Capabilities{ContextWindowTokens: 200_000},
+			wantOutput: preferredSummaryOutputTokens,
+		},
+		{
+			name:       "small context reserves at most half for output",
+			caps:       model.Capabilities{ContextWindowTokens: 8_192},
+			wantOutput: 4_096,
 		},
 	}
 	for _, test := range tests {
@@ -69,7 +139,7 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 				ProviderModelSlug: "policy-test",
 				ModelCapabilities: test.caps,
 			}
-			got, floor, err := compactionRequestPolicy(client, "test")
+			_, got, err := compactionModel(client, "test")
 			if err != nil {
 				t.Fatalf("compaction request policy: %v", err)
 			}
@@ -78,67 +148,6 @@ func TestCompactionRequestPolicyDerivesPreferredAndConfiguredFloor(t *testing.T)
 			want.CacheRetention = model.CacheRetentionNone
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Fatalf("compaction request policy mismatch (-want +got):\n%s", diff)
-			}
-			if floor != test.wantFloor {
-				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
-			}
-		})
-	}
-}
-
-func TestCompactionRequestPolicyReconcilesProviderFixedReasoningBudget(t *testing.T) {
-	supportsTools := false
-	baseCapabilities := model.Capabilities{
-		ContextWindowTokens:       200_000,
-		MaxOutputTokens:           64_000,
-		DefaultMaxOutputTokens:    32_768,
-		DefaultCacheRetention:     model.CacheRetentionShort,
-		SupportsTools:             &supportsTools,
-		SupportsReasoning:         false,
-		DefaultReasoningEffort:    "",
-		SupportedReasoningEfforts: nil,
-	}
-	tests := []struct {
-		name       string
-		client     model.Client
-		wantOutput int
-		wantFloor  int
-	}{
-		{
-			name: "Anthropic preferred total already valid",
-			client: anthropicmessages.Client{
-				ProviderModelSlug: "claude-sonnet-4",
-				ModelCapabilities: baseCapabilities,
-				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":8192}}`),
-			},
-			wantOutput: preferredSummaryOutputTokens,
-			wantFloor:  preferredSummaryOutputTokens,
-		},
-		{
-			name: "Anthropic falls back to normal allowance",
-			client: anthropicmessages.Client{
-				ProviderModelSlug: "claude-sonnet-4",
-				ModelCapabilities: baseCapabilities,
-				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
-			},
-			wantOutput: 32_768,
-			wantFloor:  32_768,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, floor, err := compactionRequestPolicy(test.client, "test")
-			if err != nil {
-				t.Fatalf("compaction request policy: %v", err)
-			}
-			want := model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(test.client))
-			want.MaxOutputTokens = test.wantOutput
-			want.CacheRetention = model.CacheRetentionNone
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Fatalf("compaction request policy mismatch (-want +got):\n%s", diff)
-			}
-			if floor != test.wantFloor {
-				t.Fatalf("compaction output floor = %d, want %d", floor, test.wantFloor)
 			}
 		})
 	}
@@ -167,12 +176,12 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 				ProviderModelSlug: "claude-sonnet-4",
 				ModelCapabilities: model.Capabilities{
 					ContextWindowTokens:    200_000,
-					MaxOutputTokens:        64_000,
+					MaxOutputTokens:        new(64_000),
 					DefaultMaxOutputTokens: test.normalOutput,
 				},
 				APIVariantOptions: test.options,
 			}
-			_, _, err := compactionRequestPolicy(client, "anthropic_messages")
+			_, _, err := compactionModel(client, "anthropic_messages")
 			var providerErr model.ProviderError
 			if !errors.Is(err, model.ErrOutputTokenLimitIncompatible) ||
 				!errors.As(err, &providerErr) ||
@@ -611,7 +620,7 @@ func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(
 		ProviderModelSlug: "claude-sonnet-4",
 		ModelCapabilities: model.Capabilities{
 			ContextWindowTokens:    200_000,
-			MaxOutputTokens:        64_000,
+			MaxOutputTokens:        new(64_000),
 			DefaultMaxOutputTokens: 16_384,
 		},
 		APIVariantOptions: json.RawMessage(`{"thinking":{"type":"enabled","budget_tokens":24576}}`),
@@ -800,51 +809,66 @@ func TestRunnerStopsReplayRejectionWithoutReplayRecovery(t *testing.T) {
 }
 
 func TestRunnerReplacesTruncatedSummaryWithStrictlySmallerSafeSource(t *testing.T) {
-	store := &fakeStore{
-		events: []executionstore.CompactionSourceEventRecord{
-			textCompactionEvent(1, strings.Repeat("first ", 100)),
-			textCompactionEvent(2, strings.Repeat("tool call ", 100)),
-			textCompactionEvent(3, strings.Repeat("tool result ", 100)),
-			textCompactionEvent(4, strings.Repeat("fourth ", 100)),
-		},
-		atomicGroups: []executionstore.CompactionAtomicGroupRecord{{
-			Kind: "tool_call_result", StartSequence: 2, EndSequence: 3,
-		}},
-	}
-	client := &summaryModel{results: []summaryResult{
-		{response: model.Response{
-			ID:                      "resp_truncated",
-			ServedProviderModelSlug: "served-summary-model",
-			StopReason:              model.StopReasonMaxTokens,
-			Usage:                   model.Usage{InputTokens: 41, OutputTokens: 9},
-			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}},
-		}},
-		{response: completeSummaryResponse("## Goal\nPreserve the first completed unit.\n\n## Next Steps\nContinue.")},
-	}}
-	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 4, 4)))
-	if err != nil {
-		t.Fatalf("run truncated compaction: %v", err)
-	}
-	if result.State != RunCompleted || len(store.replacements) != 1 {
-		t.Fatalf("truncated result=%+v replacements=%+v", result, store.replacements)
-	}
-	nextEnd := store.replacements[0].NextSourceEventSequenceEnd
-	if nextEnd >= 4 || nextEnd == 2 {
-		t.Fatalf("replacement source end = %d, want a strictly smaller safe boundary", nextEnd)
-	}
-	if store.replacements[0].ErrorCode != "summary_truncated" ||
-		store.replacements[0].ProviderResponseID != "resp_truncated" ||
-		store.replacements[0].APIFormat != client.APIFormat() ||
-		store.replacements[0].APIVariant != client.ModelAPIVariant() ||
-		store.replacements[0].Usage.InputTokens != 41 ||
-		store.replacements[0].Usage.OutputTokens != 9 {
-		t.Fatalf("replacement evidence = %+v", store.replacements[0])
-	}
-	if len(store.claimInputs) != 1 || store.claims[1].Context.SourceEventSequenceEnd == nil ||
-		*store.claims[1].Context.SourceEventSequenceEnd != nextEnd ||
-		len(store.publishInputs) != 1 || store.publishInputs[0].ProviderRequestID != "req_complete" {
-		t.Fatalf("structural retry claims=%+v publishes=%+v", store.claimInputs, store.publishInputs)
+	for _, tc := range []struct {
+		name    string
+		content []model.ResponsePart
+	}{
+		{"text", []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}}},
+		{"empty", nil},
+		{"reasoning only", []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}}},
+		{"tool call", []model.ResponsePart{{
+			Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1",
+			ToolName: "unexpected", ToolInput: json.RawMessage(`{}`),
+		}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{
+				events: []executionstore.CompactionSourceEventRecord{
+					textCompactionEvent(1, strings.Repeat("first ", 100)),
+					textCompactionEvent(2, strings.Repeat("tool call ", 100)),
+					textCompactionEvent(3, strings.Repeat("tool result ", 100)),
+					textCompactionEvent(4, strings.Repeat("fourth ", 100)),
+				},
+				atomicGroups: []executionstore.CompactionAtomicGroupRecord{{
+					Kind: "tool_call_result", StartSequence: 2, EndSequence: 3,
+				}},
+			}
+			client := &summaryModel{results: []summaryResult{
+				{response: model.Response{
+					ID:                      "resp_truncated",
+					ServedProviderModelSlug: "served-summary-model",
+					StopReason:              model.StopReasonMaxTokens,
+					Usage:                   model.Usage{InputTokens: 41, OutputTokens: 9},
+					Content:                 tc.content,
+				}},
+				{response: completeSummaryResponse("## Goal\nPreserve the first completed unit.\n\n## Next Steps\nContinue.")},
+			}}
+			result, err := testRunner(store, client).
+				Run(context.Background(), runInput(testPlan(1, 4, 4)))
+			if err != nil {
+				t.Fatalf("run truncated compaction: %v", err)
+			}
+			if result.State != RunCompleted || len(store.replacements) != 1 {
+				t.Fatalf("truncated result=%+v replacements=%+v", result, store.replacements)
+			}
+			nextEnd := store.replacements[0].NextSourceEventSequenceEnd
+			if nextEnd >= 4 || nextEnd == 2 {
+				t.Fatalf("replacement source end = %d, want a strictly smaller safe boundary", nextEnd)
+			}
+			if store.replacements[0].ErrorCode != "summary_truncated" ||
+				store.replacements[0].ProviderResponseID != "resp_truncated" ||
+				store.replacements[0].APIFormat != client.APIFormat() ||
+				store.replacements[0].APIVariant != client.ModelAPIVariant() ||
+				store.replacements[0].Usage.InputTokens != 41 ||
+				store.replacements[0].Usage.OutputTokens != 9 {
+				t.Fatalf("replacement evidence = %+v", store.replacements[0])
+			}
+			if len(store.claimInputs) != 1 || store.claims[1].Context.SourceEventSequenceEnd == nil ||
+				*store.claims[1].Context.SourceEventSequenceEnd != nextEnd ||
+				len(store.publishInputs) != 1 || store.publishInputs[0].ProviderRequestID != "req_complete" {
+				t.Fatalf("structural retry claims=%+v publishes=%+v", store.claimInputs, store.publishInputs)
+			}
+		})
 	}
 }
 
@@ -982,42 +1006,77 @@ func TestRunnerReplacesPayloadTooLargeFailureWithStrictlySmallerSafeSource(t *te
 	}
 }
 
-func TestRunnerStopsSmallestTruncatedSummaryWithoutRepeatingRequest(t *testing.T) {
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("only closed unit ", 100)),
-	}}
-	client := &summaryModel{results: []summaryResult{
-		{response: model.Response{
-			ID:                      "resp_truncated",
-			ServedProviderModelSlug: "served-summary-model",
-			StopReason:              model.StopReasonMaxTokens,
-			Usage:                   model.Usage{InputTokens: 51, OutputTokens: 11},
-			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial"}},
-		}},
-	}}
-	result, err := testRunner(store, client).Run(context.Background(), runInput(testPlan(1, 1, 1)))
-	if err != nil {
-		t.Fatalf("run truncated compaction: %v", err)
-	}
-	if result.State != RunTerminal || len(store.publishInputs) != 0 || len(store.retryFailures) != 0 ||
-		len(store.terminalFailures) != 1 ||
-		store.terminalFailures[0].ErrorCode != "compaction_source_irreducible" ||
-		!strings.Contains(store.terminalFailures[0].ErrorMessage, "truncated summary") ||
-		len(client.requests) != 1 {
-		t.Fatalf(
-			"truncated result=%+v retries=%+v terminal=%+v publishes=%+v requests=%d",
-			result,
-			store.retryFailures,
-			store.terminalFailures,
-			store.publishInputs,
-			len(client.requests),
-		)
-	}
-	failure := store.terminalFailures[0]
-	if failure.ProviderResponseID != "resp_truncated" ||
-		failure.ServedProviderModelSlug != "served-summary-model" ||
-		failure.Usage.InputTokens != 51 || failure.Usage.OutputTokens != 11 {
-		t.Fatalf("terminal response evidence was not retained: %+v", failure)
+func TestRunnerUsesSmallestTruncatedSummaryWhenUsable(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		content    []model.ResponsePart
+		errorCode  string
+		overBudget bool
+	}{
+		{name: "partial text", content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial summary"}}},
+		{name: "empty", errorCode: "empty_summary"},
+		{
+			name:      "reasoning only",
+			content:   []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}},
+			errorCode: "empty_summary",
+		},
+		{name: "tool call", content: []model.ResponsePart{
+			{Type: model.ResponsePartTypeText, Text: "partial summary"},
+			{Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1", ToolName: "unexpected", ToolInput: json.RawMessage(`{}`)},
+		}, errorCode: "tool_use"},
+		{
+			name: "not smaller",
+			content: []model.ResponsePart{{
+				Type: model.ResponsePartTypeText, Text: strings.Repeat("larger summary ", 200),
+			}},
+			errorCode: compactionErrorCodeSourceIrreducible,
+		},
+		{
+			name:       "continuation over budget",
+			content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial summary"}},
+			errorCode:  compactionErrorCodeSourceIrreducible,
+			overBudget: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+				textCompactionEvent(1, strings.Repeat("only closed unit ", 100)),
+			}}
+			client := &summaryModel{results: []summaryResult{{response: model.Response{
+				ID: "resp_truncated", ProviderRequestID: "req_truncated",
+				StopReason: model.StopReasonMaxTokens, Content: tc.content,
+				Usage: model.Usage{InputTokens: 51, OutputTokens: 11},
+			}}}}
+			if tc.overBudget {
+				client.checkpointPreparedEstimates = []int{300_000}
+			}
+			result, err := testRunner(store, client).Run(context.Background(), runInput(testPlan(1, 1, 1)))
+			require.NoError(t, err)
+			require.Len(t, client.requests, 1)
+			require.Empty(t, store.replacements)
+			if tc.errorCode != "" {
+				require.Empty(t, store.publishInputs)
+				if tc.errorCode == compactionErrorCodeSourceIrreducible {
+					require.Equal(t, RunTerminal, result.State)
+					require.Len(t, store.terminalFailures, 1)
+					require.Equal(t, tc.errorCode, store.terminalFailures[0].ErrorCode)
+				} else {
+					require.Equal(t, RunRetryScheduled, result.State)
+					require.Len(t, store.retryFailures, 1)
+					require.Equal(t, tc.errorCode, store.retryFailures[0].ErrorCode)
+				}
+				return
+			}
+			require.Equal(t, RunCompleted, result.State)
+			require.Empty(t, store.terminalFailures)
+			require.Empty(t, store.retryFailures)
+			require.Len(t, store.publishInputs, 1)
+			published := store.publishInputs[0]
+			require.Equal(t, "partial summary", published.Summary)
+			require.Equal(t, "resp_truncated", published.ProviderResponseID)
+			require.Equal(t, "req_truncated", published.ProviderRequestID)
+			require.Equal(t, model.Usage{InputTokens: 51, OutputTokens: 11}, published.Usage)
+		})
 	}
 }
 
@@ -1059,7 +1118,7 @@ func TestValidateSummaryReductionRejectsNonShrinkingOutput(t *testing.T) {
 func TestCompactionControlFlowDoesNotTrustProviderErrorCodes(t *testing.T) {
 	providerError := model.ProviderError{
 		Kind: model.ErrorKindTransient,
-		Code: compactionErrorCodeSummaryTruncated,
+		Code: compactionErrorCodeSummaryNotReduced,
 	}
 	if shrinkableCompactionFailure(providerError) {
 		t.Fatal("provider error code must not trigger structural compaction retry")
@@ -1070,11 +1129,11 @@ func TestCompactionControlFlowDoesNotTrustProviderErrorCodes(t *testing.T) {
 	}
 
 	typedError := withCompactionFailureReason(
-		compactionFailureSummaryTruncated,
+		compactionFailureSummaryNotReduced,
 		providerError,
 	)
 	if !shrinkableCompactionFailure(typedError) {
-		t.Fatal("typed summary truncation should trigger structural compaction retry")
+		t.Fatal("typed non-reducing summary should trigger structural compaction retry")
 	}
 	typedIrreducible := withCompactionFailureReason(
 		compactionFailureSourceIrreducible,

@@ -311,7 +311,7 @@ VALUES (
 		t,
 		ctx,
 		pool,
-		"-- name: DeleteOrganization ",
+		"-- name: LockOrganizationLifecycleExclusive ",
 		createPID,
 	)
 
@@ -511,7 +511,7 @@ func TestOAuthLeaseAcquisitionFencesOrganizationDeletionBeforeSecretAndLease(t *
 		t,
 		ctx,
 		pool,
-		"-- name: DeleteOrganization ",
+		"-- name: LockOrganizationLifecycleExclusive ",
 		acquirePID,
 	)
 
@@ -590,7 +590,7 @@ func TestManualSecretDeletionFencesOrganizationDeletionBeforeSecretAndLease(t *t
 		t,
 		ctx,
 		pool,
-		"-- name: DeleteOrganization ",
+		"-- name: LockOrganizationLifecycleExclusive ",
 		secretDeletePID,
 	)
 

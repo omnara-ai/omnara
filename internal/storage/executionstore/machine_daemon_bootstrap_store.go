@@ -15,6 +15,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -33,7 +35,18 @@ func (s *Store) CreateBYOMachineDaemonToken(
 		return CreatedMachineDaemonToken{}, fmt.Errorf("begin create machine daemon token: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	record, err := createBYOMachineDaemonTokenTx(ctx, dbsqlc.New(tx), prepared)
+	qtx := dbsqlc.New(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := lifecyclelock.Machines(
+		ctx,
+		tx,
+		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
+	); err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
 	if err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
@@ -93,6 +106,9 @@ func createBYOMachineDaemonTokenTx(
 			Metadata:  prepared.metadata,
 		},
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MachineDaemonTokenRecord{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}
@@ -512,14 +528,9 @@ func (s *Store) RecordMachineFailureReport(
 	}
 	outputTail := strings.ToValidUTF8(string(input.OutputTail), "?")
 	outputTail = strings.ReplaceAll(outputTail, "\x00", "?")
-	var exitStatus *int32
-	if input.ExitStatus != nil {
-		value := int32(*input.ExitStatus)
-		exitStatus = &value
-	}
 	params := dbsqlc.RecordMachineFailureReportParams{
 		Stage:           input.Stage,
-		ExitStatus:      exitStatus,
+		ExitStatus:      storeutil.Int32Ptr(input.ExitStatus),
 		OutputTail:      outputTail,
 		OutputTruncated: input.OutputTruncated,
 		DaemonVersion:   input.DaemonVersion,

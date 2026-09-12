@@ -1,13 +1,16 @@
 package mcp
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestSanitizeInitializationError(t *testing.T) {
@@ -120,4 +123,43 @@ func TestValidateDiscoveredTools(t *testing.T) {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func TestEnsureConnectionLeavesConnectionsAloneWhenNothingIsDue(t *testing.T) {
+	catalogID := uuid.New()
+	cases := map[string]struct {
+		trigger ConnectionTrigger
+		conn    executionstore.MCPConnectionRecord
+	}{
+		"resume does not revive failed": {
+			trigger: TriggerTurnResume,
+			conn:    executionstore.MCPConnectionRecord{State: executionstore.MCPConnectionStateFailed},
+		},
+		"resume does not refresh ready": {
+			trigger: TriggerTurnResume,
+			conn: executionstore.MCPConnectionRecord{
+				State:     executionstore.MCPConnectionStateReady,
+				CatalogID: &catalogID,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result, err := Manager{}.EnsureConnection(
+				context.Background(),
+				uuid.New(),
+				uuid.New(),
+				uuid.New(),
+				tc.conn,
+				agentconfig.RuntimeMCPServer{ServerKey: "docs"},
+				tc.trigger,
+			)
+			if err != nil || result.Changed {
+				t.Fatalf("result = %+v err = %v, want unchanged", result, err)
+			}
+			if result.Ready != (tc.conn.State == executionstore.MCPConnectionStateReady) {
+				t.Fatalf("ready = %t for state %q", result.Ready, tc.conn.State)
+			}
+		})
+	}
 }

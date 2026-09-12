@@ -223,7 +223,7 @@ func testDefaultOpenRouterTemplate() modelstore.DefaultModelProviderTemplate {
 			Name:                "claude-sonnet-4.5",
 			ProviderModelSlug:   "anthropic/claude-sonnet-4.5",
 			ContextWindowTokens: 200000,
-			MaxOutputTokens:     64000,
+			MaxOutputTokens:     new(64000),
 			SupportsReasoning:   true,
 			InputModalities:     []string{"text", "image"},
 			OutputModalities:    []string{"text"},

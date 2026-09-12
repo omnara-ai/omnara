@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -50,6 +51,13 @@ func (s *Store) CreateSkillGrant(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
+	projectIDs := []uuid.UUID{input.TargetProjectID}
+	if skill.OwnerKind == SkillOwnerProject {
+		projectIDs = append(projectIDs, skill.OwnerProjectID)
+	}
+	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, projectIDs); err != nil {
+		return SkillGrantRecord{}, err
+	}
 	if err := lockSkillTx(ctx, qtx, input.OrgID, input.SkillID); err != nil {
 		return SkillGrantRecord{}, err
 	}
