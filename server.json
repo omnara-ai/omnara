@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.omnara-ai/omnara",
+  "name": "com.omnara/omnara",
   "title": "Omnara",
   "description": "Deploy durable AI agents with Omnara, an open-source managed-agent platform.",
   "version": "0.1.0",
