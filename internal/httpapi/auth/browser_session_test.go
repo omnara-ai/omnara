@@ -21,6 +21,8 @@ func TestSafeReturnTo(t *testing.T) {
 		{value: "https://evil.example", want: "/"},
 		{value: "//evil.example", want: "/"},
 		{value: "///evil.example", want: "/"},
+		{value: "/%2Fevil.example", want: "/"},
+		{value: "%2Fprojects", want: "/"},
 		{value: `/\evil.example`, want: "/"},
 		{value: "/\t/evil.example", want: "/"},
 		{value: "/\n/evil.example", want: "/"},
