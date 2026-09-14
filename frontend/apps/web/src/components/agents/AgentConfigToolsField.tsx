@@ -28,21 +28,25 @@ export interface BasicTool {
   permission: PermissionSelection | null
 }
 
-const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const hiddenToolNames = new Set([
+  'skill',
+  'send_integration_message',
+  'set_integration_target',
+  'run_command',
+  'write_process',
+  'stop_process',
+  'read_process',
+  'list_processes',
+  'create_machine',
+  'delete_machine',
+  'list_machines',
+  'inspect_machine',
+  'upload_file',
+  'download_file',
+])
 const toolDescriptions = new Map([
-  ['run_command', 'Run shell commands on an attached machine.'],
-  ['write_process', 'Send input to a command that is still running.'],
-  ['stop_process', 'Stop a command that is still running.'],
-  ['read_process', 'Read output from a command, including after it finishes.'],
-  ['list_processes', 'List commands and processes that are currently running.'],
-  ['create_machine', 'Create another machine for the agent to use.'],
-  ['delete_machine', 'Delete a machine created for the agent.'],
-  ['list_machines', 'List the machines available to the agent.'],
-  ['inspect_machine', 'View details about a machine available to the agent.'],
   ['read_file', "Read a text file in Omnara's virtual filesystem."],
   ['search_files', "Search text inside files in Omnara's virtual filesystem."],
-  ['upload_file', "Copy a file into Omnara's virtual filesystem."],
-  ['download_file', "Copy a file from Omnara's virtual filesystem to a machine."],
   ['ask_question', 'Ask the user a question and wait for their response.'],
   ['web_search', 'Search the public web for current information.'],
   ['web_fetch', 'Read the contents of a public webpage.'],

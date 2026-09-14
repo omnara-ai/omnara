@@ -36,8 +36,8 @@ const alwaysAllowProfile: ToolPermissionProfile = {
 const catalog: ToolCatalog = {
   built_in_tools: [
     {
-      name: 'download_file',
-      description: 'Download a file.',
+      name: 'web_search',
+      description: 'Search the web.',
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
@@ -124,7 +124,7 @@ async function renderAndFlush(node: ReactNode) {
 
 it('preserves an inherited built-in permission when the catalog loads', async () => {
   const onToolsChange = vi.fn()
-  const tools = [{ name: 'download_file', permission: null }]
+  const tools = [{ name: 'web_search', permission: null }]
 
   await renderAndFlush(<AgentConfigToolsField tools={tools} onToolsChange={onToolsChange} />)
   await renderAndFlush(
@@ -133,7 +133,48 @@ it('preserves an inherited built-in permission when the catalog loads', async ()
 
   expect(onToolsChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always allow')
-  expect(container.textContent).toContain('download_file')
+  expect(container.textContent).toContain('web_search')
+})
+
+it('hides machine tools and preserves their overrides when removing a visible tool', async () => {
+  const onToolsChange = vi.fn()
+  const machineTools = [
+    'run_command',
+    'write_process',
+    'read_process',
+    'stop_process',
+    'list_processes',
+    'create_machine',
+    'delete_machine',
+    'list_machines',
+    'inspect_machine',
+    'upload_artifact',
+    'download_artifact',
+  ].map((name) => ({ name, permission: { mode: 'always_ask', parameters: {} } }))
+  const machineCatalog = {
+    ...catalog,
+    built_in_tools: [
+      ...catalog.built_in_tools,
+      ...machineTools.map(({ name }) => ({ name, description: name, ...alwaysAllowProfile })),
+    ],
+  }
+  await renderAndFlush(
+    <AgentConfigToolsField
+      catalog={machineCatalog}
+      tools={[...machineTools, { name: 'web_search', permission: null }]}
+      onToolsChange={onToolsChange}
+    />,
+  )
+  for (const { name } of machineTools) {
+    expect(container.textContent).not.toContain(name)
+  }
+  expect(container.querySelector('[aria-label="Add tools"]')?.hasAttribute('disabled')).toBe(true)
+  const remove = container.querySelector<HTMLButtonElement>('[aria-label="Remove web_search"]')
+  expect(remove).not.toBeNull()
+  act(() => {
+    remove?.click()
+  })
+  expect(onToolsChange).toHaveBeenCalledWith(machineTools)
 })
 
 it('preserves an inherited MCP permission when its profile loads', async () => {
