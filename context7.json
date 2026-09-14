@@ -1,4 +1,7 @@
 {
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Omnara",
+  "description": "Omnara is an open-source managed-agent platform for deploying durable AI agents. Use Omnara Cloud or self-host, with your choice of models, tools, and machines.",
   "url": "https://context7.com/omnara-ai/omnara",
   "public_key": "pk_Nk9JFtDv0fwwUFJh8NUfq"
 }
