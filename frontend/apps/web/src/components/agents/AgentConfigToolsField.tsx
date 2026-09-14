@@ -28,19 +28,23 @@ export interface BasicTool {
   permission: PermissionSelection | null
 }
 
-const hiddenToolNames = new Set(['skill', 'send_integration_message', 'set_integration_target'])
+const hiddenToolNames = new Set([
+  'skill',
+  'send_integration_message',
+  'set_integration_target',
+  'run_command',
+  'write_process',
+  'stop_process',
+  'read_process',
+  'list_processes',
+  'create_machine',
+  'delete_machine',
+  'list_machines',
+  'inspect_machine',
+  'upload_artifact',
+  'download_artifact',
+])
 const toolDescriptions = new Map([
-  ['run_command', 'Run shell commands on an attached machine.'],
-  ['write_process', 'Send input to a command that is still running.'],
-  ['stop_process', 'Stop a command that is still running.'],
-  ['read_process', 'Read output from a command, including after it finishes.'],
-  ['list_processes', 'List commands and processes that are currently running.'],
-  ['create_machine', 'Create another machine for the agent to use.'],
-  ['delete_machine', 'Delete a machine created for the agent.'],
-  ['list_machines', 'List the machines available to the agent.'],
-  ['inspect_machine', 'View details about a machine available to the agent.'],
-  ['upload_artifact', 'Create an artifact from a regular file on an attached machine.'],
-  ['download_artifact', 'Copy an artifact to an attached machine.'],
   ['ask_question', 'Ask the user a question and wait for their response.'],
   ['web_search', 'Search the public web for current information.'],
   ['web_fetch', 'Read the contents of a public webpage.'],
