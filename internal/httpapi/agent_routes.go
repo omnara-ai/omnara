@@ -1168,7 +1168,6 @@ func (s *Server) agentConfigResponseFromRecord(
 	if err != nil {
 		return openapi.AgentConfig{}, err
 	}
-	response.Warnings = agentConfigWarnings(contract)
 	configuredModel, err := s.store.Models().GetConfiguredModelDisplay(ctx, record.OrgID, record.ConfiguredModelID)
 	if err != nil {
 		return openapi.AgentConfig{}, err

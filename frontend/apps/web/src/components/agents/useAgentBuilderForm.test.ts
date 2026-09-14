@@ -343,6 +343,36 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
+  it('preserves explicit machine tool permissions when changing sources', () => {
+    const source = `${minimalYaml}tools:
+  run_command:
+    permission:
+      mode: always_ask
+machine_sources:
+  - machine_name: build-box
+`
+    const config = mustDeserialize(source)
+    config.machineSources = config.machineSources.map((source) => ({
+      ...source,
+      name: 'another-box',
+    }))
+    expect(parse(applyToSource(source, config))).toHaveProperty('tools', {
+      run_command: { permission: { mode: 'always_ask' } },
+    })
+  })
+
+  it('does not write implicit tools when changing sources', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_name: build-box
+`
+    const config = mustDeserialize(source)
+    config.machineSources = config.machineSources.map((source) => ({
+      ...source,
+      name: 'another-box',
+    }))
+    expect(parse(applyToSource(source, config))).not.toHaveProperty('tools')
+  })
+
   it('rejects disabled tools', () => {
     const source = `${minimalYaml}tools:
   shell:

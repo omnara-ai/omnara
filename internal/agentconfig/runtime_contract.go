@@ -128,8 +128,11 @@ func RuntimeContractFromCompiled(
 		Skills:          compiled.Skills,
 		configuredTools: configuredTools,
 	}
-	if len(compiled.Skills) > 0 {
-		return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
+	for _, name := range implicitBuiltInToolNames(compiled) {
+		contract, err = contract.WithImplicitBuiltInTool(name)
+		if err != nil {
+			return RuntimeContract{}, err
+		}
 	}
 	return contract, nil
 }

@@ -111,6 +111,8 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
+When `machine_sources` is nonempty, Omnara automatically enables `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `upload_artifact`, and `download_artifact`. If any source is a machine pool, Omnara also enables `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly enable `skill`, and Slack conversations enable `send_integration_message`. You do not need to list these tools in your config or select them in the basic editor. Explicit tool permissions are preserved; set `enabled: false` in YAML to disable an automatic tool.
+
 ### Custom tools
 
 A custom tool describes an operation that your system performs. Its `description` tells the model when to use it, and its `input_schema` defines the arguments.
