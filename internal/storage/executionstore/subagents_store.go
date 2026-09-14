@@ -218,7 +218,7 @@ func shareParentMachineBindingsTx(
 			Cwd:                   row.Cwd,
 			EnvOverlay:            row.EnvOverlay,
 			SecretEnvOverlay:      row.SecretEnvOverlay,
-			Metadata:              json.RawMessage(`{"shared_from_parent":true}`),
+			Metadata:              json.RawMessage(`{"shared_from_parent":"true"}`),
 		})
 		if err != nil {
 			return nil, err

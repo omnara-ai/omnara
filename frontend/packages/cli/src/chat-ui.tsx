@@ -405,7 +405,11 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
           interaction={interaction}
           onAnswer={(answers) => {
             void resolveInteraction
-              .mutateAsync({ interactionID: interaction.id, body: { answers } })
+              .mutateAsync({
+                interactionID: interaction.id,
+                body: { answers },
+                targetAgentID: interaction.agent_id,
+              })
               .catch(() => undefined)
           }}
         />

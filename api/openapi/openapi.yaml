@@ -3844,20 +3844,6 @@ paths:
             truth. Default false.
           schema:
             type: boolean
-        - name: include_subagent_interactions
-          in: query
-          required: false
-          description: >-
-            Also deliver best-effort frames for this agent's subagents at every
-            depth: `subagent_interaction` carries an AgentInteraction whenever a
-            subagent's question or permission request is created, resolved, or
-            canceled, and `subagent_tool_call` carries a ToolCall whenever a
-            subagent's custom tool call changes lifecycle state. Both carry the
-            subagent's `agent_id`. Like `tool_call_update`, they are not
-            replayed on reconnect, so query the list endpoints after
-            connecting. Default false.
-          schema:
-            type: boolean
         - name: Last-Event-ID
           in: header
           required: false
@@ -3872,12 +3858,11 @@ paths:
             `model_output`, `tool_result`, or `context_checkpoint` as the
             SSE event name and set the SSE `id` field to the event's
             `sequence`, which reconnects can replay via `Last-Event-ID`.
-            Best-effort tool lifecycle updates use `tool_call_update`, model
-            previews use `model_output_delta`, subagent frames requested with
-            `include_subagent_interactions` use `subagent_interaction` and
-            `subagent_tool_call`, and stream-closing errors use `error`; none
-            carries an SSE `id`, so reconnects resume from the last durable
-            event. The response closes after every `error` frame.
+            Best-effort tool lifecycle updates use `tool_call_update` and
+            cover this agent and every subagent beneath it, model previews
+            use `model_output_delta`, and stream-closing errors use `error`;
+            none carries an SSE `id`, so reconnects resume from the last
+            durable event. The response closes after every `error` frame.
             Raw clients reconnect when the error's stable code is
             `service_unavailable` and treat other current codes as terminal.
             Heartbeats are SSE comments and carry no JSON payload.
@@ -9523,13 +9508,21 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ToolCallUpdate:
-      description: An ephemeral notification that a tool call entered a lifecycle state.
+      description: >-
+        An ephemeral notification that a tool call entered a lifecycle state.
+        Sent for the streamed agent and for every subagent beneath it, so
+        questions, permission requests, and custom tool calls anywhere in the
+        tree surface here; query the list endpoints with `include_subagents`
+        for the current rows.
       type: object
       additionalProperties: false
       required: [tool_call_id, state]
       properties:
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
+        agent_id:
+          description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
     ListToolCallsResponse:
@@ -9973,17 +9966,14 @@ components:
     AgentEventStreamData:
       description: >-
         One JSON payload from the event stream: an authoritative durable event,
-        a best-effort tool-call update, a best-effort model-output preview, a
-        subagent interaction or custom tool call when
-        `include_subagent_interactions` is set, or a stream-closing error. The
-        wire response ends after an error payload; `service_unavailable` is
-        retryable and other current codes are terminal.
+        a best-effort tool-call update, a best-effort model-output preview, or
+        a stream-closing error. The wire response ends after an error payload;
+        `service_unavailable` is retryable and other current codes are
+        terminal.
       oneOf:
         - $ref: '#/components/schemas/AgentEvent'
         - $ref: '#/components/schemas/ToolCallUpdate'
         - $ref: '#/components/schemas/ModelOutputDelta'
-        - $ref: '#/components/schemas/AgentInteraction'
-        - $ref: '#/components/schemas/ToolCall'
         - $ref: '#/components/schemas/Error'
     ListAgentEventsResponse:
       type: object

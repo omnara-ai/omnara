@@ -651,27 +651,23 @@ func (s strictOpenAPIServer) streamEvents(
 		after = *request.Params.LastEventID
 	}
 	streamDeltas := request.Params.StreamDeltas != nil && *request.Params.StreamDeltas
-	includeSubagents := request.Params.IncludeSubagentInteractions != nil &&
-		*request.Params.IncludeSubagentInteractions
 	return streamEventsLiveResponse{
-		server:           s.server,
-		request:          r,
-		project:          project,
-		agent:            agent,
-		after:            after,
-		streamDeltas:     streamDeltas,
-		includeSubagents: includeSubagents,
+		server:       s.server,
+		request:      r,
+		project:      project,
+		agent:        agent,
+		after:        after,
+		streamDeltas: streamDeltas,
 	}, nil
 }
 
 type streamEventsLiveResponse struct {
-	server           *Server
-	request          *http.Request
-	project          identitystore.ProjectRecord
-	agent            executionstore.AgentRecord
-	after            int64
-	streamDeltas     bool
-	includeSubagents bool
+	server       *Server
+	request      *http.Request
+	project      identitystore.ProjectRecord
+	agent        executionstore.AgentRecord
+	after        int64
+	streamDeltas bool
 }
 
 func (response streamEventsLiveResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
@@ -691,7 +687,6 @@ func (response streamEventsLiveResponse) VisitStreamEventsResponse(w http.Respon
 		response.agent,
 		response.after,
 		response.streamDeltas,
-		response.includeSubagents,
 	)
 	return nil
 }
@@ -703,7 +698,6 @@ func (s *Server) streamAgentEvents(
 	agent executionstore.AgentRecord,
 	after int64,
 	streamDeltasEnabled bool,
-	includeSubagents bool,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -801,17 +795,12 @@ func (s *Server) streamAgentEvents(
 		stopCloseWatch()
 		cancelStream()
 	}()
-	var subagents *subagentStreamSubscriptions
-	subagentUpdates := make(chan notifications.ToolCallUpdatedCommitted)
-	if includeSubagents {
-		subagents = newSubagentStreamSubscriptions(s, project.ID, agent.ID)
-		defer subagents.close()
-		if err := subagents.refresh(streamCtx); err != nil {
-			s.log.Warn("subagent stream subscribe failed", "agent_id", agent.ID, "error", err)
-			apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
-			return
-		}
-		subagentUpdates = subagents.updates
+	subagents := newSubagentStreamSubscriptions(s, project.ID, agent.ID, toolCallUpdates)
+	defer subagents.close()
+	if err := subagents.refresh(streamCtx); err != nil {
+		s.log.Warn("subagent stream subscribe failed", "agent_id", agent.ID, "error", err)
+		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "event stream temporarily unavailable")
+		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -885,7 +874,7 @@ func (s *Server) streamAgentEvents(
 		if len(records) == 100 {
 			continue
 		}
-		if subagents != nil && len(records) > 0 {
+		if len(records) > 0 {
 			if err := subagents.refresh(streamCtx); err != nil {
 				if streamCtx.Err() != nil {
 					return
@@ -908,13 +897,15 @@ func (s *Server) streamAgentEvents(
 			case <-notify:
 				break waitForDurableWakeup
 			case update := <-toolCallUpdates:
-				if !writeToolCallUpdateFrame(w, update) {
-					flusher.Flush()
-					return
+				if update.AgentID != agent.ID {
+					if err := subagents.refresh(streamCtx); err != nil {
+						if streamCtx.Err() != nil {
+							return
+						}
+						s.log.Warn("subagent stream refresh failed", "agent_id", agent.ID, "error", err)
+					}
 				}
-				flusher.Flush()
-			case update := <-subagentUpdates:
-				if !subagents.writeFrames(streamCtx, w, project, update) {
+				if !writeToolCallUpdateFrame(w, update) {
 					flusher.Flush()
 					return
 				}
@@ -935,17 +926,23 @@ func (s *Server) streamAgentEvents(
 }
 
 func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCallUpdatedCommitted) bool {
-	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
 	state := openapi.ToolCallState(update.State)
+	if !state.Valid() {
+		return true
+	}
+	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
 	if err != nil {
 		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
 		return false
 	}
-	if !state.Valid() {
-		return true
+	agentID, err := publicID(publicid.KindAgent, update.AgentID)
+	if err != nil {
+		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
+		return false
 	}
 	return writeSSEJSONFrame(w, "tool_call_update", "", openapi.ToolCallUpdate{
 		ToolCallId: toolCallID,
+		AgentId:    &agentID,
 		State:      state,
 	})
 }

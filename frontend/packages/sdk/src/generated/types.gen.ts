@@ -1693,10 +1693,14 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
+    /**
+     * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
+     */
+    agent_id?: AgentId;
     state: ToolCallState;
 };
 
@@ -1951,9 +1955,9 @@ export type ModelOutputDelta = {
 };
 
 /**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, a subagent interaction or custom tool call when `include_subagent_interactions` is set, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
  */
-export type AgentEventStreamData = AgentEvent | ToolCallUpdate | ModelOutputDelta | AgentInteraction | ToolCall | Error;
+export type AgentEventStreamData = AgentEvent | ToolCallUpdate | ModelOutputDelta | Error;
 
 export type ListAgentEventsResponse = {
     data: Array<AgentEvent>;
@@ -9298,10 +9302,6 @@ export type StreamEventsData = {
          * Opt in to ephemeral delta streamed frames while a model call is in flight. This includes partial assistant text, tool call, and reasoning output. Each frame carries the public `turn_id` and `model_call_context_id` it belongs to, and `tool_use` block starts carry the same public `tool_call_id` the durable `model_output` content block and `tool_result` event will use. Deltas are best-effort: they are not persisted and are not replayed on reconnect. The durable `model_output` event remains the source of truth. Default false.
          */
         stream_deltas?: boolean;
-        /**
-         * Also deliver best-effort frames for this agent's subagents at every depth: `subagent_interaction` carries an AgentInteraction whenever a subagent's question or permission request is created, resolved, or canceled, and `subagent_tool_call` carries a ToolCall whenever a subagent's custom tool call changes lifecycle state. Both carry the subagent's `agent_id`. Like `tool_call_update`, they are not replayed on reconnect, so query the list endpoints after connecting. Default false.
-         */
-        include_subagent_interactions?: boolean;
     };
     url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream';
 };
@@ -9353,7 +9353,7 @@ export type StreamEventsError = StreamEventsErrors[keyof StreamEventsErrors];
 
 export type StreamEventsResponses = {
     /**
-     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, subagent frames requested with `include_subagent_interactions` use `subagent_interaction` and `subagent_tool_call`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+     * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
      */
     200: AgentEventStreamData;
 };

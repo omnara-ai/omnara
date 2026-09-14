@@ -2240,7 +2240,7 @@ func assertPublicMaxTokensEvent(t *testing.T, records []any) {
 	t.Fatalf("max_tokens model output missing from public events: %+v", records)
 }
 
-func TestPublicEventStreamDeliversSubagentInteractionsAndCustomToolCalls(t *testing.T) {
+func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -2297,7 +2297,7 @@ func TestPublicEventStreamDeliversSubagentInteractionsAndCustomToolCalls(t *test
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		httpServer.URL+project.ProjectPath+"/agents/"+parentPublicID+"/events/stream?include_subagent_interactions=true",
+		httpServer.URL+project.ProjectPath+"/agents/"+parentPublicID+"/events/stream",
 		nil,
 	)
 	if err != nil {
@@ -2357,24 +2357,47 @@ func TestPublicEventStreamDeliversSubagentInteractionsAndCustomToolCalls(t *test
 	interactionID := createHTTPInteractionForAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, asker, "question", "", question,
 	)
-	interaction := nextFrame("subagent_interaction")
-	if interaction["id"] != testPublicID(t, publicid.KindAgentInteraction, interactionID) ||
-		interaction["agent_id"] != askerPublicID || interaction["agent_name"] != "asker" ||
-		interaction["subagent_key"] != "worker" || interaction["interaction_kind"] != "question" ||
-		interaction["state"] != "open" {
-		t.Fatalf("subagent interaction frame = %+v", interaction)
+	interaction, found, err := store.Execution().GetAgentInteraction(ctx, project.ProjectUUID, asker.ID, interactionID)
+	if err != nil || !found {
+		t.Fatalf("load subagent question: found=%v err=%v", found, err)
 	}
+	awaitToolCallUpdate := func(toolCallPublicID, agentPublicID, state string) {
+		t.Helper()
+		for {
+			frame := nextFrame("tool_call_update")
+			if frame["tool_call_id"] != toolCallPublicID {
+				continue
+			}
+			if frame["agent_id"] != agentPublicID {
+				t.Fatalf("tool call update = %+v, want agent %s", frame, agentPublicID)
+			}
+			if state == "" || frame["state"] == state {
+				return
+			}
+		}
+	}
+	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, interaction.ToolCallID), askerPublicID, "")
 
 	toolCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
 	toolCallPublicID := testPublicID(t, publicid.KindToolCall, toolCallID)
-	var toolCall map[string]any
-	for toolCall == nil || toolCall["state"] != "ready" {
-		toolCall = nextFrame("subagent_tool_call")
-		if toolCall["id"] != toolCallPublicID || toolCall["agent_id"] != callerPublicID ||
-			toolCall["type"] != "custom" || toolCall["name"] != "lookup_customer" {
-			t.Fatalf("subagent tool call frame = %+v", toolCall)
-		}
+	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "ready")
+
+	grandchild := spawnHTTPSubagentForTest(t, ctx, store, caller, parentLaunch.AgentConfig.ID, "grandchild", "helper")
+	grandchildPublicID := testPublicID(t, publicid.KindAgent, grandchild.ID)
+	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+		ProjectID:     project.ProjectUUID,
+		AgentID:       caller.ID,
+		ID:            toolCallID,
+		Outcome:       executionstore.ToolResultOutcomeSucceeded,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
+	}); err != nil {
+		t.Fatalf("complete subagent custom tool call: %v", err)
 	}
+	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "completed")
+	grandchildToolCallID := createHTTPCustomToolCallForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, grandchild,
+	)
+	awaitToolCallUpdate(testPublicID(t, publicid.KindToolCall, grandchildToolCallID), grandchildPublicID, "ready")
 
 	listed := requestJSONWithHeaders(
 		t, handler, http.MethodGet,
@@ -2382,12 +2405,17 @@ func TestPublicEventStreamDeliversSubagentInteractionsAndCustomToolCalls(t *test
 		"", "", http.StatusOK, authHeaders(project.AdminToken),
 	)
 	rows := testutil.RequireType[[]any](t, listed["data"])
-	if len(rows) != 1 {
-		t.Fatalf("subagent custom tool calls = %+v, want one", rows)
+	if len(rows) != 2 {
+		t.Fatalf("subagent custom tool calls = %+v, want the caller's and the grandchild's", rows)
 	}
-	row := testutil.RequireType[map[string]any](t, rows[0])
-	if row["id"] != toolCall["id"] || row["agent_id"] != callerPublicID {
-		t.Fatalf("listed subagent tool call = %+v", row)
+	listedAgents := map[any]any{}
+	for _, entry := range rows {
+		row := testutil.RequireType[map[string]any](t, entry)
+		listedAgents[row["id"]] = row["agent_id"]
+	}
+	if listedAgents[toolCallPublicID] != callerPublicID ||
+		listedAgents[testPublicID(t, publicid.KindToolCall, grandchildToolCallID)] != grandchildPublicID {
+		t.Fatalf("listed subagent tool calls = %+v", listedAgents)
 	}
 	own := requestJSONWithHeaders(
 		t, handler, http.MethodGet,

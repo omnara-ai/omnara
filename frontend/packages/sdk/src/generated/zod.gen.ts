@@ -1350,10 +1350,11 @@ export const zToolCall = z.object({
 });
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state.
+ * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export const zToolCallUpdate = z.object({
     tool_call_id: zToolCallId,
+    agent_id: zAgentId.optional(),
     state: zToolCallState
 });
 
@@ -1555,6 +1556,16 @@ export const zModelOutputDelta = z.object({
     event: zModelOutputStreamDelta
 });
 
+/**
+ * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
+ */
+export const zAgentEventStreamData = z.union([
+    zAgentEvent,
+    zToolCallUpdate,
+    zModelOutputDelta,
+    zError
+]);
+
 export const zListAgentEventsResponse = z.object({
     data: z.array(zAgentEvent),
     next_after_sequence: zAgentSequenceCursor,
@@ -1670,18 +1681,6 @@ export const zAgentInteraction = z.object({
     created_at: zTimestamp,
     resolved_at: zTimestamp.optional()
 });
-
-/**
- * One JSON payload from the event stream: an authoritative durable event, a best-effort tool-call update, a best-effort model-output preview, a subagent interaction or custom tool call when `include_subagent_interactions` is set, or a stream-closing error. The wire response ends after an error payload; `service_unavailable` is retryable and other current codes are terminal.
- */
-export const zAgentEventStreamData = z.union([
-    zAgentEvent,
-    zToolCallUpdate,
-    zModelOutputDelta,
-    zAgentInteraction,
-    zToolCall,
-    zError
-]);
 
 /**
  * omnara for project members, an integration provider such as slack, or external for API-managed actors.
@@ -3794,12 +3793,11 @@ export const zStreamEventsPath = z.object({
 
 export const zStreamEventsQuery = z.object({
     after_sequence: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
-    stream_deltas: z.boolean().optional(),
-    include_subagent_interactions: z.boolean().optional()
+    stream_deltas: z.boolean().optional()
 });
 
 /**
- * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update`, model previews use `model_output_delta`, subagent frames requested with `include_subagent_interactions` use `subagent_interaction` and `subagent_tool_call`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
+ * Server-sent event stream. Durable frames use `agent_input`, `model_output`, `tool_result`, or `context_checkpoint` as the SSE event name and set the SSE `id` field to the event's `sequence`, which reconnects can replay via `Last-Event-ID`. Best-effort tool lifecycle updates use `tool_call_update` and cover this agent and every subagent beneath it, model previews use `model_output_delta`, and stream-closing errors use `error`; none carries an SSE `id`, so reconnects resume from the last durable event. The response closes after every `error` frame. Raw clients reconnect when the error's stable code is `service_unavailable` and treat other current codes as terminal. Heartbeats are SSE comments and carry no JSON payload.
  */
 export const zStreamEventsResponse = zAgentEventStreamData;
 

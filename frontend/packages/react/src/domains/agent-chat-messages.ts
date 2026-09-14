@@ -52,14 +52,10 @@ export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
 export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
   | { kind: 'tool_call_update' }
-  | { kind: 'subagent_interaction' }
-  | { kind: 'subagent_tool_call' }
   | { kind: 'delta'; delta: ModelOutputDelta }
 
 export function parseStreamData(data: AgentEventStreamFrame): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
-  if ('interaction_kind' in data) return { kind: 'subagent_interaction' }
-  if ('provider_call_id' in data) return { kind: 'subagent_tool_call' }
   if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
   return { kind: 'delta', delta: data }
 }

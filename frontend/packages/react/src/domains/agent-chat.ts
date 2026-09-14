@@ -399,7 +399,7 @@ export class AgentChatSession {
       const stream = this.transport.openAgentEventStream({
         client: this.client,
         path: this.scope,
-        query: { after_sequence: cursor, stream_deltas: true, include_subagent_interactions: true },
+        query: { after_sequence: cursor, stream_deltas: true },
         signal,
         onConnectionStateChange: (state) => {
           this.handleConnectionState(state)
@@ -409,9 +409,7 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else if (parsed.kind === 'tool_call_update' || parsed.kind === 'subagent_interaction') {
-          this.invalidateInteractions()
-        }
+        else this.invalidateInteractions()
       }
     } catch (error) {
       if (signal.aborted) return

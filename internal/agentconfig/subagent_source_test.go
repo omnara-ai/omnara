@@ -9,6 +9,9 @@ func TestSubagentSourceFromRegeneratesCompilableYAML(t *testing.T) {
 	source := validAgentSource(`
 tools:
   run_command: {}
+  web_fetch:
+    permission:
+      mode: always_allow
   spawn_agent:
     permission:
       mode: always_ask
@@ -55,6 +58,9 @@ max_subagents: 2
 	}
 	if strings.Contains(encoded, "subagents") || strings.Contains(encoded, "spawn_agent") {
 		t.Fatalf("encoded yaml kept spawning config: %q", encoded)
+	}
+	if strings.Contains(encoded, "parameters: null") {
+		t.Fatalf("encoded yaml serialized absent permission parameters as null: %q", encoded)
 	}
 	recompiled, err := Compile(SourceFormatYAML, []byte(encoded), subagentCompileOptions())
 	if err != nil {
